@@ -7,6 +7,7 @@ use crate::persistence::SessionCheckpoint;
 use closeclaw_workflow::context_append::{build_workflow_context_append, has_workflow_context};
 use closeclaw_workflow::definition::build_goal_message;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
+use closeclaw_workflow::engine::WorkflowEngine;
 use closeclaw_workflow::run::{GoalHint, Phase};
 
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
@@ -237,6 +238,15 @@ fn build_recovery_workflow_messages(
     let mut msgs = vec![recovered_msg];
     if let Some(ref goal) = goal_msg {
         msgs.push(goal.clone());
+    }
+
+    // Re-inject jump question when phase is Jumping (mirrors initial injection).
+    if *phase == Phase::Jumping {
+        if let (Some(run), Some(def)) = (checkpoint.workflow_run.as_ref(), wf.as_ref()) {
+            if let Some(jump_msg) = WorkflowEngine::build_recovery_jump_message(run, def) {
+                msgs.push(jump_msg);
+            }
+        }
     }
 
     tracing::debug!(

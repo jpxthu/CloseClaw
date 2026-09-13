@@ -213,11 +213,12 @@ impl SessionManager {
         }
     }
 
-    /// Inject recovery notifications and tool failure results from
-    /// checkpoint (set by SessionRecoveryService during startup).
+    /// Inject recovery notifications, tool failure results, and
+    /// workflow recovery messages from checkpoint.
     async fn inject_recovery_notifications(&self, session_id: &str, cp: &SessionCheckpoint) {
-        let has_recovery =
-            cp.recovery_notification.is_some() || !cp.pending_tool_failures.is_empty();
+        let has_recovery = cp.recovery_notification.is_some()
+            || !cp.pending_tool_failures.is_empty()
+            || !cp.recovery_workflow_messages.is_empty();
         if has_recovery {
             let cs = self.conversation_sessions.read().await;
             if let Some(cs) = cs.get(session_id) {
@@ -236,11 +237,18 @@ impl SessionManager {
                 if let Some(ref notification) = cp.recovery_notification {
                     cs.inject_system_message(notification.clone());
                 }
+                // Inject workflow recovery messages (recovered + goal + jump
+                // question) for sessions with active workflow runs.
+                for msg in &cp.recovery_workflow_messages {
+                    cs.inject_workflow_message(msg);
+                }
                 info!(
                     session_id = %session_id,
-                    "injected recovery notification and {} \
-                     tool failure(s)",
-                    cp.pending_tool_failures.len()
+                    "injected recovery data: notification={}, tool_failures={}, \
+                     workflow_messages={}",
+                    cp.recovery_notification.is_some(),
+                    cp.pending_tool_failures.len(),
+                    cp.recovery_workflow_messages.len()
                 );
             }
         }

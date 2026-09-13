@@ -60,11 +60,11 @@ fn test_on_session_idle_returns_true_when_executing() {
 }
 
 #[test]
-fn test_on_session_idle_returns_false_when_jumping() {
+fn test_on_session_idle_returns_true_when_jumping() {
     let wf = two_step_goto_workflow();
     let mut run = WorkflowEngine::start(&wf);
     run.phase = Phase::Jumping;
-    assert!(!WorkflowEngine::on_session_idle(&run));
+    assert!(WorkflowEngine::on_session_idle(&run));
 }
 
 #[test]

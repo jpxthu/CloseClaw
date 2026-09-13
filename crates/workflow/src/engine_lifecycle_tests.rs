@@ -291,3 +291,178 @@ fn test_boolean_answer_no_mapping_needed() {
     let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
     assert_eq!(action, crate::definition::JumpAction::Goto(1));
 }
+
+// ===========================================================================
+// build_recovery_jump_message — Step 1.4 tests
+// ===========================================================================
+
+/// Verify that build_recovery_jump_message returns Some with correct
+/// content when phase is Jumping and step has jump questions.
+#[test]
+fn test_build_recovery_jump_message_jumping_phase() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    let msg = WorkflowEngine::build_recovery_jump_message(&run, &wf);
+    assert!(msg.is_some(), "should return Some for jumping phase");
+    let msg = msg.unwrap();
+    assert!(msg.contains("Go to next?"), "jump prompt missing: {}", msg);
+    assert!(
+        msg.contains("workflow_jump"),
+        "workflow_jump call hint missing: {}",
+        msg
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None for
+/// Executing phase (non-jumping boundary).
+#[test]
+fn test_build_recovery_jump_message_executing_returns_none() {
+    let wf = two_step_goto_workflow();
+    let run = WorkflowEngine::start(&wf);
+    assert_eq!(run.phase, Phase::Executing);
+    assert!(
+        WorkflowEngine::build_recovery_jump_message(&run, &wf).is_none(),
+        "Executing phase should not build jump message"
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None for
+/// Verifying phase (non-jumping boundary).
+#[test]
+fn test_build_recovery_jump_message_verifying_returns_none() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Verifying;
+    assert!(
+        WorkflowEngine::build_recovery_jump_message(&run, &wf).is_none(),
+        "Verifying phase should not build jump message"
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None for
+/// Blocked phase (non-jumping boundary).
+#[test]
+fn test_build_recovery_jump_message_blocked_returns_none() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Blocked;
+    assert!(
+        WorkflowEngine::build_recovery_jump_message(&run, &wf).is_none(),
+        "Blocked phase should not build jump message"
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None for
+/// Complete phase (non-jumping boundary).
+#[test]
+fn test_build_recovery_jump_message_complete_returns_none() {
+    let wf = simple_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Complete;
+    assert!(
+        WorkflowEngine::build_recovery_jump_message(&run, &wf).is_none(),
+        "Complete phase should not build jump message"
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None when
+/// current_step is out of range (definition missing / step not found).
+#[test]
+fn test_build_recovery_jump_message_step_out_of_range() {
+    let wf = simple_workflow(); // single step (id=0)
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    run.current_step = 999; // out of range
+    assert!(
+        WorkflowEngine::build_recovery_jump_message(&run, &wf).is_none(),
+        "out-of-range step should return None, not panic"
+    );
+}
+
+/// Verify that build_recovery_jump_message returns None when step
+/// has no jump questions (empty jump list).
+#[test]
+fn test_build_recovery_jump_message_no_jump_questions() {
+    let wf = simple_workflow(); // step has no jump questions
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    // simple_workflow step 0 has empty jump list
+    let msg = WorkflowEngine::build_recovery_jump_message(&run, &wf);
+    assert!(
+        msg.is_some(),
+        "should still return Some (build_jump_message handles empty)"
+    );
+}
+
+/// Verify that enum jump questions are included in recovery message.
+#[test]
+fn test_build_recovery_jump_message_enum_questions() {
+    let wf = enum_jump_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+    let msg = WorkflowEngine::build_recovery_jump_message(&run, &wf).unwrap();
+    assert!(
+        msg.contains("Which strategy?"),
+        "enum prompt missing: {}",
+        msg
+    );
+    assert!(msg.contains("fast"), "enum option missing: {}", msg);
+    assert!(msg.contains("slow"), "enum option missing: {}", msg);
+}
+
+/// Verify that after jump message re-injection, handle_jump can
+/// transition out of jumping phase (state transition dimension).
+#[test]
+fn test_recovery_jump_then_handle_jump_exits_jumping() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+
+    // Simulate: build recovery message, agent reads it, calls handle_jump
+    let msg = WorkflowEngine::build_recovery_jump_message(&run, &wf);
+    assert!(msg.is_some(), "recovery message should be available");
+
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(true));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Goto(1));
+    assert_eq!(
+        run.phase,
+        Phase::Executing,
+        "should exit jumping after handle_jump"
+    );
+    assert_eq!(run.current_step, 1);
+}
+
+/// Verify that reexecute action exits jumping phase correctly.
+#[test]
+fn test_recovery_jump_then_handle_jump_reexecute() {
+    let wf = reexecute_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+
+    let msg = WorkflowEngine::build_recovery_jump_message(&run, &wf);
+    assert!(msg.is_some());
+
+    let mut answers = HashMap::new();
+    answers.insert("retry".into(), serde_yaml::Value::Bool(true));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Reexecute(0));
+    assert_eq!(run.phase, Phase::Executing);
+    assert_eq!(run.current_step, 0);
+}
+
+/// Verify that complete action exits jumping phase correctly.
+#[test]
+fn test_recovery_jump_then_handle_jump_complete() {
+    let wf = two_step_goto_workflow();
+    let mut run = WorkflowEngine::start(&wf);
+    run.phase = Phase::Jumping;
+
+    let mut answers = HashMap::new();
+    answers.insert("go_next".into(), serde_yaml::Value::Bool(false));
+    let action = WorkflowEngine::handle_jump(&mut run, &wf, &answers).unwrap();
+    assert_eq!(action, crate::definition::JumpAction::Complete);
+    assert_eq!(run.phase, Phase::Complete);
+}

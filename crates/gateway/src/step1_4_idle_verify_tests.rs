@@ -430,3 +430,64 @@ async fn test_reverse_blocked_phase_no_injection() {
     // Only the goal message — Blocked phase does not inject.
     assert_eq!(messages.len(), 1, "only goal when phase is Blocked");
 }
+
+// ── Jumping phase integration tests (Step 1.3) ───────────────────────
+
+/// Full chain: Jumping session becomes idle → jump question message
+/// injected with role=workflow, content matches build_jump_message output.
+#[tokio::test]
+async fn test_jumping_idle_injects_jump_message() {
+    let (sm, sid) = setup_session(Phase::Jumping, 0).await;
+
+    test_maybe_inject_workflow_verify(&sm, &sid, None).await;
+
+    let messages = read_messages(&sm, &sid).await;
+    // Expect: goal + jump message = 2 workflow messages.
+    let wf_msgs: Vec<&str> = messages
+        .iter()
+        .filter(|m| m.role == "workflow")
+        .map(|m| {
+            m.content_blocks
+                .iter()
+                .filter_map(|b| match b {
+                    ContentBlock::Text(t) => Some(t.as_str()),
+                    _ => None,
+                })
+                .next()
+                .unwrap_or("")
+        })
+        .collect();
+
+    assert_eq!(wf_msgs.len(), 2, "goal + jump message");
+    assert!(wf_msgs[0].starts_with("[workflow goal]"));
+    // Jump message should contain the jump question content.
+    assert!(
+        wf_msgs[1].contains("jump") || wf_msgs[1].contains("Jump"),
+        "jump message should contain jump-related content, got: {}",
+        wf_msgs[1]
+    );
+
+    // Phase should remain Jumping (no verify counter increment).
+    let (phase, _) = read_handler_state(&sm, &sid).await;
+    assert_eq!(phase, Phase::Jumping);
+}
+
+/// Jumping session busy → idle hook does not fire.
+#[tokio::test]
+async fn test_jumping_busy_no_injection() {
+    let (sm, sid) = setup_session(Phase::Jumping, 0).await;
+
+    // Set LLM state to Requesting (busy).
+    {
+        let cs = sm.get_conversation_session(&sid).await.unwrap();
+        let cs_write = cs.write().await;
+        cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Requesting);
+    }
+
+    test_maybe_inject_workflow_verify(&sm, &sid, None).await;
+
+    let messages = read_messages(&sm, &sid).await;
+    // Only the goal message — busy session does not inject.
+    assert_eq!(messages.len(), 1, "only goal, no jump injected when busy");
+    assert_eq!(messages[0].role, "workflow");
+}

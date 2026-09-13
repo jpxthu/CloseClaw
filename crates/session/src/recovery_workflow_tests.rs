@@ -572,6 +572,245 @@ mod tests {
         assert_eq!(cp.user_appends.len(), 1);
     }
 
+    // ── Step 1.4: jumping phase recovery jump message injection ─────────
+
+    /// Write a workflow definition with jump questions to disk for recovery tests.
+    fn write_skill_md_with_jumps(dir: &std::path::Path, workflow_name: &str) {
+        let wf_dir = dir.join("workflows").join(workflow_name);
+        std::fs::create_dir_all(&wf_dir).unwrap();
+        let yaml = concat!(
+            "id: jump-wf\n",
+            "name: Jump Workflow\n",
+            "description: Workflow with jump questions\n",
+            "steps:\n",
+            "  - id: 0\n",
+            "    name: Decide\n",
+            "    goal: Choose path\n",
+            "    verify:\n",
+            "      - Task done\n",
+            "    jump:\n",
+            "      - id: go_next\n",
+            "        prompt: Go to next step?\n",
+            "        type: boolean\n",
+            "    transitions:\n",
+            "      - when:\n",
+            "          go_next: true\n",
+            "        action: goto\n",
+            "        target_step: 1\n",
+            "      - action: complete\n",
+            "  - id: 1\n",
+            "    name: Second\n",
+            "    goal: Do step 2\n",
+            "    verify:\n",
+            "      - Step 2 done\n",
+            "    transitions:\n",
+            "      - action: complete\n",
+        );
+        let content = format!("---\n{yaml}\n---\n\nBody.\n");
+        std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    }
+
+    /// Normal path: jumping phase recovery with definition on disk
+    /// → recovered + goal + jump messages built (3 messages).
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_jumping_with_definition() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-1");
+        let mut run = make_workflow_run(0, Phase::Jumping);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-1", &mut cp, Some(tmp.path())).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            3,
+            "should have recovered + goal + jump messages, got: {:?}",
+            cp.recovery_workflow_messages
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+        assert!(cp.recovery_workflow_messages[1].starts_with("[workflow goal]"));
+        assert!(
+            cp.recovery_workflow_messages[2].contains("Go to next step?"),
+            "jump message should contain question, got: {}",
+            cp.recovery_workflow_messages[2]
+        );
+        assert!(
+            cp.recovery_workflow_messages[2].contains("workflow_jump"),
+            "jump message should contain workflow_jump hint, got: {}",
+            cp.recovery_workflow_messages[2]
+        );
+    }
+
+    /// Error path: jumping phase recovery WITHOUT definition on disk
+    /// → only recovered message (no goal, no jump), no panic.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_jumping_no_definition() {
+        let mut cp = make_test_checkpoint("wf-jump-2");
+        let mut run = make_workflow_run(0, Phase::Jumping);
+        run.definition_name = "nonexistent-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-2", &mut cp, None).await;
+
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            1,
+            "should have only recovered message, got: {:?}",
+            cp.recovery_workflow_messages
+        );
+        assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
+    }
+
+    /// Error path: jumping phase with step out of range (definition mismatch)
+    /// → only recovered message, no jump injection, no panic.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_jumping_step_out_of_range() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-3");
+        let mut run = make_workflow_run(5, Phase::Jumping);
+        run.definition_name = "jump-wf".to_string();
+        run.definition_version = "999".to_string(); // force version mismatch
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-3", &mut cp, Some(tmp.path())).await;
+
+        // Step 5 >= 2 (definition has 2 steps) → blocked by version check,
+        // no jump message injected because run is now Blocked, not Jumping.
+        let wf_run = cp.workflow_run.as_ref().unwrap();
+        assert_eq!(wf_run.phase, Phase::Blocked);
+        assert_eq!(
+            cp.recovery_workflow_messages.len(),
+            1,
+            "only recovered, no goal/jump when step out of range"
+        );
+    }
+
+    /// Boundary: phase=complete recovery does NOT inject jump messages.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_complete_no_jump() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-4");
+        let mut run = make_workflow_run(0, Phase::Complete);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-4", &mut cp, Some(tmp.path())).await;
+
+        // Complete phase → early return, no messages built at all.
+        assert!(
+            cp.recovery_workflow_messages.is_empty(),
+            "Complete phase should not inject any messages"
+        );
+    }
+
+    /// Boundary: phase=blocked recovery does NOT inject jump messages.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_blocked_no_jump() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-5");
+        let mut run = make_workflow_run(0, Phase::Blocked);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-5", &mut cp, Some(tmp.path())).await;
+
+        // Blocked phase: recovered + goal built, but no jump message
+        // (phase != Jumping, so jump injection is skipped).
+        assert!(
+            cp.recovery_workflow_messages
+                .iter()
+                .all(|m| !m.contains("Go to next step?")),
+            "Blocked phase should not inject jump messages"
+        );
+    }
+
+    /// Boundary: phase=executing recovery does NOT inject jump messages.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_executing_no_jump() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-6");
+        let mut run = make_workflow_run(0, Phase::Executing);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-6", &mut cp, Some(tmp.path())).await;
+
+        assert!(
+            cp.recovery_workflow_messages
+                .iter()
+                .all(|m| !m.contains("Go to next step?")),
+            "Executing phase should not inject jump messages"
+        );
+    }
+
+    /// Boundary: phase=verifying recovery does NOT inject jump messages.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_verifying_no_jump() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-7");
+        let mut run = make_workflow_run(0, Phase::Verifying);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-7", &mut cp, Some(tmp.path())).await;
+
+        assert!(
+            cp.recovery_workflow_messages
+                .iter()
+                .all(|m| !m.contains("Go to next step?")),
+            "Verifying phase should not inject jump messages"
+        );
+    }
+
+    /// State transition: after jump message re-injection in recovery,
+    /// the messages contain everything needed for agent to call workflow_jump
+    /// and exit jumping phase. Verify the full message set is coherent.
+    #[tokio::test]
+    async fn test_recovery_workflow_messages_jumping_full_set() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_skill_md_with_jumps(tmp.path(), "jump-wf");
+
+        let mut cp = make_test_checkpoint("wf-jump-8");
+        let mut run = make_workflow_run(0, Phase::Jumping);
+        run.definition_name = "jump-wf".to_string();
+        cp.workflow_run = Some(run);
+
+        inject_workflow_recovery("wf-jump-8", &mut cp, Some(tmp.path())).await;
+
+        // Verify the complete set: recovered + goal + jump
+        assert_eq!(cp.recovery_workflow_messages.len(), 3);
+
+        // Recovered: identifies workflow and current step
+        let recovered = &cp.recovery_workflow_messages[0];
+        assert!(recovered.contains("jump-wf"));
+        assert!(recovered.contains("Step 0"));
+
+        // Goal: step goal description
+        let goal = &cp.recovery_workflow_messages[1];
+        assert!(goal.starts_with("[workflow goal]"));
+        assert!(goal.contains("Choose path"));
+
+        // Jump: question + answer format + workflow_jump hint
+        let jump = &cp.recovery_workflow_messages[2];
+        assert!(jump.contains("Go to next step?"));
+        assert!(jump.contains("true"));
+        assert!(jump.contains("false"));
+        assert!(jump.contains("workflow_jump"));
+    }
+
     // ── Dimension 4: Agent workspace hit ────────────────────────────────
 
     /// Verify that definition found ONLY in agent workspace (not in global)

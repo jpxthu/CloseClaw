@@ -598,34 +598,6 @@ impl SessionManager {
                             }
                         }
 
-                        // Inject recovery notifications and tool failure results
-                        // from checkpoint.
-                        if let Some(ref notification) = cp.recovery_notification {
-                            let cs = self.conversation_sessions.read().await;
-                            if let Some(cs) = cs.get(&archived_id) {
-                                let mut cs = cs.write().await;
-                                cs.inject_system_message(notification.clone());
-                                for failure in &cp.pending_tool_failures {
-                                    let tool_call_id =
-                                        serde_json::from_str::<serde_json::Value>(failure)
-                                            .ok()
-                                            .and_then(|v| {
-                                                v.get("op_id")?.as_str().map(String::from)
-                                            })
-                                            .unwrap_or_else(|| "recovery".to_string());
-                                    cs.inject_tool_result(&tool_call_id, failure);
-                                }
-                                info!(
-                                    session_key = %session_key,
-                                    session_id = %archived_id,
-                                    routing_key = %routing_key,
-                                    "injected recovery notification and {} tool failure(s)",
-                                    cp.pending_tool_failures.len()
-                                );
-                            }
-                        }
-
-                        // Create Session entry
                         {
                             let mut sessions = self.sessions.write().await;
                             if !sessions.contains_key(&archived_id) {
