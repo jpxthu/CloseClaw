@@ -43,9 +43,12 @@ pub use bitable::FeishuBitableAppTableTool;
 pub use bitable::FeishuBitableAppTableViewTool;
 pub use bitable::FeishuBitableAppTool;
 
-// doc (3)
+// doc (6)
 pub use doc::FeishuDocCommentsTool;
+pub use doc::FeishuDocCreateTool;
+pub use doc::FeishuDocEditTool;
 pub use doc::FeishuDocMediaTool;
+pub use doc::FeishuDocReadTool;
 pub use doc::FeishuSearchDocWikiTool;
 
 // drive (1)

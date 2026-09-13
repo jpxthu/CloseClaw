@@ -10,6 +10,174 @@ use serde_json::Value;
 const KW_DOC: &str = "[keywords: doc document create edit content block]";
 
 // ---------------------------------------------------------------------------
+// feishu_doc_create
+// ---------------------------------------------------------------------------
+
+/// Create a new Feishu document.
+pub struct FeishuDocCreateTool;
+
+impl Default for FeishuDocCreateTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FeishuDocCreateTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for FeishuDocCreateTool {
+    fn name(&self) -> &str {
+        "feishu_doc_create"
+    }
+
+    fn group(&self) -> &str {
+        "feishu_doc"
+    }
+
+    fn summary(&self) -> String {
+        "Create a new Feishu document".to_string()
+    }
+
+    fn detail(&self) -> String {
+        format!(
+            "{KW_DOC} Create a new Feishu document with title and \
+             optional initial content blocks."
+        )
+    }
+
+    fn input_schema(&self) -> Value {
+        serde_json::json!({})
+    }
+
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Err(ToolCallError::NotImplemented)
+    }
+
+    fn flags(&self) -> ToolFlags {
+        ToolFlags {
+            is_deferred_by_default: true,
+            ..ToolFlags::default()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// feishu_doc_edit
+// ---------------------------------------------------------------------------
+
+/// Edit an existing Feishu document.
+pub struct FeishuDocEditTool;
+
+impl Default for FeishuDocEditTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FeishuDocEditTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for FeishuDocEditTool {
+    fn name(&self) -> &str {
+        "feishu_doc_edit"
+    }
+
+    fn group(&self) -> &str {
+        "feishu_doc"
+    }
+
+    fn summary(&self) -> String {
+        "Edit an existing Feishu document".to_string()
+    }
+
+    fn detail(&self) -> String {
+        format!(
+            "{KW_DOC} Edit content blocks in an existing Feishu \
+             document (insert, update, delete blocks)."
+        )
+    }
+
+    fn input_schema(&self) -> Value {
+        serde_json::json!({})
+    }
+
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Err(ToolCallError::NotImplemented)
+    }
+
+    fn flags(&self) -> ToolFlags {
+        ToolFlags {
+            is_deferred_by_default: true,
+            ..ToolFlags::default()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// feishu_doc_read
+// ---------------------------------------------------------------------------
+
+/// Read content from a Feishu document.
+pub struct FeishuDocReadTool;
+
+impl Default for FeishuDocReadTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl FeishuDocReadTool {
+    pub fn new() -> Self {
+        Self
+    }
+}
+
+#[async_trait]
+impl Tool for FeishuDocReadTool {
+    fn name(&self) -> &str {
+        "feishu_doc_read"
+    }
+
+    fn group(&self) -> &str {
+        "feishu_doc"
+    }
+
+    fn summary(&self) -> String {
+        "Read content from a Feishu document".to_string()
+    }
+
+    fn detail(&self) -> String {
+        format!(
+            "{KW_DOC} Read content blocks from a Feishu document \
+             by document ID."
+        )
+    }
+
+    fn input_schema(&self) -> Value {
+        serde_json::json!({})
+    }
+
+    async fn call(&self, _args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
+        Err(ToolCallError::NotImplemented)
+    }
+
+    fn flags(&self) -> ToolFlags {
+        ToolFlags {
+            is_deferred_by_default: true,
+            ..ToolFlags::default()
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // feishu_doc_comments
 // ---------------------------------------------------------------------------
 

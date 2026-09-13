@@ -1,6 +1,6 @@
 //! Tests for ImAdapterToolsRegistrar registration behavior.
 //!
-//! Verifies that the registrar registers exactly 22 Feishu sub-tools
+//! Verifies that the registrar registers exactly 25 Feishu sub-tools
 //! with the correct names, groups, and deferred flags.
 
 use closeclaw_tools::{ToolContext, ToolRegistrar, ToolRegistry};
@@ -19,7 +19,7 @@ fn make_ctx() -> ToolContext {
 }
 
 #[tokio::test]
-async fn test_im_adapter_registrar_registers_twenty_two_tools() {
+async fn test_im_adapter_registrar_registers_twenty_five_tools() {
     let registry = ToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
@@ -28,7 +28,7 @@ async fn test_im_adapter_registrar_registers_twenty_two_tools() {
 
     let ctx = make_ctx();
     let descriptors = registry.list_descriptors(&ctx).await;
-    assert_eq!(descriptors.len(), 22, "expected 22 feishu tools");
+    assert_eq!(descriptors.len(), 25, "expected 25 feishu tools");
 }
 
 #[tokio::test]
@@ -61,6 +61,9 @@ async fn test_im_adapter_registrar_tool_names() {
         "feishu_bitable_app_table_record",
         "feishu_bitable_app_table_field",
         "feishu_bitable_app_table_view",
+        "feishu_doc_create",
+        "feishu_doc_edit",
+        "feishu_doc_read",
         "feishu_doc_comments",
         "feishu_doc_media",
         "feishu_search_doc_wiki",
@@ -145,7 +148,7 @@ async fn test_im_adapter_registrar_idempotent_via_conflict() {
         .await;
     assert!(result.is_err());
 
-    assert_eq!(registry.len_for_test().await, 22);
+    assert_eq!(registry.len_for_test().await, 25);
 }
 
 #[tokio::test]
@@ -165,7 +168,7 @@ async fn test_im_adapter_registrar_group_counts() {
     assert_eq!(count("feishu_calendar"), 4);
     assert_eq!(count("feishu_task"), 4);
     assert_eq!(count("feishu_bitable"), 5);
-    assert_eq!(count("feishu_doc"), 3);
+    assert_eq!(count("feishu_doc"), 6);
     assert_eq!(count("feishu_drive"), 1);
     assert_eq!(count("feishu_sheet"), 1);
 }

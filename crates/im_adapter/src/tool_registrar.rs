@@ -1,6 +1,6 @@
 //! ImAdapter tools registrar — Feishu tool group.
 //!
-//! Registers the 22 Feishu sub-tools wrapped in [`LazyTool`] so
+//! Registers the 25 Feishu sub-tools wrapped in [`LazyTool`] so
 //! actual tool creation is deferred to first call.
 
 use async_trait::async_trait;
@@ -14,7 +14,8 @@ use crate::platforms::feishu::tools::{
     FeishuBitableAppTableFieldTool, FeishuBitableAppTableRecordTool, FeishuBitableAppTableTool,
     FeishuBitableAppTableViewTool, FeishuBitableAppTool, FeishuCalendarCalendarTool,
     FeishuCalendarEventAttendeeTool, FeishuCalendarEventTool, FeishuCalendarFreebusyTool,
-    FeishuDocCommentsTool, FeishuDocMediaTool, FeishuDriveFileTool, FeishuImUserGetMessagesTool,
+    FeishuDocCommentsTool, FeishuDocCreateTool, FeishuDocEditTool, FeishuDocMediaTool,
+    FeishuDocReadTool, FeishuDriveFileTool, FeishuImUserGetMessagesTool,
     FeishuImUserGetThreadMessagesTool, FeishuImUserMessageTool, FeishuSearchDocWikiTool,
     FeishuSearchUserTool, FeishuSheetTool, FeishuTaskCommentTool, FeishuTaskSubtaskTool,
     FeishuTaskTaskTool, FeishuTaskTasklistTool,
@@ -22,8 +23,8 @@ use crate::platforms::feishu::tools::{
 
 /// Feishu / IM-Adapter tools registrar.
 ///
-/// Covers 22 Feishu sub-tools (im ×4, calendar ×4, task ×4,
-/// bitable ×5, doc ×3, drive ×1, sheet ×1).
+/// Covers 25 Feishu sub-tools (im ×4, calendar ×4, task ×4,
+/// bitable ×5, doc ×6, drive ×1, sheet ×1).
 pub struct ImAdapterToolsRegistrar;
 
 impl ImAdapterToolsRegistrar {
@@ -279,7 +280,37 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
             r
         );
 
-        // ── feishu_doc (3) ─────────────────────────────────────────────
+        // ── feishu_doc (6) ─────────────────────────────────────────────
+        register!(
+            registry,
+            registered,
+            FeishuDocCreateTool,
+            "feishu_doc_create",
+            "feishu_doc",
+            "Create a new Feishu document",
+            "Create a new Feishu document with title and optional initial content blocks.",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuDocEditTool,
+            "feishu_doc_edit",
+            "feishu_doc",
+            "Edit an existing Feishu document",
+            "Edit content blocks in an existing Feishu document (insert, update, delete blocks).",
+            r
+        );
+        register!(
+            registry,
+            registered,
+            FeishuDocReadTool,
+            "feishu_doc_read",
+            "feishu_doc",
+            "Read content from a Feishu document",
+            "Read content blocks from a Feishu document by document ID.",
+            r
+        );
         register!(
             registry,
             registered,
@@ -337,7 +368,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
 
         if registered == 0 {
             return Err(ToolRegistrarError::Internal(
-                "all 22 tools failed to register".to_string(),
+                "all 25 tools failed to register".to_string(),
             ));
         }
         Ok(())
