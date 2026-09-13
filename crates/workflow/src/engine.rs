@@ -40,6 +40,7 @@ impl WorkflowEngine {
                 .unwrap_or_else(|| "0.1".to_string()),
             current_step: 0,
             phase: Phase::Executing,
+            current_step_entered_at: chrono::Utc::now().to_rfc3339(),
             step_history: Vec::new(),
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::Normal,
@@ -263,10 +264,12 @@ impl WorkflowEngine {
         run.step_history.push(crate::run::StepHistoryEntry {
             step_id: run.current_step,
             step_name: step.name.clone(),
+            entered_at: run.current_step_entered_at.clone(),
             completed_at: chrono::Utc::now().to_rfc3339(),
         });
 
         run.current_step = target;
+        run.current_step_entered_at = chrono::Utc::now().to_rfc3339();
         run.step_data = serde_yaml::Value::Null;
         run.pending_goal_hint = GoalHint::Normal;
         run.pending_verify = 0;
@@ -286,6 +289,7 @@ impl WorkflowEngine {
         }
 
         run.current_step = target;
+        run.current_step_entered_at = chrono::Utc::now().to_rfc3339();
         // step_data is preserved (not cleared).
         run.pending_goal_hint = GoalHint::Reexecute;
         run.pending_verify = 0;

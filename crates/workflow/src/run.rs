@@ -37,6 +37,9 @@ pub struct StepHistoryEntry {
     pub step_id: usize,
     /// The step name at time of completion.
     pub step_name: String,
+    /// ISO 8601 timestamp when the step was started (entered).
+    #[serde(default)]
+    pub entered_at: String,
     /// ISO 8601 timestamp when the step was completed.
     pub completed_at: String,
 }
@@ -61,6 +64,9 @@ pub struct WorkflowRun {
     pub current_step: usize,
     /// Current execution phase.
     pub phase: Phase,
+    /// ISO 8601 timestamp when the current step was entered.
+    #[serde(default)]
+    pub current_step_entered_at: String,
     /// History of completed steps.
     pub step_history: Vec<StepHistoryEntry>,
     /// Cross-step shared data.

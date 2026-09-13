@@ -122,6 +122,7 @@ fn make_test_run() -> WorkflowRun {
         definition_version: "0.1".to_string(),
         current_step: 0,
         phase: Phase::Executing,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
         step_data: serde_yaml::Value::Null,
         pending_goal_hint: GoalHint::default(),
