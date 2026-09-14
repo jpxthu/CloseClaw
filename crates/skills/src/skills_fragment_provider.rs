@@ -50,20 +50,22 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
     }
 
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
-        // Re-scan disk skill directories at every SP assembly boundary
-        // so the listing reflects the latest on-disk skill files.
-        // Spawn on a blocking thread to avoid blocking the async runtime
-        // with synchronous disk I/O.
+        // Re-scan disk skill directories and generate the listing in a
+        // single blocking task. Both rescan() (sync disk I/O) and
+        // generate_listing_with_activated() (sync under an async-lock)
+        // must not run on async-worker threads; spawn_blocking isolates
+        // them on a dedicated blocking pool thread where a runtime context
+        // exists, avoiding the "Cannot start a runtime from within a
+        // runtime" panic.
         let listing = Arc::clone(&self.listing);
-        tokio::task::spawn_blocking(move || listing.rescan())
-            .await
-            .ok();
-
-        let content = self.listing.generate_listing_with_activated(
-            Some(&ctx.agent_id),
-            None,
-            &ctx.activated_skills,
-        );
+        let agent_id = ctx.agent_id.clone();
+        let activated_skills = ctx.activated_skills.clone();
+        let content = tokio::task::spawn_blocking(move || {
+            listing.rescan();
+            listing.generate_listing_with_activated(Some(&agent_id), None, &activated_skills)
+        })
+        .await
+        .ok()?;
 
         if content.is_empty() {
             return None;
