@@ -59,7 +59,7 @@ System Prompt 末尾的追加区除 Owner 追加指令外，还承载系统注�
 
 > **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除。详见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
 > **交叉引用**：追加指令的追加、查看、清除命令入口。详见 [slash §F6](slash.md)（System Prompt 追加）。
-> **交叉引用**：追加指令的持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
+> **交叉引用**：追加指令的持久化由 [session §F2](session.md)（恢复时的追加指令保留）管理。本节仅定义 System Prompt 内容层的专属行为。
 
 ### F6. 内容缓存与自动刷新
 
