@@ -58,7 +58,7 @@ impl PromptFragmentProvider for MockProvider {
         })
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
         None
     }
 }
@@ -421,7 +421,7 @@ impl PromptFragmentProvider for ActivationRecordingProvider {
         })
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
         None
     }
 }
@@ -558,7 +558,7 @@ impl PromptFragmentProvider for RoleRecordingProvider {
         })
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
         None
     }
 }
@@ -643,7 +643,7 @@ impl PromptFragmentProvider for ToolRegistryRecordingProvider {
         })
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
         None
     }
 }

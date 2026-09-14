@@ -62,7 +62,7 @@ impl PromptFragmentProvider for MockProvider {
         self.fragment.clone()
     }
 
-    fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
         self.cache_key_val.clone()
     }
 }
@@ -271,7 +271,7 @@ async fn build_from_mocks_with_cache(
     let mut fragments: Vec<String> = Vec::new();
 
     for provider in &providers {
-        if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
+        if let Some(key) = provider.cache_key(&FragmentContext::test_default()).await {
             if let Some(cached) = cache.get(&key, None) {
                 fragments.push(cached);
                 continue;
@@ -280,7 +280,7 @@ async fn build_from_mocks_with_cache(
 
         if let Some(fragment) = provider.generate(&FragmentContext::test_default()).await {
             let rendered = format!("{}\n{}\n", fragment.section_title, fragment.content);
-            if let Some(key) = provider.cache_key(&FragmentContext::test_default()) {
+            if let Some(key) = provider.cache_key(&FragmentContext::test_default()).await {
                 cache.put(&key, rendered.clone(), None);
             }
             fragments.push(rendered);

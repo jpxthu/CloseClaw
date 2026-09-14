@@ -72,7 +72,7 @@ impl PromptBuilder {
 
         for provider in &self.providers {
             // Check section-level cache.
-            if let Some(key) = provider.cache_key(ctx) {
+            if let Some(key) = provider.cache_key(ctx).await {
                 let cache = self.cache.read().unwrap();
                 if let Some(cached) = cache.get(&key, None) {
                     fragments.push(cached);
@@ -87,7 +87,7 @@ impl PromptBuilder {
                     format!("{}\n{}\n", fragment.section_title, fragment.content)
                 };
                 // Cache the rendered fragment.
-                if let Some(key) = provider.cache_key(ctx) {
+                if let Some(key) = provider.cache_key(ctx).await {
                     self.cache
                         .write()
                         .unwrap()

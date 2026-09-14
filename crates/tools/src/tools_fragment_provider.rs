@@ -130,7 +130,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
     /// Returns a stable key so that `PromptBuilder::build()` can cache
     /// the generated tools listing across repeated builds. Includes the
     /// agent id to avoid cross-agent cache pollution.
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         Some(format!(
             "tools:{}:{}",
             ctx.agent_id,
@@ -153,20 +153,20 @@ mod tests {
         assert_eq!(provider.priority(), 2);
     }
 
-    #[test]
-    fn test_cache_key_includes_agent_id_and_generation() {
+    #[tokio::test]
+    async fn test_cache_key_includes_agent_id_and_generation() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-abc".to_string();
         assert_eq!(
-            provider.cache_key(&ctx),
+            provider.cache_key(&ctx).await,
             Some("tools:agent-abc:0".to_string())
         );
     }
 
-    #[test]
-    fn test_cache_key_varies_with_agent_id() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_agent_id() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
 
@@ -175,18 +175,21 @@ mod tests {
         let mut ctx_b = FragmentContext::test_default();
         ctx_b.agent_id = "agent-b".to_string();
 
-        assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
+        assert_ne!(
+            provider.cache_key(&ctx_a).await,
+            provider.cache_key(&ctx_b).await
+        );
     }
 
-    #[test]
-    fn test_cache_key_varies_with_generation() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_generation() {
         let registry = Arc::new(ToolRegistry::new());
         let provider = ToolsFragmentProvider::new(registry, None, None);
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-x".to_string();
 
         // Initial generation = 0 → key includes "tools:agent-x:0"
-        let key_gen0 = provider.cache_key(&ctx);
+        let key_gen0 = provider.cache_key(&ctx).await;
         assert_eq!(key_gen0, Some("tools:agent-x:0".to_string()));
     }
 
@@ -226,7 +229,7 @@ mod tests {
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-x".to_string();
         assert_eq!(
-            provider.cache_key(&ctx),
+            provider.cache_key(&ctx).await,
             Some("tools:agent-x:1".to_string())
         );
     }

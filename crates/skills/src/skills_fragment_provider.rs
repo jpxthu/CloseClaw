@@ -80,12 +80,15 @@ impl PromptFragmentProvider for SkillsFragmentProvider {
         })
     }
 
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         // Include activated skills fingerprint so different activation
         // states produce distinct cache entries.
         let mut sorted_activated = ctx.activated_skills.clone();
         sorted_activated.sort();
-        let fingerprint = self.listing.fingerprint();
+        let listing = Arc::clone(&self.listing);
+        let fingerprint = tokio::task::spawn_blocking(move || listing.fingerprint())
+            .await
+            .ok()?;
         Some(format!(
             "skill_listing:{}:{}:{}",
             ctx.agent_id,
@@ -189,8 +192,8 @@ mod tests {
         assert_eq!(provider.priority(), 3);
     }
 
-    #[test]
-    fn test_cache_key_includes_agent_id() {
+    #[tokio::test]
+    async fn test_cache_key_includes_agent_id() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
@@ -198,15 +201,15 @@ mod tests {
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-xyz".to_string();
         // Empty activated skills → trailing colon + empty string + fingerprint
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         assert!(
             key.starts_with("skill_listing:agent-xyz:"),
             "key should start with agent prefix, got: {key}"
         );
     }
 
-    #[test]
-    fn test_cache_key_varies_with_agent_id() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_agent_id() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
@@ -217,11 +220,14 @@ mod tests {
         let mut ctx_b = FragmentContext::test_default();
         ctx_b.agent_id = "agent-b".to_string();
 
-        assert_ne!(provider.cache_key(&ctx_a), provider.cache_key(&ctx_b));
+        assert_ne!(
+            provider.cache_key(&ctx_a).await,
+            provider.cache_key(&ctx_b).await
+        );
     }
 
-    #[test]
-    fn test_cache_key_varies_with_activated_skills() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_activated_skills() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
@@ -235,14 +241,14 @@ mod tests {
         ctx_activated.activated_skills = vec!["skill-a".to_string(), "skill-b".to_string()];
 
         assert_ne!(
-            provider.cache_key(&ctx_empty),
-            provider.cache_key(&ctx_activated),
+            provider.cache_key(&ctx_empty).await,
+            provider.cache_key(&ctx_activated).await,
             "different activation sets must produce different cache keys"
         );
     }
 
-    #[test]
-    fn test_cache_key_sorts_activated_skills() {
+    #[tokio::test]
+    async fn test_cache_key_sorts_activated_skills() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
@@ -257,8 +263,8 @@ mod tests {
         ctx_b.activated_skills = vec!["a".to_string(), "b".to_string()];
 
         assert_eq!(
-            provider.cache_key(&ctx_a),
-            provider.cache_key(&ctx_b),
+            provider.cache_key(&ctx_a).await,
+            provider.cache_key(&ctx_b).await,
             "same activation set in different order must produce same cache key"
         );
     }
@@ -486,13 +492,13 @@ mod tests {
         ctx_b.activated_skills = vec!["skill-x".to_string(), "skill-y".to_string()];
 
         assert_ne!(
-            provider.cache_key(&ctx_empty),
-            provider.cache_key(&ctx_a),
+            provider.cache_key(&ctx_empty).await,
+            provider.cache_key(&ctx_a).await,
             "empty vs single activation must differ"
         );
         assert_ne!(
-            provider.cache_key(&ctx_a),
-            provider.cache_key(&ctx_b),
+            provider.cache_key(&ctx_a).await,
+            provider.cache_key(&ctx_b).await,
             "different activation sets must differ"
         );
     }
@@ -513,8 +519,8 @@ mod tests {
         ctx_2.activated_skills = vec!["a".to_string(), "b".to_string()];
 
         assert_eq!(
-            provider.cache_key(&ctx_1),
-            provider.cache_key(&ctx_2),
+            provider.cache_key(&ctx_1).await,
+            provider.cache_key(&ctx_2).await,
             "same set in different order must produce same cache key"
         );
     }
@@ -555,15 +561,15 @@ mod tests {
     // Dimension: Cache key includes fingerprint
     // ------------------------------------------------------------------
 
-    #[test]
-    fn test_cache_key_includes_fingerprint() {
+    #[tokio::test]
+    async fn test_cache_key_includes_fingerprint() {
         let provider = SkillsFragmentProvider::new(Arc::new(MockListingProvider {
             output: String::new(),
             rescan_called: Arc::new(AtomicBool::new(false)),
         }));
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-1".to_string();
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         assert!(
             key.ends_with(":0"),
             "cache key should end with fingerprint ':0', got: {key}"
@@ -607,8 +613,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn test_cache_key_varies_with_fingerprint() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_fingerprint() {
         let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
             output: String::new(),
             fp: "fp_a".to_string(),
@@ -620,14 +626,14 @@ mod tests {
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-1".to_string();
         assert_ne!(
-            provider_a.cache_key(&ctx),
-            provider_b.cache_key(&ctx),
+            provider_a.cache_key(&ctx).await,
+            provider_b.cache_key(&ctx).await,
             "different fingerprints must produce different cache keys"
         );
     }
 
-    #[test]
-    fn test_cache_key_same_fingerprint_same_key() {
+    #[tokio::test]
+    async fn test_cache_key_same_fingerprint_same_key() {
         let provider_a = SkillsFragmentProvider::new(Arc::new(FingerprintMockProvider {
             output: String::new(),
             fp: "same_fp".to_string(),
@@ -639,8 +645,8 @@ mod tests {
         let mut ctx = FragmentContext::test_default();
         ctx.agent_id = "agent-1".to_string();
         assert_eq!(
-            provider_a.cache_key(&ctx),
-            provider_b.cache_key(&ctx),
+            provider_a.cache_key(&ctx).await,
+            provider_b.cache_key(&ctx).await,
             "same fingerprints must produce same cache keys"
         );
     }
@@ -869,7 +875,7 @@ mod tests {
         ctx.agent_id = "agent-1".to_string();
 
         // Cycle 1: initial state (1 skill)
-        let key1 = provider.cache_key(&ctx).unwrap();
+        let key1 = provider.cache_key(&ctx).await.unwrap();
         assert!(key1.contains("gen:0"));
         let frag1 = provider.generate(&ctx).await.expect("fragment");
         assert!(frag1.content.contains("skill-0"));
@@ -877,14 +883,14 @@ mod tests {
 
         // Change: add skill-1
         gen.store(1, Ordering::SeqCst);
-        let key2 = provider.cache_key(&ctx).unwrap();
+        let key2 = provider.cache_key(&ctx).await.unwrap();
         assert_ne!(key1, key2, "cache key must change after skill addition");
         let frag2 = provider.generate(&ctx).await.expect("fragment");
         assert!(frag2.content.contains("skill-1"), "must reflect new skill");
 
         // Change: add skill-2
         gen.store(2, Ordering::SeqCst);
-        let key3 = provider.cache_key(&ctx).unwrap();
+        let key3 = provider.cache_key(&ctx).await.unwrap();
         assert_ne!(key2, key3, "cache key must change after second addition");
         let frag3 = provider.generate(&ctx).await.expect("fragment");
         assert!(
@@ -949,7 +955,7 @@ mod tests {
         assert!(result.is_none(), "empty listing must produce None");
 
         // cache_key should still work
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         assert!(key.ends_with("degraded"));
     }
 
@@ -962,14 +968,14 @@ mod tests {
         };
         let provider1 = SkillsFragmentProvider::new(Arc::new(mock_v1));
         let ctx = FragmentContext::test_default();
-        let key1 = provider1.cache_key(&ctx).unwrap();
+        let key1 = provider1.cache_key(&ctx).await.unwrap();
         assert!(provider1.generate(&ctx).await.is_none());
 
         let mock_v2 = FailingListingMock {
             fp: "v2".to_string(),
         };
         let provider2 = SkillsFragmentProvider::new(Arc::new(mock_v2));
-        let key2 = provider2.cache_key(&ctx).unwrap();
+        let key2 = provider2.cache_key(&ctx).await.unwrap();
         assert!(provider2.generate(&ctx).await.is_none());
 
         assert_ne!(

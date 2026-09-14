@@ -145,7 +145,7 @@ pub trait PromptFragmentProvider: Send + Sync {
     /// Section-level cache key. Returns `None` when the section is not
     /// cacheable (e.g. registry-backed providers that manage their own
     /// invalidation).
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String>;
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String>;
 }
 
 #[cfg(test)]
