@@ -444,15 +444,8 @@ async fn e2e_agent_profile_smoke() {
 /// `model_id = "gpt-4o-basic"` AND `message_contains = "hello"`,
 /// returning a distinct text. Asserting that text proves the config
 /// model field propagated to the LLM request.
-///
-/// **Blocker (2026-08-22)**: `SkillListingProviderWrapper` panics in
-/// `bridge.rs:186` (`Handle::block_on` inside async) before any LLM
-/// request is made, so fake_llm never receives the request. Test is
-/// written for the expected-pass state; marked `#[ignore]` until the
-/// blocker is resolved.
 #[tokio::test]
 #[cfg(unix)]
-#[ignore]
 #[serial_test::serial]
 async fn e2e_agent_model_selection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");

@@ -314,6 +314,112 @@ fn test_prompt_builder_new() {
     assert_eq!(priorities, vec![1, 2, 4]);
 }
 
+/// Builder with a skills-like provider produces correct listing in cache_key
+/// and generate output — normal path.
+#[tokio::test]
+async fn test_skills_provider_normal_path_listing_and_cache_key() {
+    let skills_provider = MockProvider {
+        name: "skills".to_string(),
+        priority: 3,
+        fragment: Some(PromptFragment {
+            section_title: "## Skills".to_string(),
+            section_type: SectionType::Skills,
+            content: "- **read**: Read files\n- **write**: Write files".to_string(),
+        }),
+        cache_key_val: Some("skill_listing:agent-1::fp_abc".to_string()),
+    };
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(skills_provider)];
+    let builder = PromptBuilder::new(providers);
+    let mut ctx = FragmentContext::test_default();
+    ctx.agent_id = "agent-1".to_string();
+
+    let result = builder.build(&ctx).await;
+    assert!(result.contains("## Skills"), "must contain skills heading");
+    assert!(result.contains("read"), "must contain skill listing");
+    assert!(result.contains("write"), "must contain second skill");
+}
+
+/// Builder with all providers returning None falls back to DEFAULT_PROMPT —
+/// empty registry path.
+#[tokio::test]
+async fn test_empty_providers_no_panic_fallback() {
+    let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![
+        Box::new(MockProvider::empty("bootstrap", 1)),
+        Box::new(MockProvider::empty("tools", 2)),
+        Box::new(MockProvider::empty("skills", 3)),
+        Box::new(MockProvider::empty("memory", 4)),
+    ];
+    let builder = PromptBuilder::new(providers);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    assert_eq!(
+        result, DEFAULT_PROMPT,
+        "all-empty providers must fall back to DEFAULT_PROMPT"
+    );
+}
+
+/// Full chain: build() with a skills provider that has cache_key, called
+/// from an async context. Exercises the complete provider→cache→generate
+/// pipeline without panic (regression #2436 Bug A).
+#[tokio::test]
+async fn test_builder_full_chain_async_no_panic_regression_2436() {
+    let skills_provider = MockProvider {
+        name: "skills".to_string(),
+        priority: 3,
+        fragment: Some(PromptFragment {
+            section_title: "## Skills".to_string(),
+            section_type: SectionType::Skills,
+            content: "- **test_skill**: A test skill".to_string(),
+        }),
+        cache_key_val: Some("skill_listing:async-agent::fp_1".to_string()),
+    };
+    let tools_provider = MockProvider {
+        name: "tools".to_string(),
+        priority: 2,
+        fragment: Some(PromptFragment {
+            section_title: "## Tools".to_string(),
+            section_type: SectionType::Tools,
+            content: "- **exec**: Run commands".to_string(),
+        }),
+        cache_key_val: Some("tools:fp_2".to_string()),
+    };
+    let providers: Vec<Box<dyn PromptFragmentProvider>> =
+        vec![Box::new(tools_provider), Box::new(skills_provider)];
+    let builder = PromptBuilder::new(providers);
+    let mut ctx = FragmentContext::test_default();
+    ctx.agent_id = "async-agent".to_string();
+    ctx.activated_skills = vec!["test_skill".to_string()];
+
+    // Must not panic — exercises cache_key + generate for each provider
+    // in a single async task, the exact path that previously triggered
+    // "Cannot start a runtime from within a runtime".
+    let result = builder.build(&ctx).await;
+    assert!(result.contains("test_skill"), "must contain skills content");
+    assert!(result.contains("exec"), "must contain tools content");
+
+    // Second build should hit cache for both providers.
+    let result2 = builder.build(&ctx).await;
+    assert_eq!(result, result2, "second build must use cached content");
+}
+
+/// Builder with empty skills provider (no panic) followed by a non-empty
+/// provider — mixed empty and populated providers.
+#[tokio::test]
+async fn test_empty_skills_provider_no_panic_mixed() {
+    let empty_skills = MockProvider::empty("skills", 3);
+    let real_tools = MockProvider::with_fragment("tools", 2, "tool content");
+    let providers: Vec<Box<dyn PromptFragmentProvider>> =
+        vec![Box::new(real_tools), Box::new(empty_skills)];
+    let builder = PromptBuilder::new(providers);
+    let ctx = FragmentContext::test_default();
+    let result = builder.build(&ctx).await;
+    assert!(result.contains("tool content"), "tools must be present");
+    assert!(
+        !result.contains("## Skills"),
+        "empty skills must not appear"
+    );
+}
+
 /// Verify that PromptBuilder sorts providers correctly with skills included.
 #[test]
 fn test_prompt_builder_providers_sorted_by_priority() {
