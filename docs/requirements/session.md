@@ -16,7 +16,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 归档的 Session 被访问时自动恢复：
   - 若 Session 正在归档中，等待归档完成后自动恢复，恢复时提示 User「会话归档中，稍后恢复…」
   - 若 Session 已归档，恢复时提示 User「正在恢复会话…」
-  - 恢复后 System Prompt 按最新配置重新注入，详见 F2
+  - 恢复后 System Prompt 按最新配置重新注入，见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）
 - 崩溃恢复详见 F7
 
 > **交叉引用**：新 Session 由 `/new` 指令触发创建。详见 [slash §F3](slash.md)（Session 管理）。
@@ -24,11 +24,9 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 
 ### F2. 恢复时的 System Prompt 重建
 
-Session 恢复时触发 Agent 的 System Prompt 重新注入。
-
 - User 追加的 System Prompt 自定义指令持久化保存，归档恢复后完整保留
 
-> **交叉引用**：完整触发事件清单、缓存失效策略与文件变更的自动反映。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：Session 恢复时 System Prompt 的重新注入触发、完整触发事件清单与缓存失效策略。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 > **交叉引用**：技能清单的格式和技能文件变更的生效规则详见 [skills §F4](skills.md)（技能清单）、[skills §F5](skills.md)（技能文件变更）。
 > **交叉引用**：追加指令的交互方式（/system add/list/clear）详见 [slash §F6](slash.md)（System Prompt 追加）。
 > **交叉引用**：bootstrap 文件的清单与注入顺序。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
