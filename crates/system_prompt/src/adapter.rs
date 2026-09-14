@@ -156,8 +156,8 @@ impl PromptFragmentProvider for ArcProviderAdapter {
         self.inner.generate(ctx).await
     }
 
-    fn cache_key(&self, ctx: &closeclaw_common::FragmentContext) -> Option<String> {
-        self.inner.cache_key(ctx)
+    async fn cache_key(&self, ctx: &closeclaw_common::FragmentContext) -> Option<String> {
+        self.inner.cache_key(ctx).await
     }
 }
 

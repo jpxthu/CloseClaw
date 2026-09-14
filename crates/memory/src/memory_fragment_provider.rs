@@ -111,7 +111,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     /// File-backed — keyed by path + mtime so the builder can skip
     /// regeneration. The path hash ensures different workspaces with
     /// identical mtime values produce distinct cache keys.
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         // Sub sessions never produce a memory fragment, so no cache key.
         if ctx.session_role == SessionRole::Sub {
             return None;
@@ -185,20 +185,20 @@ mod tests {
         assert_eq!(frag.content, "Remember X and Y");
     }
 
-    #[test]
-    fn test_cache_key_none_when_no_memory_file() {
+    #[tokio::test]
+    async fn test_cache_key_none_when_no_memory_file() {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::new();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
-        assert!(provider.cache_key(&ctx).is_none());
+        assert!(provider.cache_key(&ctx).await.is_none());
     }
 
     // Sub role → cache_key must return None (consistent with generate gate)
-    #[test]
-    fn test_cache_key_none_for_sub_role() {
+    #[tokio::test]
+    async fn test_cache_key_none_for_sub_role() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -208,11 +208,11 @@ mod tests {
             session_role: SessionRole::Sub,
             ..FragmentContext::test_default()
         };
-        assert!(provider.cache_key(&ctx).is_none());
+        assert!(provider.cache_key(&ctx).await.is_none());
     }
 
-    #[test]
-    fn test_cache_key_contains_mtime() {
+    #[tokio::test]
+    async fn test_cache_key_contains_mtime() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::new();
@@ -220,15 +220,15 @@ mod tests {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         // Format: memory:<path_hash>:<mtime>
         let parts: Vec<&str> = key.split(':').collect();
         assert_eq!(parts[0], "memory");
         assert_eq!(parts.len(), 3, "key should have 3 colon-separated parts");
     }
 
-    #[test]
-    fn test_cache_key_unique_per_path() {
+    #[tokio::test]
+    async fn test_cache_key_unique_per_path() {
         let tmp1 = tempfile::tempdir().unwrap();
         let tmp2 = tempfile::tempdir().unwrap();
         fs::write(tmp1.path().join("MEMORY.md"), "same content").unwrap();
@@ -242,8 +242,8 @@ mod tests {
             bootstrap_dir: tmp2.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
-        let key1 = provider.cache_key(&ctx1).unwrap();
-        let key2 = provider.cache_key(&ctx2).unwrap();
+        let key1 = provider.cache_key(&ctx1).await.unwrap();
+        let key2 = provider.cache_key(&ctx2).await.unwrap();
         // Different paths must produce different keys even with same
         // mtime (mtime is not guaranteed identical here, but the path
         // hash component will differ).
@@ -291,8 +291,8 @@ mod tests {
         assert_eq!(fragment.unwrap().content, "Absolute path content");
     }
 
-    #[test]
-    fn test_cache_key_with_custom_path() {
+    #[tokio::test]
+    async fn test_cache_key_with_custom_path() {
         let tmp = tempfile::tempdir().unwrap();
         let custom_dir = tmp.path().join("memory");
         fs::create_dir_all(&custom_dir).unwrap();
@@ -302,21 +302,21 @@ mod tests {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         let parts: Vec<&str> = key.split(':').collect();
         assert_eq!(parts[0], "memory");
         assert_eq!(parts.len(), 3);
     }
 
-    #[test]
-    fn test_cache_key_none_with_custom_path_when_file_missing() {
+    #[tokio::test]
+    async fn test_cache_key_none_with_custom_path_when_file_missing() {
         let tmp = tempfile::tempdir().unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             ..FragmentContext::test_default()
         };
-        assert!(provider.cache_key(&ctx).is_none());
+        assert!(provider.cache_key(&ctx).await.is_none());
     }
 
     // --- session_role gating tests (quadrant matrix) ---

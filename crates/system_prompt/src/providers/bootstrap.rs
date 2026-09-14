@@ -88,7 +88,7 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
         })
     }
 
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         let bootstrap_dir = self.resolve_bootstrap_dir(ctx);
         let mode = self.resolve_mode(ctx);
 
@@ -349,8 +349,8 @@ mod tests {
         assert!(fragment.content.contains("agents content"));
     }
 
-    #[test]
-    fn test_cache_key_works_with_valid_workdir() {
+    #[tokio::test]
+    async fn test_cache_key_works_with_valid_workdir() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
         let provider = BootstrapFragmentProvider::new();
@@ -359,11 +359,11 @@ mod tests {
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
-        assert!(provider.cache_key(&ctx).is_some());
+        assert!(provider.cache_key(&ctx).await.is_some());
     }
 
-    #[test]
-    fn test_cache_key_varies_with_mtime() {
+    #[tokio::test]
+    async fn test_cache_key_varies_with_mtime() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
 
@@ -375,10 +375,10 @@ mod tests {
             ..FragmentContext::test_default()
         };
 
-        let key1 = provider.cache_key(&ctx);
+        let key1 = provider.cache_key(&ctx).await;
         assert!(key1.is_some());
         // Same content → same key
-        let key2 = provider.cache_key(&ctx);
+        let key2 = provider.cache_key(&ctx).await;
         assert_eq!(key1, key2);
     }
 
@@ -407,15 +407,15 @@ mod tests {
         assert!(provider.generate(&ctx).await.is_none());
     }
 
-    #[test]
-    fn test_cache_key_nonexistent_workdir_returns_none() {
+    #[tokio::test]
+    async fn test_cache_key_nonexistent_workdir_returns_none() {
         let provider = BootstrapFragmentProvider::new();
         let ctx = FragmentContext {
             bootstrap_dir: "/definitely/does/not/exist".to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
-        assert!(provider.cache_key(&ctx).is_none());
+        assert!(provider.cache_key(&ctx).await.is_none());
     }
 
     #[tokio::test]
@@ -468,7 +468,7 @@ mod tests {
             bootstrap_mode: BootstrapMode::Minimal,
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx);
+        let key = provider.cache_key(&ctx).await;
         assert!(key.is_some());
         assert!(key.unwrap().starts_with("bootstrap:AGENTS.md:"));
     }
@@ -528,8 +528,8 @@ mod tests {
     /// Verify that modifying MEMORY.md does NOT invalidate the bootstrap
     /// cache key — MEMORY.md is excluded from bootstrap_file_list(Full).
     /// The memory provider's cache_key must change independently.
-    #[test]
-    fn test_cache_key_independence_from_memory_md() {
+    #[tokio::test]
+    async fn test_cache_key_independence_from_memory_md() {
         let tmp = tempfile::tempdir().unwrap();
         // Create all 6 bootstrap files
         fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
@@ -551,8 +551,8 @@ mod tests {
             ..FragmentContext::test_default()
         };
 
-        let boot_key_before = boot_provider.cache_key(&ctx);
-        let mem_key_before = mem_provider.cache_key(&ctx);
+        let boot_key_before = boot_provider.cache_key(&ctx).await;
+        let mem_key_before = mem_provider.cache_key(&ctx).await;
         assert!(boot_key_before.is_some(), "bootstrap key should exist");
         assert!(mem_key_before.is_some(), "memory key should exist");
 
@@ -562,8 +562,8 @@ mod tests {
         thread::sleep(Duration::from_millis(1100));
         fs::write(tmp.path().join("MEMORY.md"), "updated memory content").unwrap();
 
-        let boot_key_after = boot_provider.cache_key(&ctx);
-        let mem_key_after = mem_provider.cache_key(&ctx);
+        let boot_key_after = boot_provider.cache_key(&ctx).await;
+        let mem_key_after = mem_provider.cache_key(&ctx).await;
 
         // Bootstrap cache key must NOT change — MEMORY.md is not in the
         // bootstrap file list, so its mtime is not inspected.
@@ -636,8 +636,8 @@ mod tests {
     /// When MEMORY.md does not exist, bootstrap cache_key behavior must
     /// be identical to when it is absent from the list — i.e. the key is
     /// determined solely by the 6 bootstrap files.
-    #[test]
-    fn test_cache_key_stable_when_memory_md_absent() {
+    #[tokio::test]
+    async fn test_cache_key_stable_when_memory_md_absent() {
         let tmp = tempfile::tempdir().unwrap();
         // Create only bootstrap files, no MEMORY.md
         fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
@@ -653,14 +653,14 @@ mod tests {
             bootstrap_mode: BootstrapMode::Full,
             ..FragmentContext::test_default()
         };
-        let key_without = provider.cache_key(&ctx);
+        let key_without = provider.cache_key(&ctx).await;
         assert!(key_without.is_some(), "key should exist without MEMORY.md");
 
         // Now create MEMORY.md — key must NOT change
         thread::sleep(Duration::from_millis(1100));
         fs::write(tmp.path().join("MEMORY.md"), "memory").unwrap();
 
-        let key_with = provider.cache_key(&ctx);
+        let key_with = provider.cache_key(&ctx).await;
         assert_eq!(
             key_without, key_with,
             "bootstrap cache_key must not change when MEMORY.md appears"
@@ -771,8 +771,8 @@ mod tests {
 
     /// Sub + Full → cache_key must match Main + Minimal (both resolve to
     /// Minimal mode), confirming cache dimension aligns with generation.
-    #[test]
-    fn test_cache_key_sub_full_matches_main_minimal() {
+    #[tokio::test]
+    async fn test_cache_key_sub_full_matches_main_minimal() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
         fs::write(tmp.path().join("SOUL.md"), "soul").unwrap();
@@ -796,8 +796,8 @@ mod tests {
             ..FragmentContext::test_default()
         };
 
-        let key_sub_full = provider.cache_key(&sub_full_ctx);
-        let key_main_minimal = provider.cache_key(&main_minimal_ctx);
+        let key_sub_full = provider.cache_key(&sub_full_ctx).await;
+        let key_main_minimal = provider.cache_key(&main_minimal_ctx).await;
 
         // Both resolve to Minimal → same file list → same cache key.
         assert_eq!(
@@ -807,8 +807,8 @@ mod tests {
     }
 
     /// Sub role → cache_key must NOT include BOOTSTRAP.md mtime.
-    #[test]
-    fn test_cache_key_sub_role_excludes_bootstrap_md_mtime() {
+    #[tokio::test]
+    async fn test_cache_key_sub_role_excludes_bootstrap_md_mtime() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
@@ -820,7 +820,7 @@ mod tests {
             session_role: SessionRole::Sub,
             ..FragmentContext::test_default()
         };
-        let key = provider.cache_key(&ctx).unwrap();
+        let key = provider.cache_key(&ctx).await.unwrap();
         assert!(
             !key.contains("BOOTSTRAP.md"),
             "Sub role cache_key must not include BOOTSTRAP.md mtime"

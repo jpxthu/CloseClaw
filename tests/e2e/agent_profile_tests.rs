@@ -445,11 +445,17 @@ async fn e2e_agent_profile_smoke() {
 /// returning a distinct text. Asserting that text proves the config
 /// model field propagated to the LLM request.
 ///
-/// **Blocker (2026-08-22)**: `SkillListingProviderWrapper` panics in
-/// `bridge.rs:186` (`Handle::block_on` inside async) before any LLM
-/// request is made, so fake_llm never receives the request. Test is
-/// written for the expected-pass state; marked `#[ignore]` until the
-/// blocker is resolved.
+/// **Blocker (2026-09-15)**: the original `SkillListingProviderWrapper`
+/// `bridge.rs` block_on panic has been fixed by this PR (Step 1.1 +
+/// 1.2). However, the chat chain now reaches LLM fallback client but
+/// gets `no response from gateway` because the LLM call chain is empty:
+/// daemon log shows `LLM fallback client built in layer 2 chain_len=0`.
+/// This is the code-side remainder of #2436 (LLM chain construction
+/// not wired through). Fixing the LLM chain is an independent gap
+/// tracked by #2436 and will be addressed in a separate PR.
+///
+/// **Resolution**: unblock when #2436 code-side LLM chain is wired
+/// (chain_len > 0) and daemon log no longer shows chain_len=0.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]

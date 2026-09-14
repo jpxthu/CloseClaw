@@ -154,7 +154,7 @@ impl PromptFragmentProvider for MockFragmentProvider {
         })
     }
 
-    fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
+    async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         Some(format!("mock:{}", ctx.agent_id))
     }
 }
@@ -184,14 +184,17 @@ async fn test_mock_provider_generates_with_valid_fields() {
     assert!(frag.content.contains("/workspace"));
 }
 
-#[test]
-fn test_mock_provider_cache_key_includes_agent_id() {
+#[tokio::test]
+async fn test_mock_provider_cache_key_includes_agent_id() {
     let provider = MockFragmentProvider;
     let ctx = FragmentContext {
         agent_id: "agent-99".into(),
         ..FragmentContext::test_default()
     };
-    assert_eq!(provider.cache_key(&ctx).as_deref(), Some("mock:agent-99"));
+    assert_eq!(
+        provider.cache_key(&ctx).await.as_deref(),
+        Some("mock:agent-99")
+    );
 }
 
 // ---------------------------------------------------------------------------
