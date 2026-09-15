@@ -12,6 +12,7 @@ use crate::client::UnifiedChatClient;
 use crate::interpreter::InterpreterRegistry;
 use crate::plugin::PluginPipeline;
 use crate::protocol::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
+use crate::provider::Provider;
 use crate::retry::CooldownManager;
 use crate::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use crate::LLMRegistry;
@@ -63,6 +64,59 @@ pub fn assemble_llm_components(
             PluginPipeline::new(),
         ),
     }
+}
+
+/// Construct the vendor provider implementation for `provider_id` with an
+/// optional custom `base_url` (the vendor's default endpoint when absent
+/// or empty).
+///
+/// Single source of truth for the models.json provider id → vendor
+/// implementation mapping, kept next to [`assemble_llm_components`] so the
+/// constructor and protocol / interpreter / plugin tables evolve together.
+/// Returns `None` for provider ids without a vendor implementation —
+/// callers decide how to report the skip.
+pub fn build_vendor_provider(
+    provider_id: &str,
+    api_key: &str,
+    base_url: Option<&str>,
+) -> Option<Arc<dyn Provider>> {
+    let url = base_url.filter(|url| !url.is_empty());
+    let key = api_key.to_string();
+    let provider: Arc<dyn Provider> = match provider_id {
+        "openai" => match url {
+            Some(url) => Arc::new(crate::OpenAIProvider::new_with_base_url(key, url)),
+            None => Arc::new(crate::OpenAIProvider::new(key)),
+        },
+        "anthropic" => match url {
+            Some(url) => Arc::new(crate::AnthropicProvider::new_with_base_url(key, url)),
+            None => Arc::new(crate::AnthropicProvider::new(key)),
+        },
+        "minimax" => match url {
+            Some(url) => Arc::new(crate::MiniMaxProvider::with_base_url(key, url.to_string())),
+            None => Arc::new(crate::MiniMaxProvider::new(key)),
+        },
+        "mimo" => match url {
+            Some(url) => Arc::new(crate::MimoProvider::with_base_url(key, url)),
+            None => Arc::new(crate::MimoProvider::new(key)),
+        },
+        "glm" => match url {
+            Some(url) => Arc::new(crate::GlmProvider::with_base_url(key, url.to_string())),
+            None => Arc::new(crate::GlmProvider::new(key)),
+        },
+        "deepseek" => match url {
+            Some(url) => Arc::new(crate::DeepSeekProvider::with_base_url(key, url.to_string())),
+            None => Arc::new(crate::DeepSeekProvider::new(key)),
+        },
+        "volcengine" => match url {
+            Some(url) => Arc::new(crate::VolcEngineProvider::with_base_url(
+                key,
+                url.to_string(),
+            )),
+            None => Arc::new(crate::VolcEngineProvider::new(key)),
+        },
+        _ => return None,
+    };
+    Some(provider)
 }
 
 /// Build chain entries from every provider registered in `registry`.
@@ -166,6 +220,56 @@ mod tests {
     fn assemble_mimo_uses_openai_protocol() {
         let (protocol, _, _) = assemble_llm_components("mimo");
         assert_eq!(protocol.protocol_id().as_str(), "openai");
+    }
+
+    /// Every vendor implemented by this crate constructs with the custom
+    /// base_url reflected in `Provider::base_url`.
+    #[test]
+    fn build_vendor_provider_all_vendors_use_configured_base_url() {
+        for id in [
+            "openai",
+            "anthropic",
+            "minimax",
+            "mimo",
+            "glm",
+            "deepseek",
+            "volcengine",
+        ] {
+            let url = format!("http://127.0.0.1:9/{id}");
+            let provider = build_vendor_provider(id, "key", Some(&url)).expect(id);
+            assert_eq!(provider.base_url(), url, "{id}");
+        }
+    }
+
+    /// Absent and empty base_url both fall back to the vendor default
+    /// endpoint (each vendor's `new` delegates to its base-url constructor
+    /// with the same default, so both paths agree).
+    #[test]
+    fn build_vendor_provider_default_base_url_when_absent_or_empty() {
+        for id in [
+            "openai",
+            "anthropic",
+            "minimax",
+            "mimo",
+            "glm",
+            "deepseek",
+            "volcengine",
+        ] {
+            let default_url = build_vendor_provider(id, "key", None).expect(id);
+            let empty_url = build_vendor_provider(id, "key", Some("")).expect(id);
+            assert_eq!(default_url.base_url(), empty_url.base_url(), "{id}");
+            assert!(
+                !default_url.base_url().is_empty(),
+                "{id} vendor default must be non-empty"
+            );
+        }
+    }
+
+    /// Provider ids without a vendor implementation return `None` so the
+    /// caller can report the skip (no silent fallthrough to a wrong vendor).
+    #[test]
+    fn build_vendor_provider_unknown_id_returns_none() {
+        assert!(build_vendor_provider("acme", "key", Some("http://127.0.0.1:9")).is_none());
     }
 
     #[tokio::test]

@@ -24,9 +24,6 @@ use closeclaw_llm::LLMRegistry;
 
 type DynProvider = Arc<dyn closeclaw_llm::provider::Provider>;
 
-/// Vendor providers the daemon can construct, keyed by models.json provider id.
-const KNOWN_PROVIDERS: &[&str] = &["openai", "anthropic", "minimax", "mimo"];
-
 impl Daemon {
     /// Initialize the LLM registry and fallback chain from ConfigManager.
     ///
@@ -112,6 +109,9 @@ impl Daemon {
 /// Construct the vendor provider for `provider_id` with the configured
 /// `base_url` (vendor default when absent/empty).
 ///
+/// The provider id → constructor table lives in the llm crate next to
+/// [`call_chain::assemble_llm_components`] (`closeclaw_llm::call_chain::
+/// build_vendor_provider`); this wrapper only adapts the api_key type.
 /// Returns `None` for provider ids without a known vendor implementation —
 /// the caller logs a warning and skips the provider.
 fn construct_provider(
@@ -119,41 +119,7 @@ fn construct_provider(
     api_key: &str,
     base_url: Option<&str>,
 ) -> Option<DynProvider> {
-    if !KNOWN_PROVIDERS.contains(&provider_id) {
-        return None;
-    }
-    let url = base_url.filter(|url| !url.is_empty());
-    let provider: DynProvider = match (provider_id, url) {
-        ("openai", Some(url)) => Arc::new(
-            closeclaw_llm::openai::OpenAIProvider::new_with_base_url(api_key.to_string(), url),
-        ),
-        ("openai", None) => Arc::new(closeclaw_llm::openai::OpenAIProvider::new(
-            api_key.to_string(),
-        )),
-        ("anthropic", Some(url)) => Arc::new(
-            closeclaw_llm::anthropic::AnthropicProvider::new_with_base_url(
-                api_key.to_string(),
-                url,
-            ),
-        ),
-        ("anthropic", None) => Arc::new(closeclaw_llm::anthropic::AnthropicProvider::new(
-            api_key.to_string(),
-        )),
-        ("minimax", Some(url)) => Arc::new(closeclaw_llm::minimax::MiniMaxProvider::with_base_url(
-            api_key.to_string(),
-            url.to_string(),
-        )),
-        ("minimax", None) => Arc::new(closeclaw_llm::minimax::MiniMaxProvider::new(
-            api_key.to_string(),
-        )),
-        ("mimo", Some(url)) => Arc::new(closeclaw_llm::mimo::MimoProvider::with_base_url(
-            api_key.to_string(),
-            url,
-        )),
-        ("mimo", None) => Arc::new(closeclaw_llm::mimo::MimoProvider::new(api_key.to_string())),
-        _ => return None,
-    };
-    Some(provider)
+    call_chain::build_vendor_provider(provider_id, api_key, base_url)
 }
 
 /// Build fallback-chain entries for one registered provider.
@@ -365,8 +331,77 @@ mod tests {
         assert_eq!(model_ids, vec!["MiniMax-M2.7", "gpt-4o-basic"]);
     }
 
+    /// Vendor table lives in the llm crate: every provider implemented by
+    /// closeclaw-llm — glm / deepseek / volcengine included, not just the
+    /// original daemon-side four — is constructed from models.json +
+    /// credentials instead of being silently skipped.
+    #[tokio::test]
+    async fn init_llm_registry_registers_all_llm_crate_vendors() {
+        let dir = TempDir::new().unwrap();
+        write_config_skeleton(dir.path());
+        crate::test_helpers::write_models_providers(
+            dir.path(),
+            serde_json::json!({
+                "glm": {
+                    "baseUrl": "http://127.0.0.1:9/glm",
+                    "models": [{ "id": "glm-4-plus" }]
+                },
+                "deepseek": {
+                    "baseUrl": "http://127.0.0.1:9/deepseek",
+                    "models": [{ "id": "deepseek-chat" }]
+                },
+                "volcengine": {
+                    "baseUrl": "http://127.0.0.1:9/volc",
+                    "models": [{ "id": "doubao-pro" }]
+                }
+            }),
+        )
+        .unwrap();
+        for id in ["glm", "deepseek", "volcengine"] {
+            crate::test_helpers::write_provider_credential(dir.path(), id, "k").unwrap();
+        }
+        let cm = crate::test_helpers::load_config_manager(dir.path());
+
+        let (registry, fallback_client) = Daemon::init_llm_registry(&cm).await;
+
+        assert_eq!(registry.list().await.len(), 3, "all vendors registered");
+        let glm = registry.get("glm").await.expect("glm registered");
+        assert_eq!(glm.base_url(), "http://127.0.0.1:9/glm");
+        let chain = fallback_client.chain();
+        assert_eq!(chain.len(), 3);
+        let model_ids: Vec<&str> = chain.iter().map(|e| e.model_id.as_str()).collect();
+        // Sorted provider ids (deepseek < glm < volcengine), declaration
+        // order within each provider.
+        assert_eq!(model_ids, vec!["deepseek-chat", "glm-4-plus", "doubao-pro"]);
+    }
+
+    /// Vendor-default endpoint is used when models.json sets no baseUrl
+    /// for a vendor added by this change (glm), matching the openai path.
+    #[tokio::test]
+    async fn init_llm_registry_vendor_default_base_url_without_config() {
+        let dir = TempDir::new().unwrap();
+        write_config_skeleton(dir.path());
+        crate::test_helpers::write_models_providers(
+            dir.path(),
+            serde_json::json!({
+                "glm": { "models": [{ "id": "glm-4-plus" }] }
+            }),
+        )
+        .unwrap();
+        crate::test_helpers::write_provider_credential(dir.path(), "glm", "k").unwrap();
+        let cm = crate::test_helpers::load_config_manager(dir.path());
+
+        let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+
+        let glm = registry.get("glm").await.expect("glm registered");
+        assert_eq!(
+            glm.base_url(),
+            "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions"
+        );
+    }
+
     /// A provider id without a known vendor implementation is skipped even
-    /// when a credential exists (logged, startup not blocked).
+    /// when a credential exists (warn-logged, startup not blocked).
     #[tokio::test]
     async fn init_llm_registry_unknown_provider_skipped() {
         let dir = TempDir::new().unwrap();
