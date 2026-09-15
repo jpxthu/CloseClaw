@@ -18,7 +18,7 @@
         {
             "name": "system-prompt-fallback",
             "match_": {
-                "model_id": "gpt-4o-system-prompt"
+                "model_id": "gpt-4o-system-prompt-fallback"
             },
             "turns": [
                 {
