@@ -823,7 +823,7 @@ async fn test_init_llm_registry_no_credentials_returns_empty_registry() {
         }),
     );
 
-    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),
@@ -847,7 +847,7 @@ async fn test_init_llm_registry_with_credential_registers_provider() {
     crate::test_helpers::write_provider_credential(dir.path(), "openai", "sk-test").unwrap();
     let cm = crate::test_helpers::load_config_manager(dir.path());
 
-    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.contains(&"openai".to_string()),
@@ -880,7 +880,7 @@ async fn test_init_llm_registry_empty_key_not_registered() {
     }
     let cm = crate::test_helpers::load_config_manager(dir.path());
 
-    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),

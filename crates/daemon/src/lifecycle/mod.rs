@@ -145,8 +145,9 @@ impl Daemon {
         .await?;
 
         // LLM caller injection: the fallback client was built in layer 2
-        // (init_llm_registry → build_fallback_client). Layer 4 wires it
-        // into SessionManager (design doc § layer 4).
+        // (init_llm_registry returns registry + UnifiedFallbackClient in
+        // one step). Layer 4 wires it into SessionManager (design doc
+        // § layer 4).
         let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
             Arc::clone(&fallback_client),
         ));

@@ -207,7 +207,7 @@ impl Daemon {
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
         let skill_fut = skill_reload::init_skill_registry(config_dir, None, extra_dirs);
-        let llm_fut = Self::init_llm_registry(config_manager);
+        let llm_fut = Self::init_llm_registry(config_manager, Self::process_env);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
         let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = skill_result?;
         Ok((

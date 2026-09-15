@@ -197,7 +197,7 @@ async fn test_init_llm_registry_credentials_file_priority() {
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
     // Act
-    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
     // Assert: provider registered with the credential-file key
     let provider = registry
@@ -228,7 +228,7 @@ async fn test_init_llm_registry_both_absent_no_registration() {
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
     // Act
-    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
     // Assert: no providers registered (no credentials available)
     let listed = registry.list().await;
@@ -259,7 +259,7 @@ async fn test_init_llm_registry_mimo_via_credentials_file() {
         .unwrap();
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
     let listed = registry.list().await;
     assert!(
@@ -288,7 +288,7 @@ async fn test_init_llm_registry_mimo_not_registered_when_absent() {
     .unwrap();
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
     let listed = registry.list().await;
     assert!(
@@ -482,7 +482,7 @@ async fn test_init_llm_registry_contains_configured_providers() {
         .unwrap();
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
     let listed = registry.list().await;
 
     assert!(listed.contains(&"openai".to_string()));
@@ -511,7 +511,7 @@ async fn test_init_llm_registry_chain_from_models_config() {
     crate::test_helpers::write_provider_credential(tmp.path(), "openai", "openai-key").unwrap();
     let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (_registry, fallback_client) = Daemon::init_llm_registry(&cm).await;
+    let (_registry, fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
     let chain = fallback_client.chain();
     assert_eq!(

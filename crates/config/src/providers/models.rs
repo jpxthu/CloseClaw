@@ -101,10 +101,15 @@ impl ModelsConfigData {
     }
 
     /// Return providers that have at least one enabled model.
+    ///
+    /// `enabled` defaults to true when the flag is omitted — a model
+    /// listed in models.json is usable unless explicitly disabled
+    /// (`enabled: false`), mirroring the daemon fallback-chain
+    /// consumption of the same field.
     pub fn enabled_providers(&self) -> Vec<&str> {
         self.providers
             .iter()
-            .filter(|(_, p)| p.models.iter().any(|m| m.enabled.unwrap_or(false)))
+            .filter(|(_, p)| p.models.iter().any(|m| m.enabled.unwrap_or(true)))
             .map(|(id, _)| id.as_str())
             .collect()
     }
@@ -426,6 +431,9 @@ mod tests {
                 },
                 "p3": {
                     "models": [{ "id": "m4", "enabled": true }]
+                },
+                "p4": {
+                    "models": [{ "id": "m5" }]
                 }
             }
         }"#;
@@ -434,6 +442,8 @@ mod tests {
         assert!(enabled.contains(&"p1"));
         assert!(!enabled.contains(&"p2"));
         assert!(enabled.contains(&"p3"));
+        // Absent `enabled` flag defaults to enabled (listed = usable).
+        assert!(enabled.contains(&"p4"));
     }
 
     // -------------------------------------------------------------------------
