@@ -800,13 +800,30 @@ fn test_validate_phase_components_registries_expected_includes_llm_registry() {
 
 // --- State transition: init_llm_registry produces a usable registry ---
 
-/// init_llm_registry with empty env_overrides and no credentials files
-/// must return an empty registry (no providers registered).
+/// Helper: write mandatory configs + models.json defining `providers` into
+/// a temp config dir and return a loaded ConfigManager over it.
+fn make_llm_config_manager(
+    tmp: &tempfile::TempDir,
+    providers: serde_json::Value,
+) -> closeclaw_config::ConfigManager {
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(tmp.path(), providers).unwrap();
+    crate::test_helpers::load_config_manager(tmp.path())
+}
+
+/// init_llm_registry with models.json but no credentials must return an
+/// empty registry (no providers registered).
 #[tokio::test]
-async fn test_init_llm_registry_empty_env_returns_empty_registry() {
+async fn test_init_llm_registry_no_credentials_returns_empty_registry() {
     let dir = tempfile::tempdir().unwrap();
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &std::collections::HashMap::new()).await;
+    let cm = make_llm_config_manager(
+        &dir,
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] }
+        }),
+    );
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),
@@ -814,28 +831,56 @@ async fn test_init_llm_registry_empty_env_returns_empty_registry() {
     );
 }
 
-/// init_llm_registry with a specific env override must register that provider.
+/// init_llm_registry with a credential file must register the provider
+/// defined for it in models.json.
 #[tokio::test]
-async fn test_init_llm_registry_with_env_override_registers_provider() {
+async fn test_init_llm_registry_with_credential_registers_provider() {
     let dir = tempfile::tempdir().unwrap();
-    let overrides = std::collections::HashMap::from([("OPENAI_API_KEY", "sk-test")]);
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    crate::test_helpers::write_mandatory_configs(dir.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        dir.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] }
+        }),
+    )
+    .unwrap();
+    crate::test_helpers::write_provider_credential(dir.path(), "openai", "sk-test").unwrap();
+    let cm = crate::test_helpers::load_config_manager(dir.path());
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
     let providers = registry.list().await;
     assert!(
         providers.contains(&"openai".to_string()),
-        "init_llm_registry must register openai provider from env override"
+        "init_llm_registry must register openai provider from its credential file"
     );
 }
 
-/// init_llm_registry must NOT register providers for empty API keys.
+/// init_llm_registry must NOT register providers for invalid (empty) API
+/// keys — the credential file fails validation and is skipped.
 #[tokio::test]
 async fn test_init_llm_registry_empty_key_not_registered() {
     let dir = tempfile::tempdir().unwrap();
-    let overrides =
-        std::collections::HashMap::from([("OPENAI_API_KEY", ""), ("ANTHROPIC_API_KEY", "")]);
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    crate::test_helpers::write_mandatory_configs(dir.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        dir.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] },
+            "anthropic": { "models": [{ "id": "claude", "enabled": true }] }
+        }),
+    )
+    .unwrap();
+    let creds_dir = dir.path().join("credentials");
+    std::fs::create_dir_all(&creds_dir).unwrap();
+    for provider in ["openai", "anthropic"] {
+        std::fs::write(
+            creds_dir.join(format!("{}.json", provider)),
+            format!(r#"{{"provider":"{}","apiKey":""}}"#, provider),
+        )
+        .unwrap();
+    }
+    let cm = crate::test_helpers::load_config_manager(dir.path());
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),

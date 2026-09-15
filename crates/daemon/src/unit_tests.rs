@@ -1,7 +1,6 @@
 //! Unit tests for daemon private functions
 
 use super::*;
-use std::collections::HashMap;
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -181,70 +180,61 @@ fn test_build_permission_engine_with_templates_dir() {
 
 #[tokio::test]
 async fn test_init_llm_registry_credentials_file_priority() {
-    // Arrange: temp dir with config/credentials/openai.json containing an api key
+    // Arrange: config dir with models.json defining openai + a credential
+    // file in the convention credentials/ directory.
     let tmp = TempDir::new().unwrap();
-    let creds_dir = tmp.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
-    std::fs::write(
-        creds_dir.join("openai.json"),
-        r#"{"provider":"openai","apiKey":"file-key-123"}"#,
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "openai": {
+                "models": [{ "id": "gpt-4o-basic", "enabled": true }]
+            }
+        }),
     )
     .unwrap();
+    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "file-key-123").unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    // Act: pass empty overrides — file key takes priority over env
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    // Act
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
 
-    // Assert: provider registered with file key
-    let provider = registry.get("openai").await;
-    assert!(provider.is_some(), "openai provider should be registered");
+    // Assert: provider registered with the credential-file key
+    let provider = registry
+        .get("openai")
+        .await
+        .expect("openai provider should be registered");
+    assert_eq!(provider.api_key(), "file-key-123");
     let listed = registry.list().await;
     assert!(listed.contains(&"openai".to_string()));
 }
 
 #[tokio::test]
-async fn test_init_llm_registry_env_fallback() {
-    // Arrange: temp dir with NO credentials files, use env_overrides
-    let tmp = TempDir::new().unwrap();
-    let overrides: HashMap<&str, &str> = HashMap::from([
-        ("OPENAI_API_KEY", "env-key-456"),
-        ("ANTHROPIC_API_KEY", "env-anthropic-key"),
-    ]);
-
-    // Act
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
-
-    // Assert: providers registered from env overrides
-    let listed = registry.list().await;
-    assert!(
-        listed.contains(&"openai".to_string()),
-        "openai should be registered from env override"
-    );
-    assert!(
-        listed.contains(&"anthropic".to_string()),
-        "anthropic should be registered from env override"
-    );
-}
-
-#[tokio::test]
 async fn test_init_llm_registry_both_absent_no_registration() {
-    // Arrange: temp dir with NO credentials files, empty overrides for all keys
-    // to block env fallback
+    // Arrange: models.json defines providers but no credentials exist
+    // (no convention credential files, no credential_path).
     let tmp = TempDir::new().unwrap();
-    let overrides = HashMap::from([
-        ("OPENAI_API_KEY", ""),
-        ("ANTHROPIC_API_KEY", ""),
-        ("MINIMAX_API_KEY", ""),
-        ("MIMO_API_KEY", ""),
-    ]);
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "m1", "enabled": true }] },
+            "anthropic": { "models": [{ "id": "m2", "enabled": true }] },
+            "minimax": { "models": [{ "id": "m3", "enabled": true }] },
+            "mimo": { "models": [{ "id": "m4", "enabled": true }] }
+        }),
+    )
+    .unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
     // Act
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
 
-    // Assert: no providers registered (empty dir, empty overrides block env fallback)
+    // Assert: no providers registered (no credentials available)
     let listed = registry.list().await;
     assert!(
         listed.is_empty(),
-        "no provider should be registered when no credentials or env vars"
+        "no provider should be registered when no credentials exist"
     );
 }
 
@@ -253,35 +243,23 @@ async fn test_init_llm_registry_both_absent_no_registration() {
 // ============================================================
 
 #[tokio::test]
-async fn test_init_llm_registry_mimo_via_env_override() {
-    let tmp = TempDir::new().unwrap();
-    let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "mimo-env-key-789")]);
-
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
-
-    let listed = registry.list().await;
-    assert!(
-        listed.contains(&"mimo".to_string()),
-        "mimo should be registered from env override"
-    );
-    assert!(
-        registry.get("mimo").await.is_some(),
-        "mimo provider should be retrievable"
-    );
-}
-
-#[tokio::test]
 async fn test_init_llm_registry_mimo_via_credentials_file() {
     let tmp = TempDir::new().unwrap();
-    let creds_dir = tmp.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
-    std::fs::write(
-        creds_dir.join("mimo.json"),
-        r#"{"provider":"mimo","apiKey":"mimo-file-key-101"}"#,
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "mimo": {
+                "models": [{ "id": "mimo-default", "enabled": true }]
+            }
+        }),
     )
     .unwrap();
+    crate::test_helpers::write_provider_credential(tmp.path(), "mimo", "mimo-file-key-101")
+        .unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
 
     let listed = registry.list().await;
     assert!(
@@ -296,10 +274,21 @@ async fn test_init_llm_registry_mimo_via_credentials_file() {
 
 #[tokio::test]
 async fn test_init_llm_registry_mimo_not_registered_when_absent() {
+    // models.json defines mimo but no credential exists for it.
     let tmp = TempDir::new().unwrap();
-    let overrides: HashMap<&str, &str> = HashMap::from([("MIMO_API_KEY", "")]);
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "mimo": {
+                "models": [{ "id": "mimo-default", "enabled": true }]
+            }
+        }),
+    )
+    .unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
 
     let listed = registry.list().await;
     assert!(
@@ -471,47 +460,70 @@ fn test_miner_config_from_mining_config_custom_values() {
 // ============================================================
 
 /// Verify that `init_llm_registry` returns a registry containing
-/// all providers configured via credentials files.
+/// all providers configured via models.json + credential files.
 #[tokio::test]
 async fn test_init_llm_registry_contains_configured_providers() {
     let tmp = TempDir::new().unwrap();
-    let creds_dir = tmp.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
-
-    // Create credential files for openai and anthropic
-    std::fs::write(
-        creds_dir.join("openai.json"),
-        r#"{"provider":"openai","apiKey":"openai-key"}"#,
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "openai": {
+                "models": [{ "id": "gpt-4o-basic", "enabled": true }]
+            },
+            "anthropic": {
+                "models": [{ "id": "claude-sonnet-4", "enabled": true }]
+            }
+        }),
     )
     .unwrap();
-    std::fs::write(
-        creds_dir.join("anthropic.json"),
-        r#"{"provider":"anthropic","apiKey":"anthropic-key"}"#,
-    )
-    .unwrap();
+    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "openai-key").unwrap();
+    crate::test_helpers::write_provider_credential(tmp.path(), "anthropic", "anthropic-key")
+        .unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &HashMap::new()).await;
+    let (registry, _fallback_client) = Daemon::init_llm_registry(&cm).await;
     let listed = registry.list().await;
 
     assert!(listed.contains(&"openai".to_string()));
     assert!(listed.contains(&"anthropic".to_string()));
 }
 
-/// Verify that `init_llm_registry` registers providers from env
-/// overrides when no credentials files exist.
+/// Verify that the fallback chain content is fully determined by
+/// models.json + credentials: one entry per enabled model, carrying
+/// the provider id and the real model id.
 #[tokio::test]
-async fn test_init_llm_registry_env_override_providers() {
+async fn test_init_llm_registry_chain_from_models_config() {
     let tmp = TempDir::new().unwrap();
-    let overrides: HashMap<&str, &str> = HashMap::from([
-        ("OPENAI_API_KEY", "env-openai-key"),
-        ("MINIMAX_API_KEY", "env-minimax-key"),
-    ]);
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_models_providers(
+        tmp.path(),
+        serde_json::json!({
+            "openai": {
+                "models": [
+                    { "id": "gpt-4o-basic", "enabled": true },
+                    { "id": "gpt-4o-mini", "enabled": true }
+                ]
+            }
+        }),
+    )
+    .unwrap();
+    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "openai-key").unwrap();
+    let cm = crate::test_helpers::load_config_manager(tmp.path());
 
-    let (registry, _fallback_client) = Daemon::init_llm_registry(tmp.path(), &overrides).await;
-    let listed = registry.list().await;
+    let (_registry, fallback_client) = Daemon::init_llm_registry(&cm).await;
 
-    assert!(listed.contains(&"openai".to_string()));
-    assert!(listed.contains(&"minimax".to_string()));
+    let chain = fallback_client.chain();
+    assert_eq!(
+        chain.len(),
+        2,
+        "chain must have one entry per enabled model"
+    );
+    let model_ids: Vec<&str> = chain.iter().map(|entry| entry.model_id.as_str()).collect();
+    assert_eq!(model_ids, vec!["gpt-4o-basic", "gpt-4o-mini"]);
+    for entry in chain {
+        assert_eq!(entry.provider_id, "openai");
+    }
 }
 
 /// Verify that `for_provider` maps providers exactly as described in
@@ -870,7 +882,9 @@ fn session_handler_model_knowledge_returns_some() {
         Arc::new(CooldownManager::new()),
     ));
     let caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: fallback_client.clone() as Arc<dyn closeclaw_common::LlmCaller>,
+        caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
+            fallback_client.clone(),
+        )) as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
     let handler = SessionMessageHandler::new(

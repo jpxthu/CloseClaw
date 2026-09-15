@@ -21,7 +21,7 @@ pub mod trait_adapters;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
-use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
+use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
 pub use daemon_struct::*;
@@ -207,8 +207,7 @@ impl Daemon {
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
         let skill_fut = skill_reload::init_skill_registry(config_dir, None, extra_dirs);
-        let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-        let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
+        let llm_fut = Self::init_llm_registry(config_manager);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
         let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = skill_result?;
         Ok((

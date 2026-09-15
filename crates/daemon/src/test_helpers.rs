@@ -7,6 +7,7 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use closeclaw_config::ConfigManager;
 
 use closeclaw_session::persistence::{
     DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
@@ -21,6 +22,45 @@ pub fn common_shutdown_handle(
     Arc::new(closeclaw_gateway::shutdown_handle::ShutdownHandle::new(
         Arc::new(daemon_handle.clone()),
     ))
+}
+
+/// Write a `models.json` defining `providers` into config dir `dir`.
+///
+/// Call after [`write_mandatory_configs`], which writes a placeholder
+/// models.json that this helper overwrites.
+pub fn write_models_providers(
+    dir: &std::path::Path,
+    providers: serde_json::Value,
+) -> io::Result<()> {
+    std::fs::write(
+        dir.join("models.json"),
+        serde_json::json!({ "mode": "merge", "providers": providers }).to_string(),
+    )
+}
+
+/// Write a convention-directory credential file into
+/// `<dir>/credentials/<provider>.json`.
+pub fn write_provider_credential(
+    dir: &std::path::Path,
+    provider: &str,
+    api_key: &str,
+) -> io::Result<()> {
+    let creds_dir = dir.join("credentials");
+    std::fs::create_dir_all(&creds_dir)?;
+    std::fs::write(
+        creds_dir.join(format!("{}.json", provider)),
+        serde_json::json!({ "provider": provider, "apiKey": api_key }).to_string(),
+    )
+}
+
+/// Create and load a ConfigManager over config dir `dir` (the mandatory
+/// config files must already exist — see [`write_mandatory_configs`]).
+///
+/// In tests `dir` plays the role of `<root>/config`.
+pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
+    let cm = ConfigManager::new(dir.to_path_buf()).expect("ConfigManager::new");
+    cm.load().expect("ConfigManager::load");
+    cm
 }
 
 /// Write the 6 mandatory config files (models.json, channels.json,
