@@ -16,15 +16,20 @@ impl Gateway {
     /// 2. Notify the user that their request is pending approval
     /// 3. Return `Some(HandleResult::SlashHandled)` to block further processing
     ///
-    /// Returns `None` if the sender is owner, already registered, or no
-    /// approval flow is configured.
+    /// Returns `None` if the sender is owner, the message comes from the
+    /// terminal channel (whose caller is Owner by design), the sender is
+    /// already registered, or no approval flow is configured.
     pub(crate) async fn check_new_user_registration(
         &self,
         sender_id: &str,
         channel: &str,
     ) -> Option<HandleResult> {
-        // Owner doesn't need registration.
-        if sender_id == "owner" {
+        // Owner doesn't need registration. The Owner's User ID is fixed as
+        // "owner" (requirements/permission.md §F1), and the terminal channel's
+        // caller is Owner by default with no auth (design cli/README.md,
+        // requirements/cli.md §F1) — the terminal channel carries the local
+        // machine UID as sender_id, so exempt the whole terminal channel.
+        if sender_id == "owner" || channel == "terminal" {
             return None;
         }
 

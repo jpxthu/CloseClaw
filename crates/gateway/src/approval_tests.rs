@@ -810,3 +810,64 @@ async fn test_idle_slash_executes() {
         "handler reply should be sent"
     );
 }
+
+// ===========================================================================
+// New-user registration gate: Owner / terminal-channel exemption
+// ===========================================================================
+/// Design basis: the terminal channel's caller is Owner by default with no
+/// additional auth (design cli/README.md, requirements/cli.md §F1), and the
+/// Owner's User ID is fixed as `owner` (requirements/permission.md §F1).
+/// `check_new_user_registration` must not intercept terminal-channel
+/// messages even though their `sender_id` is the local machine UID, while
+/// unregistered non-owner IM users remain gated behind the approval flow.
+
+/// Gateway with an active ApprovalFlow and a config dir containing no
+/// `users.json` — every sender is an unregistered new user.
+async fn reg_gate_gw() -> crate::Gateway {
+    let gw = make_gw();
+    let dir = tempfile::tempdir().expect("config dir");
+    gw.set_config_dir(dir.keep()).await;
+    install_approval_flow(&gw).await;
+    gw
+}
+
+/// Terminal channel: sender_id is the local machine UID (account_id
+/// "owner" per chat_rpc), but the caller is Owner by design — no gate.
+#[tokio::test]
+async fn test_registration_gate_exempts_terminal_channel() {
+    let gw = reg_gate_gw().await;
+
+    let result = gw.check_new_user_registration("1000", "terminal").await;
+
+    assert!(
+        result.is_none(),
+        "terminal-channel messages must not be intercepted by the registration gate"
+    );
+}
+
+/// The fixed Owner User ID bypasses the gate on any channel.
+#[tokio::test]
+async fn test_registration_gate_exempts_owner_user_id() {
+    let gw = reg_gate_gw().await;
+
+    let result = gw.check_new_user_registration("owner", "feishu").await;
+
+    assert!(
+        result.is_none(),
+        "sender_id \"owner\" must bypass the registration gate"
+    );
+}
+
+/// Contrast: an unregistered non-owner IM user is still intercepted and
+/// routed to the approval flow (existing behavior unchanged).
+#[tokio::test]
+async fn test_registration_gate_gates_unregistered_im_user() {
+    let gw = reg_gate_gw().await;
+
+    let result = gw.check_new_user_registration("u-42", "feishu").await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "unregistered IM users must still be gated by the registration flow"
+    );
+}
