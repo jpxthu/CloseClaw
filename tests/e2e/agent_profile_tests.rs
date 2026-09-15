@@ -10,14 +10,24 @@
 //!
 //! STANDARDS.md §1 e2e 判定：spawn 独立 daemon 进程 + 真实 Unix socket。
 //!
-//! Blocker note (2026-08-22): on current master the daemon-side chat → LLM
-//! path panics before any LLM request is made
-//! (`SkillListingProviderWrapper::collect_builtin_listings` calls
+//! Blocker note (2026-09-15 update): the 2026-08-22 `Handle::block_on`
+//! panic (`SkillListingProviderWrapper::collect_builtin_listings` calling
 //! `Handle::block_on` inside an async context — "Cannot start a runtime
-//! from within a runtime", crates/daemon/src/bridge.rs:186). The smoke test
-//! therefore asserts the *observable* contract of this wiring today:
-//! the daemon starts, the chat RPC socket answers, and the client receives
-//! a well-formed protocol response (Error frames for the panic are
+//! from within a runtime", crates/daemon/src/bridge.rs:186) was fixed on
+//! this branch by moving the builtin-registry awaits onto detached
+//! threads (`block_on_detached`, sync analogue of #3054's
+//! `spawn_blocking` isolation). fake_llm now receives the request.
+//!
+//! Remaining blocker for the model-selection smoke path: the non-streaming
+//! LLM result is delivered through `SessionMessageHandler::output_tx`,
+//! which the daemon wires to a channel whose receiver is dropped
+//! (`crates/daemon/src/lifecycle/mod.rs`, `_output_rx` held but never
+//! drained) — so chat RPC clients still observe only a terminal `Error`
+//! frame. That wiring gap is tracked separately from the panic fix.
+//!
+//! The smoke test therefore still asserts the *observable* contract of
+//! this wiring today: the daemon starts, the chat RPC socket answers, and
+//! the client receives a well-formed protocol response (Error frames are
 //! protocol-valid; a hang/crash of the daemon is not). See the
 //! `e2e_agent_profile_smoke` case doc for the full reasoning.
 //!
