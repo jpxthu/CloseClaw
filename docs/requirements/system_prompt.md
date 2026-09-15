@@ -59,7 +59,7 @@ System Prompt 末尾的追加区除 Owner 追加指令外，还承载系统注�
 
 > **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除。详见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
 > **交叉引用**：追加指令的追加、查看、清除命令入口。详见 [slash §F6](slash.md)（System Prompt 追加）。
-> **交叉引用**：追加指令的持久化由 [session §F2](session.md)（恢复时的 System Prompt 重建）管理。本节仅定义 System Prompt 内容层的专属行为。
+> **交叉引用**：追加指令的持久化由 [session §F2](session.md)（恢复时的追加指令保留）管理。本节仅定义 System Prompt 内容层的专属行为。
 
 ### F6. 内容缓存与自动刷新
 
@@ -77,7 +77,7 @@ System Prompt 的组装触发时机是固定的，两次组装之间内容不变
 
 > **交叉引用**：Bootstrap 文件等数据源变更的生效机制。详见 [config §F4](config.md)（配置重载）；本节仅约定两次组装之间不响应此类变更。
 
-> **交叉引用**：重建触发的外部事件来源——新 Session 创建详见 [session §F1](session.md)（对话持久化与恢复），归档恢复详见 [session §F2](session.md)（恢复时的 System Prompt 重建），上下文压缩行为详见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令详见 [slash §F6](slash.md)（System Prompt 追加）。
+> **交叉引用**：重建触发的外部事件来源——新 Session 创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复），上下文压缩行为详见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令详见 [slash §F6](slash.md)（System Prompt 追加）。
 
 ### F7. API 前缀缓存利用
 

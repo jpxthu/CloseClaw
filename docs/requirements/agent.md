@@ -62,11 +62,11 @@ Agent 的能力边界由配置档案中的字段组合与权限基线共同决�
 
 系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、无 Bootstrap 文件声明、工具白名单/黑名单、技能白名单、子 Session 创建控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
 
-配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单变更（Agent 增删）或 Agent 配置变更生效后，新创建的 Session 使用最新配置，已运行的 Session 沿用创建时的配置。
+配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单变更（Agent 增删）或 Agent 配置变更对 Session 的生效边界详见 [session §F6](session.md)（Session 归档与清理）。
 
 ### F7. 子 Session 创建（Spawn）
 
-Agent 可以创建子 Session 来执行子任务。默认创建的子 Session 为一次性执行（完成后自动结束并回传结果），也可选择持久存活（见 F11「持久子 Session 控制」）。创建时调用方指定：
+Agent 可以创建子 Session 来执行子任务。默认创建的子 Session 为一次性执行（完成后自动结束），也可选择持久存活（见 F11「持久子 Session 控制」）。创建时调用方指定：
 
 - **目标 Agent**：spawn 的目标 Agent，使用其配置档案创建子 Session（未指定时默认取当前 Agent，即父 Agent 自身）
 - **任务描述**：子 Session 要完成的任务
@@ -86,7 +86,7 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 
 Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：子 Session 在创建时将父 Session 的完整对话历史作为自身对话消息继承，使其理解已发生的上下文后再执行新任务；非 Fork 模式的 Spawn 不继承父 Session 的对话历史。
 
-> **交叉引用**：任务描述的注入方式（注入 System Prompt、不属于对话消息、压缩时不受影响）。详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：任务描述的注入方式。详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F9. 子 Session 创建控制
 
@@ -102,7 +102,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 ### F10. 子 Session 结果回传
 
-> **交叉引用**：一次性执行的子 Session 完成后，执行结果自动回传给父 Session，带去重保护。详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：一次性执行的子 Session 完成后的结果回传。详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ### F11. 持久子 Session 控制
 
