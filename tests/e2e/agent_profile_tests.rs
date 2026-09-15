@@ -10,26 +10,26 @@
 //!
 //! STANDARDS.md §1 e2e 判定：spawn 独立 daemon 进程 + 真实 Unix socket。
 //!
-//! Blocker note (2026-09-15 update): the 2026-08-22 `Handle::block_on`
-//! panic (`SkillListingProviderWrapper::collect_builtin_listings` calling
-//! `Handle::block_on` inside an async context — "Cannot start a runtime
-//! from within a runtime", crates/daemon/src/bridge.rs:186) was fixed on
-//! this branch by moving the builtin-registry awaits onto detached
-//! threads (`block_on_detached`, sync analogue of #3054's
-//! `spawn_blocking` isolation). fake_llm now receives the request.
+//! Blocker history (both resolved on this branch, 2026-09-16):
+//! - The 2026-08-22 `Handle::block_on` panic
+//!   (`SkillListingProviderWrapper::collect_builtin_listings` calling
+//!   `Handle::block_on` inside an async context — "Cannot start a runtime
+//!   from within a runtime", crates/daemon/src/bridge.rs) was fixed by
+//!   moving the builtin-registry awaits onto detached threads
+//!   (`block_on_detached`, sync analogue of #3054's `spawn_blocking`
+//!   isolation). fake_llm now receives the request.
+//! - The follow-up wiring gap — non-streaming LLM results were written
+//!   to `SessionMessageHandler::output_tx` whose daemon-side receiver
+//!   (`_output_rx` in crates/daemon/src/lifecycle/mod.rs) was dropped, so
+//!   chat RPC clients only observed a terminal `Error` frame — was fixed
+//!   by consuming that receiver and delivering completed turns through
+//!   the outbound chain to the chat client.
 //!
-//! Remaining blocker for the model-selection smoke path: the non-streaming
-//! LLM result is delivered through `SessionMessageHandler::output_tx`,
-//! which the daemon wires to a channel whose receiver is dropped
-//! (`crates/daemon/src/lifecycle/mod.rs`, `_output_rx` held but never
-//! drained) — so chat RPC clients still observe only a terminal `Error`
-//! frame. That wiring gap is tracked separately from the panic fix.
-//!
-//! The smoke test therefore still asserts the *observable* contract of
-//! this wiring today: the daemon starts, the chat RPC socket answers, and
-//! the client receives a well-formed protocol response (Error frames are
-//! protocol-valid; a hang/crash of the daemon is not). See the
-//! `e2e_agent_profile_smoke` case doc for the full reasoning.
+//! With both fixes in place the chat → LLM → client round trip works
+//! end-to-end: `e2e_agent_model_selection` asserts the full path (fake_llm
+//! receives the request; the greeting text reaches the chat client). The
+//! smoke case keeps its looser infrastructure-level assertions — see the
+//! `e2e_agent_profile_smoke` case doc for details.
 //!
 //! Uses `#[cfg(feature = "fake-llm")]` to gate on the feature flag, per
 //! STANDARDS.md §5.
@@ -386,13 +386,16 @@ fn assert_admin_agent_info(response: &serde_json::Value) {
 /// 3. after SIGTERM the daemon exits gracefully (code 0) and removes its
 ///    sockets; no residual process remains.
 ///
-/// Known blocker (recorded in the file-level doc): the chat → LLM call
-/// path panics inside `SkillListingProviderWrapper` (block_on in async
-/// context) before any LLM request is issued, so a non-empty text answer
-/// cannot be asserted yet. Once that production bug is fixed, the
-/// `answer` assertion below should be tightened from "protocol answered"
-/// to "contains a non-empty ContentChunk from the fake LLM fallback
-/// scenario".
+/// History: the chat → LLM call path used to panic inside
+/// `SkillListingProviderWrapper` (block_on in async context) before any
+/// LLM request was issued. That panic and the follow-up result-return
+/// wiring gap (dropped `output_tx` receiver) were both fixed on this
+/// branch, so a non-empty text answer is now observable —
+/// `e2e_agent_model_selection` asserts it end-to-end. This smoke case
+/// deliberately keeps the looser infrastructure-level assertions above
+/// (boot + protocol answer + graceful shutdown); tightening them to
+/// assert ContentChunk content is optional follow-up, not blocked by any
+/// known production bug.
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
@@ -445,15 +448,23 @@ async fn e2e_agent_profile_smoke() {
 // Step 1.2 test cases
 // ---------------------------------------------------------------------------
 
-/// §F1 model selection: agent `config.json` model field drives the
-/// model name in the outbound LLM request.
+/// §F1 model selection: the models.json-driven fallback chain determines
+/// the model name in the outbound LLM request.
 ///
-/// The fake_llm scenario engine matches on `model_id`. The daemon sends
-/// the configured model ("gpt-4o-basic") in the OpenAI request body.
-/// The `greeting` scenario in `basic-text.json` requires
-/// `model_id = "gpt-4o-basic"` AND `message_contains = "hello"`,
-/// returning a distinct text. Asserting that text proves the config
-/// model field propagated to the LLM request.
+/// Attribution (verified on this branch): `UnifiedFallbackClient::chat`
+/// overwrites `request.model` with the chain entry's `model_id` before
+/// dispatch, and daemon `llm_init` builds one chain entry per enabled
+/// models.json model — so the wire model comes from models.json, not
+/// directly from the agent config's `model` field. In this fixture both
+/// name "gpt-4o-basic": models.json declares the model id, and the agent
+/// config references `openai/gpt-4o-basic`.
+///
+/// The fake_llm scenario engine matches on `model_id`. The `greeting`
+/// scenario in `basic-text.json` requires `model_id = "gpt-4o-basic"`
+/// AND `message_contains = "hello"`, returning a distinct text.
+/// Asserting that text proves the request reached fake_llm carrying the
+/// models.json-declared model id and that the answer returned to the chat
+/// client — i.e. the chat → LLM → client path is wired end-to-end.
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
@@ -494,8 +505,12 @@ async fn e2e_agent_model_selection() {
 /// "INJECTED_OK". Asserting that response proves the bootstrap
 /// content was included in the LLM request messages.
 ///
-/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
-/// panic. Marked `#[ignore]`.
+/// **Status (2026-09-16)**: the original blocker (the same
+/// `SkillListingProviderWrapper` panic) was fixed on this branch, so the
+/// recorded reason for `#[ignore]` no longer applies as-is. Un-ignoring
+/// still requires re-verification of this scenario end-to-end
+/// (unignore-workflow debt); this branch only updates the comment, not
+/// the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -555,12 +570,14 @@ async fn e2e_agent_system_prompt_injection() {
 /// (relative path). In the expected-pass state, the tool executes in
 /// the workspace CWD and reads the file successfully.
 ///
-/// **Blocker #2436 (2026-08-22)**: `SkillListingProviderWrapper` panics
-/// in `bridge.rs:186` before any LLM request is made, so the tool_call
-/// chain is never exercised. The test sets up correct infrastructure
-/// (marker file in workspace, daemon with workspace config) and asserts
-/// the infrastructure contract. Once #2436 is resolved, tighten the
-/// assertion to verify the tool result contains marker content.
+/// **Status (2026-09-16)**: the original blocker #2436 — the
+/// `SkillListingProviderWrapper` panic in `bridge.rs` before any LLM
+/// request — was fixed on this branch (together with the result-return
+/// wiring gap), so the recorded reason for `#[ignore]` no longer applies
+/// as-is. Un-ignoring still requires re-verifying the tool_call chain
+/// end-to-end and tightening the assertion to check the tool result
+/// contains the marker content (unignore-workflow debt); this branch only
+/// updates the comment, not the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -638,18 +655,17 @@ async fn e2e_agent_workspace() {
 ///     3. The rejection is observable in the chat response (tool result
 ///        containing a deny/error message) and/or daemon stderr.
 ///
-/// Degradation: Since Blocker B (`SkillListingProviderWrapper` panic in
-/// bridge.rs:186, `Handle::block_on` in async context) prevents any LLM
-/// request from being issued, the fake LLM never receives the request and
-/// the tool_call path is never exercised. This test asserts the observable
-/// infrastructure contract today: (1) the agent config with tools/
-/// disallowed_tools fields is loaded without error, (2) the daemon starts
-/// and responds to chat protocol frames. Once Blocker B is resolved, tighten
-/// the assertions to verify tool execution (Read result in response) and
-/// tool rejection (Bash denied in response).
-///
-/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
-/// panic. Marked `#[ignore]`.
+/// Degradation history: this case originally asserted only the observable
+/// infrastructure contract (agent config loaded without error; daemon
+/// answers chat protocol frames) because Blocker B — the
+/// `SkillListingProviderWrapper` panic in bridge.rs (`Handle::block_on`
+/// in async context) — prevented any LLM request from being issued. That
+/// panic was fixed on this branch, so the recorded reason for `#[ignore]`
+/// no longer applies as-is; the assertions still need tightening to
+/// verify tool execution (Read result in response) and tool rejection
+/// (Bash denied in response) before the ignore can be lifted
+/// (unignore-workflow debt). This branch only updates the comment, not
+/// the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
