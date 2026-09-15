@@ -37,11 +37,31 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 自动压缩：每轮对话结束后检测上下文剩余 token 空间
   - 告警阶段：剩余空间不高于告警阈值时，提示 User 即将压缩。若后续剩余空间回升至告警阈值以上，告警自动取消
   - 压缩阶段：剩余空间不高于压缩阈值时，自动执行压缩
-  - 告警阈值大于压缩阈值（告警先于压缩触发），两个阈值均按上下文窗口百分比配置，每个 Agent 可独立设置
+  - 告警阈值大于压缩阈值（告警先于压缩触发），两个阈值均按上下文窗口百分比配置，每个 Agent 可独立设置，未配置时使用系统默认值
 - 压缩保留最近一段对话原文（按 token 预算确定，默认约为上下文窗口的 16%、可配置），仅将其余更早的对话压缩为摘要；被保留的原文原样保留、不进入摘要。压缩不拆散工具调用与其结果
 - 压缩对象为 User 与 Agent 的对话消息及注入的非 User 消息；System Prompt 内容完整保留、不参与压缩
 - 被压缩的对话内容以一条结构化摘要原位替代；压缩只追加、不销毁对话历史（被压缩内容仍可回溯）
-- 压缩结果为一条结构化摘要消息，覆盖六个维度：Goal / Constraints & Preferences / Progress / Key Decisions / Next Steps / Critical Context
+- 压缩由 LLM 按以下 prompt 生成一条结构化摘要消息（prompt 原文随需求固定）：
+
+```
+You are compacting a conversation to free context space so the assistant can continue seamlessly.
+
+Produce a summary with exactly these sections:
+## Goal
+## Constraints & Preferences
+## Progress (Done / In Progress / Blocked)
+## Key Decisions
+## Next Steps
+## Current Work
+## Pending Jobs
+## Critical Context
+
+Rules:
+- Preserve verbatim: file paths, commands, error strings, identifiers, numbers, and the user's corrections.
+- Current Work must state precisely what was in progress just before compaction.
+- Do not invent facts; omit unknowns.
+- Reply with only the summary.
+```
 - 连续压缩失败（仅计自动压缩失败）达到配置的失败次数后自动进入保护暂停（仅阻止自动压缩再次触发，不影响活跃判定和归档），手动 `/compact` 成功后自动解除保护暂停
 
 > **交叉引用**：手动压缩由 `/compact` 指令触发。详见 [slash §F5](slash.md)（上下文压缩）。
@@ -179,5 +199,6 @@ Session 模块在以下环节记录调试日志：
 - **可恢复性**：系统重启后自动恢复所有活跃 Session。恢复耗时复杂度 O(A)，与 N 无关
 - **性能**：Agent 回复实时逐字展示。后台维护任务（归档扫描）不阻塞 User 对话的响应
 - **可配置性**：每个 Agent 的 inactive 时长、清理时长可独立配置，主 Agent Session 与子 Session 可以分别设置；各配置项独立回退到系统默认值。配置变更的生效时机见 F6 与 [config §F4](config.md)（配置重载）
+- **可观测性**：Session 的关键操作（创建 / 查找 / 归档恢复、对话历史追加与修改、压缩、消息注入、活跃维度变化、健康检测）均记录调试日志（见 [F12](#f12-调试日志)（调试日志）），可据以排查问题
 - **Session 独立性**：Session 路由、委托、归档恢复等日常操作对 N 的复杂度为 O(1) 或 O(log N)，不对全量历史 Session 做 O(N) 遍历
 - **长期运行稳定性**：系统累计委托大量子任务后，委托新子任务和 User 对话的响应速度不随已完成子任务数量增加而退化。已完成子任务的结果在保留期内仍可查，但不持续占用运行资源；内存占用 O(A)，对 N 为 O(1)
