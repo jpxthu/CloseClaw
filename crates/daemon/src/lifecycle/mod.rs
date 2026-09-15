@@ -201,7 +201,25 @@ impl Daemon {
             admin_restart_tx,
         )
         .await;
-        let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
+        let (chat_handle, chat_sock_path, chat_rpc_plugin) =
+            Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
+        // Turn-completion consumer for the SessionMessageHandler output
+        // channel: the handler emits one message per completed LLM turn
+        // (empty payload on failure). Chat RPC turns deliver their result
+        // through the outbound pipeline onto the requesting connection's
+        // channel; this consumer then closes those channels so
+        // `collect_responses` finalizes the turn instead of waiting out
+        // its completion timeout.
+        tokio::spawn(async move {
+            let mut output_rx = output_rx;
+            while let Some((text, _blocks)) = output_rx.recv().await {
+                tracing::debug!(
+                    turn_len = text.len(),
+                    "LLM turn completed — finalizing chat turns"
+                );
+                chat_rpc_plugin.finish_turns().await;
+            }
+        });
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -238,7 +256,6 @@ impl Daemon {
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
             fallback_client: Arc::clone(&fallback_client),
-            _output_rx: output_rx,
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),
             admin_restart_rx: Some(admin_restart_rx),

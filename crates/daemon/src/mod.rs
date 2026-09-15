@@ -947,7 +947,7 @@ impl Daemon {
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
-    ) -> (tokio::task::JoinHandle<()>, PathBuf) {
+    ) -> crate::daemon_struct::ChatRpcInit {
         use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer, RpcTerminalPlugin};
         let sock_path = chat_socket_path(Path::new(config_dir));
         let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
@@ -956,7 +956,7 @@ impl Daemon {
             .await;
         let context = ChatContext {
             gateway: Arc::clone(gateway),
-            rpc_plugin,
+            rpc_plugin: rpc_plugin.clone(),
         };
         let chat_server = ChatRpcServer::new(&sock_path, context);
         let chat_handle = tokio::spawn(async move {
@@ -965,7 +965,7 @@ impl Daemon {
             }
         });
         info!("chat RPC server started on {}", sock_path.display());
-        (chat_handle, sock_path)
+        (chat_handle, sock_path, rpc_plugin)
     }
 }
 #[cfg(test)]

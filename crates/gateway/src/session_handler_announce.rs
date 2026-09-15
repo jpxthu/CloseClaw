@@ -319,6 +319,20 @@ impl SessionMessageHandler {
                     })
                     .collect::<Vec<_>>()
                     .join("");
+                // 批量出站（outbound-flow.md 批量模式）：非流式轮次补送 IM
+                // Adapter；流式轮次已由 send_outbound_streaming 增量发送。
+                if let Some(gw) = gateway {
+                    crate::outbound_helpers::deliver_batch_result(
+                        gw,
+                        session_manager,
+                        session_id,
+                        &text,
+                        &stream_result.content_blocks,
+                    )
+                    .await;
+                }
+                // Turn-completion signal for callers (CLI REPL waits on this
+                // channel; the daemon chat wiring uses it to finalize turns).
                 let guard = output_tx.read().await;
                 if let Some(tx) = guard.as_ref() {
                     let _ = tx.send((text, stream_result.content_blocks)).await;
@@ -334,6 +348,12 @@ impl SessionMessageHandler {
                 // Mark run-mode child as Errored so try_push_announce
                 // resolves the correct ChildCompletionStatus.
                 session_manager.notify_child_error(session_id).await;
+                // Turn-completion signal (empty payload): callers must not
+                // block until their timeout when the turn failed.
+                let guard = output_tx.read().await;
+                if let Some(tx) = guard.as_ref() {
+                    let _ = tx.send((String::new(), Vec::new())).await;
+                }
             }
         }
         // Step 1.5: best-effort announce to parent (run-mode child).
@@ -566,38 +586,6 @@ impl SessionMessageHandler {
         let tx = output_tx.clone();
         let me = metrics_emitter.clone();
         Box::pin(async move { Self::handle_recovery_action(sm, sid, action, tx, me).await })
-    }
-
-    /// Write complete Thinking blocks from streaming error to history.
-    async fn write_partial_thinking(
-        session_manager: &Arc<SessionManager>,
-        session_id: &str,
-        err: &LLMError,
-    ) {
-        let LLMError::PartialContent {
-            ref thinking_blocks,
-            ..
-        } = err
-        else {
-            return;
-        };
-        if thinking_blocks.is_empty() {
-            return;
-        }
-        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-            let mut cs_write = cs.write().await;
-            cs_write.append_response(closeclaw_llm::types::UnifiedResponse {
-                content_blocks: thinking_blocks.clone(),
-                usage: Default::default(),
-                finish_reason: None,
-                retry_attempts: 0,
-            });
-            tracing::info!(
-                session_id,
-                count = thinking_blocks.len(),
-                "wrote partial Thinking blocks to history"
-            );
-        }
     }
 
     /// Step 1.5: best-effort announce to parent (run-mode child).

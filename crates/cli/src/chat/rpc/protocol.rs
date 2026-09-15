@@ -39,6 +39,11 @@ pub enum ChatResponse {
     /// Streaming text content chunk.
     ContentChunk {
         /// Rendered text fragment.
+        //
+        // Wire name is `content` (not `text`): the chat frame contract
+        // pinned by `tests/e2e/agent_profile_tests.rs`, which reads the
+        // `content` field of `content_chunk` frames.
+        #[serde(rename = "content")]
         text: String,
     },
     /// Thinking content chunk.
@@ -223,7 +228,7 @@ mod tests {
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed["type"], "content_chunk");
-        assert_eq!(parsed["text"], "hi");
+        assert_eq!(parsed["content"], "hi");
     }
 
     #[test]

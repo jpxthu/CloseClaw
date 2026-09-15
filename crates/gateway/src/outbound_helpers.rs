@@ -2,8 +2,10 @@
 //!
 //! Extracted from `outbound.rs` to stay within the 1000-line file limit.
 
+use std::sync::Arc;
 use std::time::Duration;
 
+use crate::session_manager::SessionManager;
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -12,6 +14,7 @@ use closeclaw_common::processor::{ProcessedMessage, ProcessorChain};
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_llm::types::{ContentBlock, ContentBlockType};
+use closeclaw_session::llm_session::ChatSession;
 
 /// Bundles the streaming outbound context passed to `process_stream_event` and
 /// its sub-handlers. Keeps parameter counts ≤6 (CONTRIBUTING.md limit).
@@ -702,4 +705,46 @@ pub(crate) fn emit_send_completed_log(
         }),
         parent,
     });
+}
+
+/// Deliver a completed non-streaming LLM turn through the Gateway batch
+/// outbound chain (design: gateway/outbound-flow.md 批量模式).
+///
+/// Streaming turns were already rendered and sent incrementally by
+/// `send_outbound_streaming` and are skipped here. Resolves the session's
+/// channel, then runs [`Gateway::send_outbound`]: outbound Processor
+/// Chain → IM Adapter render → middleware → send → checkpoint persist.
+/// Failures are logged and do not fail the turn (the result is already
+/// in the conversation history at this point).
+pub(crate) async fn deliver_batch_result(
+    gw: &Arc<Gateway>,
+    session_manager: &Arc<SessionManager>,
+    session_id: &str,
+    text: &str,
+    blocks: &[ContentBlock],
+) {
+    let streaming = match session_manager.get_conversation_session(session_id).await {
+        Some(cs) => cs.read().await.stream_enabled(),
+        None => false,
+    };
+    if streaming {
+        return;
+    }
+    let channel = {
+        let sessions = session_manager.sessions.read().await;
+        sessions.get(session_id).map(|s| s.channel.clone())
+    };
+    let Some(channel) = channel else {
+        tracing::warn!(
+            session_id,
+            "no channel on session record; skipping batch outbound delivery"
+        );
+        return;
+    };
+    if let Err(e) = gw
+        .send_outbound(session_id, &channel, text, blocks.to_vec(), None, None)
+        .await
+    {
+        tracing::warn!(session_id, channel, error = %e, "batch outbound delivery failed");
+    }
 }

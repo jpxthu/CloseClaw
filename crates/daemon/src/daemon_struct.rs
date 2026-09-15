@@ -20,6 +20,14 @@ use tokio::sync::watch;
 use crate::config_watcher;
 use crate::gateway_restart::RestartHandle;
 
+/// Handles returned by chat RPC init: server task handle, socket path,
+/// and the registered terminal IM plugin (turn-completion consumer).
+pub(crate) type ChatRpcInit = (
+    tokio::task::JoinHandle<()>,
+    PathBuf,
+    Arc<crate::chat_rpc::RpcTerminalPlugin>,
+);
+
 /// Global daemon state
 pub struct Daemon {
     /// Gateway instance — wrapped in Mutex for restart-time swap.
@@ -91,12 +99,6 @@ pub struct Daemon {
     /// Shared across all LLM call sites (SessionManager, active searcher,
     /// compaction, gateway restart).
     pub fallback_client: Arc<UnifiedFallbackClient>,
-    /// Receiver half of the SessionMessageHandler output channel.
-    /// Retained here to prevent the sender from being silently closed;
-    /// will be wired to the outbound pipeline in a future step.
-    #[allow(dead_code)]
-    pub(crate) _output_rx:
-        tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
     /// Gateway restart state machine — tracks Pending/Executing transitions.
     pub(crate) restart_state: RestartHandle,
     /// Receiver for restart-class config change signals from the config watcher.

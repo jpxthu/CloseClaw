@@ -25,8 +25,8 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
-use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::llm_session::SessionStream;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 
 /// Metadata key: marks a checkpoint message as having been interrupted
 /// by a streaming error (as opposed to normal completion).
@@ -158,6 +158,38 @@ impl SessionMessageHandler {
             });
         }
         Ok(stream_result)
+    }
+
+    /// Write complete Thinking blocks from streaming error to history.
+    pub(super) async fn write_partial_thinking(
+        session_manager: &Arc<SessionManager>,
+        session_id: &str,
+        err: &LLMError,
+    ) {
+        let LLMError::PartialContent {
+            ref thinking_blocks,
+            ..
+        } = err
+        else {
+            return;
+        };
+        if thinking_blocks.is_empty() {
+            return;
+        }
+        if let Some(cs) = session_manager.get_conversation_session(session_id).await {
+            let mut cs_write = cs.write().await;
+            cs_write.append_response(closeclaw_llm::types::UnifiedResponse {
+                content_blocks: thinking_blocks.clone(),
+                usage: Default::default(),
+                finish_reason: None,
+                retry_attempts: 0,
+            });
+            tracing::info!(
+                session_id,
+                count = thinking_blocks.len(),
+                "wrote partial Thinking blocks to history"
+            );
+        }
     }
 }
 
