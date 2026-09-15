@@ -618,7 +618,7 @@ mod tests {
 
         // Simulate the task-local scope that dispatch_chat_message sets.
         let result = CHAT_CONN_ID
-            .scope(conn_id, plugin.send(&output, "peer", None))
+            .scope(conn_id, plugin.send(&output, "peer", None, None))
             .await;
         result.unwrap();
         let received = rx.recv().await.unwrap();
@@ -644,7 +644,7 @@ mod tests {
             payload: json!("msg1"),
         };
         CHAT_CONN_ID
-            .scope(conn1, plugin.send(&out1, "peer", None))
+            .scope(conn1, plugin.send(&out1, "peer", None, None))
             .await
             .unwrap();
 
@@ -654,7 +654,7 @@ mod tests {
             payload: json!("msg2"),
         };
         CHAT_CONN_ID
-            .scope(conn2, plugin.send(&out2, "peer", None))
+            .scope(conn2, plugin.send(&out2, "peer", None, None))
             .await
             .unwrap();
 
@@ -681,7 +681,7 @@ mod tests {
             payload: json!("test"),
         };
         let result = CHAT_CONN_ID
-            .scope(1, plugin.send(&output, "peer", None))
+            .scope(1, plugin.send(&output, "peer", None, None))
             .await;
         assert!(result.is_err());
     }
@@ -697,7 +697,7 @@ mod tests {
             msg_type: "text".to_string(),
             payload: json!("test"),
         };
-        let _ = plugin.send(&output, "peer", None).await;
+        let _ = plugin.send(&output, "peer", None, None).await;
     }
 
     #[test]
@@ -895,7 +895,7 @@ mod tests {
                     payload: json!(format!("msg-{}", i)),
                 };
                 CHAT_CONN_ID
-                    .scope(i as u64, plugin.send(&out, "peer", None))
+                    .scope(i as u64, plugin.send(&out, "peer", None, None))
                     .await
             });
             handles.push((i, handle));

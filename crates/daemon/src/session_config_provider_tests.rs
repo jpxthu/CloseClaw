@@ -381,7 +381,7 @@ async fn test_spawn_background_services_with_independent_provider() {
 
     // All 3 handles should be valid (tasks are spawned).
     // PlanArchiveSweeper is now spawned in populate_registries, not here.
-    let (sweeper_h, announce_h, dreaming_h) = handles;
+    let (sweeper_h, announce_h, dreaming_h, _task_manager) = handles;
     assert!(!sweeper_h.is_finished());
     assert!(!announce_h.is_finished());
     assert!(!dreaming_h.is_finished());

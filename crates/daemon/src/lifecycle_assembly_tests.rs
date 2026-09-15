@@ -79,6 +79,7 @@ fn test_minimax_plugin_injects_reasoning_split_on_multiturn_tool() {
         role: "tool".to_string(),
         content: "result".to_string(),
         tool_call_id: Some("tc_1".to_string()),
+        content_blocks: None,
     });
     let model = req.model.clone();
     pipeline.before_request(&mut req, &model);
