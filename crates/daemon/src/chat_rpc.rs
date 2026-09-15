@@ -257,8 +257,7 @@ fn build_inbound_input(content: String) -> NormalizedMessage {
 async fn process_gateway_response(
     rx: mpsc::Receiver<RenderedOutput>,
     conn_id: u64,
-    // NOTE: agent_id is no longer used here; kept for API compatibility
-    _agent_id: String,
+    agent_id: String,
     content: String,
     context: &ChatContext,
 ) -> Vec<ChatResponse> {
@@ -267,7 +266,11 @@ async fn process_gateway_response(
     let platform = input.platform.clone();
     // Run the inbound processor chain
     // (RawLog → SessionRouter → ContentNormalizer).
-    let processed = context.gateway.process_inbound_chain(&input).await;
+    let mut processed = context.gateway.process_inbound_chain(&input).await;
+    // Design doc (cli/chat.md): the user names the target agent via
+    // `--agent-id`; carry it on the processed message so Gateway session
+    // resolution routes to that agent instead of the peer_id fallback.
+    attach_target_agent(&mut processed, &agent_id);
 
     // Dispatch through Gateway: resolves session, routes to LLM or slash
     // command.
@@ -285,6 +288,21 @@ async fn process_gateway_response(
     finalize_responses(responses)
 }
 
+/// Attach the request's target `agent_id` to processed-message metadata.
+///
+/// Design doc (cli/chat.md / requirements cli §F1): "用户通过 --agent-id
+/// 指定目标 agent". The Gateway's session resolution reads this key
+/// (priority over bot→Agent bindings) so chat requests route to the
+/// agent named in the request.
+fn attach_target_agent(
+    processed: &mut closeclaw_common::processor::ProcessedMessage,
+    agent_id: &str,
+) {
+    processed
+        .metadata
+        .insert("agent_id".to_string(), agent_id.to_string());
+}
+
 /// Handle a chat message: route through Gateway's full inbound/outbound
 /// pipeline.
 ///
@@ -296,6 +314,7 @@ async fn dispatch_chat_message(
     context: &ChatContext,
 ) -> Vec<ChatResponse> {
     let (rx, conn_id) = setup_rpc_channel(context).await;
+    tracing::info!(agent_id = %agent_id, "processing chat request for target agent");
     process_gateway_response(rx, conn_id, agent_id, content, context).await
 }
 
@@ -362,7 +381,10 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         unavailable_media: vec![],
     };
 
-    let processed = context.gateway.process_inbound_chain(&input).await;
+    let mut processed = context.gateway.process_inbound_chain(&input).await;
+    // Route `/stop` to the same target agent as chat requests
+    // (requirements cli §F1: `/stop` ends the current conversation).
+    attach_target_agent(&mut processed, &agent_id);
 
     match context
         .gateway
@@ -776,6 +798,16 @@ mod tests {
             input.sender_id, expected_uid,
             "sender_id should be system UID, not agent_id"
         );
+    }
+
+    /// The request's agent_id must be attached to processed metadata so
+    /// Gateway session resolution routes by it (cli/chat.md --agent-id).
+    #[test]
+    fn test_attach_target_agent_sets_metadata() {
+        let mut processed =
+            closeclaw_common::processor::ProcessedMessage::from_raw_content("hi".to_string());
+        attach_target_agent(&mut processed, "master");
+        assert_eq!(processed.metadata.get("agent_id").unwrap(), "master");
     }
 
     /// RpcTerminalPlugin::render() must correctly render Thinking blocks.
