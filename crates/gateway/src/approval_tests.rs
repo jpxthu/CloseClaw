@@ -823,10 +823,11 @@ async fn test_idle_slash_executes() {
 
 /// Gateway with an active ApprovalFlow and a config dir containing no
 /// `users.json` — every sender is an unregistered new user.
-async fn reg_gate_gw() -> crate::Gateway {
+/// The caller-held `TempDir` keeps the directory alive for the test body
+/// and cleans it up on Drop (STANDARDS §8).
+async fn reg_gate_gw(config_dir: &std::path::Path) -> crate::Gateway {
     let gw = make_gw();
-    let dir = tempfile::tempdir().expect("config dir");
-    gw.set_config_dir(dir.keep()).await;
+    gw.set_config_dir(config_dir.to_path_buf()).await;
     install_approval_flow(&gw).await;
     gw
 }
@@ -835,7 +836,8 @@ async fn reg_gate_gw() -> crate::Gateway {
 /// "owner" per chat_rpc), but the caller is Owner by design — no gate.
 #[tokio::test]
 async fn test_registration_gate_exempts_terminal_channel() {
-    let gw = reg_gate_gw().await;
+    let dir = tempfile::tempdir().expect("config dir");
+    let gw = reg_gate_gw(dir.path()).await;
 
     let result = gw.check_new_user_registration("1000", "terminal").await;
 
@@ -848,7 +850,8 @@ async fn test_registration_gate_exempts_terminal_channel() {
 /// The fixed Owner User ID bypasses the gate on any channel.
 #[tokio::test]
 async fn test_registration_gate_exempts_owner_user_id() {
-    let gw = reg_gate_gw().await;
+    let dir = tempfile::tempdir().expect("config dir");
+    let gw = reg_gate_gw(dir.path()).await;
 
     let result = gw.check_new_user_registration("owner", "feishu").await;
 
@@ -862,7 +865,8 @@ async fn test_registration_gate_exempts_owner_user_id() {
 /// routed to the approval flow (existing behavior unchanged).
 #[tokio::test]
 async fn test_registration_gate_gates_unregistered_im_user() {
-    let gw = reg_gate_gw().await;
+    let dir = tempfile::tempdir().expect("config dir");
+    let gw = reg_gate_gw(dir.path()).await;
 
     let result = gw.check_new_user_registration("u-42", "feishu").await;
 
