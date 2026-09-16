@@ -36,48 +36,22 @@
 
 #![cfg(feature = "fake-llm")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
 use tokio::process::Child;
 use tokio::time::timeout;
 
 use super::helpers;
+use super::helpers::chat::{chat_roundtrip, read_frame};
+use super::helpers::fake_llm::start_fake_llm;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/// Upper bound for one full chat turn (request → Done/Error/EOF).
-const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
-/// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
-
-// ---------------------------------------------------------------------------
-// Helpers: fixture paths
-// ---------------------------------------------------------------------------
-
-/// Path to the fake LLM scenario fixtures (basic-text + fallback).
-fn scenarios_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_llm/scenarios")
-}
-
-// ---------------------------------------------------------------------------
-// Helper: fake LLM server
-// ---------------------------------------------------------------------------
-
-/// Start an in-process fake LLM HTTP server on a random port.
-///
-/// Loads the shared scenario fixtures (`tests/fixtures/fake_llm/scenarios`)
-/// so the engine can answer both model-matched and fallback requests.
-/// Returns the bound address for `models.json`.
-async fn start_fake_llm() -> std::net::SocketAddr {
-    closeclaw_fake_llm::server::start_server_addr("127.0.0.1:0", Some(&scenarios_dir()))
-        .await
-        .expect("failed to start fake LLM server on 127.0.0.1:0")
-}
+// Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
+// `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,
+// `start_fake_llm`) live under `helpers/` (extracted in Step 1.10 to
+// deduplicate with `gateway_restart_turn_tests`).
 
 // ---------------------------------------------------------------------------
 // Helper: config-dir scaffolding (split from write_config_tree)
@@ -181,7 +155,7 @@ impl DaemonGuard {
         unsafe {
             libc::kill(pid, libc::SIGTERM);
         }
-        timeout(SHUTDOWN_TIMEOUT, self.0.wait())
+        timeout(helpers::SHUTDOWN_TIMEOUT, self.0.wait())
             .await
             .expect("daemon should exit within the shutdown timeout")
             .expect("daemon exit status should be observable")
@@ -239,74 +213,8 @@ fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: chat RPC client (protocol-conformant)
+// Helper: chat response assertions
 // ---------------------------------------------------------------------------
-
-/// Send one `ChatMessage` and collect frames until `Done`/`Error`/EOF.
-///
-/// Frame format (mirrors `crates/cli/src/chat/rpc/protocol.rs`):
-/// `[4-byte big-endian u32 length][JSON frame bytes]`.
-async fn chat_roundtrip(
-    socket_path: &Path,
-    agent_id: &str,
-    content: &str,
-) -> Vec<serde_json::Value> {
-    let stream = TokioUnixStream::connect(socket_path)
-        .await
-        .expect("connect to chat.sock");
-    let (reader, mut writer) = stream.into_split();
-
-    let request = serde_json::json!({
-        "type": "chat_message",
-        "agent_id": agent_id,
-        "content": content,
-    });
-    let body = serde_json::to_vec(&request).expect("serialize chat request");
-    let header = (body.len() as u32).to_be_bytes();
-    writer.write_all(&header).await.expect("send frame header");
-    writer.write_all(&body).await.expect("send frame body");
-    writer.flush().await.expect("flush request");
-
-    let mut reader = BufReader::new(reader);
-    let mut frames = Vec::new();
-    loop {
-        let frame = match timeout(CHAT_TURN_TIMEOUT, read_frame(&mut reader)).await {
-            Ok(Ok(Some(f))) => f,
-            Ok(Ok(None)) => break, // EOF — server closed the connection
-            Ok(Err(e)) => panic!("chat RPC read error: {e}"),
-            Err(_) => panic!("chat turn timed out after {CHAT_TURN_TIMEOUT:?}"),
-        };
-        let is_terminal = frame.get("type").and_then(|t| t.as_str()) == Some("done")
-            || frame.get("type").and_then(|t| t.as_str()) == Some("error");
-        frames.push(frame);
-        if is_terminal {
-            break;
-        }
-    }
-    frames
-}
-
-/// Read one length-prefixed JSON frame. `Ok(None)` on clean EOF.
-async fn read_frame<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<Option<serde_json::Value>> {
-    let mut header = [0u8; 4];
-    match reader.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = u32::from_be_bytes(header) as usize;
-    let mut body = vec![0u8; len];
-    reader.read_exact(&mut body).await?;
-    let value = serde_json::from_slice(&body).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("invalid frame JSON: {e}"),
-        )
-    })?;
-    Ok(Some(value))
-}
 
 /// Assert exactly one terminal frame in a set of chat response frames.
 fn assert_single_terminal(frames: &[serde_json::Value]) {

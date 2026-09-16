@@ -17,36 +17,23 @@
 
 #![cfg(feature = "fake-llm")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
-use tokio::net::UnixStream as TokioUnixStream;
 use tokio::process::Child;
 use tokio::time::timeout;
 
 use super::helpers;
+use super::helpers::chat::chat_roundtrip;
+use super::helpers::fake_llm::start_fake_llm;
 
-/// Upper bound for one full chat turn (request → Done/Error/EOF).
-/// The regression this test locks would hit TURN_COMPLETION_TIMEOUT_SECS
-/// (120s); 60s proves completion is driven by the consumer, not the
-/// timeout (mirrors CHAT_TURN_TIMEOUT in agent_profile_tests.rs).
-const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
-/// Upper bound for graceful shutdown after SIGTERM.
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
 /// How long to wait for the restart to complete (watchdog poll ≤10s +
 /// rebuild + margin).
+///
+/// Chat-turn / shutdown upper bounds live in `helpers::chat::CHAT_TURN_TIMEOUT`
+/// and `helpers::SHUTDOWN_TIMEOUT` (60s / 40s, shared with
+/// `agent_profile_tests`).
 const RESTART_WAIT: Duration = Duration::from_secs(30);
-
-fn scenarios_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_llm/scenarios")
-}
-
-async fn start_fake_llm() -> std::net::SocketAddr {
-    closeclaw_fake_llm::server::start_server_addr("127.0.0.1:0", Some(&scenarios_dir()))
-        .await
-        .expect("failed to start fake LLM server on 127.0.0.1:0")
-}
 
 /// Same mandatory-config scaffold as agent_profile_tests (master agent,
 /// openai provider pointed at the fake LLM, greeting scenario model).
@@ -118,69 +105,6 @@ fn write_config_tree(root: &Path, fake_llm_addr: &str) {
         r#"{"provider":"openai","apiKey":"e2e-fake-key"}"#,
     )
     .expect("write credentials");
-}
-
-/// Send one `ChatMessage` and collect frames until `Done`/`Error`/EOF.
-async fn chat_roundtrip(
-    socket_path: &Path,
-    agent_id: &str,
-    content: &str,
-) -> Vec<serde_json::Value> {
-    let stream = TokioUnixStream::connect(socket_path)
-        .await
-        .expect("connect to chat.sock");
-    let (reader, mut writer) = stream.into_split();
-
-    let request = serde_json::json!({
-        "type": "chat_message",
-        "agent_id": agent_id,
-        "content": content,
-    });
-    let body = serde_json::to_vec(&request).expect("serialize chat request");
-    let header = (body.len() as u32).to_be_bytes();
-    writer.write_all(&header).await.expect("send frame header");
-    writer.write_all(&body).await.expect("send frame body");
-    writer.flush().await.expect("flush request");
-
-    let mut reader = BufReader::new(reader);
-    let mut frames = Vec::new();
-    loop {
-        let frame = match timeout(CHAT_TURN_TIMEOUT, read_frame(&mut reader)).await {
-            Ok(Ok(Some(f))) => f,
-            Ok(Ok(None)) => break, // EOF
-            Ok(Err(e)) => panic!("chat RPC read error: {e}"),
-            Err(_) => panic!("chat turn timed out after {CHAT_TURN_TIMEOUT:?}"),
-        };
-        let is_terminal = frame.get("type").and_then(|t| t.as_str()) == Some("done")
-            || frame.get("type").and_then(|t| t.as_str()) == Some("error");
-        frames.push(frame);
-        if is_terminal {
-            break;
-        }
-    }
-    frames
-}
-
-/// Read one length-prefixed JSON frame. `Ok(None)` on clean EOF.
-async fn read_frame<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<Option<serde_json::Value>> {
-    let mut header = [0u8; 4];
-    match reader.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = u32::from_be_bytes(header) as usize;
-    let mut body = vec![0u8; len];
-    reader.read_exact(&mut body).await?;
-    let value = serde_json::from_slice(&body).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("invalid frame JSON: {e}"),
-        )
-    })?;
-    Ok(Some(value))
 }
 
 /// Step 1.9: after a config-triggered gateway restart, a chat LLM turn
@@ -298,10 +222,14 @@ async fn e2e_gateway_restart_llm_turn_completes() {
 
     // Graceful shutdown still works after the restart.
     let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
+    // SAFETY: `pid` is the PID of the daemon child we spawned above and
+    // verified is still running (the `try_wait` check just before); the
+    // cast to `libc::pid_t` is a lossless widening conversion, and
+    // SIGTERM is a valid signal number.
     unsafe {
         libc::kill(pid, libc::SIGTERM);
     }
-    let status = timeout(SHUTDOWN_TIMEOUT, daemon.wait())
+    let status = timeout(helpers::SHUTDOWN_TIMEOUT, daemon.wait())
         .await
         .expect("daemon should exit within the shutdown timeout")
         .expect("daemon exit status should be observable");

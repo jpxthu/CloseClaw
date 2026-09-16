@@ -2,7 +2,15 @@
 //!
 //! Centralizes daemon spawn logic, readiness polling, and lifecycle
 //! assertions to avoid duplication across `sigterm_tests`,
-//! `agent_profile_tests`, and `shutdown_checkpoint_tests`.
+//! `agent_profile_tests`, `shutdown_checkpoint_tests`, and
+//! `gateway_restart_turn_tests`. Chat-RPC client and fake-LLM server
+//! helpers live in the [`chat`] and [`fake_llm`] submodules (feature
+//! `fake-llm`, whose consumers are the fake-LLM-backed test files).
+
+#[cfg(feature = "fake-llm")]
+pub mod chat;
+#[cfg(feature = "fake-llm")]
+pub mod fake_llm;
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -14,6 +22,10 @@ use tokio::process::{Child, Command};
 /// Default timeout for waiting on the daemon admin socket.
 const DEFAULT_SOCKET_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
+#[cfg(feature = "fake-llm")]
+pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
 pub fn closeclaw_binary() -> std::path::PathBuf {
