@@ -404,10 +404,11 @@ impl crate::Daemon {
     /// approval flow, and start the new Chat RPC server.
     ///
     /// Mirrors the startup path (`lifecycle/mod.rs`): the new chat RPC
-    /// server's [`RpcTerminalPlugin`] is returned so the caller can wire
-    /// the turn-completion consumer, and the SessionMessageHandler's
-    /// output receiver is consumed here — one `finish_turns()` call per
-    /// completed LLM turn. Without this consumer every post-restart
+    /// server's [`RpcTerminalPlugin`] is returned to the caller, and the
+    /// SessionMessageHandler's output receiver is consumed here via the
+    /// shared [`crate::chat_rpc::spawn_turn_completion_consumer`]
+    /// assembly point — one `finish_turns()` call per completed LLM
+    /// turn. Without this consumer every post-restart
     /// LLM turn would hang until `TURN_COMPLETION_TIMEOUT_SECS`
     /// (120s) because `collect_responses` waits for the channel close
     /// that only `finish_turns` triggers.
@@ -452,20 +453,11 @@ impl crate::Daemon {
         self.set_chat_handle(chat_handle).await;
 
         // Turn-completion consumer for the restart path's own output
-        // channel — same wiring as the startup path (lifecycle/mod.rs):
-        // each completed LLM turn finalizes the waiting chat connection
-        // instead of letting it time out after 120s.
-        let consumer_plugin = Arc::clone(&chat_rpc_plugin);
-        tokio::spawn(async move {
-            let mut output_rx = output_rx;
-            while let Some((text, _blocks)) = output_rx.recv().await {
-                tracing::debug!(
-                    turn_len = text.len(),
-                    "LLM turn completed — finalizing chat turns"
-                );
-                consumer_plugin.finish_turns().await;
-            }
-        });
+        // channel — shared assembly point with the startup path
+        // (lifecycle/mod.rs, Step 1.11): each completed LLM turn
+        // finalizes the waiting chat connection instead of letting it
+        // time out after 120s.
+        crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&chat_rpc_plugin));
         chat_rpc_plugin
     }
 

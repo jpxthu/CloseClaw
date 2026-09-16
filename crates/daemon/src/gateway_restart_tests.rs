@@ -438,8 +438,9 @@ fn restart_request_merges_changes() {
 /// (channel closed) once one `(text, blocks)` output arrives, instead
 /// of hanging until `TURN_COMPLETION_TIMEOUT_SECS` (120s).
 ///
-/// Mirrors the consumer spawned by `install_handlers` exactly:
-/// `recv → finish_turns` until the output channel closes.
+/// Mirrors the consumer both production paths use: it calls the
+/// shared assembly point `crate::chat_rpc::spawn_turn_completion_consumer`
+/// — `recv → finish_turns` until the output channel closes.
 #[tokio::test]
 async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
     use crate::chat_rpc::RpcTerminalPlugin;
@@ -454,14 +455,10 @@ async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
     let (output_tx, output_rx) =
         tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::processor::ContentBlock>)>(64);
 
-    // Consumer: identical wiring to install_handlers (Step 1.9).
-    let consumer_plugin = Arc::clone(&plugin);
-    let consumer = tokio::spawn(async move {
-        let mut output_rx = output_rx;
-        while let Some((_text, _blocks)) = output_rx.recv().await {
-            consumer_plugin.finish_turns().await;
-        }
-    });
+    // Consumer: the shared assembly point (Step 1.11) — the exact
+    // implementation the startup (lifecycle/mod.rs) and restart
+    // (install_handlers) paths call.
+    let consumer = crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
 
     // A completed LLM turn arrives on the output channel.
     output_tx

@@ -519,6 +519,44 @@ impl RpcTerminalPlugin {
     }
 }
 
+// ---------------------------------------------------------------------------
+// Turn-completion consumer
+// ---------------------------------------------------------------------------
+
+/// Spawn the turn-completion consumer for a `SessionMessageHandler`
+/// output channel.
+///
+/// The handler emits one `(text, blocks)` message per completed LLM
+/// turn (empty payload on failure); this consumer turns each message
+/// into an [`RpcTerminalPlugin::finish_turns`] call so waiting chat
+/// connections observe channel close and [`collect_responses`]
+/// finalizes the turn instead of waiting out
+/// [`TURN_COMPLETION_TIMEOUT_SECS`]. The loop exits when the output
+/// channel closes (handler dropped).
+///
+/// Single assembly point for all consumers: the startup path
+/// (`lifecycle` init → `init_phase_6_chat_rpc`), the restart path
+/// (`gateway_restart::install_handlers`), and the behavioral-lock
+/// unit test in `gateway_restart_tests.rs`. The 120s-hang regression
+/// this guards against was caused by the two production wirings
+/// drifting apart (the restart path re-dropped the receiver), so
+/// every consumer must go through this function.
+pub fn spawn_turn_completion_consumer(
+    output_rx: mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    plugin: Arc<RpcTerminalPlugin>,
+) -> tokio::task::JoinHandle<()> {
+    tokio::spawn(async move {
+        let mut output_rx = output_rx;
+        while let Some((text, _blocks)) = output_rx.recv().await {
+            tracing::debug!(
+                turn_len = text.len(),
+                "LLM turn completed — finalizing chat turns"
+            );
+            plugin.finish_turns().await;
+        }
+    })
+}
+
 impl Default for RpcTerminalPlugin {
     fn default() -> Self {
         Self::new()

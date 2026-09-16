@@ -210,17 +210,12 @@ impl Daemon {
         // through the outbound pipeline onto the requesting connection's
         // channel; this consumer then closes those channels so
         // `collect_responses` finalizes the turn instead of waiting out
-        // its completion timeout.
-        tokio::spawn(async move {
-            let mut output_rx = output_rx;
-            while let Some((text, _blocks)) = output_rx.recv().await {
-                tracing::debug!(
-                    turn_len = text.len(),
-                    "LLM turn completed — finalizing chat turns"
-                );
-                chat_rpc_plugin.finish_turns().await;
-            }
-        });
+        // its completion timeout. Shared assembly point (Step 1.11):
+        // the startup path, the restart path (`install_handlers`) and
+        // the behavioral-lock unit test all consume through
+        // `spawn_turn_completion_consumer` so the wiring cannot drift
+        // between paths again.
+        crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&chat_rpc_plugin));
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
