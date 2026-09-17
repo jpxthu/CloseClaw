@@ -107,6 +107,48 @@ async fn init_llm_registry_empty_providers_returns_empty_chain() {
     assert_eq!(fallback_client.chain().len(), 0);
 }
 
+/// Boundary: models.json absent (every other mandatory config present) →
+/// the Models section never loads (`ConfigManager::load` reports the
+/// missing mandatory file) → `init_llm_registry` takes the section-`None`
+/// INFO branch of `load_models_config`: empty chain, no error, no panic.
+/// Design doc `docs/design/daemon/README.md`: 「models.json 缺失…系统仍
+/// 正常启动」. Daemon startup gates on the load error before reaching this
+/// function (mandatory-config gating test in `tests.rs`); this case pins
+/// the function-level tolerance of the missing section.
+#[tokio::test]
+async fn init_llm_registry_missing_models_json_returns_empty_chain() {
+    let dir = TempDir::new().unwrap();
+    // Every mandatory config except models.json — deliberately not written.
+    let others = [
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+        "accounts.json",
+    ];
+    for name in others {
+        std::fs::write(
+            dir.path().join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )
+        .unwrap();
+    }
+    let cm = ConfigManager::new(dir.path().to_path_buf()).unwrap();
+    let err = cm.load().expect_err("load without models.json must fail");
+    assert!(
+        matches!(
+            err,
+            closeclaw_config::ConfigLoadError::ConfigFileNotFound(_)
+        ),
+        "expected missing-file error, got {err:?}"
+    );
+
+    let (registry, fallback_client) = init_registry_isolated(&cm).await;
+
+    assert!(registry.list().await.is_empty());
+    assert_eq!(fallback_client.chain().len(), 0);
+}
+
 /// Boundary: credential_path pointing at an existing-but-unparseable
 /// file → the credential is swallowed by ConfigManager (non-strict load)
 /// → provider has no credential → skipped, empty chain, startup not
