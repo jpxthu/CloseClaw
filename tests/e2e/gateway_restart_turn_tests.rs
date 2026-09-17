@@ -61,9 +61,7 @@ async fn trigger_gateway_restart(config_root: &Path, daemon: &mut Child) {
     std::fs::write(&gateway_json, &original).expect("touch gateway.json (2nd)");
 
     tokio::time::sleep(Duration::from_secs(6)).await;
-    if let Some(status) = daemon.try_wait().expect("try wait daemon") {
-        panic!("daemon died during gateway restart: {status:?}");
-    }
+    helpers::assert_daemon_alive_with_context(daemon, Some("during gateway restart"));
 }
 
 /// Drive one turn through the rebuilt chat RPC server, polling until
@@ -105,12 +103,7 @@ async fn wait_post_restart_turn(config_root: &Path) -> Vec<serde_json::Value> {
 /// Assert the daemon survived the final chat turn, then shut it down
 /// gracefully (SIGTERM → exit 0 within `helpers::SHUTDOWN_TIMEOUT`).
 async fn terminate_daemon(mut daemon: Child) {
-    if let Some(status) = daemon
-        .try_wait()
-        .expect("try_wait daemon after restart turn")
-    {
-        panic!("daemon died after restart chat turn: {status:?}");
-    }
+    helpers::assert_daemon_alive_with_context(&mut daemon, Some("after restart chat turn"));
 
     let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
     // SAFETY: `pid` is the PID of the daemon child this test spawned and
@@ -147,9 +140,7 @@ async fn e2e_gateway_restart_llm_turn_completes() {
 
     let mut daemon: Child = helpers::spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
-    if let Some(status) = daemon.try_wait().expect("try_wait daemon") {
-        panic!("daemon exited prematurely during startup: {status:?}");
-    }
+    helpers::assert_daemon_alive_with_context(&mut daemon, Some("during startup"));
 
     // Pre-restart sanity: one chat turn completes with the greeting text.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;

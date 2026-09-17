@@ -186,8 +186,24 @@ fn drain_channel(rx: &mut mpsc::Receiver<RenderedOutput>, out: &mut Vec<ChatResp
 /// Keep collecting until the channel closes, bounded by
 /// [`TURN_COMPLETION_TIMEOUT_SECS`].
 async fn collect_responses(
+    rx: mpsc::Receiver<RenderedOutput>,
+    handle: tokio::task::JoinHandle<Option<HandleResult>>,
+) -> (Vec<ChatResponse>, mpsc::Receiver<RenderedOutput>) {
+    collect_responses_with_timeout(
+        rx,
+        handle,
+        Duration::from_secs(TURN_COMPLETION_TIMEOUT_SECS),
+    )
+    .await
+}
+
+/// [`collect_responses`] with an injectable completion-wait bound:
+/// production passes [`TURN_COMPLETION_TIMEOUT_SECS`]; tests inject a
+/// short bound to exercise the timeout branch deterministically.
+async fn collect_responses_with_timeout(
     mut rx: mpsc::Receiver<RenderedOutput>,
     handle: tokio::task::JoinHandle<Option<HandleResult>>,
+    turn_timeout: Duration,
 ) -> (Vec<ChatResponse>, mpsc::Receiver<RenderedOutput>) {
     let mut responses = Vec::new();
     let result = match handle.await {
@@ -202,13 +218,12 @@ async fn collect_responses(
     };
     match result {
         Some(HandleResult::LlmStarted) => {
-            let wait =
-                tokio::time::timeout(Duration::from_secs(TURN_COMPLETION_TIMEOUT_SECS), async {
-                    while let Some(output) = rx.recv().await {
-                        responses.push(rendered_to_response(&output));
-                    }
-                })
-                .await;
+            let wait = tokio::time::timeout(turn_timeout, async {
+                while let Some(output) = rx.recv().await {
+                    responses.push(rendered_to_response(&output));
+                }
+            })
+            .await;
             if wait.is_err() {
                 tracing::warn!("chat: timed out waiting for LLM turn completion");
             }
@@ -342,22 +357,22 @@ fn rendered_to_response(output: &RenderedOutput) -> ChatResponse {
     match output.msg_type.as_str() {
         "text" => {
             let text = extract_text_from_payload(&output.payload);
-            ChatResponse::ContentChunk { text }
+            ChatResponse::ContentChunk { content: text }
         }
         "interactive" => {
             let text = serde_json::to_string(&output.payload)
                 .unwrap_or_else(|_| output.payload.to_string());
-            ChatResponse::ContentChunk { text }
+            ChatResponse::ContentChunk { content: text }
         }
         other => {
             let text = extract_text_from_payload(&output.payload);
             if text.is_empty() {
                 tracing::warn!(msg_type = other, "unknown RenderedOutput type");
                 ChatResponse::ContentChunk {
-                    text: output.payload.to_string(),
+                    content: output.payload.to_string(),
                 }
             } else {
-                ChatResponse::ContentChunk { text }
+                ChatResponse::ContentChunk { content: text }
             }
         }
     }

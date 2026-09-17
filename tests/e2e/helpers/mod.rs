@@ -97,15 +97,23 @@ pub fn spawn_daemon(config_root: &Path) -> Child {
 ///
 /// On failure, includes the exit status details and a hint to check daemon logs.
 pub fn assert_daemon_alive(daemon: &mut Child) {
+    assert_daemon_alive_with_context(daemon, None);
+}
+
+/// [`assert_daemon_alive`] with an optional caller-supplied context
+/// phrase folded into the panic message (e.g. `Some("during gateway
+/// restart")`) so failures read where in the scenario the daemon died.
+pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str>) {
     if let Some(status) = daemon.try_wait().expect("try_wait daemon") {
         let code = status
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "signal".to_string());
+        let context = context.unwrap_or("");
         panic!(
-            "daemon exited prematurely with status: {:?} (exit code: {}). \
+            "daemon exited prematurely {} with status: {:?} (exit code: {}). \
              Check daemon stdout/stderr logs for details.",
-            status, code
+            context, status, code
         );
     }
 }

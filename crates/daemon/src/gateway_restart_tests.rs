@@ -4,6 +4,10 @@
 //! restart-request batching, DaemonReloadCallback restart-class signal
 //! delivery, and (Step 1.9) the restart-path turn-completion consumer
 //! wiring (`recv → finish_turns`), mirroring `install_handlers`.
+//!
+//! Naming: the older unprefixed cases here predate STANDARDS §3 and are
+//! kept as-is; **every newly added test case must carry the `test_`
+//! prefix** (Step 1.21).
 
 use super::*;
 use crate::config_reload::reload::DaemonReloadCallback;
@@ -442,7 +446,7 @@ fn restart_request_merges_changes() {
 /// shared assembly point `crate::chat_rpc::spawn_turn_completion_consumer`
 /// — `recv → finish_turns` until the output channel closes.
 #[tokio::test]
-async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
+async fn test_restart_path_output_consumer_finalizes_waiting_chat_turn() {
     // Waiting chat connection + shared consumer (Step 1.20 harness — the
     // same setup the chat_rpc failure-payload test uses).
     let mut h = crate::test_helpers::setup_turn_completion_consumer().await;

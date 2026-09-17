@@ -400,7 +400,7 @@ mod tests {
             Arc::new(|req| match req {
                 ChatRequest::ChatMessage { content, .. } => (
                     vec![ChatResponse::ContentChunk {
-                        text: format!("echo: {}", content),
+                        content: format!("echo: {}", content),
                     }],
                     true,
                 ),
@@ -412,8 +412,8 @@ mod tests {
         let mut stream = client.send_message("test-agent", "hi").await.unwrap();
         let resp = stream.next().await.unwrap().unwrap();
         match resp {
-            ChatResponse::ContentChunk { text } => {
-                assert_eq!(text, "echo: hi");
+            ChatResponse::ContentChunk { content } => {
+                assert_eq!(content, "echo: hi");
             }
             other => panic!("expected ContentChunk, got {:?}", other),
         }
@@ -429,10 +429,10 @@ mod tests {
                 ChatRequest::ChatMessage { .. } => (
                     vec![
                         ChatResponse::ContentChunk {
-                            text: "chunk-1".to_string(),
+                            content: "chunk-1".to_string(),
                         },
                         ChatResponse::ContentChunk {
-                            text: "chunk-2".to_string(),
+                            content: "chunk-2".to_string(),
                         },
                         ChatResponse::Done,
                     ],
@@ -449,7 +449,7 @@ mod tests {
         assert_eq!(
             r1,
             ChatResponse::ContentChunk {
-                text: "chunk-1".to_string(),
+                content: "chunk-1".to_string(),
             }
         );
 
@@ -457,7 +457,7 @@ mod tests {
         assert_eq!(
             r2,
             ChatResponse::ContentChunk {
-                text: "chunk-2".to_string(),
+                content: "chunk-2".to_string(),
             }
         );
 

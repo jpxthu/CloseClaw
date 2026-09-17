@@ -43,7 +43,7 @@ async fn init_registry_with_env(
 /// registered, and the provider's base_url equals the configured value.
 /// The chain entry carries the real model id onto the wire.
 #[tokio::test]
-async fn init_llm_registry_registers_provider_with_configured_base_url() {
+async fn test_init_llm_registry_registers_provider_with_configured_base_url() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -73,7 +73,7 @@ async fn init_llm_registry_registers_provider_with_configured_base_url() {
 /// Error path: provider defined in models.json but no credential file →
 /// empty chain, no error and no panic (startup not blocked).
 #[tokio::test]
-async fn init_llm_registry_missing_credential_returns_empty_chain() {
+async fn test_init_llm_registry_missing_credential_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -97,7 +97,7 @@ async fn init_llm_registry_missing_credential_returns_empty_chain() {
 /// Boundary: models.json defines no providers (placeholder content) →
 /// empty chain, startup not blocked.
 #[tokio::test]
-async fn init_llm_registry_empty_providers_returns_empty_chain() {
+async fn test_init_llm_registry_empty_providers_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     let cm = crate::test_helpers::load_config_manager(dir.path());
@@ -117,7 +117,7 @@ async fn init_llm_registry_empty_providers_returns_empty_chain() {
 /// 正常启动」. The full-startup counterpart is pinned by
 /// `tests.rs::test_daemon_start_succeeds_without_models_json`.
 #[tokio::test]
-async fn init_llm_registry_missing_models_json_returns_empty_chain() {
+async fn test_init_llm_registry_missing_models_json_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
     // Every mandatory config except models.json — deliberately not written.
     closeclaw_common::test_helpers::write_mandatory_without_models(dir.path())
@@ -138,7 +138,7 @@ async fn init_llm_registry_missing_models_json_returns_empty_chain() {
 /// config §F3): `ConfigManager::load` refuses startup — the daemon never
 /// reaches `init_llm_registry` (empty chain is not even constructed).
 #[tokio::test]
-async fn init_llm_registry_corrupt_models_json_refuses_startup() {
+async fn test_init_llm_registry_corrupt_models_json_refuses_startup() {
     let dir = TempDir::new().unwrap();
     closeclaw_common::test_helpers::write_mandatory_without_models(dir.path())
         .expect("mandatory configs without models.json");
@@ -161,7 +161,7 @@ async fn init_llm_registry_corrupt_models_json_refuses_startup() {
 /// for the config to load at all; `config_dir.join(abs_path)` resolves
 /// to the file itself.
 #[tokio::test]
-async fn init_llm_registry_broken_credential_path_returns_empty_chain() {
+async fn test_init_llm_registry_broken_credential_path_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     let broken = dir.path().join("broken.json");
@@ -189,7 +189,7 @@ async fn init_llm_registry_broken_credential_path_returns_empty_chain() {
 /// (see note above) so the config loads despite the CWD-relative
 /// validator check.
 #[tokio::test]
-async fn init_llm_registry_credential_path_overrides_convention_dir() {
+async fn test_init_llm_registry_credential_path_overrides_convention_dir() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     let explicit = dir.path().join("explicit.json");
@@ -217,7 +217,7 @@ async fn init_llm_registry_credential_path_overrides_convention_dir() {
 /// models explicitly disabled are excluded; order is deterministic
 /// (sorted provider ids, declaration order within a provider).
 #[tokio::test]
-async fn init_llm_registry_chain_covers_enabled_models_only() {
+async fn test_init_llm_registry_chain_covers_enabled_models_only() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -257,7 +257,7 @@ async fn init_llm_registry_chain_covers_enabled_models_only() {
 /// original daemon-side four — is constructed from models.json +
 /// credentials instead of being silently skipped.
 #[tokio::test]
-async fn init_llm_registry_registers_all_llm_crate_vendors() {
+async fn test_init_llm_registry_registers_all_llm_crate_vendors() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -299,7 +299,7 @@ async fn init_llm_registry_registers_all_llm_crate_vendors() {
 /// Vendor-default endpoint is used when models.json sets no baseUrl
 /// for a vendor added by this change (glm), matching the openai path.
 #[tokio::test]
-async fn init_llm_registry_vendor_default_base_url_without_config() {
+async fn test_init_llm_registry_vendor_default_base_url_without_config() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -324,7 +324,7 @@ async fn init_llm_registry_vendor_default_base_url_without_config() {
 /// A provider id without a known vendor implementation is skipped even
 /// when a credential exists (warn-logged, startup not blocked).
 #[tokio::test]
-async fn init_llm_registry_unknown_provider_skipped() {
+async fn test_init_llm_registry_unknown_provider_skipped() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -351,7 +351,7 @@ async fn init_llm_registry_unknown_provider_skipped() {
 /// through the injected env lookup — proving the fallback path works
 /// without touching the real process environment.
 #[tokio::test]
-async fn init_llm_registry_env_fallback_via_injected_lookup() {
+async fn test_init_llm_registry_env_fallback_via_injected_lookup() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(
@@ -378,7 +378,7 @@ async fn init_llm_registry_env_fallback_via_injected_lookup() {
 /// Empty env value is treated as absent (same rule as credential
 /// files) — injected lookup, deterministic.
 #[tokio::test]
-async fn init_llm_registry_empty_env_value_treated_as_absent() {
+async fn test_init_llm_registry_empty_env_value_treated_as_absent() {
     let dir = TempDir::new().unwrap();
     write_config_skeleton(dir.path());
     crate::test_helpers::write_models_providers(

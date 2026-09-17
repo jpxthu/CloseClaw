@@ -11,7 +11,7 @@ use std::fs;
 /// stays `None`, and `models_config()` returns the empty default.
 /// Design doc daemon README: 「models.json 缺失…系统仍正常启动」.
 #[test]
-fn models_config_missing_returns_default() {
+fn test_models_config_missing_returns_default() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_without_models(tmp.path()).unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -34,7 +34,7 @@ fn models_config_missing_returns_default() {
 /// config §F3): `load()` refuses startup (case 2 of the matrix; cases
 /// 3–4 below take the same rollback path).
 #[test]
-fn models_config_corrupt_file_without_backup_refuses_load() {
+fn test_models_config_corrupt_file_without_backup_refuses_load() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_without_models(tmp.path()).unwrap();
     fs::write(tmp.path().join("models.json"), "not valid json {{").unwrap();
@@ -51,7 +51,7 @@ fn models_config_corrupt_file_without_backup_refuses_load() {
 /// refuses startup (Step 1.20 — the pre-matrix assertion that let this
 /// load with only a WARN is reverted).
 #[test]
-fn models_config_untyped_value_refuses_load() {
+fn test_models_config_untyped_value_refuses_load() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_without_models(tmp.path()).unwrap();
     fs::write(tmp.path().join("models.json"), r#"{"providers":"nope"}"#).unwrap();
@@ -71,7 +71,7 @@ fn models_config_untyped_value_refuses_load() {
 /// clears both the raw section and the typed cache — no stale value
 /// from the previous load survives (Step 1.20 missing-branch cleanup).
 #[test]
-fn models_config_removed_file_clears_stale_cache() {
+fn test_models_config_removed_file_clears_stale_cache() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_without_models(tmp.path()).unwrap();
     fs::write(
@@ -105,7 +105,7 @@ fn models_config_removed_file_clears_stale_cache() {
 /// parse: `models_config()` returns the new value, not the load-time
 /// one — locks the `refresh_models_cache` write-path wiring.
 #[test]
-fn models_config_update_returns_new_value() {
+fn test_models_config_update_returns_new_value() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_without_models(tmp.path()).unwrap();
     fs::write(

@@ -159,7 +159,11 @@ impl SessionMessageHandler {
         }
         Ok(stream_result)
     }
+}
 
+// Separate impl block: keeps the `call_llm_streaming` impl above within
+// the 100-line impl cap (Step 1.21).
+impl SessionMessageHandler {
     /// Write complete Thinking blocks from streaming error to history.
     pub(super) async fn write_partial_thinking(
         session_manager: &Arc<SessionManager>,

@@ -34,7 +34,7 @@ fn test_rendered_to_response_text() {
     assert_eq!(
         resp,
         ChatResponse::ContentChunk {
-            text: "hello".to_string()
+            content: "hello".to_string()
         }
     );
 }
@@ -47,8 +47,8 @@ fn test_rendered_to_response_interactive() {
     };
     let resp = rendered_to_response(&output);
     match resp {
-        ChatResponse::ContentChunk { text } => {
-            assert!(text.contains("card"));
+        ChatResponse::ContentChunk { content } => {
+            assert!(content.contains("card"));
         }
         _ => panic!("expected ContentChunk"),
     }
@@ -225,7 +225,7 @@ fn test_rendered_to_response_unknown_type() {
     assert_eq!(
         resp,
         ChatResponse::ContentChunk {
-            text: "fallback".to_string()
+            content: "fallback".to_string()
         }
     );
 }
@@ -579,5 +579,72 @@ async fn test_agent_route_latest_registration_wins() {
     assert!(
         rx1.try_recv().is_err(),
         "the superseded connection must not receive"
+    );
+}
+
+/// Step 1.21 — non-LlmStarted handler results take the drain branch:
+/// synchronous output already queued on the connection channel is
+/// collected and the function returns without waiting for the channel
+/// to close (the guard deadline fails the test if the wait loop is
+/// entered instead of draining).
+#[tokio::test]
+async fn test_collect_responses_non_llm_drains_queued_output() {
+    let (tx, rx) = mpsc::channel(4);
+    let output = RenderedOutput {
+        msg_type: "text".to_string(),
+        payload: json!("sync reply"),
+    };
+    tx.send(output).await.unwrap();
+    // Non-LlmStarted result: synchronous handling finished in the task.
+    let handle: tokio::task::JoinHandle<Option<HandleResult>> =
+        tokio::spawn(async { Some(HandleResult::SlashHandled) });
+
+    let (responses, mut rx_left) = tokio::time::timeout(
+        Duration::from_millis(500),
+        collect_responses_with_timeout(rx, handle, Duration::from_secs(30)),
+    )
+    .await
+    .expect("drain branch must return without waiting for channel close");
+
+    assert_eq!(
+        responses,
+        vec![ChatResponse::ContentChunk {
+            content: "sync reply".to_string()
+        }],
+        "queued synchronous output must be drained into the responses"
+    );
+    assert!(
+        matches!(rx_left.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+        "connection channel must stay open (sender alive) with no queued leftovers"
+    );
+    drop(tx);
+}
+
+/// Step 1.21 — the LlmStarted wait honors the injected bound: a turn
+/// that never signals completion returns at the bound instead of
+/// hanging (production keeps the `TURN_COMPLETION_TIMEOUT_SECS` = 120s
+/// default via `collect_responses`), and the channel is left untouched.
+#[tokio::test]
+async fn test_collect_responses_llm_started_times_out_at_injected_bound() {
+    let (_tx, rx) = mpsc::channel(4); // sender kept alive — channel never closes
+    let handle: tokio::task::JoinHandle<Option<HandleResult>> =
+        tokio::spawn(async { Some(HandleResult::LlmStarted) });
+
+    let started = std::time::Instant::now();
+    let (responses, mut rx_left) =
+        collect_responses_with_timeout(rx, handle, Duration::from_millis(50)).await;
+    let elapsed = started.elapsed();
+
+    assert!(
+        elapsed >= Duration::from_millis(50),
+        "must wait up to the injected bound before giving up, elapsed {elapsed:?}"
+    );
+    assert!(
+        responses.is_empty(),
+        "no output arrived before the bound, got {responses:?}"
+    );
+    assert!(
+        matches!(rx_left.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+        "the timeout must leave the connection channel open and untouched"
     );
 }

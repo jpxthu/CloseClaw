@@ -544,15 +544,15 @@ fn test_config_manager_update_backup_failure() {
 // Step 1.2 — ConfigManager.load() section-population tests
 // =====================================================================
 
-/// Test: load() populates memory cache with exact JSON values for every
-/// listed section (5 mandatory sections + optional models.json).
+/// Test: load() populates the listed sections with exact JSON: 4 mandatory
+/// (Channels/Gateway/Plugins/System) + optional models.json; Accounts not covered here.
 #[test]
-fn test_load_populates_all_five_sections_with_values() {
+fn test_load_populates_listed_sections_with_values() {
     let tmp = tempfile::tempdir().unwrap();
     setup_config_dir_at(tmp.path());
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
 
-    let mandatory_sections = [
+    let listed_sections = [
         ConfigSection::Models,
         ConfigSection::Channels,
         ConfigSection::Gateway,
@@ -561,7 +561,7 @@ fn test_load_populates_all_five_sections_with_values() {
     ];
 
     // Before load: all sections should be None
-    for section in &mandatory_sections {
+    for section in &listed_sections {
         assert!(
             manager.section(*section).is_none(),
             "section {:?} should be None before load",
@@ -574,7 +574,7 @@ fn test_load_populates_all_five_sections_with_values() {
     // After load: all listed sections should be populated with
     // the exact JSON value written by setup_config_dir_at.
     let expected = serde_json::json!({"version": "1.0"});
-    for section in &mandatory_sections {
+    for section in &listed_sections {
         let value = manager.section(*section).unwrap();
         assert_eq!(value, expected, "section {:?} mismatch", section);
     }

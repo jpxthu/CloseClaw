@@ -38,9 +38,8 @@ pub enum ChatRequest {
 pub enum ChatResponse {
     /// Streaming text content chunk.
     ContentChunk {
-        /// Rendered text fragment (wire name: `content`, pinned by the e2e contract).
-        #[serde(rename = "content")]
-        text: String,
+        /// Rendered text fragment.
+        content: String,
     },
     /// Thinking content chunk.
     ThinkingChunk {
@@ -206,7 +205,7 @@ mod tests {
     #[test]
     fn test_content_chunk_response_roundtrip() {
         let resp = ChatResponse::ContentChunk {
-            text: "Hello!".to_string(),
+            content: "Hello!".to_string(),
         };
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: ChatResponse = serde_json::from_slice(&json).unwrap();
@@ -219,7 +218,7 @@ mod tests {
     #[test]
     fn test_content_chunk_json_structure() {
         let resp = ChatResponse::ContentChunk {
-            text: "hi".to_string(),
+            content: "hi".to_string(),
         };
         let json = serde_json::to_string(&resp).unwrap();
         let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
@@ -395,12 +394,12 @@ mod tests {
     #[test]
     fn test_content_chunk_empty_text() {
         let resp = ChatResponse::ContentChunk {
-            text: String::new(),
+            content: String::new(),
         };
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: ChatResponse = serde_json::from_slice(&json).unwrap();
-        if let ChatResponse::ContentChunk { text } = deserialized {
-            assert!(text.is_empty());
+        if let ChatResponse::ContentChunk { content } = deserialized {
+            assert!(content.is_empty());
         } else {
             panic!("expected ContentChunk variant");
         }
@@ -409,12 +408,12 @@ mod tests {
     #[test]
     fn test_content_chunk_ansi_text() {
         let resp = ChatResponse::ContentChunk {
-            text: "\x1b[1mBold\x1b[0m text".to_string(),
+            content: "\x1b[1mBold\x1b[0m text".to_string(),
         };
         let json = serde_json::to_vec(&resp).unwrap();
         let deserialized: ChatResponse = serde_json::from_slice(&json).unwrap();
-        if let ChatResponse::ContentChunk { text } = deserialized {
-            assert_eq!(text, "\x1b[1mBold\x1b[0m text");
+        if let ChatResponse::ContentChunk { content } = deserialized {
+            assert_eq!(content, "\x1b[1mBold\x1b[0m text");
         } else {
             panic!("expected ContentChunk variant");
         }

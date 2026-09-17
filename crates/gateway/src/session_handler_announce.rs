@@ -319,8 +319,9 @@ impl SessionMessageHandler {
                     })
                     .collect::<Vec<_>>()
                     .join("");
-                // 批量出站（outbound-flow.md 批量模式）：非流式轮次补送 IM
-                // Adapter；流式轮次已由 send_outbound_streaming 增量发送。
+                // Batch outbound (outbound-flow.md batch mode): non-streaming
+                // turns are sent to the IM Adapter here; streaming turns were
+                // already delivered incrementally by send_outbound_streaming.
                 if let Some(gw) = gateway {
                     crate::outbound_helpers::deliver_batch_result(
                         gw,
