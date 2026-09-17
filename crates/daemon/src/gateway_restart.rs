@@ -240,8 +240,10 @@ impl crate::Daemon {
         let config_dir = self.resolve_config_dir();
         let new_gw = self.build_new_gateway(&config_dir).await;
         // install_handlers consumes the restart path's own output_rx and
-        // spawns the turn-completion consumer (finish_turns) — the plugin
-        // is returned for observability/lifecycle tests.
+        // spawns the turn-completion consumer (finish_turns). The returned
+        // plugin handle is not read here: the plugin itself stays alive
+        // via the gateway registration, the chat server's ChatContext and
+        // the consumer's own clone, so dropping this handle is safe.
         let _chat_rpc_plugin = self.install_handlers(&new_gw).await;
         self.swap_and_notify(new_gw, changes).await;
 
@@ -404,9 +406,12 @@ impl crate::Daemon {
     /// approval flow, and start the new Chat RPC server.
     ///
     /// Mirrors the startup path (`lifecycle/mod.rs`): the new chat RPC
-    /// server's [`RpcTerminalPlugin`] is returned to the caller, and the
-    /// SessionMessageHandler's output receiver is consumed here via the
-    /// shared [`crate::chat_rpc::spawn_turn_completion_consumer`]
+    /// server's [`RpcTerminalPlugin`] is returned to the caller (the
+    /// restart call site drops that handle — the plugin is kept alive
+    /// by the gateway registration, the chat server's ChatContext and
+    /// the consumer below), and the SessionMessageHandler's output
+    /// receiver is consumed here via the shared
+    /// [`crate::chat_rpc::spawn_turn_completion_consumer`]
     /// assembly point — one `finish_turns()` call per completed LLM
     /// turn. Without this consumer every post-restart
     /// LLM turn would hang until `TURN_COMPLETION_TIMEOUT_SECS`

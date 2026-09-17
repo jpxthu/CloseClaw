@@ -135,10 +135,9 @@ fn write_mandatory_configs(root: &Path, opts: &ConfigTreeOpts) {
 fn write_master_agent(root: &Path) {
     std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
     std::fs::write(
-        root.join("agents")
-            .join("master")
-            .join("config.json"),
-        r#"{"id":"master","name":"Master","model":"openai/gpt-4o-basic","tools":["*"],"skills":["*"]}"#,
+        root.join("agents").join("master").join("config.json"),
+        r#"{"id":"master","name":"Master","model":"openai/gpt-4o-basic",
+            "tools":["*"],"skills":["*"]}"#,
     )
     .expect("write master agent config");
 }

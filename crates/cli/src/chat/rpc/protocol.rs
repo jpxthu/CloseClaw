@@ -38,11 +38,7 @@ pub enum ChatRequest {
 pub enum ChatResponse {
     /// Streaming text content chunk.
     ContentChunk {
-        /// Rendered text fragment.
-        //
-        // Wire name is `content` (not `text`): the chat frame contract
-        // pinned by `tests/e2e/agent_profile_tests.rs`, which reads the
-        // `content` field of `content_chunk` frames.
+        /// Rendered text fragment (wire name: `content`, pinned by the e2e contract).
         #[serde(rename = "content")]
         text: String,
     },

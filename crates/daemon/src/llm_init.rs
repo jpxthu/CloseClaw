@@ -51,8 +51,8 @@ impl Daemon {
     {
         let registry = Arc::new(LLMRegistry::new());
         let models = load_models_config(config_manager);
-        // Credentials固化 at ConfigManager::load: convention directory +
-        // credential_path merge (credential_path wins on conflicts).
+        // Credentials are resolved at ConfigManager::load: convention directory
+        // + credential_path merge (credential_path wins on conflicts).
         let credentials = config_manager.credentials().unwrap_or_default();
 
         // Sorted provider ids → deterministic registry/chain order.

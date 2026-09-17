@@ -113,7 +113,7 @@ fn select_agent_id(
     // 确定对应的 Agent".
     match metadata.get("agent_id").filter(|s| !s.is_empty()).cloned() {
         Some(explicit) => {
-            tracing::info!(
+            tracing::debug!(
                 agent_id = %explicit,
                 peer_id = %peer_id,
                 "routing by explicit request agent_id"

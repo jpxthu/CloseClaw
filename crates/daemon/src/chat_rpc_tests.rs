@@ -383,42 +383,26 @@ fn test_rpc_terminal_plugin_render_mixed_blocks() {
     assert!(text.contains("final answer"));
 }
 
-/// Concurrent RPC connections must not interfere with each other.
-#[tokio::test]
-async fn test_concurrent_rpc_connections_no_race() {
-    let plugin = Arc::new(RpcTerminalPlugin::new());
-    let num_connections = 5;
-
-    // Set up channels for each connection.
+/// Register one sender per connection on `plugin`, returning the
+/// receivers in connection order (ids `0..num_connections`).
+async fn register_connections(
+    plugin: &Arc<RpcTerminalPlugin>,
+    num_connections: u64,
+) -> Vec<mpsc::Receiver<RenderedOutput>> {
     let mut receivers: Vec<mpsc::Receiver<RenderedOutput>> = Vec::new();
     for i in 0..num_connections {
         let (tx, rx) = mpsc::channel(4);
-        plugin.register_sender(i as u64, tx).await;
+        plugin.register_sender(i, tx).await;
         receivers.push(rx);
     }
+    receivers
+}
 
-    // Simulate concurrent sends on each connection.
-    let mut handles = Vec::new();
-    for i in 0..num_connections {
-        let plugin = Arc::clone(&plugin);
-        let handle = tokio::spawn(async move {
-            let out = RenderedOutput {
-                msg_type: "text".to_string(),
-                payload: json!(format!("msg-{}", i)),
-            };
-            CHAT_CONN_ID
-                .scope(i as u64, plugin.send(&out, "peer", None, None))
-                .await
-        });
-        handles.push((i, handle));
-    }
-
-    // Wait for all sends to complete.
-    for (_i, handle) in handles {
-        handle.await.unwrap().unwrap();
-    }
-
-    // Verify each connection received exactly its own message.
+/// Assert each connection received exactly its own message — no
+/// cross-talk between connections, no extra messages leaked in.
+async fn assert_each_connection_received_own_message(
+    receivers: Vec<mpsc::Receiver<RenderedOutput>>,
+) {
     for (i, mut rx) in receivers.into_iter().enumerate() {
         let output = rx.recv().await.unwrap();
         assert_eq!(
@@ -434,10 +418,44 @@ async fn test_concurrent_rpc_connections_no_race() {
             i
         );
     }
+}
+
+/// Concurrent RPC connections must not interfere with each other.
+#[tokio::test]
+async fn test_concurrent_rpc_connections_no_race() {
+    let plugin = Arc::new(RpcTerminalPlugin::new());
+    let num_connections = 5u64;
+
+    // Set up channels for each connection.
+    let receivers = register_connections(&plugin, num_connections).await;
+
+    // Simulate concurrent sends on each connection.
+    let mut handles = Vec::new();
+    for i in 0..num_connections {
+        let plugin = Arc::clone(&plugin);
+        let handle = tokio::spawn(async move {
+            let out = RenderedOutput {
+                msg_type: "text".to_string(),
+                payload: json!(format!("msg-{}", i)),
+            };
+            CHAT_CONN_ID
+                .scope(i, plugin.send(&out, "peer", None, None))
+                .await
+        });
+        handles.push((i, handle));
+    }
+
+    // Wait for all sends to complete.
+    for (_i, handle) in handles {
+        handle.await.unwrap().unwrap();
+    }
+
+    // Verify each connection received exactly its own message.
+    assert_each_connection_received_own_message(receivers).await;
 
     // Clean up.
     for i in 0..num_connections {
-        plugin.unregister_sender(i as u64).await;
+        plugin.unregister_sender(i).await;
     }
 }
 
