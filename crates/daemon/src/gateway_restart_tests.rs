@@ -468,7 +468,7 @@ async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
     // The waiting connection observes channel close (recv → None)
     // immediately — bounded wait so a regression hangs the test,
     // not 120s of production timeout.
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(2), conn_rx.recv())
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), conn_rx.recv())
         .await
         .expect("turn finalization must not hang (was: 120s timeout)");
     assert!(

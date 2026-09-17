@@ -404,8 +404,8 @@ impl ConfigReloadManager {
         &self,
         creds_provider: &mut CredentialsProvider,
     ) -> Result<(), ConfigLoadError> {
-        // Single-point parse — INFO/WARN logging and default semantics
-        // live in `ConfigManager::models_config` (config crate), not here.
+        // Single-point typed parse lives in the config crate
+        // (`ConfigManager::models_config`, cached at load), not here.
         let models_config = self.config_manager.models_config();
         for (provider_id, provider_cfg) in &models_config.providers {
             let rel_path = match provider_cfg.credential_path {

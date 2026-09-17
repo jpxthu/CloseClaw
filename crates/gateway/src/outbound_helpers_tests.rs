@@ -609,6 +609,38 @@ async fn test_deliver_batch_result_skips_streaming_turn() {
     );
 }
 
+/// Missing-channel branch: the session record that carries the channel
+/// is gone while the conversation session still resolves → warn + return
+/// before `send_outbound`; no panic, the plugin is never asked to send.
+#[tokio::test]
+async fn test_deliver_batch_result_missing_session_record_returns_without_send() {
+    let (plugin, tracker) = make_plugin();
+    let (gw, sm, sid) = deliver_batch_fixture().await;
+    gw.register_plugin(plugin).await;
+    // Drop the record that carries `channel`; the conversation session
+    // stays so the streaming check still resolves (as non-streaming).
+    sm.sessions.write().await.remove(&sid);
+    assert!(!sm.has_session(&sid).await, "record must be gone");
+    assert!(
+        sm.get_conversation_session(&sid).await.is_some(),
+        "conversation session must remain"
+    );
+
+    deliver_batch_result(
+        &gw,
+        &sm,
+        &sid,
+        "hello",
+        &[ContentBlock::Text("hello".into())],
+    )
+    .await;
+
+    assert!(
+        !tracker.was_send_called(),
+        "no channel on session record → warn + return; plugin must not send"
+    );
+}
+
 /// Renders an unknown `msg_type`, which makes `send_outbound` fail AFTER
 /// `plugin.send` succeeded (`extract_content_for_checkpoint` rejects the
 /// type) — exercising `deliver_batch_result`'s `send_outbound` failure arm.

@@ -120,20 +120,8 @@ async fn init_llm_registry_empty_providers_returns_empty_chain() {
 async fn init_llm_registry_missing_models_json_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
     // Every mandatory config except models.json — deliberately not written.
-    let others = [
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ];
-    for name in others {
-        std::fs::write(
-            dir.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
+    closeclaw_common::test_helpers::write_mandatory_without_models(dir.path())
+        .expect("mandatory configs without models.json");
     let cm = ConfigManager::new(dir.path().to_path_buf()).unwrap();
     cm.load()
         .expect("models.json is optional — load must succeed");
@@ -143,6 +131,24 @@ async fn init_llm_registry_missing_models_json_returns_empty_chain() {
 
     assert!(registry.list().await.is_empty());
     assert_eq!(fallback_client.chain().len(), 0);
+}
+
+/// Boundary: models.json present but corrupt (invalid JSON) with no
+/// backup → F3 protection (config README 启动加载 step 1 + requirements
+/// config §F3): `ConfigManager::load` refuses startup — the daemon never
+/// reaches `init_llm_registry` (empty chain is not even constructed).
+#[tokio::test]
+async fn init_llm_registry_corrupt_models_json_refuses_startup() {
+    let dir = TempDir::new().unwrap();
+    closeclaw_common::test_helpers::write_mandatory_without_models(dir.path())
+        .expect("mandatory configs without models.json");
+    std::fs::write(dir.path().join("models.json"), "not valid json {{").unwrap();
+    let cm = ConfigManager::new(dir.path().to_path_buf()).unwrap();
+
+    let err = cm
+        .load()
+        .expect_err("corrupt models.json without backup must refuse startup");
+    assert!(err.to_string().contains("models.json"), "{err}");
 }
 
 /// Boundary: credential_path pointing at an existing-but-unparseable

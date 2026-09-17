@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_helpers::write_mandatory_configs;
+use closeclaw_common::test_helpers::write_mandatory_without_models;
 use closeclaw_session::persistence::PersistenceService;
 
 /// Create only `config/agents.json` (without mandatory config files)
@@ -44,18 +45,7 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
 fn setup_agents_json_without_models(dir: &std::path::Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
     let config_dir = dir.join("config");
-    for name in [
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            config_dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
+    write_mandatory_without_models(&config_dir)?;
     Ok(())
 }
 
@@ -147,6 +137,69 @@ async fn test_daemon_start_succeeds_without_models_json() {
         daemon.fallback_client.chain().len(),
         0,
         "LLM fallback chain must be empty"
+    );
+}
+
+/// Test: daemon refuses to start when models.json is corrupt and no
+/// backup exists — F3 (design doc config README 启动加载 step 1 +
+/// requirements config §F3): recovery failure (no usable backup) →
+/// refuse startup, not a silent empty LLM config.
+#[tokio::test]
+async fn test_daemon_start_fails_with_corrupt_models_json_no_backup() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
+    // Corrupt models.json — no backup has ever been written.
+    std::fs::write(
+        temp_dir.path().join("config").join("models.json"),
+        "not valid json {{",
+    )
+    .unwrap();
+
+    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let err = result
+        .err()
+        .expect("corrupt models.json without backup must refuse startup");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("models.json"),
+        "error must name the corrupt file: {msg}"
+    );
+}
+
+/// Test: corrupt models.json with a usable backup → F3 rollback →
+/// startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_corrupt_models_json_from_backup() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json(temp_dir.path()).expect("setup agents.json");
+    let config_dir = temp_dir.path().join("config");
+    // Create a real backup of models.json via the config write path.
+    let cm = ConfigManager::new(config_dir.clone()).unwrap();
+    cm.update(
+        ConfigSection::Models,
+        serde_json::json!({"version": "2.0"}),
+        |_| Ok(()),
+    )
+    .expect("update must back up the current models.json");
+    // Corrupt models.json — rollback must restore the backed-up content.
+    std::fs::write(config_dir.join("models.json"), "not valid json {{").unwrap();
+
+    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
+        .await
+        .expect("daemon must start via backup rollback");
+    assert!(
+        daemon.llm_registry.list().await.is_empty(),
+        "restored placeholder defines no provider"
+    );
+    assert_eq!(
+        daemon.fallback_client.chain().len(),
+        0,
+        "LLM fallback chain must be empty"
+    );
+    let restored = std::fs::read_to_string(config_dir.join("models.json")).unwrap();
+    assert!(
+        restored.contains("1.0"),
+        "rollback restored the backup content: {restored}"
     );
 }
 

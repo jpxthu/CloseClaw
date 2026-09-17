@@ -119,25 +119,41 @@ pub fn build_vendor_provider(
     Some(provider)
 }
 
+/// Build a single fallback-chain entry for `provider`.
+///
+/// The single assembly point for [`ChainEntry`]: protocol / interpreter /
+/// plugin via [`assemble_llm_components`], wrapped in a
+/// [`UnifiedChatClient`] with the provider's cache adapter. Consumed by
+/// both [`build_chain_entries`] (registry-driven, used by CLI and the
+/// fallback-client builder) and the daemon's models.json-driven chain
+/// construction, so this wiring lives in exactly one place. The caller
+/// supplies `provider_id` (keys protocol/interpreter/plugin/cache
+/// selection) and `model_id` (what reaches the wire) independently.
+pub fn build_chain_entry(
+    provider: Arc<dyn Provider>,
+    provider_id: &str,
+    model_id: &str,
+) -> ChainEntry {
+    let (protocol, interpreter, plugin) = assemble_llm_components(provider_id);
+    let cache = cache_adapter::for_provider(provider_id);
+    let client = UnifiedChatClient::new(provider, protocol, interpreter, plugin, cache);
+    ChainEntry {
+        provider_id: provider_id.to_string(),
+        model_id: model_id.to_string(),
+        client: Arc::new(client),
+    }
+}
+
 /// Build chain entries from every provider registered in `registry`.
 ///
-/// For each registered provider, assembles protocol / interpreter / plugin
-/// via [`assemble_llm_components`], wraps the result in a
-/// [`UnifiedChatClient`] with the appropriate cache adapter, and returns
-/// the full list of [`ChainEntry`]s.
+/// Delegates each entry to the single assembly point
+/// [`build_chain_entry`], keying both ids on the provider id.
 pub async fn build_chain_entries(registry: &Arc<LLMRegistry>) -> Vec<ChainEntry> {
     let provider_ids = registry.list().await;
     let mut entries = Vec::with_capacity(provider_ids.len());
     for provider_id in &provider_ids {
         if let Some(provider) = registry.get(provider_id).await {
-            let (protocol, interpreter, plugin) = assemble_llm_components(provider_id.as_str());
-            let cache = cache_adapter::for_provider(provider_id);
-            let client = UnifiedChatClient::new(provider, protocol, interpreter, plugin, cache);
-            entries.push(ChainEntry {
-                provider_id: provider_id.clone(),
-                model_id: provider_id.clone(),
-                client: Arc::new(client),
-            });
+            entries.push(build_chain_entry(provider, provider_id, provider_id));
         }
     }
     entries
@@ -270,6 +286,15 @@ mod tests {
     #[test]
     fn build_vendor_provider_unknown_id_returns_none() {
         assert!(build_vendor_provider("acme", "key", Some("http://127.0.0.1:9")).is_none());
+    }
+
+    /// The single assembly point carries the caller's ids through
+    /// unchanged (the daemon passes the real models.json model id).
+    #[test]
+    fn build_chain_entry_carries_provider_and_model_ids() {
+        let entry = build_chain_entry(stub_provider(), "openai", "gpt-4o-basic");
+        assert_eq!(entry.provider_id, "openai");
+        assert_eq!(entry.model_id, "gpt-4o-basic");
     }
 
     #[tokio::test]

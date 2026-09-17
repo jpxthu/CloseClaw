@@ -120,9 +120,9 @@ fn test_config_validation_error_display() {
 // ConfigManager — corrupted file + rollback recovery
 // ---------------------------------------------------------------------------
 
-/// Test: corrupted mandatory file + valid backup → load succeeds via rollback.
-/// (Victim is gateway.json — models.json became an optional section and no
-/// longer participates in the load-time rollback path.)
+/// Test: corrupted config file + valid backup → load succeeds via rollback.
+/// (Victim is models.json — corrupt models.json takes the F3 path: backup
+/// rollback, refuse startup when no usable backup; config README 启动加载.)
 #[test]
 fn test_config_manager_load_corrupted_with_backup_recovery() {
     let tmp = tempfile::tempdir().unwrap();
@@ -130,10 +130,10 @@ fn test_config_manager_load_corrupted_with_backup_recovery() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    // Update creates a backup of the current gateway.json
+    // Update creates a backup of the current models.json
     manager
         .update(
-            ConfigSection::Gateway,
+            ConfigSection::Models,
             serde_json::json!({"version": "2.0"}),
             |_| Ok(()),
         )
@@ -143,20 +143,20 @@ fn test_config_manager_load_corrupted_with_backup_recovery() {
     manager.load().unwrap();
 
     // Verify in-memory cache before corrupting
-    let section_before = manager.section(ConfigSection::Gateway).unwrap();
+    let section_before = manager.section(ConfigSection::Models).unwrap();
     assert_eq!(
         section_before["version"], "2.0",
         "cache should be 2.0 before corruption"
     );
 
-    // Corrupt gateway.json — JSON parse will fail
-    let gateway_path = tmp.path().join("gateway.json");
-    fs::write(&gateway_path, "not valid json {{").unwrap();
+    // Corrupt models.json — JSON parse will fail
+    let models_path = tmp.path().join("models.json");
+    fs::write(&models_path, "not valid json {{").unwrap();
 
     // Load should succeed because rollback recovers from the backup made above
     manager.load().unwrap();
 
-    let section = manager.section(ConfigSection::Gateway).unwrap();
+    let section = manager.section(ConfigSection::Models).unwrap();
     // The backup was created BEFORE the update to version 2.0, so it contains version 1.0
     // Rollback should restore the backup, which is version 1.0
     assert_eq!(section["version"], "1.0");
@@ -207,7 +207,7 @@ fn test_config_manager_load_corrupted_backup_also_corrupted() {
     ));
 }
 
-/// Test: corrupted mandatory file + no backup available → load fails.
+/// Test: corrupted models.json + no backup available → load fails (F3).
 #[test]
 fn test_config_manager_load_corrupted_no_backup() {
     let tmp = tempfile::tempdir().unwrap();
@@ -219,9 +219,9 @@ fn test_config_manager_load_corrupted_no_backup() {
     let backup_dir = tmp.path().join(".backups");
     fs::remove_dir_all(&backup_dir).ok();
 
-    // Corrupt gateway.json
-    let gateway_path = tmp.path().join("gateway.json");
-    fs::write(&gateway_path, "not valid json {{").unwrap();
+    // Corrupt models.json
+    let models_path = tmp.path().join("models.json");
+    fs::write(&models_path, "not valid json {{").unwrap();
 
     // Load must fail because there is no backup to recover from
     let result = manager.load();
@@ -695,9 +695,9 @@ fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
     fs::write(backup_dir.join(backup_name), content).unwrap();
 }
 
-/// Test: models.json is an optional section — its business validation
-/// no longer gates startup load (Step 1.17: 缺失/损坏均不阻塞启动).
-/// Invalid content loads as-is; validation still guards the update path.
+/// Test: models.json is an optional section — business validation does
+/// not gate startup load (Step 1.17; file corruption is the separate F3
+/// path above). Invalid content loads as-is; update path still validates.
 #[test]
 fn test_load_models_json_invalid_not_gated_at_load() {
     let tmp = tempfile::tempdir().unwrap();

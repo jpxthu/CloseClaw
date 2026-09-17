@@ -26,7 +26,7 @@ use crate::validators::{CredentialProviderSet, CrossRefData};
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 use crate::agents::LazyAgentPermissions;
-use crate::manager_models::parse_models_config;
+use crate::manager_models::ModelsConfigCache;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
 
@@ -269,6 +269,8 @@ pub struct ConfigManager {
     pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/).
     credentials_provider: RwLock<CredentialsProvider>,
+    /// Cached typed parse of models.json (filled at load, refreshed on write).
+    pub(crate) models_cache: RwLock<ModelsConfigCache>,
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (from two-level directories).
@@ -302,6 +304,7 @@ impl ConfigManager {
             backup_manager,
             sections: RwLock::new(HashMap::new()),
             credentials_provider: RwLock::new(CredentialsProvider::default()),
+            models_cache: RwLock::new(ModelsConfigCache::default()),
             session_provider: RwLock::new(None),
             agents: RwLock::new(HashMap::new()),
             agent_permissions: Arc::new(LazyAgentPermissions::new(agents_root)),
@@ -345,10 +348,8 @@ impl ConfigManager {
 
     /// Load all configuration sections from disk into memory.
     ///
-    /// Returns [`ConfigLoadError::ConfigDirNotFound`] if the config directory
-    /// does not exist, or [`ConfigLoadError::ConfigFileNotFound`] when a
-    /// mandatory configuration file is missing. Other errors may be returned
-    /// for I/O failures, parse errors, or validation failures during loading.
+    /// `ConfigDirNotFound` / `ConfigFileNotFound` (mandatory file absent),
+    /// plus I/O / parse / validation failures (corrupt file → F3 rollback).
     pub fn load(&self) -> Result<(), ConfigLoadError> {
         if !self.config_dir.exists() {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
@@ -413,13 +414,10 @@ impl ConfigManager {
             sections.insert(section, value);
         }
 
-        // models.json — optional section (never blocks startup): absent →
-        // INFO defaults, unparseable → WARN; typed parse via the single point
-        // `parse_models_config`, reused below (credential merge + cross-validation).
-        self.load_optional_section(&mut sections, ConfigSection::Models);
-        let models_cfg = sections
-            .get(&ConfigSection::Models)
-            .map(parse_models_config);
+        // models.json: missing → optional (INFO, startup continues); corrupt
+        // → F3 rollback. Typed parse cached once (manager_models) below.
+        self.load_models_section(&mut sections)?;
+        let models_cfg = self.parsed_models_config();
 
         // Load session config (optional — absent file uses defaults).
         let session_path = ConfigSection::Session.path(&self.config_dir);
@@ -603,7 +601,7 @@ impl ConfigManager {
     /// Attempt to rollback a corrupted config file and retry loading.
     /// Returns Ok(()) if rollback succeeded and retry loading worked.
     /// Returns Err(ConfigLoadError::ParseError) if rollback failed or retry still fails.
-    fn try_rollback_and_retry(
+    pub(crate) fn try_rollback_and_retry(
         &self,
         path: &Path,
         section: ConfigSection,
@@ -757,6 +755,7 @@ impl ConfigManager {
         })?;
 
         // Step 4: update in-memory cache
+        self.refresh_models_cache(section, &new_value);
         let mut sections = self
             .sections
             .write()
@@ -888,6 +887,7 @@ impl ConfigManager {
         value: serde_json::Value,
     ) {
         self.unblock_section(section);
+        self.refresh_models_cache(section, &value);
         let snapshot = {
             let mut sections = self
                 .sections

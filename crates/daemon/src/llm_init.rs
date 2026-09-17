@@ -17,7 +17,6 @@ use super::*;
 use closeclaw_config::providers::models::ProviderConfig;
 use closeclaw_config::providers::CredentialsProvider;
 use closeclaw_llm::call_chain;
-use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 use closeclaw_llm::LLMRegistry;
@@ -50,12 +49,19 @@ impl Daemon {
         F: Fn(&str) -> Option<String>,
     {
         let registry = Arc::new(LLMRegistry::new());
-        // Single-point models.json access (config crate): INFO when absent,
-        // WARN + empty default on parse failure — startup never gates here.
+        // Single-point models.json access (config crate cache, filled at
+        // load): absent / typed-parse failure → empty default (logged once
+        // there). File-level corruption is refused earlier by `load()` (F3).
         let models = config_manager.models_config();
         // Credentials are resolved at ConfigManager::load: convention directory
         // + credential_path merge (credential_path wins on conflicts).
-        let credentials = config_manager.credentials().unwrap_or_default();
+        let credentials = match config_manager.credentials() {
+            Some(credentials) => credentials,
+            None => {
+                tracing::warn!("ConfigManager credentials not loaded — using empty set");
+                CredentialsProvider::default()
+            }
+        };
 
         // Sorted provider ids → deterministic registry/chain order.
         let mut provider_ids: Vec<&String> = models.providers.keys().collect();
@@ -131,6 +137,9 @@ fn resolve_api_key(
 /// so a model listed in models.json is usable unless explicitly disabled
 /// (`enabled: false`). `model_id` carries the real model id from
 /// models.json so the outbound request names the configured model.
+/// Entry assembly is the llm-crate single point
+/// [`closeclaw_llm::call_chain::build_chain_entry`] — daemon no longer
+/// touches `UnifiedChatClient` / cache-adapter internals itself.
 fn chain_entries_for(
     provider_id: &str,
     provider: &DynProvider,
@@ -141,14 +150,11 @@ fn chain_entries_for(
         if !model.is_enabled() {
             continue;
         }
-        let (protocol, interpreter, plugin) = call_chain::assemble_llm_components(provider_id);
-        let cache = closeclaw_llm::cache_adapter::for_provider(provider_id);
-        let client = UnifiedChatClient::new(provider.clone(), protocol, interpreter, plugin, cache);
-        entries.push(ChainEntry {
-            provider_id: provider_id.to_string(),
-            model_id: model.id.clone(),
-            client: Arc::new(client),
-        });
+        entries.push(call_chain::build_chain_entry(
+            Arc::clone(provider),
+            provider_id,
+            &model.id,
+        ));
     }
     entries
 }

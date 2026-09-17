@@ -333,7 +333,7 @@ async fn dispatch_chat_message(
         .rpc_plugin
         .register_agent_route(&agent_id, conn_id)
         .await;
-    tracing::info!(agent_id = %agent_id, "processing chat request for target agent");
+    tracing::debug!(agent_id = %agent_id, "processing chat request for target agent");
     process_gateway_response(rx, conn_id, agent_id, content, context).await
 }
 
