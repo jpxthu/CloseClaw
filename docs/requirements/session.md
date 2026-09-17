@@ -75,8 +75,8 @@ Rules:
 When the caller supplies a retention focus, it appears as the line below. Give those items priority and keep them verbatim; when none is supplied, the line reads none.
 User-specified retention focus: <retention focus, or "none">
 ```
-- 连续自动压缩失败（成功一次即清零重计）达到配置的熔断失败次数（默认 3 次）后自动进入保护暂停——保护暂停期间阈值触发与上下文溢出兜底均不再自动压缩（不影响活跃判定和归档），手动 `/compact` 仍可执行、成功后自动解除保护暂停
-- 「压缩失败」按压缩调用级判定：一次自动压缩（含上下文溢出兜底触发的自动压缩）未能成功产出一份可采用的摘要即计为一次失败——调用出错、超时，或产出的摘要不可用均计入
+- 连续自动压缩失败（成功一次即清零重计）达到配置的熔断失败次数（默认 3 次）后自动进入保护暂停——保护暂停期间阈值触发与上下文溢出兜底均不再自动压缩（不影响活跃判定和归档），手动 `/compact` 仍可执行、成功后自动解除保护暂停；保护暂停期间若 LLM 调用因超出上下文窗口失败，该次调用按常规错误处理、不再自动压缩，User 可手动 `/compact` 恢复
+- 「压缩失败」按压缩调用级判定：一次自动压缩（含上下文溢出兜底触发的自动压缩）未能成功产出一份可采用的摘要即计为一次失败——调用出错、超时，或产出的摘要不可用均计入；压缩相关配置（告警阈值 / 压缩阈值 / 保留区比例 / 熔断失败次数 / 摘要模型）变更后，自下一次上下文检测（阈值触发）起生效
 
 > **交叉引用**：手动压缩由 `/compact` 指令触发。详见 [slash §F5](slash.md)（上下文压缩）。
 > **交叉引用**：压缩完成后 System Prompt 重新组装详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
@@ -88,7 +88,7 @@ User-specified retention focus: <retention focus, or "none">
 Agent 可以将子任务委托给子 Session（可并行委托多个），等待结果后继续决策。
 
 - 子 Session 的任务描述注入到该子 Session 自身的 System Prompt 中，不属于对话消息，压缩时不受影响
-- Agent 可以向已有未完成的子 Session 发送新任务——对持久子 Session，即持续承接新任务（steer）
+- Agent 可以向已有子 Session 发送新任务——未完成的子 Session 与持久子 Session 均可接收（steer）
 - Agent 可以终止子 Session，级联终止其所有后代（kill）。终止 = 停止该子 Session 正在执行的工具调用与 LLM 响应，是运行时动作，不是存储生命周期的一个状态；已被终止的子 Session 不再计入父 Session 的「子 Session 未完成」维度，其存储生命周期照常按 F6 的 inactive 判据推进
 - 子 Session 的硬超时：运行时长达到该子 Session 的硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知（父 Session 已归档则丢弃）。硬超时的取值及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
 - 持久子 Session：Agent 可以创建持久存活的子 Session，其生命周期与主 Agent Session 一致——同样按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 一致恢复，不降级为一次性子 Session（一次性子 Session：为单一任务创建、产出最后一条 assistant 消息后即结束的普通子 Session）
@@ -132,7 +132,7 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 - 新 Session 创建时使用当前配置；已在运行的 Session（含归档恢复后）沿用其创建时的 inactive 与清理配置，不随配置变更而变
 - 归档与清理扫描参数（扫描间隔等）变更后自下一次扫描起生效
 - 终止一个 Session（F4 的子 Session 终止、`/stop` 的当前 Session 终止）只停止其运行时活动，不改变上述归档与清理判定——生命周期仍完全由四维 inactive 判据与时间驱动
-- 若父 Session 因系统错误被归档（系统错误的识别与恢复见 [F7](#f7-运行健康与安全)），系统记录告警日志，其未完成子 Session 的完成通知丢弃
+- 若父 Session 因系统异常（如崩溃）被归档（识别与恢复见 [F7](#f7-运行健康与安全)），系统记录告警日志，其未完成子 Session 的完成通知丢弃
 
 > **交叉引用**：Session 配置的重载机制详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：Session 生命周期参数的生效机制与归属详见 [config §F7](config.md)（生效机制与重启类判定）。
@@ -199,7 +199,7 @@ Session 在任意时刻可以在多个活跃维度上同时开启，每个维度
 - **推理中**：LLM 正在推理（含流式输出）
 - **同步工具等待**：Agent 调用了工具并等待其返回结果以继续推理（同步调用）
 - **后台任务**：Agent 异步调用了工具，不阻塞当前推理流程；该维度在有正在运行的后台任务期间为是，全部到达终态后为否
-- **子 Session 未完成**：Session 有尚未完成的子 Session（已创建、尚未产生最后一条 assistant 消息或仍有活跃维度；已终止的子 Session 不再计入）。完成判据见 [F7](#f7-运行健康与安全)（运行健康与安全）
+- **子 Session 未完成**：Session 有尚未完成的子 Session（含各级后代；已创建、尚未产生最后一条 assistant 消息或仍有活跃维度；已终止的子 Session 不再计入）。完成判据见 [F7](#f7-运行健康与安全)（运行健康与安全）
 
 四维活跃维度的复合判定由各功能域按需组合：
 
@@ -234,7 +234,7 @@ Session 模块在以下环节记录调试日志：
 - **可恢复性**：系统重启后自动恢复所有未归档 Session。恢复耗时复杂度 O(A)，与 N 无关
 - **性能**：Agent 回复实时逐字展示。后台维护任务（归档扫描）不阻塞 User 对话的响应
 - **安全性**：对话历史按 Session 隔离，仅该 Session 所属 User 与其绑定的 Agent 可访问，跨 User / 跨 Agent 不可读；Session 销毁后对话历史不可恢复
-- **可配置性**：每个 Agent 的 inactive 时长、清理时长、压缩的告警阈值 / 压缩阈值 / 保留区比例 / 熔断失败次数 / 摘要模型、子 Session 超时预警时间 / 间隔比例均可独立配置，主 Agent Session 与子 Session 可以分别设置；各配置项独立回退到系统默认值。配置变更的生效时机见 F6 与 [config §F4](config.md)（配置重载）
+- **可配置性**：以下配置项均支持按 Agent 独立设置，且主 Agent Session 与子 Session 可分别设置：inactive 时长、清理时长、压缩的告警阈值 / 压缩阈值 / 保留区比例 / 熔断失败次数 / 摘要模型、子 Session 超时预警时间 / 间隔比例；各配置项独立回退到系统默认值。配置变更的生效时机见 F3、F6 与 [config §F4](config.md)（配置重载）
 - **可观测性**：Session 的关键操作（创建 / 查找 / 归档恢复、对话历史追加与修改、压缩、消息注入、活跃维度变化、子 Session 创建与完成、健康检测）均记录调试日志（见 [F12](#f12-调试日志)（调试日志）），可据以排查问题
 - **Session 独立性**：Session 路由、委托、归档恢复等日常操作对 N 的复杂度为 O(1) 或 O(log N)，不对全量历史 Session 做 O(N) 遍历
 - **长期运行稳定性**：系统累计委托大量子任务后，委托新子任务和 User 对话的响应速度不随已完成子任务数量增加而退化。已完成子任务的结果在其 Session 销毁前仍可查，但不持续占用运行资源；内存占用 O(A)，对 N 为 O(1)
