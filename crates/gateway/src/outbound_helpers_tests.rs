@@ -17,8 +17,12 @@ use closeclaw_common::{ContentBlock, MiddlewareContext, MiddlewareError};
 
 use super::inbound_queue::InboundRequest;
 use super::inbound_queue_test_utils::queued;
-use crate::outbound_helpers::{send_simplified_with_timeout, send_text, StreamContext};
+use crate::outbound_helpers::{
+    deliver_batch_result, send_simplified_with_timeout, send_text, StreamContext,
+};
+use crate::session_manager::test_helpers::make_msg;
 use crate::{Gateway, GatewayConfig, SessionManager};
+use closeclaw_session::llm_session::ChatSession;
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -541,4 +545,136 @@ fn make_slow_request() -> InboundRequest {
         trace_id: "slow-parse-trace".into(),
         span_id: None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// Step 1.15: deliver_batch_result branch coverage
+// ---------------------------------------------------------------------------
+
+/// Fixture: one created session (record + ConversationSession) and a
+/// Gateway holding the same SessionManager the tests pass to
+/// `deliver_batch_result`.
+async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) {
+    let config = GatewayConfig {
+        name: "outbound_helpers_deliver_batch".into(),
+        rate_limit_per_minute: 100,
+        max_message_size: 1024,
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(&config, None, None, Default::default()));
+    let sid = sm
+        .find_or_create("mock", &make_msg(), None)
+        .await
+        .expect("session creation must succeed");
+    (Arc::new(Gateway::new(config, Arc::clone(&sm))), sm, sid)
+}
+
+/// Streaming-skip branch: streaming turns were already delivered chunk by
+/// chunk via `send_outbound_streaming`, so `deliver_batch_result` must
+/// return before the channel lookup / `send_outbound` (the same fixture
+/// proven to deliver in the non-streaming test below).
+#[tokio::test]
+async fn test_deliver_batch_result_skips_streaming_turn() {
+    let (plugin, tracker) = make_plugin();
+    let (gw, sm, sid) = deliver_batch_fixture().await;
+    gw.register_plugin(plugin).await;
+    // Session record exists, so the skip can only come from the streaming
+    // check — not from a missing channel.
+    assert!(
+        sm.has_session(&sid).await,
+        "fixture must have a session record"
+    );
+    let cs = sm
+        .get_conversation_session(&sid)
+        .await
+        .expect("conversation session");
+    cs.write().await.set_stream_enabled(true);
+    assert!(
+        cs.read().await.stream_enabled(),
+        "fixture must be streaming"
+    );
+
+    deliver_batch_result(
+        &gw,
+        &sm,
+        &sid,
+        "hello",
+        &[ContentBlock::Text("hello".into())],
+    )
+    .await;
+
+    assert!(
+        !tracker.was_send_called(),
+        "streaming turn must be skipped: send_outbound must not run"
+    );
+}
+
+/// Renders an unknown `msg_type`, which makes `send_outbound` fail AFTER
+/// `plugin.send` succeeded (`extract_content_for_checkpoint` rejects the
+/// type) — exercising `deliver_batch_result`'s `send_outbound` failure arm.
+struct UnknownMsgTypePlugin {
+    sends: std::sync::atomic::AtomicU32,
+}
+
+#[async_trait]
+impl IMPlugin for UnknownMsgTypePlugin {
+    fn platform(&self) -> &str {
+        "mock"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        Ok(None)
+    }
+
+    fn render(
+        &self,
+        _content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        RenderedOutput {
+            msg_type: "video".into(),
+            payload: serde_json::json!({}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        self.sends.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        Ok(())
+    }
+}
+
+/// `send_outbound` failure branch: the error is logged and swallowed —
+/// `deliver_batch_result` returns normally (the turn is already in the
+/// conversation history) while the send itself was attempted exactly once.
+#[tokio::test]
+async fn test_deliver_batch_result_swallows_send_outbound_failure() {
+    let plugin = Arc::new(UnknownMsgTypePlugin {
+        sends: std::sync::atomic::AtomicU32::new(0),
+    });
+    let (gw, sm, sid) = deliver_batch_fixture().await;
+    gw.register_plugin(plugin.clone()).await;
+
+    deliver_batch_result(
+        &gw,
+        &sm,
+        &sid,
+        "hello",
+        &[ContentBlock::Text("hello".into())],
+    )
+    .await;
+
+    assert_eq!(
+        plugin.sends.load(std::sync::atomic::Ordering::SeqCst),
+        1,
+        "send_outbound must run once and its failure must be swallowed without panic"
+    );
 }

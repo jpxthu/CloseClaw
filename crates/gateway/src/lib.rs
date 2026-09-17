@@ -623,7 +623,8 @@ impl Gateway {
             }
         }
         // New user auto-registration (design doc). Owner / terminal-channel
-        // callers are exempt inside the gate (design cli/README.md §F1).
+        // callers are exempt inside the gate (design cli/README.md,
+        // requirements/cli.md §F1).
         if let Some(sender) = sender_id {
             if let Some(result) = self.check_new_user_registration(sender, channel).await {
                 return Some(result);
@@ -946,6 +947,8 @@ pub(crate) mod rebuild_stash;
 mod rebuild_stash_tests;
 #[cfg(test)]
 pub mod session_handler_announce_reasoning_always_tests;
+#[cfg(test)]
+pub mod session_handler_announce_turn_completion_tests;
 #[cfg(test)]
 pub mod session_handler_circuit_breaker_tests;
 #[cfg(test)]

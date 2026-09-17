@@ -462,3 +462,44 @@ async fn test_dispatch_ping_returns_pong_actual() {
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0], ChatResponse::Pong);
 }
+
+/// Step 1.15 — failure-side turn completion: the shared consumer must turn
+/// the EMPTY payload emitted by the gateway's failed LLM turn
+/// (`session_handler_announce` error arm sends `("", [])`) into a
+/// `finish_turns()` call, so waiting chat connections finalize instead of
+/// hanging until `TURN_COMPLETION_TIMEOUT_SECS` (120s). The emission half
+/// is locked by the gateway's
+/// `session_handler_announce_turn_completion_tests`.
+#[tokio::test]
+async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
+    // Waiting chat connection (as registered by dispatch_chat_message).
+    let plugin = Arc::new(RpcTerminalPlugin::new());
+    let (conn_tx, mut conn_rx) = tokio::sync::mpsc::channel(4);
+    plugin.register_sender(1, conn_tx).await;
+    plugin.register_agent_route("master", 1).await;
+
+    // The gateway SessionMessageHandler output channel.
+    let (output_tx, output_rx) =
+        tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::processor::ContentBlock>)>(64);
+    // The single assembly point every consumer path uses (Step 1.11).
+    let consumer = spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
+
+    // Exactly what the failure arm emits for a failed turn: empty payload.
+    output_tx
+        .send((String::new(), Vec::new()))
+        .await
+        .expect("output channel must be open");
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), conn_rx.recv())
+        .await
+        .expect("failed turn must finalize, not hang until the 120s timeout");
+    assert!(
+        closed.is_none(),
+        "connection channel must close on finish_turns for the empty failure payload"
+    );
+
+    // Dropping the output sender closes the consumer loop.
+    drop(output_tx);
+    consumer
+        .await
+        .expect("consumer task must exit when the output channel closes");
+}

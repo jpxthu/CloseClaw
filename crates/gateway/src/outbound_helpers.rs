@@ -723,11 +723,11 @@ pub(crate) async fn deliver_batch_result(
     text: &str,
     blocks: &[ContentBlock],
 ) {
-    let streaming = match session_manager.get_conversation_session(session_id).await {
+    let is_streaming = match session_manager.get_conversation_session(session_id).await {
         Some(cs) => cs.read().await.stream_enabled(),
         None => false,
     };
-    if streaming {
+    if is_streaming {
         return;
     }
     let channel = {
