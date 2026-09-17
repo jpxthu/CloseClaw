@@ -12,8 +12,8 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 
 - 对话历史是 Session 的组成部分，与 Session 不可分离：Session 存在即包含其对话历史，不存在无归属的对话历史
 - Session 分为**主 Agent Session**（由 User 消息直接触发创建，不由其他 Session 派生）与**子 Session**（由 Agent 委托创建、从属于某父 Session）；两者的生命周期规则一致
-- User 发送消息时，系统自动查找该对话对应的 Session——若存在未归档 Session 则复用；否则若存在归档中或已归档 Session，则恢复其中最后活跃时间最新的一个；否则创建新 Session
-- 用户对话 Session 由平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
+- User 发送消息时，系统自动查找该对话对应的 Session——若存在未归档 Session 则复用其中最后活跃时间最新的一个；否则若存在归档中或已归档 Session，则恢复其中最后活跃时间最新的一个；否则创建新 Session
+- 主 Agent Session 由入站消息的平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
 - 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，持久子 Session 保持持久、不降级为一次性子 Session
 - Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session
 - 处于归档中或已归档的 Session 被 User 再次访问时自动恢复：
@@ -36,11 +36,11 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 
 对话历史过长会挤占上下文窗口，系统通过压缩将其转为结构化摘要以释放 token 空间继续对话。压缩支持自动与手动两种触发方式。
 
-- 手动压缩：User 可手动触发压缩，并可指定需要重点保留的内容。携带保留指示时，系统将其并入压缩调用，要求摘要重点保留指示所指内容（见下方 prompt 的保留指示槽位）
+- 手动压缩：User 可手动触发压缩，并可指定需要重点保留的内容。携带保留指示时，系统将其并入压缩调用，要求摘要重点保留指示所指内容（见下方 prompt 的「User-specified retention focus」槽位）
 - 自动压缩：每轮对话结束后检测上下文剩余 token 空间
   - 告警阶段：剩余空间不高于告警阈值时，提示 User 即将压缩。若后续剩余空间回升至告警阈值以上，告警自动取消
   - 压缩阶段：剩余空间不高于压缩阈值时，自动执行压缩
-  - 告警阈值与压缩阈值均以「剩余空间占上下文窗口的百分比」衡量，且满足 告警阈值 > 压缩阈值（数值越大表示剩余空间越充裕、越早触发，故告警先于压缩），每个 Agent 可独立设置，未配置时使用系统默认值（告警阈值默认 25%、压缩阈值默认 20%）
+  - 告警阈值与压缩阈值均以「剩余空间占上下文窗口的百分比」衡量，且满足 告警阈值 > 压缩阈值——数值越大代表剩余空间越充裕、越早触发，故告警先于压缩；每个 Agent 可独立设置，未配置时使用系统默认值（告警阈值默认 25%、压缩阈值默认 20%）
 - 上下文溢出兜底：即使尚未达到压缩阈值，若 LLM 调用因超出上下文窗口而失败，系统同样触发一次自动压缩并重试该次调用（重试默认 1 次）
 - 自动压缩（阈值触发）保留最近一段对话原文，仅将其余更早的对话压缩为摘要。保留区比例以「保留原文的 token 数占上下文窗口的百分比」衡量（默认 16%、每个 Agent 可独立配置），保留方式为自最近消息向前累计至该预算；被保留的原文原样保留、不进入摘要。压缩不拆散工具调用与其结果
 - 手动 `/compact` 与上下文溢出兜底触发的压缩不保留最近原文（保留区比例按 0% 处理，整段对话均进入摘要），以最大程度腾出空间
@@ -52,7 +52,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
   - 压缩请求复用会话既有的前缀缓存：与常规对话请求共享同一 System Prompt 前缀与被压缩消息前缀，仅追加末尾的指令消息，不因压缩重排或重新包装历史
   - 摘要以一条 user 角色的消息写回，内容以固定标记 `<compacted-summary>` … `</compacted-summary>` 包裹，以区别于真实 User 消息，并作为被压缩内容在上下文视图中的原位替代
   - 摘要模型默认为当前 Session 的模型；可配置为独立的摘要模型
-- 压缩按以下固定 prompt 生成摘要（prompt 原文随需求固定，属产品定义、开发不改写）：
+- 压缩指令原文如下（随需求固定，属产品定义、开发不改写）：
 
 ```
 You are compacting a conversation to free context space so the assistant can continue seamlessly.
@@ -76,7 +76,7 @@ Rules:
 When the caller supplies a retention focus, it appears as the line below. Give those items priority and keep them verbatim; when none is supplied, the line reads none.
 User-specified retention focus: <retention focus, or "none">
 ```
-- 连续压缩失败达到配置的失败次数（默认 3 次）后自动进入保护暂停——保护暂停期间阈值触发与上下文溢出兜底均不再自动压缩（不影响活跃判定和归档），手动 `/compact` 仍可执行、成功后自动解除保护暂停
+- 连续压缩失败达到配置的熔断失败次数（默认 3 次）后自动进入保护暂停——保护暂停期间阈值触发与上下文溢出兜底均不再自动压缩（不影响活跃判定和归档），手动 `/compact` 仍可执行、成功后自动解除保护暂停
 - 「压缩失败」按压缩调用级判定：一次自动压缩（含上下文溢出兜底触发的自动压缩）未能成功产出一份可采用的摘要即计为一次失败——调用出错、超时，或产出的摘要不可用均计入
 
 > **交叉引用**：手动压缩由 `/compact` 指令触发。详见 [slash §F5](slash.md)（上下文压缩）。
@@ -102,12 +102,15 @@ Agent 可以将子任务委托给子 Session（可并行委托多个），等待
   - 子 Session 超时预警时间的来源及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
 - 父 Session 每轮对话开始时，系统注入当前未完成子 Session 摘要：未完成子 Session 数量及每个子 Session 的概要信息（子 Session 的 Agent 标识、任务简述、已运行时长）
 
-> **交叉引用**：子 Session 的创建、超时取值优先级与创建控制详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[agent §F9](agent.md)（子 Session 创建控制）；持久子 Session 控制详见 [agent §F11](agent.md)（持久子 Session 控制）；父子关系追踪详见 [agent §F15](agent.md)（Spawn 层级追踪）。
-> **交叉引用**：子 Session 管理工具（创建 / 发送任务 / 终止）的清单归属见 [tools §F1](tools.md)（工具注册与发现）。
+> **交叉引用**：子 Session 的创建、超时取值优先级详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：子 Session 创建控制（目标白名单、层级深度、并发数量）详见 [agent §F9](agent.md)（子 Session 创建控制）。
+> **交叉引用**：持久子 Session 控制详见 [agent §F11](agent.md)（持久子 Session 控制）。
+> **交叉引用**：父子关系追踪详见 [agent §F15](agent.md)（Spawn 层级追踪）。
+> **交叉引用**：子 Session 管理工具（创建 / 发送任务 / 终止）的清单归属详见 [tools §F1](tools.md)（工具注册与发现）。
 > **交叉引用**：子 Session 的权限沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）。
 > **交叉引用**：子 Session 相关各类注入通知（完成通知、超时预警通知、未完成子 Session 摘要）的排队规则详见 [F10](#f10-消息排队)（消息排队）。
 > **交叉引用**：子 Session 完成通知的送达保证和僵死检测详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
-> **交叉引用**：`/stop` 终止当前 Session 运行、`/new` 创建新 Session，均走本模块的查找与恢复流程。详见 [slash §F3](slash.md)（Session 管理）。
+> **交叉引用**：`/stop` 终止当前 Session 运行、`/new` 创建新 Session（即使已有未归档 Session 也强制新建）。详见 [slash §F3](slash.md)（Session 管理）。
 
 ### F5. 推理强度控制
 
@@ -124,15 +127,16 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 - inactive 判定条件：四维活跃维度均为否，且距该 Session 最后活跃时间超过配置的 inactive 时长，详见 [F11](#f11-session-活跃维度)（Session 活跃维度）
   - 「最后活跃时间」为该 Session 任一活跃维度最近一次为「是」的时刻；四维中任一维度为「是」期间该 Session 持续活跃，inactive 时长不推进、不触发判定
 - User 配置清理时长后，已归档超过该时长的 Session 销毁（元数据 + 对话历史）
-- 销毁仅由按时间执行的清理任务触发。归档不是销毁（归档 Session 可恢复），子 Session 自身完成后不触发销毁（结果注入父 Session 后保留可查）
+- 销毁仅由按时间执行的清理任务触发。归档不是销毁（归档 Session 可恢复），子 Session 自身完成后不触发销毁（结果注入父 Session 后保留、可供查询）
 - 每个 Agent 可独立配置 inactive 时长和清理时长，主 Agent Session 与子 Session（含持久子 Session）可以分别设置
 - 各配置项独立回退：未配置的项使用系统默认值（inactive 时长默认 30 分钟；清理时长默认未设置，即不自动删除）
 - 新 Session 创建时使用当前配置；已在运行的 Session（含归档恢复后）沿用其创建时的 inactive 与清理配置，不随配置变更而变
 - 归档与清理扫描参数（扫描间隔等）变更后自下一次扫描起生效
-- 终止或停止一个 Session（F4 的子 Session 终止、`/stop` 的当前 Session 终止）只停止其运行时活动，不改变上述归档与清理判定——生命周期仍完全由四维 inactive 判据与时间驱动
-- 若父 Session 因系统错误被归档，系统记录告警日志，其未完成子 Session 的完成通知丢弃
+- 终止一个 Session（F4 的子 Session 终止、`/stop` 的当前 Session 终止）只停止其运行时活动，不改变上述归档与清理判定——生命周期仍完全由四维 inactive 判据与时间驱动
+- 若父 Session 因系统错误被归档（系统错误的识别与恢复见 [F7](#f7-运行健康与安全)），系统记录告警日志，其未完成子 Session 的完成通知丢弃
 
-> **交叉引用**：Session 配置的重载机制详见 [config §F4](config.md)（配置重载）；Session 生命周期参数的生效机制与归属详见 [config §F7](config.md)（生效机制与重启类判定）。
+> **交叉引用**：Session 配置的重载机制详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：Session 生命周期参数的生效机制与归属详见 [config §F7](config.md)（生效机制与重启类判定）。
 > **交叉引用**：Agent 配置与注册清单变更对 Session 的生效边界详见 [agent §F6](agent.md)（运行时配置查询）。
 > **交叉引用**：后台任务输出文件随 Session 销毁回收详见 [tools §F5](tools.md)（后台任务执行）。
 > **交叉引用**：媒体文件跟随 Session 生命周期的清理详见 [im_adapter §F9](im_adapter.md)（媒体文件收发与存储）。
@@ -146,7 +150,7 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 - 对涉及对话历史完整性的操作（压缩、System Prompt 修改），执行前自动创建对话备份，操作失败时可回滚到上一个安全状态
 - 系统崩溃时，自动识别未完成的工具调用、子 Session 委托和未发送的出站消息。未发送的出站消息自动重投递；向未完成的工具调用与子 Session 委托原本所属的 Session 注入恢复通知，由 Agent 自行决定如何处理
 - 系统定时扫描子 Session（F4 的超时预警通知不替代本项僵死兜底——父 Agent 选择继续等待时，仍受僵死判定保护）：
-  - 已完成（四维活跃维度均为否且已产出最终 assistant 消息）但完成通知未成功送达父 Session 的，补推完成通知（若父 Session 已归档则丢弃）
+  - 已完成（四维活跃维度均为否，且该子 Session 的最后一条消息为 assistant 消息）但完成通知未成功送达父 Session 的，补推完成通知（若父 Session 已归档则丢弃）
   - 非已完成、四维活跃维度均为否且超过 5 分钟无新产出（无新 assistant 消息、无工具执行结果变化）的，判定为僵死，自动终止（级联终止其所有后代，终止后不再视为未完成子 Session）并向父 Session 注入僵死通知（若父 Session 已归档则丢弃）
 
 > **交叉引用**：后台任务与工具调用在 Session 停止或崩溃时的处理详见 [tools §F5](tools.md)（后台任务执行）。
@@ -154,13 +158,14 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 ### F8. 工作目录
 
-每个 Session 拥有独立的工作目录，作为该 Session 文件操作的默认路径，随 Session 生命周期初始化和重置。
+每个 Session 拥有独立的工作目录，作为该 Session 文件操作的默认路径；在 Session 创建时初始化，归档恢复时重新确定。
 
 - 工作目录的取值由下方解析顺序确定：创建时确定初值，恢复时按同一顺序重新确定（spawn 参数不可得时跳过该项）
 - 工作目录的解析顺序：spawn 参数指定 > 目标 Agent 配置 > 系统默认工作目录
 
 > **交叉引用**：工作目录的强制授权机制（不受任何 Deny 规则影响）详见 [permission §F3](permission.md)（权限决策模型）。
-> **交叉引用**：工作目录作为 Agent 配置档案字段、以及 spawn 时的工作目录覆盖详见 [agent §F1](agent.md)（Agent 配置档案）、[agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：工作目录作为 Agent 配置档案字段详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：spawn 时的工作目录覆盖详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 > **交叉引用**：工作目录的查看与变更由 `/pwd`、`/cd`、`/git` 指令完成。详见 [slash §F7](slash.md)（工作目录操作）。
 
 ### F9. 消息注入
@@ -194,7 +199,7 @@ Session 在任意时刻可以在多个维度上同时处于活跃状态，每个
 
 - **推理中**：LLM 正在推理（含流式输出）
 - **同步工具等待**：Agent 调用了工具并等待其返回结果以继续推理（同步调用）
-- **后台任务**：Agent 异步调用了工具，不阻塞当前推理流程
+- **后台任务**：Agent 异步调用了工具，不阻塞当前推理流程；该维度在有正在运行的后台任务期间为是，全部到达终态后为否
 - **子 Session 未完成**：Session 有尚未完成的子 Session（已创建、尚未产出最终 assistant 消息或仍有活跃维度；已终止的子 Session 不再计入）。完成判据见 [F7](#f7-运行健康与安全)（运行健康与安全）
 
 四维活跃维度的复合判定由各功能域按需组合：
