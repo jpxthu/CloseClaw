@@ -84,10 +84,9 @@ fn make_gw() -> crate::Gateway {
 fn noop_notify(_n: closeclaw_permission::approval_flow::ApprovalNotification) {}
 fn noop_whitelist(_: &str) {}
 
-fn make_approval_flow() -> ApprovalFlow {
+fn make_approval_flow(config_dir: std::path::PathBuf) -> ApprovalFlow {
     let mock_lookup: Arc<dyn SessionLookup> = Arc::new(MockLookup);
     let handle = tokio::runtime::Handle::current();
-    let config_dir = tempfile::tempdir().unwrap().keep();
     ApprovalFlow::new(
         mock_lookup,
         Arc::new(noop_notify),
@@ -99,8 +98,22 @@ fn make_approval_flow() -> ApprovalFlow {
     )
 }
 
-async fn install_approval_flow(gw: &crate::Gateway) {
-    *gw.approval_flow.write().await = Some(Arc::new(tokio::sync::Mutex::new(make_approval_flow())));
+/// Install an ApprovalFlow on `gw` whose `config_dir` is the caller-supplied
+/// path; the caller owns the directory lifetime (STANDARDS §8).
+async fn install_approval_flow_at(gw: &crate::Gateway, config_dir: &std::path::Path) {
+    *gw.approval_flow.write().await = Some(Arc::new(tokio::sync::Mutex::new(make_approval_flow(
+        config_dir.to_path_buf(),
+    ))));
+}
+
+/// Install an ApprovalFlow on `gw` backed by a fresh temp config dir.
+/// Returns the `TempDir`, which callers must bind (`let _flow_dir = ...`) so
+/// the directory outlives the flow and is removed on Drop when the test ends
+/// (STANDARDS §8 — no leaked temp dirs).
+async fn install_approval_flow(gw: &crate::Gateway) -> tempfile::TempDir {
+    let dir = tempfile::tempdir().expect("approval config dir");
+    install_approval_flow_at(gw, dir.path()).await;
+    dir
 }
 
 /// Captures messages sent via IMPlugin::send for assertion.
@@ -289,7 +302,7 @@ fn s13_dbg() -> InboundDebugCtx<'static> {
 #[tokio::test]
 async fn test_approve_command_with_request_id() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve REQ_001", Some("owner"), "p", "mock")
         .await;
@@ -303,7 +316,7 @@ async fn test_approve_command_with_request_id() {
 #[tokio::test]
 async fn test_deny_command_with_request_id() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/deny REQ_002", Some("owner"), "p", "mock")
         .await;
@@ -317,7 +330,7 @@ async fn test_deny_command_with_request_id() {
 #[tokio::test]
 async fn test_no_prefix_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "hello", Some("owner"), "p", "mock")
         .await;
@@ -327,7 +340,7 @@ async fn test_no_prefix_returns_none() {
 #[tokio::test]
 async fn test_approve_without_request_id_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve   ", Some("owner"), "p", "mock")
         .await;
@@ -337,7 +350,7 @@ async fn test_approve_without_request_id_returns_none() {
 #[tokio::test]
 async fn test_approve_bare_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve", Some("owner"), "p", "mock")
         .await;
@@ -347,7 +360,7 @@ async fn test_approve_bare_returns_none() {
 #[tokio::test]
 async fn test_empty_string_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "", Some("owner"), "p", "mock")
         .await;
@@ -357,7 +370,7 @@ async fn test_empty_string_returns_none() {
 #[tokio::test]
 async fn test_whitespace_only_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "   ", Some("owner"), "p", "mock")
         .await;
@@ -367,7 +380,7 @@ async fn test_whitespace_only_returns_none() {
 #[tokio::test]
 async fn test_non_owner_sender_returns_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve REQ_001", Some("other"), "p", "mock")
         .await;
@@ -381,7 +394,7 @@ async fn test_non_owner_sender_returns_rejected() {
 #[tokio::test]
 async fn test_non_owner_deny_returns_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/deny REQ_002", Some("other"), "p", "mock")
         .await;
@@ -395,7 +408,7 @@ async fn test_non_owner_deny_returns_rejected() {
 #[tokio::test]
 async fn test_non_owner_approve_without_request_id_returns_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve", Some("other"), "p", "mock")
         .await;
@@ -409,7 +422,7 @@ async fn test_non_owner_approve_without_request_id_returns_rejected() {
 #[tokio::test]
 async fn test_none_sender_returns_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve REQ_001", None, "p", "mock")
         .await;
@@ -423,7 +436,7 @@ async fn test_none_sender_returns_rejected() {
 #[tokio::test]
 async fn test_none_sender_deny_returns_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/deny REQ_002", None, "p", "mock")
         .await;
@@ -437,7 +450,7 @@ async fn test_none_sender_deny_returns_rejected() {
 #[tokio::test]
 async fn test_deny_bare_returns_none() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/deny", Some("owner"), "p", "mock")
         .await;
@@ -447,7 +460,7 @@ async fn test_deny_bare_returns_none() {
 #[tokio::test]
 async fn test_approve_with_flags_parsed() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -467,7 +480,7 @@ async fn test_approve_with_flags_parsed() {
 #[tokio::test]
 async fn test_approve_with_extra_args_parsed() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -487,7 +500,7 @@ async fn test_approve_with_extra_args_parsed() {
 #[tokio::test]
 async fn test_approve_once_with_request_id() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve-once REQ_010", Some("owner"), "p", "mock")
         .await;
@@ -501,7 +514,7 @@ async fn test_approve_once_with_request_id() {
 #[tokio::test]
 async fn test_approve_whitelist_with_request_id() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -521,7 +534,7 @@ async fn test_approve_whitelist_with_request_id() {
 #[tokio::test]
 async fn test_approve_whitelist_agent_only() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -541,7 +554,7 @@ async fn test_approve_whitelist_agent_only() {
 #[tokio::test]
 async fn test_approve_whitelist_user_and_agent() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -561,7 +574,7 @@ async fn test_approve_whitelist_user_and_agent() {
 #[tokio::test]
 async fn test_approval_prefix_no_match() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approval REQ_014", Some("owner"), "p", "mock")
         .await;
@@ -571,7 +584,7 @@ async fn test_approval_prefix_no_match() {
 #[tokio::test]
 async fn test_deny_once_matches_deny_prefix() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/deny-once REQ_015", Some("owner"), "p", "mock")
         .await;
@@ -585,7 +598,7 @@ async fn test_deny_once_matches_deny_prefix() {
 #[tokio::test]
 async fn test_non_owner_approve_once_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s", "/approve-once REQ_016", Some("other"), "p", "mock")
         .await;
@@ -599,7 +612,7 @@ async fn test_non_owner_approve_once_rejected() {
 #[tokio::test]
 async fn test_non_owner_approve_whitelist_rejected() {
     let gw = make_gw();
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command(
             "s",
@@ -642,7 +655,7 @@ async fn test_approval_without_slash_dispatcher() {
     let gw = crate::Gateway::new(s13_cfg(), Arc::clone(&sm));
     gw.register_plugin(Arc::new(CapturingPlugin::new("mock")))
         .await;
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     // No slash_dispatcher set — approval must still work.
     let gw = Arc::new(gw);
     let r = gw
@@ -663,7 +676,7 @@ async fn test_approval_without_slash_dispatcher() {
 #[tokio::test]
 async fn test_busy_deny_immediate() {
     let (gw, sm) = s13_env("s2", "mock", Arc::new(CapturingPlugin::new("mock"))).await;
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     s13_busy(&sm, "s2").await;
     let r = gw
         .route_and_dispatch(
@@ -721,7 +734,7 @@ async fn test_non_owner_deny_rejection() {
     let p = Arc::new(CapturingPlugin::new("mock"));
     let p_ref = Arc::clone(&p);
     let (gw, _) = s13_env("s4", "mock", p).await;
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     let r = gw
         .try_handle_approval_command("s4", "/deny REQ_004", Some("user"), "peer4", "mock")
         .await;
@@ -743,7 +756,7 @@ async fn test_non_owner_deny_rejection() {
 #[tokio::test]
 async fn test_busy_approve_once_immediate() {
     let (gw, sm) = s13_env("s5", "mock", Arc::new(CapturingPlugin::new("mock"))).await;
-    install_approval_flow(&gw).await;
+    let _flow_dir = install_approval_flow(&gw).await;
     s13_busy(&sm, "s5").await;
     let r = gw
         .route_and_dispatch(
@@ -828,7 +841,9 @@ async fn test_idle_slash_executes() {
 async fn reg_gate_gw(config_dir: &std::path::Path) -> crate::Gateway {
     let gw = make_gw();
     gw.set_config_dir(config_dir.to_path_buf()).await;
-    install_approval_flow(&gw).await;
+    // Share the caller-held dir instead of a private tempdir so the flow's
+    // config_dir outlives this helper (TempDir stays owned by the test).
+    install_approval_flow_at(&gw, config_dir).await;
     gw
 }
 
