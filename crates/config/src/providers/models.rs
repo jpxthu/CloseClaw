@@ -102,16 +102,33 @@ impl ModelsConfigData {
 
     /// Return providers that have at least one enabled model.
     ///
-    /// `enabled` defaults to true when the flag is omitted — a model
-    /// listed in models.json is usable unless explicitly disabled
-    /// (`enabled: false`), mirroring the daemon fallback-chain
-    /// consumption of the same field.
+    /// `enabled` defaults to true when the flag is omitted — the shared
+    /// predicate is [`ModelDefinition::is_enabled`], consumed here and by
+    /// the daemon fallback-chain assembly (the runtime gate).
+    ///
+    /// Ownership note: no production caller — this is config-side
+    /// introspection only; runtime filtering goes through
+    /// `ModelDefinition::is_enabled()`. Keep the two in sync via that
+    /// single predicate, not by re-implementing the default.
     pub fn enabled_providers(&self) -> Vec<&str> {
         self.providers
             .iter()
-            .filter(|(_, p)| p.models.iter().any(|m| m.enabled.unwrap_or(true)))
+            .filter(|(_, p)| p.models.iter().any(|m| m.is_enabled()))
             .map(|(id, _)| id.as_str())
             .collect()
+    }
+}
+
+impl ModelDefinition {
+    /// Whether this model participates in the LLM fallback chain.
+    ///
+    /// `enabled` defaults to true when the flag is omitted — a model
+    /// listed in models.json is usable unless explicitly disabled
+    /// (`enabled: false`). This is the single predicate for the field:
+    /// consumed by the daemon chain assembly and by
+    /// [`ModelsConfigData::enabled_providers`].
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
     }
 }
 

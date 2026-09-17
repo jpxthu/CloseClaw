@@ -15,7 +15,7 @@
 
 use super::*;
 use closeclaw_config::providers::models::ProviderConfig;
-use closeclaw_config::providers::{CredentialsProvider, ModelsConfigData};
+use closeclaw_config::providers::CredentialsProvider;
 use closeclaw_llm::call_chain;
 use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::retry::CooldownManager;
@@ -50,7 +50,9 @@ impl Daemon {
         F: Fn(&str) -> Option<String>,
     {
         let registry = Arc::new(LLMRegistry::new());
-        let models = load_models_config(config_manager);
+        // Single-point models.json access (config crate): INFO when absent,
+        // WARN + empty default on parse failure — startup never gates here.
+        let models = config_manager.models_config();
         // Credentials are resolved at ConfigManager::load: convention directory
         // + credential_path merge (credential_path wins on conflicts).
         let credentials = config_manager.credentials().unwrap_or_default();
@@ -95,26 +97,6 @@ impl Daemon {
     }
 }
 
-/// Load models.json definitions from ConfigManager.
-///
-/// A missing models section is a legal optional configuration (INFO);
-/// a section that fails to parse yields the empty default (WARN) —
-/// both non-blocking (config design: load failures never block startup).
-fn load_models_config(config_manager: &ConfigManager) -> ModelsConfigData {
-    match config_manager.section(ConfigSection::Models) {
-        Some(value) => serde_json::from_value::<ModelsConfigData>(value).unwrap_or_else(|err| {
-            tracing::warn!(%err, "models.json parse failed — using empty model config");
-            ModelsConfigData::default()
-        }),
-        None => {
-            tracing::info!(
-                "models.json not configured — using empty model config (optional config)"
-            );
-            ModelsConfigData::default()
-        }
-    }
-}
-
 /// Production env lookup for the api-key fallback: read-only
 /// `std::env::var` (STANDARDS §7 — the forbidden write variants are
 /// not used here). Passed into [`Daemon::init_llm_registry`] as the
@@ -143,12 +125,12 @@ fn resolve_api_key(
 
 /// Build fallback-chain entries for one registered provider.
 ///
-/// One entry per enabled model; `enabled` defaults to true when the flag
-/// is omitted — a model listed in models.json is usable unless explicitly
-/// disabled (`enabled: false`). This is the single semantics for the
-/// field, mirrored by `closeclaw_config`'s `enabled_providers()`.
-/// `model_id` carries the real model id from models.json so the outbound
-/// request names the configured model.
+/// One entry per enabled model, filtered by the single predicate
+/// [`closeclaw_config::providers::models::ModelDefinition::is_enabled`]
+/// (config crate) — `enabled` defaults to true when the flag is omitted,
+/// so a model listed in models.json is usable unless explicitly disabled
+/// (`enabled: false`). `model_id` carries the real model id from
+/// models.json so the outbound request names the configured model.
 fn chain_entries_for(
     provider_id: &str,
     provider: &DynProvider,
@@ -156,7 +138,7 @@ fn chain_entries_for(
 ) -> Vec<ChainEntry> {
     let mut entries = Vec::new();
     for model in &provider_cfg.models {
-        if model.enabled == Some(false) {
+        if !model.is_enabled() {
             continue;
         }
         let (protocol, interpreter, plugin) = call_chain::assemble_llm_components(provider_id);

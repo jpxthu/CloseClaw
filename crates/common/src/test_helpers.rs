@@ -2,8 +2,9 @@
 
 use std::io;
 
-/// Write the 6 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json, accounts.json) into `dir`.
+/// Write the config skeleton into `dir`: the 5 mandatory files
+/// (channels.json, gateway.json, plugins.json, system.json,
+/// accounts.json) plus the optional models.json.
 ///
 /// Reused across daemon unit tests, E2E tests, and integration tests
 /// to avoid duplicating the same for-loop in every test helper.

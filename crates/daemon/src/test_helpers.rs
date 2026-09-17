@@ -63,8 +63,9 @@ pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
     cm
 }
 
-/// Write the 6 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json, accounts.json) into `dir`.
+/// Write the config skeleton into `dir`: the 5 mandatory files
+/// (channels.json, gateway.json, plugins.json, system.json,
+/// accounts.json) plus the optional models.json.
 pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
     for name in &[
         "models.json",

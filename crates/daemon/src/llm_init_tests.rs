@@ -8,8 +8,9 @@ use super::*;
 use std::path::Path;
 use tempfile::TempDir;
 
-/// Write the mandatory config skeleton into `dir` (the placeholder
-/// models.json is overwritten by `write_models_providers` afterwards).
+/// Write the config skeleton into `dir` — the 5 mandatory files plus a
+/// placeholder models.json (overwritten by `write_models_providers`
+/// afterwards).
 fn write_config_skeleton(dir: &Path) {
     crate::test_helpers::write_mandatory_configs(dir).expect("mandatory configs");
 }
@@ -107,14 +108,14 @@ async fn init_llm_registry_empty_providers_returns_empty_chain() {
     assert_eq!(fallback_client.chain().len(), 0);
 }
 
-/// Boundary: models.json absent (every other mandatory config present) →
-/// the Models section never loads (`ConfigManager::load` reports the
-/// missing mandatory file) → `init_llm_registry` takes the section-`None`
-/// INFO branch of `load_models_config`: empty chain, no error, no panic.
+/// Boundary: models.json absent (every other mandatory config present)
+/// → `ConfigManager::load` treats it as an optional section (INFO, no
+/// error — models.json no longer gates startup) → the Models section
+/// stays `None` → `init_llm_registry` reads the INFO branch of
+/// `ConfigManager::models_config`: empty chain, no error, no panic.
 /// Design doc `docs/design/daemon/README.md`: 「models.json 缺失…系统仍
-/// 正常启动」. Daemon startup gates on the load error before reaching this
-/// function (mandatory-config gating test in `tests.rs`); this case pins
-/// the function-level tolerance of the missing section.
+/// 正常启动」. The full-startup counterpart is pinned by
+/// `tests.rs::test_daemon_start_succeeds_without_models_json`.
 #[tokio::test]
 async fn init_llm_registry_missing_models_json_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
@@ -134,14 +135,9 @@ async fn init_llm_registry_missing_models_json_returns_empty_chain() {
         .unwrap();
     }
     let cm = ConfigManager::new(dir.path().to_path_buf()).unwrap();
-    let err = cm.load().expect_err("load without models.json must fail");
-    assert!(
-        matches!(
-            err,
-            closeclaw_config::ConfigLoadError::ConfigFileNotFound(_)
-        ),
-        "expected missing-file error, got {err:?}"
-    );
+    cm.load()
+        .expect("models.json is optional — load must succeed");
+    assert!(cm.section(ConfigSection::Models).is_none());
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 

@@ -25,9 +25,10 @@ fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Create a minimal agents.json and all 5 mandatory config files
-/// (models.json, channels.json, gateway.json, plugins.json, system.json)
-/// in the given directory so that `ConfigManager::load()` succeeds.
+/// Create a minimal agents.json, the 5 mandatory config files
+/// (channels.json, gateway.json, plugins.json, system.json,
+/// accounts.json) and the optional models.json in the given directory
+/// so that `ConfigManager::load()` succeeds.
 fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
     // Mandatory configs go into the config/ subdirectory
@@ -37,18 +38,40 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Same as [`setup_agents_json`] but without models.json — the Models
+/// section is optional and must not gate startup (design doc daemon
+/// README: 「models.json 缺失…系统仍正常启动」).
+fn setup_agents_json_without_models(dir: &std::path::Path) -> std::io::Result<()> {
+    write_agents_json(dir)?;
+    let config_dir = dir.join("config");
+    for name in [
+        "channels.json",
+        "gateway.json",
+        "plugins.json",
+        "system.json",
+        "accounts.json",
+    ] {
+        std::fs::write(
+            config_dir.join(name),
+            serde_json::json!({"version": "1.0"}).to_string(),
+        )?;
+    }
+    Ok(())
+}
+
 // =====================================================================
 // Step 1.2 — daemon startup integration: load() gating tests
 // =====================================================================
 
 /// Test: daemon fails to start when mandatory config files are missing.
 /// Step 1.1 added `config_manager.load()` before hot-reload registration;
-/// a missing mandatory file (e.g. models.json) must cause daemon startup to
-/// fail with an error mentioning "mandatory config sections".
+/// a missing mandatory file (e.g. channels.json — models.json is optional
+/// and does not gate startup) must cause daemon startup to fail with an
+/// error mentioning "mandatory config sections".
 #[tokio::test]
 async fn test_daemon_start_fails_without_mandatory_config() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    // Create only agents.json — mandatory sections (models.json etc.) are absent
+    // Create only agents.json — mandatory sections (channels.json etc.) are absent
     write_agents_json(temp_dir.path()).unwrap();
 
     let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
@@ -101,6 +124,30 @@ async fn test_daemon_start_succeeds_with_all_mandatory_configs() {
     );
     drop(result);
     drop(temp_dir);
+}
+
+/// Test: daemon starts successfully WITHOUT models.json — system-level
+/// gating (Step 1.17): the Models section is optional at load, the LLM
+/// registry builds an empty fallback chain, and startup completes through
+/// all phases without panicking. Design doc `docs/design/daemon/README.md`
+/// 「LLM 能力缺失时的行为」: models.json 缺失 → 系统仍正常启动.
+#[tokio::test]
+async fn test_daemon_start_succeeds_without_models_json() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
+
+    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
+        .await
+        .expect("daemon must start with models.json missing");
+    assert!(
+        daemon.llm_registry.list().await.is_empty(),
+        "no provider registered without models.json"
+    );
+    assert_eq!(
+        daemon.fallback_client.chain().len(),
+        0,
+        "LLM fallback chain must be empty"
+    );
 }
 
 #[tokio::test]

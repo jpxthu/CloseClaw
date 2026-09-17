@@ -26,6 +26,7 @@ use crate::validators::{CredentialProviderSet, CrossRefData};
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 use crate::agents::LazyAgentPermissions;
+use crate::manager_models::parse_models_config;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
 
@@ -356,7 +357,6 @@ impl ConfigManager {
         // The 5 mandatory config files (Credentials is a directory,
         // Session is optional with defaults — both handled separately)
         let mandatory_sections = [
-            ConfigSection::Models,
             ConfigSection::Channels,
             ConfigSection::Gateway,
             ConfigSection::Plugins,
@@ -413,6 +413,14 @@ impl ConfigManager {
             sections.insert(section, value);
         }
 
+        // models.json — optional section (never blocks startup): absent →
+        // INFO defaults, unparseable → WARN; typed parse via the single point
+        // `parse_models_config`, reused below (credential merge + cross-validation).
+        self.load_optional_section(&mut sections, ConfigSection::Models);
+        let models_cfg = sections
+            .get(&ConfigSection::Models)
+            .map(parse_models_config);
+
         // Load session config (optional — absent file uses defaults).
         let session_path = ConfigSection::Session.path(&self.config_dir);
         let session_provider: Arc<dyn SessionConfigProvider> =
@@ -456,35 +464,29 @@ impl ConfigManager {
             }
         };
 
-        // Load additional credentials via credential_path from models.json.
-        // Each provider in models.json may specify a credential_path pointing to a
-        // credential file.  Resolve it relative to config_dir and merge into the
-        // credential set (credential_path takes priority over convention-directory
-        // entries).
-        if let Some(models_value) = sections.get(&ConfigSection::Models) {
-            if let Ok(models_config) =
-                serde_json::from_value::<ModelsConfigData>(models_value.clone())
-            {
-                for (provider_id, provider_cfg) in &models_config.providers {
-                    if let Some(ref rel_path) = provider_cfg.credential_path {
-                        let abs_path = self.config_dir.join(rel_path);
-                        match CredentialsProvider::load_from_file(&abs_path) {
-                            Ok(extra) => {
-                                for (name, cred) in extra.providers {
-                                    // credential_path is the explicit reference
-                                    // and takes priority over the convention
-                                    // directory.
-                                    creds_provider.providers.insert(name, cred);
-                                }
+        // Load additional credentials via credential_path from models.json:
+        // resolved relative to config_dir, merged with priority over the
+        // convention-directory entries.
+        if let Some(models_config) = &models_cfg {
+            for (provider_id, provider_cfg) in &models_config.providers {
+                if let Some(ref rel_path) = provider_cfg.credential_path {
+                    let abs_path = self.config_dir.join(rel_path);
+                    match CredentialsProvider::load_from_file(&abs_path) {
+                        Ok(extra) => {
+                            for (name, cred) in extra.providers {
+                                // credential_path is the explicit reference
+                                // and takes priority over the convention
+                                // directory.
+                                creds_provider.providers.insert(name, cred);
                             }
-                            Err(e) => {
-                                warn!(
-                                    provider = %provider_id,
-                                    path = %abs_path.display(),
-                                    error = %e,
-                                    "failed to load credential_path for provider"
-                                );
-                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                provider = %provider_id,
+                                path = %abs_path.display(),
+                                error = %e,
+                                "failed to load credential_path for provider"
+                            );
                         }
                     }
                 }
@@ -542,7 +544,7 @@ impl ConfigManager {
         self.load_optional_section(&mut sections, ConfigSection::Tools);
 
         // Step 3 — Cross-file reference validation (non-blocking, WARN)
-        self.validate_cross_file_references(&sections, &creds_provider);
+        self.validate_cross_file_references(&sections, &creds_provider, models_cfg.as_ref());
 
         drop(sections);
 
@@ -580,6 +582,7 @@ impl ConfigManager {
         &self,
         sections: &HashMap<ConfigSection, serde_json::Value>,
         creds_provider: &CredentialsProvider,
+        models_cfg: Option<&ModelsConfigData>,
     ) {
         // accounts → channels: platform must match configured channels.
         if let (Some(av), Some(cv)) = (
@@ -590,13 +593,9 @@ impl ConfigManager {
                 warn!(error = %e, "accounts-channels cross-reference validation warning");
             }
         }
-        if let Some(mv) = sections.get(&ConfigSection::Models) {
-            if let Ok(mc) = serde_json::from_value::<ModelsConfigData>(mv.clone()) {
-                if let Err(e) = creds_provider.validate_model_references(&mc, &self.config_dir) {
-                    warn!(error = %e, "credentials-models cross-validation warning");
-                }
-            } else {
-                warn!("failed to parse models.json for credentials cross-validation");
+        if let Some(mc) = models_cfg {
+            if let Err(e) = creds_provider.validate_model_references(mc, &self.config_dir) {
+                warn!(error = %e, "credentials-models cross-validation warning");
             }
         }
     }
