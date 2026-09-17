@@ -324,7 +324,6 @@ impl SessionMessageHandler {
                 if let Some(gw) = gateway {
                     crate::outbound_helpers::deliver_batch_result(
                         gw,
-                        session_manager,
                         session_id,
                         &text,
                         &stream_result.content_blocks,

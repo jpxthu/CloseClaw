@@ -490,24 +490,15 @@ async fn test_dispatch_ping_returns_pong_actual() {
 /// `session_handler_announce_turn_completion_tests`.
 #[tokio::test]
 async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
-    // Waiting chat connection (as registered by dispatch_chat_message).
-    let plugin = Arc::new(RpcTerminalPlugin::new());
-    let (conn_tx, mut conn_rx) = tokio::sync::mpsc::channel(4);
-    plugin.register_sender(1, conn_tx).await;
-    plugin.register_agent_route("master", 1).await;
-
-    // The gateway SessionMessageHandler output channel.
-    let (output_tx, output_rx) =
-        tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::processor::ContentBlock>)>(64);
-    // The single assembly point every consumer path uses (Step 1.11).
-    let consumer = spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
+    // Waiting chat connection + shared consumer (Step 1.20 harness).
+    let mut h = crate::test_helpers::setup_turn_completion_consumer().await;
 
     // Exactly what the failure arm emits for a failed turn: empty payload.
-    output_tx
+    h.output_tx
         .send((String::new(), Vec::new()))
         .await
         .expect("output channel must be open");
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), conn_rx.recv())
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), h.conn_rx.recv())
         .await
         .expect("failed turn must finalize, not hang until the 120s timeout");
     assert!(
@@ -516,8 +507,77 @@ async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
     );
 
     // Dropping the output sender closes the consumer loop.
-    drop(output_tx);
-    consumer
+    drop(h.output_tx);
+    h.consumer
         .await
         .expect("consumer task must exit when the output channel closes");
+}
+
+/// Step 1.20 — `unregister_sender` must also drop agent routes pointing
+/// at that connection: a stale route would resolve task-local-less sends
+/// to a dead connection id ("connection not found") or keep routing to
+/// an agent whose chat connection is gone.
+#[tokio::test]
+async fn test_unregister_sender_clears_agent_route() {
+    let plugin = Arc::new(RpcTerminalPlugin::new());
+    let (tx, _rx) = mpsc::channel(4);
+    plugin.register_sender(1, tx).await;
+    plugin.register_agent_route("master", 1).await;
+    assert!(
+        plugin.agent_routes.read().await.contains_key("master"),
+        "route registered"
+    );
+
+    plugin.unregister_sender(1).await;
+    assert!(
+        plugin.agent_routes.read().await.is_empty(),
+        "route must be cleared together with its connection"
+    );
+
+    // Functional consequence: a task-local-less send now finds no route.
+    let out = RenderedOutput {
+        msg_type: "text".to_string(),
+        payload: json!("hi"),
+    };
+    let err = plugin.send(&out, "master", None, None).await.unwrap_err();
+    assert!(
+        err.to_string().contains("no chat connection registered"),
+        "{err}"
+    );
+}
+
+/// Step 1.20 — latest registration wins for the same agent (the rule
+/// documented on `agent_routes`): a later connection supersedes the
+/// earlier route, and task-local-less sends land on the latest one only.
+#[tokio::test]
+async fn test_agent_route_latest_registration_wins() {
+    let plugin = Arc::new(RpcTerminalPlugin::new());
+    let (tx1, mut rx1) = mpsc::channel(4);
+    let (tx2, mut rx2) = mpsc::channel(4);
+    plugin.register_sender(1, tx1).await;
+    plugin.register_sender(2, tx2).await;
+    plugin.register_agent_route("master", 1).await;
+    plugin.register_agent_route("master", 2).await;
+    assert_eq!(
+        plugin.agent_routes.read().await.get("master"),
+        Some(&2),
+        "the latest registration must win"
+    );
+
+    let out = RenderedOutput {
+        msg_type: "text".to_string(),
+        payload: json!("hi"),
+    };
+    plugin
+        .send(&out, "master", None, None)
+        .await
+        .expect("route registered");
+    assert!(
+        rx2.recv().await.is_some(),
+        "the latest registration must receive"
+    );
+    assert!(
+        rx1.try_recv().is_err(),
+        "the superseded connection must not receive"
+    );
 }

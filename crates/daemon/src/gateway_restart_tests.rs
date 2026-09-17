@@ -443,32 +443,19 @@ fn restart_request_merges_changes() {
 /// — `recv → finish_turns` until the output channel closes.
 #[tokio::test]
 async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
-    use crate::chat_rpc::RpcTerminalPlugin;
-
-    // Waiting chat connection (as registered by dispatch_chat_message).
-    let plugin = Arc::new(RpcTerminalPlugin::new());
-    let (conn_tx, mut conn_rx) = tokio::sync::mpsc::channel(4);
-    plugin.register_sender(1, conn_tx).await;
-    plugin.register_agent_route("master", 1).await;
-
-    // The restart path's SessionMessageHandler output channel.
-    let (output_tx, output_rx) =
-        tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::processor::ContentBlock>)>(64);
-
-    // Consumer: the shared assembly point (Step 1.11) — the exact
-    // implementation the startup (lifecycle/mod.rs) and restart
-    // (install_handlers) paths call.
-    let consumer = crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
+    // Waiting chat connection + shared consumer (Step 1.20 harness — the
+    // same setup the chat_rpc failure-payload test uses).
+    let mut h = crate::test_helpers::setup_turn_completion_consumer().await;
 
     // A completed LLM turn arrives on the output channel.
-    output_tx
+    h.output_tx
         .send(("Hi there!".to_string(), vec![]))
         .await
         .unwrap();
     // The waiting connection observes channel close (recv → None)
     // immediately — bounded wait so a regression hangs the test,
     // not 120s of production timeout.
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), conn_rx.recv())
+    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), h.conn_rx.recv())
         .await
         .expect("turn finalization must not hang (was: 120s timeout)");
     assert!(
@@ -477,6 +464,6 @@ async fn restart_path_output_consumer_finalizes_waiting_chat_turn() {
     );
 
     // Dropping the output sender closes the consumer loop.
-    drop(output_tx);
-    consumer.await.unwrap();
+    drop(h.output_tx);
+    h.consumer.await.unwrap();
 }

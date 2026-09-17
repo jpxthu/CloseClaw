@@ -36,7 +36,7 @@ impl Daemon {
     ///    fallback-chain entry per enabled model.
     ///
     /// No usable provider → empty chain, startup proceeds (design doc:
-    /// LLM 能力缺失时系统仍正常启动).
+    /// the system still starts normally when LLM capability is missing).
     ///
     /// `env_lookup` is the `<PROVIDER>_API_KEY` fallback: production
     /// passes [`process_env`] (`std::env::var`), tests inject a
@@ -49,9 +49,9 @@ impl Daemon {
         F: Fn(&str) -> Option<String>,
     {
         let registry = Arc::new(LLMRegistry::new());
-        // Single-point models.json access (config crate cache, filled at
-        // load): absent / typed-parse failure → empty default (logged once
-        // there). File-level corruption is refused earlier by `load()` (F3).
+        // Single-point models.json access (config cache, filled at load):
+        // absent → empty default. Present-file parse/validation failures
+        // are refused earlier by `load()` (F3) and never reach here.
         let models = config_manager.models_config();
         // Credentials are resolved at ConfigManager::load: convention directory
         // + credential_path merge (credential_path wins on conflicts).

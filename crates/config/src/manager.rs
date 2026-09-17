@@ -414,8 +414,9 @@ impl ConfigManager {
             sections.insert(section, value);
         }
 
-        // models.json: missing → optional (INFO, startup continues); corrupt
-        // → F3 rollback. Typed parse cached once (manager_models) below.
+        // models.json: missing → optional (INFO, startup continues, cache +
+        // section cleared); present but corrupt / unparseable /
+        // business-invalid → F3 rollback (none → refuse). See manager_models.
         self.load_models_section(&mut sections)?;
         let models_cfg = self.parsed_models_config();
 

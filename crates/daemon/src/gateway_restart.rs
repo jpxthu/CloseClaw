@@ -401,7 +401,13 @@ impl crate::Daemon {
 
         new_gw
     }
+}
 
+// ---------------------------------------------------------------------------
+// Restart-path handler installation (branch-owned turn-completion wiring)
+// ---------------------------------------------------------------------------
+
+impl crate::Daemon {
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
     ///
@@ -490,7 +496,13 @@ impl crate::Daemon {
         info!("new chat RPC server started");
         (chat_handle, rpc_plugin)
     }
+}
 
+// ---------------------------------------------------------------------------
+// Gateway rebuild completion
+// ---------------------------------------------------------------------------
+
+impl crate::Daemon {
     /// Swap Gateway references and notify the Owner via IM.
     async fn swap_and_notify(&self, new_gw: Arc<closeclaw_gateway::Gateway>, changes: Vec<String>) {
         self.set_gateway(new_gw).await;

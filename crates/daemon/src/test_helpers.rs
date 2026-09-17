@@ -66,21 +66,54 @@ pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus the optional models.json.
+///
+/// Delegates to the common single implementation (Step 1.20) — call
+/// sites in this crate keep using this name.
 pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
+    closeclaw_common::test_helpers::write_mandatory_configs(dir)
+}
+
+// ── Turn-completion consumer test harness ─────────────────────────────────
+
+use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::processor::ContentBlock;
+use tokio::sync::mpsc;
+
+/// Shared setup result for turn-completion consumer tests
+/// (`chat_rpc_tests` + `gateway_restart_tests`, Step 1.20 dedup): one
+/// waiting chat connection registered on a fresh plugin (conn 1 + agent
+/// route `"master"`) and the `SessionMessageHandler` output channel
+/// wired into the shared consumer
+/// [`crate::chat_rpc::spawn_turn_completion_consumer`] (the assembly
+/// point both production paths call). Payload and assertions stay with
+/// each test.
+///
+/// The consumer task holds an `Arc<RpcTerminalPlugin>`, keeping the
+/// registered connection sender alive until `output_tx` is dropped —
+/// tests need not hold the plugin itself.
+pub struct TurnCompletionHarness {
+    /// Receiver for the waiting connection (closes on `finish_turns`).
+    pub conn_rx: mpsc::Receiver<RenderedOutput>,
+    /// Sender for `SessionMessageHandler` output messages.
+    pub output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
+    /// The shared consumer task (await after dropping `output_tx`).
+    pub consumer: tokio::task::JoinHandle<()>,
+}
+
+/// Build the [`TurnCompletionHarness`]: waiting connection + wired
+/// consumer.
+pub async fn setup_turn_completion_consumer() -> TurnCompletionHarness {
+    let plugin = Arc::new(crate::chat_rpc::RpcTerminalPlugin::new());
+    let (conn_tx, conn_rx) = mpsc::channel(4);
+    plugin.register_sender(1, conn_tx).await;
+    plugin.register_agent_route("master", 1).await;
+    let (output_tx, output_rx) = mpsc::channel(64);
+    let consumer = crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
+    TurnCompletionHarness {
+        conn_rx,
+        output_tx,
+        consumer,
     }
-    Ok(())
 }
 
 // ── Shared TestStorage ───────────────────────────────────────────────────

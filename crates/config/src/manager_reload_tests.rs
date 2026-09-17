@@ -3,29 +3,12 @@
 use crate::events::ConfigChangeEvent;
 use crate::manager::*;
 use crate::SectionValidator;
+use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::fs;
 
 /// Helper: set up a valid config directory with all mandatory JSON files.
 fn setup_config_dir_at(dir: &std::path::Path) {
     write_mandatory_configs(dir).unwrap();
-}
-
-/// Write the 5 mandatory config files into `dir`.
-fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------

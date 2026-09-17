@@ -140,10 +140,10 @@ pub struct SkillListingProviderWrapper {
 /// (`ConversationSession::invoke_llm` → `prepare_turn_skill_listing`).
 /// `Handle::block_on` on an async worker thread panics with "Cannot start
 /// a runtime from within a runtime", so the async builtin-registry calls
-/// are isolated onto a scoped thread — joined before returning (the sync
-/// analogue of #3054's `spawn_blocking` isolation). `block_on` is safe — honouring
-/// `docs/design/system_prompt/fragment-provider.md` constraint ("均在异步
-/// 任务中执行，不同步阻塞运行时"). The caller waits; registry calls are short in-memory operations.
+/// are isolated onto a scoped thread — `block_on` runs there, off the
+/// runtime workers (the sync analogue of #3054's `spawn_blocking`
+/// isolation) — and joined before returning. The calling thread still
+/// waits: an intentional compromise of the sync trait (see Follow-up).
 fn block_on_join_thread<F>(handle: tokio::runtime::Handle, fut: F) -> F::Output
 where
     F: std::future::Future + Send,

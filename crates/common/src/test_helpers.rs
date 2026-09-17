@@ -4,25 +4,16 @@ use std::io;
 
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
-/// accounts.json) plus the optional models.json.
+/// accounts.json) plus a valid placeholder models.json.
 ///
-/// Reused across daemon unit tests, E2E tests, and integration tests
-/// to avoid duplicating the same for-loop in every test helper.
+/// Single implementation (Step 1.20): the mandatory-file half is
+/// [`write_mandatory_without_models`], models.json is appended here.
 pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
-    Ok(())
+    write_mandatory_without_models(dir)?;
+    std::fs::write(
+        dir.join("models.json"),
+        serde_json::json!({"version": "1.0"}).to_string(),
+    )
 }
 
 /// Write only the 5 mandatory config files into `dir` — models.json is

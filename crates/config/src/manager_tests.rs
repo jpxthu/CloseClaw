@@ -1,26 +1,8 @@
 //! Tests for ConfigManager
 use super::*;
 use crate::agents::AgentPermissionProvider;
+use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::fs;
-
-/// Write the config skeleton (5 mandatory files + models.json) into `dir`.
-/// Duplicated from common::test_helpers to avoid cross-crate test dependency.
-fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
-    Ok(())
-}
 
 // write_atomically
 
@@ -695,27 +677,46 @@ fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
     fs::write(backup_dir.join(backup_name), content).unwrap();
 }
 
-/// Test: models.json is an optional section — business validation does
-/// not gate startup load (Step 1.17; file corruption is the separate F3
-/// path above). Invalid content loads as-is; update path still validates.
+/// Test: models.json business validation failure (empty provider ID)
+/// triggers F3 rollback to backup — restored master semantics.
 #[test]
-fn test_load_models_json_invalid_not_gated_at_load() {
+fn test_load_business_validation_failure_models_rollback() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory_configs(tmp.path()).unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    // Business-invalid content (empty provider ID) but valid JSON.
+    // Create a backup of the valid config, then corrupt the file
+    let valid = fs::read_to_string(tmp.path().join("models.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Models, &valid);
     fs::write(
         tmp.path().join("models.json"),
         r#"{"providers":{"":{"models":[]}}}"#,
     )
     .unwrap();
 
-    // load() succeeds — the optional section loads without gating.
+    // load() should succeed because rollback restores the valid backup
     manager.load().unwrap();
     let section = manager.section(ConfigSection::Models).unwrap();
-    assert_eq!(section["providers"], serde_json::json!({"":{"models":[]}}));
+    assert_eq!(section["version"], "1.0");
+}
+
+/// Test: models.json business validation failure, no backup → refusal (F3).
+#[test]
+fn test_load_business_validation_failure_models_refuses_without_backup() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"providers":{"":{"models":[]}}}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+
+    let err = manager
+        .load()
+        .expect_err("business validation failure without backup must refuse load");
+    assert!(err.to_string().contains("models.json"), "{err}");
 }
 
 /// Test: load() triggers rollback when channels.json has business validation

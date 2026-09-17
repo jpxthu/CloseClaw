@@ -552,8 +552,9 @@ fn make_slow_request() -> InboundRequest {
 // ---------------------------------------------------------------------------
 
 /// Fixture: one created session (record + ConversationSession) and a
-/// Gateway holding the same SessionManager the tests pass to
-/// `deliver_batch_result`.
+/// Gateway holding the SessionManager used for setup assertions —
+/// `deliver_batch_result` sources the SessionManager from the Gateway
+/// itself (Step 1.20).
 async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) {
     let config = GatewayConfig {
         name: "outbound_helpers_deliver_batch".into(),
@@ -594,14 +595,7 @@ async fn test_deliver_batch_result_skips_streaming_turn() {
         "fixture must be streaming"
     );
 
-    deliver_batch_result(
-        &gw,
-        &sm,
-        &sid,
-        "hello",
-        &[ContentBlock::Text("hello".into())],
-    )
-    .await;
+    deliver_batch_result(&gw, &sid, "hello", &[ContentBlock::Text("hello".into())]).await;
 
     assert!(
         !tracker.was_send_called(),
@@ -626,14 +620,7 @@ async fn test_deliver_batch_result_missing_session_record_returns_without_send()
         "conversation session must remain"
     );
 
-    deliver_batch_result(
-        &gw,
-        &sm,
-        &sid,
-        "hello",
-        &[ContentBlock::Text("hello".into())],
-    )
-    .await;
+    deliver_batch_result(&gw, &sid, "hello", &[ContentBlock::Text("hello".into())]).await;
 
     assert!(
         !tracker.was_send_called(),
@@ -692,17 +679,10 @@ async fn test_deliver_batch_result_swallows_send_outbound_failure() {
     let plugin = Arc::new(UnknownMsgTypePlugin {
         sends: std::sync::atomic::AtomicU32::new(0),
     });
-    let (gw, sm, sid) = deliver_batch_fixture().await;
+    let (gw, _sm, sid) = deliver_batch_fixture().await;
     gw.register_plugin(plugin.clone()).await;
 
-    deliver_batch_result(
-        &gw,
-        &sm,
-        &sid,
-        "hello",
-        &[ContentBlock::Text("hello".into())],
-    )
-    .await;
+    deliver_batch_result(&gw, &sid, "hello", &[ContentBlock::Text("hello".into())]).await;
 
     assert_eq!(
         plugin.sends.load(std::sync::atomic::Ordering::SeqCst),

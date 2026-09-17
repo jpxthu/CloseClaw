@@ -5,7 +5,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use crate::session_manager::SessionManager;
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -712,17 +711,19 @@ pub(crate) fn emit_send_completed_log(
 ///
 /// Streaming turns were already rendered and sent incrementally by
 /// `send_outbound_streaming` and are skipped here. Resolves the session's
-/// channel, then runs [`Gateway::send_outbound`]: outbound Processor
+/// channel from the Gateway's own SessionManager (single source — Step
+/// 1.20: the caller no longer passes its own `Arc<SessionManager>`),
+/// then runs [`Gateway::send_outbound`]: outbound Processor
 /// Chain → IM Adapter render → middleware → send → checkpoint persist.
 /// Failures are logged and do not fail the turn (the result is already
 /// in the conversation history at this point).
 pub(crate) async fn deliver_batch_result(
     gw: &Arc<Gateway>,
-    session_manager: &Arc<SessionManager>,
     session_id: &str,
     text: &str,
     blocks: &[ContentBlock],
 ) {
+    let session_manager = gw.session_manager();
     let is_streaming = match session_manager.get_conversation_session(session_id).await {
         Some(cs) => cs.read().await.stream_enabled(),
         None => false,
