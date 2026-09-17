@@ -11,10 +11,10 @@ Session 模块为 User 提供 Agent 对话上下文的持久化、可恢复与�
 User 与 Agent 的对话自动持久化，已写入对话历史的消息完整保留。系统重启后 Agent 能接续之前的对话。
 
 - 对话历史是 Session 的组成部分，与 Session 不可分离：Session 存在即包含其对话历史，不存在无归属的对话历史
-- Session 分为**主 Agent Session**（由 User 消息直接触发创建，不由其他 Session 派生）与**子 Session**（由 Agent 委托创建、从属于某父 Session）；两者的生命周期规则一致
+- Session 分为**主 Agent Session**（由 User 消息直接触发创建，不由其他 Session 派生）与**子 Session**（由 Agent 委托创建、从属于某父 Session）；两者的生命周期判定框架一致（均按 F6 的四维 inactive 判据归档与清理）
 - User 发送消息时，系统自动查找该对话对应的 Session——若存在未归档 Session 则复用其中最后活跃时间最新的一个；否则若存在归档中或已归档 Session，则恢复其中最后活跃时间最新的一个；否则创建新 Session
 - 主 Agent Session 由入站消息的平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
-- 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，持久子 Session 保持持久、不降级为一次性子 Session
+- 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，不降级为一次性子 Session
 - Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session
 - 处于归档中或已归档的 Session 被 User 通过消息访问时（按四项标识匹配）自动恢复：
   - 若 Session 归档中，等待归档完成后自动恢复；等待期间提示 User「会话归档中，稍后恢复…」
@@ -43,7 +43,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 上下文溢出兜底：即使尚未达到压缩阈值，若 LLM 调用因超出上下文窗口而失败，系统同样触发一次自动压缩并重试该次调用（重试默认 1 次）
 - 自动压缩（阈值触发）保留最近一段对话原文，仅将其余更早的对话压缩为摘要。保留区比例以「保留原文的 token 数占上下文窗口的百分比」衡量（默认 16%、每个 Agent 可独立配置），保留方式为自最近消息向前累计至该预算；被保留的原文原样保留、不进入摘要。压缩不拆散工具调用与其结果
 - 手动 `/compact` 与上下文溢出兜底触发的压缩不保留最近原文（保留区比例按 0% 处理，整段对话均进入摘要），以最大程度腾出空间
-- 压缩对象为 User 与 Agent 的对话消息及注入的非 User 消息；System Prompt 内容完整保留、不参与压缩
+- 压缩对象为 User 与 Agent 的对话消息、工具调用与其结果，以及注入的非 User 消息；System Prompt 内容完整保留、不参与压缩
 - 压缩在上下文视图与存储层两层的表现不同：上下文视图中，被压缩内容以一条结构化摘要原位替代，使发送给 LLM 的对话缩短；存储层中，压缩只追加、不销毁对话历史，被压缩的原文完整保留、仍可回溯
 - 压缩通过 LLM 生成摘要实现。压缩请求的构造为产品定义：
   - 输入 = 当前会话上下文（System Prompt 前缀 + 被压缩区间的对话消息），按原有角色与多轮顺序逐条原样发送，不合并成单条消息；工具调用与其结果成对发送，不拆散、不丢弃；被保留的最近原文不参与本次请求
@@ -88,14 +88,14 @@ User-specified retention focus: <retention focus, or "none">
 Agent 可以将子任务委托给子 Session（可并行委托多个），等待结果后继续决策。
 
 - 子 Session 的任务描述注入到该子 Session 自身的 System Prompt 中，不属于对话消息，压缩时不受影响
-- Agent 可以向已有未完成的子 Session 发送新任务；对持久子 Session，此即向它继续委托新任务（steer）
+- Agent 可以向已有未完成的子 Session 发送新任务——对持久子 Session，即持续承接新任务（steer）
 - Agent 可以终止子 Session，级联终止其所有后代（kill）。终止 = 停止该子 Session 正在执行的工具调用与 LLM 响应，是运行时动作，不是存储生命周期的一个状态；已被终止的子 Session 不再计入父 Session 的「子 Session 未完成」维度，其存储生命周期照常按 F6 的 inactive 判据推进
 - 子 Session 的硬超时：运行时长达到该子 Session 的硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知（父 Session 已归档则丢弃）。硬超时的取值及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
-- 持久子 Session：Agent 可以创建持久存活的子 Session，其生命周期与主 Agent Session 一致——同样按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 一致恢复，不降级为一次性子 Session（一次性子 Session：为单一任务创建、任务结束时即结束的普通子 Session）
+- 持久子 Session：Agent 可以创建持久存活的子 Session，其生命周期与主 Agent Session 一致——同样按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 一致恢复，不降级为一次性子 Session（一次性子 Session：为单一任务创建、产出最后一条 assistant 消息后即结束的普通子 Session）
 - 系统维护 Session 的父子关系，支持查询某 Session 的子 Session、完整子树与父 Session；销毁一个 Session 时，其尚未销毁的子 Session 一并销毁（级联清理）
 - 子 Session 完成后，其结果以完成通知的形式通过消息队列注入父 Session（带去重保护）；该通知按 F10 的非 User 消息排队规则处理，Agent 不需要轮询
 - 子 Session 超时预警通知：
-  - 子 Session 的运行时长达到设定的超时预警时间时，系统向父 Session 注入超时预警通知。通知内容包含：设定的超时预警时间、已运行时长、子 Session 上下文窗口的 token 使用情况
+  - 子 Session 的运行时长（自创建起计时）达到设定的超时预警时间时，系统向父 Session 注入超时预警通知。通知内容包含：设定的超时预警时间、已运行时长、子 Session 上下文窗口的 token 使用情况
   - 若父 Agent 未终止该子 Session，系统此后以「超时预警时间 × 间隔比例」为间隔再次注入通知，循环往复。间隔比例可配置（默认 50%）
   - 父 Agent 收到通知后自行决定：终止子 Session、继续等待，或向 User 汇报
   - 子 Session 超时预警时间的来源及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
@@ -142,7 +142,7 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 
 ### F7. 运行健康与安全
 
-Agent 对话过程中，系统自动检测异常并提供保护机制，防止对话上下文损坏。
+Agent 对话过程中，系统自动检测异常并提供保护机制，防止对话上下文丢失或损坏。
 
 - 对话过程中自动检测：响应超时、空响应、结构化异常等问题
 - 可配置的自动质量检查：检测 Agent 是否陷入工具调用死循环、是否只计划不执行
@@ -194,7 +194,7 @@ User 与非 User 消息按以下排队规则注入。排队条件使用 F11 的�
 
 ### F11. Session 活跃维度
 
-Session 在任意时刻可以在多个维度上同时处于活跃状态，每个维度独立开启或关闭。
+Session 在任意时刻可以在多个活跃维度上同时开启，每个维度独立开启或关闭。
 
 - **推理中**：LLM 正在推理（含流式输出）
 - **同步工具等待**：Agent 调用了工具并等待其返回结果以继续推理（同步调用）
