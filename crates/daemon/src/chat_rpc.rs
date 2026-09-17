@@ -534,13 +534,15 @@ impl RpcTerminalPlugin {
 /// [`TURN_COMPLETION_TIMEOUT_SECS`]. The loop exits when the output
 /// channel closes (handler dropped).
 ///
-/// Single assembly point for all consumers: the startup path
-/// (`lifecycle` init → `init_phase_6_chat_rpc`), the restart path
-/// (`gateway_restart::install_handlers`), and the behavioral-lock
-/// unit test in `gateway_restart_tests.rs`. The 120s-hang regression
-/// this guards against was caused by the two production wirings
-/// drifting apart (the restart path re-dropped the receiver), so
-/// every consumer must go through this function.
+/// Single assembly point for all consumers — startup path, restart
+/// path and tests alike; the 120s-hang regression this guards against
+/// was caused by the two production wirings drifting apart (the
+/// restart path re-dropped the receiver), so no call site may
+/// hand-roll its own consumer loop.
+///
+/// Returns a `JoinHandle<()>`: production call sites fire-and-forget
+/// it, tests may `await` it to confirm the consumer exited after the
+/// output channel closes.
 pub fn spawn_turn_completion_consumer(
     output_rx: mpsc::Receiver<(String, Vec<ContentBlock>)>,
     plugin: Arc<RpcTerminalPlugin>,

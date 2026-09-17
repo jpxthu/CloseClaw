@@ -405,18 +405,13 @@ impl crate::Daemon {
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
     ///
-    /// Mirrors the startup path (`lifecycle/mod.rs`): the new chat RPC
-    /// server's [`RpcTerminalPlugin`] is returned to the caller (the
-    /// restart call site drops that handle — the plugin is kept alive
-    /// by the gateway registration, the chat server's ChatContext and
-    /// the consumer below), and the SessionMessageHandler's output
-    /// receiver is consumed here via the shared
-    /// [`crate::chat_rpc::spawn_turn_completion_consumer`]
-    /// assembly point — one `finish_turns()` call per completed LLM
-    /// turn. Without this consumer every post-restart
-    /// LLM turn would hang until `TURN_COMPLETION_TIMEOUT_SECS`
-    /// (120s) because `collect_responses` waits for the channel close
-    /// that only `finish_turns` triggers.
+    /// Mirrors the startup path (`lifecycle/mod.rs`): returns the new
+    /// chat RPC server's [`RpcTerminalPlugin`] (the restart call site
+    /// drops that handle — the plugin stays alive via gateway
+    /// registration, ChatContext and the consumer) and consumes the
+    /// SessionMessageHandler output receiver through the shared
+    /// [`crate::chat_rpc::spawn_turn_completion_consumer`] — its doc is
+    /// the single-point definition of the consumer's semantics.
     async fn install_handlers(
         &self,
         new_gw: &Arc<closeclaw_gateway::Gateway>,

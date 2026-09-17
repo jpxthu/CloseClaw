@@ -15,9 +15,10 @@
 //!   (`SkillListingProviderWrapper::collect_builtin_listings` calling
 //!   `Handle::block_on` inside an async context — "Cannot start a runtime
 //!   from within a runtime", crates/daemon/src/bridge.rs) was fixed by
-//!   moving the builtin-registry awaits onto detached threads
-//!   (`block_on_detached`, sync analogue of #3054's `spawn_blocking`
-//!   isolation). fake_llm now receives the request.
+//!   moving the builtin-registry awaits onto separate scoped threads
+//!   (`block_on_join_thread`, joined before returning — the sync
+//!   analogue of #3054's `spawn_blocking` isolation). fake_llm now
+//!   receives the request.
 //! - The follow-up wiring gap — non-streaming LLM results were written
 //!   to `SessionMessageHandler::output_tx` whose daemon-side receiver
 //!   (`_output_rx` in crates/daemon/src/lifecycle/mod.rs — field removed

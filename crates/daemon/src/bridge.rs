@@ -133,19 +133,18 @@ pub struct SkillListingProviderWrapper {
     pub builtin: Arc<BuiltinSkillRegistry>,
 }
 
-/// Drive a future to completion on a detached thread, from any context.
+/// Drive a future to completion on a scoped thread (joined before returning), from any context.
 ///
 /// [`SkillListingProvider`]'s listing methods are synchronous, but the
 /// chat → LLM dispatch path calls them from async contexts
 /// (`ConversationSession::invoke_llm` → `prepare_turn_skill_listing`).
 /// `Handle::block_on` on an async worker thread panics with "Cannot start
 /// a runtime from within a runtime", so the async builtin-registry calls
-/// are isolated onto a detached thread (the sync analogue of #3054's
-/// `spawn_blocking` isolation) where `block_on` is safe — honouring the
+/// are isolated onto a scoped thread — joined before returning (the sync
+/// analogue of #3054's `spawn_blocking` isolation). `block_on` is safe — honouring
 /// `docs/design/system_prompt/fragment-provider.md` constraint ("均在异步
-/// 任务中执行，不同步阻塞运行时"). The caller waits for the result; the
-/// registry calls are short in-memory operations.
-fn block_on_detached<F>(handle: tokio::runtime::Handle, fut: F) -> F::Output
+/// 任务中执行，不同步阻塞运行时"). The caller waits; registry calls are short in-memory operations.
+fn block_on_join_thread<F>(handle: tokio::runtime::Handle, fut: F) -> F::Output
 where
     F: std::future::Future + Send,
     F::Output: Send,
@@ -153,7 +152,7 @@ where
     std::thread::scope(|s| {
         s.spawn(move || handle.block_on(fut))
             .join()
-            .expect("detached registry task panicked")
+            .expect("registry task thread panicked")
     })
 }
 
@@ -224,7 +223,7 @@ impl SkillListingProviderWrapper {
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        block_on_detached(
+        block_on_join_thread(
             tokio::runtime::Handle::current(),
             self.builtin
                 .listing_entries_with_names(resolved_whitelist, exclude_conditional, None),
@@ -257,7 +256,7 @@ impl SkillListingProviderWrapper {
         &self,
         activated: &[String],
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        block_on_detached(
+        block_on_join_thread(
             tokio::runtime::Handle::current(),
             self.builtin
                 .listing_entries_with_names(None, false, Some(activated)),
@@ -317,7 +316,7 @@ impl SkillListingProviderWrapper {
         let disk_names: std::collections::HashSet<String> =
             disk_matches.iter().map(|m| m.name.clone()).collect();
 
-        let builtin_matches = block_on_detached(
+        let builtin_matches = block_on_join_thread(
             tokio::runtime::Handle::current(),
             self.builtin.find_conditional_matches(paths),
         );
@@ -347,7 +346,8 @@ impl SkillListingProviderWrapper {
             .unwrap_or_else(|| "none".to_string());
 
         let builtin_fp = {
-            let names = block_on_detached(tokio::runtime::Handle::current(), self.builtin.list());
+            let names =
+                block_on_join_thread(tokio::runtime::Handle::current(), self.builtin.list());
             let mut sorted = names;
             sorted.sort();
             sorted.join(",")
@@ -469,7 +469,7 @@ mod tests {
     /// Run a closure on a dedicated thread with a tokio runtime context
     /// established via `enter()`. `Handle::current()` inside the wrapper
     /// helpers resolves via this guard (the actual await runs on a
-    /// detached thread — see `block_on_detached`).
+    /// scoped thread joined before returning — see `block_on_join_thread`).
     fn run_with_runtime<F>(f: F)
     where
         F: FnOnce() + Send + 'static,

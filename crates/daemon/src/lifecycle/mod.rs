@@ -205,16 +205,7 @@ impl Daemon {
         let (chat_handle, chat_sock_path, chat_rpc_plugin) =
             Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
         // Turn-completion consumer for the SessionMessageHandler output
-        // channel: the handler emits one message per completed LLM turn
-        // (empty payload on failure). Chat RPC turns deliver their result
-        // through the outbound pipeline onto the requesting connection's
-        // channel; this consumer then closes those channels so
-        // `collect_responses` finalizes the turn instead of waiting out
-        // its completion timeout. Shared assembly point (Step 1.11):
-        // the startup path, the restart path (`install_handlers`) and
-        // the behavioral-lock unit test all consume through
-        // `spawn_turn_completion_consumer` so the wiring cannot drift
-        // between paths again.
+        // channel — single-point definition: `spawn_turn_completion_consumer`.
         crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&chat_rpc_plugin));
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
