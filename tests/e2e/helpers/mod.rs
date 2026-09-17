@@ -3,12 +3,15 @@
 //! Centralizes daemon spawn logic, readiness polling, and lifecycle
 //! assertions to avoid duplication across `sigterm_tests`,
 //! `agent_profile_tests`, `shutdown_checkpoint_tests`, and
-//! `gateway_restart_turn_tests`. Chat-RPC client and fake-LLM server
-//! helpers live in the [`chat`] and [`fake_llm`] submodules (feature
-//! `fake-llm`, whose consumers are the fake-LLM-backed test files).
+//! `gateway_restart_turn_tests`. Chat-RPC client, fake-LLM server, and
+//! config-tree scaffolding helpers live in the [`chat`], [`fake_llm`],
+//! and [`config`] submodules (feature `fake-llm`, whose consumers are
+//! the fake-LLM-backed test files).
 
 #[cfg(feature = "fake-llm")]
 pub mod chat;
+#[cfg(feature = "fake-llm")]
+pub mod config;
 #[cfg(feature = "fake-llm")]
 pub mod fake_llm;
 

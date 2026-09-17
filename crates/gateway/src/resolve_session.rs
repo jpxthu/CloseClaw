@@ -21,15 +21,9 @@ impl super::Gateway {
 
     /// Build a [`Message`] from [`ProcessedMessage`] metadata for session resolution.
     ///
-    /// Resolves the target agent_id, then constructs a partial Message
+    /// Resolves the target agent_id (see [`select_agent_id`] for the
+    /// priority rules), then constructs a partial Message
     /// suitable for [`SessionManager::resolve`].
-    ///
-    /// Agent resolution priority:
-    /// 1. Explicit `agent_id` in message metadata — set by channels where
-    ///    the user names the target agent directly (design doc
-    ///    `cli/chat.md`: "用户通过 --agent-id 指定目标 agent").
-    /// 2. bot→Agent bindings lookup on `peer_id`.
-    /// 3. `peer_id` itself (backward-compatible fallback).
     fn build_resolve_message(
         processed: &ProcessedMessage,
         channel: &str,
@@ -47,25 +41,7 @@ impl super::Gateway {
             .map(|s| s.as_str())
             .unwrap_or("")
             .to_string();
-        // Explicit request target (e.g. terminal chat `--agent-id`) wins;
-        // otherwise design doc: "Gateway 根据配置定义的机器人→Agent 绑定
-        // 确定对应的 Agent".
-        let agent_id = match processed
-            .metadata
-            .get("agent_id")
-            .filter(|s| !s.is_empty())
-            .cloned()
-        {
-            Some(explicit) => {
-                tracing::info!(
-                    agent_id = %explicit,
-                    peer_id = %peer_id,
-                    "routing by explicit request agent_id"
-                );
-                explicit
-            }
-            None => Self::resolve_agent_id(bindings, &peer_id),
-        };
+        let agent_id = select_agent_id(&processed.metadata, bindings, &peer_id);
         Message {
             id: String::new(),
             from: sender_id,
@@ -116,6 +92,35 @@ impl super::Gateway {
             .resolve(session_key, channel, &message, account_id, agent_id)
             .await
             .ok()
+    }
+}
+
+/// Select the target agent_id for an inbound message.
+///
+/// Agent resolution priority:
+/// 1. Explicit `agent_id` in message metadata — set by channels where
+///    the user names the target agent directly (design doc
+///    `cli/chat.md`: "用户通过 --agent-id 指定目标 agent").
+/// 2. bot→Agent bindings lookup on `peer_id`.
+/// 3. `peer_id` itself (backward-compatible fallback).
+fn select_agent_id(
+    metadata: &HashMap<String, String>,
+    bindings: &HashMap<String, String>,
+    peer_id: &str,
+) -> String {
+    // Explicit request target (e.g. terminal chat `--agent-id`) wins;
+    // otherwise design doc: "Gateway 根据配置定义的机器人→Agent 绑定
+    // 确定对应的 Agent".
+    match metadata.get("agent_id").filter(|s| !s.is_empty()).cloned() {
+        Some(explicit) => {
+            tracing::info!(
+                agent_id = %explicit,
+                peer_id = %peer_id,
+                "routing by explicit request agent_id"
+            );
+            explicit
+        }
+        None => super::Gateway::resolve_agent_id(bindings, peer_id),
     }
 }
 

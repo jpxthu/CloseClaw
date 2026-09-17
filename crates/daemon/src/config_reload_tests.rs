@@ -454,7 +454,10 @@ impl RegistryHarness {
     fn set_config_mgr(&mut self, cm: Arc<ConfigManager>) {
         self.config_mgr = cm;
     }
+}
 
+#[cfg(test)]
+impl RegistryHarness {
     /// Build a [`RegistryContext`] borrowing from the harness.
     fn ctx(&self) -> RegistryContext<'_> {
         RegistryContext {

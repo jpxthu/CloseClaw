@@ -46,97 +46,14 @@ use tokio::time::timeout;
 
 use super::helpers;
 use super::helpers::chat::{chat_roundtrip, read_frame};
+use super::helpers::config::{write_config_tree, ConfigTreeOpts};
 use super::helpers::fake_llm::start_fake_llm;
 
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
 // `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,
-// `start_fake_llm`) live under `helpers/` (extracted in Step 1.10 to
-// deduplicate with `gateway_restart_turn_tests`).
-
-// ---------------------------------------------------------------------------
-// Helper: config-dir scaffolding (split from write_config_tree)
-// ---------------------------------------------------------------------------
-
-/// Write mandatory config files (models, channels, gateway, plugins, system,
-/// accounts, credentials, agents.json) into a temp config root.
-///
-/// Layout (verified against `Daemon::init_phase_1_foundation` /
-/// `ConfigManager::load` / `AgentDirectoryProvider`):
-///
-/// ```text
-/// <root>/config/{models,channels,gateway,plugins,system,accounts}.json
-/// <root>/config/agents.json
-/// <root>/config/credentials/openai.json     (fake key; camelCase)
-/// ```
-///
-/// Notes:
-/// - `models.json` `credentialPath` is validated with a CWD-relative
-///   `Path::exists` check, so the test chdirs into `<root>/config` before
-///   spawning the daemon (see `ChatHarness::spawn_daemon`).
-/// - `agents/<id>/config.json` `model` accepts `"provider/model-id"`
-///   (ModelSpec string form).
-fn write_mandatory_configs(root: &Path, fake_llm_addr: &str) {
-    let config_dir = root.join("config");
-    std::fs::create_dir_all(config_dir.join("credentials")).expect("create config dirs");
-
-    std::fs::write(
-        config_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":["master"]}"#,
-    )
-    .expect("write agents.json");
-
-    let models = serde_json::json!({
-        "version": "1.0",
-        "mode": "merge",
-        "providers": {
-            "openai": {
-                "baseUrl": format!("http://{fake_llm_addr}/v1"),
-                "protocol": "openai",
-                "credentialPath": "credentials/openai.json",
-                "models": [{ "id": "gpt-4o-basic", "enabled": true }]
-            }
-        }
-    });
-    std::fs::write(
-        config_dir.join("models.json"),
-        serde_json::to_string(&models).expect("serialize models.json"),
-    )
-    .expect("write models.json");
-
-    for name in [
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
-            .expect("write mandatory config");
-    }
-
-    // Fake API key — camelCase per ApiKeyCredentials serde attrs.
-    std::fs::write(
-        config_dir.join("credentials").join("openai.json"),
-        r#"{"provider":"openai","apiKey":"e2e-fake-key"}"#,
-    )
-    .expect("write credentials");
-}
-
-/// Write the default master agent layout into the config tree.
-///
-/// Creates `agents/master/config.json` with wildcard tool/skill permissions.
-/// Tests that need a custom agent config should call `write_agent_config`
-/// after this function to overwrite it.
-fn write_agent_layout(root: &Path) {
-    std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
-    std::fs::write(
-        root.join("agents")
-            .join("master")
-            .join("config.json"),
-        r#"{"id":"master","name":"Master","model":"openai/gpt-4o-basic","tools":["*"],"skills":["*"]}"#,
-    )
-    .expect("write master agent config");
-}
+// `start_fake_llm`) live under `helpers/` (chat/fake_llm extracted in
+// Step 1.10; the config-tree scaffold `write_config_tree` shared with
+// `gateway_restart_turn_tests` in Step 1.14).
 
 // ---------------------------------------------------------------------------
 // Helper: daemon spawn + readiness
@@ -190,8 +107,9 @@ fn spawn_daemon(config_root: &Path) -> DaemonGuard {
 
 /// Write a custom agent `config.json` into the config tree.
 ///
-/// Overwrites the master agent config created by [`write_agent_layout`]
-/// to set a specific `model` and/or `workspace` field.
+/// Overwrites the master agent config created by the shared
+/// `write_config_tree` scaffold to set a specific `model` and/or
+/// `workspace` field.
 fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
     let agent_dir = config_root.join("agents").join("master");
     std::fs::create_dir_all(&agent_dir).expect("create agent dir");
@@ -312,8 +230,7 @@ async fn e2e_agent_profile_smoke() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
-    write_agent_layout(config_root);
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
 
     let mut daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
@@ -381,7 +298,7 @@ async fn e2e_agent_model_selection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let daemon = spawn_daemon(config_root);
@@ -428,7 +345,7 @@ async fn e2e_agent_system_prompt_injection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
@@ -505,7 +422,7 @@ async fn e2e_agent_workspace() {
     .expect("write workspace marker file");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(
         config_root,
         "openai/gpt-4o-workspace",
@@ -588,7 +505,7 @@ async fn e2e_agent_tool_allow_deny() {
     std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config_with_tools(
         config_root,
         "openai/gpt-4o-tool-allow-deny",
@@ -658,7 +575,7 @@ async fn e2e_agent_runtime_config_query() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let mut daemon = spawn_daemon(config_root);
@@ -693,7 +610,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
 
     let mut daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;

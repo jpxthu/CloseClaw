@@ -40,7 +40,7 @@ impl Daemon {
     /// LLM 能力缺失时系统仍正常启动).
     ///
     /// `env_lookup` is the `<PROVIDER>_API_KEY` fallback: production
-    /// passes [`Self::process_env`] (`std::env::var`), tests inject a
+    /// passes [`process_env`] (`std::env::var`), tests inject a
     /// deterministic stub so outcomes never depend on host env vars.
     pub(crate) async fn init_llm_registry<F>(
         config_manager: &ConfigManager,
@@ -50,7 +50,7 @@ impl Daemon {
         F: Fn(&str) -> Option<String>,
     {
         let registry = Arc::new(LLMRegistry::new());
-        let models = Self::load_models_config(config_manager);
+        let models = load_models_config(config_manager);
         // Credentials固化 at ConfigManager::load: convention directory +
         // credential_path merge (credential_path wins on conflicts).
         let credentials = config_manager.credentials().unwrap_or_default();
@@ -61,8 +61,7 @@ impl Daemon {
         let mut chain_entries: Vec<ChainEntry> = Vec::new();
         for provider_id in provider_ids {
             let provider_cfg = &models.providers[provider_id];
-            let Some(api_key) = Self::resolve_api_key(&credentials, provider_id, &env_lookup)
-            else {
+            let Some(api_key) = resolve_api_key(&credentials, provider_id, &env_lookup) else {
                 info!(provider = %provider_id, "no credential available, provider skipped");
                 continue;
             };
@@ -94,54 +93,52 @@ impl Daemon {
         );
         (registry, fallback_client)
     }
+}
 
-    /// Load models.json definitions from ConfigManager.
-    ///
-    /// A missing models section is a legal optional configuration (INFO);
-    /// a section that fails to parse yields the empty default (WARN) —
-    /// both non-blocking (config design: load failures never block startup).
-    fn load_models_config(config_manager: &ConfigManager) -> ModelsConfigData {
-        match config_manager.section(ConfigSection::Models) {
-            Some(value) => {
-                serde_json::from_value::<ModelsConfigData>(value).unwrap_or_else(|err| {
-                    tracing::warn!(%err, "models.json parse failed — using empty model config");
-                    ModelsConfigData::default()
-                })
-            }
-            None => {
-                tracing::info!(
-                    "models.json not configured — using empty model config (optional config)"
-                );
-                ModelsConfigData::default()
-            }
+/// Load models.json definitions from ConfigManager.
+///
+/// A missing models section is a legal optional configuration (INFO);
+/// a section that fails to parse yields the empty default (WARN) —
+/// both non-blocking (config design: load failures never block startup).
+fn load_models_config(config_manager: &ConfigManager) -> ModelsConfigData {
+    match config_manager.section(ConfigSection::Models) {
+        Some(value) => serde_json::from_value::<ModelsConfigData>(value).unwrap_or_else(|err| {
+            tracing::warn!(%err, "models.json parse failed — using empty model config");
+            ModelsConfigData::default()
+        }),
+        None => {
+            tracing::info!(
+                "models.json not configured — using empty model config (optional config)"
+            );
+            ModelsConfigData::default()
         }
     }
+}
 
-    /// Production env lookup for the api-key fallback: read-only
-    /// `std::env::var` (STANDARDS §7 — the forbidden write variants are
-    /// not used here). Passed into [`Self::init_llm_registry`] as the
-    /// `env_lookup` argument so tests can inject a deterministic stub
-    /// instead of touching the real process environment
-    /// (STANDARDS §7/§9).
-    pub(crate) fn process_env(name: &str) -> Option<String> {
-        std::env::var(name).ok()
-    }
+/// Production env lookup for the api-key fallback: read-only
+/// `std::env::var` (STANDARDS §7 — the forbidden write variants are
+/// not used here). Passed into [`Daemon::init_llm_registry`] as the
+/// `env_lookup` argument so tests can inject a deterministic stub
+/// instead of touching the real process environment
+/// (STANDARDS §7/§9).
+pub(crate) fn process_env(name: &str) -> Option<String> {
+    std::env::var(name).ok()
+}
 
-    /// Resolve the api key for `provider_id`.
-    ///
-    /// Priority: ConfigManager credentials (convention directory +
-    /// credential_path) → environment variable `<PROVIDER_ID>_API_KEY`
-    /// via `env_lookup`. Empty keys are treated as absent.
-    fn resolve_api_key(
-        credentials: &CredentialsProvider,
-        provider_id: &str,
-        env_lookup: impl Fn(&str) -> Option<String>,
-    ) -> Option<String> {
-        credentials
-            .get_api_key(provider_id)
-            .or_else(|| env_lookup(&format!("{}_API_KEY", provider_id.to_uppercase())))
-            .filter(|key| !key.is_empty())
-    }
+/// Resolve the api key for `provider_id`.
+///
+/// Priority: ConfigManager credentials (convention directory +
+/// credential_path) → environment variable `<PROVIDER_ID>_API_KEY`
+/// via `env_lookup`. Empty keys are treated as absent.
+fn resolve_api_key(
+    credentials: &CredentialsProvider,
+    provider_id: &str,
+    env_lookup: impl Fn(&str) -> Option<String>,
+) -> Option<String> {
+    credentials
+        .get_api_key(provider_id)
+        .or_else(|| env_lookup(&format!("{}_API_KEY", provider_id.to_uppercase())))
+        .filter(|key| !key.is_empty())
 }
 
 /// Build fallback-chain entries for one registered provider.
