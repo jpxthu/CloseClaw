@@ -139,3 +139,72 @@ fn test_models_config_update_returns_new_value() {
         "newly written value must be cached"
     );
 }
+
+/// Section write whose value passes the business validator
+/// (`validate_models_with_refs` runs inside `update` for the Models
+/// section) but fails the typed parse → cache stores `ParseFailed`: the
+/// raw value stays in the section while `models_config()` returns the
+/// empty default (Step 1.23 — `ModelsConfigCache::ParseFailed` branch).
+#[test]
+fn test_models_config_write_typed_parse_failure_keeps_empty_default() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_without_models(tmp.path()).unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().expect("load");
+
+    // `mode` must be a string in `ModelsConfigData`; the business
+    // validator only checks the `providers` structure / ids / urls, so
+    // this value clears validation and fails the typed parse.
+    let value = serde_json::json!({"version": "1.0", "mode": 123});
+    manager
+        .update(ConfigSection::Models, value.clone(), |_| Ok(()))
+        .expect("update must succeed — the value passes business validation");
+
+    assert_eq!(
+        manager.section(ConfigSection::Models),
+        Some(value),
+        "the raw value must be kept in the section"
+    );
+    assert!(
+        manager.models_config().providers.is_empty(),
+        "ParseFailed must yield the empty default"
+    );
+}
+
+/// Hot-update path (`update_section_cache`, used by hot reload and
+/// pending-restart apply): after `load`, the cache follows the freshly
+/// written section value — `models_config()` returns the new value, not
+/// the load-time one (Step 1.23 — reload wiring).
+#[test]
+fn test_models_config_update_section_cache_returns_new_value() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_without_models(tmp.path()).unwrap();
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"providers":{"openai":{"models":[{"id":"m1"}]}}}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+    manager.load().expect("initial load");
+    assert!(manager.models_config().providers.contains_key("openai"));
+
+    let new_value = serde_json::json!({
+        "providers": {"glm": {"models": [{"id": "glm-4-plus"}]}}
+    });
+    manager.update_section_cache(
+        ConfigSection::Models,
+        tmp.path().join("models.json"),
+        new_value.clone(),
+    );
+
+    assert_eq!(manager.section(ConfigSection::Models), Some(new_value));
+    let models = manager.models_config();
+    assert!(
+        !models.providers.contains_key("openai"),
+        "stale load-time value must be replaced"
+    );
+    assert!(
+        models.providers.contains_key("glm"),
+        "hot-updated value must be cached"
+    );
+}

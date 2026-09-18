@@ -148,11 +148,16 @@ async fn test_rpc_terminal_plugin_concurrent_connections() {
     plugin.unregister_sender(conn2).await;
 }
 
+/// Shutdown must clear agent routes together with the senders (pair
+/// cleanup via `clear_connections`, Step 1.23): a stale route after
+/// shutdown would resolve a task-local-less send and fail with the
+/// misleading "connection not found" branch instead of "no route".
 #[tokio::test]
 async fn test_rpc_terminal_plugin_shutdown_clears_connections() {
     let plugin = RpcTerminalPlugin::new();
     let (tx, _rx) = mpsc::channel(4);
     plugin.register_sender(1, tx).await;
+    plugin.register_agent_route("master", 1).await;
     plugin.shutdown().await.unwrap();
 
     // After shutdown, send should fail.
@@ -164,6 +169,20 @@ async fn test_rpc_terminal_plugin_shutdown_clears_connections() {
         .scope(1, plugin.send(&output, "peer", None, None))
         .await;
     assert!(result.is_err());
+
+    // Route map cleared with the senders — acceptance for Step 1.23.
+    assert!(
+        plugin.agent_routes.read().await.is_empty(),
+        "agent routes must be cleared on shutdown"
+    );
+    let err = plugin
+        .send(&output, "master", None, None)
+        .await
+        .expect_err("post-shutdown route-less send must fail");
+    assert!(
+        err.to_string().contains("no chat connection registered"),
+        "must miss the route, not hit a dead connection id: {err}"
+    );
 }
 
 #[tokio::test]
@@ -618,6 +637,81 @@ async fn test_collect_responses_non_llm_drains_queued_output() {
         "connection channel must stay open (sender alive) with no queued leftovers"
     );
     drop(tx);
+}
+
+/// Step 1.23 — normal close path: an LlmStarted handler whose
+/// connection channel closes (turn-completion consumer ran
+/// `finish_turns`, or the sender was dropped) returns promptly with the
+/// queued frames instead of waiting out the injected bound.
+#[tokio::test]
+async fn test_collect_responses_llm_started_returns_on_channel_close() {
+    let (tx, rx) = mpsc::channel(4);
+    tx.send(RenderedOutput {
+        msg_type: "text".to_string(),
+        payload: json!("final frame"),
+    })
+    .await
+    .unwrap();
+    // Close the channel — the LlmStarted wait loop must observe the
+    // close and finalize immediately.
+    drop(tx);
+    let handle: tokio::task::JoinHandle<Option<HandleResult>> =
+        tokio::spawn(async { Some(HandleResult::LlmStarted) });
+
+    let (responses, mut rx_left) = tokio::time::timeout(
+        Duration::from_millis(500),
+        collect_responses_with_timeout(rx, handle, Duration::from_secs(30)),
+    )
+    .await
+    .expect("a closed channel must finalize without waiting for the bound");
+
+    assert_eq!(
+        responses,
+        vec![ChatResponse::ContentChunk {
+            content: "final frame".to_string()
+        }],
+        "queued output must be collected before the close"
+    );
+    assert!(
+        matches!(
+            rx_left.try_recv(),
+            Err(mpsc::error::TryRecvError::Disconnected)
+        ),
+        "the connection channel must be observed closed"
+    );
+}
+
+/// Step 1.23 — panic path: a handler task that panics surfaces as a
+/// single `Error` frame ("internal error: …") instead of losing the
+/// turn; the connection channel itself is left untouched.
+#[tokio::test]
+async fn test_collect_responses_handler_panic_yields_error_frame() {
+    let (_tx, rx) = mpsc::channel(4); // sender alive — only the task fails
+    let handle: tokio::task::JoinHandle<Option<HandleResult>> =
+        tokio::spawn(async { panic!("handler exploded") });
+
+    let (responses, mut rx_left) = tokio::time::timeout(
+        Duration::from_millis(500),
+        collect_responses_with_timeout(rx, handle, Duration::from_secs(30)),
+    )
+    .await
+    .expect("a panicking handler must be surfaced promptly");
+
+    assert_eq!(
+        responses.len(),
+        1,
+        "exactly one terminal frame: {responses:?}"
+    );
+    match &responses[0] {
+        ChatResponse::Error { message } => {
+            assert!(message.contains("internal error"), "got: {message}");
+        }
+        other => panic!("expected an Error frame, got {other:?}"),
+    }
+    assert!(
+        matches!(rx_left.try_recv(), Err(mpsc::error::TryRecvError::Empty)),
+        "the connection channel must stay open and untouched"
+    );
 }
 
 /// Step 1.21 — the LlmStarted wait honors the injected bound: a turn

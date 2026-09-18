@@ -471,10 +471,13 @@ impl crate::Daemon {
         chat_rpc_plugin
     }
 
-    /// Start a new Chat RPC server on the given socket path.
-    /// Returns the JoinHandle (stored so the next restart can abort it)
-    /// together with the registered [`RpcTerminalPlugin`] — the caller
-    /// needs the plugin handle to drive turn completion.
+    /// Start a new Chat RPC server on the daemon's chat socket path.
+    ///
+    /// Assembly is shared with the startup path via
+    /// [`crate::chat_rpc::spawn_chat_rpc_server`]. Returns the
+    /// join handle (stored so the next restart can abort it) together
+    /// with the registered [`RpcTerminalPlugin`] — the caller needs the
+    /// plugin handle to drive turn completion.
     async fn start_chat_rpc_server(
         &self,
         new_gw: &Arc<closeclaw_gateway::Gateway>,
@@ -482,23 +485,7 @@ impl crate::Daemon {
         tokio::task::JoinHandle<()>,
         Arc<crate::chat_rpc::RpcTerminalPlugin>,
     ) {
-        use crate::chat_rpc::{ChatContext, ChatRpcServer, RpcTerminalPlugin};
-        let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-        new_gw
-            .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
-            .await;
-        let chat_context = ChatContext {
-            gateway: Arc::clone(new_gw),
-            rpc_plugin: rpc_plugin.clone(),
-        };
-        let chat_server = ChatRpcServer::new(&self.chat_socket_path, chat_context);
-        let chat_handle = tokio::spawn(async move {
-            if let Err(e) = chat_server.serve().await {
-                tracing::error!(error = %e, "chat RPC server failed");
-            }
-        });
-        info!("new chat RPC server started");
-        (chat_handle, rpc_plugin)
+        crate::chat_rpc::spawn_chat_rpc_server(new_gw, &self.chat_socket_path).await
     }
 }
 

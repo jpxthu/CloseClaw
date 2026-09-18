@@ -170,14 +170,29 @@ pub async fn build_fallback_client(registry: &Arc<LLMRegistry>) -> Arc<UnifiedFa
     Arc::new(UnifiedFallbackClient::new(entries, cooldown))
 }
 
-// Naming: the older unprefixed cases here predate STANDARDS §3 and are
-// kept as-is; **every newly added test case must carry the `test_`
-// prefix** (Step 1.21).
+// Naming (STANDARDS §3): newly added test cases must carry the `test_`
+// prefix. Exempt in this module (review decision): the pre-existing
+// cases that predate the rule (`assemble_*`, `build_chain_entries_*`,
+// `build_fallback_client_*`) plus this branch's 4 `build_*` additions
+// (`build_vendor_provider_*` ×3, `build_chain_entry_carries_provider_and_model_ids`),
+// kept in the module's existing style rather than renamed mid-branch.
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::provider::Provider;
     use crate::stub::StubProvider;
+
+    /// Every vendor id implemented by [`build_vendor_provider`] —
+    /// consumed by the base-url tests below.
+    const VENDOR_IDS: [&str; 7] = [
+        "openai",
+        "anthropic",
+        "minimax",
+        "mimo",
+        "glm",
+        "deepseek",
+        "volcengine",
+    ];
 
     fn stub_provider() -> Arc<dyn Provider> {
         Arc::new(StubProvider::new())
@@ -245,15 +260,7 @@ mod tests {
     /// base_url reflected in `Provider::base_url`.
     #[test]
     fn build_vendor_provider_all_vendors_use_configured_base_url() {
-        for id in [
-            "openai",
-            "anthropic",
-            "minimax",
-            "mimo",
-            "glm",
-            "deepseek",
-            "volcengine",
-        ] {
+        for id in VENDOR_IDS {
             let url = format!("http://127.0.0.1:9/{id}");
             let provider = build_vendor_provider(id, "key", Some(&url)).expect(id);
             assert_eq!(provider.base_url(), url, "{id}");
@@ -265,15 +272,7 @@ mod tests {
     /// with the same default, so both paths agree).
     #[test]
     fn build_vendor_provider_default_base_url_when_absent_or_empty() {
-        for id in [
-            "openai",
-            "anthropic",
-            "minimax",
-            "mimo",
-            "glm",
-            "deepseek",
-            "volcengine",
-        ] {
+        for id in VENDOR_IDS {
             let default_url = build_vendor_provider(id, "key", None).expect(id);
             let empty_url = build_vendor_provider(id, "key", Some("")).expect(id);
             assert_eq!(default_url.base_url(), empty_url.base_url(), "{id}");

@@ -359,3 +359,50 @@ async fn test_init_llm_registry_empty_env_value_treated_as_absent() {
     assert!(registry.list().await.is_empty());
     assert_eq!(fallback_client.chain().len(), 0);
 }
+
+/// A ConfigManager that never ran `load()` — bare dir, empty models
+/// cache, pre-load default credentials — yields an empty chain: no
+/// error, no panic (Step 1.23 — unloaded-mgr guard; note `credentials()`
+/// pre-load resolves to `Some(default)`, the `resolve_credentials` None
+/// arm is poison-lock defense, not this path).
+#[tokio::test]
+async fn test_init_llm_registry_unloaded_config_manager_returns_empty_chain() {
+    let dir = TempDir::new().unwrap();
+    // Deliberately bare: no configs written and `load()` never runs,
+    // so the models cache and credentials stay at their pre-load state.
+    let cm = ConfigManager::new(dir.path().to_path_buf()).unwrap();
+
+    let (registry, fallback_client) = init_registry_isolated(&cm).await;
+
+    assert!(registry.list().await.is_empty());
+    assert_eq!(fallback_client.chain().len(), 0);
+}
+
+/// Priority: a credential file wins over an equally-named env key —
+/// with both sources resolvable the provider is built from the file's
+/// key (Step 1.23 credential-priority lock).
+#[tokio::test]
+async fn test_init_llm_registry_file_credential_beats_env_lookup() {
+    let dir = TempDir::new().unwrap();
+    let cm = load_cm(
+        dir.path(),
+        serde_json::json!({
+            "openai": {
+                "baseUrl": "http://127.0.0.1:9/v1",
+                "models": [{ "id": "gpt-4o-basic" }]
+            }
+        }),
+        &[("openai", "file-key")],
+    );
+
+    let (registry, fallback_client) =
+        init_registry_with_env(&cm, &[("OPENAI_API_KEY", "env-key")]).await;
+
+    let provider = registry.get("openai").await.expect("openai registered");
+    assert_eq!(
+        provider.api_key(),
+        "file-key",
+        "the file credential must win over the env fallback"
+    );
+    assert_eq!(fallback_client.chain().len(), 1);
+}

@@ -102,14 +102,9 @@ impl ModelsConfigData {
 
     /// Return providers that have at least one enabled model.
     ///
-    /// `enabled` defaults to true when the flag is omitted — the shared
-    /// predicate is [`ModelDefinition::is_enabled`], consumed here and by
-    /// the daemon fallback-chain assembly (the runtime gate).
-    ///
-    /// Ownership note: no production caller — this is config-side
-    /// introspection only; runtime filtering goes through
-    /// `ModelDefinition::is_enabled()`. Keep the two in sync via that
-    /// single predicate, not by re-implementing the default.
+    /// Config-side introspection only (no production caller); the
+    /// `enabled` predicate is a single point:
+    /// [`ModelDefinition::is_enabled`].
     pub fn enabled_providers(&self) -> Vec<&str> {
         self.providers
             .iter()

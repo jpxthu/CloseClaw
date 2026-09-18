@@ -500,13 +500,35 @@ impl RpcTerminalPlugin {
         routes.insert(agent_id.to_string(), conn_id);
     }
 
+    /// Drop connection senders — `Some(conn_id)` drops just that
+    /// connection, `None` drops all of them — together with the agent
+    /// routes pointing at the dropped connections, so the two maps are
+    /// always cleaned in pairs. Single implementation behind
+    /// `unregister_sender`, `finish_turns` and `IMPlugin::shutdown`.
+    ///
+    /// Returns the number of senders dropped (`finish_turns` logs it).
+    async fn clear_connections(&self, conn_id: Option<u64>) -> usize {
+        let mut conns = self.connections.write().await;
+        let dropped = match conn_id {
+            Some(id) => usize::from(conns.remove(&id).is_some()),
+            None => {
+                let waiting = conns.len();
+                conns.clear();
+                waiting
+            }
+        };
+        let mut routes = self.agent_routes.write().await;
+        match conn_id {
+            Some(id) => routes.retain(|_, c| *c != id),
+            None => routes.clear(),
+        }
+        dropped
+    }
+
     /// Unregister the sender for the given connection ID, along with any
     /// agent route pointing at it.
     pub async fn unregister_sender(&self, conn_id: u64) {
-        let mut conns = self.connections.write().await;
-        conns.remove(&conn_id);
-        let mut routes = self.agent_routes.write().await;
-        routes.retain(|_, c| *c != conn_id);
+        self.clear_connections(Some(conn_id)).await;
     }
 
     /// Complete all in-flight chat turns: drop the registered connection
@@ -520,11 +542,7 @@ impl RpcTerminalPlugin {
     /// on multiple connections the first completion finalizes all
     /// waiting connections.
     pub async fn finish_turns(&self) {
-        let mut conns = self.connections.write().await;
-        let waiting = conns.len();
-        conns.clear();
-        let mut routes = self.agent_routes.write().await;
-        routes.clear();
+        let waiting = self.clear_connections(None).await;
         if waiting > 0 {
             tracing::debug!(
                 waiting,
@@ -654,10 +672,50 @@ impl IMPlugin for RpcTerminalPlugin {
     }
 
     async fn shutdown(&self) -> Result<(), AdapterError> {
-        let mut conns = self.connections.write().await;
-        conns.clear();
+        // Clear senders and agent routes together (via
+        // `clear_connections`) so a post-shutdown send cannot hit the
+        // misleading "route hit → connection not found" branch.
+        self.clear_connections(None).await;
         Ok(())
     }
+}
+
+// ---------------------------------------------------------------------------
+// Chat RPC server assembly (startup + restart)
+// ---------------------------------------------------------------------------
+
+/// Register a fresh [`RpcTerminalPlugin`] on `gateway` and spawn a
+/// [`ChatRpcServer`] serving `sock_path`.
+///
+/// Single assembly point for the chat RPC wiring — the startup path
+/// (`Daemon::init_phase_6_chat_rpc`) and the gateway-restart path
+/// (`Daemon::start_chat_rpc_server`) both call this so the
+/// register → context → serve sequence cannot drift between the two
+/// (same pattern as [`spawn_turn_completion_consumer`]).
+///
+/// Returns the serve task's join handle (callers keep it so the next
+/// restart can abort it) and the registered plugin (callers wire it into
+/// turn completion).
+pub(crate) async fn spawn_chat_rpc_server(
+    gateway: &Arc<Gateway>,
+    sock_path: &Path,
+) -> (tokio::task::JoinHandle<()>, Arc<RpcTerminalPlugin>) {
+    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
+    gateway
+        .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
+        .await;
+    let context = ChatContext {
+        gateway: Arc::clone(gateway),
+        rpc_plugin: rpc_plugin.clone(),
+    };
+    let chat_server = ChatRpcServer::new(sock_path, context);
+    let chat_handle = tokio::spawn(async move {
+        if let Err(e) = chat_server.serve().await {
+            tracing::error!(error = %e, "chat RPC server failed");
+        }
+    });
+    tracing::info!("chat RPC server started on {}", sock_path.display());
+    (chat_handle, rpc_plugin)
 }
 
 // ---------------------------------------------------------------------------

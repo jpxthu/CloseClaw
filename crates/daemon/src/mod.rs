@@ -944,27 +944,17 @@ impl Daemon {
         (admin_handle, admin_sock_path)
     }
     /// Phase 6: Chat RPC Server — depends on Gateway (Layer 5).
+    ///
+    /// Assembly lives in [`crate::chat_rpc::spawn_chat_rpc_server`]
+    /// (shared with the gateway-restart path); this phase only resolves
+    /// the socket path and packages the results.
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
     ) -> crate::daemon_struct::ChatRpcInit {
-        use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer, RpcTerminalPlugin};
-        let sock_path = chat_socket_path(Path::new(config_dir));
-        let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-        gateway
-            .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
-            .await;
-        let context = ChatContext {
-            gateway: Arc::clone(gateway),
-            rpc_plugin: rpc_plugin.clone(),
-        };
-        let chat_server = ChatRpcServer::new(&sock_path, context);
-        let chat_handle = tokio::spawn(async move {
-            if let Err(e) = chat_server.serve().await {
-                tracing::error!(error = %e, "chat RPC server failed");
-            }
-        });
-        info!("chat RPC server started on {}", sock_path.display());
+        let sock_path = crate::chat_rpc::chat_socket_path(Path::new(config_dir));
+        let (chat_handle, rpc_plugin) =
+            crate::chat_rpc::spawn_chat_rpc_server(gateway, &sock_path).await;
         (chat_handle, sock_path, rpc_plugin)
     }
 }

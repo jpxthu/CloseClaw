@@ -117,3 +117,22 @@ pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str
         );
     }
 }
+
+/// Send SIGTERM to `daemon` and wait for its exit within
+/// [`SHUTDOWN_TIMEOUT`]. Returns the exit status — the caller asserts
+/// on it. Shared by `agent_profile_tests` (DaemonGuard::shutdown) and
+/// `gateway_restart_turn_tests` (terminate_daemon), Step 1.23.
+#[cfg(feature = "fake-llm")]
+pub async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
+    let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
+    // SAFETY: `pid` is the PID of the daemon child this caller spawned
+    // and holds; the cast to `libc::pid_t` is a lossless widening
+    // conversion, and SIGTERM is a valid signal number.
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    tokio::time::timeout(SHUTDOWN_TIMEOUT, daemon.wait())
+        .await
+        .expect("daemon should exit within the shutdown timeout")
+        .expect("daemon exit status should be observable")
+}

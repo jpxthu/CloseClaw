@@ -24,7 +24,9 @@ use tokio::process::Child;
 use tokio::time::timeout;
 
 use super::helpers;
-use super::helpers::chat::chat_roundtrip;
+use super::helpers::chat::{
+    assert_single_terminal, chat_roundtrip, collect_content_text, try_chat_roundtrip,
+};
 use super::helpers::config::{write_config_tree, ConfigTreeOpts};
 use super::helpers::fake_llm::start_fake_llm;
 
@@ -71,8 +73,10 @@ async fn trigger_gateway_restart(config_root: &Path, daemon: &mut Child) {
 /// immediately; without it (the regression this test locks), every
 /// attempt hangs for `TURN_COMPLETION_TIMEOUT_SECS` (120s) — far beyond
 /// this budget, so the deadline fires and the test fails instead of
-/// hanging. The 5s per-attempt timeout covers the connection-mid-restart
-/// window (turn did not answer — keep polling until the deadline).
+/// hanging. Both failure shapes are results, not panics:
+/// [`try_chat_roundtrip`] returns connect / protocol errors (retried
+/// each poll until the deadline — the connection-mid-restart window)
+/// and the 5s per-attempt timeout covers a turn that does not answer.
 ///
 /// The caller asserts the returned frames carry the LLM answer and end
 /// with exactly one terminal frame — proving the restart path's
@@ -87,13 +91,14 @@ async fn wait_post_restart_turn(config_root: &Path) -> Vec<serde_json::Value> {
                  (turn-completion consumer missing? = 120s hang)"
             );
         }
-        match timeout(Duration::from_secs(5), async {
-            chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await
-        })
-        .await
-        {
-            Ok(frames) => break frames,
-            Err(_) => {
+        let attempt = timeout(
+            Duration::from_secs(5),
+            try_chat_roundtrip(&config_root.join("chat.sock"), "master", "hello"),
+        )
+        .await;
+        match attempt {
+            Ok(Ok(frames)) => break frames,
+            Ok(Err(_)) | Err(_) => {
                 tokio::time::sleep(Duration::from_millis(200)).await;
             }
         }
@@ -101,22 +106,12 @@ async fn wait_post_restart_turn(config_root: &Path) -> Vec<serde_json::Value> {
 }
 
 /// Assert the daemon survived the final chat turn, then shut it down
-/// gracefully (SIGTERM → exit 0 within `helpers::SHUTDOWN_TIMEOUT`).
+/// gracefully (SIGTERM → exit 0 within `helpers::SHUTDOWN_TIMEOUT`,
+/// shared `helpers::sigterm_and_wait`).
 async fn terminate_daemon(mut daemon: Child) {
     helpers::assert_daemon_alive_with_context(&mut daemon, Some("after restart chat turn"));
 
-    let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
-    // SAFETY: `pid` is the PID of the daemon child this test spawned and
-    // verified is still running (the `try_wait` check just above); the
-    // cast to `libc::pid_t` is a lossless widening conversion, and
-    // SIGTERM is a valid signal number.
-    unsafe {
-        libc::kill(pid, libc::SIGTERM);
-    }
-    let status = timeout(helpers::SHUTDOWN_TIMEOUT, daemon.wait())
-        .await
-        .expect("daemon should exit within the shutdown timeout")
-        .expect("daemon exit status should be observable");
+    let status = helpers::sigterm_and_wait(&mut daemon).await;
     assert!(
         status.success(),
         "daemon should exit 0 after SIGTERM, got: {status:?}"
@@ -144,10 +139,7 @@ async fn e2e_gateway_restart_llm_turn_completes() {
 
     // Pre-restart sanity: one chat turn completes with the greeting text.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("Hi there!"),
         "pre-restart turn should carry greeting text, got: {text}"
@@ -156,24 +148,12 @@ async fn e2e_gateway_restart_llm_turn_completes() {
     trigger_gateway_restart(config_root, &mut daemon).await;
     let post_frames = wait_post_restart_turn(config_root).await;
 
-    let post_text: String = post_frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let post_text = collect_content_text(&post_frames);
     assert!(
         post_text.contains("Hi there!"),
         "post-restart turn should carry greeting text, got: {post_text}"
     );
-    let terminal = post_frames
-        .iter()
-        .filter(|f| {
-            matches!(
-                f.get("type").and_then(|t| t.as_str()),
-                Some("done") | Some("error")
-            )
-        })
-        .count();
-    assert_eq!(terminal, 1, "expected exactly one terminal frame");
+    assert_single_terminal(&post_frames);
 
     terminate_daemon(daemon).await;
 }

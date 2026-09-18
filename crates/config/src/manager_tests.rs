@@ -586,7 +586,6 @@ fn test_load_populates_listed_sections_with_values() {
 fn test_load_fails_on_missing_mandatory_file() {
     let tmp = tempfile::tempdir().unwrap();
     // models.json is optional; all 5 mandatory files are absent
-    fs::write(tmp.path().join("models.json"), r#"{"version": "1.0"}"#).unwrap();
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     let result = manager.load();
     assert!(result.is_err(), "load() should fail when files are missing");
@@ -678,7 +677,7 @@ fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
 }
 
 /// Test: models.json business validation failure (empty provider ID)
-/// triggers F3 rollback to backup — restored master semantics.
+/// triggers F3 rollback; provider-carrying backup locks cache refill.
 #[test]
 fn test_load_business_validation_failure_models_rollback() {
     let tmp = tempfile::tempdir().unwrap();
@@ -686,9 +685,8 @@ fn test_load_business_validation_failure_models_rollback() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    // Create a backup of the valid config, then corrupt the file
-    let valid = fs::read_to_string(tmp.path().join("models.json")).unwrap();
-    write_backup(tmp.path(), ConfigSection::Models, &valid);
+    let backup = r#"{"version":"1.0","providers":{"openai":{"models":[{"id":"m1"}]}}}"#;
+    write_backup(tmp.path(), ConfigSection::Models, backup);
     fs::write(
         tmp.path().join("models.json"),
         r#"{"providers":{"":{"models":[]}}}"#,
@@ -699,6 +697,8 @@ fn test_load_business_validation_failure_models_rollback() {
     manager.load().unwrap();
     let section = manager.section(ConfigSection::Models).unwrap();
     assert_eq!(section["version"], "1.0");
+    let models = manager.models_config();
+    assert!(models.providers.contains_key("openai"), "cache refilled");
 }
 
 /// Test: models.json business validation failure, no backup → refusal (F3).

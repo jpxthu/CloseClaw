@@ -45,6 +45,10 @@ pub(crate) enum ModelsConfigCache {
     ParseFailed,
 }
 
+// ---------------------------------------------------------------------------
+// Load path — four-case matrix + F3 rollback
+// ---------------------------------------------------------------------------
+
 impl ConfigManager {
     /// Load the optional Models section and fill the typed cache,
     /// implementing the four-case matrix above.
@@ -111,6 +115,10 @@ impl ConfigManager {
         Ok(())
     }
 }
+
+// ---------------------------------------------------------------------------
+// Typed access + cache write points
+// ---------------------------------------------------------------------------
 
 impl ConfigManager {
     /// Typed access to models.json — reads the cache filled once at load

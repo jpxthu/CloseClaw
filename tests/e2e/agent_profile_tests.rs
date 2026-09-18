@@ -44,18 +44,21 @@ use std::time::Duration;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
 use tokio::process::Child;
-use tokio::time::timeout;
 
 use super::helpers;
-use super::helpers::chat::{chat_roundtrip, read_frame};
+use super::helpers::chat::{
+    assert_single_terminal, chat_roundtrip, collect_content_text, read_frame,
+};
 use super::helpers::config::{write_config_tree, ConfigTreeOpts};
 use super::helpers::fake_llm::start_fake_llm;
 
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
 // `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,
+// `assert_single_terminal`, `collect_content_text`, `sigterm_and_wait`,
 // `start_fake_llm`) live under `helpers/` (chat/fake_llm extracted in
 // Step 1.10; the config-tree scaffold `write_config_tree` shared with
-// `gateway_restart_turn_tests` in Step 1.14).
+// `gateway_restart_turn_tests` in Step 1.14; terminal/content/SIGTERM
+// helpers shared in Step 1.23).
 
 // ---------------------------------------------------------------------------
 // Helper: daemon spawn + readiness
@@ -66,18 +69,10 @@ use super::helpers::fake_llm::start_fake_llm;
 struct DaemonGuard(Child);
 
 impl DaemonGuard {
-    /// Send SIGTERM and wait for graceful exit.
+    /// Send SIGTERM and wait for graceful exit
+    /// (shared `helpers::sigterm_and_wait`, Step 1.23).
     async fn shutdown(mut self) -> std::process::ExitStatus {
-        let pid = self.0.id().expect("daemon has a PID") as libc::pid_t;
-        // SAFETY: `pid` belongs to the child we spawned; the cast is a
-        // lossless widening; SIGTERM is a valid signal number.
-        unsafe {
-            libc::kill(pid, libc::SIGTERM);
-        }
-        timeout(helpers::SHUTDOWN_TIMEOUT, self.0.wait())
-            .await
-            .expect("daemon should exit within the shutdown timeout")
-            .expect("daemon exit status should be observable")
+        helpers::sigterm_and_wait(&mut self.0).await
     }
 }
 
@@ -136,23 +131,8 @@ fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) 
 // Helper: chat response assertions
 // ---------------------------------------------------------------------------
 
-/// Assert exactly one terminal frame in a set of chat response frames.
-fn assert_single_terminal(frames: &[serde_json::Value]) {
-    let terminal: Vec<&serde_json::Value> = frames
-        .iter()
-        .filter(|f| {
-            matches!(
-                f.get("type").and_then(|t| t.as_str()),
-                Some("done") | Some("error")
-            )
-        })
-        .collect();
-    assert_eq!(
-        terminal.len(),
-        1,
-        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
-    );
-}
+// `assert_single_terminal` and `collect_content_text` live in
+// `helpers::chat` (shared with `gateway_restart_turn_tests`, Step 1.23).
 
 /// Write agent config with explicit tools and disallowed_tools lists.
 fn write_agent_config_with_tools(
@@ -308,10 +288,7 @@ async fn e2e_agent_model_selection() {
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("Hi there!"),
         "response should contain greeting scenario text, got: {text}"
@@ -366,10 +343,7 @@ async fn e2e_agent_system_prompt_injection() {
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("INJECTED_OK"),
         "response should contain INJECTED_OK proving bootstrap injection, got: {text}"
@@ -444,10 +418,7 @@ async fn e2e_agent_workspace() {
     // and returns the marker content.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "read the file").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("WORKSPACE_CWD_OK"),
         "response should contain WORKSPACE_CWD_OK proving workspace CWD, got: {text}"

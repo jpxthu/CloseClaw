@@ -7,11 +7,14 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_config::ConfigManager;
 
 use closeclaw_session::persistence::{
     DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
 };
+use tokio::sync::mpsc;
 
 /// Duplicate of `crate::bridge::common_shutdown_handle` for daemon-crate tests.
 /// Creates a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
@@ -97,10 +100,6 @@ pub fn load_cm(
 }
 
 // ── Turn-completion consumer test harness ─────────────────────────────────
-
-use closeclaw_common::im_plugin::RenderedOutput;
-use closeclaw_common::processor::ContentBlock;
-use tokio::sync::mpsc;
 
 /// Shared setup result for turn-completion consumer tests
 /// (`chat_rpc_tests` + `gateway_restart_tests`, Step 1.20 dedup): one
