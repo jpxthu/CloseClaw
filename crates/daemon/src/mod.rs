@@ -946,16 +946,24 @@ impl Daemon {
     /// Phase 6: Chat RPC Server — depends on Gateway (Layer 5).
     ///
     /// Assembly lives in [`crate::chat_rpc::spawn_chat_rpc_server`]
-    /// (shared with the gateway-restart path); this phase only resolves
-    /// the socket path and packages the results.
+    /// (shared with the gateway-restart path); this phase resolves the
+    /// socket path, spawns the server, and wires the
+    /// SessionMessageHandler output receiver into the shared
+    /// turn-completion consumer (startup path's Step 1.11 wiring —
+    /// single-point definition: the consumer's doc).
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
+        output_rx: tokio::sync::mpsc::Receiver<(
+            String,
+            Vec<closeclaw_common::processor::ContentBlock>,
+        )>,
     ) -> crate::chat_rpc::ChatRpcInit {
         let sock_path = crate::chat_rpc::chat_socket_path(Path::new(config_dir));
         let (chat_handle, rpc_plugin) =
             crate::chat_rpc::spawn_chat_rpc_server(gateway, &sock_path).await;
-        (chat_handle, sock_path, rpc_plugin)
+        crate::chat_rpc::spawn_turn_completion_consumer(output_rx, rpc_plugin);
+        (chat_handle, sock_path)
     }
 }
 #[cfg(test)]

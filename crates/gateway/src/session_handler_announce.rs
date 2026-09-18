@@ -310,33 +310,7 @@ impl SessionMessageHandler {
                         .await;
                     }
                 }
-                let text = stream_result
-                    .content_blocks
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Text(t) => Some(t.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("");
-                // Batch outbound (outbound-flow.md batch mode): non-streaming
-                // turns are sent to the IM Adapter here; streaming turns were
-                // already delivered incrementally by send_outbound_streaming.
-                if let Some(gw) = gateway {
-                    crate::outbound_helpers::deliver_batch_result(
-                        gw,
-                        session_id,
-                        &text,
-                        &stream_result.content_blocks,
-                    )
-                    .await;
-                }
-                // Turn-completion signal for callers (CLI REPL waits on this
-                // channel; the daemon chat wiring uses it to finalize turns).
-                let guard = output_tx.read().await;
-                if let Some(tx) = guard.as_ref() {
-                    let _ = tx.send((text, stream_result.content_blocks)).await;
-                }
+                deliver_and_signal_turn(gateway, session_id, output_tx, stream_result).await;
                 // Send pending workflow blocked notification to owner (Step 1.6).
                 Self::drain_workflow_notification(session_manager, session_id, gateway).await;
             }
@@ -348,12 +322,9 @@ impl SessionMessageHandler {
                 // Mark run-mode child as Errored so try_push_announce
                 // resolves the correct ChildCompletionStatus.
                 session_manager.notify_child_error(session_id).await;
-                // Turn-completion signal (empty payload): callers must not
-                // block until their timeout when the turn failed.
-                let guard = output_tx.read().await;
-                if let Some(tx) = guard.as_ref() {
-                    let _ = tx.send((String::new(), Vec::new())).await;
-                }
+                // Empty payload: callers must not block until their
+                // timeout when the turn failed.
+                emit_turn_completion(output_tx, String::new(), Vec::new()).await;
             }
         }
         // Step 1.5: best-effort announce to parent (run-mode child).
@@ -717,6 +688,55 @@ impl SessionMessageHandler {
         }
         cs_write.inject_system_message(text);
         drop(cs_write);
+    }
+}
+
+/// Assemble the outbound text of a finished turn, deliver it in batch
+/// mode (outbound-flow.md), and emit the turn-completion signal.
+///
+/// Shared tail for the `Ok` arm of `clear_busy_and_send`; the `Err`
+/// arm emits the same signal directly via [`emit_turn_completion`]
+/// with an empty payload.
+async fn deliver_and_signal_turn(
+    gateway: Option<&Arc<Gateway>>,
+    session_id: &str,
+    output_tx: &OutputTx,
+    stream_result: StreamResult,
+) {
+    let text = stream_result
+        .content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    // Batch outbound (outbound-flow.md batch mode): non-streaming
+    // turns are sent to the IM Adapter here; streaming turns were
+    // already delivered incrementally by send_outbound_streaming.
+    if let Some(gw) = gateway {
+        crate::outbound_helpers::deliver_batch_result(
+            gw,
+            session_id,
+            &text,
+            &stream_result.content_blocks,
+        )
+        .await;
+    }
+    // Turn-completion signal for callers (CLI REPL waits on this
+    // channel; the daemon chat wiring uses it to finalize turns).
+    emit_turn_completion(output_tx, text, stream_result.content_blocks).await;
+}
+
+/// Turn-completion signal: hand `(text, blocks)` to the consumer
+/// wired on the output channel (the daemon chat wiring finalizes
+/// turns on it). Failure turns send an empty payload so callers do
+/// not block until their timeout.
+async fn emit_turn_completion(output_tx: &OutputTx, text: String, blocks: Vec<ContentBlock>) {
+    let guard = output_tx.read().await;
+    if let Some(tx) = guard.as_ref() {
+        let _ = tx.send((text, blocks)).await;
     }
 }
 

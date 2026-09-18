@@ -12,13 +12,16 @@ use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+// Session→channel accessor. Its own impl block: the channel-routing
+// impl below carries a pre-existing line-count overflow (master
+// baseline); merging would deepen it (Step 1.26).
 impl SessionManager {
     /// The outbound channel recorded for `session_id`, or `None` when the
     /// session is unknown.
     ///
     /// External consumers resolve the session's channel through this
     /// accessor instead of direct-reading the `sessions` map (Step 1.25).
-    pub async fn session_channel(&self, session_id: &str) -> Option<String> {
+    pub(crate) async fn session_channel(&self, session_id: &str) -> Option<String> {
         let sessions = self.sessions.read().await;
         sessions.get(session_id).map(|s| s.channel.clone())
     }

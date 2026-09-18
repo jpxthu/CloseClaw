@@ -28,7 +28,7 @@
 //! [`ConfigManager::cache_models_config`]; [`ConfigManager::models_config`]
 //! only reads it (logged where filled, never per call).
 
-use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
+use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection, ConfigSnapshot};
 use crate::providers::ModelsConfigData;
 use std::collections::HashMap;
 use std::fs;
@@ -186,6 +186,26 @@ impl ConfigManager {
         if section == ConfigSection::Models {
             self.cache_models_config(Some(value));
         }
+    }
+
+    /// The single write point for section cache entries: refresh the
+    /// typed models cache, insert `value` under the sections lock, and
+    /// return the snapshot taken under that same lock
+    /// (`update_with_cross_ref` drops it; `update_section_cache`
+    /// broadcasts it). Both write paths come through here; `load`
+    /// initializes `sections` as its own one-time step.
+    pub(crate) fn write_section_cache(
+        &self,
+        section: ConfigSection,
+        value: serde_json::Value,
+    ) -> ConfigSnapshot {
+        self.refresh_models_cache(section, &value);
+        let mut sections = self
+            .sections
+            .write()
+            .expect("RwLock for config sections was poisoned");
+        sections.insert(section, value);
+        ConfigSnapshot::new(sections.clone())
     }
 }
 

@@ -797,11 +797,11 @@ pub(crate) async fn spawn_chat_rpc_server(
     (chat_handle, rpc_plugin)
 }
 
-/// Handles returned by chat RPC init: server task handle, socket path,
-/// and the registered terminal IM plugin (turn-completion consumer).
-/// Lives here (next to [`spawn_chat_rpc_server`], its only producer) —
-/// the daemon struct keeps only state fields.
-pub(crate) type ChatRpcInit = (tokio::task::JoinHandle<()>, PathBuf, Arc<RpcTerminalPlugin>);
+/// Handles returned by chat RPC init: the server task handle and the
+/// socket path (the phase owns the registered terminal IM plugin and
+/// wires it into the turn-completion consumer). Lives here (next to
+/// [`spawn_chat_rpc_server`]) — the daemon struct keeps only state fields.
+pub(crate) type ChatRpcInit = (tokio::task::JoinHandle<()>, PathBuf);
 
 // ---------------------------------------------------------------------------
 // Socket path helper

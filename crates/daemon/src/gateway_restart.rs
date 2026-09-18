@@ -409,7 +409,7 @@ impl crate::Daemon {
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
     ///
-    /// Mirrors the startup path (`lifecycle/mod.rs`): returns the new
+    /// Mirrors the startup path (`lifecycle/mod.rs` / `init_phase_6_chat_rpc`): returns the new
     /// chat RPC server's [`RpcTerminalPlugin`] (the restart call site
     /// drops that handle — the plugin stays alive via gateway
     /// registration, ChatContext and the consumer) and consumes the
@@ -458,7 +458,7 @@ impl crate::Daemon {
 
         // Turn-completion consumer for the restart path's own output
         // channel — shared assembly point with the startup path
-        // (lifecycle/mod.rs, Step 1.11): each completed LLM turn
+        // (`init_phase_6_chat_rpc`, Step 1.11): each completed LLM turn
         // finalizes the waiting chat connection instead of letting it
         // time out after 120s.
         crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&chat_rpc_plugin));

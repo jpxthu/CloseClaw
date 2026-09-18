@@ -755,13 +755,8 @@ impl ConfigManager {
             }
         })?;
 
-        // Step 4: update in-memory cache
-        self.refresh_models_cache(section, &new_value);
-        let mut sections = self
-            .sections
-            .write()
-            .expect("RwLock for config sections was poisoned");
-        sections.insert(section, new_value);
+        // Step 4: update in-memory cache (single write point: write_section_cache)
+        self.write_section_cache(section, new_value);
 
         Ok(())
     }
@@ -888,15 +883,7 @@ impl ConfigManager {
         value: serde_json::Value,
     ) {
         self.unblock_section(section);
-        self.refresh_models_cache(section, &value);
-        let snapshot = {
-            let mut sections = self
-                .sections
-                .write()
-                .expect("RwLock for config sections was poisoned");
-            sections.insert(section, value);
-            ConfigSnapshot::new(sections.clone())
-        };
+        let snapshot = self.write_section_cache(section, value);
         // Broadcast snapshot (ignore send errors — no active subscribers).
         let _ = self.snapshot_tx.send(snapshot);
         // Broadcast change event.
