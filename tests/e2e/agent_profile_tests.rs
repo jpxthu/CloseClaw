@@ -10,149 +10,55 @@
 //!
 //! STANDARDS.md §1 e2e 判定：spawn 独立 daemon 进程 + 真实 Unix socket。
 //!
-//! Blocker note (2026-08-22): on current master the daemon-side chat → LLM
-//! path panics before any LLM request is made
-//! (`SkillListingProviderWrapper::collect_builtin_listings` calls
-//! `Handle::block_on` inside an async context — "Cannot start a runtime
-//! from within a runtime", crates/daemon/src/bridge.rs:186). The smoke test
-//! therefore asserts the *observable* contract of this wiring today:
-//! the daemon starts, the chat RPC socket answers, and the client receives
-//! a well-formed protocol response (Error frames for the panic are
-//! protocol-valid; a hang/crash of the daemon is not). See the
-//! `e2e_agent_profile_smoke` case doc for the full reasoning.
+//! Blocker history (both resolved on this branch, 2026-09-16):
+//! - The 2026-08-22 `Handle::block_on` panic
+//!   (`SkillListingProviderWrapper::collect_builtin_listings` calling
+//!   `Handle::block_on` inside an async context — "Cannot start a runtime
+//!   from within a runtime", crates/daemon/src/bridge.rs) was fixed by
+//!   moving the builtin-registry awaits onto separate scoped threads
+//!   (`block_on_join_thread`, joined before returning — the sync
+//!   analogue of #3054's `spawn_blocking` isolation). fake_llm now
+//!   receives the request.
+//! - The follow-up wiring gap — non-streaming LLM results were written
+//!   to `SessionMessageHandler::output_tx` whose daemon-side receiver
+//!   (`_output_rx` in crates/daemon/src/lifecycle/mod.rs — field removed
+//!   on this branch) was dropped, so chat RPC clients only observed a
+//!   terminal `Error` frame — was fixed by consuming that receiver and
+//!   delivering completed turns through the outbound chain to the chat
+//!   client.
+//!
+//! With both fixes in place the chat → LLM → client round trip works
+//! end-to-end: `e2e_agent_model_selection` asserts the full path (fake_llm
+//! receives the request; the greeting text reaches the chat client). The
+//! smoke case keeps its looser infrastructure-level assertions — see the
+//! `e2e_agent_profile_smoke` case doc for details.
 //!
 //! Uses `#[cfg(feature = "fake-llm")]` to gate on the feature flag, per
 //! STANDARDS.md §5.
 
 #![cfg(feature = "fake-llm")]
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
 use tokio::process::Child;
-use tokio::time::timeout;
 
 use super::helpers;
+use super::helpers::chat::{
+    assert_single_terminal, chat_roundtrip, collect_content_text, read_frame,
+};
+use super::helpers::config::{write_config_tree, ConfigTreeOpts};
+use super::helpers::fake_llm::start_fake_llm;
 
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-/// Upper bound for one full chat turn (request → Done/Error/EOF).
-const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
-/// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
-const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
-
-// ---------------------------------------------------------------------------
-// Helpers: fixture paths
-// ---------------------------------------------------------------------------
-
-/// Path to the fake LLM scenario fixtures (basic-text + fallback).
-fn scenarios_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_llm/scenarios")
-}
-
-// ---------------------------------------------------------------------------
-// Helper: fake LLM server
-// ---------------------------------------------------------------------------
-
-/// Start an in-process fake LLM HTTP server on a random port.
-///
-/// Loads the shared scenario fixtures (`tests/fixtures/fake_llm/scenarios`)
-/// so the engine can answer both model-matched and fallback requests.
-/// Returns the bound address for `models.json`.
-async fn start_fake_llm() -> std::net::SocketAddr {
-    closeclaw_fake_llm::server::start_server_addr("127.0.0.1:0", Some(&scenarios_dir()))
-        .await
-        .expect("failed to start fake LLM server on 127.0.0.1:0")
-}
-
-// ---------------------------------------------------------------------------
-// Helper: config-dir scaffolding (split from write_config_tree)
-// ---------------------------------------------------------------------------
-
-/// Write mandatory config files (models, channels, gateway, plugins, system,
-/// accounts, credentials, agents.json) into a temp config root.
-///
-/// Layout (verified against `Daemon::init_phase_1_foundation` /
-/// `ConfigManager::load` / `AgentDirectoryProvider`):
-///
-/// ```text
-/// <root>/config/{models,channels,gateway,plugins,system,accounts}.json
-/// <root>/config/agents.json
-/// <root>/config/credentials/openai.json     (fake key; camelCase)
-/// ```
-///
-/// Notes:
-/// - `models.json` `credentialPath` is validated with a CWD-relative
-///   `Path::exists` check, so the test chdirs into `<root>/config` before
-///   spawning the daemon (see `ChatHarness::spawn_daemon`).
-/// - `agents/<id>/config.json` `model` accepts `"provider/model-id"`
-///   (ModelSpec string form).
-fn write_mandatory_configs(root: &Path, fake_llm_addr: &str) {
-    let config_dir = root.join("config");
-    std::fs::create_dir_all(config_dir.join("credentials")).expect("create config dirs");
-
-    std::fs::write(
-        config_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":["master"]}"#,
-    )
-    .expect("write agents.json");
-
-    let models = serde_json::json!({
-        "version": "1.0",
-        "mode": "merge",
-        "providers": {
-            "openai": {
-                "baseUrl": format!("http://{fake_llm_addr}/v1"),
-                "protocol": "openai",
-                "credentialPath": "credentials/openai.json",
-                "models": [{ "id": "gpt-4o-basic", "enabled": true }]
-            }
-        }
-    });
-    std::fs::write(
-        config_dir.join("models.json"),
-        serde_json::to_string(&models).expect("serialize models.json"),
-    )
-    .expect("write models.json");
-
-    for name in [
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(config_dir.join(name), r#"{"version":"1.0"}"#)
-            .expect("write mandatory config");
-    }
-
-    // Fake API key — camelCase per ApiKeyCredentials serde attrs.
-    std::fs::write(
-        config_dir.join("credentials").join("openai.json"),
-        r#"{"provider":"openai","apiKey":"e2e-fake-key"}"#,
-    )
-    .expect("write credentials");
-}
-
-/// Write the default master agent layout into the config tree.
-///
-/// Creates `agents/master/config.json` with wildcard tool/skill permissions.
-/// Tests that need a custom agent config should call `write_agent_config`
-/// after this function to overwrite it.
-fn write_agent_layout(root: &Path) {
-    std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
-    std::fs::write(
-        root.join("agents")
-            .join("master")
-            .join("config.json"),
-        r#"{"id":"master","name":"Master","model":"openai/gpt-4o-basic","tools":["*"],"skills":["*"]}"#,
-    )
-    .expect("write master agent config");
-}
+// Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
+// `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,
+// `assert_single_terminal`, `collect_content_text`, `sigterm_and_wait`,
+// `start_fake_llm`) live under `helpers/` (chat/fake_llm extracted in
+// Step 1.10; the config-tree scaffold `write_config_tree` shared with
+// `gateway_restart_turn_tests` in Step 1.14; terminal/content/SIGTERM
+// helpers shared in Step 1.23).
 
 // ---------------------------------------------------------------------------
 // Helper: daemon spawn + readiness
@@ -163,18 +69,10 @@ fn write_agent_layout(root: &Path) {
 struct DaemonGuard(Child);
 
 impl DaemonGuard {
-    /// Send SIGTERM and wait for graceful exit.
+    /// Send SIGTERM and wait for graceful exit
+    /// (shared `helpers::sigterm_and_wait`, Step 1.23).
     async fn shutdown(mut self) -> std::process::ExitStatus {
-        let pid = self.0.id().expect("daemon has a PID") as libc::pid_t;
-        // SAFETY: `pid` belongs to the child we spawned; the cast is a
-        // lossless widening; SIGTERM is a valid signal number.
-        unsafe {
-            libc::kill(pid, libc::SIGTERM);
-        }
-        timeout(SHUTDOWN_TIMEOUT, self.0.wait())
-            .await
-            .expect("daemon should exit within the shutdown timeout")
-            .expect("daemon exit status should be observable")
+        helpers::sigterm_and_wait(&mut self.0).await
     }
 }
 
@@ -206,8 +104,9 @@ fn spawn_daemon(config_root: &Path) -> DaemonGuard {
 
 /// Write a custom agent `config.json` into the config tree.
 ///
-/// Overwrites the master agent config created by [`write_agent_layout`]
-/// to set a specific `model` and/or `workspace` field.
+/// Overwrites the master agent config created by the shared
+/// `write_config_tree` scaffold to set a specific `model` and/or
+/// `workspace` field.
 fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
     let agent_dir = config_root.join("agents").join("master");
     std::fs::create_dir_all(&agent_dir).expect("create agent dir");
@@ -229,92 +128,11 @@ fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) 
 }
 
 // ---------------------------------------------------------------------------
-// Helper: chat RPC client (protocol-conformant)
+// Helper: chat response assertions
 // ---------------------------------------------------------------------------
 
-/// Send one `ChatMessage` and collect frames until `Done`/`Error`/EOF.
-///
-/// Frame format (mirrors `crates/cli/src/chat/rpc/protocol.rs`):
-/// `[4-byte big-endian u32 length][JSON frame bytes]`.
-async fn chat_roundtrip(
-    socket_path: &Path,
-    agent_id: &str,
-    content: &str,
-) -> Vec<serde_json::Value> {
-    let stream = TokioUnixStream::connect(socket_path)
-        .await
-        .expect("connect to chat.sock");
-    let (reader, mut writer) = stream.into_split();
-
-    let request = serde_json::json!({
-        "type": "chat_message",
-        "agent_id": agent_id,
-        "content": content,
-    });
-    let body = serde_json::to_vec(&request).expect("serialize chat request");
-    let header = (body.len() as u32).to_be_bytes();
-    writer.write_all(&header).await.expect("send frame header");
-    writer.write_all(&body).await.expect("send frame body");
-    writer.flush().await.expect("flush request");
-
-    let mut reader = BufReader::new(reader);
-    let mut frames = Vec::new();
-    loop {
-        let frame = match timeout(CHAT_TURN_TIMEOUT, read_frame(&mut reader)).await {
-            Ok(Ok(Some(f))) => f,
-            Ok(Ok(None)) => break, // EOF — server closed the connection
-            Ok(Err(e)) => panic!("chat RPC read error: {e}"),
-            Err(_) => panic!("chat turn timed out after {CHAT_TURN_TIMEOUT:?}"),
-        };
-        let is_terminal = frame.get("type").and_then(|t| t.as_str()) == Some("done")
-            || frame.get("type").and_then(|t| t.as_str()) == Some("error");
-        frames.push(frame);
-        if is_terminal {
-            break;
-        }
-    }
-    frames
-}
-
-/// Read one length-prefixed JSON frame. `Ok(None)` on clean EOF.
-async fn read_frame<R: AsyncReadExt + Unpin>(
-    reader: &mut R,
-) -> std::io::Result<Option<serde_json::Value>> {
-    let mut header = [0u8; 4];
-    match reader.read_exact(&mut header).await {
-        Ok(_) => {}
-        Err(e) if e.kind() == std::io::ErrorKind::UnexpectedEof => return Ok(None),
-        Err(e) => return Err(e),
-    }
-    let len = u32::from_be_bytes(header) as usize;
-    let mut body = vec![0u8; len];
-    reader.read_exact(&mut body).await?;
-    let value = serde_json::from_slice(&body).map_err(|e| {
-        std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("invalid frame JSON: {e}"),
-        )
-    })?;
-    Ok(Some(value))
-}
-
-/// Assert exactly one terminal frame in a set of chat response frames.
-fn assert_single_terminal(frames: &[serde_json::Value]) {
-    let terminal: Vec<&serde_json::Value> = frames
-        .iter()
-        .filter(|f| {
-            matches!(
-                f.get("type").and_then(|t| t.as_str()),
-                Some("done") | Some("error")
-            )
-        })
-        .collect();
-    assert_eq!(
-        terminal.len(),
-        1,
-        "expected exactly one terminal (Done/Error) frame, got {terminal:?} among {frames:?}"
-    );
-}
+// `assert_single_terminal` and `collect_content_text` live in
+// `helpers::chat` (shared with `gateway_restart_turn_tests`, Step 1.23).
 
 /// Write agent config with explicit tools and disallowed_tools lists.
 fn write_agent_config_with_tools(
@@ -376,13 +194,16 @@ fn assert_admin_agent_info(response: &serde_json::Value) {
 /// 3. after SIGTERM the daemon exits gracefully (code 0) and removes its
 ///    sockets; no residual process remains.
 ///
-/// Known blocker (recorded in the file-level doc): the chat → LLM call
-/// path panics inside `SkillListingProviderWrapper` (block_on in async
-/// context) before any LLM request is issued, so a non-empty text answer
-/// cannot be asserted yet. Once that production bug is fixed, the
-/// `answer` assertion below should be tightened from "protocol answered"
-/// to "contains a non-empty ContentChunk from the fake LLM fallback
-/// scenario".
+/// History: the chat → LLM call path used to panic inside
+/// `SkillListingProviderWrapper` (block_on in async context) before any
+/// LLM request was issued. That panic and the follow-up result-return
+/// wiring gap (dropped `output_tx` receiver) were both fixed on this
+/// branch, so a non-empty text answer is now observable —
+/// `e2e_agent_model_selection` asserts it end-to-end. This smoke case
+/// deliberately keeps the looser infrastructure-level assertions above
+/// (boot + protocol answer + graceful shutdown); tightening them to
+/// assert ContentChunk content is optional follow-up, not blocked by any
+/// known production bug.
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
@@ -391,8 +212,7 @@ async fn e2e_agent_profile_smoke() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
-    write_agent_layout(config_root);
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
 
     let mut daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
@@ -435,37 +255,32 @@ async fn e2e_agent_profile_smoke() {
 // Step 1.2 test cases
 // ---------------------------------------------------------------------------
 
-/// §F1 model selection: agent `config.json` model field drives the
-/// model name in the outbound LLM request.
+/// §F1 model selection: the models.json-driven fallback chain determines
+/// the model name in the outbound LLM request.
 ///
-/// The fake_llm scenario engine matches on `model_id`. The daemon sends
-/// the configured model ("gpt-4o-basic") in the OpenAI request body.
-/// The `greeting` scenario in `basic-text.json` requires
-/// `model_id = "gpt-4o-basic"` AND `message_contains = "hello"`,
-/// returning a distinct text. Asserting that text proves the config
-/// model field propagated to the LLM request.
+/// Attribution (verified on this branch): `UnifiedFallbackClient::chat`
+/// overwrites `request.model` with the chain entry's `model_id` before
+/// dispatch, and daemon `llm_init` builds one chain entry per enabled
+/// models.json model — so the wire model comes from models.json, not
+/// directly from the agent config's `model` field. In this fixture both
+/// name "gpt-4o-basic": models.json declares the model id, and the agent
+/// config references `openai/gpt-4o-basic`.
 ///
-/// **Blocker (2026-09-15)**: the original `SkillListingProviderWrapper`
-/// `bridge.rs` block_on panic has been fixed by this PR (Step 1.1 +
-/// 1.2). However, the chat chain now reaches LLM fallback client but
-/// gets `no response from gateway` because the LLM call chain is empty:
-/// daemon log shows `LLM fallback client built in layer 2 chain_len=0`.
-/// This is the code-side remainder of #2436 (LLM chain construction
-/// not wired through). Fixing the LLM chain is an independent gap
-/// tracked by #2436 and will be addressed in a separate PR.
-///
-/// **Resolution**: unblock when #2436 code-side LLM chain is wired
-/// (chain_len > 0) and daemon log no longer shows chain_len=0.
+/// The fake_llm scenario engine matches on `model_id`. The `greeting`
+/// scenario in `basic-text.json` requires `model_id = "gpt-4o-basic"`
+/// AND `message_contains = "hello"`, returning a distinct text.
+/// Asserting that text proves the request reached fake_llm carrying the
+/// models.json-declared model id and that the answer returned to the chat
+/// client — i.e. the chat → LLM → client path is wired end-to-end.
 #[tokio::test]
 #[cfg(unix)]
-#[ignore]
 #[serial_test::serial]
 async fn e2e_agent_model_selection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let daemon = spawn_daemon(config_root);
@@ -473,10 +288,7 @@ async fn e2e_agent_model_selection() {
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("Hi there!"),
         "response should contain greeting scenario text, got: {text}"
@@ -497,8 +309,12 @@ async fn e2e_agent_model_selection() {
 /// "INJECTED_OK". Asserting that response proves the bootstrap
 /// content was included in the LLM request messages.
 ///
-/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
-/// panic. Marked `#[ignore]`.
+/// **Status (2026-09-16)**: the original blocker (the same
+/// `SkillListingProviderWrapper` panic) was fixed on this branch, so the
+/// recorded reason for `#[ignore]` no longer applies as-is. Un-ignoring
+/// still requires re-verification of this scenario end-to-end
+/// (unignore-workflow debt); this branch only updates the comment, not
+/// the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -508,7 +324,7 @@ async fn e2e_agent_system_prompt_injection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
@@ -527,10 +343,7 @@ async fn e2e_agent_system_prompt_injection() {
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("INJECTED_OK"),
         "response should contain INJECTED_OK proving bootstrap injection, got: {text}"
@@ -558,12 +371,14 @@ async fn e2e_agent_system_prompt_injection() {
 /// (relative path). In the expected-pass state, the tool executes in
 /// the workspace CWD and reads the file successfully.
 ///
-/// **Blocker #2436 (2026-08-22)**: `SkillListingProviderWrapper` panics
-/// in `bridge.rs:186` before any LLM request is made, so the tool_call
-/// chain is never exercised. The test sets up correct infrastructure
-/// (marker file in workspace, daemon with workspace config) and asserts
-/// the infrastructure contract. Once #2436 is resolved, tighten the
-/// assertion to verify the tool result contains marker content.
+/// **Status (2026-09-16)**: the original blocker #2436 — the
+/// `SkillListingProviderWrapper` panic in `bridge.rs` before any LLM
+/// request — was fixed on this branch (together with the result-return
+/// wiring gap), so the recorded reason for `#[ignore]` no longer applies
+/// as-is. Un-ignoring still requires re-verifying the tool_call chain
+/// end-to-end and tightening the assertion to check the tool result
+/// contains the marker content (unignore-workflow debt); this branch only
+/// updates the comment, not the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -583,7 +398,7 @@ async fn e2e_agent_workspace() {
     .expect("write workspace marker file");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(
         config_root,
         "openai/gpt-4o-workspace",
@@ -603,10 +418,7 @@ async fn e2e_agent_workspace() {
     // and returns the marker content.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "read the file").await;
 
-    let text: String = frames
-        .iter()
-        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
-        .collect();
+    let text = collect_content_text(&frames);
     assert!(
         text.contains("WORKSPACE_CWD_OK"),
         "response should contain WORKSPACE_CWD_OK proving workspace CWD, got: {text}"
@@ -641,18 +453,17 @@ async fn e2e_agent_workspace() {
 ///     3. The rejection is observable in the chat response (tool result
 ///        containing a deny/error message) and/or daemon stderr.
 ///
-/// Degradation: Since Blocker B (`SkillListingProviderWrapper` panic in
-/// bridge.rs:186, `Handle::block_on` in async context) prevents any LLM
-/// request from being issued, the fake LLM never receives the request and
-/// the tool_call path is never exercised. This test asserts the observable
-/// infrastructure contract today: (1) the agent config with tools/
-/// disallowed_tools fields is loaded without error, (2) the daemon starts
-/// and responds to chat protocol frames. Once Blocker B is resolved, tighten
-/// the assertions to verify tool execution (Read result in response) and
-/// tool rejection (Bash denied in response).
-///
-/// **Blocker (2026-08-22)**: same `SkillListingProviderWrapper`
-/// panic. Marked `#[ignore]`.
+/// Degradation history: this case originally asserted only the observable
+/// infrastructure contract (agent config loaded without error; daemon
+/// answers chat protocol frames) because Blocker B — the
+/// `SkillListingProviderWrapper` panic in bridge.rs (`Handle::block_on`
+/// in async context) — prevented any LLM request from being issued. That
+/// panic was fixed on this branch, so the recorded reason for `#[ignore]`
+/// no longer applies as-is; the assertions still need tightening to
+/// verify tool execution (Read result in response) and tool rejection
+/// (Bash denied in response) before the ignore can be lifted
+/// (unignore-workflow debt). This branch only updates the comment, not
+/// the ignore state.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -667,7 +478,7 @@ async fn e2e_agent_tool_allow_deny() {
     std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config_with_tools(
         config_root,
         "openai/gpt-4o-tool-allow-deny",
@@ -737,7 +548,7 @@ async fn e2e_agent_runtime_config_query() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let mut daemon = spawn_daemon(config_root);
@@ -772,7 +583,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_mandatory_configs(config_root, &fake_llm_addr.to_string());
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
 
     let mut daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;

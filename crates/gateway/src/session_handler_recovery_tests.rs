@@ -10,7 +10,9 @@ use closeclaw_session::persistence::ReasoningLevel;
 // =========================================================================
 
 /// Helper to create an OutputTx for testing.
-fn make_output_tx(
+///
+/// `pub(crate)` so the turn-completion tests reuse this harness (Step 1.15).
+pub(crate) fn make_output_tx(
     has_sender: bool,
 ) -> (
     super::OutputTx,
@@ -26,7 +28,7 @@ fn make_output_tx(
 }
 
 /// Create a minimal SessionManager for testing.
-fn make_sm() -> Arc<SessionManager> {
+pub(crate) fn make_sm() -> Arc<SessionManager> {
     Arc::new(SessionManager::new(
         &crate::GatewayConfig::default(),
         None,

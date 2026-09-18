@@ -7,10 +7,14 @@ use std::io;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_common::processor::ContentBlock;
+use closeclaw_config::ConfigManager;
 
 use closeclaw_session::persistence::{
     DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
 };
+use tokio::sync::mpsc;
 
 /// Duplicate of `crate::bridge::common_shutdown_handle` for daemon-crate tests.
 /// Creates a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
@@ -23,23 +27,115 @@ pub fn common_shutdown_handle(
     ))
 }
 
-/// Write the 6 mandatory config files (models.json, channels.json,
-/// gateway.json, plugins.json, system.json, accounts.json) into `dir`.
+/// Write a `models.json` defining `providers` into config dir `dir`.
+///
+/// Call after [`write_mandatory_configs`], which writes a placeholder
+/// models.json that this helper overwrites.
+pub fn write_models_providers(
+    dir: &std::path::Path,
+    providers: serde_json::Value,
+) -> io::Result<()> {
+    std::fs::write(
+        dir.join("models.json"),
+        serde_json::json!({ "mode": "merge", "providers": providers }).to_string(),
+    )
+}
+
+/// Write a convention-directory credential file into
+/// `<dir>/credentials/<provider>.json`.
+pub fn write_provider_credential(
+    dir: &std::path::Path,
+    provider: &str,
+    api_key: &str,
+) -> io::Result<()> {
+    let creds_dir = dir.join("credentials");
+    std::fs::create_dir_all(&creds_dir)?;
+    std::fs::write(
+        creds_dir.join(format!("{}.json", provider)),
+        serde_json::json!({ "provider": provider, "apiKey": api_key }).to_string(),
+    )
+}
+
+/// Create and load a ConfigManager over config dir `dir` (the mandatory
+/// config files must already exist — see [`write_mandatory_configs`]).
+///
+/// In tests `dir` plays the role of `<root>/config`.
+pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
+    let cm = ConfigManager::new(dir.to_path_buf()).expect("ConfigManager::new");
+    cm.load().expect("ConfigManager::load");
+    cm
+}
+
+/// Write the config skeleton into `dir`: the 5 mandatory files
+/// (channels.json, gateway.json, plugins.json, system.json,
+/// accounts.json) plus the optional models.json.
+///
+/// Delegates to the common single implementation (Step 1.20) — call
+/// sites in this crate keep using this name.
 pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
+    closeclaw_common::test_helpers::write_mandatory_configs(dir)
+}
+
+/// Four-step LLM registry fixture (Step 1.22 dedup): mandatory config
+/// skeleton → models.json `providers` → convention-directory
+/// credentials → `ConfigManager::load`.
+///
+/// Single point for the sequence shared by `llm_init_tests`,
+/// `unit_tests` and `startup_tests` — tests only declare their
+/// providers and credentials. `creds` entries are written as
+/// `<dir>/credentials/<provider>.json`; pass `&[]` for no
+/// convention-directory credentials (e.g. `credentialPath` or
+/// env-fallback scenarios).
+pub fn load_cm(
+    dir: &std::path::Path,
+    providers: serde_json::Value,
+    creds: &[(&str, &str)],
+) -> ConfigManager {
+    write_mandatory_configs(dir).expect("mandatory configs");
+    write_models_providers(dir, providers).expect("models.json");
+    for &(provider, api_key) in creds {
+        write_provider_credential(dir, provider, api_key).expect("credential file");
     }
-    Ok(())
+    load_config_manager(dir)
+}
+
+// ── Turn-completion consumer test harness ─────────────────────────────────
+
+/// Shared setup result for turn-completion consumer tests
+/// (`chat_rpc_tests` + `gateway_restart_tests`, Step 1.20 dedup): one
+/// waiting chat connection registered on a fresh plugin (conn 1 + agent
+/// route `"master"`) and the `SessionMessageHandler` output channel
+/// wired into the shared consumer
+/// [`crate::chat_rpc::spawn_turn_completion_consumer`] (the assembly
+/// point both production paths call). Payload and assertions stay with
+/// each test.
+///
+/// The consumer task holds an `Arc<RpcTerminalPlugin>`, keeping the
+/// registered connection sender alive until `output_tx` is dropped —
+/// tests need not hold the plugin itself.
+pub struct TurnCompletionHarness {
+    /// Receiver for the waiting connection (closes on `finish_turns`).
+    pub conn_rx: mpsc::Receiver<RenderedOutput>,
+    /// Sender for `SessionMessageHandler` output messages.
+    pub output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
+    /// The shared consumer task (await after dropping `output_tx`).
+    pub consumer: tokio::task::JoinHandle<()>,
+}
+
+/// Build the [`TurnCompletionHarness`]: waiting connection + wired
+/// consumer.
+pub async fn setup_turn_completion_consumer() -> TurnCompletionHarness {
+    let plugin = Arc::new(crate::chat_rpc::RpcTerminalPlugin::new());
+    let (conn_tx, conn_rx) = mpsc::channel(4);
+    plugin.register_sender(1, conn_tx).await;
+    plugin.register_agent_route("master", 1).await;
+    let (output_tx, output_rx) = mpsc::channel(64);
+    let consumer = crate::chat_rpc::spawn_turn_completion_consumer(output_rx, Arc::clone(&plugin));
+    TurnCompletionHarness {
+        conn_rx,
+        output_tx,
+        consumer,
+    }
 }
 
 // ── Shared TestStorage ───────────────────────────────────────────────────

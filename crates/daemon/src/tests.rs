@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_helpers::write_mandatory_configs;
+use closeclaw_common::test_helpers::write_mandatory_without_models;
 use closeclaw_session::persistence::PersistenceService;
 
 /// Create only `config/agents.json` (without mandatory config files)
@@ -25,9 +26,10 @@ fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Create a minimal agents.json and all 5 mandatory config files
-/// (models.json, channels.json, gateway.json, plugins.json, system.json)
-/// in the given directory so that `ConfigManager::load()` succeeds.
+/// Create a minimal agents.json, the 5 mandatory config files
+/// (channels.json, gateway.json, plugins.json, system.json,
+/// accounts.json) and the optional models.json in the given directory
+/// so that `ConfigManager::load()` succeeds.
 fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
     // Mandatory configs go into the config/ subdirectory
@@ -37,18 +39,29 @@ fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Same as [`setup_agents_json`] but without models.json — the Models
+/// section is optional and must not gate startup (design doc daemon
+/// README: 「models.json 缺失…系统仍正常启动」).
+fn setup_agents_json_without_models(dir: &std::path::Path) -> std::io::Result<()> {
+    write_agents_json(dir)?;
+    let config_dir = dir.join("config");
+    write_mandatory_without_models(&config_dir)?;
+    Ok(())
+}
+
 // =====================================================================
 // Step 1.2 — daemon startup integration: load() gating tests
 // =====================================================================
 
 /// Test: daemon fails to start when mandatory config files are missing.
 /// Step 1.1 added `config_manager.load()` before hot-reload registration;
-/// a missing mandatory file (e.g. models.json) must cause daemon startup to
-/// fail with an error mentioning "mandatory config sections".
+/// a missing mandatory file (e.g. channels.json — models.json is optional
+/// and does not gate startup) must cause daemon startup to fail with an
+/// error mentioning "mandatory config sections".
 #[tokio::test]
 async fn test_daemon_start_fails_without_mandatory_config() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    // Create only agents.json — mandatory sections (models.json etc.) are absent
+    // Create only agents.json — mandatory sections (channels.json etc.) are absent
     write_agents_json(temp_dir.path()).unwrap();
 
     let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
@@ -101,6 +114,151 @@ async fn test_daemon_start_succeeds_with_all_mandatory_configs() {
     );
     drop(result);
     drop(temp_dir);
+}
+
+/// Test: daemon starts successfully WITHOUT models.json — system-level
+/// gating (Step 1.17): the Models section is optional at load, the LLM
+/// registry builds an empty fallback chain, and startup completes through
+/// all phases without panicking. Design doc `docs/design/daemon/README.md`
+/// 「LLM 能力缺失时的行为」 (LLM-capability-missing behavior): models.json
+/// 缺失 → 系统仍正常启动.
+#[tokio::test]
+async fn test_daemon_start_succeeds_without_models_json() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
+
+    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
+        .await
+        .expect("daemon must start with models.json missing");
+    assert!(
+        daemon.llm_registry.list().await.is_empty(),
+        "no provider registered without models.json"
+    );
+    assert_eq!(
+        daemon.fallback_client.chain().len(),
+        0,
+        "LLM fallback chain must be empty"
+    );
+}
+
+/// Test: daemon refuses to start when models.json is corrupt and no
+/// backup exists — F3 (design doc config README 启动加载 step 1 +
+/// requirements config §F3): recovery failure (no usable backup) →
+/// refuse startup, not a silent empty LLM config.
+#[tokio::test]
+async fn test_daemon_start_fails_with_corrupt_models_json_no_backup() {
+    // Corrupt models.json — no backup has ever been written.
+    assert_start_refused_with_models("not valid json {{").await;
+}
+
+/// Test: corrupt models.json with a usable backup → F3 rollback →
+/// startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_corrupt_models_json_from_backup() {
+    // Corrupt models.json — rollback must restore the backed-up content.
+    assert_start_recovers_via_backup("not valid json {{").await;
+}
+
+/// Test: models.json parses as JSON but has the wrong shape for the
+/// typed config — structured parse failure (case 3 of the four-case
+/// matrix, Step 1.20) with no backup → F3 refusal. Business validation
+/// passes this fixture (`providers` is not an object → skipped), so the
+/// typed parse is the gate that fires.
+#[tokio::test]
+async fn test_daemon_start_fails_with_untyped_models_json_no_backup() {
+    // Valid JSON, wrong structure for ModelsConfigData.
+    assert_start_refused_with_models(r#"{"providers":"nope"}"#).await;
+}
+
+/// Test: models.json fails business validation (empty provider id —
+/// case 4 of the four-case matrix, Step 1.20; master semantics restored)
+/// with no backup → F3 refusal.
+#[tokio::test]
+async fn test_daemon_start_fails_with_business_invalid_models_json_no_backup() {
+    // Well-formed JSON, business-invalid (empty provider id).
+    assert_start_refused_with_models(r#"{"providers":{"":{"models":[]}}}"#).await;
+}
+
+/// Test: structured parse failure with a usable backup → F3 rollback →
+/// startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_untyped_models_json_from_backup() {
+    assert_start_recovers_via_backup(r#"{"providers":"nope"}"#).await;
+}
+
+/// Test: business validation failure with a usable backup → F3 rollback
+/// → startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_business_invalid_models_json_from_backup() {
+    // Well-formed JSON, business-invalid (empty provider id) — rollback
+    // must restore the backed-up content.
+    assert_start_recovers_via_backup(r#"{"providers":{"":{"models":[]}}}"#).await;
+}
+
+// =====================================================================
+// Step 1.25 — shared system-level assertions for the models.json
+// four-case matrix (illegal content parameterized; fixtures and
+// assertion semantics unchanged)
+// =====================================================================
+
+/// Start the daemon against a fresh config tree whose `models.json`
+/// holds the given illegal `content` (no backup ever written) and
+/// assert the F3 outcome: startup refused with an error naming the
+/// rejected file (design doc config README 启动加载 (startup load)
+/// step 1 + requirements config §F3).
+async fn assert_start_refused_with_models(content: &str) {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let root = temp_dir.path();
+    setup_agents_json_without_models(root).expect("configs without models.json");
+    std::fs::write(root.join("config").join("models.json"), content).unwrap();
+
+    let err = Daemon::start(root.to_str().unwrap())
+        .await
+        .err()
+        .expect("rejected models.json without backup must refuse startup");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("models.json"),
+        "error must name the rejected file: {msg}"
+    );
+}
+
+/// Seed a valid `models.json` plus a backup via the config write path,
+/// overwrite the file with the given illegal `content`, then assert the
+/// F3 outcome: startup succeeds through backup rollback, the LLM chain
+/// is empty, and the backed-up content is restored on disk.
+async fn assert_start_recovers_via_backup(content: &str) {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let root = temp_dir.path();
+    setup_agents_json(root).expect("setup agents.json");
+    let config_dir = root.join("config");
+    // Create a real backup of models.json via the config write path.
+    let cm = ConfigManager::new(config_dir.clone()).unwrap();
+    cm.update(
+        ConfigSection::Models,
+        serde_json::json!({"version": "2.0"}),
+        |_| Ok(()),
+    )
+    .expect("update must back up the current models.json");
+    std::fs::write(config_dir.join("models.json"), content).unwrap();
+
+    let daemon = Daemon::start(root.to_str().unwrap())
+        .await
+        .expect("daemon must start via backup rollback");
+    assert!(
+        daemon.llm_registry.list().await.is_empty(),
+        "restored placeholder defines no provider"
+    );
+    assert_eq!(
+        daemon.fallback_client.chain().len(),
+        0,
+        "LLM fallback chain must be empty"
+    );
+    let restored = std::fs::read_to_string(config_dir.join("models.json")).unwrap();
+    assert!(
+        restored.contains("1.0"),
+        "rollback restored the backup content: {restored}"
+    );
 }
 
 #[tokio::test]

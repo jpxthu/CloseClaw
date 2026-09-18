@@ -101,12 +101,29 @@ impl ModelsConfigData {
     }
 
     /// Return providers that have at least one enabled model.
+    ///
+    /// Config-side introspection only (no production caller); the
+    /// `enabled` predicate is a single point:
+    /// [`ModelDefinition::is_enabled`].
     pub fn enabled_providers(&self) -> Vec<&str> {
         self.providers
             .iter()
-            .filter(|(_, p)| p.models.iter().any(|m| m.enabled.unwrap_or(false)))
+            .filter(|(_, p)| p.models.iter().any(|m| m.is_enabled()))
             .map(|(id, _)| id.as_str())
             .collect()
+    }
+}
+
+impl ModelDefinition {
+    /// Whether this model participates in the LLM fallback chain.
+    ///
+    /// `enabled` defaults to true when the flag is omitted — a model
+    /// listed in models.json is usable unless explicitly disabled
+    /// (`enabled: false`). This is the single predicate for the field:
+    /// consumed by the daemon chain assembly and by
+    /// [`ModelsConfigData::enabled_providers`].
+    pub fn is_enabled(&self) -> bool {
+        self.enabled.unwrap_or(true)
     }
 }
 
@@ -426,6 +443,9 @@ mod tests {
                 },
                 "p3": {
                     "models": [{ "id": "m4", "enabled": true }]
+                },
+                "p4": {
+                    "models": [{ "id": "m5" }]
                 }
             }
         }"#;
@@ -434,6 +454,8 @@ mod tests {
         assert!(enabled.contains(&"p1"));
         assert!(!enabled.contains(&"p2"));
         assert!(enabled.contains(&"p3"));
+        // Absent `enabled` flag defaults to enabled (listed = usable).
+        assert!(enabled.contains(&"p4"));
     }
 
     // -------------------------------------------------------------------------

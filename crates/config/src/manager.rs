@@ -26,6 +26,7 @@ use crate::validators::{CredentialProviderSet, CrossRefData};
 /// latest config without holding a lock on `ConfigManager`.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 use crate::agents::LazyAgentPermissions;
+use crate::manager_models::ModelsConfigCache;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
 
@@ -268,6 +269,8 @@ pub struct ConfigManager {
     pub(crate) sections: RwLock<HashMap<ConfigSection, serde_json::Value>>,
     /// Loaded credentials provider (from config/credentials/).
     credentials_provider: RwLock<CredentialsProvider>,
+    /// Cached typed parse of models.json (filled at load, refreshed on write).
+    pub(crate) models_cache: RwLock<ModelsConfigCache>,
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (from two-level directories).
@@ -301,6 +304,7 @@ impl ConfigManager {
             backup_manager,
             sections: RwLock::new(HashMap::new()),
             credentials_provider: RwLock::new(CredentialsProvider::default()),
+            models_cache: RwLock::new(ModelsConfigCache::default()),
             session_provider: RwLock::new(None),
             agents: RwLock::new(HashMap::new()),
             agent_permissions: Arc::new(LazyAgentPermissions::new(agents_root)),
@@ -344,10 +348,8 @@ impl ConfigManager {
 
     /// Load all configuration sections from disk into memory.
     ///
-    /// Returns [`ConfigLoadError::ConfigDirNotFound`] if the config directory
-    /// does not exist, or [`ConfigLoadError::ConfigFileNotFound`] when a
-    /// mandatory configuration file is missing. Other errors may be returned
-    /// for I/O failures, parse errors, or validation failures during loading.
+    /// `ConfigDirNotFound` / `ConfigFileNotFound` (mandatory file absent),
+    /// plus I/O / parse / validation failures (corrupt file → F3 rollback).
     pub fn load(&self) -> Result<(), ConfigLoadError> {
         if !self.config_dir.exists() {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
@@ -356,7 +358,6 @@ impl ConfigManager {
         // The 5 mandatory config files (Credentials is a directory,
         // Session is optional with defaults — both handled separately)
         let mandatory_sections = [
-            ConfigSection::Models,
             ConfigSection::Channels,
             ConfigSection::Gateway,
             ConfigSection::Plugins,
@@ -413,6 +414,12 @@ impl ConfigManager {
             sections.insert(section, value);
         }
 
+        // models.json: missing → optional (INFO, startup continues, cache +
+        // section cleared); present but corrupt / unparseable /
+        // business-invalid → F3 rollback (none → refuse). See manager_models.
+        self.load_models_section(&mut sections)?;
+        let models_cfg = self.parsed_models_config();
+
         // Load session config (optional — absent file uses defaults).
         let session_path = ConfigSection::Session.path(&self.config_dir);
         let session_provider: Arc<dyn SessionConfigProvider> =
@@ -456,35 +463,29 @@ impl ConfigManager {
             }
         };
 
-        // Load additional credentials via credential_path from models.json.
-        // Each provider in models.json may specify a credential_path pointing to a
-        // credential file.  Resolve it relative to config_dir and merge into the
-        // credential set (credential_path takes priority over convention-directory
-        // entries).
-        if let Some(models_value) = sections.get(&ConfigSection::Models) {
-            if let Ok(models_config) =
-                serde_json::from_value::<ModelsConfigData>(models_value.clone())
-            {
-                for (provider_id, provider_cfg) in &models_config.providers {
-                    if let Some(ref rel_path) = provider_cfg.credential_path {
-                        let abs_path = self.config_dir.join(rel_path);
-                        match CredentialsProvider::load_from_file(&abs_path) {
-                            Ok(extra) => {
-                                for (name, cred) in extra.providers {
-                                    // credential_path is the explicit reference
-                                    // and takes priority over the convention
-                                    // directory.
-                                    creds_provider.providers.insert(name, cred);
-                                }
+        // Load additional credentials via credential_path from models.json:
+        // resolved relative to config_dir, merged with priority over the
+        // convention-directory entries.
+        if let Some(models_config) = &models_cfg {
+            for (provider_id, provider_cfg) in &models_config.providers {
+                if let Some(ref rel_path) = provider_cfg.credential_path {
+                    let abs_path = self.config_dir.join(rel_path);
+                    match CredentialsProvider::load_from_file(&abs_path) {
+                        Ok(extra) => {
+                            for (name, cred) in extra.providers {
+                                // credential_path is the explicit reference
+                                // and takes priority over the convention
+                                // directory.
+                                creds_provider.providers.insert(name, cred);
                             }
-                            Err(e) => {
-                                warn!(
-                                    provider = %provider_id,
-                                    path = %abs_path.display(),
-                                    error = %e,
-                                    "failed to load credential_path for provider"
-                                );
-                            }
+                        }
+                        Err(e) => {
+                            warn!(
+                                provider = %provider_id,
+                                path = %abs_path.display(),
+                                error = %e,
+                                "failed to load credential_path for provider"
+                            );
                         }
                     }
                 }
@@ -542,7 +543,7 @@ impl ConfigManager {
         self.load_optional_section(&mut sections, ConfigSection::Tools);
 
         // Step 3 — Cross-file reference validation (non-blocking, WARN)
-        self.validate_cross_file_references(&sections, &creds_provider);
+        self.validate_cross_file_references(&sections, &creds_provider, models_cfg.as_ref());
 
         drop(sections);
 
@@ -580,6 +581,7 @@ impl ConfigManager {
         &self,
         sections: &HashMap<ConfigSection, serde_json::Value>,
         creds_provider: &CredentialsProvider,
+        models_cfg: Option<&ModelsConfigData>,
     ) {
         // accounts → channels: platform must match configured channels.
         if let (Some(av), Some(cv)) = (
@@ -590,13 +592,9 @@ impl ConfigManager {
                 warn!(error = %e, "accounts-channels cross-reference validation warning");
             }
         }
-        if let Some(mv) = sections.get(&ConfigSection::Models) {
-            if let Ok(mc) = serde_json::from_value::<ModelsConfigData>(mv.clone()) {
-                if let Err(e) = creds_provider.validate_model_references(&mc, &self.config_dir) {
-                    warn!(error = %e, "credentials-models cross-validation warning");
-                }
-            } else {
-                warn!("failed to parse models.json for credentials cross-validation");
+        if let Some(mc) = models_cfg {
+            if let Err(e) = creds_provider.validate_model_references(mc, &self.config_dir) {
+                warn!(error = %e, "credentials-models cross-validation warning");
             }
         }
     }
@@ -604,7 +602,7 @@ impl ConfigManager {
     /// Attempt to rollback a corrupted config file and retry loading.
     /// Returns Ok(()) if rollback succeeded and retry loading worked.
     /// Returns Err(ConfigLoadError::ParseError) if rollback failed or retry still fails.
-    fn try_rollback_and_retry(
+    pub(crate) fn try_rollback_and_retry(
         &self,
         path: &Path,
         section: ConfigSection,
@@ -757,12 +755,8 @@ impl ConfigManager {
             }
         })?;
 
-        // Step 4: update in-memory cache
-        let mut sections = self
-            .sections
-            .write()
-            .expect("RwLock for config sections was poisoned");
-        sections.insert(section, new_value);
+        // Step 4: update in-memory cache (single write point: write_section_cache)
+        self.write_section_cache(section, new_value);
 
         Ok(())
     }
@@ -889,14 +883,7 @@ impl ConfigManager {
         value: serde_json::Value,
     ) {
         self.unblock_section(section);
-        let snapshot = {
-            let mut sections = self
-                .sections
-                .write()
-                .expect("RwLock for config sections was poisoned");
-            sections.insert(section, value);
-            ConfigSnapshot::new(sections.clone())
-        };
+        let snapshot = self.write_section_cache(section, value);
         // Broadcast snapshot (ignore send errors — no active subscribers).
         let _ = self.snapshot_tx.send(snapshot);
         // Broadcast change event.
@@ -906,7 +893,7 @@ impl ConfigManager {
 
     /// Get the loaded credentials provider.
     ///
-    /// Returns `None` if `load()` has not been called yet.
+    /// Returns `None` only if the credentials lock is poisoned.
     pub fn credentials(&self) -> Option<CredentialsProvider> {
         self.credentials_provider
             .read()

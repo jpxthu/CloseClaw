@@ -29,7 +29,7 @@
         {
             "name": "workspace-fallback",
             "match_": {
-                "model_id": "gpt-4o-workspace"
+                "model_id": "gpt-4o-workspace-fallback"
             },
             "turns": [
                 {

@@ -144,8 +144,8 @@ impl Daemon {
         )
         .await?;
 
-        // LLM caller injection: the fallback client was built in layer 2
-        // (init_llm_registry → build_fallback_client). Layer 4 wires it
+        // LLM caller injection: layer 2's init_llm_registry returns the
+        // registry + UnifiedFallbackClient in one step; layer 4 wires it
         // into SessionManager (design doc § layer 4).
         let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
             Arc::clone(&fallback_client),
@@ -201,7 +201,8 @@ impl Daemon {
             admin_restart_tx,
         )
         .await;
-        let (chat_handle, chat_sock_path) = Self::init_phase_6_chat_rpc(&gateway, config_dir).await;
+        let (chat_handle, chat_sock_path) =
+            Self::init_phase_6_chat_rpc(&gateway, config_dir, output_rx).await;
         info!(
             "Gateway initialized — CloseClaw daemon started successfully (v{})",
             env!("CARGO_PKG_VERSION")
@@ -238,7 +239,6 @@ impl Daemon {
             system_prompt_builder: Some(system_prompt_builder),
             llm_registry: Arc::clone(&llm_registry),
             fallback_client: Arc::clone(&fallback_client),
-            _output_rx: output_rx,
             restart_state: crate::gateway_restart::RestartHandle::new(),
             restart_rx: Some(restart_rx),
             admin_restart_rx: Some(admin_restart_rx),

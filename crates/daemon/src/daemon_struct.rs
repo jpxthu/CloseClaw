@@ -91,12 +91,6 @@ pub struct Daemon {
     /// Shared across all LLM call sites (SessionManager, active searcher,
     /// compaction, gateway restart).
     pub fallback_client: Arc<UnifiedFallbackClient>,
-    /// Receiver half of the SessionMessageHandler output channel.
-    /// Retained here to prevent the sender from being silently closed;
-    /// will be wired to the outbound pipeline in a future step.
-    #[allow(dead_code)]
-    pub(crate) _output_rx:
-        tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
     /// Gateway restart state machine — tracks Pending/Executing transitions.
     pub(crate) restart_state: RestartHandle,
     /// Receiver for restart-class config change signals from the config watcher.

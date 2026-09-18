@@ -2,7 +2,18 @@
 //!
 //! Centralizes daemon spawn logic, readiness polling, and lifecycle
 //! assertions to avoid duplication across `sigterm_tests`,
-//! `agent_profile_tests`, and `shutdown_checkpoint_tests`.
+//! `agent_profile_tests`, `shutdown_checkpoint_tests`, and
+//! `gateway_restart_turn_tests`. Chat-RPC client, fake-LLM server, and
+//! config-tree scaffolding helpers live in the [`chat`], [`fake_llm`],
+//! and [`config`] submodules (feature `fake-llm`, whose consumers are
+//! the fake-LLM-backed test files).
+
+#[cfg(feature = "fake-llm")]
+pub mod chat;
+#[cfg(feature = "fake-llm")]
+pub mod config;
+#[cfg(feature = "fake-llm")]
+pub mod fake_llm;
 
 use std::os::unix::net::UnixStream;
 use std::path::Path;
@@ -14,6 +25,10 @@ use tokio::process::{Child, Command};
 /// Default timeout for waiting on the daemon admin socket.
 const DEFAULT_SOCKET_WAIT_TIMEOUT: Duration = Duration::from_secs(15);
 const SOCKET_POLL_INTERVAL: Duration = Duration::from_millis(200);
+
+/// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
+#[cfg(feature = "fake-llm")]
+pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
 pub fn closeclaw_binary() -> std::path::PathBuf {
@@ -82,15 +97,42 @@ pub fn spawn_daemon(config_root: &Path) -> Child {
 ///
 /// On failure, includes the exit status details and a hint to check daemon logs.
 pub fn assert_daemon_alive(daemon: &mut Child) {
+    assert_daemon_alive_with_context(daemon, None);
+}
+
+/// [`assert_daemon_alive`] with an optional caller-supplied context
+/// phrase folded into the panic message (e.g. `Some("during gateway
+/// restart")`) so failures read where in the scenario the daemon died.
+pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str>) {
     if let Some(status) = daemon.try_wait().expect("try_wait daemon") {
         let code = status
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "signal".to_string());
+        let context = context.map(|c| format!(" {c}")).unwrap_or_default();
         panic!(
-            "daemon exited prematurely with status: {:?} (exit code: {}). \
+            "daemon exited prematurely{context} with status: {:?} (exit code: {}). \
              Check daemon stdout/stderr logs for details.",
             status, code
         );
     }
+}
+
+/// Send SIGTERM to `daemon` and wait for its exit within
+/// [`SHUTDOWN_TIMEOUT`]. Returns the exit status — the caller asserts
+/// on it. Shared by `agent_profile_tests` (DaemonGuard::shutdown) and
+/// `gateway_restart_turn_tests` (terminate_daemon), Step 1.23.
+#[cfg(feature = "fake-llm")]
+pub async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
+    let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
+    // SAFETY: `pid` is the PID of the daemon child this caller spawned
+    // and holds; the cast to `libc::pid_t` is a lossless widening
+    // conversion, and SIGTERM is a valid signal number.
+    unsafe {
+        libc::kill(pid, libc::SIGTERM);
+    }
+    tokio::time::timeout(SHUTDOWN_TIMEOUT, daemon.wait())
+        .await
+        .expect("daemon should exit within the shutdown timeout")
+        .expect("daemon exit status should be observable")
 }

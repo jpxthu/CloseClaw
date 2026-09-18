@@ -21,7 +21,7 @@ pub mod trait_adapters;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
-use closeclaw_config::providers::{ConfigProvider, SystemConfigData};
+use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
 pub use daemon_struct::*;
@@ -207,8 +207,7 @@ impl Daemon {
         // independent within Layer 2, so run them concurrently.
         let extra_dirs = skills_helper::resolve_extra_dirs(config_manager);
         let skill_fut = skill_reload::init_skill_registry(config_dir, None, extra_dirs);
-        let empty_env: std::collections::HashMap<&str, &str> = std::collections::HashMap::new();
-        let llm_fut = Self::init_llm_registry(std::path::Path::new(config_dir), &empty_env);
+        let llm_fut = Self::init_llm_registry(config_manager, llm_init::process_env);
         let (skill_result, (llm_registry, fallback_client)) = tokio::join!(skill_fut, llm_fut);
         let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = skill_result?;
         Ok((
@@ -945,27 +944,25 @@ impl Daemon {
         (admin_handle, admin_sock_path)
     }
     /// Phase 6: Chat RPC Server — depends on Gateway (Layer 5).
+    ///
+    /// Assembly lives in [`crate::chat_rpc::spawn_chat_rpc_server`]
+    /// (shared with the gateway-restart path); this phase resolves the
+    /// socket path, spawns the server, and wires the
+    /// SessionMessageHandler output receiver into the shared
+    /// turn-completion consumer (startup path's Step 1.11 wiring —
+    /// single-point definition: the consumer's doc).
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
-    ) -> (tokio::task::JoinHandle<()>, PathBuf) {
-        use crate::chat_rpc::{chat_socket_path, ChatContext, ChatRpcServer, RpcTerminalPlugin};
-        let sock_path = chat_socket_path(Path::new(config_dir));
-        let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-        gateway
-            .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
-            .await;
-        let context = ChatContext {
-            gateway: Arc::clone(gateway),
-            rpc_plugin,
-        };
-        let chat_server = ChatRpcServer::new(&sock_path, context);
-        let chat_handle = tokio::spawn(async move {
-            if let Err(e) = chat_server.serve().await {
-                tracing::error!(error = %e, "chat RPC server failed");
-            }
-        });
-        info!("chat RPC server started on {}", sock_path.display());
+        output_rx: tokio::sync::mpsc::Receiver<(
+            String,
+            Vec<closeclaw_common::processor::ContentBlock>,
+        )>,
+    ) -> crate::chat_rpc::ChatRpcInit {
+        let sock_path = crate::chat_rpc::chat_socket_path(Path::new(config_dir));
+        let (chat_handle, rpc_plugin) =
+            crate::chat_rpc::spawn_chat_rpc_server(gateway, &sock_path).await;
+        crate::chat_rpc::spawn_turn_completion_consumer(output_rx, rpc_plugin);
         (chat_handle, sock_path)
     }
 }

@@ -1,26 +1,8 @@
 //! Tests for ConfigManager
 use super::*;
 use crate::agents::AgentPermissionProvider;
+use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::fs;
-
-/// Write the 5 mandatory config files into `dir`.
-/// Duplicated from common::test_helpers to avoid cross-crate test dependency.
-fn write_mandatory_configs(dir: &std::path::Path) -> std::io::Result<()> {
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            dir.join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )?;
-    }
-    Ok(())
-}
 
 // write_atomically
 
@@ -120,7 +102,9 @@ fn test_config_validation_error_display() {
 // ConfigManager — corrupted file + rollback recovery
 // ---------------------------------------------------------------------------
 
-/// Test: corrupted mandatory file + valid backup → load succeeds via rollback.
+/// Test: corrupted config file + valid backup → load succeeds via rollback.
+/// (Victim is models.json — corrupt models.json takes the F3 path: backup
+/// rollback, refuse startup when no usable backup; config README 启动加载.)
 #[test]
 fn test_config_manager_load_corrupted_with_backup_recovery() {
     let tmp = tempfile::tempdir().unwrap();
@@ -168,17 +152,17 @@ fn test_config_manager_load_corrupted_backup_also_corrupted() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    // Update creates a backup of the current models.json
+    // Update creates a backup of the current gateway.json
     manager
         .update(
-            ConfigSection::Models,
+            ConfigSection::Gateway,
             serde_json::json!({"version": "2.0"}),
             |_| Ok(()),
         )
         .unwrap();
 
     // Corrupt the backup itself: find backup path and overwrite with bad JSON
-    let models_path = tmp.path().join("models.json");
+    let gateway_path = tmp.path().join("gateway.json");
     let backup_dir = tmp.path().join(".backups");
     let backup_path = fs::read_dir(&backup_dir)
         .unwrap()
@@ -187,14 +171,14 @@ fn test_config_manager_load_corrupted_backup_also_corrupted() {
         .find(|p| {
             p.file_stem()
                 .and_then(|s| s.to_str())
-                .map(|s| s.starts_with("models."))
+                .map(|s| s.starts_with("gateway."))
                 .unwrap_or(false)
         })
-        .expect("should find a models backup");
+        .expect("should find a gateway backup");
     fs::write(&backup_path, "also not valid json {{").unwrap();
 
-    // Corrupt models.json
-    fs::write(&models_path, "not valid json {{").unwrap();
+    // Corrupt gateway.json
+    fs::write(&gateway_path, "not valid json {{").unwrap();
 
     // Load must fail because even the recovered backup is unparseable
     let result = manager.load();
@@ -205,7 +189,7 @@ fn test_config_manager_load_corrupted_backup_also_corrupted() {
     ));
 }
 
-/// Test: corrupted mandatory file + no backup available → load fails.
+/// Test: corrupted models.json + no backup available → load fails (F3).
 #[test]
 fn test_config_manager_load_corrupted_no_backup() {
     let tmp = tempfile::tempdir().unwrap();
@@ -560,15 +544,15 @@ fn test_config_manager_update_backup_failure() {
 // Step 1.2 — ConfigManager.load() section-population tests
 // =====================================================================
 
-/// Test: load() populates memory cache with exact JSON values for all
-/// 5 mandatory sections.
+/// Test: load() populates the listed sections with exact JSON: 4 mandatory
+/// (Channels/Gateway/Plugins/System) + optional models.json; Accounts not covered here.
 #[test]
-fn test_load_populates_all_five_sections_with_values() {
+fn test_load_populates_listed_sections_with_values() {
     let tmp = tempfile::tempdir().unwrap();
     setup_config_dir_at(tmp.path());
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
 
-    let mandatory_sections = [
+    let listed_sections = [
         ConfigSection::Models,
         ConfigSection::Channels,
         ConfigSection::Gateway,
@@ -577,7 +561,7 @@ fn test_load_populates_all_five_sections_with_values() {
     ];
 
     // Before load: all sections should be None
-    for section in &mandatory_sections {
+    for section in &listed_sections {
         assert!(
             manager.section(*section).is_none(),
             "section {:?} should be None before load",
@@ -587,10 +571,10 @@ fn test_load_populates_all_five_sections_with_values() {
 
     manager.load().unwrap();
 
-    // After load: all 5 mandatory sections should be populated with
+    // After load: all listed sections should be populated with
     // the exact JSON value written by setup_config_dir_at.
     let expected = serde_json::json!({"version": "1.0"});
-    for section in &mandatory_sections {
+    for section in &listed_sections {
         let value = manager.section(*section).unwrap();
         assert_eq!(value, expected, "section {:?} mismatch", section);
     }
@@ -601,8 +585,7 @@ fn test_load_populates_all_five_sections_with_values() {
 #[test]
 fn test_load_fails_on_missing_mandatory_file() {
     let tmp = tempfile::tempdir().unwrap();
-    // Create only models.json, missing the other 4
-    fs::write(tmp.path().join("models.json"), r#"{"version": "1.0"}"#).unwrap();
+    // models.json is optional; all 5 mandatory files are absent
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     let result = manager.load();
     assert!(result.is_err(), "load() should fail when files are missing");
@@ -693,8 +676,8 @@ fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
     fs::write(backup_dir.join(backup_name), content).unwrap();
 }
 
-/// Test: load() triggers rollback when models.json has business validation
-/// failure (empty provider ID). Verifies file is restored from backup.
+/// Test: models.json business validation failure (empty provider ID)
+/// triggers F3 rollback; provider-carrying backup locks cache refill.
 #[test]
 fn test_load_business_validation_failure_models_rollback() {
     let tmp = tempfile::tempdir().unwrap();
@@ -702,9 +685,8 @@ fn test_load_business_validation_failure_models_rollback() {
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     manager.load().unwrap();
 
-    // Create a backup of the valid config, then corrupt the file
-    let valid = fs::read_to_string(tmp.path().join("models.json")).unwrap();
-    write_backup(tmp.path(), ConfigSection::Models, &valid);
+    let backup = r#"{"version":"1.0","providers":{"openai":{"models":[{"id":"m1"}]}}}"#;
+    write_backup(tmp.path(), ConfigSection::Models, backup);
     fs::write(
         tmp.path().join("models.json"),
         r#"{"providers":{"":{"models":[]}}}"#,
@@ -713,9 +695,10 @@ fn test_load_business_validation_failure_models_rollback() {
 
     // load() should succeed because rollback restores the valid backup
     manager.load().unwrap();
-    // In-memory cache should be updated to the backup value
     let section = manager.section(ConfigSection::Models).unwrap();
     assert_eq!(section["version"], "1.0");
+    let models = manager.models_config();
+    assert!(models.providers.contains_key("openai"), "cache refilled");
 }
 
 /// Test: load() triggers rollback when channels.json has business validation
@@ -868,15 +851,15 @@ fn test_load_multiple_business_validation_failures_rollback() {
     manager.load().unwrap();
 
     // Create backups for both sections before corruption
-    let valid_models = fs::read_to_string(tmp.path().join("models.json")).unwrap();
-    write_backup(tmp.path(), ConfigSection::Models, &valid_models);
+    let valid_channels = fs::read_to_string(tmp.path().join("channels.json")).unwrap();
+    write_backup(tmp.path(), ConfigSection::Channels, &valid_channels);
     let valid_gw = fs::read_to_string(tmp.path().join("gateway.json")).unwrap();
     write_backup(tmp.path(), ConfigSection::Gateway, &valid_gw);
 
     // Corrupt two mandatory sections simultaneously
     fs::write(
-        tmp.path().join("models.json"),
-        r#"{"providers":{"":{"models":[]}}}"#,
+        tmp.path().join("channels.json"),
+        r#"{"channels":{"unknown-type":{"enabled":true}}}"#,
     )
     .unwrap();
     fs::write(tmp.path().join("gateway.json"), r#"{"port":99999}"#).unwrap();
@@ -884,7 +867,7 @@ fn test_load_multiple_business_validation_failures_rollback() {
     // load() should succeed: both sections rollback independently
     manager.load().unwrap();
     assert_eq!(
-        manager.section(ConfigSection::Models).unwrap()["version"],
+        manager.section(ConfigSection::Channels).unwrap()["version"],
         "1.0"
     );
     assert_eq!(

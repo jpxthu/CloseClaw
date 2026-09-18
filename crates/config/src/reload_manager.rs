@@ -16,7 +16,7 @@ use tracing::{debug, info, warn};
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
-use crate::providers::{ConfigError, ConfigProvider, CredentialsProvider, ModelsConfigData};
+use crate::providers::{ConfigError, ConfigProvider, CredentialsProvider};
 
 impl From<ConfigError> for ConfigLoadError {
     fn from(e: ConfigError) -> Self {
@@ -404,14 +404,9 @@ impl ConfigReloadManager {
         &self,
         creds_provider: &mut CredentialsProvider,
     ) -> Result<(), ConfigLoadError> {
-        let models_value = match self.config_manager.get_section_value(ConfigSection::Models) {
-            Some(v) => v,
-            None => return Ok(()),
-        };
-        let models_config = match serde_json::from_value::<ModelsConfigData>(models_value) {
-            Ok(c) => c,
-            Err(_) => return Ok(()),
-        };
+        // Single-point typed parse lives in the config crate
+        // (`ConfigManager::models_config`, cached at load), not here.
+        let models_config = self.config_manager.models_config();
         for (provider_id, provider_cfg) in &models_config.providers {
             let rel_path = match provider_cfg.credential_path {
                 Some(ref p) => p,

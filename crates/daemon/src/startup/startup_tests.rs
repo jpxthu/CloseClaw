@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_helpers::load_cm;
 use Foundation::*;
 use Service::*;
 
@@ -800,13 +801,20 @@ fn test_validate_phase_components_registries_expected_includes_llm_registry() {
 
 // --- State transition: init_llm_registry produces a usable registry ---
 
-/// init_llm_registry with empty env_overrides and no credentials files
-/// must return an empty registry (no providers registered).
+/// init_llm_registry with models.json but no credentials must return an
+/// empty registry (no providers registered).
 #[tokio::test]
-async fn test_init_llm_registry_empty_env_returns_empty_registry() {
+async fn test_init_llm_registry_no_credentials_returns_empty_registry() {
     let dir = tempfile::tempdir().unwrap();
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &std::collections::HashMap::new()).await;
+    let cm = load_cm(
+        dir.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] }
+        }),
+        &[],
+    );
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),
@@ -814,28 +822,49 @@ async fn test_init_llm_registry_empty_env_returns_empty_registry() {
     );
 }
 
-/// init_llm_registry with a specific env override must register that provider.
+/// init_llm_registry with a credential file must register the provider
+/// defined for it in models.json.
 #[tokio::test]
-async fn test_init_llm_registry_with_env_override_registers_provider() {
+async fn test_init_llm_registry_with_credential_registers_provider() {
     let dir = tempfile::tempdir().unwrap();
-    let overrides = std::collections::HashMap::from([("OPENAI_API_KEY", "sk-test")]);
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let cm = load_cm(
+        dir.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] }
+        }),
+        &[("openai", "sk-test")],
+    );
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.contains(&"openai".to_string()),
-        "init_llm_registry must register openai provider from env override"
+        "init_llm_registry must register openai provider from its credential file"
     );
 }
 
-/// init_llm_registry must NOT register providers for empty API keys.
+/// init_llm_registry must NOT register providers with empty API keys.
+/// An empty `apiKey` fails `validate_credentials`, which
+/// `parse_credential_file` runs for every credential file (strict or
+/// not); the startup path's non-strict load (`ConfigManager::load` →
+/// `CredentialsProvider::load_from_dir`) therefore warn+skips the file
+/// ("credential file failed validation, skipping"), so the provider
+/// ends up with no credentials and registration skips it. The
+/// `.filter(|key| !key.is_empty())` in `resolve_api_key` is a second
+/// line of defense, not the skip point for this scenario.
 #[tokio::test]
 async fn test_init_llm_registry_empty_key_not_registered() {
     let dir = tempfile::tempdir().unwrap();
-    let overrides =
-        std::collections::HashMap::from([("OPENAI_API_KEY", ""), ("ANTHROPIC_API_KEY", "")]);
-    let (registry, _fallback_client) =
-        crate::Daemon::init_llm_registry(dir.path(), &overrides).await;
+    let cm = load_cm(
+        dir.path(),
+        serde_json::json!({
+            "openai": { "models": [{ "id": "gpt-4o-basic", "enabled": true }] },
+            "anthropic": { "models": [{ "id": "claude", "enabled": true }] }
+        }),
+        &[("openai", ""), ("anthropic", "")],
+    );
+
+    let (registry, _fallback_client) = crate::Daemon::init_llm_registry(&cm, |_| None).await;
     let providers = registry.list().await;
     assert!(
         providers.is_empty(),

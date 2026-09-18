@@ -133,6 +133,29 @@ pub struct SkillListingProviderWrapper {
     pub builtin: Arc<BuiltinSkillRegistry>,
 }
 
+/// Drive a future to completion on a scoped thread (joined before returning), from any context.
+///
+/// [`SkillListingProvider`]'s listing methods are synchronous, but the
+/// chat → LLM dispatch path calls them from async contexts
+/// (`ConversationSession::invoke_llm` → `prepare_turn_skill_listing`).
+/// `Handle::block_on` on an async worker thread panics with "Cannot start
+/// a runtime from within a runtime", so the async builtin-registry calls
+/// are isolated onto a scoped thread — `block_on` runs there, off the
+/// runtime workers (the sync analogue of #3054's `spawn_blocking`
+/// isolation) — and joined before returning. The calling thread still
+/// waits: an intentional compromise of the sync trait (see Follow-up).
+fn block_on_join_thread<F>(handle: tokio::runtime::Handle, fut: F) -> F::Output
+where
+    F: std::future::Future + Send,
+    F::Output: Send,
+{
+    std::thread::scope(|s| {
+        s.spawn(move || handle.block_on(fut))
+            .join()
+            .expect("registry task thread panicked")
+    })
+}
+
 impl SkillListingProviderWrapper {
     pub fn new(
         disk: Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
@@ -200,12 +223,11 @@ impl SkillListingProviderWrapper {
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(self.builtin.listing_entries_with_names(
-            resolved_whitelist,
-            exclude_conditional,
-            None,
-        ))
+        block_on_join_thread(
+            tokio::runtime::Handle::current(),
+            self.builtin
+                .listing_entries_with_names(resolved_whitelist, exclude_conditional, None),
+        )
     }
 
     /// Collect structured listing entries from the disk registry, including
@@ -234,8 +256,8 @@ impl SkillListingProviderWrapper {
         &self,
         activated: &[String],
     ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
-        let rt = tokio::runtime::Handle::current();
-        rt.block_on(
+        block_on_join_thread(
+            tokio::runtime::Handle::current(),
             self.builtin
                 .listing_entries_with_names(None, false, Some(activated)),
         )
@@ -294,10 +316,10 @@ impl SkillListingProviderWrapper {
         let disk_names: std::collections::HashSet<String> =
             disk_matches.iter().map(|m| m.name.clone()).collect();
 
-        let builtin_matches = {
-            let rt = tokio::runtime::Handle::current();
-            rt.block_on(self.builtin.find_conditional_matches(paths))
-        };
+        let builtin_matches = block_on_join_thread(
+            tokio::runtime::Handle::current(),
+            self.builtin.find_conditional_matches(paths),
+        );
 
         // Builtin matches that don't collide with disk matches
         for m in builtin_matches {
@@ -324,8 +346,8 @@ impl SkillListingProviderWrapper {
             .unwrap_or_else(|| "none".to_string());
 
         let builtin_fp = {
-            let rt = tokio::runtime::Handle::current();
-            let names = rt.block_on(self.builtin.list());
+            let names =
+                block_on_join_thread(tokio::runtime::Handle::current(), self.builtin.list());
             let mut sorted = names;
             sorted.sort();
             sorted.join(",")
@@ -441,10 +463,13 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::Arc;
 
+    /// Shared builtin skill name used across whitelist/sorting tests.
+    const ALPHA: &str = "alpha";
+
     /// Run a closure on a dedicated thread with a tokio runtime context
-    /// established via `enter()`. This allows `Handle::current().block_on()`
-    /// inside `collect_builtin_listings` to work without panicking (unlike
-    /// `block_on` within `block_on`).
+    /// established via `enter()`. `Handle::current()` inside the wrapper
+    /// helpers resolves via this guard (the actual await runs on a
+    /// scoped thread joined before returning — see `block_on_join_thread`).
     fn run_with_runtime<F>(f: F)
     where
         F: FnOnce() + Send + 'static,
@@ -461,6 +486,19 @@ mod tests {
             .join()
             .expect("test thread panicked")
         })
+    }
+
+    /// Build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
+    async fn make_builtin(skills: Vec<(&str, bool, Vec<String>)>) -> Arc<BuiltinSkillRegistry> {
+        Arc::new(
+            closeclaw_skills::BuiltinSkillRegistry::from_skills(
+                skills
+                    .into_iter()
+                    .map(|(n, u, p)| make_builtin_skill(n, u, p))
+                    .collect(),
+            )
+            .await,
+        )
     }
 
     // ------------------------------------------------------------------
@@ -563,16 +601,11 @@ mod tests {
     fn test_whitelist_filters_builtin_skills() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("alpha", true, vec![]),
-                        make_builtin_skill("beta", true, vec![]),
-                        make_builtin_skill("gamma", true, vec![]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                (ALPHA, true, vec![]),
+                ("beta", true, vec![]),
+                ("gamma", true, vec![]),
+            ]));
             let disk = make_disk_registry(vec![]);
             let wrapper = make_wrapper(disk, builtin);
 
@@ -604,16 +637,11 @@ mod tests {
     fn test_builtin_filtered_via_agent_skills_query() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("alpha", true, vec![]),
-                        make_builtin_skill("beta", true, vec![]),
-                        make_builtin_skill("gamma", true, vec![]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                (ALPHA, true, vec![]),
+                ("beta", true, vec![]),
+                ("gamma", true, vec![]),
+            ]));
 
             // Simulate agent_skills_query returning whitelist ["alpha", "gamma"]
             // by injecting the query into the disk registry.
@@ -642,15 +670,10 @@ mod tests {
     fn test_disk_overrides_builtin() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("shared_skill", true, vec![]),
-                        make_builtin_skill("other_skill", true, vec![]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                ("shared_skill", true, vec![]),
+                ("other_skill", true, vec![]),
+            ]));
             let disk = make_disk_registry(vec![make_disk_skill(
                 SkillSource::Project,
                 "shared_skill",
@@ -677,15 +700,7 @@ mod tests {
     fn test_cross_registry_sorting() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin =
-                rt.block_on(async {
-                    Arc::new(
-                        closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                            make_builtin_skill("b_skill", true, vec![]),
-                        ])
-                        .await,
-                    )
-                });
+            let builtin = rt.block_on(make_builtin(vec![("b_skill", true, vec![])]));
             // Disk: Agent-priority "z_skill", Project-priority "a_skill"
             let disk = make_disk_registry(vec![
                 make_disk_skill(SkillSource::Agent, "z_skill", true, vec![]),
@@ -714,15 +729,10 @@ mod tests {
     fn test_conditional_exclusion() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("regular", true, vec![]),
-                        make_builtin_skill("conditional", true, vec!["**/*.rs".to_string()]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                ("regular", true, vec![]),
+                ("conditional", true, vec!["**/*.rs".to_string()]),
+            ]));
             let disk = make_disk_registry(vec![]);
             let wrapper = make_wrapper(disk, builtin);
 
@@ -742,15 +752,10 @@ mod tests {
     fn test_sp_rebuild_path() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("always", true, vec![]),
-                        make_builtin_skill("conditional", true, vec!["**/*.rs".to_string()]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                ("always", true, vec![]),
+                ("conditional", true, vec!["**/*.rs".to_string()]),
+            ]));
             let disk = make_disk_registry(vec![]);
             let wrapper = make_wrapper(disk, builtin);
 
@@ -774,15 +779,10 @@ mod tests {
     fn test_whitelist_filters_disk_and_builtin() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("builtin_only", true, vec![]),
-                        make_builtin_skill("shared", true, vec![]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                ("builtin_only", true, vec![]),
+                ("shared", true, vec![]),
+            ]));
             let disk = make_disk_registry(vec![
                 make_disk_skill(SkillSource::Global, "disk_only", true, vec![]),
                 make_disk_skill(SkillSource::Global, "shared", true, vec![]),
@@ -805,15 +805,10 @@ mod tests {
     fn test_find_conditional_matches_merged() {
         run_with_runtime(|| {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            let builtin = rt.block_on(async {
-                Arc::new(
-                    closeclaw_skills::BuiltinSkillRegistry::from_skills(vec![
-                        make_builtin_skill("rust_skill", true, vec!["**/*.rs".to_string()]),
-                        make_builtin_skill("txt_skill", true, vec!["**/*.txt".to_string()]),
-                    ])
-                    .await,
-                )
-            });
+            let builtin = rt.block_on(make_builtin(vec![
+                ("rust_skill", true, vec!["**/*.rs".to_string()]),
+                ("txt_skill", true, vec!["**/*.txt".to_string()]),
+            ]));
             let disk = make_disk_registry(vec![]);
             let wrapper = make_wrapper(disk, builtin);
 
@@ -966,6 +961,37 @@ mod tests {
             // Multiple calls return the same value
             assert_eq!(fp, wrapper.fingerprint());
         });
+    }
+
+    // Regression: sync trait entry points driven from an async context
+    // must not panic with "Cannot start a runtime from within a runtime".
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn test_sync_entry_points_safe_in_async_context() {
+        let builtin = make_builtin(vec![
+            (ALPHA, true, vec![]),
+            ("conditional", true, vec!["**/*.rs".to_string()]),
+        ])
+        .await;
+        let disk = make_disk_registry(vec![]);
+        let wrapper = make_wrapper(disk, builtin);
+
+        // ① generate_listing → collect_builtin_listings
+        let listing = wrapper.generate_listing(None, None);
+        assert!(listing.contains("alpha"));
+
+        // ② generate_listing_with_activated → collect_builtin_activated_entries
+        let listing =
+            wrapper.generate_listing_with_activated(None, None, &["conditional".to_string()]);
+        assert!(listing.contains("conditional"));
+
+        // ③ find_conditional_matches → merged_conditional_matches
+        let matches = wrapper.find_conditional_matches(&[PathBuf::from("src/main.rs")]);
+        assert_eq!(matches.len(), 1, "conditional skill should match");
+
+        // ④ fingerprint → combined_fingerprint
+        let fp = wrapper.fingerprint();
+        assert!(fp.starts_with("disk:"), "unexpected fingerprint: {fp}");
     }
 }
 
