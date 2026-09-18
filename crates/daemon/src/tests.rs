@@ -120,7 +120,8 @@ async fn test_daemon_start_succeeds_with_all_mandatory_configs() {
 /// gating (Step 1.17): the Models section is optional at load, the LLM
 /// registry builds an empty fallback chain, and startup completes through
 /// all phases without panicking. Design doc `docs/design/daemon/README.md`
-/// 「LLM 能力缺失时的行为」: models.json 缺失 → 系统仍正常启动.
+/// 「LLM 能力缺失时的行为」 (LLM-capability-missing behavior): models.json
+/// 缺失 → 系统仍正常启动.
 #[tokio::test]
 async fn test_daemon_start_succeeds_without_models_json() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
@@ -146,61 +147,16 @@ async fn test_daemon_start_succeeds_without_models_json() {
 /// refuse startup, not a silent empty LLM config.
 #[tokio::test]
 async fn test_daemon_start_fails_with_corrupt_models_json_no_backup() {
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
     // Corrupt models.json — no backup has ever been written.
-    std::fs::write(
-        temp_dir.path().join("config").join("models.json"),
-        "not valid json {{",
-    )
-    .unwrap();
-
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
-    let err = result
-        .err()
-        .expect("corrupt models.json without backup must refuse startup");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("models.json"),
-        "error must name the corrupt file: {msg}"
-    );
+    assert_start_refused_with_models("not valid json {{").await;
 }
 
 /// Test: corrupt models.json with a usable backup → F3 rollback →
 /// startup succeeds with the restored file and an empty LLM chain.
 #[tokio::test]
 async fn test_daemon_start_recovers_corrupt_models_json_from_backup() {
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json(temp_dir.path()).expect("setup agents.json");
-    let config_dir = temp_dir.path().join("config");
-    // Create a real backup of models.json via the config write path.
-    let cm = ConfigManager::new(config_dir.clone()).unwrap();
-    cm.update(
-        ConfigSection::Models,
-        serde_json::json!({"version": "2.0"}),
-        |_| Ok(()),
-    )
-    .expect("update must back up the current models.json");
     // Corrupt models.json — rollback must restore the backed-up content.
-    std::fs::write(config_dir.join("models.json"), "not valid json {{").unwrap();
-
-    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
-        .await
-        .expect("daemon must start via backup rollback");
-    assert!(
-        daemon.llm_registry.list().await.is_empty(),
-        "restored placeholder defines no provider"
-    );
-    assert_eq!(
-        daemon.fallback_client.chain().len(),
-        0,
-        "LLM fallback chain must be empty"
-    );
-    let restored = std::fs::read_to_string(config_dir.join("models.json")).unwrap();
-    assert!(
-        restored.contains("1.0"),
-        "rollback restored the backup content: {restored}"
-    );
+    assert_start_recovers_via_backup("not valid json {{").await;
 }
 
 /// Test: models.json parses as JSON but has the wrong shape for the
@@ -210,24 +166,8 @@ async fn test_daemon_start_recovers_corrupt_models_json_from_backup() {
 /// typed parse is the gate that fires.
 #[tokio::test]
 async fn test_daemon_start_fails_with_untyped_models_json_no_backup() {
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
     // Valid JSON, wrong structure for ModelsConfigData.
-    std::fs::write(
-        temp_dir.path().join("config").join("models.json"),
-        r#"{"providers":"nope"}"#,
-    )
-    .unwrap();
-
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
-    let err = result
-        .err()
-        .expect("structured parse failure without backup must refuse startup");
-    let msg = err.to_string();
-    assert!(
-        msg.contains("models.json"),
-        "error must name the rejected file: {msg}"
-    );
+    assert_start_refused_with_models(r#"{"providers":"nope"}"#).await;
 }
 
 /// Test: models.json fails business validation (empty provider id —
@@ -235,19 +175,47 @@ async fn test_daemon_start_fails_with_untyped_models_json_no_backup() {
 /// with no backup → F3 refusal.
 #[tokio::test]
 async fn test_daemon_start_fails_with_business_invalid_models_json_no_backup() {
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
     // Well-formed JSON, business-invalid (empty provider id).
-    std::fs::write(
-        temp_dir.path().join("config").join("models.json"),
-        r#"{"providers":{"":{"models":[]}}}"#,
-    )
-    .unwrap();
+    assert_start_refused_with_models(r#"{"providers":{"":{"models":[]}}}"#).await;
+}
 
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
-    let err = result
+/// Test: structured parse failure with a usable backup → F3 rollback →
+/// startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_untyped_models_json_from_backup() {
+    assert_start_recovers_via_backup(r#"{"providers":"nope"}"#).await;
+}
+
+/// Test: business validation failure with a usable backup → F3 rollback
+/// → startup succeeds with the restored file and an empty LLM chain.
+#[tokio::test]
+async fn test_daemon_start_recovers_business_invalid_models_json_from_backup() {
+    // Well-formed JSON, business-invalid (empty provider id) — rollback
+    // must restore the backed-up content.
+    assert_start_recovers_via_backup(r#"{"providers":{"":{"models":[]}}}"#).await;
+}
+
+// =====================================================================
+// Step 1.25 — shared system-level assertions for the models.json
+// four-case matrix (illegal content parameterized; fixtures and
+// assertion semantics unchanged)
+// =====================================================================
+
+/// Start the daemon against a fresh config tree whose `models.json`
+/// holds the given illegal `content` (no backup ever written) and
+/// assert the F3 outcome: startup refused with an error naming the
+/// rejected file (design doc config README 启动加载 (startup load)
+/// step 1 + requirements config §F3).
+async fn assert_start_refused_with_models(content: &str) {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let root = temp_dir.path();
+    setup_agents_json_without_models(root).expect("configs without models.json");
+    std::fs::write(root.join("config").join("models.json"), content).unwrap();
+
+    let err = Daemon::start(root.to_str().unwrap())
+        .await
         .err()
-        .expect("business validation failure without backup must refuse startup");
+        .expect("rejected models.json without backup must refuse startup");
     let msg = err.to_string();
     assert!(
         msg.contains("models.json"),
@@ -255,13 +223,16 @@ async fn test_daemon_start_fails_with_business_invalid_models_json_no_backup() {
     );
 }
 
-/// Test: structured parse failure with a usable backup → F3 rollback →
-/// startup succeeds with the restored file and an empty LLM chain.
-#[tokio::test]
-async fn test_daemon_start_recovers_untyped_models_json_from_backup() {
+/// Seed a valid `models.json` plus a backup via the config write path,
+/// overwrite the file with the given illegal `content`, then assert the
+/// F3 outcome: startup succeeds through backup rollback, the LLM chain
+/// is empty, and the backed-up content is restored on disk.
+async fn assert_start_recovers_via_backup(content: &str) {
     let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json(temp_dir.path()).expect("setup agents.json");
-    let config_dir = temp_dir.path().join("config");
+    let root = temp_dir.path();
+    setup_agents_json(root).expect("setup agents.json");
+    let config_dir = root.join("config");
+    // Create a real backup of models.json via the config write path.
     let cm = ConfigManager::new(config_dir.clone()).unwrap();
     cm.update(
         ConfigSection::Models,
@@ -269,48 +240,9 @@ async fn test_daemon_start_recovers_untyped_models_json_from_backup() {
         |_| Ok(()),
     )
     .expect("update must back up the current models.json");
-    std::fs::write(config_dir.join("models.json"), r#"{"providers":"nope"}"#).unwrap();
+    std::fs::write(config_dir.join("models.json"), content).unwrap();
 
-    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
-        .await
-        .expect("daemon must start via backup rollback");
-    assert!(
-        daemon.llm_registry.list().await.is_empty(),
-        "restored placeholder defines no provider"
-    );
-    assert_eq!(
-        daemon.fallback_client.chain().len(),
-        0,
-        "LLM fallback chain must be empty"
-    );
-    let restored = std::fs::read_to_string(config_dir.join("models.json")).unwrap();
-    assert!(
-        restored.contains("1.0"),
-        "rollback restored the backup content: {restored}"
-    );
-}
-
-/// Test: business validation failure with a usable backup → F3 rollback
-/// → startup succeeds with the restored file and an empty LLM chain.
-#[tokio::test]
-async fn test_daemon_start_recovers_business_invalid_models_json_from_backup() {
-    let temp_dir = tempfile::tempdir().expect("tempdir");
-    setup_agents_json(temp_dir.path()).expect("setup agents.json");
-    let config_dir = temp_dir.path().join("config");
-    let cm = ConfigManager::new(config_dir.clone()).unwrap();
-    cm.update(
-        ConfigSection::Models,
-        serde_json::json!({"version": "2.0"}),
-        |_| Ok(()),
-    )
-    .expect("update must back up the current models.json");
-    std::fs::write(
-        config_dir.join("models.json"),
-        r#"{"providers":{"":{"models":[]}}}"#,
-    )
-    .unwrap();
-
-    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
+    let daemon = Daemon::start(root.to_str().unwrap())
         .await
         .expect("daemon must start via backup rollback");
     assert!(

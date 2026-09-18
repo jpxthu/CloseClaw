@@ -13,6 +13,18 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 impl SessionManager {
+    /// The outbound channel recorded for `session_id`, or `None` when the
+    /// session is unknown.
+    ///
+    /// External consumers resolve the session's channel through this
+    /// accessor instead of direct-reading the `sessions` map (Step 1.25).
+    pub async fn session_channel(&self, session_id: &str) -> Option<String> {
+        let sessions = self.sessions.read().await;
+        sessions.get(session_id).map(|s| s.channel.clone())
+    }
+}
+
+impl SessionManager {
     /// Returns the active session_id for a channel, if any.
     #[allow(dead_code)]
     pub async fn active_session_for_channel(&self, channel: &str) -> Option<String> {

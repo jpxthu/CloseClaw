@@ -19,8 +19,10 @@
 //!    well-formed base_url — the models row of the validation table) →
 //!    F3, same path.
 //!
-//! Cases 2–4 share [`ConfigManager::rollback_models`] behind the
-//! [`gate_models_value`] gate. The cache is written at exactly one place
+//! Cases 3–4 are rejected by [`gate_models_value`]; all of cases 2–4
+//! share [`ConfigManager::rollback_models`] (case 2 enters rollback
+//! directly from the `from_str` `Err`, without passing the gate).
+//! The cache is written at exactly one place
 //! ([`ConfigManager::set_models_cache`]): at load from the gate's typed
 //! parse (or the rollback outcome) and on section writes from
 //! [`ConfigManager::cache_models_config`]; [`ConfigManager::models_config`]

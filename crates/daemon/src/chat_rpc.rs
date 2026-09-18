@@ -437,14 +437,12 @@ fn extract_text_from_payload(payload: &serde_json::Value) -> String {
     payload.to_string()
 }
 
-/// Handle a stop session request.
-async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<ChatResponse> {
-    let sender_id = closeclaw_platform::current_uid();
+/// Build the `/stop` [`NormalizedMessage`] for a stop-session request.
+fn build_stop_input(sender_id: String) -> NormalizedMessage {
     let now_ms = chrono::Utc::now().timestamp_millis();
-
-    let input = NormalizedMessage {
+    NormalizedMessage {
         platform: "terminal".to_string(),
-        sender_id: sender_id.clone(),
+        sender_id,
         peer_id: "cli".to_string(),
         content: "/stop".to_string(),
         timestamp: now_ms,
@@ -457,14 +455,34 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         message_id: format!("stop-{}", now_ms),
         reply_ref: None,
         unavailable_media: vec![],
-    };
+    }
+}
 
+/// Handle a stop session request.
+///
+/// Step 1.25 evidence: the stop chain **does** reach
+/// [`RpcTerminalPlugin::send`] — `SlashResult::Stop` → `execute_stop`
+/// (closeclaw-common executor) sends the "已停止当前任务" reply through
+/// `route_slash_reply` → `Gateway::send_outbound`, keyed by the session's
+/// agent id with no [`CHAT_CONN_ID`] task-local on this task. Registering
+/// the per-request channel + agent route (symmetric with
+/// [`dispatch_chat_message`]) gives that reply a destination, and the
+/// frames it produced are surfaced to the stop requester before `Done`.
+async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<ChatResponse> {
+    let sender_id = closeclaw_platform::current_uid();
+    let (mut rx, conn_id) = setup_rpc_channel(context).await;
+    context
+        .rpc_plugin
+        .register_agent_route(&agent_id, conn_id)
+        .await;
+
+    let input = build_stop_input(sender_id.clone());
     let mut processed = context.gateway.process_inbound_chain(&input).await;
     // Route `/stop` to the same target agent as chat requests
     // (requirements cli §F1: `/stop` ends the current conversation).
     attach_target_agent(&mut processed, &agent_id);
 
-    match context
+    let mut responses = match context
         .gateway
         .handle_inbound_message(processed, Some(&sender_id), "terminal")
         .await
@@ -473,7 +491,18 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         None => vec![ChatResponse::Error {
             message: format!("failed to stop session for agent '{}'", agent_id),
         }],
+    };
+
+    // The stop chain's reply is fully buffered before the handler
+    // returns (route_slash_reply awaits the send), so this drain is
+    // deterministic — surface it ahead of the trailing Done/Error.
+    let mut replies = Vec::new();
+    while let Ok(output) = rx.try_recv() {
+        replies.push(rendered_to_response(&output));
     }
+    replies.append(&mut responses);
+    context.rpc_plugin.unregister_sender(conn_id).await;
+    replies
 }
 
 /// Send a length-prefixed JSON response.
@@ -717,8 +746,14 @@ impl IMPlugin for RpcTerminalPlugin {
 
     async fn shutdown(&self) -> Result<(), AdapterError> {
         // Clear senders and agent routes together (via
-        // `clear_connections`) so a post-shutdown send cannot hit the
-        // misleading "route hit → connection not found" branch.
+        // `clear_connections`). Steady state (once shutdown has
+        // returned): both maps are empty, so a send resolves neither a
+        // route nor a connection and fails with the plain "no chat
+        // connection registered" error instead of the misleading
+        // "route hit → connection not found". Transient window: `send()`
+        // resolves the route and the connection under two separate
+        // locks, so a send already past the route lookup when shutdown
+        // ran can still observe route-hit → connections-cleared.
         self.clear_connections(None).await;
         Ok(())
     }

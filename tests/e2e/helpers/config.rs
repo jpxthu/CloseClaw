@@ -64,8 +64,10 @@ impl ConfigTreeOpts {
 ///
 /// Notes:
 /// - `models.json` `credentialPath` is validated with a CWD-relative
-///   `Path::exists` check, so tests chdir into `<root>/config` before
-///   spawning the daemon (see `helpers::spawn_daemon`).
+///   `Path::exists` check; the daemon child process gets its CWD set to
+///   `<root>/config` via `Command::current_dir` in `helpers::spawn_daemon`,
+///   so the relative credential path resolves under the config dir (the
+///   test process itself never chdirs).
 /// - `agents/<id>/config.json` `model` accepts `"provider/model-id"`
 ///   (ModelSpec string form). Tests needing a custom agent config
 ///   overwrite the master agent file after calling this function.

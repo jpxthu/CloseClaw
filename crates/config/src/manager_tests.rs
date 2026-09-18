@@ -701,24 +701,6 @@ fn test_load_business_validation_failure_models_rollback() {
     assert!(models.providers.contains_key("openai"), "cache refilled");
 }
 
-/// Test: models.json business validation failure, no backup → refusal (F3).
-#[test]
-fn test_load_business_validation_failure_models_refuses_without_backup() {
-    let tmp = tempfile::tempdir().unwrap();
-    write_mandatory_configs(tmp.path()).unwrap();
-    fs::write(
-        tmp.path().join("models.json"),
-        r#"{"providers":{"":{"models":[]}}}"#,
-    )
-    .unwrap();
-    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
-
-    let err = manager
-        .load()
-        .expect_err("business validation failure without backup must refuse load");
-    assert!(err.to_string().contains("models.json"), "{err}");
-}
-
 /// Test: load() triggers rollback when channels.json has business validation
 /// failure (unknown channel type).
 #[test]

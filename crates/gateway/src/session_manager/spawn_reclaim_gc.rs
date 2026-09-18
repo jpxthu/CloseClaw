@@ -47,17 +47,16 @@ pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
         return;
     }
 
-    // Step 1.9: Briefly hold sessions.read() to snapshot which parents are
-    // still alive, then release the lock before processing children.write().
-    // This avoids holding sessions.read() for the entire sweep duration.
-    let active_parents: HashSet<String> = {
-        let sessions = session_manager.sessions.read().await;
-        snapshot
-            .iter()
-            .filter(|(parent_id, _)| sessions.contains_key(parent_id))
-            .map(|(parent_id, _)| parent_id.clone())
-            .collect()
-    };
+    // Parent-liveness check goes through the `has_session` accessor —
+    // each call briefly takes sessions.read() and releases it again, so
+    // no sessions lock is held across the sweep or before
+    // children.write() runs.
+    let mut active_parents: HashSet<String> = HashSet::new();
+    for (parent_id, _) in &snapshot {
+        if session_manager.has_session(parent_id).await {
+            active_parents.insert(parent_id.clone());
+        }
+    }
 
     // NOTE (Step 1.10): TOCTOU race window — `active_parents` snapshot may
     // become stale before we process each entry. A parent could be removed

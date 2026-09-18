@@ -637,12 +637,11 @@ impl SessionMessageHandler {
         let Some(chat_id) = session_manager.get_chat_id(session_id).await else {
             return;
         };
-        let sessions = session_manager.sessions.read().await;
-        let Some(session) = sessions.get(session_id) else {
+        let Some(channel) = session_manager.session_channel(session_id).await else {
             return;
         };
         if let Err(e) = gw
-            .send_outbound_simplified(&chat_id, &session.channel, &notif.message)
+            .send_outbound_simplified(&chat_id, &channel, &notif.message)
             .await
         {
             tracing::warn!(

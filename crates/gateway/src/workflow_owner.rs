@@ -163,23 +163,20 @@ impl Gateway {
             tracing::warn!(session_id = %session_id, error = %e, "failed to persist workflow state after owner response");
         }
         if let Some(peer_id) = self.session_manager.get_sender_id(session_id).await {
-            let sessions = self.session_manager.sessions.read().await;
-            if let Some(session) = sessions.get(session_id) {
-                let msg = match action {
-                    "resolve" => "✅ 已恢复工作流执行。",
-                    "terminate" => "🛑 已终止工作流。",
-                    _ => unreachable!(),
-                };
-                if let Err(e) = self
-                    .send_outbound_simplified(&peer_id, &session.channel, msg)
-                    .await
-                {
-                    tracing::warn!(
-                        session_id = %session_id,
-                        error = %e,
-                        "failed to send workflow owner response confirmation"
-                    );
-                }
+            let Some(channel) = self.session_manager.session_channel(session_id).await else {
+                return;
+            };
+            let msg = match action {
+                "resolve" => "✅ 已恢复工作流执行。",
+                "terminate" => "🛑 已终止工作流。",
+                _ => unreachable!(),
+            };
+            if let Err(e) = self.send_outbound_simplified(&peer_id, &channel, msg).await {
+                tracing::warn!(
+                    session_id = %session_id,
+                    error = %e,
+                    "failed to send workflow owner response confirmation"
+                );
             }
         }
     }

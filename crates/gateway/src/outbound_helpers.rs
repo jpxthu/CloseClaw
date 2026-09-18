@@ -707,7 +707,7 @@ pub(crate) fn emit_send_completed_log(
 }
 
 /// Deliver a completed non-streaming LLM turn through the Gateway batch
-/// outbound chain (design: gateway/outbound-flow.md 批量模式).
+/// outbound chain (design: gateway/outbound-flow.md 批量模式 (batch mode)).
 ///
 /// Streaming turns were already rendered and sent incrementally by
 /// `send_outbound_streaming` and are skipped here. Resolves the session's
@@ -731,10 +731,7 @@ pub(crate) async fn deliver_batch_result(
     if is_streaming {
         return;
     }
-    let channel = {
-        let sessions = session_manager.sessions.read().await;
-        sessions.get(session_id).map(|s| s.channel.clone())
-    };
+    let channel = session_manager.session_channel(session_id).await;
     let Some(channel) = channel else {
         tracing::warn!(
             session_id,

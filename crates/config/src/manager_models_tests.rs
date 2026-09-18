@@ -4,7 +4,7 @@
 //! failure / business validation failure → F3 refusal without backup).
 
 use super::*;
-use closeclaw_common::test_helpers::write_mandatory_without_models;
+use closeclaw_common::test_helpers::{write_mandatory_configs, write_mandatory_without_models};
 use std::fs;
 
 /// models.json absent → load() succeeds (optional section), the section
@@ -66,6 +66,26 @@ fn test_models_config_untyped_value_refuses_load() {
         manager.models_config().providers.is_empty(),
         "no value may be cached from a refused load"
     );
+}
+
+/// Test: models.json business validation failure, no backup → refusal (F3).
+/// Moved from `manager_tests.rs` (Step 1.25) to sit with the corrupt /
+/// untyped refusal siblings and free up room in the 1000-line file.
+#[test]
+fn test_load_business_validation_failure_models_refuses_without_backup() {
+    let tmp = tempfile::tempdir().unwrap();
+    write_mandatory_configs(tmp.path()).unwrap();
+    fs::write(
+        tmp.path().join("models.json"),
+        r#"{"providers":{"":{"models":[]}}}"#,
+    )
+    .unwrap();
+    let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
+
+    let err = manager
+        .load()
+        .expect_err("business validation failure without backup must refuse load");
+    assert!(err.to_string().contains("models.json"), "{err}");
 }
 
 /// The cache mirrors disk: reloading after models.json was deleted
