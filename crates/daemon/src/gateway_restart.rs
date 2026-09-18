@@ -239,9 +239,6 @@ impl crate::Daemon {
         self.shutdown_old_gateway().await;
         let config_dir = self.resolve_config_dir();
         let new_gw = self.build_new_gateway(&config_dir).await;
-        // The plugin handle is discarded here on purpose — the plugin
-        // outlives it via gateway registration, ChatContext and the
-        // turn-completion consumer (see `install_handlers`).
         let _chat_rpc_plugin = self.install_handlers(&new_gw).await;
         self.swap_and_notify(new_gw, changes).await;
 
