@@ -239,12 +239,7 @@ impl crate::Daemon {
         self.shutdown_old_gateway().await;
         let config_dir = self.resolve_config_dir();
         let new_gw = self.build_new_gateway(&config_dir).await;
-        // install_handlers consumes the restart path's own output_rx and
-        // spawns the turn-completion consumer (finish_turns). The returned
-        // plugin handle is not read here: the plugin itself stays alive
-        // via the gateway registration, the chat server's ChatContext and
-        // the consumer's own clone, so dropping this handle is safe.
-        let _chat_rpc_plugin = self.install_handlers(&new_gw).await;
+        self.install_restart_path_handlers(&new_gw).await;
         self.swap_and_notify(new_gw, changes).await;
 
         // Replay stashed inbound messages into the new gateway.
@@ -408,6 +403,15 @@ impl crate::Daemon {
 // ---------------------------------------------------------------------------
 
 impl crate::Daemon {
+    /// Install the restart-path handlers (session handler, slash, chat
+    /// RPC server, turn-completion consumer) onto the rebuilt gateway.
+    ///
+    /// The returned plugin handle is dropped here — see
+    /// [`Self::install_handlers`] for why that is safe.
+    async fn install_restart_path_handlers(&self, new_gw: &Arc<closeclaw_gateway::Gateway>) {
+        let _chat_rpc_plugin = self.install_handlers(new_gw).await;
+    }
+
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
     ///

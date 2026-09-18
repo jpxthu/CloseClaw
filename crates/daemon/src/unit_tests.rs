@@ -1,6 +1,7 @@
 //! Unit tests for daemon private functions
 
 use super::*;
+use crate::test_helpers::load_cm;
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -183,18 +184,15 @@ async fn test_init_llm_registry_credentials_file_priority() {
     // Arrange: config dir with models.json defining openai + a credential
     // file in the convention credentials/ directory.
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "openai": {
                 "models": [{ "id": "gpt-4o-basic", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "file-key-123").unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[("openai", "file-key-123")],
+    );
 
     // Act
     let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
@@ -214,8 +212,7 @@ async fn test_init_llm_registry_both_absent_no_registration() {
     // Arrange: models.json defines providers but no credentials exist
     // (no convention credential files, no credential_path).
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "openai": { "models": [{ "id": "m1", "enabled": true }] },
@@ -223,9 +220,8 @@ async fn test_init_llm_registry_both_absent_no_registration() {
             "minimax": { "models": [{ "id": "m3", "enabled": true }] },
             "mimo": { "models": [{ "id": "m4", "enabled": true }] }
         }),
-    )
-    .unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[],
+    );
 
     // Act
     let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
@@ -245,19 +241,15 @@ async fn test_init_llm_registry_both_absent_no_registration() {
 #[tokio::test]
 async fn test_init_llm_registry_mimo_via_credentials_file() {
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "mimo": {
                 "models": [{ "id": "mimo-default", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(tmp.path(), "mimo", "mimo-file-key-101")
-        .unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[("mimo", "mimo-file-key-101")],
+    );
 
     let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
@@ -276,17 +268,15 @@ async fn test_init_llm_registry_mimo_via_credentials_file() {
 async fn test_init_llm_registry_mimo_not_registered_when_absent() {
     // models.json defines mimo but no credential exists for it.
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "mimo": {
                 "models": [{ "id": "mimo-default", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[],
+    );
 
     let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
@@ -464,8 +454,7 @@ fn test_miner_config_from_mining_config_custom_values() {
 #[tokio::test]
 async fn test_init_llm_registry_contains_configured_providers() {
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "openai": {
@@ -475,12 +464,8 @@ async fn test_init_llm_registry_contains_configured_providers() {
                 "models": [{ "id": "claude-sonnet-4", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "openai-key").unwrap();
-    crate::test_helpers::write_provider_credential(tmp.path(), "anthropic", "anthropic-key")
-        .unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[("openai", "openai-key"), ("anthropic", "anthropic-key")],
+    );
 
     let (registry, _fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
     let listed = registry.list().await;
@@ -495,8 +480,7 @@ async fn test_init_llm_registry_contains_configured_providers() {
 #[tokio::test]
 async fn test_init_llm_registry_chain_from_models_config() {
     let tmp = TempDir::new().unwrap();
-    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         tmp.path(),
         serde_json::json!({
             "openai": {
@@ -506,10 +490,8 @@ async fn test_init_llm_registry_chain_from_models_config() {
                 ]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(tmp.path(), "openai", "openai-key").unwrap();
-    let cm = crate::test_helpers::load_config_manager(tmp.path());
+        &[("openai", "openai-key")],
+    );
 
     let (_registry, fallback_client) = Daemon::init_llm_registry(&cm, |_| None).await;
 
@@ -848,6 +830,7 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
 #[test]
 fn session_handler_model_knowledge_returns_some() {
     use closeclaw_common::CompactConfig;
+    use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
     use closeclaw_gateway::session_handler::ActiveSearcherLlmCaller;
     use closeclaw_gateway::{SessionManager, SessionMessageHandler};
     use closeclaw_llm::knowledge::ProviderModelKnowledge;
@@ -882,9 +865,7 @@ fn session_handler_model_knowledge_returns_some() {
         Arc::new(CooldownManager::new()),
     ));
     let caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-            fallback_client.clone(),
-        )) as Arc<dyn closeclaw_common::LlmCaller>,
+        caller: Arc::new(FallbackLlmCaller(fallback_client.clone())),
         model: String::new(),
     });
     let handler = SessionMessageHandler::new(

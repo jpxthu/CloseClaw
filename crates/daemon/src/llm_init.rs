@@ -14,7 +14,7 @@
 //! provider id (`closeclaw_llm::call_chain::assemble_llm_components`).
 
 use super::*;
-use closeclaw_config::providers::models::ProviderConfig;
+use closeclaw_config::providers::models::{ModelsConfigData, ProviderConfig};
 use closeclaw_config::providers::CredentialsProvider;
 use closeclaw_llm::call_chain;
 use closeclaw_llm::retry::CooldownManager;
@@ -53,43 +53,8 @@ impl Daemon {
         // absent → empty default. Present-file parse/validation failures
         // are refused earlier by `load()` (F3) and never reach here.
         let models = config_manager.models_config();
-        // Credentials are resolved at ConfigManager::load: convention directory
-        // + credential_path merge (credential_path wins on conflicts).
-        let credentials = match config_manager.credentials() {
-            Some(credentials) => credentials,
-            None => {
-                tracing::warn!("ConfigManager credentials not loaded — using empty set");
-                CredentialsProvider::default()
-            }
-        };
-
-        // Sorted provider ids → deterministic registry/chain order.
-        let mut provider_ids: Vec<&String> = models.providers.keys().collect();
-        provider_ids.sort();
-        let mut chain_entries: Vec<ChainEntry> = Vec::new();
-        for provider_id in provider_ids {
-            let provider_cfg = &models.providers[provider_id];
-            let Some(api_key) = resolve_api_key(&credentials, provider_id, &env_lookup) else {
-                info!(provider = %provider_id, "no credential available, provider skipped");
-                continue;
-            };
-            let Some(provider) = call_chain::build_vendor_provider(
-                provider_id,
-                &api_key,
-                provider_cfg.base_url.as_deref(),
-            ) else {
-                tracing::warn!(
-                    provider = %provider_id,
-                    "no vendor implementation for provider, skipped"
-                );
-                continue;
-            };
-            registry
-                .register(provider_id.clone(), provider.clone())
-                .await;
-            info!(provider = %provider_id, "provider registered from models.json");
-            chain_entries.extend(chain_entries_for(provider_id, &provider, provider_cfg));
-        }
+        let credentials = resolve_credentials(config_manager);
+        let chain_entries = register_providers(&registry, &credentials, models, &env_lookup).await;
 
         let fallback_client = Arc::new(UnifiedFallbackClient::new(
             chain_entries,
@@ -101,6 +66,65 @@ impl Daemon {
         );
         (registry, fallback_client)
     }
+}
+
+/// Resolve the merged credential set from ConfigManager — the
+/// `<root>/config/credentials/` convention directory plus models.json
+/// `credential_path` references, merged at load (credential_path wins
+/// on conflicts). Unloaded credentials fall back to an empty set with
+/// a warning instead of failing the registration.
+fn resolve_credentials(config_manager: &ConfigManager) -> CredentialsProvider {
+    match config_manager.credentials() {
+        Some(credentials) => credentials,
+        None => {
+            tracing::warn!("ConfigManager credentials not loaded — using empty set");
+            CredentialsProvider::default()
+        }
+    }
+}
+
+/// Register every models.json provider that resolves an api key and a
+/// vendor implementation, returning one fallback-chain entry per
+/// enabled model. Providers without a usable credential or without a
+/// vendor implementation are skipped (logged); sorted provider ids keep
+/// registry/chain order deterministic.
+async fn register_providers<F>(
+    registry: &LLMRegistry,
+    credentials: &CredentialsProvider,
+    models: ModelsConfigData,
+    env_lookup: &F,
+) -> Vec<ChainEntry>
+where
+    F: Fn(&str) -> Option<String>,
+{
+    // Sorted provider ids → deterministic registry/chain order.
+    let mut provider_ids: Vec<&String> = models.providers.keys().collect();
+    provider_ids.sort();
+    let mut chain_entries: Vec<ChainEntry> = Vec::new();
+    for provider_id in provider_ids {
+        let provider_cfg = &models.providers[provider_id];
+        let Some(api_key) = resolve_api_key(credentials, provider_id, env_lookup) else {
+            info!(provider = %provider_id, "no credential available, provider skipped");
+            continue;
+        };
+        let Some(provider) = call_chain::build_vendor_provider(
+            provider_id,
+            &api_key,
+            provider_cfg.base_url.as_deref(),
+        ) else {
+            tracing::warn!(
+                provider = %provider_id,
+                "no vendor implementation for provider, skipped"
+            );
+            continue;
+        };
+        registry
+            .register(provider_id.clone(), provider.clone())
+            .await;
+        info!(provider = %provider_id, "provider registered from models.json");
+        chain_entries.extend(chain_entries_for(provider_id, &provider, provider_cfg));
+    }
+    chain_entries
 }
 
 /// Production env lookup for the api-key fallback: read-only

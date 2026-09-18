@@ -19,6 +19,9 @@ impl Gateway {
     /// Returns `None` if the sender is owner, the message comes from the
     /// terminal channel (whose caller is Owner by design), the sender is
     /// already registered, or no approval flow is configured.
+    ///
+    /// Owner / terminal-channel callers are exempt inside this gate
+    /// (design cli/README.md, requirements/cli.md §F1).
     pub(crate) async fn check_new_user_registration(
         &self,
         sender_id: &str,

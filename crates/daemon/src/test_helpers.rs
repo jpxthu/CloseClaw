@@ -73,6 +73,29 @@ pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
     closeclaw_common::test_helpers::write_mandatory_configs(dir)
 }
 
+/// Four-step LLM registry fixture (Step 1.22 dedup): mandatory config
+/// skeleton → models.json `providers` → convention-directory
+/// credentials → `ConfigManager::load`.
+///
+/// Single point for the sequence shared by `llm_init_tests`,
+/// `unit_tests` and `startup_tests` — tests only declare their
+/// providers and credentials. `creds` entries are written as
+/// `<dir>/credentials/<provider>.json`; pass `&[]` for no
+/// convention-directory credentials (e.g. `credentialPath` or
+/// env-fallback scenarios).
+pub fn load_cm(
+    dir: &std::path::Path,
+    providers: serde_json::Value,
+    creds: &[(&str, &str)],
+) -> ConfigManager {
+    write_mandatory_configs(dir).expect("mandatory configs");
+    write_models_providers(dir, providers).expect("models.json");
+    for &(provider, api_key) in creds {
+        write_provider_credential(dir, provider, api_key).expect("credential file");
+    }
+    load_config_manager(dir)
+}
+
 // ── Turn-completion consumer test harness ─────────────────────────────────
 
 use closeclaw_common::im_plugin::RenderedOutput;

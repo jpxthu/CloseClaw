@@ -109,11 +109,11 @@ pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str
             .code()
             .map(|c| c.to_string())
             .unwrap_or_else(|| "signal".to_string());
-        let context = context.unwrap_or("");
+        let context = context.map(|c| format!(" {c}")).unwrap_or_default();
         panic!(
-            "daemon exited prematurely {} with status: {:?} (exit code: {}). \
+            "daemon exited prematurely{context} with status: {:?} (exit code: {}). \
              Check daemon stdout/stderr logs for details.",
-            context, status, code
+            status, code
         );
     }
 }

@@ -5,15 +5,8 @@
 //! injected env fallback) — never by the host process environment.
 
 use super::*;
-use std::path::Path;
+use crate::test_helpers::load_cm;
 use tempfile::TempDir;
-
-/// Write the config skeleton into `dir` — the 5 mandatory files plus a
-/// placeholder models.json (overwritten by `write_models_providers`
-/// afterwards).
-fn write_config_skeleton(dir: &Path) {
-    crate::test_helpers::write_mandatory_configs(dir).expect("mandatory configs");
-}
 
 /// [`Daemon::init_llm_registry`] with a deterministic env: the api-key
 /// env fallback never resolves, so outcomes depend only on the
@@ -45,8 +38,7 @@ async fn init_registry_with_env(
 #[tokio::test]
 async fn test_init_llm_registry_registers_provider_with_configured_base_url() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
@@ -54,10 +46,8 @@ async fn test_init_llm_registry_registers_provider_with_configured_base_url() {
                 "models": [{ "id": "gpt-4o-basic", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "openai", "sk-fake").unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("openai", "sk-fake")],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -75,18 +65,16 @@ async fn test_init_llm_registry_registers_provider_with_configured_base_url() {
 #[tokio::test]
 async fn test_init_llm_registry_missing_credential_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    // Credentials dir intentionally absent.
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
                 "models": [{ "id": "gpt-4o-basic", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    // Credentials dir intentionally absent.
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -99,7 +87,7 @@ async fn test_init_llm_registry_missing_credential_returns_empty_chain() {
 #[tokio::test]
 async fn test_init_llm_registry_empty_providers_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
+    crate::test_helpers::write_mandatory_configs(dir.path()).unwrap();
     let cm = crate::test_helpers::load_config_manager(dir.path());
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
@@ -163,10 +151,9 @@ async fn test_init_llm_registry_corrupt_models_json_refuses_startup() {
 #[tokio::test]
 async fn test_init_llm_registry_broken_credential_path_returns_empty_chain() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
     let broken = dir.path().join("broken.json");
     std::fs::write(&broken, "not json").unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
@@ -174,9 +161,8 @@ async fn test_init_llm_registry_broken_credential_path_returns_empty_chain() {
                 "models": [{ "id": "gpt-4o-basic", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -191,10 +177,9 @@ async fn test_init_llm_registry_broken_credential_path_returns_empty_chain() {
 #[tokio::test]
 async fn test_init_llm_registry_credential_path_overrides_convention_dir() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
     let explicit = dir.path().join("explicit.json");
     std::fs::write(&explicit, r#"{"provider":"openai","apiKey":"path-key"}"#).unwrap();
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
@@ -202,10 +187,8 @@ async fn test_init_llm_registry_credential_path_overrides_convention_dir() {
                 "models": [{ "id": "gpt-4o-basic", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "openai", "dir-key").unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("openai", "dir-key")],
+    );
 
     let (registry, _fallback_client) = init_registry_isolated(&cm).await;
 
@@ -219,8 +202,7 @@ async fn test_init_llm_registry_credential_path_overrides_convention_dir() {
 #[tokio::test]
 async fn test_init_llm_registry_chain_covers_enabled_models_only() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
@@ -233,11 +215,8 @@ async fn test_init_llm_registry_chain_covers_enabled_models_only() {
                 "models": [{ "id": "MiniMax-M2.7" }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "openai", "k1").unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "minimax", "k2").unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("openai", "k1"), ("minimax", "k2")],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -259,8 +238,7 @@ async fn test_init_llm_registry_chain_covers_enabled_models_only() {
 #[tokio::test]
 async fn test_init_llm_registry_registers_all_llm_crate_vendors() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "glm": {
@@ -276,12 +254,8 @@ async fn test_init_llm_registry_registers_all_llm_crate_vendors() {
                 "models": [{ "id": "doubao-pro" }]
             }
         }),
-    )
-    .unwrap();
-    for id in ["glm", "deepseek", "volcengine"] {
-        crate::test_helpers::write_provider_credential(dir.path(), id, "k").unwrap();
-    }
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("glm", "k"), ("deepseek", "k"), ("volcengine", "k")],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -301,16 +275,13 @@ async fn test_init_llm_registry_registers_all_llm_crate_vendors() {
 #[tokio::test]
 async fn test_init_llm_registry_vendor_default_base_url_without_config() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "glm": { "models": [{ "id": "glm-4-plus" }] }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "glm", "k").unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("glm", "k")],
+    );
 
     let (registry, _fallback_client) = init_registry_isolated(&cm).await;
 
@@ -326,8 +297,7 @@ async fn test_init_llm_registry_vendor_default_base_url_without_config() {
 #[tokio::test]
 async fn test_init_llm_registry_unknown_provider_skipped() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "acme": {
@@ -335,10 +305,8 @@ async fn test_init_llm_registry_unknown_provider_skipped() {
                 "models": [{ "id": "acme-1", "enabled": true }]
             }
         }),
-    )
-    .unwrap();
-    crate::test_helpers::write_provider_credential(dir.path(), "acme", "k").unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[("acme", "k")],
+    );
 
     let (registry, fallback_client) = init_registry_isolated(&cm).await;
 
@@ -353,8 +321,8 @@ async fn test_init_llm_registry_unknown_provider_skipped() {
 #[tokio::test]
 async fn test_init_llm_registry_env_fallback_via_injected_lookup() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    // No credential file — the env lookup is the only key source.
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": {
@@ -362,10 +330,8 @@ async fn test_init_llm_registry_env_fallback_via_injected_lookup() {
                 "models": [{ "id": "gpt-4o-basic" }]
             }
         }),
-    )
-    .unwrap();
-    // No credential file — the env lookup is the only key source.
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[],
+    );
 
     let (registry, fallback_client) =
         init_registry_with_env(&cm, &[("OPENAI_API_KEY", "sk-env")]).await;
@@ -380,15 +346,13 @@ async fn test_init_llm_registry_env_fallback_via_injected_lookup() {
 #[tokio::test]
 async fn test_init_llm_registry_empty_env_value_treated_as_absent() {
     let dir = TempDir::new().unwrap();
-    write_config_skeleton(dir.path());
-    crate::test_helpers::write_models_providers(
+    let cm = load_cm(
         dir.path(),
         serde_json::json!({
             "openai": { "models": [{ "id": "gpt-4o-basic" }] }
         }),
-    )
-    .unwrap();
-    let cm = crate::test_helpers::load_config_manager(dir.path());
+        &[],
+    );
 
     let (registry, fallback_client) = init_registry_with_env(&cm, &[("OPENAI_API_KEY", "")]).await;
 

@@ -170,6 +170,9 @@ pub async fn build_fallback_client(registry: &Arc<LLMRegistry>) -> Arc<UnifiedFa
     Arc::new(UnifiedFallbackClient::new(entries, cooldown))
 }
 
+// Naming: the older unprefixed cases here predate STANDARDS §3 and are
+// kept as-is; **every newly added test case must carry the `test_`
+// prefix** (Step 1.21).
 #[cfg(test)]
 mod tests {
     use super::*;

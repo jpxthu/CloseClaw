@@ -374,6 +374,42 @@ struct RegistryHarness {
     late_bound: Arc<LateBoundSessionManagerOps>,
 }
 
+/// Build the plan-execution confirm flow sharing `session_mgr` (used by
+/// [`RegistryHarness::new`]).
+fn make_confirm_flow(
+    session_mgr: &Arc<SessionManager>,
+) -> Arc<closeclaw_tools::builtin::PlanExecConfirmFlow> {
+    Arc::new(
+        closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
+            Arc::clone(session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
+            tokio::runtime::Handle::current(),
+        ),
+    )
+}
+
+/// Build the spawn controller wiring config/session/permission deps
+/// (used by [`RegistryHarness::new`]).
+fn make_spawn_controller(
+    config_mgr: &Arc<ConfigManager>,
+    session_mgr: &Arc<SessionManager>,
+    permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+) -> Arc<closeclaw_session::spawn::controller::SpawnController> {
+    Arc::new({
+        let permission_checker: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
+            closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
+                Arc::clone(session_mgr),
+                Arc::clone(config_mgr),
+                Arc::clone(permission_engine),
+            ),
+        );
+        closeclaw_session::spawn::controller::SpawnController::new(
+            Arc::clone(config_mgr),
+            Arc::clone(session_mgr) as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+            permission_checker,
+        )
+    })
+}
+
 #[cfg(test)]
 impl RegistryHarness {
     /// Create a harness with default empty skill registry (None).
@@ -408,29 +444,10 @@ impl RegistryHarness {
                 closeclaw_permission::RuleSet::default(),
             ),
         ));
-        let confirm_flow = Arc::new(
-            closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
-                Arc::clone(&session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
-                tokio::runtime::Handle::current(),
-            ),
-        );
         let builtin_registry = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
-        let spawn_controller = Arc::new({
-            let permission_checker: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
-                closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
-                    Arc::clone(&session_mgr),
-                    Arc::clone(&config_mgr),
-                    Arc::clone(&permission_engine),
-                ),
-            );
-            closeclaw_session::spawn::controller::SpawnController::new(
-                Arc::clone(&config_mgr),
-                Arc::clone(&session_mgr)
-                    as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
-                permission_checker,
-            )
-        });
+        let spawn_controller = make_spawn_controller(&config_mgr, &session_mgr, &permission_engine);
         let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+        let confirm_flow = make_confirm_flow(&session_mgr);
 
         Self {
             tmp,

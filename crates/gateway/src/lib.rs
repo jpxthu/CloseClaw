@@ -622,9 +622,7 @@ impl Gateway {
                 return Some(HandleResult::MessageQueued("".to_string()));
             }
         }
-        // New user auto-registration (design doc). Owner / terminal-channel
-        // callers are exempt inside the gate (design cli/README.md,
-        // requirements/cli.md §F1).
+        // New user auto-registration (design doc).
         if let Some(sender) = sender_id {
             if let Some(result) = self.check_new_user_registration(sender, channel).await {
                 return Some(result);
