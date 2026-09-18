@@ -30,8 +30,9 @@ fn test_models_config_missing_returns_default() {
 }
 
 /// models.json present but corrupt (invalid JSON) and no backup exists
-/// → F3 protection (config README 启动加载 step 1 + requirements
-/// config §F3): `load()` refuses startup (case 2 of the matrix; cases
+/// → F3 protection (config README 启动加载 (startup load) step 1 +
+/// requirements config §F3): `load()` refuses startup (case 2 of the
+/// matrix; cases
 /// 3–4 below take the same rollback path).
 #[test]
 fn test_models_config_corrupt_file_without_backup_refuses_load() {

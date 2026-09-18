@@ -20,14 +20,6 @@ use tokio::sync::watch;
 use crate::config_watcher;
 use crate::gateway_restart::RestartHandle;
 
-/// Handles returned by chat RPC init: server task handle, socket path,
-/// and the registered terminal IM plugin (turn-completion consumer).
-pub(crate) type ChatRpcInit = (
-    tokio::task::JoinHandle<()>,
-    PathBuf,
-    Arc<crate::chat_rpc::RpcTerminalPlugin>,
-);
-
 /// Global daemon state
 pub struct Daemon {
     /// Gateway instance — wrapped in Mutex for restart-time swap.

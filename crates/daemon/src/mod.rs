@@ -951,7 +951,7 @@ impl Daemon {
     async fn init_phase_6_chat_rpc(
         gateway: &Arc<closeclaw_gateway::Gateway>,
         config_dir: &str,
-    ) -> crate::daemon_struct::ChatRpcInit {
+    ) -> crate::chat_rpc::ChatRpcInit {
         let sock_path = crate::chat_rpc::chat_socket_path(Path::new(config_dir));
         let (chat_handle, rpc_plugin) =
             crate::chat_rpc::spawn_chat_rpc_server(gateway, &sock_path).await;

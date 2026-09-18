@@ -200,13 +200,22 @@ async fn collect_responses(
 /// [`collect_responses`] with an injectable completion-wait bound:
 /// production passes [`TURN_COMPLETION_TIMEOUT_SECS`]; tests inject a
 /// short bound to exercise the timeout branch deterministically.
+///
+/// While the handler task is pending, frames already on the channel
+/// are drained concurrently (see [`await_handler_while_draining`]):
+/// the connection channel holds at most 64 frames, so a synchronous
+/// producer that fills it would otherwise block on `tx.send` forever —
+/// the handler could never return, and a non-`LlmStarted` result has
+/// no bounded wait that could recover from that.
 async fn collect_responses_with_timeout(
     mut rx: mpsc::Receiver<RenderedOutput>,
     handle: tokio::task::JoinHandle<Option<HandleResult>>,
     turn_timeout: Duration,
 ) -> (Vec<ChatResponse>, mpsc::Receiver<RenderedOutput>) {
     let mut responses = Vec::new();
-    let result = match handle.await {
+    // Phase 1 — drain while awaiting the handler; phase 2 — the
+    // per-result collection below (bounded wait / trailing drain).
+    let result = match await_handler_while_draining(&mut rx, handle, &mut responses).await {
         Ok(result) => result,
         Err(e) => {
             tracing::error!(error = %e, "chat message handler panicked");
@@ -218,6 +227,9 @@ async fn collect_responses_with_timeout(
     };
     match result {
         Some(HandleResult::LlmStarted) => {
+            // Frames collected in phase 1 are already in `responses`;
+            // keep draining until the turn-completion consumer closes
+            // the channel, bounded by `turn_timeout`.
             let wait = tokio::time::timeout(turn_timeout, async {
                 while let Some(output) = rx.recv().await {
                     responses.push(rendered_to_response(&output));
@@ -232,6 +244,38 @@ async fn collect_responses_with_timeout(
     }
 
     (responses, rx)
+}
+
+/// Await the handler task while concurrently draining the connection
+/// channel: the `select!` races `rx.recv()` (each queued frame is
+/// appended to `responses`) against the handle (breaks the loop with
+/// the handler's result). A closed channel stops the recv arm — it
+/// would return `None` immediately and spin — and the loop then only
+/// awaits the handle.
+///
+/// Structural requirement: waiting for the handle *without* draining
+/// deadlocks as soon as a synchronous producer fills the channel
+/// (bounded at 64 frames): the producer blocks on `tx.send`, the
+/// handler never returns, and a non-`LlmStarted` result would only
+/// drain after `handle.await` — which can then never complete.
+async fn await_handler_while_draining(
+    rx: &mut mpsc::Receiver<RenderedOutput>,
+    mut handle: tokio::task::JoinHandle<Option<HandleResult>>,
+    responses: &mut Vec<ChatResponse>,
+) -> Result<Option<HandleResult>, tokio::task::JoinError> {
+    let mut is_channel_open = true;
+    loop {
+        if !is_channel_open {
+            break handle.await;
+        }
+        tokio::select! {
+            output = rx.recv() => match output {
+                Some(output) => responses.push(rendered_to_response(&output)),
+                None => is_channel_open = false,
+            },
+            result = &mut handle => break result,
+        }
+    }
 }
 
 /// Finalize the response list: append Done or Error as appropriate.
@@ -717,6 +761,12 @@ pub(crate) async fn spawn_chat_rpc_server(
     tracing::info!("chat RPC server started on {}", sock_path.display());
     (chat_handle, rpc_plugin)
 }
+
+/// Handles returned by chat RPC init: server task handle, socket path,
+/// and the registered terminal IM plugin (turn-completion consumer).
+/// Lives here (next to [`spawn_chat_rpc_server`], its only producer) —
+/// the daemon struct keeps only state fields.
+pub(crate) type ChatRpcInit = (tokio::task::JoinHandle<()>, PathBuf, Arc<RpcTerminalPlugin>);
 
 // ---------------------------------------------------------------------------
 // Socket path helper

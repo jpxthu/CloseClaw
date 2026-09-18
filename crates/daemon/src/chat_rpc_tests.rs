@@ -742,3 +742,50 @@ async fn test_collect_responses_llm_started_times_out_at_injected_bound() {
         "the timeout must leave the connection channel open and untouched"
     );
 }
+
+/// Step 1.24 — concurrent drain while awaiting the handler: a handler
+/// that synchronously fills the channel (capacity 2) blocks on its
+/// third `send` until the collector receives, so the frames can only
+/// be collected if `collect_responses_with_timeout` drains
+/// concurrently with `handle.await`. All three frames must arrive in
+/// order and the non-LlmStarted branch must return without hanging
+/// (the guard deadline fails the test if nothing drains while the
+/// handle is pending).
+#[tokio::test]
+async fn test_collect_responses_drains_while_awaiting_handler() {
+    let (tx, rx) = mpsc::channel(2); // capacity < frames pushed: the 3rd send needs a recv
+    let handle: tokio::task::JoinHandle<Option<HandleResult>> = tokio::spawn(async move {
+        for i in 0..3u8 {
+            tx.send(RenderedOutput {
+                msg_type: "text".to_string(),
+                payload: json!(format!("frame {i}")),
+            })
+            .await
+            .expect("collector must drain while the handle is pending");
+        }
+        Some(HandleResult::SlashHandled)
+    });
+
+    let (responses, _rx_left) = tokio::time::timeout(
+        Duration::from_secs(1),
+        collect_responses_with_timeout(rx, handle, Duration::from_secs(30)),
+    )
+    .await
+    .expect("must drain concurrently instead of deadlocking on a full channel");
+
+    assert_eq!(
+        responses,
+        vec![
+            ChatResponse::ContentChunk {
+                content: "frame 0".to_string()
+            },
+            ChatResponse::ContentChunk {
+                content: "frame 1".to_string()
+            },
+            ChatResponse::ContentChunk {
+                content: "frame 2".to_string()
+            },
+        ],
+        "every frame pushed by the handler must be collected, in order"
+    );
+}

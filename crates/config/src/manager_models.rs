@@ -2,15 +2,17 @@
 //!
 //! One function domain for everything models.json: the load-time section
 //! load implementing the four-case matrix the design docs define (no
-//! fifth case — config README 启动加载 step 1 + 校验规则表 + daemon
-//! README: a missing models.json never blocks startup):
+//! fifth case — config README 启动加载 (startup load) step 1 +
+//! 校验规则表 (validation rules table) + daemon README: a missing
+//! models.json never blocks startup):
 //!
 //! 1. File **absent** → optional: INFO, section + cache cleared (the
 //!    cache mirrors disk), startup continues.
 //! 2. File **present but corrupt** (file-level JSON parse failure) → F3
-//!    (design doc `docs/design/config/README.md` 启动加载 step 1 and
-//!    `docs/requirements/config.md` §F3: roll back to the latest backup,
-//!    no usable backup → [`ConfigLoadError`], startup refused).
+//!    (design doc `docs/design/config/README.md` 启动加载 (startup
+//!    load) step 1 and `docs/requirements/config.md` §F3: roll back to
+//!    the latest backup, no usable backup → [`ConfigLoadError`],
+//!    startup refused).
 //! 3. **Structured parse failure** (valid JSON, wrong shape for
 //!    [`ModelsConfigData`]) → F3, same path.
 //! 4. **Business validation failure** (non-empty provider/model id,

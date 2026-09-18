@@ -71,13 +71,14 @@ impl Daemon {
 /// Resolve the merged credential set from ConfigManager — the
 /// `<root>/config/credentials/` convention directory plus models.json
 /// `credential_path` references, merged at load (credential_path wins
-/// on conflicts). Unloaded credentials fall back to an empty set with
-/// a warning instead of failing the registration.
+/// on conflicts). A poisoned credentials lock falls back to an empty
+/// set with a warning instead of failing the registration (the normal
+/// pre-load state is `Some(default)`, not `None`).
 fn resolve_credentials(config_manager: &ConfigManager) -> CredentialsProvider {
     match config_manager.credentials() {
         Some(credentials) => credentials,
         None => {
-            tracing::warn!("ConfigManager credentials not loaded — using empty set");
+            tracing::warn!("credentials lock poisoned — using empty set");
             CredentialsProvider::default()
         }
     }

@@ -843,8 +843,12 @@ async fn test_init_llm_registry_with_credential_registers_provider() {
     );
 }
 
-/// init_llm_registry must NOT register providers for invalid (empty) API
-/// keys — the credential file fails validation and is skipped.
+/// init_llm_registry must NOT register providers with empty API keys.
+/// The empty apiKey credential file itself loads fine (credential
+/// loading does not validate key contents at load time); the skip
+/// happens in `resolve_api_key`, whose
+/// `.filter(|key| !key.is_empty())` treats the empty key as absent —
+/// so no vendor provider is constructed for it.
 #[tokio::test]
 async fn test_init_llm_registry_empty_key_not_registered() {
     let dir = tempfile::tempdir().unwrap();

@@ -906,7 +906,7 @@ impl ConfigManager {
 
     /// Get the loaded credentials provider.
     ///
-    /// Returns `None` if `load()` has not been called yet.
+    /// Returns `None` only if the credentials lock is poisoned.
     pub fn credentials(&self) -> Option<CredentialsProvider> {
         self.credentials_provider
             .read()
