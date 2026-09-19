@@ -1,7 +1,7 @@
 use super::*;
+use crate::test_helpers::{make_dispatch_context, TEST_MAX_MESSAGE_SIZE};
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_gateway::types::GatewayConfig;
-use closeclaw_gateway::SessionManager;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -479,72 +479,16 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
-/// Test cap substituted for the default `max_message_size` = 0 by
-/// [`effective_test_config`]; keeps inbound validation from rejecting
-/// non-empty test messages.
-const TEST_MAX_MESSAGE_SIZE: usize = 64 * 1024;
-
-/// Normalize a test [`GatewayConfig`] for inbound validation: at the config
-/// default of `max_message_size` = 0 any non-empty text message exceeds the
-/// limit and is rejected by `validate_inbound`, so a sentinel 0 is replaced
-/// by [`TEST_MAX_MESSAGE_SIZE`]; an explicit non-zero cap passes through
-/// unchanged.
-fn effective_test_config(config: GatewayConfig) -> GatewayConfig {
-    if config.max_message_size == 0 {
-        GatewayConfig {
-            max_message_size: TEST_MAX_MESSAGE_SIZE,
-            ..config
-        }
-    } else {
-        config
-    }
-}
-
-/// Sentinel contract — the default config (`max_message_size` = 0) gets the
-/// test cap so `validate_inbound` accepts non-empty text.
-#[test]
-fn test_effective_test_config_fills_default_sentinel() {
-    let config = effective_test_config(GatewayConfig::default());
-    assert_eq!(config.max_message_size, TEST_MAX_MESSAGE_SIZE);
-}
-
-/// Sentinel contract — an explicit non-zero cap is kept as-is.
-#[test]
-fn test_effective_test_config_keeps_explicit_cap() {
-    let config = GatewayConfig {
-        max_message_size: 4096,
-        ..Default::default()
-    };
-    let effective = effective_test_config(config);
-    assert_eq!(effective.max_message_size, 4096);
-}
-
-/// Shared base harness for the dispatch tests: `SessionManager` +
-/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
-/// Callers may pass `GatewayConfig::default()` and still be safe for
-/// inbound validation — [`effective_test_config`] substitutes the cap.
-fn make_test_context(config: GatewayConfig) -> ChatContext {
-    let config = effective_test_config(config);
-    let sessions = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        closeclaw_common::ReasoningLevel::default(),
-    ));
-    let gateway = Arc::new(Gateway::new(config, sessions));
-    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-    ChatContext {
-        gateway,
-        rpc_plugin,
-    }
-}
+// Shared dispatch harness — `make_dispatch_context` +
+// `effective_test_config` (and their sentinel contract tests) live in
+// `crate::test_helpers` (Step 1.2 dedup).
 
 /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
 /// without side effects.
 #[tokio::test]
 async fn test_dispatch_ping_returns_pong_actual() {
     let req = ChatRequest::Ping;
-    let context = make_test_context(GatewayConfig::default());
+    let context = make_dispatch_context(GatewayConfig::default());
     let responses = tokio::time::timeout(Duration::from_secs(1), dispatch(req, &context))
         .await
         .expect("dispatch must terminate instead of hanging until the suite-level timeout");
@@ -879,7 +823,7 @@ async fn make_stop_ready_context() -> ChatContext {
         max_message_size: TEST_MAX_MESSAGE_SIZE,
         ..Default::default()
     };
-    let context = make_test_context(config);
+    let context = make_dispatch_context(config);
     // Stop-specific: terminal plugin as outbound destination + `/stop` route.
     context
         .gateway

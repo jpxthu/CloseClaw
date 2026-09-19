@@ -437,23 +437,11 @@ fn test_admin_context_no_gateway_field() {
 /// ChatContext DOES hold a Gateway Arc — it must be rebuilt on restart.
 #[test]
 fn test_chat_context_holds_gateway_arc() {
-    use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
+    use crate::test_helpers::make_dispatch_context;
     use closeclaw_gateway::types::GatewayConfig;
-    use closeclaw_gateway::{Gateway, SessionManager};
 
-    let gw = Arc::new(Gateway::new(
-        GatewayConfig::default(),
-        Arc::new(SessionManager::new(
-            &GatewayConfig::default(),
-            None,
-            None,
-            closeclaw_common::ReasoningLevel::default(),
-        )),
-    ));
-    let ctx = ChatContext {
-        gateway: Arc::clone(&gw),
-        rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
-    };
+    let ctx = make_dispatch_context(GatewayConfig::default());
+    let gw = Arc::clone(&ctx.gateway);
     assert!(Arc::ptr_eq(&ctx.gateway, &gw));
 }
 
