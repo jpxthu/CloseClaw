@@ -84,7 +84,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 **指令**：
 - `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
 - `/pwd`：查看当前工作目录
-- `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））直接执行；写操作 Owner 调用直接执行，User 调用必须经权限审批，审批不可绕过
+- `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））直接执行；写操作须经权限审批，审批不可绕过
 
 > **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
@@ -92,7 +92,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 
 ### F8. 命令执行
 
-Owner 可以执行任意 Shell 命令，Owner 调用默认放行，不经审批直接执行。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
+Owner 可以执行任意 Shell 命令。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
