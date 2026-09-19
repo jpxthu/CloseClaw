@@ -34,9 +34,7 @@ impl OpenAIProvider {
     pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
             api_key,
-            base_url: base_url
-                .map(str::to_string)
-                .unwrap_or_else(|| OPENAI_API_URL.to_string()),
+            base_url: base_url.unwrap_or(OPENAI_API_URL).to_string(),
             client: Client::new(),
             supported_protocols: vec![ProtocolId::new("openai")],
         }

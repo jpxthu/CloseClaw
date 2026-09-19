@@ -142,9 +142,7 @@ impl DeepSeekProvider {
             .expect("Failed to create HTTP client");
         Self {
             api_key,
-            base_url: base_url
-                .map(str::to_string)
-                .unwrap_or_else(|| DEEPSEEK_API_URL.to_string()),
+            base_url: base_url.unwrap_or(DEEPSEEK_API_URL).to_string(),
             http_client,
             supported_protocols: vec![ProtocolId::new("openai"), ProtocolId::new("anthropic")],
         }

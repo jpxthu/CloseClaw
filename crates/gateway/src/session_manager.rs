@@ -432,7 +432,7 @@ impl SessionManager {
 
     /// Point-in-time snapshot: the subset of `ids` present in `sessions`,
     /// resolved in a single `sessions.read()` pass (no per-id lock round-trips).
-    pub async fn filter_existing(&self, ids: &[String]) -> HashSet<String> {
+    pub(crate) async fn filter_existing(&self, ids: &[String]) -> HashSet<String> {
         let sessions = self.sessions.read().await;
         ids.iter()
             .filter(|&id| sessions.contains_key(id))

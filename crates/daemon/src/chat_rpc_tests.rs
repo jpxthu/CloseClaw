@@ -853,9 +853,11 @@ async fn make_stop_ready_context() -> ChatContext {
 /// Step 1.4 — lock the `ChatRequest::StopSession` output-frame contract of
 /// `dispatch_stop_session`: the agent route is registered, the `/stop` reply
 /// frames produced by the stop chain are drained, and they all arrive
-/// BEFORE the single terminal frame. A dropped route/drain loses the reply
-/// (assertion ①), an inverted order fails ③, a duplicated terminal fails ② —
-/// no regression can pass silently.
+/// BEFORE the single terminal frame, which must be `Done` (stop success).
+/// A dropped route/drain loses the reply (assertion ①), an inverted order
+/// fails ③, a duplicated terminal fails ②, and an `Error` terminal (failure
+/// regression in `handle_inbound_message` while the drain still replies)
+/// fails ② — no regression can pass silently.
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
@@ -874,12 +876,17 @@ async fn test_dispatch_stop_session_replies_before_terminal() {
         "stop reply frame must be present (route + drain), got {responses:?}"
     );
 
-    // ② exactly one terminal frame, no more no less
+    // ② exactly one terminal frame, no more no less, and it is `Done`
+    // (locks the stop success path: an `Error` terminal must fail here)
     let terminals = terminal_frame_indexes(&responses);
     assert_eq!(
         terminals.len(),
         1,
         "exactly one terminal frame expected, got {responses:?}"
+    );
+    assert!(
+        matches!(responses[terminals[0]], ChatResponse::Done),
+        "terminal frame must be Done (stop success path), got {responses:?}"
     );
 
     // ③ every reply frame precedes the terminal frame

@@ -248,8 +248,8 @@ fn force_restart_executing_returns_false() {
 // -- DaemonReloadCallback restart signal delivery ----------------------
 
 // The TempDir is returned alongside the manager (not dropped at block end)
-// so the config path stays valid for the whole test — STANDARDS §8 temp
-// files (:102) / determinism (:118). Callers must hold the TempDir binding.
+// so the config path stays valid for the whole test — STANDARDS §8 临时文件
+// 与 config / §9 断言风格（确定性）. Callers must hold the TempDir binding.
 fn make_test_config_manager() -> (Arc<closeclaw_config::ConfigManager>, tempfile::TempDir) {
     let d = tempfile::tempdir().unwrap();
     for (name, content) in &[
