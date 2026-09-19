@@ -243,7 +243,7 @@ mod tests {
             msg_type: "text".into(),
             payload: serde_json::Value::String("test output".into()),
         };
-        let result = plugin.send(&output, "cli", None).await;
+        let result = plugin.send(&output, "cli", None, None).await;
         assert!(result.is_ok());
     }
 
@@ -254,7 +254,7 @@ mod tests {
             msg_type: "text".into(),
             payload: serde_json::Value::String(String::new()),
         };
-        let result = plugin.send(&output, "cli", None).await;
+        let result = plugin.send(&output, "cli", None, None).await;
         assert!(result.is_ok());
     }
 
@@ -265,7 +265,7 @@ mod tests {
             msg_type: "text".into(),
             payload: serde_json::Value::Null,
         };
-        let result = plugin.send(&output, "cli", None).await;
+        let result = plugin.send(&output, "cli", None, None).await;
         assert!(result.is_ok());
     }
 
@@ -276,7 +276,7 @@ mod tests {
             msg_type: "text".into(),
             payload: serde_json::json!({}),
         };
-        let result = plugin.send(&output, "cli", None).await;
+        let result = plugin.send(&output, "cli", None, None).await;
         assert!(result.is_ok());
     }
 
@@ -287,7 +287,7 @@ mod tests {
             msg_type: "text".into(),
             payload: serde_json::Value::String("thread reply".into()),
         };
-        let result = plugin.send(&output, "cli", Some("thread_123")).await;
+        let result = plugin.send(&output, "cli", Some("thread_123"), None).await;
         assert!(result.is_ok());
     }
 

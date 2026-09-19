@@ -228,7 +228,7 @@ fn test_deepseek_plugin_injects_medium_effort_as_base() {
 }
 
 #[test]
-fn test_deepseek_plugin_max_downgrades_to_high() {
+fn test_deepseek_plugin_max_maps_to_top_effort() {
     let (_, _, pipeline) = assemble_llm_components("deepseek");
 
     let mut req = make_request();
@@ -239,11 +239,8 @@ fn test_deepseek_plugin_max_downgrades_to_high() {
         req.extra_body.get("reasoning_effort").unwrap(),
         &serde_json::Value::String("high".to_string())
     );
-    assert_eq!(
-        req.reasoning_level,
-        ReasoningLevel::High,
-        "Max should be downgraded to High"
-    );
+    // Plugin layer does not downgrade reasoning_level; gateway handles that.
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
 }
 
 // ── 3. GLM: OpenAiProtocol + GlmInterpreter + GlmPlugin ───────────────────
@@ -327,7 +324,7 @@ fn test_glm_plugin_disabled_for_low() {
 }
 
 #[test]
-fn test_glm_plugin_max_downgrades_to_high() {
+fn test_glm_plugin_max_maps_to_enabled() {
     let (_, _, pipeline) = assemble_llm_components("glm");
 
     let mut req = make_request();
@@ -335,7 +332,8 @@ fn test_glm_plugin_max_downgrades_to_high() {
     let model = req.model.clone();
     pipeline.before_request(&mut req, &model);
 
-    assert_eq!(req.reasoning_level, ReasoningLevel::High);
+    // Plugin layer does not downgrade reasoning_level; gateway handles that.
+    assert_eq!(req.reasoning_level, ReasoningLevel::Max);
     assert_eq!(
         req.extra_body.get("thinking").unwrap(),
         &serde_json::json!({"type": "enabled"})

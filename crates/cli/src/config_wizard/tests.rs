@@ -814,7 +814,7 @@ mod provider_info_tests {
 
 #[cfg(test)]
 mod compute_default_selection_tests {
-    use super::compute_default_selection;
+    use super::{compute_default_selection, test_model};
     use std::collections::HashSet;
 
     #[test]

@@ -9,9 +9,56 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::LateBoundSessionManagerOps;
+use closeclaw_tasks::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo, TaskManager,
+};
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
+
+// ── Mock TaskManager ────────────────────────────────────────────────────────
+
+/// Minimal mock implementing [`TaskManager`] for tests that need a task_manager
+/// set on [`SessionManager`] (e.g. `populate_registries`).
+struct MockTaskManager;
+
+#[async_trait::async_trait]
+impl TaskManager for MockTaskManager {
+    async fn spawn_task(
+        &self,
+        _command: &str,
+        _cwd: &std::path::Path,
+        _is_backgrounded: bool,
+        _session_id: &str,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("MockTaskManager::spawn_task")
+    }
+    async fn backgroundize_task(
+        &self,
+        _child: tokio::process::Child,
+        _command: &str,
+        _is_backgrounded: bool,
+        _session_id: &str,
+    ) -> Result<BackgroundTask, BackgroundTaskError> {
+        unimplemented!("MockTaskManager::backgroundize_task")
+    }
+    async fn kill_task(&self, _task_id: &str) -> Result<(), BackgroundTaskError> {
+        unimplemented!("MockTaskManager::kill_task")
+    }
+    async fn get_task(&self, _task_id: &str) -> Option<BackgroundTask> {
+        None
+    }
+    async fn drain_notifications(&self) -> Vec<CompletionNotification> {
+        vec![]
+    }
+    async fn list_running_tasks(&self) -> Vec<RunningTaskInfo> {
+        vec![]
+    }
+    async fn cleanup_all_finished(&self, _session_id: &str) {}
+    fn max_execution_secs(&self) -> u64 {
+        3600
+    }
+}
 
 /// Helper: create a ConfigManager backed by a temp directory.
 fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
@@ -413,7 +460,9 @@ fn make_spawn_controller(
 #[cfg(test)]
 impl RegistryHarness {
     /// Create a harness with default empty skill registry (None).
-    fn new() -> Self {
+    /// Sets a mock TaskManager on SessionManager so `populate_registries`
+    /// can retrieve it.
+    async fn new() -> Self {
         let tmp = TempDir::new().unwrap();
         let config_mgr = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
@@ -426,6 +475,10 @@ impl RegistryHarness {
             None,
             ReasoningLevel::default(),
         ));
+        // Set a mock TaskManager so populate_registries can retrieve it.
+        session_mgr
+            .set_task_manager(Arc::new(MockTaskManager) as Arc<dyn TaskManager>)
+            .await;
         let permission_engine = Arc::new(tokio::sync::RwLock::new(
             closeclaw_permission::PermissionEngine::new(
                 closeclaw_permission::RuleSet::default(),
@@ -549,7 +602,7 @@ async fn test_hot_reload_init_success_with_valid_config_dir() {
 async fn test_populate_registries_fails_without_disk_skill_registry() {
     use crate::registries::populate_registries;
 
-    let harness = RegistryHarness::new();
+    let harness = RegistryHarness::new().await;
     // skill_registry remains None — no DiskSkillRegistry available.
     let ctx = harness.ctx();
 
@@ -574,7 +627,7 @@ async fn test_populate_registries_fails_without_disk_skill_registry() {
 async fn test_populate_registries_success_with_valid_setup() {
     use crate::registries::populate_registries;
 
-    let mut harness = RegistryHarness::new();
+    let mut harness = RegistryHarness::new().await;
     let disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
     *harness.skill_registry.write().unwrap() = Some(disk_reg);
 

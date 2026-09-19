@@ -61,9 +61,8 @@ fn test_rpc_terminal_plugin_render() {
     let blocks = vec![ContentBlock::Text("line1".to_string())];
     let output = plugin.render(&blocks, None);
     assert_eq!(output.msg_type, "text");
-    // TerminalRenderer adds trailing newlines from markdown rendering
-    // and an additional newline per block.
-    assert_eq!(output.payload, json!("line1\n\n"));
+    // TerminalRenderer: each block gets a trailing newline.
+    assert_eq!(output.payload, json!("line1\n"));
 }
 
 #[test]
@@ -74,8 +73,9 @@ fn test_rpc_terminal_plugin_render_multiple_blocks() {
         ContentBlock::Text("line2".to_string()),
     ];
     let output = plugin.render(&blocks, None);
-    // TerminalRenderer adds a newline after each block.
-    assert_eq!(output.payload, json!("line1\n\nline2\n\n"));
+    // TerminalRenderer: each block gets a trailing newline,
+    // blocks separated by an empty line.
+    assert_eq!(output.payload, json!("line1\n\nline2\n"));
 }
 
 #[test]
