@@ -587,7 +587,7 @@ mod tests {
     fn test_full_chain_verify_jump_goto_goal() {
         let tmp = tempfile::tempdir().unwrap();
         write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
-        let mut session = make_session_with_phase(&tmp, "Test WF", Phase::Executing);
+        let mut session = make_session_with_phase(&tmp, "Test WF", Phase::Verifying);
 
         // Verify → transitions to Jumping.
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
@@ -605,12 +605,12 @@ mod tests {
             vec![ContentBlock::ToolUse {
                 id: "tc_jump".to_string(),
                 name: "workflow_jump".to_string(),
-                input: r#"{"answers": {"go_next": "yes"}}"#.to_string(),
+                input: r#"{"answers": {"go_next": true}}"#.to_string(),
             }],
         );
         session.process_workflow_tool_results(&[ContentBlock::ToolResult {
             tool_call_id: "tc_jump".to_string(),
-            content: r#"{"action": "workflow_jump", "answers": {"go_next": "yes"}}"#.to_string(),
+            content: r#"{"action": "workflow_jump", "answers": {"go_next": true}}"#.to_string(),
         }]);
 
         let wf = wf_messages(&session);
@@ -625,8 +625,8 @@ mod tests {
     }
 
     /// When jump answers match no transition, no goal is injected.
-    #[test]
-    fn test_jump_no_match_does_not_inject_goal() {
+    #[tokio::test]
+    async fn test_jump_no_match_does_not_inject_goal() {
         let tmp = tempfile::tempdir().unwrap();
         write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
 
@@ -684,7 +684,7 @@ mod tests {
     fn test_verify_tool_exchange_cleanup_preserves_non_workflow() {
         let tmp = tempfile::tempdir().unwrap();
         write_two_step_with_jump_skill_md(tmp.path(), "Test WF");
-        let mut session = make_session_with_phase(&tmp, "Test WF", Phase::Executing);
+        let mut session = make_session_with_phase(&tmp, "Test WF", Phase::Verifying);
 
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
         inject_tool_exchange(
