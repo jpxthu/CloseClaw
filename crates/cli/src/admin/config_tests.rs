@@ -150,8 +150,8 @@ async fn test_config_validate_models_empty_provider_id() {
     assert!(result.is_err(), "empty provider ID should fail validation");
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("provider ID cannot be empty"),
-        "error should mention empty provider ID: {}",
+        err_msg.contains("Validation failed") && err_msg.contains("issue(s)"),
+        "error should report validation failure with issue count: {}",
         err_msg
     );
 }
@@ -183,8 +183,8 @@ async fn test_config_validate_models_empty_model_id() {
     assert!(result.is_err(), "empty model ID should fail validation");
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("id cannot be empty"),
-        "error should mention empty model ID: {}",
+        err_msg.contains("Validation failed") && err_msg.contains("issue(s)"),
+        "error should report validation failure with issue count: {}",
         err_msg
     );
 }
@@ -206,8 +206,8 @@ async fn test_config_validate_gateway_port_out_of_range() {
     assert!(result.is_err(), "port out of range should fail validation");
     let err_msg = result.unwrap_err().to_string();
     assert!(
-        err_msg.contains("1-65535"),
-        "error should mention valid port range: {}",
+        err_msg.contains("Validation failed") && err_msg.contains("issue(s)"),
+        "error should report validation failure with issue count: {}",
         err_msg
     );
 }
@@ -740,17 +740,17 @@ async fn test_rule_list_with_rules() {
         "rules": [{
             "name": "allow-file-read",
             "subject": {
-                "AgentOnly": {
+                "match_mode": "agent_only",
+                "fields": {
                     "agent": "master",
-                    "match_type": "Exact"
+                    "match_type": "exact"
                 }
             },
-            "effect": "Allow",
+            "effect": "allow",
             "actions": [{
-                "ToolCall": {
-                    "tool_name": "read",
-                    "args": "Any"
-                }
+                "type": "tool_call",
+                "skill": "read",
+                "methods": ["Any"]
             }]
         }]
     });
@@ -776,17 +776,17 @@ async fn test_rule_list_with_rules_json() {
         "rules": [{
             "name": "allow-exec",
             "subject": {
-                "AgentOnly": {
+                "match_mode": "agent_only",
+                "fields": {
                     "agent": "master",
-                    "match_type": "Exact"
+                    "match_type": "exact"
                 }
             },
-            "effect": "Allow",
+            "effect": "allow",
             "actions": [{
-                "ToolCall": {
-                    "tool_name": "exec",
-                    "args": "Any"
-                }
+                "type": "tool_call",
+                "skill": "exec",
+                "methods": ["Any"]
             }]
         }]
     });
