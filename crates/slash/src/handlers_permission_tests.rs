@@ -1,9 +1,12 @@
-//! Unit tests for PermissionSlashHandler (Step 1.5).
+//! Unit tests for PermissionSlashHandler.
 //!
-//! Covers:
-//! - Normal path: each sub-command parsed to correct Reply content
-//! - Error path: unknown sub-command, insufficient args, empty args
-//! - Boundary: single vs multiple paths, command with/without args
+//! The four permission subcommands (allow-file, deny-file, allow-cmd, deny-cmd)
+//! are intercepted by the Gateway in production and never reach this handler.
+//! Tests verify:
+//! - Trait metadata (real behavior)
+//! - Empty / whitespace args → usage reply
+//! - Unknown subcommand → error reply with usage
+//! - Intercepted subcommands → `unreachable!` fail-fast (should_panic)
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
@@ -59,119 +62,26 @@ fn test_requires_permission_returns_false() {
     assert!(!h.requires_permission());
 }
 
-// ── normal path: allow-file ─────────────────────────────────────────────────
+// ── empty / whitespace args → usage ─────────────────────────────────────────
 
 #[tokio::test]
-async fn test_allow_file_single_path() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("allow-file eda read /tmp/data/**", &ctx)
-        .await;
-    assert_reply_contains(&result, "allow-file");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "read");
-}
-
-#[tokio::test]
-async fn test_allow_file_multiple_paths() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle(
-            "allow-file eda write /tmp/a.txt /tmp/b.txt /tmp/c.txt",
-            &ctx,
-        )
-        .await;
-    assert_reply_contains(&result, "allow-file");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "write");
-}
-
-// ── normal path: deny-file ──────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_deny_file_single_path() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("deny-file eda write /etc/shadow", &ctx)
-        .await;
-    assert_reply_contains(&result, "deny-file");
-    assert_reply_contains(&result, "eda");
-}
-
-#[tokio::test]
-async fn test_deny_file_multiple_paths() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("deny-file eda read /etc/** /root/**", &ctx)
-        .await;
-    assert_reply_contains(&result, "deny-file");
-    assert_reply_contains(&result, "eda");
-}
-
-// ── normal path: allow-cmd ──────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_allow_cmd_no_args() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("allow-cmd eda ls", &ctx)
-        .await;
-    assert_reply_contains(&result, "allow-cmd");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "ls");
-}
-
-#[tokio::test]
-async fn test_allow_cmd_with_args() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("allow-cmd eda git status log", &ctx)
-        .await;
-    assert_reply_contains(&result, "allow-cmd");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "git");
-}
-
-// ── normal path: deny-cmd ───────────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_deny_cmd_no_args() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("deny-cmd eda rm", &ctx).await;
-    assert_reply_contains(&result, "deny-cmd");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "rm");
-}
-
-#[tokio::test]
-async fn test_deny_cmd_with_args() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("deny-cmd eda rm -rf /", &ctx)
-        .await;
-    assert_reply_contains(&result, "deny-cmd");
-    assert_reply_contains(&result, "eda");
-    assert_reply_contains(&result, "rm");
-}
-
-// ── error path: empty / unknown ─────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_empty_args_returns_usage() {
+async fn test_perm_empty_args_returns_usage() {
     let ctx = dummy_ctx();
     let result = PermissionSlashHandler.handle("", &ctx).await;
     assert_reply_contains(&result, "用法");
 }
 
 #[tokio::test]
-async fn test_whitespace_only_returns_usage() {
+async fn test_perm_whitespace_only_returns_usage() {
     let ctx = dummy_ctx();
     let result = PermissionSlashHandler.handle("   ", &ctx).await;
     assert_reply_contains(&result, "用法");
 }
 
+// ── unknown subcommand → error reply ────────────────────────────────────────
+
 #[tokio::test]
-async fn test_unknown_subcommand() {
+async fn test_perm_unknown_subcommand_returns_error_reply() {
     let ctx = dummy_ctx();
     let result = PermissionSlashHandler
         .handle("bogus-cmd eda read /tmp", &ctx)
@@ -180,60 +90,42 @@ async fn test_unknown_subcommand() {
     assert_reply_contains(&result, "bogus-cmd");
 }
 
-// ── error path: insufficient args ───────────────────────────────────────────
+// ── intercepted subcommands → fail-fast (should_panic) ──────────────────────
+//
+// In production the Gateway intercepts these before the handler is reached.
+// The handler's `dispatch` arms contain `unreachable!` as a deliberate
+// fail-fast; calling them from tests verifies the panic contract.
 
 #[tokio::test]
-async fn test_allow_file_missing_agent() {
+#[should_panic(expected = "intercepted by Gateway")]
+async fn test_perm_allow_file_intercepted() {
     let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("allow-file", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_allow_file_missing_op() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("allow-file eda", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_deny_file_missing_paths() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("deny-file eda read", &ctx)
+    PermissionSlashHandler
+        .handle("allow-file eda read /tmp/data/**", &ctx)
         .await;
-    assert_reply_contains(&result, "参数不足");
 }
 
 #[tokio::test]
-async fn test_allow_cmd_missing_command() {
+#[should_panic(expected = "intercepted by Gateway")]
+async fn test_perm_deny_file_intercepted() {
     let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("allow-cmd eda", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_deny_cmd_missing_agent() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("deny-cmd", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-#[tokio::test]
-async fn test_allow_cmd_missing_agent() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler.handle("allow-cmd", &ctx).await;
-    assert_reply_contains(&result, "参数不足");
-}
-
-// ── boundary: whitespace trimming ────────────────────────────────────────────
-
-#[tokio::test]
-async fn test_leading_trailing_whitespace_trimmed() {
-    let ctx = dummy_ctx();
-    let result = PermissionSlashHandler
-        .handle("  allow-file eda read /tmp/f.txt  ", &ctx)
+    PermissionSlashHandler
+        .handle("deny-file eda write /etc/shadow", &ctx)
         .await;
-    assert_reply_contains(&result, "allow-file");
-    assert_reply_contains(&result, "eda");
+}
+
+#[tokio::test]
+#[should_panic(expected = "intercepted by Gateway")]
+async fn test_perm_allow_cmd_intercepted() {
+    let ctx = dummy_ctx();
+    PermissionSlashHandler
+        .handle("allow-cmd eda ls", &ctx)
+        .await;
+}
+
+#[tokio::test]
+#[should_panic(expected = "intercepted by Gateway")]
+async fn test_perm_deny_cmd_intercepted() {
+    let ctx = dummy_ctx();
+    PermissionSlashHandler.handle("deny-cmd eda rm", &ctx).await;
 }
