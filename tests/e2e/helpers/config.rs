@@ -16,6 +16,9 @@ use std::path::Path;
 /// in `Daemon::init_phase_2`).
 const GATEWAY_CONFIG: &str = r#"{"name":"e2e","max_message_size":16384}"#;
 
+/// Default `models.json` model id (single-entry fallback chain).
+const DEFAULT_MODEL_ID: &str = "gpt-4o-basic";
+
 /// Options for [`write_config_tree`].
 pub struct ConfigTreeOpts {
     /// Address of the in-process fake LLM HTTP server `models.json`
@@ -23,6 +26,8 @@ pub struct ConfigTreeOpts {
     fake_llm_addr: String,
     /// Also write `<root>/gateway.json` (restart-path quirk below).
     write_root_gateway: bool,
+    /// Enabled `models.json` model ids, in fallback-chain order.
+    model_ids: Vec<String>,
 }
 
 impl ConfigTreeOpts {
@@ -31,6 +36,7 @@ impl ConfigTreeOpts {
         Self {
             fake_llm_addr: fake_llm_addr.to_string(),
             write_root_gateway: false,
+            model_ids: vec![DEFAULT_MODEL_ID.to_string()],
         }
     }
 
@@ -40,10 +46,24 @@ impl ConfigTreeOpts {
     /// resolves the admin-socket parent = `<root>`, so the restart reads
     /// `<root>/gateway.json` — provide it there too.
     pub fn with_root_gateway(fake_llm_addr: impl std::fmt::Display) -> Self {
-        Self {
-            fake_llm_addr: fake_llm_addr.to_string(),
-            write_root_gateway: true,
-        }
+        let mut opts = Self::new(fake_llm_addr);
+        opts.write_root_gateway = true;
+        opts
+    }
+
+    /// Declare this test's enabled `models.json` models (chain order).
+    ///
+    /// Replaces the default single `gpt-4o-basic` entry. The daemon
+    /// builds one fallback-chain entry per enabled model in order, and
+    /// `UnifiedFallbackClient` overwrites `request.model` with each
+    /// entry's id starting at index 0 — so the FIRST id here is the
+    /// model observed on the wire (and matched by fake_llm scenarios).
+    /// The master agent config's `model` follows that first id
+    /// (`openai/<id>`, see `write_master_agent`), so the scaffold stays
+    /// aligned without a separate agent-config overwrite.
+    pub fn with_models(mut self, model_ids: &[&str]) -> Self {
+        self.model_ids = model_ids.iter().map(|id| id.to_string()).collect();
+        self
     }
 }
 
@@ -73,7 +93,7 @@ impl ConfigTreeOpts {
 ///   overwrite the master agent file after calling this function.
 pub fn write_config_tree(root: &Path, opts: ConfigTreeOpts) {
     write_mandatory_configs(root, &opts);
-    write_master_agent(root);
+    write_master_agent(root, &opts);
     if opts.write_root_gateway {
         // The restart path reads <root>/gateway.json (resolve_config_dir
         // returns the admin-socket parent, not the config subdir).
@@ -94,18 +114,7 @@ fn write_mandatory_configs(root: &Path, opts: &ConfigTreeOpts) {
     )
     .expect("write agents.json");
 
-    let models = serde_json::json!({
-        "version": "1.0",
-        "mode": "merge",
-        "providers": {
-            "openai": {
-                "baseUrl": format!("http://{}/v1", opts.fake_llm_addr),
-                "protocol": "openai",
-                "credentialPath": "credentials/openai.json",
-                "models": [{ "id": "gpt-4o-basic", "enabled": true }]
-            }
-        }
-    });
+    let models = models_json(opts);
     std::fs::write(
         config_dir.join("models.json"),
         serde_json::to_string(&models).expect("serialize models.json"),
@@ -132,14 +141,40 @@ fn write_mandatory_configs(root: &Path, opts: &ConfigTreeOpts) {
     .expect("write credentials");
 }
 
+/// Build the `models.json` value: one enabled entry per declared model
+/// id, in declaration order (chain order).
+fn models_json(opts: &ConfigTreeOpts) -> serde_json::Value {
+    let models: Vec<serde_json::Value> = opts
+        .model_ids
+        .iter()
+        .map(|id| serde_json::json!({ "id": id, "enabled": true }))
+        .collect();
+    serde_json::json!({
+        "version": "1.0",
+        "mode": "merge",
+        "providers": {
+            "openai": {
+                "baseUrl": format!("http://{}/v1", opts.fake_llm_addr),
+                "protocol": "openai",
+                "credentialPath": "credentials/openai.json",
+                "models": models
+            }
+        }
+    })
+}
+
 /// Write the default master agent layout (wildcard tool/skill
-/// permissions, fake-LLM model reference) into the config tree.
-fn write_master_agent(root: &Path) {
+/// permissions, model reference derived from the first declared
+/// `models.json` id) into the config tree.
+fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
+    let model = format!("openai/{}", opts.model_ids[0]);
     std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
     std::fs::write(
         root.join("agents").join("master").join("config.json"),
-        r#"{"id":"master","name":"Master","model":"openai/gpt-4o-basic",
-            "tools":["*"],"skills":["*"]}"#,
+        format!(
+            r#"{{"id":"master","name":"Master","model":"{model}",
+            "tools":["*"],"skills":["*"]}}"#
+        ),
     )
     .expect("write master agent config");
 }

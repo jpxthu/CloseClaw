@@ -82,6 +82,28 @@ fn build_message(msg: &InternalMessage) -> serde_json::Value {
     }
 }
 
+/// Render the two system prompt areas as OpenAI `role:"system"` messages.
+///
+/// Order follows the KV-cache two-field contract (`system_static` first,
+/// `system_dynamic` second; history follows in `build_request`), mirroring
+/// the Anthropic cache adapter's two-region semantics
+/// (`docs/design/llm/cache-adapter.md`) minus cache markers — OpenAI relies
+/// on server-side automatic prefix caching. Empty or absent areas are
+/// skipped, so a request without a system prompt serializes byte-identically
+/// to the non-injecting form. Content passes through verbatim (no split/trim):
+/// rewriting the prefix would break prefix stability.
+fn build_system_messages(request: &InternalRequest) -> Vec<serde_json::Value> {
+    [
+        request.system_static.as_ref(),
+        request.system_dynamic.as_ref(),
+    ]
+    .into_iter()
+    .flatten()
+    .filter(|text| !text.is_empty())
+    .map(|text| serde_json::json!({ "role": "system", "content": text }))
+    .collect()
+}
+
 #[async_trait]
 impl ChatProtocol for OpenAiProtocol {
     fn protocol_id(&self) -> &ProtocolId {
@@ -92,9 +114,12 @@ impl ChatProtocol for OpenAiProtocol {
     }
 
     fn build_request(&self, request: &InternalRequest) -> Result<serde_json::Value> {
+        let mut messages = build_system_messages(request);
+        messages.extend(request.messages.iter().map(build_message));
+
         let mut body = serde_json::json!({
             "model": request.model,
-            "messages": request.messages.iter().map(build_message).collect::<Vec<_>>(),
+            "messages": messages,
             "temperature": request.temperature,
             "stream": request.stream,
         });
@@ -467,3 +492,7 @@ mod openai_tests; // extracted to stay under 500-line limit
 #[cfg(test)]
 #[path = "openai_content_blocks_tests.rs"]
 mod openai_content_blocks_tests; // Step 1.6: content_blocks serialization tests
+
+#[cfg(test)]
+#[path = "openai_system_prompt_tests.rs"]
+mod openai_system_prompt_tests; // static/dynamic system prompt injection tests

@@ -298,8 +298,12 @@ async fn e2e_agent_model_selection() {
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
 
-/// §F1 system prompt injection: agent bootstrap files are injected
-/// into the system prompt, which the LLM request carries.
+/// §F1/§F6 system prompt injection (authoritative requirement source:
+/// `docs/requirements/system_prompt.md` §F1 — bootstrap files are
+/// injected into the system prompt; §F6 — the assembled result is
+/// cached on the session runtime and fetched on every API call):
+/// agent bootstrap files are injected into the system prompt, which
+/// the LLM request carries.
 ///
 /// A bootstrap file containing a unique marker
 /// ("IDENTITY_SECRET_7X9K2") is created in the agent's config dir.
@@ -309,22 +313,29 @@ async fn e2e_agent_model_selection() {
 /// "INJECTED_OK". Asserting that response proves the bootstrap
 /// content was included in the LLM request messages.
 ///
-/// **Status (2026-09-16)**: the original blocker (the same
-/// `SkillListingProviderWrapper` panic) was fixed on this branch, so the
-/// recorded reason for `#[ignore]` no longer applies as-is. Un-ignoring
-/// still requires re-verification of this scenario end-to-end
-/// (unignore-workflow debt); this branch only updates the comment, not
-/// the ignore state.
+/// **Status (2026-09-19)**: original blocker #2436 resolved
+/// (#3054 / #3061 merged); this round re-enables the case after
+/// aligning OpenAI protocol serialization with
+/// `docs/design/system_prompt/static-layer.md` (static system prompt
+/// now ships on the OpenAI request path), clearing the
+/// unignore-workflow debt for this scenario.
 #[tokio::test]
 #[cfg(unix)]
-#[ignore]
 #[serial_test::serial]
 async fn e2e_agent_system_prompt_injection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    // Three-way model alignment: models.json declares and enables
+    // `gpt-4o-system-prompt` (chain index 0 → the model on the wire,
+    // since the fallback client overwrites `request.model` per entry),
+    // the agent config references `openai/gpt-4o-system-prompt`, and
+    // the `injected-identity` fixture matches `model_id` of the same id.
+    write_config_tree(
+        config_root,
+        ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-system-prompt"]),
+    );
     write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
