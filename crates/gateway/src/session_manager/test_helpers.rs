@@ -367,3 +367,15 @@ impl PersistenceService for MockPersistService {
         Ok(Vec::new())
     }
 }
+
+#[cfg(test)]
+impl SessionManager {
+    /// Initialize `config_dir` from a temporary directory.
+    ///
+    /// Used by tests that create `SessionManager` without a real
+    /// `ConfigManager`, so `SpawnCreationContext::config_dir()` does
+    /// not panic.
+    pub fn set_config_dir_for_testing(&self, config_dir: &std::path::Path) {
+        let _ = self.config_dir.set(config_dir.to_path_buf());
+    }
+}

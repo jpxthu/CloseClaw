@@ -25,7 +25,7 @@ use closeclaw_session::persistence::{
     SessionStatus,
 };
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -428,6 +428,16 @@ impl SessionManager {
     pub async fn has_session(&self, session_id: &str) -> bool {
         let sessions = self.sessions.read().await;
         sessions.contains_key(session_id)
+    }
+
+    /// Point-in-time snapshot: the subset of `ids` present in `sessions`,
+    /// resolved in a single `sessions.read()` pass (no per-id lock round-trips).
+    pub async fn filter_existing(&self, ids: &[String]) -> HashSet<String> {
+        let sessions = self.sessions.read().await;
+        ids.iter()
+            .filter(|&id| sessions.contains_key(id))
+            .cloned()
+            .collect()
     }
 
     /// Get chat_id for a session.
@@ -875,17 +885,6 @@ impl ActiveSessionQuery for SessionManager {
     }
 }
 
-#[cfg(test)]
-impl SessionManager {
-    /// Initialize `config_dir` from a temporary directory.
-    ///
-    /// Used by tests that create `SessionManager` without a real
-    /// `ConfigManager`, so `SpawnCreationContext::config_dir()` does
-    /// not panic.
-    pub fn set_config_dir_for_testing(&self, config_dir: &std::path::Path) {
-        let _ = self.config_dir.set(config_dir.to_path_buf());
-    }
-}
 #[cfg(test)]
 mod active_write_outbound_tests;
 #[cfg(test)]

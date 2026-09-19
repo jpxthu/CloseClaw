@@ -16,7 +16,6 @@
 //! interval as the `ArchiveSweeper`.
 
 use super::SessionManager;
-use std::collections::HashSet;
 use tracing::warn;
 
 /// Sweep the spawn tree and reclaim residual nodes.
@@ -47,23 +46,20 @@ pub(crate) async fn sweep_spawn_tree_reclaim(session_manager: &SessionManager) {
         return;
     }
 
-    // Parent-liveness check goes through the `has_session` accessor —
-    // each call briefly takes sessions.read() and releases it again, so
-    // no sessions lock is held across the sweep or before
-    // children.write() runs.
-    let mut active_parents: HashSet<String> = HashSet::new();
-    for (parent_id, _) in &snapshot {
-        if session_manager.has_session(parent_id).await {
-            active_parents.insert(parent_id.clone());
-        }
-    }
+    // Parent-liveness check goes through the batch `filter_existing`
+    // accessor — a single sessions.read() pass resolves every parent id
+    // against one point-in-time snapshot, so no sessions lock is held
+    // across the sweep or before children.write() runs.
+    let parent_ids: Vec<String> = snapshot.iter().map(|(id, _)| id.clone()).collect();
+    let active_parents = session_manager.filter_existing(&parent_ids).await;
 
-    // NOTE (Step 1.10): TOCTOU race window — `active_parents` snapshot may
-    // become stale before we process each entry. A parent could be removed
-    // from `sessions` between the snapshot and the per-entry processing,
-    // causing an active parent to be treated as orphaned (condition ②).
-    // This is low-risk: active children under such a parent are managed by
-    // lifecycle linkage and will be cleaned up by the next GC sweep cycle.
+    // NOTE (Step 1.10): TOCTOU race window — `active_parents` is a
+    // single-read point-in-time snapshot, but it may still become stale
+    // before we process each entry: a parent could be removed from
+    // `sessions` after the snapshot, causing an active parent to be
+    // treated as orphaned (condition ②). This is low-risk: active
+    // children under such a parent are managed by lifecycle linkage
+    // and will be cleaned up by the next GC sweep cycle.
 
     let mut reclaim_count: usize = 0;
 
