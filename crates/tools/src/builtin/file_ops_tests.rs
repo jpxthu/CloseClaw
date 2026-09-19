@@ -460,3 +460,68 @@ async fn test_read_image_ignores_offset_limit() {
     })
     .await;
 }
+
+// ---------------------------------------------------------------------------
+// Read workdir path resolution (Step 1.7 — working-directory.md 概述:
+// 工作目录定义 agent 的默认文件操作路径; mirrors `bash::resolve_cwd`)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn test_read_relative_path_resolves_against_workdir() {
+    // e2e fixture layout: marker at the workspace root, workdir three
+    // levels below it; the relative path must hit it only via workdir.
+    let tmp = TempDir::new().unwrap();
+    let marker = tmp.path().join("bootstrap_marker.txt");
+    std::fs::write(&marker, "WORKDIR_BASE_OK").expect("write marker");
+    let workdir = tmp.path().join("workspaces/master/u1");
+    std::fs::create_dir_all(&workdir).expect("create workdir");
+
+    let mut ctx = make_ctx("master");
+    ctx.workdir = Some(closeclaw_common::tool_trait::build_workdir_context(
+        workdir.to_str().unwrap(),
+    ));
+
+    let resolved = resolve_read_path("../../../bootstrap_marker.txt", &ctx);
+    let canonical = std::fs::canonicalize(&resolved).expect("workdir-relative path exists");
+    assert_eq!(
+        canonical,
+        std::fs::canonicalize(&marker).expect("marker exists"),
+        "relative path must resolve on the workdir base"
+    );
+
+    // Wiring: ReadTool::call applies the resolution end-to-end.
+    let tool = ReadTool::new(make_cm());
+    let args = serde_json::json!({ "path": "../../../bootstrap_marker.txt" });
+    let result = tool.call(args, &ctx).await.expect("workdir-based read");
+    let content = result.data["content"].as_str().unwrap_or_default();
+    assert!(
+        content.contains("WORKDIR_BASE_OK"),
+        "read content should come from the workdir base, got: {content:?}"
+    );
+}
+
+#[tokio::test]
+async fn test_read_relative_path_without_workdir_falls_back_to_process_cwd() {
+    // No workdir → keep the input untouched so `std::fs` resolves it
+    // against the process CWD (pre-existing compatible behavior).
+    let ctx = make_ctx("master");
+    let resolved = resolve_read_path("some/relative.txt", &ctx);
+    assert_eq!(
+        resolved, "some/relative.txt",
+        "without a workdir the relative input must stay process-CWD relative"
+    );
+}
+
+#[tokio::test]
+async fn test_read_absolute_path_ignores_workdir() {
+    let tmp = TempDir::new().unwrap();
+    let mut ctx = make_ctx("master");
+    ctx.workdir = Some(closeclaw_common::tool_trait::build_workdir_context(
+        tmp.path().to_str().unwrap(),
+    ));
+    let resolved = resolve_read_path("/abs/file.txt", &ctx);
+    assert_eq!(
+        resolved, "/abs/file.txt",
+        "absolute paths must pass through untouched"
+    );
+}

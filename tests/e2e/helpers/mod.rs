@@ -36,31 +36,43 @@ pub fn closeclaw_binary() -> std::path::PathBuf {
     manifest_dir.join("target/debug/closeclaw")
 }
 
-/// Polls the admin RPC Unix socket until it accepts connections or times out.
+/// Polls the daemon RPC Unix sockets (`admin.sock` and `chat.sock`)
+/// until both accept connections or the timeout is exceeded.
 ///
 /// Uses `DEFAULT_SOCKET_WAIT_TIMEOUT` (15s) if no custom timeout is provided.
-/// Returns Ok(()) when the socket is ready, panics if timeout is exceeded.
+/// Returns Ok(()) when both sockets are ready, panics if timeout is exceeded.
 pub async fn wait_for_daemon_ready(config_dir: &Path) {
     wait_for_daemon_ready_with_timeout(config_dir, DEFAULT_SOCKET_WAIT_TIMEOUT).await;
 }
 
-/// Polls the admin RPC Unix socket until it accepts connections or times out.
+/// Polls the daemon RPC Unix sockets (`admin.sock` and `chat.sock`)
+/// until both accept connections or the timeout is exceeded.
 ///
-/// `timeout` specifies the maximum duration to wait for the socket to become ready.
-/// Returns Ok(()) when the socket is ready, panics if timeout is exceeded.
+/// The daemon binds `admin.sock` before `chat.sock` (startup phase 6),
+/// so a test that only waited on `admin.sock` could proceed into the
+/// chat path before `chat.sock` existed (ENOENT race). Both sockets
+/// share one loop and one `timeout` deadline.
+///
+/// Returns Ok(()) when both sockets are ready, panics if timeout is exceeded.
 pub async fn wait_for_daemon_ready_with_timeout(config_dir: &Path, timeout: Duration) {
-    let socket_path = config_dir.join("admin.sock");
+    let admin_socket_path = config_dir.join("admin.sock");
+    let chat_socket_path = config_dir.join("chat.sock");
     let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
-        if UnixStream::connect(&socket_path).is_ok() {
+        let admin_ready = UnixStream::connect(&admin_socket_path).is_ok();
+        let chat_ready = UnixStream::connect(&chat_socket_path).is_ok();
+        if admin_ready && chat_ready {
             return;
         }
         if tokio::time::Instant::now() >= deadline {
             panic!(
-                "daemon admin socket not ready after {:?}: {}",
+                "daemon sockets not ready after {:?} (admin_ready={}, chat_ready={}): {} / {}",
                 timeout,
-                socket_path.display()
+                admin_ready,
+                chat_ready,
+                admin_socket_path.display(),
+                chat_socket_path.display()
             );
         }
         tokio::time::sleep(SOCKET_POLL_INTERVAL).await;
