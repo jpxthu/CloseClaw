@@ -479,21 +479,52 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
-/// Shared base harness for the dispatch tests: `SessionManager` +
-/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
-/// At the config default of `max_message_size` = 0, any non-empty text
-/// message exceeds the limit and is rejected by `validate_inbound`, so the
-/// factory substitutes a non-zero cap — callers may pass
-/// `GatewayConfig::default()` and still be safe for inbound validation.
-fn make_test_context(config: GatewayConfig) -> ChatContext {
-    let config = if config.max_message_size == 0 {
+/// Test cap substituted for the default `max_message_size` = 0 by
+/// [`effective_test_config`]; keeps inbound validation from rejecting
+/// non-empty test messages.
+const TEST_MAX_MESSAGE_SIZE: usize = 64 * 1024;
+
+/// Normalize a test [`GatewayConfig`] for inbound validation: at the config
+/// default of `max_message_size` = 0 any non-empty text message exceeds the
+/// limit and is rejected by `validate_inbound`, so a sentinel 0 is replaced
+/// by [`TEST_MAX_MESSAGE_SIZE`]; an explicit non-zero cap passes through
+/// unchanged.
+fn effective_test_config(config: GatewayConfig) -> GatewayConfig {
+    if config.max_message_size == 0 {
         GatewayConfig {
-            max_message_size: 64 * 1024,
+            max_message_size: TEST_MAX_MESSAGE_SIZE,
             ..config
         }
     } else {
         config
+    }
+}
+
+/// Sentinel contract — the default config (`max_message_size` = 0) gets the
+/// test cap so `validate_inbound` accepts non-empty text.
+#[test]
+fn test_effective_test_config_fills_default_sentinel() {
+    let config = effective_test_config(GatewayConfig::default());
+    assert_eq!(config.max_message_size, TEST_MAX_MESSAGE_SIZE);
+}
+
+/// Sentinel contract — an explicit non-zero cap is kept as-is.
+#[test]
+fn test_effective_test_config_keeps_explicit_cap() {
+    let config = GatewayConfig {
+        max_message_size: 4096,
+        ..Default::default()
     };
+    let effective = effective_test_config(config);
+    assert_eq!(effective.max_message_size, 4096);
+}
+
+/// Shared base harness for the dispatch tests: `SessionManager` +
+/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
+/// Callers may pass `GatewayConfig::default()` and still be safe for
+/// inbound validation — [`effective_test_config`] substitutes the cap.
+fn make_test_context(config: GatewayConfig) -> ChatContext {
+    let config = effective_test_config(config);
     let sessions = Arc::new(SessionManager::new(
         &config,
         None,
@@ -845,7 +876,7 @@ async fn make_stop_ready_context() -> ChatContext {
     // "/stop" text exceeds the cap and is rejected in `validate_inbound`.
     let config = GatewayConfig {
         name: "stop-test".to_owned(),
-        max_message_size: 64 * 1024,
+        max_message_size: TEST_MAX_MESSAGE_SIZE,
         ..Default::default()
     };
     let context = make_test_context(config);
