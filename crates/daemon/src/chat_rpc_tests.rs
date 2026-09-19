@@ -1,5 +1,6 @@
 use super::*;
 use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 use serde_json::json;
 use std::sync::Arc;
@@ -480,12 +481,13 @@ async fn test_concurrent_rpc_connections_no_race() {
 
 /// Shared base harness for the dispatch tests: `SessionManager` +
 /// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
-/// A `max_message_size` of 0 (the config default) rejects every inbound
-/// message in `validate_inbound`, so a non-zero default is substituted —
-/// passing `GatewayConfig::default()` stays safe for inbound validation.
-fn make_test_context(config: closeclaw_gateway::types::GatewayConfig) -> ChatContext {
+/// At the config default of `max_message_size` = 0, any non-empty text
+/// message exceeds the limit and is rejected by `validate_inbound`, so the
+/// factory substitutes a non-zero cap — callers may pass
+/// `GatewayConfig::default()` and still be safe for inbound validation.
+fn make_test_context(config: GatewayConfig) -> ChatContext {
     let config = if config.max_message_size == 0 {
-        closeclaw_gateway::types::GatewayConfig {
+        GatewayConfig {
             max_message_size: 64 * 1024,
             ..config
         }
@@ -511,8 +513,8 @@ fn make_test_context(config: closeclaw_gateway::types::GatewayConfig) -> ChatCon
 #[tokio::test]
 async fn test_dispatch_ping_returns_pong_actual() {
     let req = ChatRequest::Ping;
-    let context = make_test_context(closeclaw_gateway::types::GatewayConfig::default());
-    let responses = tokio::time::timeout(Duration::from_secs(10), dispatch(req, &context))
+    let context = make_test_context(GatewayConfig::default());
+    let responses = tokio::time::timeout(Duration::from_secs(1), dispatch(req, &context))
         .await
         .expect("dispatch must terminate instead of hanging until the suite-level timeout");
     assert_eq!(responses.len(), 1);
@@ -839,9 +841,9 @@ fn terminal_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
 /// `SlashResult::Stop` → "已停止当前任务" reply → outbound → plugin send →
 /// agent-route fallback → this connection's channel).
 async fn make_stop_ready_context() -> ChatContext {
-    // max_message_size must be non-zero: 0 rejects every inbound message
-    // in `validate_inbound` ("/stop" would exceed the 0-byte limit).
-    let config = closeclaw_gateway::types::GatewayConfig {
+    // max_message_size must be non-zero: with a 0-byte limit the non-empty
+    // "/stop" text exceeds the cap and is rejected in `validate_inbound`.
+    let config = GatewayConfig {
         name: "stop-test".to_owned(),
         max_message_size: 64 * 1024,
         ..Default::default()
@@ -873,7 +875,7 @@ async fn make_stop_ready_context() -> ChatContext {
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
     let responses = tokio::time::timeout(
-        Duration::from_secs(10),
+        Duration::from_secs(1),
         dispatch(
             ChatRequest::StopSession {
                 agent_id: "stop-agent".to_owned(),
