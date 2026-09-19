@@ -452,6 +452,29 @@ async fn e2e_agent_workspace() {
         "skill": "file_ops",
         "methods": ["Read"],
     });
+
+    // Level-2 (FileOp read) dual rules. The engine evaluates ToolCall
+    // (Level-1) and FileOp (Level-2) as two separate two-phase
+    // intersections (design: intersection model), so an allowed
+    // tool_call still needs its own agent_only + user_and_agent
+    // file-read allow pair or the dispatch Level-2 check denies before
+    // the Read executes.
+    //
+    // Action schema `file{operation:"read",paths:[...]}` (engine_types.rs)
+    // glob-matches the request path (engine_matching.rs: `*` stops at
+    // `/`, `**` crosses). The dispatch layer forwards the fixture's
+    // Read path verbatim — no canonicalization between tool args and
+    // the engine — and the temp config-root prefix is unknowable at
+    // authoring time, so the pattern anchors on the stable directory
+    // name instead of an absolute prefix: `**/agent_workspace/**`
+    // covers `../agent_workspace/bootstrap_marker.txt` (resolved by
+    // the Read tool against the daemon CWD) as well as any absolute
+    // form under a differently-named temp root.
+    let file_read_rule = serde_json::json!({
+        "type": "file",
+        "operation": "read",
+        "paths": ["**/agent_workspace/**"],
+    });
     let permissions = serde_json::json!({
         "rules": [
             {
@@ -474,6 +497,28 @@ async fn e2e_agent_workspace() {
                 },
                 "effect": "allow",
                 "actions": [read_rule],
+                "priority": 0,
+            },
+            {
+                "name": "agent_allow_file_read_marker",
+                "subject": { "agent": "master" },
+                "effect": "allow",
+                "actions": [file_read_rule],
+                "priority": 0,
+            },
+            {
+                "name": "user_and_agent_allow_file_read_marker",
+                "subject": {
+                    "match_mode": "user_and_agent",
+                    "fields": {
+                        "user_id": "*",
+                        "agent": "master",
+                        "user_match": "glob",
+                        "agent_match": "exact",
+                    },
+                },
+                "effect": "allow",
+                "actions": [file_read_rule],
                 "priority": 0,
             },
         ],
