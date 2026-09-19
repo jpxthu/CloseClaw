@@ -10,6 +10,9 @@ use tokio::sync::mpsc;
 use crate::provider::{Provider, ProviderError, Result, SseStream};
 use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 
+/// Default Anthropic endpoint — single source of truth for the default.
+const ANTHROPIC_API_URL: &str = "https://api.anthropic.com";
+
 pub struct AnthropicProvider {
     api_key: String,
     base_url: String,
@@ -18,19 +21,18 @@ pub struct AnthropicProvider {
 }
 
 impl AnthropicProvider {
+    /// Create a provider with the vendor default base URL.
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            base_url: "https://api.anthropic.com".to_string(),
-            client: Client::new(),
-            supported_protocols: vec![ProtocolId::new("anthropic")],
-        }
+        Self::with_base_url(api_key, None)
     }
 
-    pub fn new_with_base_url(api_key: String, base_url: &str) -> Self {
+    /// Create a provider with a custom base URL (`None` → vendor default).
+    pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
             api_key,
-            base_url: base_url.to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| ANTHROPIC_API_URL.to_string()),
             client: Client::new(),
             supported_protocols: vec![ProtocolId::new("anthropic")],
         }
@@ -212,7 +214,7 @@ mod tests {
     #[test]
     fn test_anthropic_provider_base_url_custom() {
         let provider =
-            AnthropicProvider::new_with_base_url("key".to_string(), "https://custom.api.com");
+            AnthropicProvider::with_base_url("key".to_string(), Some("https://custom.api.com"));
         assert_eq!(provider.base_url(), "https://custom.api.com");
     }
 
@@ -312,7 +314,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let response = provider
             .send(
@@ -348,7 +351,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let response = provider
             .send(
                 make_request(),
@@ -387,7 +391,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
@@ -411,7 +416,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("bad-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("bad-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let result = provider.send(request, serde_json::json!({})).await;
         mock.assert_async().await;
@@ -436,7 +442,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let result = provider.send(request, serde_json::json!({})).await;
         mock.assert_async().await;
@@ -461,7 +468,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let result = provider.send(request, serde_json::json!({})).await;
         mock.assert_async().await;
@@ -494,7 +502,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
@@ -518,7 +527,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let mut stream = provider
             .send_streaming(
                 make_request(),
@@ -552,7 +562,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("bad-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("bad-key".to_string(), Some(server.url().as_str()));
         let result = provider
             .send_streaming(make_request(), serde_json::json!({}))
             .await;
@@ -578,7 +589,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let mut stream = provider
             .send_streaming(make_request(), serde_json::json!({}))
             .await
@@ -612,7 +624,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         // Empty JSON body will parse as error from Anthropic side;
         // here we just verify reqwest errors surface as ProviderError.
@@ -634,7 +647,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let result = provider.send(request, serde_json::json!({})).await;
         mock.assert_async().await;
@@ -661,7 +675,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
@@ -695,7 +710,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = make_request();
         let response = provider.send(request, serde_json::json!({})).await.unwrap();
         mock.assert_async().await;
@@ -718,7 +734,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let result = provider
             .send_streaming(make_request(), serde_json::json!({}))
             .await;
@@ -751,7 +768,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = AnthropicProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            AnthropicProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let mut stream = provider
             .send_streaming(make_request(), serde_json::json!({}))
             .await

@@ -66,7 +66,8 @@ event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let result = provider
         .send_streaming(
             streaming_request("Abab5.5-chat"),
@@ -112,7 +113,8 @@ event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n";
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let result = provider
         .send_streaming(
             streaming_request("Abab5.5-chat"),
@@ -150,7 +152,8 @@ async fn test_provider_send_streaming_auth_failure_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send_streaming(
             streaming_request("Abab5.5-chat"),
@@ -180,7 +183,8 @@ async fn test_provider_send_streaming_rate_limit_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send_streaming(
             streaming_request("Abab5.5-chat"),

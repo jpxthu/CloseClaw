@@ -289,7 +289,7 @@ async fn test_fetch_model_list_http_auth_failure_mock() {
 
     let provider = GlmProvider::with_base_url(
         "fake-key".into(),
-        format!("{}/api/coding/paas/v4/chat/completions", server.url()),
+        Some(format!("{}/api/coding/paas/v4/chat/completions", server.url()).as_str()),
     );
     let err = provider.fetch_model_list("fake-key").await.unwrap_err();
 

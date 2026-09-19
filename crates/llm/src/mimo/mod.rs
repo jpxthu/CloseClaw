@@ -62,12 +62,7 @@ pub struct MimoProvider {
 impl MimoProvider {
     /// Create a new `MimoProvider` with the default base URL.
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            base_url: MIMO_BASE_URL.to_string(),
-            client: Client::new(),
-            supported_protocols: vec![ProtocolId::new("openai"), ProtocolId::new("anthropic")],
-        }
+        Self::with_base_url(api_key, None)
     }
 
     /// Create a `MimoProvider` from the `MIMO_API_KEY` environment variable.
@@ -81,11 +76,13 @@ impl MimoProvider {
         Some(Self::new(key))
     }
 
-    /// Create a `MimoProvider` with a custom base URL.
-    pub fn with_base_url(api_key: String, base_url: &str) -> Self {
+    /// Create a `MimoProvider` with a custom base URL (`None` → vendor default).
+    pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
             api_key,
-            base_url: base_url.to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| MIMO_BASE_URL.to_string()),
             client: Client::new(),
             supported_protocols: vec![ProtocolId::new("openai"), ProtocolId::new("anthropic")],
         }

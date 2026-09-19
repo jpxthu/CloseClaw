@@ -14,6 +14,9 @@ use tokio::sync::mpsc;
 use crate::provider::{Provider, ProviderError, Result, SseStream};
 use crate::types::{InternalRequest, ProtocolId, RawSseChunk};
 
+/// Default OpenAI endpoint — single source of truth for the default.
+const OPENAI_API_URL: &str = "https://api.openai.com/v1";
+
 pub struct OpenAIProvider {
     api_key: String,
     base_url: String,
@@ -22,19 +25,18 @@ pub struct OpenAIProvider {
 }
 
 impl OpenAIProvider {
+    /// Create a provider with the vendor default base URL.
     pub fn new(api_key: String) -> Self {
-        Self {
-            api_key,
-            base_url: "https://api.openai.com/v1".to_string(),
-            client: Client::new(),
-            supported_protocols: vec![ProtocolId::new("openai")],
-        }
+        Self::with_base_url(api_key, None)
     }
 
-    pub fn new_with_base_url(api_key: String, base_url: &str) -> Self {
+    /// Create a provider with a custom base URL (`None` → vendor default).
+    pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
             api_key,
-            base_url: base_url.to_string(),
+            base_url: base_url
+                .map(str::to_string)
+                .unwrap_or_else(|| OPENAI_API_URL.to_string()),
             client: Client::new(),
             supported_protocols: vec![ProtocolId::new("openai")],
         }
@@ -211,7 +213,7 @@ mod tests {
     #[test]
     fn test_openai_provider_base_url_custom() {
         let provider =
-            OpenAIProvider::new_with_base_url("key".to_string(), "https://custom.api.com");
+            OpenAIProvider::with_base_url("key".to_string(), Some("https://custom.api.com"));
         assert_eq!(provider.base_url(), "https://custom.api.com");
     }
 
@@ -258,7 +260,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = OpenAIProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            OpenAIProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = InternalRequest {
             model: "gpt-4".to_string(),
             messages: vec![InternalMessage {
@@ -312,7 +315,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = OpenAIProvider::new_with_base_url("bad-key".to_string(), &server.url());
+        let provider =
+            OpenAIProvider::with_base_url("bad-key".to_string(), Some(server.url().as_str()));
         let request = InternalRequest {
             model: "gpt-4".to_string(),
             messages: vec![],
@@ -350,7 +354,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = OpenAIProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            OpenAIProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = InternalRequest {
             model: "gpt-4".to_string(),
             messages: vec![],
@@ -392,7 +397,8 @@ mod tests {
             .create_async()
             .await;
 
-        let provider = OpenAIProvider::new_with_base_url("test-key".to_string(), &server.url());
+        let provider =
+            OpenAIProvider::with_base_url("test-key".to_string(), Some(server.url().as_str()));
         let request = InternalRequest {
             model: "gpt-4".to_string(),
             messages: vec![],

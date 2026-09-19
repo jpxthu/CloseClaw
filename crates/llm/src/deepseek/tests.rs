@@ -68,7 +68,7 @@ fn test_provider_accessors() {
     assert!(provider.default_headers().is_empty());
 
     // Test custom base URL with a separate instance
-    let custom = DeepSeekProvider::with_base_url("sk-test".into(), "https://custom.api.com".into());
+    let custom = DeepSeekProvider::with_base_url("sk-test".into(), Some("https://custom.api.com"));
     assert_eq!(custom.base_url(), "https://custom.api.com");
 }
 
@@ -110,7 +110,8 @@ async fn test_send_success_with_reasoning_content() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-pro");
     let body = json!({
         "model": "deepseek-v4-pro",
@@ -165,7 +166,8 @@ async fn test_send_success_empty_content_fallback() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let body = json!({"model": "deepseek-v4-flash", "messages": []});
 
@@ -196,7 +198,8 @@ async fn test_send_success_no_choices_error() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let body = json!({"model": "deepseek-v4-flash", "messages": []});
 
@@ -228,7 +231,8 @@ async fn test_send_error_401_auth() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let body = json!({"model": "deepseek-v4-flash", "messages": []});
 
@@ -259,7 +263,8 @@ async fn test_send_error_429_rate_limit() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let body = json!({"model": "deepseek-v4-flash", "messages": []});
 
@@ -290,7 +295,8 @@ async fn test_send_error_404_not_found() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("unknown-model");
     let body = json!({"model": "unknown-model", "messages": []});
 
@@ -335,7 +341,8 @@ async fn test_send_business_error_in_body() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let body = json!({"model": "deepseek-v4-flash", "messages": []});
 
@@ -377,7 +384,8 @@ data: [DONE]
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-flash");
     let mut req = req;
     req.stream = true;
@@ -427,7 +435,8 @@ async fn test_send_streaming_error_401() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("deepseek-v4-flash");
     req.stream = true;
     let body = json!({"model": "deepseek-v4-flash", "messages": [], "stream": true});
@@ -481,7 +490,8 @@ async fn test_send_anthropic_protocol_success() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-pro");
     let body = json!({
         "model": "deepseek-v4-pro",
@@ -544,7 +554,8 @@ async fn test_send_anthropic_thinking_with_signature() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("deepseek-v4-pro");
     let body = json!({
         "model": "deepseek-v4-pro",
@@ -607,7 +618,8 @@ async fn test_send_streaming_anthropic_protocol() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("deepseek-v4-pro");
     req.stream = true;
     let body = json!({
@@ -740,7 +752,8 @@ async fn test_fetch_balance_success() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let balance = provider
         .fetch_balance()
         .await
@@ -767,7 +780,8 @@ async fn test_fetch_balance_error() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), provider_url(&server));
+    let provider =
+        DeepSeekProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .fetch_balance()
         .await

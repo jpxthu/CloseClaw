@@ -35,7 +35,7 @@ fn test_provider_base_url() {
 
 #[test]
 fn test_provider_base_url_custom() {
-    let provider = MiniMaxProvider::with_base_url("key".into(), "https://custom.api.com".into());
+    let provider = MiniMaxProvider::with_base_url("key".into(), Some("https://custom.api.com"));
     assert_eq!(Provider::base_url(&provider), "https://custom.api.com");
 }
 
