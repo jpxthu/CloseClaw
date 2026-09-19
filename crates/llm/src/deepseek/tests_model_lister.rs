@@ -19,7 +19,7 @@ async fn test_fetch_model_list_auth_error() {
         .create_async()
         .await;
 
-    let provider = DeepSeekProvider::with_base_url("sk-test".into(), server.url());
+    let provider = DeepSeekProvider::with_base_url("sk-test".into(), Some(server.url().as_str()));
     let err = provider.fetch_model_list("bad-key").await.unwrap_err();
 
     m.assert_async().await;

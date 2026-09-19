@@ -247,21 +247,23 @@ fn force_restart_executing_returns_false() {
 
 // -- DaemonReloadCallback restart signal delivery ----------------------
 
-fn make_test_config_manager() -> Arc<closeclaw_config::ConfigManager> {
-    Arc::new({
-        let d = tempfile::tempdir().unwrap();
-        for (name, content) in &[
-            ("models.json", r#"{"models":[]}"#),
-            ("channels.json", r#"{"channels":{}}"#),
-            ("gateway.json", r#"{"port":8080}"#),
-            ("plugins.json", r#"{"plugins":[]}"#),
-            ("system.json", r#"{"version":"1"}"#),
-            ("accounts.json", r#"{"accounts":[]}"#),
-        ] {
-            std::fs::write(d.path().join(name), content).unwrap();
-        }
-        closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap()
-    })
+// The TempDir is returned alongside the manager (not dropped at block end)
+// so the config path stays valid for the whole test — STANDARDS §8 临时文件
+// 与 config / §9 断言风格（确定性）. Callers must hold the TempDir binding.
+fn make_test_config_manager() -> (Arc<closeclaw_config::ConfigManager>, tempfile::TempDir) {
+    let d = tempfile::tempdir().unwrap();
+    for (name, content) in &[
+        ("models.json", r#"{"models":[]}"#),
+        ("channels.json", r#"{"channels":{}}"#),
+        ("gateway.json", r#"{"port":8080}"#),
+        ("plugins.json", r#"{"plugins":[]}"#),
+        ("system.json", r#"{"version":"1"}"#),
+        ("accounts.json", r#"{"accounts":[]}"#),
+    ] {
+        std::fs::write(d.path().join(name), content).unwrap();
+    }
+    let cm = Arc::new(closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap());
+    (cm, d)
 }
 
 #[test]
@@ -269,7 +271,7 @@ fn on_config_file_changed_sends_restart_signal() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
-    let cm = make_test_config_manager();
+    let (cm, _tmpdir) = make_test_config_manager();
 
     cb.on_config_file_changed(
         Path::new("models.json"),
@@ -285,7 +287,7 @@ fn on_config_file_changed_ignores_non_restart_class() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
-    let cm = make_test_config_manager();
+    let (cm, _tmpdir) = make_test_config_manager();
 
     cb.on_config_file_changed(
         Path::new("agents.json"),
@@ -302,7 +304,7 @@ fn on_config_file_changed_ignores_non_restart_class() {
 fn on_config_file_changed_no_signal_without_tx() {
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::new_for_test(ar);
-    let cm = make_test_config_manager();
+    let (cm, _tmpdir) = make_test_config_manager();
     // Should not panic even without a restart_tx
     cb.on_config_file_changed(
         Path::new("models.json"),
@@ -347,10 +349,12 @@ fn admin_context_has_no_gateway_reference() {
 
     // This struct literal will fail to compile if AdminContext gains
     // a `gateway` field — the required-field check catches it.
+    // `_tmpdir` held to end of test so the config path stays valid.
+    let (cm, _tmpdir) = make_test_config_manager();
     let ctx = AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
         skill_registry: Arc::new(std::sync::RwLock::new(None)),
-        config_manager: make_test_config_manager(),
+        config_manager: cm,
         config_dir: std::path::PathBuf::from("/tmp/test"),
         restart_tx: None,
     };

@@ -65,7 +65,8 @@ async fn send_with_mock(model: &str, fixture: &str) -> serde_json::Value {
         .create_async()
         .await;
 
-    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        GlmProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let resp = provider
         .send(internal_request(model), chat_body(model))
         .await
@@ -88,7 +89,8 @@ async fn send_error_with_mock(model: &str, fixture: &str) -> ProviderError {
         .create_async()
         .await;
 
-    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        GlmProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send(internal_request(model), chat_body(model))
         .await
@@ -131,7 +133,8 @@ async fn test_glm_http_500_error_mock() {
         .create_async()
         .await;
 
-    let provider = GlmProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        GlmProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send(internal_request("glm-5.1"), chat_body("glm-5.1"))
         .await

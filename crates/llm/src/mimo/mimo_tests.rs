@@ -90,7 +90,8 @@ fn test_from_env_returns_none_when_var_unset() {
 
 #[test]
 fn test_with_base_url_sets_custom_url() {
-    let provider = MimoProvider::with_base_url("sk-custom".into(), "https://custom.example.com/v1");
+    let provider =
+        MimoProvider::with_base_url("sk-custom".into(), Some("https://custom.example.com/v1"));
     assert_eq!(provider.base_url(), "https://custom.example.com/v1");
     assert_eq!(provider.api_key(), "sk-custom");
 }
@@ -139,7 +140,8 @@ fn test_chat_url_default_base_url() {
 
 #[test]
 fn test_chat_url_custom_base_url() {
-    let provider = MimoProvider::with_base_url("sk-test".into(), "https://custom.example.com/v1");
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some("https://custom.example.com/v1"));
     assert_eq!(
         provider.chat_url(),
         "https://custom.example.com/v1/chat/completions"
@@ -161,7 +163,8 @@ fn test_messages_url_default_base_url() {
 
 #[test]
 fn test_messages_url_custom_base_url() {
-    let provider = MimoProvider::with_base_url("sk-test".into(), "https://custom.example.com/v1");
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some("https://custom.example.com/v1"));
     assert_eq!(
         provider.messages_url(),
         "https://custom.example.com/v1/messages"
@@ -201,7 +204,8 @@ async fn test_send_success() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
@@ -253,7 +257,8 @@ async fn test_send_success_with_reasoning_content() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
@@ -302,7 +307,8 @@ async fn test_send_no_choices_returns_error() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({"model": "mimo-7b", "messages": []});
 
@@ -334,7 +340,8 @@ async fn test_send_error_401() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({"model": "mimo-7b", "messages": []});
 
@@ -361,7 +368,8 @@ async fn test_send_error_429() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({"model": "mimo-7b", "messages": []});
 
@@ -388,7 +396,8 @@ async fn test_send_error_500() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({"model": "mimo-7b", "messages": []});
 
@@ -428,7 +437,8 @@ async fn test_send_streaming_success() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("mimo-7b");
     req.stream = true;
     let body = json!({
@@ -463,7 +473,8 @@ async fn test_send_streaming_error_401() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("mimo-7b");
     req.stream = true;
     let body = json!({"model": "mimo-7b", "messages": [], "stream": true});
@@ -510,7 +521,8 @@ async fn test_send_anthropic_success_text_only() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
@@ -560,7 +572,8 @@ async fn test_send_anthropic_success_with_thinking() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
@@ -757,7 +770,8 @@ async fn test_send_anthropic_routes_to_messages_endpoint() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
@@ -798,7 +812,8 @@ async fn test_send_openai_routes_to_chat_endpoint() {
         .create_async()
         .await;
 
-    let provider = MimoProvider::with_base_url("sk-test".into(), &provider_url(&server));
+    let provider =
+        MimoProvider::with_base_url("sk-test".into(), Some(provider_url(&server).as_str()));
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",

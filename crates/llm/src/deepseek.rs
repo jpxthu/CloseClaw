@@ -129,18 +129,20 @@ pub struct DeepSeekProvider {
 }
 
 impl DeepSeekProvider {
+    /// Create a provider with the vendor default base URL.
     pub fn new(api_key: String) -> Self {
-        Self::with_base_url(api_key, DEEPSEEK_API_URL.to_string())
+        Self::with_base_url(api_key, None)
     }
 
-    pub fn with_base_url(api_key: String, base_url: String) -> Self {
+    /// Create a provider with a custom base URL (`None` → vendor default).
+    pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         let http_client = Client::builder()
             .timeout(Duration::from_secs(60))
             .build()
             .expect("Failed to create HTTP client");
         Self {
             api_key,
-            base_url,
+            base_url: base_url.unwrap_or(DEEPSEEK_API_URL).to_string(),
             http_client,
             supported_protocols: vec![ProtocolId::new("openai"), ProtocolId::new("anthropic")],
         }

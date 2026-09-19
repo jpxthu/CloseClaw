@@ -83,37 +83,13 @@ pub fn build_vendor_provider(
     let url = base_url.filter(|url| !url.is_empty());
     let key = api_key.to_string();
     let provider: Arc<dyn Provider> = match provider_id {
-        "openai" => match url {
-            Some(url) => Arc::new(crate::OpenAIProvider::new_with_base_url(key, url)),
-            None => Arc::new(crate::OpenAIProvider::new(key)),
-        },
-        "anthropic" => match url {
-            Some(url) => Arc::new(crate::AnthropicProvider::new_with_base_url(key, url)),
-            None => Arc::new(crate::AnthropicProvider::new(key)),
-        },
-        "minimax" => match url {
-            Some(url) => Arc::new(crate::MiniMaxProvider::with_base_url(key, url.to_string())),
-            None => Arc::new(crate::MiniMaxProvider::new(key)),
-        },
-        "mimo" => match url {
-            Some(url) => Arc::new(crate::MimoProvider::with_base_url(key, url)),
-            None => Arc::new(crate::MimoProvider::new(key)),
-        },
-        "glm" => match url {
-            Some(url) => Arc::new(crate::GlmProvider::with_base_url(key, url.to_string())),
-            None => Arc::new(crate::GlmProvider::new(key)),
-        },
-        "deepseek" => match url {
-            Some(url) => Arc::new(crate::DeepSeekProvider::with_base_url(key, url.to_string())),
-            None => Arc::new(crate::DeepSeekProvider::new(key)),
-        },
-        "volcengine" => match url {
-            Some(url) => Arc::new(crate::VolcEngineProvider::with_base_url(
-                key,
-                url.to_string(),
-            )),
-            None => Arc::new(crate::VolcEngineProvider::new(key)),
-        },
+        "openai" => Arc::new(crate::OpenAIProvider::with_base_url(key, url)),
+        "anthropic" => Arc::new(crate::AnthropicProvider::with_base_url(key, url)),
+        "minimax" => Arc::new(crate::MiniMaxProvider::with_base_url(key, url)),
+        "mimo" => Arc::new(crate::MimoProvider::with_base_url(key, url)),
+        "glm" => Arc::new(crate::GlmProvider::with_base_url(key, url)),
+        "deepseek" => Arc::new(crate::DeepSeekProvider::with_base_url(key, url)),
+        "volcengine" => Arc::new(crate::VolcEngineProvider::with_base_url(key, url)),
         _ => return None,
     };
     Some(provider)

@@ -63,7 +63,8 @@ async fn test_provider_send_success_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let raw = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
@@ -98,7 +99,8 @@ async fn test_provider_send_reasoning_content_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let raw = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
@@ -126,7 +128,8 @@ async fn test_provider_send_auth_failure_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
@@ -154,7 +157,8 @@ async fn test_provider_send_rate_limit_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await
@@ -182,7 +186,8 @@ async fn test_provider_send_business_error_mock() {
         .create_async()
         .await;
 
-    let provider = MiniMaxProvider::with_base_url("key".into(), provider_url(&server));
+    let provider =
+        MiniMaxProvider::with_base_url("key".into(), Some(provider_url(&server).as_str()));
     let err = provider
         .send(internal_request("Abab5.5-chat"), chat_body("Abab5.5-chat"))
         .await

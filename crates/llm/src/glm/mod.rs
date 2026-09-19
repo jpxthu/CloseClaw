@@ -38,18 +38,20 @@ pub struct GlmProvider {
 }
 
 impl GlmProvider {
+    /// Create a provider with the vendor default base URL.
     pub fn new(api_key: String) -> Self {
-        Self::with_base_url(api_key, GLM_CHAT_URL.to_string())
+        Self::with_base_url(api_key, None)
     }
 
     pub fn from_env() -> Option<Self> {
         Some(Self::new(std::env::var("GLM_API_KEY").ok()?))
     }
 
-    pub fn with_base_url(api_key: String, base_url: String) -> Self {
+    /// Create a provider with a custom base URL (`None` → vendor default).
+    pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
             api_key,
-            base_url,
+            base_url: base_url.unwrap_or(GLM_CHAT_URL).to_string(),
             client: Client::new(),
             supported_protocols: vec![ProtocolId::new("openai")],
         }

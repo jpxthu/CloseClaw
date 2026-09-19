@@ -54,7 +54,7 @@ fn test_provider_accessors() {
 
     // Test custom base URL with a separate instance
     let custom =
-        VolcEngineProvider::with_base_url("sk-test".into(), "https://custom.api.com".into());
+        VolcEngineProvider::with_base_url("sk-test".into(), Some("https://custom.api.com"));
     assert_eq!(custom.base_url(), "https://custom.api.com");
 }
 
@@ -89,7 +89,8 @@ async fn test_send_rate_limit() {
         .create_async()
         .await;
 
-    let provider = VolcEngineProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        VolcEngineProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let req = make_request("doubao-1.5-pro");
     let body = json!({"model": "doubao-1.5-pro", "messages": []});
 
@@ -144,7 +145,8 @@ data: [DONE]
         .create_async()
         .await;
 
-    let provider = VolcEngineProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        VolcEngineProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("doubao-1.5-pro");
     req.stream = true;
     let body = json!({
@@ -196,7 +198,8 @@ async fn test_send_streaming_error_401() {
         .create_async()
         .await;
 
-    let provider = VolcEngineProvider::with_base_url("fake-key".into(), provider_url(&server));
+    let provider =
+        VolcEngineProvider::with_base_url("fake-key".into(), Some(provider_url(&server).as_str()));
     let mut req = make_request("doubao-1.5-pro");
     req.stream = true;
     let body = json!({"model": "doubao-1.5-pro", "messages": [], "stream": true});
@@ -239,7 +242,8 @@ async fn test_fetch_model_list_http_error_mock() {
         .create_async()
         .await;
 
-    let provider = VolcEngineProvider::with_base_url("fake-key".into(), server.url());
+    let provider =
+        VolcEngineProvider::with_base_url("fake-key".into(), Some(server.url().as_str()));
     let err = provider.fetch_model_list("fake-key").await.unwrap_err();
 
     m.assert_async().await;

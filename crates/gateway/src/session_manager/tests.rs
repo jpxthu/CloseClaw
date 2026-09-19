@@ -655,3 +655,83 @@ async fn test_force_new_injects_system_prompt_with_builder() {
         "system prompt should contain bootstrap content"
     );
 }
+
+// ── filter_existing: batch point-in-time snapshot ─────────────────────────
+
+/// Empty input yields an empty set, even when sessions exist.
+#[tokio::test]
+async fn test_filter_existing_empty_input_returns_empty_set() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let _existing_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+
+    let out = mgr.filter_existing(&[]).await;
+    assert!(
+        out.is_empty(),
+        "empty input must yield an empty set, got {out:?}"
+    );
+}
+
+/// Mixed existing/missing ids resolve to exactly the existing ones.
+#[tokio::test]
+async fn test_filter_existing_mixed_returns_only_existing() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let existing_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    let missing_id = "session-does-not-exist".to_string();
+
+    let out = mgr
+        .filter_existing(&[existing_id.clone(), missing_id.clone()])
+        .await;
+
+    assert_eq!(
+        out.len(),
+        1,
+        "exactly one of the two ids exists, got {out:?}"
+    );
+    assert!(
+        out.contains(&existing_id),
+        "existing session id missing from snapshot: {out:?}"
+    );
+    assert!(
+        !out.contains(&missing_id),
+        "non-existent id leaked into snapshot: {out:?}"
+    );
+}
+
+/// All ids missing yields an empty set.
+#[tokio::test]
+async fn test_filter_existing_all_missing_returns_empty_set() {
+    let mgr = make_test_mgr(None);
+    let ids = vec!["gone-a".to_string(), "gone-b".to_string()];
+
+    let out = mgr.filter_existing(&ids).await;
+    assert!(
+        out.is_empty(),
+        "no id exists in sessions, expected empty set, got {out:?}"
+    );
+}
+
+/// A session removed after creation never appears in the snapshot.
+#[tokio::test]
+async fn test_filter_existing_excludes_removed_session() {
+    let mgr = make_test_mgr(None);
+    let msg = test_message();
+    let removed_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert!(
+        mgr.has_session(&removed_id).await,
+        "precondition: session {removed_id} should exist"
+    );
+
+    mgr.sessions.write().await.remove(&removed_id);
+
+    let out = mgr.filter_existing(std::slice::from_ref(&removed_id)).await;
+    assert!(
+        out.is_empty(),
+        "removed session {removed_id} must not appear in the snapshot, got {out:?}"
+    );
+    assert!(
+        !mgr.has_session(&removed_id).await,
+        "postcondition: session {removed_id} should be gone"
+    );
+}

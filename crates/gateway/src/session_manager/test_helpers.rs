@@ -1,9 +1,10 @@
-//! Shared test helpers for `announce_tests`.
+//! Shared test helpers for the `session_manager` test modules.
 //!
-//! Extracted to keep `announce_tests.rs` under the file-size limit.
-//! Only used by `announce_tests.rs` for now, but placed at the
-//! `session_manager` level so other test modules (e.g. future
-//! `flush_tests` extensions) can reuse it without circular imports.
+//! Extracted to keep individual test files under the file-size limit and
+//! placed at the `session_manager` level so test modules (e.g. `tests`,
+//! `spawn_child_state_tests`, `spawn_label_tests`, `spawn_tests`) can
+//! reuse helpers such as `set_config_dir_for_testing` without circular
+//! imports.
 
 use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::SessionManager;
@@ -365,5 +366,16 @@ impl PersistenceService for MockPersistService {
         _: i64,
     ) -> Result<Vec<String>, PersistenceError> {
         Ok(Vec::new())
+    }
+}
+
+impl SessionManager {
+    /// Initialize `config_dir` from a temporary directory.
+    ///
+    /// Used by tests that create `SessionManager` without a real
+    /// `ConfigManager`, so `SpawnCreationContext::config_dir()` does
+    /// not panic.
+    pub fn set_config_dir_for_testing(&self, config_dir: &std::path::Path) {
+        let _ = self.config_dir.set(config_dir.to_path_buf());
     }
 }
