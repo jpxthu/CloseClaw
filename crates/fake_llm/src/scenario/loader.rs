@@ -246,8 +246,8 @@ mod tests {
     fn load_scenarios_dir_all_fixtures() {
         let dir = fixture_scenarios_dir();
         let files = load_scenario_dir(&dir).unwrap();
-        // Should load all 8 fixture files without errors.
-        assert_eq!(files.len(), 8);
+        // Should load all 11 fixture files without errors.
+        assert_eq!(files.len(), 11);
     }
 
     #[test]
