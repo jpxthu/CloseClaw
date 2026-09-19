@@ -368,7 +368,7 @@ mod tests {
             ..CompactConfig::default()
         };
         let err = config.validate().unwrap_err();
-        assert!(err.contains("must be <="));
+        assert!(err.contains("must be <"));
     }
 
     #[test]
@@ -378,7 +378,8 @@ mod tests {
             warning_threshold_pct: 0.10,
             ..CompactConfig::default()
         };
-        assert!(config.validate().is_ok());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <"));
     }
 
     #[test]
@@ -388,7 +389,8 @@ mod tests {
             warning_threshold_pct: 0.0,
             ..CompactConfig::default()
         };
-        assert!(config.validate().is_ok());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <"));
     }
 
     #[test]
@@ -398,7 +400,8 @@ mod tests {
             warning_threshold_pct: 1.0,
             ..CompactConfig::default()
         };
-        assert!(config.validate().is_ok());
+        let err = config.validate().unwrap_err();
+        assert!(err.contains("must be <"));
     }
 
     // ===================================================================
