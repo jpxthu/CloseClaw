@@ -8,6 +8,7 @@
 
 use super::stop::handle_stop_at;
 use closeclaw_platform::process::{pid_file_path, write_pid_file};
+use serial_test::serial;
 use tempfile::TempDir;
 
 // ── Test 1: NotRunning path (no PID file) ──────────────────────────────────
@@ -44,6 +45,7 @@ fn test_stop_not_running_json_no_pid_file() {
 /// When the PID file references a dead process, stop_daemon cleans it up
 /// and handle_stop_at reports "not running".
 #[test]
+#[serial]
 fn test_stop_not_running_stale_pid() {
     let pid_file = pid_file_path().unwrap();
     // Write a PID that does not exist.
@@ -64,6 +66,7 @@ fn test_stop_not_running_stale_pid() {
 /// When the PID file contains our own PID, handle_stop_at must bail
 /// with "Refusing to kill self." and NOT call stop_daemon.
 #[test]
+#[serial]
 fn test_stop_self_kill_protection() {
     let pid_file = pid_file_path().unwrap();
     write_pid_file(&pid_file, std::process::id()).unwrap();
