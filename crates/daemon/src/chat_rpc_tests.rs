@@ -849,8 +849,24 @@ async fn make_stop_ready_context() -> ChatContext {
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
+    // Timeout layering (Step 1.3 evaluation, issue #3067): the guard sits
+    // ABOVE the inner `send_simplified_with_timeout` (2s,
+    // `gateway::outbound_helpers`) reachable inside this dispatch —
+    // media/session-resolution rejections (`reject_with_reply`) and the
+    // restore / busy / permission-denied notices
+    // (`send_system_notification`) all await it. That inner timeout is
+    // self-healing: on expiry it drops the message and returns `Ok`, so
+    // dispatch would legitimately complete ms after 2s. A guard below 2s
+    // would preempt it and report a generic "hang" instead of letting the
+    // frame assertions below evaluate the real output state — hence 3s
+    // (> 2s): the inner timeout fires first and either self-heals or
+    // leaves assertion-level evidence; the guard only catches true hangs.
+    // Deeper stop-chain bounds (30s graceful stop, 5s per tool-kill) can-
+    // not engage in this harness — the fresh session has no active turn
+    // or tool handles — so they do not bound this guard. Normal path is
+    // in-memory ms-level, so a true hang still fails within 3s.
     let responses = tokio::time::timeout(
-        Duration::from_secs(1),
+        Duration::from_secs(3),
         dispatch(
             ChatRequest::StopSession {
                 agent_id: "stop-agent".to_owned(),
