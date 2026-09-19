@@ -364,36 +364,44 @@ async fn e2e_agent_system_prompt_injection() {
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
 
-/// §F1 workspace: agent `config.json` workspace field sets the
-/// agent's working directory (CWD for tool execution).
+/// §F1 workspace: agent `config.json` `workspace` field sets the session
+/// workdir — the base for relative file-tool paths
+/// (`docs/design/session/working-directory.md` 概述: 工作目录定义 agent
+/// 的默认文件操作路径).
 ///
-/// **Actual chain** (verified 2026-08-22): `AgentRegistry::query_agent_workspace`
-/// (`resolve.rs:747`) resolves the workspace path and passes it as the
-/// session's working directory to the gateway. When tools execute, their
-/// CWD is the workspace directory — NOT the config root. The system prompt
-/// bootstrap loading (`adapter.rs:125`) reads from
-/// `{config_root}/agents/{agent_id}/` and is independent of the workspace
-/// field.
+/// **Actual chain**: `SessionManager::query_agent_workspace`
+/// (`resolve.rs:658`) → registry `get_agent_workspace` →
+/// `ensure_workspace_dir(ws, agent, uid)` (`session/workspace.rs`) →
+/// `ConversationSession::workdir`. With the workspace field set the
+/// workdir is `{workspace}/workspaces/master/{uid}`; without it the
+/// design default `{config_dir}/workspaces/master/{uid}` applies
+/// (working-directory.md 字段定义). The dispatch layer passes that
+/// value into `ToolContext::workdir`
+/// (`session_handler_tool_dispatch.rs:372-379`) and the Read tool
+/// resolves relative paths against it (crates/tools `resolve_read_path`,
+/// Step 1.7). System prompt bootstrap loading (`adapter.rs:125`) reads
+/// from `{config_root}/agents/{agent_id}/` and is independent of the
+/// workspace field.
 ///
-/// **Observation method**: tool execution → relative-path `Read` → tool
-/// result frame carries the marker content. The fake_llm scenario
-/// `workspace-marker` (single turn — the chat path has no tool→LLM
-/// continuation, so a turn-2 text response would be unreachable) returns
-/// a `tool_call` for `Read` targeting
-/// `../agent_workspace/bootstrap_marker.txt`, resolved against the
-/// daemon process CWD (`<config_root>/config`, set by
-/// `helpers::spawn_daemon`) → `<config_root>/agent_workspace/`
-/// = the marker written below. In the expected-pass state the tool
-/// executes and the tool result frame contains `WORKSPACE_CWD_VERIFIED`.
+/// **Observation method** (discriminative for §F1): the fake_llm
+/// scenario `workspace-marker` (single turn — the chat path has no
+/// tool→LLM continuation, so a turn-2 text response would be
+/// unreachable) returns `Read("../../../bootstrap_marker.txt")`. The
+/// marker sits at `{workspace}/bootstrap_marker.txt`, exactly three
+/// levels above the effective workdir — the read hits only when the
+/// workspace field took effect. Under the default workdir the same
+/// relative path lands in `{config_dir}/`, misses the marker, and the
+/// assertion fails. In the expected-pass state the tool executes and
+/// the tool result frame contains `WORKSPACE_CWD_VERIFIED`.
 ///
-/// **Status (2026-09-20)**: un-ignored (Step 1.6). The original
-/// blocker #2436 — the `SkillListingProviderWrapper` panic in
-/// `bridge.rs` before any LLM request — was fixed on this branch
-/// (together with the result-return wiring gap), so the recorded
-/// reason for `#[ignore]` no longer applies; the unignore-workflow
-/// debt of tightening the assertion to the tool result frame was
-/// cleared in Step 1.4 (assert the tool result frame contains the
-/// marker instead of the unreachable turn-2 fixed text).
+/// **Status (2026-09-20)**: un-ignored (Step 1.6); the assertion
+/// observes the tool result frame (Step 1.4) and was made
+/// workdir-discriminative in Step 1.7 (fixture path, assertion and
+/// comments use the workdir basis only). The original blocker #2436 —
+/// the `SkillListingProviderWrapper` panic in `bridge.rs` before any LLM
+/// request — was fixed on this branch (together with the
+/// result-return wiring gap), so the recorded reason for `#[ignore]`
+/// no longer applies.
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
@@ -401,170 +409,169 @@ async fn e2e_agent_workspace() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    // Create a dedicated workspace directory with a marker file.
-    // The daemon's tool execution CWD is set to this directory.
-    let workspace_dir = temp_dir.path().join("agent_workspace");
+    // Marker at the workspace root: reachable only via the effective
+    // workdir `{workspace}/workspaces/master/{uid}` + fixture path
+    // `../../../bootstrap_marker.txt` (see the case doc above).
+    let workspace_dir = config_root.join("agent_workspace");
     std::fs::create_dir_all(&workspace_dir).expect("create workspace dir");
-    std::fs::write(
-        workspace_dir.join("bootstrap_marker.txt"),
-        "WORKSPACE_CWD_VERIFIED",
-    )
-    .expect("write workspace marker file");
+    std::fs::write(workspace_dir.join("bootstrap_marker.txt"), WORKSPACE_MARKER)
+        .expect("write workspace marker file");
 
     let fake_llm_addr = start_fake_llm().await;
-    // Three-way model alignment: models.json declares and enables
-    // `gpt-4o-workspace` (chain index 0 → the model on the wire, since
-    // the fallback client overwrites `request.model` per entry), the
-    // agent config references `openai/gpt-4o-workspace`, and the
-    // `workspace-observe` fixture matches `model_id` of the same id.
+    // Three-way model alignment: models.json / agent config /
+    // `workspace-observe` fixture all use `gpt-4o-workspace`.
     write_config_tree(
         config_root,
         ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-workspace"]),
     );
-    write_agent_config(
+    let ws_path = workspace_dir
+        .to_str()
+        .expect("workspace path is valid UTF-8");
+    write_agent_config(config_root, "openai/gpt-4o-workspace", Some(ws_path));
+
+    // Agent + User∩Agent allow pair per dimension (Level-1 ToolCall +
+    // Level-2 FileOp read); full rationale lives on the helper.
+    write_agent_permissions(
         config_root,
-        "openai/gpt-4o-workspace",
-        Some(
-            workspace_dir
-                .to_str()
-                .expect("workspace path is valid UTF-8"),
-        ),
+        "master",
+        &workspace_permission_rules().to_string(),
     );
-
-    // Agent + User∩Agent permission rules (design: intersection model,
-    // `docs/design/permission/README.md` §交集模型).
-    //
-    // The chat-RPC caller's user_id is the process UID
-    // (`current_uid()`, `crates/daemon/src/chat_rpc.rs`), NOT "owner" —
-    // the engine's Owner shortcut (user_id == "owner") never triggers
-    // here, so the two-phase intersection path runs and BOTH
-    // dimensions must Allow the `file_ops`/`Read` tool call:
-    //   1. Agent-dimension rule (subject `match_mode` defaults to
-    //      `agent_only`): the agent itself may call Read in file_ops;
-    //   2. User+Agent rule (`user_match: glob` matches any sender,
-    //      `agent: master`): the intersection is Allow + Allow.
-    //
-    // The loader merges only this file's `rules` with the global set —
-    // its own `defaults`/`user_defaults` are dropped
-    // (`engine_agent_rules.rs`), and the global `tool_call` default is
-    // Deny — so both explicit allows are required regardless of the
-    // caller-wiring fix (Step 1.1). Owner-exemption behavior is covered
-    // by Step 1.6 UT instead.
-    let read_rule = serde_json::json!({
-        "type": "tool_call",
-        "skill": "file_ops",
-        "methods": ["Read"],
-    });
-
-    // Level-2 (FileOp read) dual rules. The engine evaluates ToolCall
-    // (Level-1) and FileOp (Level-2) as two separate two-phase
-    // intersections (design: intersection model), so an allowed
-    // tool_call still needs its own agent_only + user_and_agent
-    // file-read allow pair or the dispatch Level-2 check denies before
-    // the Read executes.
-    //
-    // Action schema `file{operation:"read",paths:[...]}` (engine_types.rs)
-    // glob-matches the request path (engine_matching.rs: `*` stops at
-    // `/`, `**` crosses). The dispatch layer forwards the fixture's
-    // Read path verbatim — no canonicalization between tool args and
-    // the engine — and the temp config-root prefix is unknowable at
-    // authoring time, so the pattern anchors on the stable directory
-    // name instead of an absolute prefix: `**/agent_workspace/**`
-    // covers `../agent_workspace/bootstrap_marker.txt` (resolved by
-    // the Read tool against the daemon CWD) as well as any absolute
-    // form under a differently-named temp root.
-    let file_read_rule = serde_json::json!({
-        "type": "file",
-        "operation": "read",
-        "paths": ["**/agent_workspace/**"],
-    });
-    let permissions = serde_json::json!({
-        "rules": [
-            {
-                "name": "agent_allow_file_ops_read",
-                "subject": { "agent": "master" },
-                "effect": "allow",
-                "actions": [read_rule],
-                "priority": 0,
-            },
-            {
-                "name": "user_and_agent_allow_file_ops_read",
-                "subject": {
-                    "match_mode": "user_and_agent",
-                    "fields": {
-                        "user_id": "*",
-                        "agent": "master",
-                        "user_match": "glob",
-                        "agent_match": "exact",
-                    },
-                },
-                "effect": "allow",
-                "actions": [read_rule],
-                "priority": 0,
-            },
-            {
-                "name": "agent_allow_file_read_marker",
-                "subject": { "agent": "master" },
-                "effect": "allow",
-                "actions": [file_read_rule],
-                "priority": 0,
-            },
-            {
-                "name": "user_and_agent_allow_file_read_marker",
-                "subject": {
-                    "match_mode": "user_and_agent",
-                    "fields": {
-                        "user_id": "*",
-                        "agent": "master",
-                        "user_match": "glob",
-                        "agent_match": "exact",
-                    },
-                },
-                "effect": "allow",
-                "actions": [file_read_rule],
-                "priority": 0,
-            },
-        ],
-    });
-    write_agent_permissions(config_root, "master", &permissions.to_string());
 
     let daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
-    // Send a message — the workspace-marker scenario returns a tool_call
-    // for Read("../agent_workspace/bootstrap_marker.txt"). In the
-    // expected-pass state (Blocker #2436 resolved) the tool executes and
-    // reads the marker file.
+    // Fixture `workspace-marker` issues the workdir-relative
+    // Read("../../../bootstrap_marker.txt").
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "read the file").await;
 
-    // Tightened assertion (Step 1.4): the chat path has no tool→LLM
-    // continuation, so the old turn-2 fixed text (WORKSPACE_CWD_OK) was
-    // never served — observe the tool result frame instead. Verified
-    // frame structure: a `content_chunk` whose `content` is the Read
-    // tool's data JSON `{"content":"WORKSPACE_CWD_VERIFIED\n"}`
-    // (rendered by TerminalRenderer, trailing newline appended). Error
-    // frames carry `message`, not `content`, so they cannot satisfy this
-    // check.
-    let marker_in_tool_result = frames.iter().any(|frame| {
-        frame.get("type").and_then(|t| t.as_str()) == Some("content_chunk")
-            && frame
-                .get("content")
-                .and_then(|c| c.as_str())
-                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
-                .and_then(|v| {
-                    v.get("content")
-                        .and_then(|c| c.as_str())
-                        .map(|c| c.contains("WORKSPACE_CWD_VERIFIED"))
-                })
-                .unwrap_or(false)
-    });
+    // Assertion (Step 1.4 tightened → Step 1.7 discriminative): observe
+    // the tool result frame — only a successful workdir-resolved Read
+    // carries the marker (see `frame_contains_marker`).
     assert!(
-        marker_in_tool_result,
-        "tool result frame should contain marker WORKSPACE_CWD_VERIFIED, got frames: {frames:?}"
+        frame_contains_marker(&frames),
+        "tool result frame should contain marker {} (workdir-relative Read), got frames: {:?}",
+        WORKSPACE_MARKER,
+        frames
     );
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
+
+// ---------------------------------------------------------------------------
+// e2e_agent_workspace helpers (Step 1.7: ≤50-line function bodies)
+// ---------------------------------------------------------------------------
+
+/// Marker content written to `{workspace}/bootstrap_marker.txt`.
+const WORKSPACE_MARKER: &str = "WORKSPACE_CWD_VERIFIED";
+
+/// Permission-rule JSON ([`RuleSet`] shape: `{"rules": [...]}`,
+/// `crates/permission/src/engine/engine_types.rs`) for
+/// [`e2e_agent_workspace`]: Agent-only + User∩Agent allow pair for each
+/// permission dimension (design `docs/design/permission/README.md`
+/// §交集模型).
+///
+/// - **Level-1 ToolCall {file_ops, Read}**: the loader merges only this
+///   file's `rules` with the global set — its own `defaults` /
+///   `user_defaults` are dropped (`engine_agent_rules.rs`), and the
+///   global `tool_call` default is Deny — so both allows are required
+///   regardless of the caller-wiring fix (Step 1.1). The chat-RPC
+///   caller's `user_id` is the process UID (`current_uid()`,
+///   `crates/daemon/src/chat_rpc.rs`), never "owner", so the engine's
+///   Owner shortcut never triggers here and the two-phase intersection
+///   runs (Owner-exemption is covered by the Step 1.6 UT instead).
+/// - **Level-2 FileOp read**: same dual-subject pair with action
+///   `file{operation:"read",paths:[...]}` — the engine evaluates
+///   ToolCall and FileOp as two separate intersections, so an allowed
+///   tool_call still needs its own allow pair or the dispatch Level-2
+///   check denies before Read executes (`*` stops at `/`, `**` crosses
+///   — `engine_matching.rs`).
+///
+/// The gateway dispatch evaluates the FileOp request with the fixture's
+/// Read path **verbatim** (`session_handler_tool_dispatch.rs` file_ops
+/// branch — no canonicalization between tool args and the engine), so
+/// the pattern must match the raw workdir-relative form
+/// `../../../bootstrap_marker.txt` as well as any absolute form: it
+/// anchors on the stable file name (`**/bootstrap_marker.txt`) instead
+/// of a directory prefix — the temp config-root prefix is unknowable
+/// at authoring time, and a relative-path glob on a directory segment
+/// would not match the forwarded raw text.
+fn workspace_permission_rules() -> serde_json::Value {
+    let tool_call_rule = serde_json::json!({
+        "type": "tool_call",
+        "skill": "file_ops",
+        "methods": ["Read"],
+    });
+    let file_read_rule = serde_json::json!({
+        "type": "file",
+        "operation": "read",
+        "paths": ["**/bootstrap_marker.txt"],
+    });
+    let user_and_agent = serde_json::json!({
+        "match_mode": "user_and_agent",
+        "fields": {
+            "user_id": "*",
+            "agent": "master",
+            "user_match": "glob",
+            "agent_match": "exact",
+        },
+    });
+    serde_json::json!({
+        "rules": [
+            {
+                "name": "agent_allow_file_ops_read",
+                "subject": { "agent": "master" },
+                "effect": "allow", "priority": 0,
+                "actions": [tool_call_rule],
+            },
+            {
+                "name": "user_and_agent_allow_file_ops_read",
+                "subject": user_and_agent.clone(),
+                "effect": "allow", "priority": 0,
+                "actions": [tool_call_rule],
+            },
+            {
+                "name": "agent_allow_file_read_marker",
+                "subject": { "agent": "master" },
+                "effect": "allow", "priority": 0,
+                "actions": [file_read_rule],
+            },
+            {
+                "name": "user_and_agent_allow_file_read_marker",
+                "subject": user_and_agent,
+                "effect": "allow", "priority": 0,
+                "actions": [file_read_rule],
+            },
+        ],
+    })
+}
+
+/// True when any frame carries the Read tool result containing
+/// [`WORKSPACE_MARKER`].
+///
+/// Verified frame structure: a `content_chunk` whose `content` is the
+/// Read tool's data JSON `{"content":"WORKSPACE_CWD_VERIFIED\n"}`
+/// (rendered by TerminalRenderer, trailing newline appended). Failed
+/// Reads surface as a `content_chunk` whose data JSON carries an
+/// `error` key (e.g. a Level-2 `file operation … not permitted` deny),
+/// never `content`, so they cannot satisfy this check — that is what
+/// makes the assertion discriminative for §F1.
+fn frame_contains_marker(frames: &[serde_json::Value]) -> bool {
+    frames.iter().any(|frame| {
+        if frame.get("type").and_then(|t| t.as_str()) != Some("content_chunk") {
+            return false;
+        }
+        let Some(content) = frame.get("content").and_then(|c| c.as_str()) else {
+            return false;
+        };
+        let Ok(data) = serde_json::from_str::<serde_json::Value>(content) else {
+            return false;
+        };
+        data.get("content")
+            .and_then(|c| c.as_str())
+            .map(|c| c.contains(WORKSPACE_MARKER))
+            .unwrap_or(false)
+    })
 }
 
 // ---------------------------------------------------------------------------

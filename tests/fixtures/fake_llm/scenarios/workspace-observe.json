@@ -13,7 +13,7 @@
                         "calls": [
                             {
                                 "name": "Read",
-                                "arguments": "{\"path\":\"../agent_workspace/bootstrap_marker.txt\"}"
+                                "arguments": "{\"path\":\"../../../bootstrap_marker.txt\"}"
                             }
                         ]
                     }
