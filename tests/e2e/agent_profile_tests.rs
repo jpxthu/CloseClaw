@@ -230,7 +230,6 @@ async fn e2e_agent_model_selection() {
 
     let fake_llm_addr = start_fake_llm().await;
     write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-    write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
@@ -276,16 +275,11 @@ async fn e2e_agent_system_prompt_injection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    // Three-way model alignment: models.json declares and enables
-    // `gpt-4o-system-prompt` (chain index 0 → the model on the wire,
-    // since the fallback client overwrites `request.model` per entry),
-    // the agent config references `openai/gpt-4o-system-prompt`, and
-    // the `injected-identity` fixture matches `model_id` of the same id.
+    // 链首条=出站 model，见 ConfigTreeOpts::with_models doc
     write_config_tree(
         config_root,
         ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-system-prompt"]),
     );
-    write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
     // directory. The system_prompt builder loads bootstrap files from
@@ -509,7 +503,6 @@ async fn e2e_agent_runtime_config_query() {
 
     let fake_llm_addr = start_fake_llm().await;
     write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-    write_agent_config(config_root, "openai/gpt-4o-basic", None);
 
     let mut daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
