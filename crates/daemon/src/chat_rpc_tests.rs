@@ -1,5 +1,6 @@
 use super::*;
 use closeclaw_common::im_plugin::RenderedOutput;
+use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 use serde_json::json;
 use std::sync::Arc;
@@ -478,24 +479,44 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
+/// Shared base harness for the dispatch tests: `SessionManager` +
+/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
+/// At the config default of `max_message_size` = 0, any non-empty text
+/// message exceeds the limit and is rejected by `validate_inbound`, so the
+/// factory substitutes a non-zero cap — callers may pass
+/// `GatewayConfig::default()` and still be safe for inbound validation.
+fn make_test_context(config: GatewayConfig) -> ChatContext {
+    let config = if config.max_message_size == 0 {
+        GatewayConfig {
+            max_message_size: 64 * 1024,
+            ..config
+        }
+    } else {
+        config
+    };
+    let sessions = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_common::ReasoningLevel::default(),
+    ));
+    let gateway = Arc::new(Gateway::new(config, sessions));
+    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
+    ChatContext {
+        gateway,
+        rpc_plugin,
+    }
+}
+
 /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
 /// without side effects.
 #[tokio::test]
 async fn test_dispatch_ping_returns_pong_actual() {
     let req = ChatRequest::Ping;
-    let context = ChatContext {
-        gateway: Arc::new(closeclaw_gateway::Gateway::new(
-            closeclaw_gateway::types::GatewayConfig::default(),
-            Arc::new(SessionManager::new(
-                &closeclaw_gateway::types::GatewayConfig::default(),
-                None,
-                None,
-                closeclaw_common::ReasoningLevel::default(),
-            )),
-        )),
-        rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
-    };
-    let responses = dispatch(req, &context).await;
+    let context = make_test_context(GatewayConfig::default());
+    let responses = tokio::time::timeout(Duration::from_secs(1), dispatch(req, &context))
+        .await
+        .expect("dispatch must terminate instead of hanging until the suite-level timeout");
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0], ChatResponse::Pong);
 }
@@ -820,34 +841,26 @@ fn terminal_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
 /// `SlashResult::Stop` → "已停止当前任务" reply → outbound → plugin send →
 /// agent-route fallback → this connection's channel).
 async fn make_stop_ready_context() -> ChatContext {
-    // max_message_size must be non-zero: 0 rejects every inbound message
-    // in `validate_inbound` ("/stop" would exceed the 0-byte limit).
-    let config = closeclaw_gateway::types::GatewayConfig {
+    // max_message_size must be non-zero: with a 0-byte limit the non-empty
+    // "/stop" text exceeds the cap and is rejected in `validate_inbound`.
+    let config = GatewayConfig {
         name: "stop-test".to_owned(),
         max_message_size: 64 * 1024,
         ..Default::default()
     };
-    let sessions = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        closeclaw_common::ReasoningLevel::default(),
-    ));
-    let gateway = Arc::new(Gateway::new(config, sessions));
-    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-    gateway
-        .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
+    let context = make_test_context(config);
+    // Stop-specific: terminal plugin as outbound destination + `/stop` route.
+    context
+        .gateway
+        .register_plugin(context.rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
         .await;
     let registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
     registry.register(Arc::new(closeclaw_slash::handlers_session::StopHandler));
     let dispatcher = Arc::new(closeclaw_slash::dispatcher::SlashDispatcher::from_shared(
         registry,
     )) as Arc<dyn closeclaw_common::SlashRouter>;
-    gateway.set_slash_dispatcher(dispatcher).await;
-    ChatContext {
-        gateway,
-        rpc_plugin,
-    }
+    context.gateway.set_slash_dispatcher(dispatcher).await;
+    context
 }
 
 /// Step 1.4 — lock the `ChatRequest::StopSession` output-frame contract of
@@ -861,13 +874,17 @@ async fn make_stop_ready_context() -> ChatContext {
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
-    let responses = dispatch(
-        ChatRequest::StopSession {
-            agent_id: "stop-agent".to_owned(),
-        },
-        &context,
+    let responses = tokio::time::timeout(
+        Duration::from_secs(1),
+        dispatch(
+            ChatRequest::StopSession {
+                agent_id: "stop-agent".to_owned(),
+            },
+            &context,
+        ),
     )
-    .await;
+    .await
+    .expect("dispatch must terminate instead of hanging until the suite-level timeout");
 
     // ① at least one non-empty stop reply frame
     let replies = reply_frame_indexes(&responses);
