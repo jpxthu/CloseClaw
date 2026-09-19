@@ -478,23 +478,40 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
+/// Shared base harness for the dispatch tests: `SessionManager` +
+/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
+/// A `max_message_size` of 0 (the config default) rejects every inbound
+/// message in `validate_inbound`, so a non-zero default is substituted —
+/// passing `GatewayConfig::default()` stays safe for inbound validation.
+fn make_test_context(config: closeclaw_gateway::types::GatewayConfig) -> ChatContext {
+    let config = if config.max_message_size == 0 {
+        closeclaw_gateway::types::GatewayConfig {
+            max_message_size: 64 * 1024,
+            ..config
+        }
+    } else {
+        config
+    };
+    let sessions = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_common::ReasoningLevel::default(),
+    ));
+    let gateway = Arc::new(Gateway::new(config, sessions));
+    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
+    ChatContext {
+        gateway,
+        rpc_plugin,
+    }
+}
+
 /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
 /// without side effects.
 #[tokio::test]
 async fn test_dispatch_ping_returns_pong_actual() {
     let req = ChatRequest::Ping;
-    let context = ChatContext {
-        gateway: Arc::new(closeclaw_gateway::Gateway::new(
-            closeclaw_gateway::types::GatewayConfig::default(),
-            Arc::new(SessionManager::new(
-                &closeclaw_gateway::types::GatewayConfig::default(),
-                None,
-                None,
-                closeclaw_common::ReasoningLevel::default(),
-            )),
-        )),
-        rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
-    };
+    let context = make_test_context(closeclaw_gateway::types::GatewayConfig::default());
     let responses = tokio::time::timeout(Duration::from_secs(10), dispatch(req, &context))
         .await
         .expect("dispatch must terminate instead of hanging until the suite-level timeout");
@@ -829,27 +846,19 @@ async fn make_stop_ready_context() -> ChatContext {
         max_message_size: 64 * 1024,
         ..Default::default()
     };
-    let sessions = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        closeclaw_common::ReasoningLevel::default(),
-    ));
-    let gateway = Arc::new(Gateway::new(config, sessions));
-    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-    gateway
-        .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
+    let context = make_test_context(config);
+    // Stop-specific: terminal plugin as outbound destination + `/stop` route.
+    context
+        .gateway
+        .register_plugin(context.rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
         .await;
     let registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
     registry.register(Arc::new(closeclaw_slash::handlers_session::StopHandler));
     let dispatcher = Arc::new(closeclaw_slash::dispatcher::SlashDispatcher::from_shared(
         registry,
     )) as Arc<dyn closeclaw_common::SlashRouter>;
-    gateway.set_slash_dispatcher(dispatcher).await;
-    ChatContext {
-        gateway,
-        rpc_plugin,
-    }
+    context.gateway.set_slash_dispatcher(dispatcher).await;
+    context
 }
 
 /// Step 1.4 — lock the `ChatRequest::StopSession` output-frame contract of
