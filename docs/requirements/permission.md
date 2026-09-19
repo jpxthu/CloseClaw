@@ -16,6 +16,7 @@ Owner 需要系统区分两种独立身份：
 User 上下文的来源由场景决定：IM 消息来自发送者、心跳（Heartbeat）使用任务配置中指定的 User ID、子 Session 继承父 Session 的 User 上下文。
 
 > **交叉引用**：CLI 渠道的 User 上下文详见 [cli §F1](cli.md)（终端对话）。
+> **交叉引用**：IM 消息的发送者标识等入站归一化字段见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
 
 Owner 的 User ID 固定为 `owner`。
 
