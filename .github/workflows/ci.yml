@@ -90,10 +90,10 @@ jobs:
         run: cargo clippy --all -- -D warnings
 
       - name: Run unit and binary tests
-        run: cargo test --lib --bins
+        run: cargo test --workspace --lib --bins --no-fail-fast
 
       - name: Run integration tests
-        run: cargo test --tests
+        run: cargo test --workspace --tests --no-fail-fast
 
       - name: Run doc tests
-        run: cargo test --doc
+        run: cargo test --workspace --doc --no-fail-fast
