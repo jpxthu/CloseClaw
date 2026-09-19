@@ -344,16 +344,12 @@ async fn test_no_dsl_text_block_passthrough() {
         .await;
     let sr = result.expect("streaming should succeed");
 
-    // No DSL instructions → dsl_result should be Some with empty instructions.
-    // DslParser always inserts its result into metadata.
+    // No DSL instructions → dsl_result should be None.
+    // DslParser only inserts dsl_result when actual DSL instructions are found.
     assert!(
-        sr.dsl_result.is_some(),
-        "dsl_result should be Some when DslParser runs (even with no DSL)"
-    );
-    let dsl: DslParseResult = serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
-    assert!(
-        dsl.instructions.is_empty(),
-        "dsl_result instructions should be empty when no DSL present"
+        sr.dsl_result.is_none(),
+        "dsl_result should be None when no DSL instructions are present, got: {:?}",
+        sr.dsl_result
     );
 
     // Content should be the original text.
@@ -395,15 +391,11 @@ async fn test_malformed_dsl_fallback_to_original_text() {
         .await;
     let sr = result.expect("streaming should succeed");
 
-    // No instructions parsed → dsl_result should be Some with empty instructions.
+    // No instructions parsed → dsl_result should be None (no valid DSL found).
     assert!(
-        sr.dsl_result.is_some(),
-        "dsl_result should be Some for malformed DSL"
-    );
-    let dsl: DslParseResult = serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
-    assert!(
-        dsl.instructions.is_empty(),
-        "dsl_result instructions should be empty for malformed DSL"
+        sr.dsl_result.is_none(),
+        "dsl_result should be None for malformed DSL, got: {:?}",
+        sr.dsl_result
     );
 
     // Original text preserved (passthrough).
