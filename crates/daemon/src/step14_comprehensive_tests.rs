@@ -434,17 +434,6 @@ fn test_admin_context_no_gateway_field() {
     assert!(ctx.restart_tx.is_none());
 }
 
-/// ChatContext DOES hold a Gateway Arc — it must be rebuilt on restart.
-#[test]
-fn test_chat_context_holds_gateway_arc() {
-    use crate::test_helpers::make_dispatch_context;
-    use closeclaw_gateway::types::GatewayConfig;
-
-    let ctx = make_dispatch_context(GatewayConfig::default());
-    let gw = Arc::clone(&ctx.gateway);
-    assert!(Arc::ptr_eq(&ctx.gateway, &gw));
-}
-
 /// Gateway restart state machine: Pending → Executing → Idle.
 /// Full lifecycle transition test.
 #[test]
