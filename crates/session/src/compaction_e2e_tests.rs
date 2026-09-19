@@ -372,7 +372,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_equal_thresholds_pass() {
+    fn test_validate_equal_thresholds_fail() {
         let config = CompactConfig {
             auto_compact_threshold_pct: 0.10,
             warning_threshold_pct: 0.10,
@@ -383,7 +383,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_boundary_zero_passes() {
+    fn test_validate_boundary_zero_fails() {
         let config = CompactConfig {
             auto_compact_threshold_pct: 0.0,
             warning_threshold_pct: 0.0,
@@ -394,7 +394,7 @@ mod tests {
     }
 
     #[test]
-    fn test_validate_boundary_one_passes() {
+    fn test_validate_boundary_one_fails() {
         let config = CompactConfig {
             auto_compact_threshold_pct: 1.0,
             warning_threshold_pct: 1.0,
