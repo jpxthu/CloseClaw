@@ -495,7 +495,9 @@ async fn test_dispatch_ping_returns_pong_actual() {
         )),
         rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
     };
-    let responses = dispatch(req, &context).await;
+    let responses = tokio::time::timeout(Duration::from_secs(10), dispatch(req, &context))
+        .await
+        .expect("dispatch must terminate instead of hanging until the suite-level timeout");
     assert_eq!(responses.len(), 1);
     assert_eq!(responses[0], ChatResponse::Pong);
 }
@@ -861,13 +863,17 @@ async fn make_stop_ready_context() -> ChatContext {
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
-    let responses = dispatch(
-        ChatRequest::StopSession {
-            agent_id: "stop-agent".to_owned(),
-        },
-        &context,
+    let responses = tokio::time::timeout(
+        Duration::from_secs(10),
+        dispatch(
+            ChatRequest::StopSession {
+                agent_id: "stop-agent".to_owned(),
+            },
+            &context,
+        ),
     )
-    .await;
+    .await
+    .expect("dispatch must terminate instead of hanging until the suite-level timeout");
 
     // ① at least one non-empty stop reply frame
     let replies = reply_frame_indexes(&responses);
