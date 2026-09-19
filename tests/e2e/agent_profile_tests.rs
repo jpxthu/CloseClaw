@@ -49,7 +49,7 @@ use super::helpers;
 use super::helpers::chat::{
     assert_single_terminal, chat_roundtrip, collect_content_text, read_frame,
 };
-use super::helpers::config::{write_config_tree, ConfigTreeOpts};
+use super::helpers::config::{write_agent_permissions, write_config_tree, ConfigTreeOpts};
 use super::helpers::fake_llm::start_fake_llm;
 
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
@@ -427,6 +427,58 @@ async fn e2e_agent_workspace() {
                 .expect("workspace path is valid UTF-8"),
         ),
     );
+
+    // Agent + User∩Agent permission rules (design: intersection model,
+    // `docs/design/permission/README.md` §交集模型).
+    //
+    // The chat-RPC caller's user_id is the process UID
+    // (`current_uid()`, `crates/daemon/src/chat_rpc.rs`), NOT "owner" —
+    // the engine's Owner shortcut (user_id == "owner") never triggers
+    // here, so the two-phase intersection path runs and BOTH
+    // dimensions must Allow the `file_ops`/`Read` tool call:
+    //   1. Agent-dimension rule (subject `match_mode` defaults to
+    //      `agent_only`): the agent itself may call Read in file_ops;
+    //   2. User+Agent rule (`user_match: glob` matches any sender,
+    //      `agent: master`): the intersection is Allow + Allow.
+    //
+    // The loader merges only this file's `rules` with the global set —
+    // its own `defaults`/`user_defaults` are dropped
+    // (`engine_agent_rules.rs`), and the global `tool_call` default is
+    // Deny — so both explicit allows are required regardless of the
+    // caller-wiring fix (Step 1.1). Owner-exemption behavior is covered
+    // by Step 1.6 UT instead.
+    let read_rule = serde_json::json!({
+        "type": "tool_call",
+        "skill": "file_ops",
+        "methods": ["Read"],
+    });
+    let permissions = serde_json::json!({
+        "rules": [
+            {
+                "name": "agent_allow_file_ops_read",
+                "subject": { "agent": "master" },
+                "effect": "allow",
+                "actions": [read_rule],
+                "priority": 0,
+            },
+            {
+                "name": "user_and_agent_allow_file_ops_read",
+                "subject": {
+                    "match_mode": "user_and_agent",
+                    "fields": {
+                        "user_id": "*",
+                        "agent": "master",
+                        "user_match": "glob",
+                        "agent_match": "exact",
+                    },
+                },
+                "effect": "allow",
+                "actions": [read_rule],
+                "priority": 0,
+            },
+        ],
+    });
+    write_agent_permissions(config_root, "master", &permissions.to_string());
 
     let daemon = spawn_daemon(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
