@@ -863,36 +863,38 @@ fn test_agent_info_json_output_all_fields() {
 #[tokio::test]
 async fn test_handle_stop_no_pid_and_self_kill() {
     use closeclaw_cli::admin::handle_stop_at;
-    use closeclaw_platform::process::{pid_file_path, write_pid_file};
+    use closeclaw_platform::process::write_pid_file;
 
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path();
+    let pid_file = tmp.path().join("daemon.pid");
 
     // No PID file: text mode → Ok
-    let result = handle_stop_at(config_dir, false).await;
+    let result = handle_stop_at(&pid_file, false).await;
     assert!(result.is_ok(), "no PID file should return Ok: {:?}", result);
 
     // No PID file: JSON mode → Ok
-    let result = handle_stop_at(config_dir, true).await;
+    let result = handle_stop_at(&pid_file, true).await;
     assert!(
         result.is_ok(),
         "no PID file (json) should return Ok: {:?}",
         result
     );
 
-    // Self-kill protection: write to the fixed PID path
+    // Self-kill protection: write our own PID to the temp PID file
     let my_pid = std::process::id();
-    let pid_file = pid_file_path().unwrap();
     write_pid_file(&pid_file, my_pid).unwrap();
-    let result = handle_stop_at(config_dir, false).await;
+    let result = handle_stop_at(&pid_file, false).await;
     assert!(result.is_err(), "should refuse to kill self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("Refusing to kill self"),
         "error should mention self-kill refusal, got: {err_msg}"
     );
-    // Clean up: remove PID file written to the fixed path.
-    std::fs::remove_file(&pid_file).ok();
+    // PID file should NOT be removed — we bailed before stop_daemon.
+    assert!(
+        pid_file.exists(),
+        "PID file should be preserved on self-kill bail"
+    );
 }
 
 // ── Step 1.3 — handle_stop_at: signal → wait → cleanup full chain ──
@@ -901,10 +903,9 @@ async fn test_handle_stop_no_pid_and_self_kill() {
 #[tokio::test]
 async fn test_handle_stop_full_chain_signal_and_timeout() {
     use closeclaw_cli::admin::handle_stop_at;
-    use closeclaw_platform::process::{pid_file_path, write_pid_file};
+    use closeclaw_platform::process::write_pid_file;
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path();
-    let pid_file = pid_file_path().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     let mut child = std::process::Command::new("sleep")
         .arg("60")
         .stdin(std::process::Stdio::null())
@@ -915,7 +916,7 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     let pid = child.id();
     write_pid_file(&pid_file, pid).unwrap();
     assert!(pid_file.exists());
-    let result = handle_stop_at(config_dir, false).await;
+    let result = handle_stop_at(&pid_file, false).await;
     assert!(result.is_err(), "should return Err on zombie timeout");
     assert!(pid_file.exists(), "PID file should be preserved on timeout");
     let err_msg = result.unwrap_err().to_string();

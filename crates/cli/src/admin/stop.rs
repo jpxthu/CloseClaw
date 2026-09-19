@@ -1,15 +1,15 @@
 //! Stop handler function for CLI admin.
 
-use super::common::{config_root, json_output, StopOutput};
+use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(json: bool) -> Result<()> {
-    let root_dir = config_root()?;
-    handle_stop_at(&root_dir, json).await
+    let pid_file = closeclaw_platform::process::pid_file_path()?;
+    handle_stop_at(&pid_file, json).await
 }
 
-pub async fn handle_stop_at(_config_dir: &std::path::Path, json: bool) -> Result<()> {
-    let p = closeclaw_platform::process::pid_file_path()?;
+pub async fn handle_stop_at(pid_file: &std::path::Path, json: bool) -> Result<()> {
+    let p = pid_file;
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
     if let Some(pid) = closeclaw_platform::process::read_pid_file(&p) {
