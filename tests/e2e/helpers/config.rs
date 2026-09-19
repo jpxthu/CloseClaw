@@ -163,18 +163,73 @@ fn models_json(opts: &ConfigTreeOpts) -> serde_json::Value {
     })
 }
 
+/// Write a custom agent `config.json` into the config tree.
+///
+/// Overwrites the master agent config created by the shared
+/// `write_config_tree` scaffold to set a specific `model` and/or
+/// `workspace` field. Uses `serde_json::json!` as the single
+/// authoritative agent-config construction point.
+pub fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    let mut config = serde_json::json!({
+        "id": "master",
+        "name": "Master",
+        "model": model,
+        "tools": ["*"],
+        "skills": ["*"]
+    });
+    if let Some(ws) = workspace {
+        config["workspace"] = serde_json::Value::String(ws.to_string());
+    }
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::to_string(&config).expect("serialize agent config"),
+    )
+    .expect("write agent config");
+}
+
+/// Write agent config with explicit tools and disallowed_tools lists.
+///
+/// Like [`write_agent_config`] but allows fine-grained control over
+/// the `tools` whitelist and `disallowed_tools` blacklist fields.
+pub fn write_agent_config_with_tools(
+    config_root: &Path,
+    model: &str,
+    tools: &[&str],
+    disallowed: &[&str],
+) {
+    let agent_dir = config_root.join("agents").join("master");
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    let tools: Vec<serde_json::Value> = tools.iter().map(|t| serde_json::json!(t)).collect();
+    let disallowed: Vec<serde_json::Value> =
+        disallowed.iter().map(|t| serde_json::json!(t)).collect();
+    std::fs::write(
+        agent_dir.join("config.json"),
+        serde_json::json!({
+            "id": "master",
+            "name": "Master",
+            "model": model,
+            "tools": tools,
+            "disallowed_tools": disallowed,
+            "skills": ["*"]
+        })
+        .to_string(),
+    )
+    .expect("write agent config with tools");
+}
+
 /// Write the default master agent layout (wildcard tool/skill
 /// permissions, model reference derived from the first declared
 /// `models.json` id) into the config tree.
+///
+/// Delegates to [`write_agent_config`] for the actual write.
 fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
-    let model = format!("openai/{}", opts.model_ids[0]);
-    std::fs::create_dir_all(root.join("agents").join("master")).expect("create agents dir");
-    std::fs::write(
-        root.join("agents").join("master").join("config.json"),
-        format!(
-            r#"{{"id":"master","name":"Master","model":"{model}",
-            "tools":["*"],"skills":["*"]}}"#
-        ),
-    )
-    .expect("write master agent config");
+    let model = format!(
+        "openai/{}",
+        opts.model_ids
+            .first()
+            .expect("model_ids must declare at least one id")
+    );
+    write_agent_config(root, &model, None);
 }
