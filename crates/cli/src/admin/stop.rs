@@ -9,15 +9,15 @@ pub async fn handle_stop(json: bool) -> Result<()> {
 }
 
 pub async fn handle_stop_at(pid_file: &std::path::Path, json: bool) -> Result<()> {
-    let p = pid_file;
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
-    if let Some(pid) = closeclaw_platform::process::read_pid_file(&p) {
+    if let Some(pid) = closeclaw_platform::process::read_pid_file(pid_file) {
         if pid == std::process::id() {
             anyhow::bail!("Refusing to kill self.");
         }
     }
-    let outcome = closeclaw_platform::process::stop_daemon(&p, std::time::Duration::from_secs(5))?;
+    let outcome =
+        closeclaw_platform::process::stop_daemon(pid_file, std::time::Duration::from_secs(5))?;
     match outcome {
         closeclaw_platform::process::StopOutcome::Stopped(pid) => {
             if json {
@@ -31,7 +31,10 @@ pub async fn handle_stop_at(pid_file: &std::path::Path, json: bool) -> Result<()
             }
         }
         closeclaw_platform::process::StopOutcome::NotRunning => {
-            let msg = format!("Daemon is not running (no PID file at {}).", p.display());
+            let msg = format!(
+                "Daemon is not running (no PID file at {}).",
+                pid_file.display()
+            );
             if json {
                 json_output(&StopOutput {
                     pid: None,
