@@ -55,8 +55,10 @@ impl SlashRouter for TestSlashRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
         None
     }
-    fn is_immediate(&self, command: &str) -> bool {
-        command == "help"
+    fn is_immediate(&self, content: &str) -> bool {
+        // Strip leading '/' prefix to match the command name.
+        let cmd = content.strip_prefix('/').unwrap_or(content);
+        cmd == "help"
     }
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
         match command {
