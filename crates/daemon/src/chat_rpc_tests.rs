@@ -479,9 +479,7 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
-// Shared dispatch harness — `make_dispatch_context` +
-// `effective_test_config` (and their sentinel contract tests) live in
-// `crate::test_helpers` (Step 1.2 dedup).
+// Shared dispatch helpers live in `crate::test_helpers` (issue #3067).
 
 /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
 /// without side effects.
@@ -846,25 +844,29 @@ async fn make_stop_ready_context() -> ChatContext {
 /// fails ③, a duplicated terminal fails ②, and an `Error` terminal (failure
 /// regression in `handle_inbound_message` while the drain still replies)
 /// fails ② — no regression can pass silently.
+///
+/// Timeout layering (issue #3067): the 3s guard sits ABOVE the inner
+/// `send_simplified_with_timeout` (2s, `gateway::outbound_helpers`)
+/// reachable inside this dispatch — media/session-resolution rejections
+/// (`reject_with_reply`) and the restore / busy / permission-denied
+/// notices (`send_system_notification`) all await it. That inner timeout
+/// is self-healing: on expiry it drops the message and returns `Ok`, so
+/// dispatch would legitimately complete ms after 2s. A guard below 2s
+/// would preempt it and report a generic "hang" instead of letting the
+/// frame assertions below evaluate the real output state — hence 3s
+/// (> 2s): the inner timeout fires first and either self-heals or leaves
+/// assertion-level evidence; the guard only catches true hangs. Deeper
+/// stop-chain bounds (30s graceful stop, 5s per tool-kill) cannot engage
+/// in this harness — the fresh session has no active turn or tool
+/// handles — so they do not bound this guard. Normal path is in-memory
+/// ms-level, so a true hang still fails within 3s. This guard's 3s
+/// exceeds the STANDARDS §6 ≤1s unit-test wait guidance: a deliberate
+/// exception (the inner 2s self-heal timeout must be reachable); daemon
+/// tests keep many such precedents (13 × `from_secs(10)` across
+/// lifecycle tests, 2 more in `shutdown_tests`).
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
-    // Timeout layering (Step 1.3 evaluation, issue #3067): the guard sits
-    // ABOVE the inner `send_simplified_with_timeout` (2s,
-    // `gateway::outbound_helpers`) reachable inside this dispatch —
-    // media/session-resolution rejections (`reject_with_reply`) and the
-    // restore / busy / permission-denied notices
-    // (`send_system_notification`) all await it. That inner timeout is
-    // self-healing: on expiry it drops the message and returns `Ok`, so
-    // dispatch would legitimately complete ms after 2s. A guard below 2s
-    // would preempt it and report a generic "hang" instead of letting the
-    // frame assertions below evaluate the real output state — hence 3s
-    // (> 2s): the inner timeout fires first and either self-heals or
-    // leaves assertion-level evidence; the guard only catches true hangs.
-    // Deeper stop-chain bounds (30s graceful stop, 5s per tool-kill) can-
-    // not engage in this harness — the fresh session has no active turn
-    // or tool handles — so they do not bound this guard. Normal path is
-    // in-memory ms-level, so a true hang still fails within 3s.
     let responses = tokio::time::timeout(
         Duration::from_secs(3),
         dispatch(

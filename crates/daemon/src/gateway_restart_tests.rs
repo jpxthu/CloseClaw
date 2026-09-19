@@ -316,16 +316,17 @@ fn on_config_file_changed_no_signal_without_tx() {
 // ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────
 
 /// ChatContext holds a Gateway Arc — it must be rebuilt on restart.
-/// The context comes from the shared factory; cloning the Arc out of it
-/// keeps the same-`Arc` lifecycle check the struct literal used to give.
+/// The struct-literal construction (compile-time field check) now lives in
+/// the shared factory in `test_helpers`; this test verifies at runtime
+/// that the Arc stored in the context is the same object handed out, so a
+/// restart-time swap shows up as a `ptr_eq` failure.
 #[test]
-fn chat_context_holds_gateway_reference() {
+fn test_chat_context_holds_gateway_reference() {
     use crate::test_helpers::make_dispatch_context;
     use closeclaw_gateway::types::GatewayConfig;
 
     let ctx = make_dispatch_context(GatewayConfig::default());
     let gw = Arc::clone(&ctx.gateway);
-    // Arc::strong_count tracks lifecycle; same Arc = same Gateway.
     assert!(Arc::ptr_eq(&ctx.gateway, &gw));
 }
 

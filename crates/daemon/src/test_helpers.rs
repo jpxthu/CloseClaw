@@ -300,11 +300,11 @@ fn test_effective_test_config_keeps_explicit_cap() {
     assert_eq!(effective.max_message_size, 4096);
 }
 
-/// Shared base harness for the dispatch tests (moved from
-/// `chat_rpc_tests`, Step 1.2 dedup): `SessionManager` + `Gateway` +
-/// `RpcTerminalPlugin` assembled into a [`ChatContext`]. Callers may pass
-/// `GatewayConfig::default()` and still be safe for inbound validation —
-/// [`effective_test_config`] substitutes the cap.
+/// Shared base harness for the dispatch tests (issue #3067):
+/// `SessionManager` + `Gateway` + `RpcTerminalPlugin` assembled into a
+/// [`ChatContext`]. Callers may pass `GatewayConfig::default()` and still
+/// be safe for inbound validation — [`effective_test_config`] substitutes
+/// the cap.
 pub(crate) fn make_dispatch_context(config: GatewayConfig) -> ChatContext {
     let config = effective_test_config(config);
     let sessions = Arc::new(SessionManager::new(
