@@ -375,21 +375,25 @@ async fn e2e_agent_system_prompt_injection() {
 /// `{config_root}/agents/{agent_id}/` and is independent of the workspace
 /// field.
 ///
-/// **Observation method**: workspace directory → CWD → tool execution →
-/// read relative path (e.g. `./bootstrap_marker.txt`) → tool result
-/// contains marker content. The fake_llm scenario `workspace-marker`
-/// returns a `tool_call` for `Read` targeting `bootstrap_marker.txt`
-/// (relative path). In the expected-pass state, the tool executes in
-/// the workspace CWD and reads the file successfully.
+/// **Observation method**: tool execution → relative-path `Read` → tool
+/// result frame carries the marker content. The fake_llm scenario
+/// `workspace-marker` (single turn — the chat path has no tool→LLM
+/// continuation, so a turn-2 text response would be unreachable) returns
+/// a `tool_call` for `Read` targeting
+/// `../agent_workspace/bootstrap_marker.txt`, resolved against the
+/// daemon process CWD (`<config_root>/config`, set by
+/// `helpers::spawn_daemon`) → `<config_root>/agent_workspace/`
+/// = the marker written below. In the expected-pass state the tool
+/// executes and the tool result frame contains `WORKSPACE_CWD_VERIFIED`.
 ///
-/// **Status (2026-09-16)**: the original blocker #2436 — the
+/// **Status (2026-09-19)**: the original blocker #2436 — the
 /// `SkillListingProviderWrapper` panic in `bridge.rs` before any LLM
 /// request — was fixed on this branch (together with the result-return
 /// wiring gap), so the recorded reason for `#[ignore]` no longer applies
-/// as-is. Un-ignoring still requires re-verifying the tool_call chain
-/// end-to-end and tightening the assertion to check the tool result
-/// contains the marker content (unignore-workflow debt); this branch only
-/// updates the comment, not the ignore state.
+/// as-is. The unignore-workflow debt of tightening the assertion to the
+/// tool result frame is now cleared (Step 1.4: assert the tool result
+/// frame contains the marker instead of the unreachable turn-2 fixed
+/// text); removing `#[ignore]` itself follows in Step 1.6.
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -529,15 +533,35 @@ async fn e2e_agent_workspace() {
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     // Send a message — the workspace-marker scenario returns a tool_call
-    // for Read("./bootstrap_marker.txt"). In the expected-pass state
-    // (Blocker #2436 resolved), the tool executes in the workspace CWD
-    // and returns the marker content.
+    // for Read("../agent_workspace/bootstrap_marker.txt"). In the
+    // expected-pass state (Blocker #2436 resolved) the tool executes and
+    // reads the marker file.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "read the file").await;
 
-    let text = collect_content_text(&frames);
+    // Tightened assertion (Step 1.4): the chat path has no tool→LLM
+    // continuation, so the old turn-2 fixed text (WORKSPACE_CWD_OK) was
+    // never served — observe the tool result frame instead. Verified
+    // frame structure: a `content_chunk` whose `content` is the Read
+    // tool's data JSON `{"content":"WORKSPACE_CWD_VERIFIED\n"}`
+    // (rendered by TerminalRenderer, trailing newline appended). Error
+    // frames carry `message`, not `content`, so they cannot satisfy this
+    // check.
+    let marker_in_tool_result = frames.iter().any(|frame| {
+        frame.get("type").and_then(|t| t.as_str()) == Some("content_chunk")
+            && frame
+                .get("content")
+                .and_then(|c| c.as_str())
+                .and_then(|c| serde_json::from_str::<serde_json::Value>(c).ok())
+                .and_then(|v| {
+                    v.get("content")
+                        .and_then(|c| c.as_str())
+                        .map(|c| c.contains("WORKSPACE_CWD_VERIFIED"))
+                })
+                .unwrap_or(false)
+    });
     assert!(
-        text.contains("WORKSPACE_CWD_OK"),
-        "response should contain WORKSPACE_CWD_OK proving workspace CWD, got: {text}"
+        marker_in_tool_result,
+        "tool result frame should contain marker WORKSPACE_CWD_VERIFIED, got frames: {frames:?}"
     );
 
     let status = daemon.shutdown().await;

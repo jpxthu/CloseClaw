@@ -17,26 +17,6 @@
                             }
                         ]
                     }
-                },
-                {
-                    "response": {
-                        "type": "text",
-                        "content": "WORKSPACE_CWD_OK"
-                    }
-                }
-            ]
-        },
-        {
-            "name": "workspace-fallback",
-            "match_": {
-                "model_id": "gpt-4o-workspace-fallback"
-            },
-            "turns": [
-                {
-                    "response": {
-                        "type": "text",
-                        "content": "NO_WORKSPACE_MARKER"
-                    }
                 }
             ]
         }
