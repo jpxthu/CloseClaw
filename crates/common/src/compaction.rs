@@ -107,9 +107,9 @@ impl CompactConfig {
                 self.warning_threshold_pct
             ));
         }
-        if self.auto_compact_threshold_pct >= self.warning_threshold_pct {
+        if self.auto_compact_threshold_pct > self.warning_threshold_pct {
             return Err(format!(
-                "auto_compact_threshold_pct ({}) must be < \
+                "auto_compact_threshold_pct ({}) must be <= \
                  warning_threshold_pct ({})",
                 self.auto_compact_threshold_pct, self.warning_threshold_pct
             ));
