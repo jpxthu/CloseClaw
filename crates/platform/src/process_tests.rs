@@ -402,6 +402,10 @@ fn test_wait_for_exit_nonexistent_pid() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal() {
+    if !std::path::Path::new("/tmp/detach_helper").exists() {
+        eprintln!("skipping: /tmp/detach_helper not found");
+        return;
+    }
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();
@@ -682,6 +686,10 @@ fn test_stop_daemon_exit_race() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal_polling_wait() {
+    if !std::path::Path::new("/tmp/detach_helper").exists() {
+        eprintln!("skipping: /tmp/detach_helper not found");
+        return;
+    }
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();

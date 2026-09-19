@@ -5,9 +5,13 @@
 //!    - Stopped(pid) → stopped:true + pid:Some(pid)
 //!    - NotRunning → stopped:false + pid:None
 //! 2. Self-kill protection: when PID file contains our own PID, bail.
+//!
+//! Each test uses a temp-directory PID file to avoid global-state races.
+//! `handle_stop_at` now takes the PID file path directly, so tests can
+//! run in parallel without `#[serial]`.
 
 use super::stop::handle_stop_at;
-use closeclaw_platform::process::{pid_file_path, write_pid_file};
+use closeclaw_platform::process::write_pid_file;
 use tempfile::TempDir;
 
 // ── Test 1: NotRunning path (no PID file) ──────────────────────────────────
@@ -16,9 +20,10 @@ use tempfile::TempDir;
 #[test]
 fn test_stop_not_running_no_pid_file() {
     let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false));
+        .block_on(handle_stop_at(&pid_file, false));
     assert!(
         result.is_ok(),
         "should succeed with no PID file: {result:?}"
@@ -29,10 +34,11 @@ fn test_stop_not_running_no_pid_file() {
 #[test]
 fn test_stop_not_running_json_no_pid_file() {
     let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     // json_output prints to stdout; we just verify it doesn't panic.
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), true));
+        .block_on(handle_stop_at(&pid_file, true));
     assert!(
         result.is_ok(),
         "should succeed in JSON mode with no PID file: {result:?}"
@@ -45,13 +51,14 @@ fn test_stop_not_running_json_no_pid_file() {
 /// and handle_stop_at reports "not running".
 #[test]
 fn test_stop_not_running_stale_pid() {
-    let pid_file = pid_file_path().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     // Write a PID that does not exist.
     write_pid_file(&pid_file, 999_999_999).unwrap();
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(std::path::Path::new("/unused"), false));
+        .block_on(handle_stop_at(&pid_file, false));
     assert!(result.is_ok(), "should succeed with stale PID: {result:?}");
     assert!(
         !pid_file.exists(),
@@ -65,12 +72,13 @@ fn test_stop_not_running_stale_pid() {
 /// with "Refusing to kill self." and NOT call stop_daemon.
 #[test]
 fn test_stop_self_kill_protection() {
-    let pid_file = pid_file_path().unwrap();
+    let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     write_pid_file(&pid_file, std::process::id()).unwrap();
 
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(std::path::Path::new("/unused"), false));
+        .block_on(handle_stop_at(&pid_file, false));
     assert!(result.is_err(), "should bail when PID is self");
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -82,13 +90,11 @@ fn test_stop_self_kill_protection() {
         pid_file.exists(),
         "PID file should be preserved when self-kill guard triggers"
     );
-    // Clean up: remove the PID file we wrote to the fixed path.
-    std::fs::remove_file(&pid_file).ok();
 }
 
 // ── Test 4: Stopped path mapping ───────────────────────────────────────────
 
-/// Verify that handle_stop_at produces correct JSON output for a stopped
+/// Verify that handle_stop_at produces correct output for a stopped
 /// daemon. We use the real stop_daemon flow: write a PID file for a process
 /// we own (but not self, to avoid bail), then kill it.
 ///
@@ -100,10 +106,11 @@ fn test_stop_self_kill_protection() {
 #[test]
 fn test_stop_output_mapping_not_running() {
     let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     // No PID file → NotRunning → stopped:false
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), false));
+        .block_on(handle_stop_at(&pid_file, false));
     assert!(result.is_ok(), "should succeed: {result:?}");
     // The output is printed to stdout; we can't capture it easily, but
     // the fact that it succeeded without error confirms the NotRunning
@@ -115,8 +122,9 @@ fn test_stop_output_mapping_not_running() {
 #[test]
 fn test_stop_json_output_not_running() {
     let tmp = TempDir::new().unwrap();
+    let pid_file = tmp.path().join("daemon.pid");
     let result = tokio::runtime::Runtime::new()
         .unwrap()
-        .block_on(handle_stop_at(tmp.path(), true));
+        .block_on(handle_stop_at(&pid_file, true));
     assert!(result.is_ok(), "should succeed in JSON mode: {result:?}");
 }

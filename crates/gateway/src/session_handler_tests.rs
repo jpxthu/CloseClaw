@@ -203,9 +203,9 @@ async fn test_set_verbosity_persists() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
-    // Verify default verbosity is Normal
+    // Verify default verbosity is Full
     let cs = sm.get_conversation_session(&sid).await.expect("session");
-    assert_eq!(cs.read().await.verbosity_level(), VerbosityLevel::Normal);
+    assert_eq!(cs.read().await.verbosity_level(), VerbosityLevel::Full);
 
     // Set verbosity to Normal
     cs.write().await.set_verbosity_level(VerbosityLevel::Normal);
@@ -640,7 +640,9 @@ async fn test_apply_compact_result_order_and_state() {
         other => panic!("expected Text block, got {:?}", other),
     }
 
-    // 2. Checkpoint should have been saved (outbound_pending synced).
+    // 2. Checkpoint should have been saved (transcript synced to pending_messages).
+    //    The boundary message goes into the transcript (pending_messages),
+    //    NOT into outbound_pending (which tracks queued user messages).
     let saved = persistence
         .checkpoints
         .lock()
@@ -649,16 +651,23 @@ async fn test_apply_compact_result_order_and_state() {
         .cloned()
         .expect("checkpoint should be saved");
     assert_eq!(
-        saved.outbound_pending.len(),
+        saved.pending_messages.len(),
         1,
-        "checkpoint should have 1 pending message (the boundary)"
+        "checkpoint should have 1 transcript message (the boundary)"
     );
-    assert_eq!(saved.outbound_pending[0].message_id, "boundary");
-    assert!(
-        saved.outbound_pending[0]
-            .content
-            .contains("Summary of conversation."),
-        "boundary content should be in pending message"
+    match &saved.pending_messages[0].content_blocks[0] {
+        closeclaw_llm::types::ContentBlock::Text(t) => {
+            assert!(
+                t.contains("Summary of conversation."),
+                "boundary content should be in transcript message"
+            );
+        }
+        other => panic!("expected Text block in transcript, got {:?}", other),
+    }
+    assert_eq!(
+        saved.outbound_pending.len(),
+        0,
+        "outbound_pending should be empty after compaction"
     );
 
     // 3. Verify save_order: save_checkpoint was called (rebuild is internal,

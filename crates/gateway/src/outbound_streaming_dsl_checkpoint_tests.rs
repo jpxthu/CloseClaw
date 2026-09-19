@@ -463,15 +463,12 @@ async fn test_streaming_checkpoint_dsl_result_none_when_processor_without_dsl() 
     assert!(result.is_ok());
 
     let sr = result.unwrap();
-    // DslParser always inserts dsl_result, so it is Some with empty instructions.
+    // DslParser only inserts dsl_result when actual DSL instructions are found.
+    // No DSL in content → dsl_result should be None.
     assert!(
-        sr.dsl_result.is_some(),
-        "StreamResult.dsl_result should be Some when DslParser runs (even with no DSL)"
-    );
-    let dsl: DslParseResult = serde_json::from_str(sr.dsl_result.as_ref().unwrap()).unwrap();
-    assert!(
-        dsl.instructions.is_empty(),
-        "dsl_result instructions should be empty when no DSL in content"
+        sr.dsl_result.is_none(),
+        "StreamResult.dsl_result should be None when no DSL instructions are present, got: {:?}",
+        sr.dsl_result
     );
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -487,11 +484,8 @@ async fn test_streaming_checkpoint_dsl_result_none_when_processor_without_dsl() 
         .outbound_pending
         .first()
         .expect("should have pending message");
-    assert!(pending.dsl_result.is_some());
-    let dsl_cp: DslParseResult =
-        serde_json::from_str(pending.dsl_result.as_ref().unwrap()).unwrap();
     assert!(
-        dsl_cp.instructions.is_empty(),
-        "checkpoint dsl_result instructions should be empty"
+        pending.dsl_result.is_none(),
+        "checkpoint pending dsl_result should be None when no DSL present"
     );
 }

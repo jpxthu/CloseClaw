@@ -1,23 +1,23 @@
 //! Stop handler function for CLI admin.
 
-use super::common::{config_root, json_output, StopOutput};
+use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 pub async fn handle_stop(json: bool) -> Result<()> {
-    let root_dir = config_root()?;
-    handle_stop_at(&root_dir, json).await
+    let pid_file = closeclaw_platform::process::pid_file_path()?;
+    handle_stop_at(&pid_file, json).await
 }
 
-pub async fn handle_stop_at(_config_dir: &std::path::Path, json: bool) -> Result<()> {
-    let p = closeclaw_platform::process::pid_file_path()?;
+pub async fn handle_stop_at(pid_file: &std::path::Path, json: bool) -> Result<()> {
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
-    if let Some(pid) = closeclaw_platform::process::read_pid_file(&p) {
+    if let Some(pid) = closeclaw_platform::process::read_pid_file(pid_file) {
         if pid == std::process::id() {
             anyhow::bail!("Refusing to kill self.");
         }
     }
-    let outcome = closeclaw_platform::process::stop_daemon(&p, std::time::Duration::from_secs(5))?;
+    let outcome =
+        closeclaw_platform::process::stop_daemon(pid_file, std::time::Duration::from_secs(5))?;
     match outcome {
         closeclaw_platform::process::StopOutcome::Stopped(pid) => {
             if json {
@@ -31,7 +31,10 @@ pub async fn handle_stop_at(_config_dir: &std::path::Path, json: bool) -> Result
             }
         }
         closeclaw_platform::process::StopOutcome::NotRunning => {
-            let msg = format!("Daemon is not running (no PID file at {}).", p.display());
+            let msg = format!(
+                "Daemon is not running (no PID file at {}).",
+                pid_file.display()
+            );
             if json {
                 json_output(&StopOutput {
                     pid: None,

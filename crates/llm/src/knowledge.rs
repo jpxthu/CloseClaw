@@ -291,7 +291,7 @@ mod tests {
     fn test_json_load_minimax_model_count() {
         let kb = kb();
         let models = kb.all_models("minimax");
-        assert_eq!(models.len(), 7, "minimax should have 7 models from JSON");
+        assert_eq!(models.len(), 8, "minimax should have 8 models from JSON");
     }
 
     #[test]

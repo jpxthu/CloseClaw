@@ -7,6 +7,7 @@ pub use fetch::*;
 pub use types::*;
 
 use closeclaw_agent::config::AgentConfig;
+use closeclaw_common::BootstrapMode;
 use closeclaw_config::agents::{AgentsConfig, AgentsConfigProvider};
 use closeclaw_config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
@@ -142,6 +143,7 @@ pub(crate) fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyho
 
         let config = AgentConfig {
             id: "master".to_string(),
+            bootstrap_mode: Some(BootstrapMode::Full),
             ..Default::default()
         };
 

@@ -88,6 +88,16 @@ async fn test_execute_unknown_action() {
 
 #[tokio::test]
 async fn test_execute_find_returns_structured_result() {
+    if std::process::Command::new("clawhub")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_err()
+    {
+        eprintln!("skipping: clawhub not found in PATH");
+        return;
+    }
     let skill = SkillDiscoverySkill::new();
     let result = skill
         .execute(Some(serde_json::json!({
@@ -104,6 +114,16 @@ async fn test_execute_find_returns_structured_result() {
 
 #[tokio::test]
 async fn test_execute_list_returns_structured_result() {
+    if std::process::Command::new("clawhub")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .is_err()
+    {
+        eprintln!("skipping: clawhub not found in PATH");
+        return;
+    }
     let skill = SkillDiscoverySkill::new();
     let result = skill
         .execute(Some(serde_json::json!({"action": "list"})))

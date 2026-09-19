@@ -47,8 +47,8 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 
 #[test]
 fn test_intersect_both_allow() {
-    let child = make_perms("child", &["command", "file_read"]);
-    let parent = make_perms("parent", &["command", "file_read"]);
+    let child = make_perms("child", &["exec", "file_read"]);
+    let parent = make_perms("parent", &["exec", "file_read"]);
     let result = child.intersect(&parent);
     assert!(result.permissions.get("exec").unwrap().allowed);
     assert!(result.permissions.get("file_read").unwrap().allowed);

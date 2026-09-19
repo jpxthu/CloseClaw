@@ -194,6 +194,11 @@ async fn test_finish_phase_skips_verbosity_filter() {
     let msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
 
+    // Set verbosity to Normal so Thinking blocks are filtered during streaming.
+    if let Some(cs) = sm.get_conversation_session(&sid).await {
+        cs.write().await.set_verbosity_level(VerbosityLevel::Normal);
+    }
+
     // Normal verbosity: Thinking filtered in incremental, Text + DSL sent.
     let events = vec![
         Ok::<_, String>(StreamEvent::BlockStart {
