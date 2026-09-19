@@ -158,14 +158,14 @@ fn test_anthropic_off_full_chain_anthropic_protocol() {
 // call_chain assembly verification
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Anthropic provider uses OpenAiProtocol with AnthropicPlugin in pipeline.
+/// Anthropic provider uses AnthropicProtocol with AnthropicPlugin in pipeline.
 #[test]
 fn test_call_chain_anthropic_assembly() {
     let (protocol, _interpreter, plugin) = assemble_llm_components("anthropic");
     assert_eq!(
         protocol.protocol_id().as_str(),
-        "openai",
-        "anthropic should use OpenAiProtocol"
+        "anthropic",
+        "anthropic should use AnthropicProtocol"
     );
     assert!(
         !plugin.is_empty(),
