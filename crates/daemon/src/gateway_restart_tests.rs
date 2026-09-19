@@ -315,29 +315,24 @@ fn on_config_file_changed_no_signal_without_tx() {
 
 // ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────
 
-/// ChatContext holds a Gateway Arc — it must be rebuilt on restart.
-/// Compile-time check: struct literal requires `gateway` and `rpc_plugin`.
+/// ChatContext holds a Gateway Arc that a restart rebuilds, and the
+/// rebuild must yield a fresh instance rather than a reused one. The
+/// compile-time field check of ChatContext's struct literal lives in the
+/// `test_helpers` factory; this test smoke-checks the factory by
+/// asserting two calls produce distinct Gateway Arcs (no shared/cached
+/// instance).
 #[test]
-fn chat_context_holds_gateway_reference() {
-    use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
+fn test_chat_context_holds_gateway_reference() {
+    use crate::test_helpers::make_dispatch_context;
     use closeclaw_gateway::types::GatewayConfig;
-    use closeclaw_gateway::{Gateway, SessionManager};
 
-    let gw = Arc::new(Gateway::new(
-        GatewayConfig::default(),
-        Arc::new(SessionManager::new(
-            &GatewayConfig::default(),
-            None,
-            None,
-            closeclaw_common::ReasoningLevel::default(),
-        )),
-    ));
-    let ctx = ChatContext {
-        gateway: Arc::clone(&gw),
-        rpc_plugin: Arc::new(RpcTerminalPlugin::new()),
-    };
-    // Arc::strong_count tracks lifecycle; same Arc = same Gateway.
-    assert!(Arc::ptr_eq(&ctx.gateway, &gw));
+    let first = make_dispatch_context(GatewayConfig::default());
+    let second = make_dispatch_context(GatewayConfig::default());
+    assert!(
+        !Arc::ptr_eq(&first.gateway, &second.gateway),
+        "each make_dispatch_context call must build a fresh Gateway Arc, \
+         but both contexts share one"
+    );
 }
 
 /// AdminContext must NOT hold a Gateway reference — it is unaffected

@@ -1,7 +1,7 @@
 use super::*;
+use crate::test_helpers::{make_dispatch_context, TEST_MAX_MESSAGE_SIZE};
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_gateway::types::GatewayConfig;
-use closeclaw_gateway::SessionManager;
 use serde_json::json;
 use std::sync::Arc;
 
@@ -479,41 +479,14 @@ async fn test_concurrent_rpc_connections_no_race() {
     }
 }
 
-/// Shared base harness for the dispatch tests: `SessionManager` +
-/// `Gateway` + `RpcTerminalPlugin` assembled into a [`ChatContext`].
-/// At the config default of `max_message_size` = 0, any non-empty text
-/// message exceeds the limit and is rejected by `validate_inbound`, so the
-/// factory substitutes a non-zero cap — callers may pass
-/// `GatewayConfig::default()` and still be safe for inbound validation.
-fn make_test_context(config: GatewayConfig) -> ChatContext {
-    let config = if config.max_message_size == 0 {
-        GatewayConfig {
-            max_message_size: 64 * 1024,
-            ..config
-        }
-    } else {
-        config
-    };
-    let sessions = Arc::new(SessionManager::new(
-        &config,
-        None,
-        None,
-        closeclaw_common::ReasoningLevel::default(),
-    ));
-    let gateway = Arc::new(Gateway::new(config, sessions));
-    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
-    ChatContext {
-        gateway,
-        rpc_plugin,
-    }
-}
+// Shared dispatch helpers live in `crate::test_helpers` (issue #3067).
 
 /// dispatch() with ChatRequest::Ping must return ChatResponse::Pong
 /// without side effects.
 #[tokio::test]
 async fn test_dispatch_ping_returns_pong_actual() {
     let req = ChatRequest::Ping;
-    let context = make_test_context(GatewayConfig::default());
+    let context = make_dispatch_context(GatewayConfig::default());
     let responses = tokio::time::timeout(Duration::from_secs(1), dispatch(req, &context))
         .await
         .expect("dispatch must terminate instead of hanging until the suite-level timeout");
@@ -845,10 +818,10 @@ async fn make_stop_ready_context() -> ChatContext {
     // "/stop" text exceeds the cap and is rejected in `validate_inbound`.
     let config = GatewayConfig {
         name: "stop-test".to_owned(),
-        max_message_size: 64 * 1024,
+        max_message_size: TEST_MAX_MESSAGE_SIZE,
         ..Default::default()
     };
-    let context = make_test_context(config);
+    let context = make_dispatch_context(config);
     // Stop-specific: terminal plugin as outbound destination + `/stop` route.
     context
         .gateway
@@ -871,6 +844,22 @@ async fn make_stop_ready_context() -> ChatContext {
 /// fails ③, a duplicated terminal fails ②, and an `Error` terminal (failure
 /// regression in `handle_inbound_message` while the drain still replies)
 /// fails ② — no regression can pass silently.
+///
+/// Timeout layering (issue #3067): the 1s guard sits ABOVE the inner
+/// `send_simplified_with_timeout` (2s, `gateway::outbound_helpers`)
+/// reachable inside this dispatch — media/session-resolution rejections
+/// (`reject_with_reply`) and the restore / busy / permission-denied
+/// notices (`send_system_notification`) all await it. That inner timeout
+/// is self-healing: on expiry it drops the message and returns `Ok`, so
+/// dispatch would legitimately complete ms after 2s. Known limitation:
+/// the guard (1s) fires first, so a dispatch legitimately waiting on
+/// that inner timeout fails here with a generic "hang" message instead
+/// of the real cause — evaluated and accepted: the normal path is
+/// in-memory ms-level, so guard preemption is a low-risk corner and a
+/// true hang still fails within 1s. Deeper stop-chain bounds (30s
+/// graceful stop, 5s per tool-kill) cannot engage in this harness — the
+/// fresh session has no active turn or tool handles — so they do not
+/// bound this guard.
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
