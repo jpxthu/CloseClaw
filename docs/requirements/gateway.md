@@ -35,6 +35,8 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 - Session 查找或创建发生异常时，系统向 User 回复错误提示
 
 > **交叉引用**：Session 查找、创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：入站归一化字段与身份 / 会话映射（接收方机器人应用 → Agent、发送者 → User、四项标识 → Session）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
+> **交叉引用**：User 身份体系与绑定规则详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：Session 活跃状态判定与消息排队行为详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：绑定配置详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：配置重载详见 [config §F4](config.md)（配置重载）。

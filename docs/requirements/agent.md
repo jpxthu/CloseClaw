@@ -27,6 +27,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent 的运行时行为由 Session 模块驱动。
 
 > **交叉引用**：配置档案的目录布局与注册清单。详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：入站消息如何映射到 Agent / User / Session（接收方机器人应用 → Agent、发送者 → User、平台+发送者+会话对端+账号标识 → Session）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）、[gateway §F4](gateway.md)（普通消息路由到对话）、[permission §F1](permission.md)（身份体系）、[session §F1](session.md)（对话持久化与恢复）。
 
 ### F2. 身份与人格分离
 

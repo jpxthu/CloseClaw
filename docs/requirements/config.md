@@ -19,6 +19,8 @@ CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中
 > **交叉引用**：配置目录的操作系统标准位置详见 [platform §F2](platform.md)（操作系统标准配置目录）。
 > **交叉引用**：账户绑定中 User 身份与绑定规则详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
+> **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
+> **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
 
 ### F2. 安全写入
 
