@@ -863,7 +863,8 @@ async fn make_stop_ready_context() -> ChatContext {
 /// exceeds the STANDARDS §6 ≤1s unit-test wait guidance: a deliberate
 /// exception (the inner 2s self-heal timeout must be reachable); daemon
 /// tests keep many such precedents (13 × `from_secs(10)` across
-/// lifecycle tests, 2 more in `shutdown_tests`).
+/// lifecycle* test files: lifecycle_tests 7 + lifecycle_abort 2 +
+/// lifecycle_phase3_heartbeat 4; 2 more in `shutdown_tests`).
 #[tokio::test]
 async fn test_dispatch_stop_session_replies_before_terminal() {
     let context = make_stop_ready_context().await;
