@@ -20,7 +20,7 @@ use crate::{Gateway, GatewayConfig, Message, OutboundMeta, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult, ProcessedMessage};
-use closeclaw_common::StreamingRenderer;
+use closeclaw_common::{StreamingRenderer, VerbosityLevel};
 use closeclaw_llm::types::{ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage};
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
