@@ -44,6 +44,9 @@ mod engine_owner_tests;
 mod engine_two_phase_tests;
 
 #[cfg(test)]
+mod engine_tool_call_caller_tests;
+
+#[cfg(test)]
 mod engine_types_tests;
 
 #[cfg(test)]
