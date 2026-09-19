@@ -28,6 +28,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         disallowed_tools: vec![],
         subagents: SubagentsConfig::default(),
         memory: MemoryConfig::default(),
+        memory_configured: false,
         hooks: Vec::new(),
         parallel_tool_calls: true,
         source: ConfigSource::User,
