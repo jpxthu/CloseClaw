@@ -214,7 +214,12 @@ async fn test_bootstrap_full_injects_all_files() {
         prompt.contains("bootstrap content"),
         "missing bootstrap content"
     );
-    assert!(prompt.contains("memory content"), "missing memory content");
+    // MEMORY.md is NOT a bootstrap file — it is handled separately by
+    // MemoryFragmentProvider (see docs/design/system_prompt/static-layer.md).
+    assert!(
+        !prompt.contains("memory content"),
+        "MEMORY.md should NOT be in bootstrap prompt"
+    );
 }
 
 #[tokio::test]
