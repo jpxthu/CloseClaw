@@ -324,7 +324,15 @@ async fn e2e_agent_system_prompt_injection() {
     let config_root = temp_dir.path();
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    // Three-way model alignment: models.json declares and enables
+    // `gpt-4o-system-prompt` (chain index 0 → the model on the wire,
+    // since the fallback client overwrites `request.model` per entry),
+    // the agent config references `openai/gpt-4o-system-prompt`, and
+    // the `injected-identity` fixture matches `model_id` of the same id.
+    write_config_tree(
+        config_root,
+        ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-system-prompt"]),
+    );
     write_agent_config(config_root, "openai/gpt-4o-system-prompt", None);
 
     // Create bootstrap file with a unique marker in the agent's config
