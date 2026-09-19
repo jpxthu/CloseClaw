@@ -49,7 +49,9 @@ use super::helpers;
 use super::helpers::chat::{
     assert_single_terminal, chat_roundtrip, collect_content_text, read_frame,
 };
-use super::helpers::config::{write_config_tree, ConfigTreeOpts};
+use super::helpers::config::{
+    write_agent_config, write_agent_config_with_tools, write_config_tree, ConfigTreeOpts,
+};
 use super::helpers::fake_llm::start_fake_llm;
 
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
@@ -99,67 +101,14 @@ fn spawn_daemon(config_root: &Path) -> DaemonGuard {
 }
 
 // ---------------------------------------------------------------------------
-// Helper: custom agent config override
-// ---------------------------------------------------------------------------
-
-/// Write a custom agent `config.json` into the config tree.
-///
-/// Overwrites the master agent config created by the shared
-/// `write_config_tree` scaffold to set a specific `model` and/or
-/// `workspace` field.
-fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
-    let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
-    let mut config = serde_json::json!({
-        "id": "master",
-        "name": "Master",
-        "model": model,
-        "tools": ["*"],
-        "skills": ["*"]
-    });
-    if let Some(ws) = workspace {
-        config["workspace"] = serde_json::Value::String(ws.to_string());
-    }
-    std::fs::write(
-        agent_dir.join("config.json"),
-        serde_json::to_string(&config).expect("serialize agent config"),
-    )
-    .expect("write agent config");
-}
-
-// ---------------------------------------------------------------------------
 // Helper: chat response assertions
 // ---------------------------------------------------------------------------
 
 // `assert_single_terminal` and `collect_content_text` live in
 // `helpers::chat` (shared with `gateway_restart_turn_tests`, Step 1.23).
-
-/// Write agent config with explicit tools and disallowed_tools lists.
-fn write_agent_config_with_tools(
-    config_root: &Path,
-    model: &str,
-    tools: &[&str],
-    disallowed: &[&str],
-) {
-    let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
-    let tools: Vec<serde_json::Value> = tools.iter().map(|t| serde_json::json!(t)).collect();
-    let disallowed: Vec<serde_json::Value> =
-        disallowed.iter().map(|t| serde_json::json!(t)).collect();
-    std::fs::write(
-        agent_dir.join("config.json"),
-        serde_json::json!({
-            "id": "master",
-            "name": "Master",
-            "model": model,
-            "tools": tools,
-            "disallowed_tools": disallowed,
-            "skills": ["*"]
-        })
-        .to_string(),
-    )
-    .expect("write agent config with tools");
-}
+//
+// `write_agent_config` and `write_agent_config_with_tools` live in
+// `helpers::config` (shared with `gateway_restart_turn_tests`, Step 1.14).
 
 /// Assert admin AgentInfo response contains expected fields.
 fn assert_admin_agent_info(response: &serde_json::Value) {
