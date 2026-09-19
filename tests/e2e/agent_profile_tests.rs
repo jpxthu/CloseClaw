@@ -386,17 +386,16 @@ async fn e2e_agent_system_prompt_injection() {
 /// = the marker written below. In the expected-pass state the tool
 /// executes and the tool result frame contains `WORKSPACE_CWD_VERIFIED`.
 ///
-/// **Status (2026-09-19)**: the original blocker #2436 — the
-/// `SkillListingProviderWrapper` panic in `bridge.rs` before any LLM
-/// request — was fixed on this branch (together with the result-return
-/// wiring gap), so the recorded reason for `#[ignore]` no longer applies
-/// as-is. The unignore-workflow debt of tightening the assertion to the
-/// tool result frame is now cleared (Step 1.4: assert the tool result
-/// frame contains the marker instead of the unreachable turn-2 fixed
-/// text); removing `#[ignore]` itself follows in Step 1.6.
+/// **Status (2026-09-20)**: un-ignored (Step 1.6). The original
+/// blocker #2436 — the `SkillListingProviderWrapper` panic in
+/// `bridge.rs` before any LLM request — was fixed on this branch
+/// (together with the result-return wiring gap), so the recorded
+/// reason for `#[ignore]` no longer applies; the unignore-workflow
+/// debt of tightening the assertion to the tool result frame was
+/// cleared in Step 1.4 (assert the tool result frame contains the
+/// marker instead of the unreachable turn-2 fixed text).
 #[tokio::test]
 #[cfg(unix)]
-#[ignore]
 #[serial_test::serial]
 async fn e2e_agent_workspace() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
