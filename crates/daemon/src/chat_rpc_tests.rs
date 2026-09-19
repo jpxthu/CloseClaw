@@ -789,3 +789,103 @@ async fn test_collect_responses_drains_while_awaiting_handler() {
         "every frame pushed by the handler must be collected, in order"
     );
 }
+
+// ── Step 1.4 (issue #3058): StopSession output-frame contract ──────────────
+
+/// Indexes of non-empty content (reply) frames in a response sequence.
+fn reply_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
+    responses
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| {
+            matches!(r, ChatResponse::ContentChunk { content } if !content.trim().is_empty())
+        })
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Indexes of terminal frames (`Done` / `Error`) in a response sequence.
+fn terminal_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
+    responses
+        .iter()
+        .enumerate()
+        .filter(|(_, r)| matches!(r, ChatResponse::Done | ChatResponse::Error { .. }))
+        .map(|(i, _)| i)
+        .collect()
+}
+
+/// Build a [`ChatContext`] that can actually produce a `/stop` reply frame:
+/// terminal IM plugin registered with the Gateway (outbound destination) and
+/// a `StopHandler`-backed slash dispatcher installed (`/stop` →
+/// `SlashResult::Stop` → "已停止当前任务" reply → outbound → plugin send →
+/// agent-route fallback → this connection's channel).
+async fn make_stop_ready_context() -> ChatContext {
+    // max_message_size must be non-zero: 0 rejects every inbound message
+    // in `validate_inbound` ("/stop" would exceed the 0-byte limit).
+    let config = closeclaw_gateway::types::GatewayConfig {
+        name: "stop-test".to_owned(),
+        max_message_size: 64 * 1024,
+        ..Default::default()
+    };
+    let sessions = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        closeclaw_common::ReasoningLevel::default(),
+    ));
+    let gateway = Arc::new(Gateway::new(config, sessions));
+    let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
+    gateway
+        .register_plugin(rpc_plugin.clone() as Arc<dyn closeclaw_common::IMPlugin>)
+        .await;
+    let registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
+    registry.register(Arc::new(closeclaw_slash::handlers_session::StopHandler));
+    let dispatcher = Arc::new(closeclaw_slash::dispatcher::SlashDispatcher::from_shared(
+        registry,
+    )) as Arc<dyn closeclaw_common::SlashRouter>;
+    gateway.set_slash_dispatcher(dispatcher).await;
+    ChatContext {
+        gateway,
+        rpc_plugin,
+    }
+}
+
+/// Step 1.4 — lock the `ChatRequest::StopSession` output-frame contract of
+/// `dispatch_stop_session`: the agent route is registered, the `/stop` reply
+/// frames produced by the stop chain are drained, and they all arrive
+/// BEFORE the single terminal frame. A dropped route/drain loses the reply
+/// (assertion ①), an inverted order fails ③, a duplicated terminal fails ② —
+/// no regression can pass silently.
+#[tokio::test]
+async fn test_dispatch_stop_session_replies_before_terminal() {
+    let context = make_stop_ready_context().await;
+    let responses = dispatch(
+        ChatRequest::StopSession {
+            agent_id: "stop-agent".to_owned(),
+        },
+        &context,
+    )
+    .await;
+
+    // ① at least one non-empty stop reply frame
+    let replies = reply_frame_indexes(&responses);
+    assert!(
+        !replies.is_empty(),
+        "stop reply frame must be present (route + drain), got {responses:?}"
+    );
+
+    // ② exactly one terminal frame, no more no less
+    let terminals = terminal_frame_indexes(&responses);
+    assert_eq!(
+        terminals.len(),
+        1,
+        "exactly one terminal frame expected, got {responses:?}"
+    );
+
+    // ③ every reply frame precedes the terminal frame
+    let last_reply = *replies.last().expect("reply list verified non-empty");
+    assert!(
+        last_reply < terminals[0],
+        "reply frames must precede the terminal frame, got {responses:?}"
+    );
+}
