@@ -62,7 +62,7 @@ cargo build && cargo test
 
 ## 硬性限制
 
-以下限制中，文件行数由 pre-commit hook 检查；其余由 CI 强制执行。
+以下限制中，文件行数由 pre-commit hook 检查。
 
 | 指标 | 上限 |
 |------|------|
@@ -232,8 +232,6 @@ Type: <type>
 
 `<path>` 是相对项目根的文档路径（如 `design-doc docs/design/daemon/shutdown.md`、`requirement docs/requirements/llm.md`），路径中不能含空白
 | `Type:` | 变更类型 | 见上方分支与 Commit 类型表 |
-
-CI 会校验这两个 footer，缺失则阻止合并。
 
 ### 标准开发流程
 
