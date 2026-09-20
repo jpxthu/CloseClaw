@@ -170,6 +170,29 @@ fn read_prompt_add_combination_suggestions(
     }
 }
 
+/// Resolve a `Read` path argument against the session workdir.
+///
+/// Design (`docs/design/session/working-directory.md` 概述): the workdir
+/// defines the agent's default file-operation path, so relative paths
+/// resolve on the workdir base — same precedence as `bash`'s
+/// `resolve_cwd` (`ctx.workdir` first). When no workdir is set the
+/// input is returned unchanged, keeping the process-CWD fallback
+/// (`std::fs` resolves relative inputs against the process CWD).
+/// Absolute paths pass through untouched.
+///
+/// Read-only scope: Write/Edit and other file_ops path resolution is
+/// audited separately (issue #3083) and intentionally unchanged here.
+fn resolve_read_path(path: &str, ctx: &ToolContext) -> String {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        return path.to_string();
+    }
+    match ctx.workdir {
+        Some(ref wd) => Path::new(&wd.path).join(p).to_string_lossy().into_owned(),
+        None => path.to_string(),
+    }
+}
+
 #[async_trait]
 impl Tool for ReadTool {
     fn name(&self) -> &str {
@@ -233,6 +256,7 @@ impl Tool for ReadTool {
 
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let path = required_str(&args, "path")?;
+        let path = resolve_read_path(path, ctx);
         let offset = args
             .get("offset")
             .and_then(Value::as_f64)
@@ -242,11 +266,13 @@ impl Tool for ReadTool {
             .get("limit")
             .and_then(Value::as_f64)
             .map(|v| v as usize);
-        let mtime = std::fs::metadata(path).ok().and_then(|m| m.modified().ok());
-        if let Some(cached) = check_dedup_cache(ctx, path, mtime, offset, limit) {
+        let mtime = std::fs::metadata(&path)
+            .ok()
+            .and_then(|m| m.modified().ok());
+        if let Some(cached) = check_dedup_cache(ctx, &path, mtime, offset, limit) {
             return Ok(cached);
         }
-        read_and_truncate(path, offset, limit, mtime, ctx, &self.config_manager).await
+        read_and_truncate(&path, offset, limit, mtime, ctx, &self.config_manager).await
     }
 }
 

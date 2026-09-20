@@ -233,3 +233,25 @@ fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
     );
     write_agent_config(root, &model, None);
 }
+
+/// Write `<root>/agents/<agent_id>/permissions.json` — a permission
+/// engine `RuleSet` (`{"rules": [...]}`; schema:
+/// `crates/permission/src/engine/engine_types.rs`).
+///
+/// This is the exact path the daemon-side engine lazily loads
+/// (`{data_root}/agents/{agent_id}/permissions.json`,
+/// `engine_agent_rules.rs`; `data_root` = the config root passed as
+/// `--config-dir`, i.e. `root` here).
+///
+/// Note: only this file's `rules` array is merged with the global rule
+/// set — the file's own `defaults`/`user_defaults` are dropped by the
+/// loader, and the global `tool_call` default stays Deny — so grants
+/// must be explicit rules (see `docs/design/permission/README.md`
+/// §规则加载策略 / §交集模型). The concrete rule JSON is test-case
+/// data and stays with the caller, not in this shared scaffold.
+pub fn write_agent_permissions(root: &Path, agent_id: &str, rule_set_json: &str) {
+    let agent_dir = root.join("agents").join(agent_id);
+    std::fs::create_dir_all(&agent_dir).expect("create agent dir for permissions");
+    std::fs::write(agent_dir.join("permissions.json"), rule_set_json)
+        .expect("write agent permissions.json");
+}

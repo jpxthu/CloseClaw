@@ -88,6 +88,25 @@ impl TraitObjectExecutor {
     }
 }
 
+/// Resolve the permission caller's User ID for a session.
+///
+/// Design doc (`docs/design/permission/README.md`, "代理 User"): "User 来源
+/// 取决于场景——IM 消息来自发送者、CLI 调用默认为 Owner……". The session
+/// checkpoint's recorded sender is the source those scenarios resolve to
+/// (same as the tools-crate permission path — `SessionManager::get_sender_id`,
+/// see `crates/tools/src/permission_check.rs`); the session id is only the
+/// lookup key, never the identity itself.
+///
+/// When no sender context exists (no checkpoint / no `sender_id`), falls
+/// back to an empty User ID — the engine treats that as a system caller
+/// (User phase skipped, mirroring a caller-less `Bare` request).
+async fn resolve_caller_user_id(session_mgr: &SessionManager, ctx: &ToolContext) -> String {
+    match ctx.session_id.as_deref() {
+        Some(sid) if !sid.is_empty() => session_mgr.get_sender_id(sid).await.unwrap_or_default(),
+        _ => String::new(),
+    }
+}
+
 #[async_trait::async_trait]
 impl ToolExecutor for TraitObjectExecutor {
     async fn execute(&self, call: &PendingToolCall) -> ToolResult {
@@ -96,7 +115,7 @@ impl ToolExecutor for TraitObjectExecutor {
 
         // --- Permission check (Level 1: ToolCall) ---
         if let Some(ref perm_deps) = self.perm_deps {
-            let (perm_engine, _session_mgr, _config_mgr, _approval_flow) = perm_deps;
+            let (perm_engine, session_mgr, _config_mgr, _approval_flow) = perm_deps;
             let tool_group = self
                 .registry
                 .get_tool_detail(&call.tool_name)
@@ -109,7 +128,7 @@ impl ToolExecutor for TraitObjectExecutor {
             } else {
                 ctx.agent_id.clone()
             };
-            let user_id = ctx.session_id.clone().unwrap_or_default();
+            let user_id = resolve_caller_user_id(session_mgr, &ctx).await;
 
             // Level 1: tool-group permission check.
             let request =
@@ -449,3 +468,6 @@ impl SessionMessageHandler {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
