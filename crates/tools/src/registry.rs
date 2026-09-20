@@ -170,6 +170,64 @@ impl ToolRegistryImpl {
         (config.tools, config.disallowed_tools)
     }
 
+    /// Execution-time check: is `tool_name` allowed for `agent_id`?
+    ///
+    /// Consumes [`Self::query_agent_tools_config`] and applies the
+    /// `AgentToolsConfigQuery` contract (docs/design/common/core-traits.md)
+    /// on the tools (consumer) side, per docs/design/agent/agent-registry.md:
+    ///
+    /// - whitelist `None` / empty / contains `"*"` → unrestricted
+    /// - blacklist non-empty and contains `tool_name` → denied
+    ///   (blacklist takes precedence, even if the whitelist allows the tool)
+    /// - whitelist non-empty, no `"*"`, without `tool_name` → denied
+    /// - query not injected / agent not registered → unrestricted
+    ///
+    /// Returns `Err(reason)` on denial; the reason string contains the tool
+    /// name and the `"agent tools config"` marker for downstream observability.
+    pub async fn check_agent_tool_allowed(
+        &self,
+        agent_id: &str,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        let (tools, disallowed_tools) = self.query_agent_tools_config(agent_id).await;
+        Self::judge_agent_tool_allowed(&tools, &disallowed_tools, tool_name)
+    }
+
+    /// Pure contract-semantics judgment for [`Self::check_agent_tool_allowed`].
+    ///
+    /// Kept separate from the async query so the contract rules are defined
+    /// in exactly one place and are directly unit-testable. The agent-side
+    /// `AgentToolsConfigQuery` impl returns raw config (only empty/`["*"]`
+    /// whitelist normalization); merge semantics are applied here, at the
+    /// consumption point, as declared by the design doc contract.
+    pub(crate) fn judge_agent_tool_allowed(
+        tools: &Option<Vec<String>>,
+        disallowed_tools: &Option<Vec<String>>,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        // Blacklist first: explicit deny beats explicit allow.
+        if disallowed_tools
+            .as_ref()
+            .is_some_and(|d| d.iter().any(|n| n == tool_name))
+        {
+            return Err(format!(
+                "tool `{tool_name}` denied by agent tools config: \
+                 listed in agent disallowedTools blacklist"
+            ));
+        }
+        // Whitelist: None / empty / contains "*" → unrestricted.
+        let restricting_wl = tools
+            .as_ref()
+            .filter(|wl| !wl.is_empty() && !wl.iter().any(|n| n == "*"));
+        if restricting_wl.is_some_and(|wl| !wl.iter().any(|n| n == tool_name)) {
+            return Err(format!(
+                "tool `{tool_name}` denied by agent tools config: \
+                 not in agent tools whitelist"
+            ));
+        }
+        Ok(())
+    }
+
     /// Format a single tool entry into wrapped lines.
     ///
     /// Returns `(wrapped_lines, total_char_length)` where length includes
