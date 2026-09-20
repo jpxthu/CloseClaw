@@ -255,4 +255,110 @@ mod tests {
         assert!(tracker.is_empty());
         assert_eq!(tracker.len(), 0);
     }
+
+    // ── finish_seq: same-millisecond tie eviction ─────────────────────
+
+    #[test]
+    fn test_eviction_same_millisecond_tiebreaks_by_finish_seq() {
+        let tracker = SearcherSessionTracker::new();
+
+        // Batch 1: begin and end 64 sessions (all finish in same tick).
+        let mut batch1_ids = Vec::new();
+        for i in 0..64 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            batch1_ids.push(id);
+        }
+
+        // Batch 2: begin and end 65 more (all finish in same tick).
+        // Total 129 > 128 capacity.
+        let mut batch2_ids = Vec::new();
+        for i in 64..129 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::Injected);
+            batch2_ids.push(id);
+        }
+
+        // Exactly one from batch1 should be evicted (oldest by finish_seq).
+        let evicted_batch1 = batch1_ids
+            .iter()
+            .filter(|id| tracker.get(id).is_none())
+            .count();
+        assert_eq!(
+            evicted_batch1, 1,
+            "exactly one batch1 record should be evicted"
+        );
+
+        // All batch2 records must survive.
+        for id in &batch2_ids {
+            assert!(
+                tracker.get(id).is_some(),
+                "batch2 record {id} should not be evicted"
+            );
+        }
+    }
+
+    // ── finish_seq: idempotent end does not change seq ────────────────
+
+    #[test]
+    fn test_end_idempotent_preserves_finish_seq() {
+        let tracker = SearcherSessionTracker::new();
+        let id = tracker.begin("p".into(), "a".into(), "user".into());
+
+        tracker.end(&id, SearcherSessionStatus::NoResult);
+        let first_seq = tracker.get(&id).unwrap().finish_seq;
+        assert!(first_seq > 0, "finish_seq should be assigned on first end");
+
+        // Second end is a no-op.
+        tracker.end(&id, SearcherSessionStatus::Injected);
+        let second_seq = tracker.get(&id).unwrap().finish_seq;
+        assert_eq!(
+            first_seq, second_seq,
+            "finish_seq must not change on second end"
+        );
+    }
+
+    // ── finish_seq: only Running -> terminal assigns seq ──────────────
+
+    #[test]
+    fn test_running_records_have_zero_finish_seq() {
+        let tracker = SearcherSessionTracker::new();
+        let id = tracker.begin("p".into(), "a".into(), "user".into());
+        let s = tracker.get(&id).unwrap();
+        assert_eq!(s.finish_seq, 0, "Running record must have finish_seq 0");
+    }
+
+    // ── finish_seq: serde round-trip ──────────────────────────────────
+
+    #[test]
+    fn test_finish_seq_serde_round_trip() {
+        let tracker = SearcherSessionTracker::new();
+        let id = tracker.begin("p".into(), "a".into(), "user".into());
+        tracker.end(&id, SearcherSessionStatus::NoResult);
+        let original = tracker.get(&id).unwrap();
+
+        let json = serde_json::to_string(&original).unwrap();
+        let restored: crate::active_searcher_session::SearcherSession =
+            serde_json::from_str(&json).unwrap();
+
+        assert_eq!(restored.id, original.id);
+        assert_eq!(restored.status, original.status);
+        assert_eq!(restored.finish_seq, original.finish_seq);
+        assert_eq!(restored.finished_at, original.finished_at);
+    }
+
+    #[test]
+    fn test_finish_seq_default_zero_on_deserialize_without_field() {
+        let json = r#"{
+            "id": "test-id",
+            "parent_session_id": "p",
+            "agent_id": "a",
+            "trigger_role": "user",
+            "status": "Running",
+            "created_at": 1000
+        }"#;
+        let s: crate::active_searcher_session::SearcherSession =
+            serde_json::from_str(json).unwrap();
+        assert_eq!(s.finish_seq, 0, "missing finish_seq must default to 0");
+    }
 }
