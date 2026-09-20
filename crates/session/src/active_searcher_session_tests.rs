@@ -166,6 +166,7 @@ mod tests {
         }
 
         // Exactly one old_id should be evicted (excess = 129 - 128 = 1).
+        // The evicted record must be the oldest (lowest finish_seq), which is old_ids[0].
         let evicted = old_ids
             .iter()
             .filter(|id| tracker.get(id).is_none())
@@ -173,6 +174,10 @@ mod tests {
         assert_eq!(
             evicted, 1,
             "exactly one old finished record should be evicted"
+        );
+        assert!(
+            tracker.get(&old_ids[0]).is_none(),
+            "the first (oldest by finish_seq) record must be evicted"
         );
 
         // All new_ids should still be present (they were added later).
@@ -220,6 +225,11 @@ mod tests {
         assert_eq!(
             evicted, 1,
             "exactly one finished record should be evicted when over capacity"
+        );
+        // The evicted record must be the first finished entry (lowest finish_seq).
+        assert!(
+            tracker.get(&finished_ids[0]).is_none(),
+            "the first finished record (lowest finish_seq) must be evicted"
         );
     }
 
@@ -287,6 +297,11 @@ mod tests {
         assert_eq!(
             evicted_batch1, 1,
             "exactly one batch1 record should be evicted"
+        );
+        // The evicted record must be the first batch1 entry (lowest finish_seq).
+        assert!(
+            tracker.get(&batch1_ids[0]).is_none(),
+            "the first batch1 record (lowest finish_seq) must be evicted"
         );
 
         // All batch2 records must survive.

@@ -174,7 +174,7 @@ impl SearcherSessionTracker {
             .collect();
 
         // Sort oldest first; tie-break by finish_seq for determinism.
-        finished.sort_by(|a, b| a.1.cmp(&b.1).then_with(|| a.2.cmp(&b.2)));
+        finished.sort_by_key(|x| (x.1, x.2));
 
         // Remove oldest until back at capacity.
         let excess = map.len() - TRACKER_CAPACITY;
