@@ -136,6 +136,14 @@ const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
     "Edit",                 // plan file editing, restricted to plans/ by is_plans_path()
 ];
 
+/// Observability marker embedded in every execution-time agent tools deny
+/// message (`tool \`X\` denied by {marker}: …`). Single-point definition,
+/// consumed by the deny `format!` sites in
+/// [`ToolRegistryImpl::judge_agent_tool_allowed`] and the gate unit tests;
+/// the e2e binary keeps its own independent copy (cross-binary boundary,
+/// documented there).
+pub(crate) const AGENT_TOOLS_DENY_MARKER: &str = "agent tools config";
+
 impl ToolRegistryImpl {
     /// Set the AgentToolsConfigQuery reference for direct config queries.
     ///
@@ -183,8 +191,9 @@ impl ToolRegistryImpl {
     /// - query not injected / agent not registered → unrestricted
     ///
     /// Returns `Err(reason)` on denial; the reason string contains the tool
-    /// name and the `"agent tools config"` marker for downstream observability.
-    pub async fn check_agent_tool_allowed(
+    /// name and the [`AGENT_TOOLS_DENY_MARKER`] marker for downstream
+    /// observability.
+    pub(crate) async fn check_agent_tool_allowed(
         &self,
         agent_id: &str,
         tool_name: &str,
@@ -211,7 +220,7 @@ impl ToolRegistryImpl {
             .is_some_and(|d| d.iter().any(|n| n == tool_name))
         {
             return Err(format!(
-                "tool `{tool_name}` denied by agent tools config: \
+                "tool `{tool_name}` denied by {AGENT_TOOLS_DENY_MARKER}: \
                  listed in agent disallowedTools blacklist"
             ));
         }
@@ -221,7 +230,7 @@ impl ToolRegistryImpl {
             .filter(|wl| !wl.is_empty() && !wl.iter().any(|n| n == "*"));
         if restricting_wl.is_some_and(|wl| !wl.iter().any(|n| n == tool_name)) {
             return Err(format!(
-                "tool `{tool_name}` denied by agent tools config: \
+                "tool `{tool_name}` denied by {AGENT_TOOLS_DENY_MARKER}: \
                  not in agent tools whitelist"
             ));
         }

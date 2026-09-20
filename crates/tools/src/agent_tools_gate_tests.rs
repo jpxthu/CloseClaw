@@ -24,7 +24,7 @@ use closeclaw_common::tool_registry::ToolRegistryQuery;
 use closeclaw_common::tool_trait::{ToolCallError, ToolContext, ToolFlags, ToolResult};
 use closeclaw_common::{AgentToolsConfig, AgentToolsConfigQuery};
 
-use crate::registry::ToolRegistryImpl;
+use crate::registry::{ToolRegistryImpl, AGENT_TOOLS_DENY_MARKER};
 use crate::Tool;
 
 /// Agent id carrying a deny-relevant config in wiring tests.
@@ -83,12 +83,12 @@ impl Tool for CallProbeTool {
 }
 
 /// `Some(items)` shorthand so `None` vs `Some([])` stays explicit at call site.
-fn sl(items: &[&str]) -> Option<Vec<String>> {
+fn some_list(items: &[&str]) -> Option<Vec<String>> {
     Some(items.iter().map(|s| (*s).to_string()).collect())
 }
 
-/// Direct alias for the pure judgment under test.
-fn judge(
+/// Run the pure judgment under test; `Ok(())` means the gate allows the tool.
+fn judge_allows(
     tools: Option<Vec<String>>,
     denied: Option<Vec<String>>,
     tool: &str,
@@ -100,12 +100,12 @@ fn judge(
 fn assert_deny_shape(reason: &str) {
     assert!(reason.contains(TOOL), "reason must name tool: {reason}");
     assert!(
-        reason.contains("agent tools config"),
+        reason.contains(AGENT_TOOLS_DENY_MARKER),
         "reason must carry marker: {reason}"
     );
 }
 
-fn ctx(agent_id: &str) -> ToolContext {
+fn make_ctx(agent_id: &str) -> ToolContext {
     ToolContext {
         agent_id: agent_id.to_string(),
         workdir: None,
@@ -143,7 +143,9 @@ async fn probe_registry_with(
     (reg, calls)
 }
 
-fn cfg(tools: Option<Vec<String>>, denied: Option<Vec<String>>) -> AgentToolsConfig {
+/// Canned agent tools config (`tools` whitelist + `disallowedTools`
+/// blacklist); named to avoid clashing with Rust attribute vocabulary.
+fn make_agent_config(tools: Option<Vec<String>>, denied: Option<Vec<String>>) -> AgentToolsConfig {
     AgentToolsConfig {
         tools,
         disallowed_tools: denied,
@@ -156,52 +158,70 @@ fn cfg(tools: Option<Vec<String>>, denied: Option<Vec<String>>) -> AgentToolsCon
 
 /// Normal: tool listed in a restricting whitelist is allowed.
 #[tokio::test]
-async fn judge_whitelist_membership_allows() {
-    assert!(judge(sl(&[TOOL]), None, TOOL).is_ok());
+async fn test_judge_whitelist_membership_allows() {
+    assert!(
+        judge_allows(some_list(&[TOOL]), None, TOOL).is_ok(),
+        "tool {TOOL} listed in the whitelist should pass the gate"
+    );
 }
 
 /// Normal: tool outside a non-empty blacklist is allowed.
 #[tokio::test]
-async fn judge_tool_outside_blacklist_allows() {
-    assert!(judge(None, sl(&["Write", "Edit"]), TOOL).is_ok());
+async fn test_judge_tool_outside_blacklist_allows() {
+    assert!(
+        judge_allows(None, some_list(&["Write", "Edit"]), TOOL).is_ok(),
+        "tool {TOOL} outside a non-empty blacklist should pass the gate"
+    );
 }
 
 /// Normal: `"*"` wildcard whitelist leaves the tool unrestricted.
 #[tokio::test]
-async fn judge_wildcard_whitelist_allows() {
-    assert!(judge(sl(&["*"]), None, TOOL).is_ok());
+async fn test_judge_wildcard_whitelist_allows() {
+    assert!(
+        judge_allows(some_list(&["*"]), None, TOOL).is_ok(),
+        "wildcard whitelist should leave {TOOL} unrestricted"
+    );
 }
 
 /// Normal: `(None, None)` — no config at all — is unrestricted.
 #[tokio::test]
-async fn judge_no_config_allows() {
-    assert!(judge(None, None, TOOL).is_ok());
+async fn test_judge_no_config_allows() {
+    assert!(
+        judge_allows(None, None, TOOL).is_ok(),
+        "(None, None) config should leave {TOOL} unrestricted"
+    );
 }
 
 /// Error: tool absent from a restricting whitelist is denied.
 #[tokio::test]
-async fn judge_tool_outside_whitelist_denied() {
-    let reason = judge(sl(&["Read"]), None, TOOL).unwrap_err();
+async fn test_judge_tool_outside_whitelist_denied() {
+    let reason = judge_allows(some_list(&["Read"]), None, TOOL).unwrap_err();
     assert_deny_shape(&reason);
 }
 
 /// Error: blacklist wins — tool listed in BOTH lists is still denied.
 #[tokio::test]
-async fn judge_blacklist_beats_whitelist() {
-    let reason = judge(sl(&[TOOL, "Read"]), sl(&[TOOL]), TOOL).unwrap_err();
+async fn test_judge_blacklist_beats_whitelist() {
+    let reason = judge_allows(some_list(&[TOOL, "Read"]), some_list(&[TOOL]), TOOL).unwrap_err();
     assert_deny_shape(&reason);
 }
 
 /// Boundary: `tools = Some([])` does not restrict.
 #[tokio::test]
-async fn judge_empty_whitelist_unrestricted() {
-    assert!(judge(sl(&[]), None, TOOL).is_ok());
+async fn test_judge_empty_whitelist_unrestricted() {
+    assert!(
+        judge_allows(some_list(&[]), None, TOOL).is_ok(),
+        "empty whitelist should leave {TOOL} unrestricted"
+    );
 }
 
 /// Boundary: `disallowed_tools = Some([])` does not restrict.
 #[tokio::test]
-async fn judge_empty_blacklist_unrestricted() {
-    assert!(judge(None, sl(&[]), TOOL).is_ok());
+async fn test_judge_empty_blacklist_unrestricted() {
+    assert!(
+        judge_allows(None, some_list(&[]), TOOL).is_ok(),
+        "empty blacklist should leave {TOOL} unrestricted"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -210,22 +230,40 @@ async fn judge_empty_blacklist_unrestricted() {
 
 /// Normal: whitelist listing the tool allows through the async check.
 #[tokio::test]
-async fn check_allows_whitelisted_tool() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&[TOOL]), None))).await;
-    assert!(reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok());
+async fn test_check_allows_whitelisted_tool() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&[TOOL]), None),
+    ))
+    .await;
+    assert!(
+        reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok(),
+        "whitelisted tool {TOOL} should pass the gate"
+    );
 }
 
 /// Normal: `"*"` wildcard config allows any tool.
 #[tokio::test]
-async fn check_allows_wildcard_config() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&["*"]), sl(&[])))).await;
-    assert!(reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok());
+async fn test_check_allows_wildcard_config() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&["*"]), some_list(&[])),
+    ))
+    .await;
+    assert!(
+        reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok(),
+        "wildcard config should let {TOOL} pass the gate"
+    );
 }
 
 /// Error: blacklisted tool denied via query; reason carries both markers.
 #[tokio::test]
-async fn check_denies_blacklisted_tool() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&["*"]), sl(&[TOOL])))).await;
+async fn test_check_denies_blacklisted_tool() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&["*"]), some_list(&[TOOL])),
+    ))
+    .await;
     let reason = reg
         .check_agent_tool_allowed(AGENT_CFG, TOOL)
         .await
@@ -235,8 +273,12 @@ async fn check_denies_blacklisted_tool() {
 
 /// Error: tool outside the whitelist denied via query.
 #[tokio::test]
-async fn check_denies_tool_outside_whitelist() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&["Read"]), None))).await;
+async fn test_check_denies_tool_outside_whitelist() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&["Read"]), None),
+    ))
+    .await;
     let reason = reg
         .check_agent_tool_allowed(AGENT_CFG, TOOL)
         .await
@@ -246,24 +288,40 @@ async fn check_denies_tool_outside_whitelist() {
 
 /// Boundary: query never injected — unrestricted.
 #[tokio::test]
-async fn check_allows_when_query_not_injected() {
+async fn test_check_allows_when_query_not_injected() {
     let (reg, _) = probe_registry().await;
-    assert!(reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok());
+    assert!(
+        reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok(),
+        "no injected query should leave {TOOL} unrestricted"
+    );
 }
 
 /// Boundary: injected query but agent id not registered — unrestricted.
 #[tokio::test]
-async fn check_allows_unregistered_agent() {
-    let (reg, _) =
-        probe_registry_with(config_map("other-agent", cfg(sl(&["Read"]), sl(&[TOOL])))).await;
-    assert!(reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok());
+async fn test_check_allows_unregistered_agent() {
+    let (reg, _) = probe_registry_with(config_map(
+        "other-agent",
+        make_agent_config(some_list(&["Read"]), some_list(&[TOOL])),
+    ))
+    .await;
+    assert!(
+        reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok(),
+        "unregistered agent id should leave {TOOL} unrestricted"
+    );
 }
 
 /// Boundary: `Some([])` on both lists via query — unrestricted.
 #[tokio::test]
-async fn check_allows_empty_vec_configs() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&[]), sl(&[])))).await;
-    assert!(reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok());
+async fn test_check_allows_empty_vec_configs() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&[]), some_list(&[])),
+    ))
+    .await;
+    assert!(
+        reg.check_agent_tool_allowed(AGENT_CFG, TOOL).await.is_ok(),
+        "Some([]) configs should leave {TOOL} unrestricted"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -274,10 +332,14 @@ async fn check_allows_empty_vec_configs() {
 /// string naming the tool and carrying the marker; no new messages; the
 /// serialized `data` (downstream content payload) stays observable.
 #[tokio::test]
-async fn call_tool_deny_result_shape() {
-    let (reg, _) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&["*"]), sl(&[TOOL])))).await;
+async fn test_call_tool_deny_result_shape() {
+    let (reg, _) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&["*"]), some_list(&[TOOL])),
+    ))
+    .await;
     let result = reg
-        .call_tool(TOOL, json!({}), &ctx(AGENT_CFG))
+        .call_tool(TOOL, json!({}), &make_ctx(AGENT_CFG))
         .await
         .unwrap();
     let error = result.data.get("error").and_then(Value::as_str);
@@ -285,34 +347,47 @@ async fn call_tool_deny_result_shape() {
     assert!(!error.is_empty(), "data.error must be non-empty");
     assert_deny_shape(error);
     assert!(result.new_messages.is_empty(), "deny must add no messages");
-    assert!(result.context_modifier.is_none());
+    assert!(
+        result.context_modifier.is_none(),
+        "deny must not carry a context modifier"
+    );
     let content = result.data.to_string();
     assert!(
-        content.contains("agent tools config"),
+        content.contains(AGENT_TOOLS_DENY_MARKER),
         "deny content must be observable: {content}"
     );
 }
 
 /// Wiring deny path never touches the tool: probe counter stays zero.
 #[tokio::test]
-async fn call_tool_deny_does_not_invoke_tool() {
-    let (reg, calls) =
-        probe_registry_with(config_map(AGENT_CFG, cfg(sl(&[TOOL]), sl(&[TOOL])))).await;
+async fn test_call_tool_deny_does_not_invoke_tool() {
+    let (reg, calls) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&[TOOL]), some_list(&[TOOL])),
+    ))
+    .await;
     let result = reg
-        .call_tool(TOOL, json!({}), &ctx(AGENT_CFG))
+        .call_tool(TOOL, json!({}), &make_ctx(AGENT_CFG))
         .await
         .unwrap();
-    assert!(result.data.get("error").is_some());
+    assert!(
+        result.data.get("error").is_some(),
+        "deny result must carry data.error"
+    );
     assert_eq!(calls.load(Ordering::SeqCst), 0, "tool.call must not run");
 }
 
 /// Wiring allow path: whitelisted tool executes and its own result passes
 /// through unchanged (zero regression on the original call path).
 #[tokio::test]
-async fn call_tool_allows_whitelisted_tool() {
-    let (reg, calls) = probe_registry_with(config_map(AGENT_CFG, cfg(sl(&[TOOL]), None))).await;
+async fn test_call_tool_allows_whitelisted_tool() {
+    let (reg, calls) = probe_registry_with(config_map(
+        AGENT_CFG,
+        make_agent_config(some_list(&[TOOL]), None),
+    ))
+    .await;
     let result = reg
-        .call_tool(TOOL, json!({}), &ctx(AGENT_CFG))
+        .call_tool(TOOL, json!({}), &make_ctx(AGENT_CFG))
         .await
         .unwrap();
     assert_eq!(result.data["ok"], json!(true));
@@ -321,10 +396,10 @@ async fn call_tool_allows_whitelisted_tool() {
 
 /// Wiring boundary: no query injected — call passes straight through.
 #[tokio::test]
-async fn call_tool_allows_when_query_not_injected() {
+async fn test_call_tool_allows_when_query_not_injected() {
     let (reg, calls) = probe_registry().await;
     let result = reg
-        .call_tool(TOOL, json!({}), &ctx(AGENT_CFG))
+        .call_tool(TOOL, json!({}), &make_ctx(AGENT_CFG))
         .await
         .unwrap();
     assert_eq!(result.data["ok"], json!(true));
@@ -334,11 +409,14 @@ async fn call_tool_allows_when_query_not_injected() {
 /// Wiring boundary: unregistered agent — blacklist for another agent must
 /// not leak onto this call.
 #[tokio::test]
-async fn call_tool_allows_unregistered_agent() {
-    let (reg, calls) =
-        probe_registry_with(config_map("other-agent", cfg(sl(&[]), sl(&[TOOL])))).await;
+async fn test_call_tool_allows_unregistered_agent() {
+    let (reg, calls) = probe_registry_with(config_map(
+        "other-agent",
+        make_agent_config(some_list(&[]), some_list(&[TOOL])),
+    ))
+    .await;
     let result = reg
-        .call_tool(TOOL, json!({}), &ctx(AGENT_CFG))
+        .call_tool(TOOL, json!({}), &make_ctx(AGENT_CFG))
         .await
         .unwrap();
     assert_eq!(result.data["ok"], json!(true));

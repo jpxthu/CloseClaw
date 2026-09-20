@@ -568,6 +568,8 @@ const AGENT_TOOLS_DENY_MARKER: &str = "agent tools config";
 ///   branch Level-2 check runs after Level-1 and the global `exec`
 ///   default is Deny — without this allow the dispatch would deny
 ///   `echo` before the agent-tools gate could reject the call.
+///
+/// Body mapping: `(action JSON, rule-name slug)` → dual-subject allow pair.
 fn tool_allow_deny_permission_rules() -> serde_json::Value {
     let tool_call_read = serde_json::json!({
         "type": "tool_call",
@@ -597,7 +599,6 @@ fn tool_allow_deny_permission_rules() -> serde_json::Value {
             "agent_match": "exact",
         },
     });
-    // (action JSON, rule-name slug) → dual-subject allow pair.
     let actions = [
         (tool_call_read, "allow_file_ops_read"),
         (file_read, "allow_file_read_e2e_tool_test"),
@@ -639,6 +640,36 @@ fn frame_content_contains(frames: &[serde_json::Value], needle: &str) -> bool {
         .iter()
         .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
         .any(|c| c.contains(needle))
+}
+
+/// Frame-level assertions for [`e2e_agent_tool_allow_deny`] — §F1/§F3
+/// tool semantics plus infrastructure invariants:
+///
+/// - Read allow-path (§F1): result frame content carries
+///   [`TOOL_ALLOW_DENY_MARKER`] — whitelisted Read executed.
+/// - Bash deny-path (§F3): tool-result frame content carries
+///   [`AGENT_TOOLS_DENY_MARKER`] — the deny came from the execution-time
+///   agent tools gate (permission denies surface "not permitted by
+///   policy" instead), proving §F3 blacklist precedence at execution
+///   time.
+/// - Infrastructure: frames non-empty / single terminal.
+///
+/// Failure messages dump the frames for post-mortem; renderer
+/// truncation tolerances are documented on [`frame_content_contains`].
+fn assert_tool_allow_deny_frames(frames: &[serde_json::Value]) {
+    assert!(
+        frame_content_contains(frames, TOOL_ALLOW_DENY_MARKER),
+        "Read result should contain {TOOL_ALLOW_DENY_MARKER}, frames: {frames:?}"
+    );
+    assert!(
+        frame_content_contains(frames, AGENT_TOOLS_DENY_MARKER),
+        "Bash result should carry '{AGENT_TOOLS_DENY_MARKER}' deny, frames: {frames:?}"
+    );
+    assert!(
+        !frames.is_empty(),
+        "chat RPC should answer with at least one frame, got none"
+    );
+    assert_single_terminal(frames);
 }
 
 // ---------------------------------------------------------------------------
@@ -689,17 +720,10 @@ fn frame_content_contains(frames: &[serde_json::Value], needle: &str) -> bool {
 /// observed in the Step 1.3 pre-rules frames) before `call_tool` runs
 /// and the agent blacklist is unobservable.
 ///
-/// Assertions (Step 1.4 tightened, `#[ignore]` removed):
-/// - Read allow-path: result frame content carries
-///   [`TOOL_ALLOW_DENY_MARKER`] — whitelisted Read executed.
-/// - Bash deny-path: tool-result frame content carries
-///   [`AGENT_TOOLS_DENY_MARKER`] — the deny came from the execution-time
-///   agent tools gate (permission denies surface "not permitted by
-///   policy" instead), proving §F3 blacklist precedence at execution
-///   time.
-/// - Infrastructure: frames non-empty / single terminal / daemon alive /
-///   exit 0; [`dump_chat_frames`] retained for `--nocapture`
-///   observability.
+/// Assertions: frame-level §F1 allow-path / §F3 deny-path semantics and
+/// infrastructure invariants live on [`assert_tool_allow_deny_frames`];
+/// the body adds the daemon-alive recheck + clean-exit check, and
+/// [`dump_chat_frames`] is retained for `--nocapture` observability.
 ///
 /// History (intentional references, no closing keywords): the original
 /// blocker #2436 — the `SkillListingProviderWrapper` `Handle::block_on`
@@ -743,25 +767,11 @@ async fn e2e_agent_tool_allow_deny() {
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
     dump_chat_frames(&frames);
 
-    // §F1 allow-path: whitelisted Read executed — its result frame
-    // carries the marker file content.
-    assert!(
-        frame_content_contains(&frames, TOOL_ALLOW_DENY_MARKER),
-        "Read result should contain {TOOL_ALLOW_DENY_MARKER}, frames: {frames:?}"
-    );
-    // §F3 deny-path: blacklisted Bash rejected by the execution-time
-    // agent tools gate (permission denies say "not permitted by policy").
-    assert!(
-        frame_content_contains(&frames, AGENT_TOOLS_DENY_MARKER),
-        "Bash result should carry '{AGENT_TOOLS_DENY_MARKER}' deny, frames: {frames:?}"
-    );
-    assert!(
-        !frames.is_empty(),
-        "chat RPC should answer with at least one frame, got none"
-    );
-    assert_single_terminal(&frames);
-    helpers::assert_daemon_alive(&mut daemon.0);
+    // §F1 allow-path / §F3 deny-path / infrastructure — assertion
+    // semantics and failure messages live on the helper doc.
+    assert_tool_allow_deny_frames(&frames);
 
+    helpers::assert_daemon_alive(&mut daemon.0);
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
