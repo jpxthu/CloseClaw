@@ -31,7 +31,9 @@
 //! end-to-end: `e2e_agent_model_selection` asserts the full path (fake_llm
 //! receives the request; the greeting text reaches the chat client). The
 //! smoke case keeps its looser infrastructure-level assertions — see the
-//! `e2e_agent_profile_smoke` case doc for details.
+//! `e2e_agent_profile_smoke` case doc for details; with the round trip
+//! working, `e2e_agent_tool_allow_deny` (un-ignored 2026-09-20) asserts
+//! execution-time tool allow/deny semantics — see its case doc.
 //!
 //! Uses `#[cfg(feature = "fake-llm")]` to gate on the feature flag, per
 //! STANDARDS.md §5.
@@ -519,61 +521,243 @@ fn frame_contains_marker(frames: &[serde_json::Value]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.3 test case
+// e2e_agent_tool_allow_deny helpers (≤50-line function bodies)
 // ---------------------------------------------------------------------------
 
-/// §F1 tool allow/deny: agent config.json `tools` whitelist +
-/// `disallowed_tools` blacklist constrain which tools the agent may use.
+/// Marker content written to `{config_root}/e2e-tool-test.txt` — the
+/// file the fixture's workdir-relative Read resolves to.
+const TOOL_ALLOW_DENY_MARKER: &str = "tool-test-content";
+
+/// `"agent tools config"` feature string of the execution-time deny
+/// produced by `ToolRegistryImpl::check_agent_tool_allowed`
+/// (`crates/tools/src/registry.rs`; blacklisted `Bash` →
+/// `data.error = "tool `Bash` denied by agent tools config: …"`).
+/// Permission-layer dispatch denies say "not permitted by policy"
+/// instead, so this string uniquely attributes a deny to the agent
+/// tools blacklist (strict §F3 evidence).
+const AGENT_TOOLS_DENY_MARKER: &str = "agent tools config";
+
+/// Permission-rule JSON ([`RuleSet`] shape: `{"rules": [...]}`,
+/// `crates/permission/src/engine/engine_types.rs`) for
+/// [`e2e_agent_tool_allow_deny`]: Agent-only + User∩Agent allow pair for
+/// **every** permission dimension the fixture touches — the strict
+/// §F1/§F3 design: nothing may be denied by the permission engine, so an
+/// observed Bash deny can only come from the agent tools blacklist.
+///
+/// Without these rules the engine's global defaults (all Deny —
+/// `Defaults::default()`; agent-file `defaults`/`user_defaults` are
+/// dropped by `engine_agent_rules.rs`) stop both fixture calls at the
+/// dispatch layer before `call_tool` runs — the pre-rules (Step 1.3)
+/// frames showed `not permitted by policy: no matching ru…` for both
+/// tools. Each dimension therefore carries the dual-subject allow pair
+/// (two-phase intersection: Agent phase + User phase must both Allow;
+/// the chat-RPC caller's `user_id` is the process UID, never "owner",
+/// so no Owner shortcut — same rationale as
+/// [`workspace_permission_rules`]).
+///
+/// Dimensions covered:
+/// - **Level-1 ToolCall {file_ops, Read}** + **Level-2 FileOp read**
+///   `**/e2e-tool-test.txt` (file-name glob — the gateway forwards the
+///   fixture path verbatim, `session_handler_tool_dispatch.rs` file_ops
+///   branch; the temp config-root prefix is unknowable at authoring
+///   time).
+/// - **Level-1 ToolCall {bash, Bash}** (tool group "bash" — dispatch
+///   frame evidence `tool 'Bash' in group 'bash'`).
+/// - **Level-2 CommandExec echo** (`Action::Command` matches `cmd` by
+///   glob with default `args: Any` — `engine_matching.rs`): the bash
+///   branch Level-2 check runs after Level-1 and the global `exec`
+///   default is Deny — without this allow the dispatch would deny
+///   `echo` before the agent-tools gate could reject the call.
+///
+/// Body mapping: `(action JSON, rule-name slug)` → dual-subject allow pair.
+fn tool_allow_deny_permission_rules() -> serde_json::Value {
+    let tool_call_read = serde_json::json!({
+        "type": "tool_call",
+        "skill": "file_ops",
+        "methods": ["Read"],
+    });
+    let file_read = serde_json::json!({
+        "type": "file",
+        "operation": "read",
+        "paths": ["**/e2e-tool-test.txt"],
+    });
+    let tool_call_bash = serde_json::json!({
+        "type": "tool_call",
+        "skill": "bash",
+        "methods": ["Bash"],
+    });
+    let command_echo = serde_json::json!({
+        "type": "command",
+        "command": "echo",
+    });
+    let user_and_agent = serde_json::json!({
+        "match_mode": "user_and_agent",
+        "fields": {
+            "user_id": "*",
+            "agent": "master",
+            "user_match": "glob",
+            "agent_match": "exact",
+        },
+    });
+    let actions = [
+        (tool_call_read, "allow_file_ops_read"),
+        (file_read, "allow_file_read_e2e_tool_test"),
+        (tool_call_bash, "allow_bash_tool_call"),
+        (command_echo, "allow_command_echo"),
+    ];
+    let mut rules = Vec::new();
+    for (action, slug) in actions {
+        rules.push(serde_json::json!({
+            "name": format!("agent_{slug}"),
+            "subject": { "agent": "master" },
+            "effect": "allow", "priority": 0,
+            "actions": [action.clone()],
+        }));
+        rules.push(serde_json::json!({
+            "name": format!("user_and_agent_{slug}"),
+            "subject": user_and_agent.clone(),
+            "effect": "allow", "priority": 0,
+            "actions": [action],
+        }));
+    }
+    serde_json::json!({ "rules": rules })
+}
+
+/// True when any chat frame's `content` text carries `needle`.
+///
+/// Chat frames carry TerminalRenderer output (`chat_rpc.rs`
+/// `rendered_to_response`); tool results arrive as `content_chunk`
+/// frames whose `content` is the tool-result data JSON string
+/// (`tool_result_to_content_block` — `result.data.to_string()`).
+/// Renderer line/width truncation (`renderer.rs` `TOOL_RESULT_MAX_LINES`
+/// / `truncate_line_to_width`) can cut long payloads mid-JSON, so these
+/// assertions anchor on feature strings near the message front instead
+/// of full JSON parsing: [`TOOL_ALLOW_DENY_MARKER`] (Read success data)
+/// and [`AGENT_TOOLS_DENY_MARKER`] (deny `error` field) both survive
+/// truncation.
+fn frame_content_contains(frames: &[serde_json::Value], needle: &str) -> bool {
+    frames
+        .iter()
+        .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
+        .any(|c| c.contains(needle))
+}
+
+/// Frame-level assertions for [`e2e_agent_tool_allow_deny`] — §F1/§F3
+/// tool semantics plus infrastructure invariants:
+///
+/// - Read allow-path (§F1): result frame content carries
+///   [`TOOL_ALLOW_DENY_MARKER`] — whitelisted Read executed.
+/// - Bash deny-path (§F3): tool-result frame content carries
+///   [`AGENT_TOOLS_DENY_MARKER`] — the deny came from the execution-time
+///   agent tools gate (permission denies surface "not permitted by
+///   policy" instead), proving §F3 blacklist precedence at execution
+///   time.
+/// - Infrastructure: frames non-empty / single terminal.
+///
+/// Failure messages dump the frames for post-mortem; renderer
+/// truncation tolerances are documented on [`frame_content_contains`].
+fn assert_tool_allow_deny_frames(frames: &[serde_json::Value]) {
+    assert!(
+        frame_content_contains(frames, TOOL_ALLOW_DENY_MARKER),
+        "Read result should contain {TOOL_ALLOW_DENY_MARKER}, frames: {frames:?}"
+    );
+    assert!(
+        frame_content_contains(frames, AGENT_TOOLS_DENY_MARKER),
+        "Bash result should carry '{AGENT_TOOLS_DENY_MARKER}' deny, frames: {frames:?}"
+    );
+    assert!(
+        !frames.is_empty(),
+        "chat RPC should answer with at least one frame, got none"
+    );
+    assert_single_terminal(frames);
+}
+
+// ---------------------------------------------------------------------------
+// e2e_agent_tool_allow_deny test case (Steps 1.3–1.4)
+// ---------------------------------------------------------------------------
+
+/// §F1/§F3 tool allow/deny: agent config.json `tools` whitelist +
+/// `disallowedTools` blacklist constrain which tools the agent may use
+/// at execution time (`docs/design/agent/agent-config.md` 配置字段;
+/// contract `docs/design/common/core-traits.md` `AgentToolsConfigQuery`,
+/// consumed by the tools registry per `docs/design/agent/agent-registry.md`
+/// 下游表).
 ///
 /// Design:
 /// - Agent config sets `tools: ["Read", "Write"]` (whitelist) and
-///   `disallowed_tools: ["Bash"]` (blacklist). Tools outside the whitelist
-///   are never sent to the LLM; tools on the blacklist are explicitly denied
-///   even if they appear in the whitelist.
-/// - Fake LLM scenario `tool-allow-deny-call` (model_id
-///   `gpt-4o-tool-allow-deny`) returns a `tool_call` response containing
-///   calls to both `Read` (whitelisted) and `Bash` (blacklisted).
-/// - In the expected-pass state (Blocker B resolved), the daemon would:
-///     1. Build the system prompt with only `Read` and `Write` tools
-///        (via `get_tool_descriptors` filtering) — the LLM never sees
-///        `Bash` in the tool schema.
-///     2. Receive the tool_call response; `Read` executes (file read via
-///        tempfile path), `Bash` is rejected by `check_tool_permission`
-///        (disallowed_tools check).
-///     3. The rejection is observable in the chat response (tool result
-///        containing a deny/error message) and/or daemon stderr.
+///   `disallowedTools: ["Bash"]` (blacklist; on-disk field names are
+///   camelCase — the `AgentConfig` parser renames `disallowed_tools`,
+///   so a snake_case key is silently ignored as an unknown field).
+///   Tool names carry the exact `Tool::name()` registry case
+///   (`Read`/`Bash`): the prompt-side descriptor filter
+///   (`get_tool_descriptors`) and the execution-time gate
+///   (`check_agent_tool_allowed`, wired into `call_tool` on this
+///   branch, Steps 1.1/1.2) both compare case-sensitively.
+/// - Fake LLM scenario `tool-allow-deny-call` matches `model_id =
+///   "gpt-4o-tool-allow-deny"` and returns a `tool_call` response with
+///   calls to both `Read` (whitelisted) and `Bash` (blacklisted). Model
+///   three-way alignment: models.json chain id, agent config `model`
+///   (`openai/gpt-4o-tool-allow-deny`) and the fixture `match_.model_id`
+///   all agree — `UnifiedFallbackClient` overwrites `request.model` with
+///   the chain id, so a misaligned id misses every scenario and the
+///   engine answers HTTP 500 "no scenario matched and no fallback
+///   declared".
+/// - Fixture `Read` path is workdir-relative
+///   (`../../../e2e-tool-test.txt` — the `e2e_agent_workspace` pattern):
+///   without an agent `workspace` field the session workdir is
+///   `{config_root}/workspaces/master/{uid}`
+///   (`docs/design/session/working-directory.md`), and the test writes
+///   `"tool-test-content"` at `{config_root}/e2e-tool-test.txt` — three
+///   levels above the effective workdir, inside the TempDir (STANDARDS
+///   §8; the pre-1.3 fixture hardcoded `/tmp/e2e-tool-test.txt`, which
+///   violates §8 and cannot align with the session workdir).
 ///
-/// Degradation history: this case originally asserted only the observable
-/// infrastructure contract (agent config loaded without error; daemon
-/// answers chat protocol frames) because Blocker B — the
-/// `SkillListingProviderWrapper` panic in bridge.rs (`Handle::block_on`
-/// in async context) — prevented any LLM request from being issued. That
-/// panic was fixed on this branch, so the recorded reason for `#[ignore]`
-/// no longer applies as-is; the assertions still need tightening to
-/// verify tool execution (Read result in response) and tool rejection
-/// (Bash denied in response) before the ignore can be lifted
-/// (unignore-workflow debt). This branch only updates the comment, not
-/// the ignore state.
+/// Strict attribution (§F1 core): [`tool_allow_deny_permission_rules`]
+/// writes explicit allow rules for every permission dimension the
+/// fixture touches — including Level-1 Bash + Level-2 `echo` — so the
+/// permission engine never denies; without them its global default-deny
+/// stops both calls at the dispatch layer ("not permitted by policy",
+/// observed in the Step 1.3 pre-rules frames) before `call_tool` runs
+/// and the agent blacklist is unobservable.
+///
+/// Assertions: frame-level §F1 allow-path / §F3 deny-path semantics and
+/// infrastructure invariants live on [`assert_tool_allow_deny_frames`];
+/// the body adds the daemon-alive recheck + clean-exit check, and
+/// [`dump_chat_frames`] is retained for `--nocapture` observability.
+///
+/// History (intentional references, no closing keywords): the original
+/// blocker #2436 — the `SkillListingProviderWrapper` `Handle::block_on`
+/// panic in `bridge.rs` before any LLM request — was resolved on this
+/// branch by #3054/#3061, after which the case ran green at
+/// infrastructure level while holding `#[ignore]` as assertion-tightening
+/// debt; that debt is settled by this Step 1.4 round.
 #[tokio::test]
 #[cfg(unix)]
-#[ignore]
 #[serial_test::serial]
 async fn e2e_agent_tool_allow_deny() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    // Create a target file for the Read tool to read (pure file I/O,
-    // no external dependencies).
-    let target_file = temp_dir.path().join("e2e-tool-test.txt");
-    std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
+    let target_file = config_root.join("e2e-tool-test.txt");
+    std::fs::write(&target_file, TOOL_ALLOW_DENY_MARKER).expect("write Read target file");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    write_config_tree(
+        config_root,
+        ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-tool-allow-deny"]),
+    );
     write_agent_config_with_tools(
         config_root,
         "openai/gpt-4o-tool-allow-deny",
         &["Read", "Write"],
         &["Bash"],
+    );
+    // Explicit allows per dimension (incl. Bash/echo) — deny attribution
+    // rationale lives on the helper doc.
+    write_agent_permissions(
+        config_root,
+        "master",
+        &tool_allow_deny_permission_rules().to_string(),
     );
 
     let mut daemon = spawn_daemon(config_root);
@@ -581,16 +765,32 @@ async fn e2e_agent_tool_allow_deny() {
     helpers::assert_daemon_alive(&mut daemon.0);
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
+    dump_chat_frames(&frames);
 
-    assert!(
-        !frames.is_empty(),
-        "chat RPC should answer with at least one frame, got none"
-    );
-    assert_single_terminal(&frames);
+    // §F1 allow-path / §F3 deny-path / infrastructure — assertion
+    // semantics and failure messages live on the helper doc.
+    assert_tool_allow_deny_frames(&frames);
+
     helpers::assert_daemon_alive(&mut daemon.0);
-
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
+
+/// Acceptance observability for [`e2e_agent_tool_allow_deny`]: print the
+/// chat frames so a `--nocapture` run evidences fake_llm scenario
+/// matching and the tool-result frames — on a scenario hit the frames
+/// carry the dispatched `Read`/`Bash` tool-result chunks; on a miss the
+/// scenario engine answers HTTP 500 "no scenario matched and no fallback
+/// declared" and the turn surfaces the LLM error path instead.
+/// Harness-captured output is replayed automatically when the test fails.
+fn dump_chat_frames(frames: &[serde_json::Value]) {
+    eprintln!(
+        "[e2e_agent_tool_allow_deny] chat frames ({}):",
+        frames.len()
+    );
+    for frame in frames {
+        eprintln!("  {frame}");
+    }
 }
 
 // ---------------------------------------------------------------------------

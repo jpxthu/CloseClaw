@@ -956,6 +956,7 @@ async fn test_build_tools_section_strips_keywords() {
 // =========================================================================
 // ToolRegistryQuery trait-level tests: get_tool_detail & list_tool_names_by_group
 // =========================================================================
+mod agent_tools_gate_tests;
 mod group_atomicity_tests;
 mod keyword_tests;
 mod register_before_freeze_tests;

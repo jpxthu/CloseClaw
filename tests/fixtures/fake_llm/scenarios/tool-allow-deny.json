@@ -12,7 +12,7 @@
                         "calls": [
                             {
                                 "name": "Read",
-                                "arguments": "{\"path\": \"/tmp/e2e-tool-test.txt\"}"
+                                "arguments": "{\"path\": \"../../../e2e-tool-test.txt\"}"
                             },
                             {
                                 "name": "Bash",

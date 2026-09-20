@@ -136,6 +136,14 @@ const PLAN_MODE_ALWAYS_VISIBLE: &[&str] = &[
     "Edit",                 // plan file editing, restricted to plans/ by is_plans_path()
 ];
 
+/// Observability marker embedded in every execution-time agent tools deny
+/// message (`tool \`X\` denied by {marker}: …`). Single-point definition,
+/// consumed by the deny `format!` sites in
+/// [`ToolRegistryImpl::judge_agent_tool_allowed`] and the gate unit tests;
+/// the e2e binary keeps its own independent copy (cross-binary boundary,
+/// documented there).
+pub(crate) const AGENT_TOOLS_DENY_MARKER: &str = "agent tools config";
+
 impl ToolRegistryImpl {
     /// Set the AgentToolsConfigQuery reference for direct config queries.
     ///
@@ -168,6 +176,65 @@ impl ToolRegistryImpl {
             return (None, None);
         };
         (config.tools, config.disallowed_tools)
+    }
+
+    /// Execution-time check: is `tool_name` allowed for `agent_id`?
+    ///
+    /// Consumes [`Self::query_agent_tools_config`] and applies the
+    /// `AgentToolsConfigQuery` contract (docs/design/common/core-traits.md)
+    /// on the tools (consumer) side, per docs/design/agent/agent-registry.md:
+    ///
+    /// - whitelist `None` / empty / contains `"*"` → unrestricted
+    /// - blacklist non-empty and contains `tool_name` → denied
+    ///   (blacklist takes precedence, even if the whitelist allows the tool)
+    /// - whitelist non-empty, no `"*"`, without `tool_name` → denied
+    /// - query not injected / agent not registered → unrestricted
+    ///
+    /// Returns `Err(reason)` on denial; the reason string contains the tool
+    /// name and the [`AGENT_TOOLS_DENY_MARKER`] marker for downstream
+    /// observability.
+    pub(crate) async fn check_agent_tool_allowed(
+        &self,
+        agent_id: &str,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        let (tools, disallowed_tools) = self.query_agent_tools_config(agent_id).await;
+        Self::judge_agent_tool_allowed(&tools, &disallowed_tools, tool_name)
+    }
+
+    /// Pure contract-semantics judgment for [`Self::check_agent_tool_allowed`].
+    ///
+    /// Kept separate from the async query so the contract rules are defined
+    /// in exactly one place and are directly unit-testable. The agent-side
+    /// `AgentToolsConfigQuery` impl returns raw config (only empty/`["*"]`
+    /// whitelist normalization); merge semantics are applied here, at the
+    /// consumption point, as declared by the design doc contract.
+    pub(crate) fn judge_agent_tool_allowed(
+        tools: &Option<Vec<String>>,
+        disallowed_tools: &Option<Vec<String>>,
+        tool_name: &str,
+    ) -> Result<(), String> {
+        // Blacklist first: explicit deny beats explicit allow.
+        if disallowed_tools
+            .as_ref()
+            .is_some_and(|d| d.iter().any(|n| n == tool_name))
+        {
+            return Err(format!(
+                "tool `{tool_name}` denied by {AGENT_TOOLS_DENY_MARKER}: \
+                 listed in agent disallowedTools blacklist"
+            ));
+        }
+        // Whitelist: None / empty / contains "*" → unrestricted.
+        let restricting_wl = tools
+            .as_ref()
+            .filter(|wl| !wl.is_empty() && !wl.iter().any(|n| n == "*"));
+        if restricting_wl.is_some_and(|wl| !wl.iter().any(|n| n == tool_name)) {
+            return Err(format!(
+                "tool `{tool_name}` denied by {AGENT_TOOLS_DENY_MARKER}: \
+                 not in agent tools whitelist"
+            ));
+        }
+        Ok(())
     }
 
     /// Format a single tool entry into wrapped lines.
@@ -731,6 +798,17 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
             .ok_or_else(|| closeclaw_common::tool_trait::ToolCallError::NotFound(name.to_string()))
             .map(Arc::clone)?;
         drop(guard);
+        // Execution-time agent tools config gate: deny before touching the
+        // tool. The deny result mirrors the gateway NotFound-produced form
+        // (data.error + empty new_messages) so the reason stays observable
+        // downstream via ContentBlock::ToolResult.
+        if let Err(reason) = self.check_agent_tool_allowed(&ctx.agent_id, name).await {
+            return Ok(closeclaw_common::tool_trait::ToolResult {
+                data: serde_json::json!({ "error": reason }),
+                new_messages: vec![],
+                context_modifier: None,
+            });
+        }
         tool.call(args, ctx).await
     }
 }
