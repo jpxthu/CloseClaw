@@ -789,6 +789,17 @@ impl closeclaw_common::tool_registry::ToolRegistryQuery for ToolRegistryImpl {
             .ok_or_else(|| closeclaw_common::tool_trait::ToolCallError::NotFound(name.to_string()))
             .map(Arc::clone)?;
         drop(guard);
+        // Execution-time agent tools config gate: deny before touching the
+        // tool. The deny result mirrors the gateway NotFound-produced form
+        // (data.error + empty new_messages) so the reason stays observable
+        // downstream via ContentBlock::ToolResult.
+        if let Err(reason) = self.check_agent_tool_allowed(&ctx.agent_id, name).await {
+            return Ok(closeclaw_common::tool_trait::ToolResult {
+                data: serde_json::json!({ "error": reason }),
+                new_messages: vec![],
+                context_modifier: None,
+            });
+        }
         tool.call(args, ctx).await
     }
 }
