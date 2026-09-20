@@ -92,7 +92,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 
 ### F8. 命令执行
 
-Owner 可以执行任意 Shell 命令。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
+Owner 可以执行 Shell 命令。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
