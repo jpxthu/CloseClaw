@@ -189,10 +189,18 @@ pub fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&st
     .expect("write agent config");
 }
 
-/// Write agent config with explicit tools and disallowed_tools lists.
+/// Write agent config with explicit tools whitelist and disallowed-tools
+/// blacklist.
 ///
-/// Like [`write_agent_config`] but allows fine-grained control over
-/// the `tools` whitelist and `disallowed_tools` blacklist fields.
+/// Like [`write_agent_config`] but allows fine-grained control over the
+/// `tools` whitelist and the `disallowedTools` blacklist. On-disk field
+/// names follow `docs/design/agent/agent-config.md` (camelCase — the
+/// `AgentConfig` parser renames `disallowed_tools` → `disallowedTools`;
+/// a snake_case key is silently ignored as an unknown field).
+///
+/// `tools` / `disallowed` entries must spell the registry `Tool::name()`
+/// exactly (`Read`, `Bash`, …): the prompt-side descriptor filter and
+/// the execution-time agent-tools gate both compare case-sensitively.
 pub fn write_agent_config_with_tools(
     config_root: &Path,
     model: &str,
@@ -211,7 +219,7 @@ pub fn write_agent_config_with_tools(
             "name": "Master",
             "model": model,
             "tools": tools,
-            "disallowed_tools": disallowed,
+            "disallowedTools": disallowed,
             "skills": ["*"]
         })
         .to_string(),

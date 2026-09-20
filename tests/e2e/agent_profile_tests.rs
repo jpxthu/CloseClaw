@@ -522,38 +522,60 @@ fn frame_contains_marker(frames: &[serde_json::Value]) -> bool {
 // Step 1.3 test case
 // ---------------------------------------------------------------------------
 
-/// §F1 tool allow/deny: agent config.json `tools` whitelist +
-/// `disallowed_tools` blacklist constrain which tools the agent may use.
+/// §F1/§F3 tool allow/deny: agent config.json `tools` whitelist +
+/// `disallowedTools` blacklist constrain which tools the agent may use
+/// at execution time (`docs/design/agent/agent-config.md` 配置字段;
+/// contract `docs/design/common/core-traits.md` `AgentToolsConfigQuery`,
+/// consumed by the tools registry per `docs/design/agent/agent-registry.md`
+/// 下游表).
 ///
-/// Design:
+/// Design (Step 1.3 state — fixture/config aligned, assertions loose):
 /// - Agent config sets `tools: ["Read", "Write"]` (whitelist) and
-///   `disallowed_tools: ["Bash"]` (blacklist). Tools outside the whitelist
-///   are never sent to the LLM; tools on the blacklist are explicitly denied
-///   even if they appear in the whitelist.
-/// - Fake LLM scenario `tool-allow-deny-call` (model_id
-///   `gpt-4o-tool-allow-deny`) returns a `tool_call` response containing
-///   calls to both `Read` (whitelisted) and `Bash` (blacklisted).
-/// - In the expected-pass state (Blocker B resolved), the daemon would:
-///     1. Build the system prompt with only `Read` and `Write` tools
-///        (via `get_tool_descriptors` filtering) — the LLM never sees
-///        `Bash` in the tool schema.
-///     2. Receive the tool_call response; `Read` executes (file read via
-///        tempfile path), `Bash` is rejected by `check_tool_permission`
-///        (disallowed_tools check).
-///     3. The rejection is observable in the chat response (tool result
-///        containing a deny/error message) and/or daemon stderr.
+///   `disallowedTools: ["Bash"]` (blacklist; on-disk field names are
+///   camelCase — the `AgentConfig` parser renames `disallowed_tools`,
+///   so a snake_case key is silently ignored as an unknown field).
+///   Tool names carry the exact `Tool::name()` registry case
+///   (`Read`/`Bash`): the prompt-side descriptor filter
+///   (`get_tool_descriptors`) and the execution-time gate
+///   (`check_agent_tool_allowed`, wired into `call_tool` on this
+///   branch, Steps 1.1/1.2) both compare case-sensitively.
+/// - Fake LLM scenario `tool-allow-deny-call` matches `model_id =
+///   "gpt-4o-tool-allow-deny"` and returns a `tool_call` response with
+///   calls to both `Read` (whitelisted) and `Bash` (blacklisted). Model
+///   three-way alignment: models.json chain id, agent config `model`
+///   (`openai/gpt-4o-tool-allow-deny`) and the fixture `match_.model_id`
+///   all agree — `UnifiedFallbackClient` overwrites `request.model` with
+///   the chain id, so a misaligned id misses every scenario and the
+///   engine answers HTTP 500 "no scenario matched and no fallback
+///   declared".
+/// - Fixture `Read` path is workdir-relative
+///   (`../../../e2e-tool-test.txt` — the `e2e_agent_workspace` pattern):
+///   without an agent `workspace` field the session workdir is
+///   `{config_root}/workspaces/master/{uid}`
+///   (`docs/design/session/working-directory.md`), and the test writes
+///   `"tool-test-content"` at `{config_root}/e2e-tool-test.txt` — three
+///   levels above the effective workdir, inside the TempDir (STANDARDS
+///   §8; the pre-1.3 fixture hardcoded `/tmp/e2e-tool-test.txt`, which
+///   violates §8 and cannot align with the session workdir).
+///
+/// Assertion state: infrastructure-level (frames non-empty / single
+/// terminal / daemon alive / exit 0) plus [`dump_chat_frames`]
+/// observability so `--nocapture` runs evidence scenario matching.
+/// Without `permissions.json` allow rules the permission engine's
+/// global tool_call default-deny stops both calls at the dispatch
+/// layer, before `call_tool` runs — so the agent-config deny is NOT
+/// yet observable in this step's frames (expected; Step 1.4 adds
+/// explicit allow rules, the Read marker / Bash "agent tools config"
+/// deny assertions, and removes `#[ignore]`).
 ///
 /// Degradation history: this case originally asserted only the observable
 /// infrastructure contract (agent config loaded without error; daemon
 /// answers chat protocol frames) because Blocker B — the
 /// `SkillListingProviderWrapper` panic in bridge.rs (`Handle::block_on`
 /// in async context) — prevented any LLM request from being issued. That
-/// panic was fixed on this branch, so the recorded reason for `#[ignore]`
-/// no longer applies as-is; the assertions still need tightening to
-/// verify tool execution (Read result in response) and tool rejection
-/// (Bash denied in response) before the ignore can be lifted
-/// (unignore-workflow debt). This branch only updates the comment, not
-/// the ignore state.
+/// panic was fixed on this branch (#3054/#3061), so the recorded reason
+/// for `#[ignore]` no longer applies; the ignore is now held only for
+/// the Step 1.4 assertion-tightening round (unignore-workflow debt).
 #[tokio::test]
 #[cfg(unix)]
 #[ignore]
@@ -562,13 +584,23 @@ async fn e2e_agent_tool_allow_deny() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    // Create a target file for the Read tool to read (pure file I/O,
-    // no external dependencies).
+    // Workdir-relative fixture alignment (Step 1.3): no agent `workspace`
+    // field → session workdir = `{config_root}/workspaces/master/{uid}`
+    // (docs/design/session/working-directory.md); the fixture path
+    // `../../../e2e-tool-test.txt` resolves three levels up to this
+    // TempDir file (STANDARDS §8 — no hardcoded /tmp paths).
     let target_file = temp_dir.path().join("e2e-tool-test.txt");
     std::fs::write(&target_file, "tool-test-content").expect("write target file for Read tool");
 
     let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    // Three-way model alignment: models.json / agent config /
+    // `tool-allow-deny-call` fixture all use `gpt-4o-tool-allow-deny`
+    // (see the case doc for the scenario-miss consequence).
+    write_config_tree(
+        config_root,
+        ConfigTreeOpts::new(fake_llm_addr).with_models(&["gpt-4o-tool-allow-deny"]),
+    );
+    // Tool names = registry `Tool::name()` spelling (exact-case match).
     write_agent_config_with_tools(
         config_root,
         "openai/gpt-4o-tool-allow-deny",
@@ -581,6 +613,8 @@ async fn e2e_agent_tool_allow_deny() {
     helpers::assert_daemon_alive(&mut daemon.0);
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
+    // Step 1.3 observability only — assertions tighten in Step 1.4.
+    dump_chat_frames(&frames);
 
     assert!(
         !frames.is_empty(),
@@ -591,6 +625,23 @@ async fn e2e_agent_tool_allow_deny() {
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
+}
+
+/// Acceptance observability for [`e2e_agent_tool_allow_deny`] (Step 1.3):
+/// print the chat frames so a `--nocapture` run evidences fake_llm
+/// scenario matching — on a hit the frames carry the dispatched
+/// `Read`/`Bash` tool-result chunks; on a miss the scenario engine
+/// answers HTTP 500 "no scenario matched and no fallback declared" and
+/// the turn surfaces the LLM error path instead. Harness-captured
+/// output is replayed automatically when the test fails.
+fn dump_chat_frames(frames: &[serde_json::Value]) {
+    eprintln!(
+        "[e2e_agent_tool_allow_deny] chat frames ({}):",
+        frames.len()
+    );
+    for frame in frames {
+        eprintln!("  {frame}");
+    }
 }
 
 // ---------------------------------------------------------------------------
