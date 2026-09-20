@@ -73,8 +73,13 @@ pub fn check_stale_pid(pid_file: &Path) -> anyhow::Result<Option<u32>> {
                 Ok(Some(pid))
             } else {
                 // Stale PID file — remove it so the caller can start fresh.
-                std::fs::remove_file(pid_file)?;
-                Ok(None)
+                // Tolerate ENOENT: if a concurrent cleaner already removed
+                // the file, treat it as successfully cleaned up.
+                match std::fs::remove_file(pid_file) {
+                    Ok(()) => Ok(None),
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(None),
+                    Err(e) => Err(e.into()),
+                }
             }
         }
     }

@@ -41,28 +41,40 @@ pub trait DaemonRunner: Send + Sync {
 /// Separated from [`handle_run_foreground`] so that tests can verify
 /// directory resolution without starting a real daemon.
 ///
-/// The PID file path is the platform fixed-path constant
-/// `~/.closeclaw/daemon.pid` and is independent of `config_dir`.
-pub fn prepare_run(config_dir: &str) -> Result<(PathBuf, PathBuf)> {
+/// When `pid_file_override` is `Some`, uses that path instead of the
+/// platform fixed-path constant `~/.closeclaw/daemon.pid`.  The default
+/// `None` preserves production behavior.
+pub fn prepare_run(
+    config_dir: &str,
+    pid_file_override: Option<&Path>,
+) -> Result<(PathBuf, PathBuf)> {
     let config_dir: PathBuf = if config_dir.is_empty() {
         config_root()?
     } else {
         closeclaw_platform::fs::expand_path(&PathBuf::from(config_dir))
     };
 
-    let pid_file = closeclaw_platform::process::pid_file_path()?;
+    let pid_file = match pid_file_override {
+        Some(p) => p.to_path_buf(),
+        None => closeclaw_platform::process::pid_file_path()?,
+    };
 
     Ok((config_dir, pid_file))
 }
 
 /// Foreground daemon runner — runs the daemon in the current process.
 /// Called when `--foreground` is passed.
+///
+/// When `pid_file_override` is `Some`, the daemon uses that path
+/// instead of the platform fixed path.  This allows tests to
+/// isolate PID files per test.
 pub async fn handle_run_foreground(
     config_dir: &str,
     json: bool,
     daemon_runner: &dyn DaemonRunner,
+    pid_file_override: Option<&Path>,
 ) -> Result<()> {
-    let (config_dir, pid_file) = prepare_run(config_dir)?;
+    let (config_dir, pid_file) = prepare_run(config_dir, pid_file_override)?;
 
     // Pre-check: reject if a daemon is already running, clean stale PID.
     ensure_no_running_daemon(&pid_file)?;
@@ -123,13 +135,14 @@ pub async fn handle_run(
     json: bool,
     foreground: bool,
     daemon_runner: &dyn DaemonRunner,
+    pid_file_override: Option<&Path>,
 ) -> Result<()> {
     if foreground {
-        return handle_run_foreground(&config_dir, json, daemon_runner).await;
+        return handle_run_foreground(&config_dir, json, daemon_runner, pid_file_override).await;
     }
 
     // Background mode: spawn child process running the daemon.
-    let (config_dir_path, pid_file) = prepare_run(&config_dir)?;
+    let (config_dir_path, pid_file) = prepare_run(&config_dir, pid_file_override)?;
 
     // Pre-check: reject if a daemon is already running, clean stale PID.
     ensure_no_running_daemon(&pid_file)?;

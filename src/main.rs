@@ -70,7 +70,7 @@ async fn main() -> anyhow::Result<()> {
             foreground,
         } => {
             let runner = closeclaw::daemon::bridge::DaemonRunnerImpl;
-            handle_run(config_dir, cli.json, foreground, &runner).await?
+            handle_run(config_dir, cli.json, foreground, &runner, None).await?
         }
         Commands::Stop => handle_stop(cli.json).await?,
         Commands::Restart { force } => handle_restart(force, cli.json).await?,

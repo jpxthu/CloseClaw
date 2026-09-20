@@ -89,6 +89,60 @@ fn test_check_stale_pid_no_file_no_side_effect() {
     );
 }
 
+/// Stale PID file already removed by a concurrent cleaner (ENOENT)
+/// should be tolerated — treated as successfully cleaned up.
+#[test]
+fn test_check_stale_pid_enoent_on_remove_tolerated() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("daemon.pid");
+    // Write a stale PID (non-existent process).
+    write_pid_file(&path, 99999999).unwrap();
+    assert!(path.exists());
+    // Simulate concurrent removal: delete the file before check_stale_pid.
+    std::fs::remove_file(&path).unwrap();
+    assert!(!path.exists());
+
+    // check_stale_pid should tolerate ENOENT and return Ok(None).
+    let result = check_stale_pid(&path).unwrap();
+    assert_eq!(
+        result, None,
+        "concurrent removal (ENOENT) should return None"
+    );
+}
+
+/// Non-ENOENT removal failure (e.g. permission denied) must propagate
+/// as an error — only NotFound is tolerated.
+///
+/// We test this by using a path where the parent directory is read-only,
+/// causing remove_file to fail with a non-ENOENT error (EACCES).
+#[cfg(unix)]
+#[test]
+fn test_check_stale_pid_non_enoent_error_propagates() {
+    use std::os::unix::fs::PermissionsExt;
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("daemon.pid");
+    write_pid_file(&path, 99999999).unwrap();
+
+    // Remove write permission from the parent directory so remove_file
+    // on the child fails with EACCES (not ENOENT).
+    let parent = tmp.path();
+    let ro = std::fs::Permissions::from_mode(0o555);
+    std::fs::set_permissions(parent, ro).unwrap();
+
+    let err = check_stale_pid(&path).unwrap_err();
+
+    // Restore permissions for TempDir cleanup.
+    let rw = std::fs::Permissions::from_mode(0o755);
+    std::fs::set_permissions(parent, rw).unwrap();
+
+    let msg = err.to_string();
+    assert!(
+        msg.contains("Permission denied") || msg.contains("Read-only file system"),
+        "non-ENOENT error should propagate, got: {}",
+        msg
+    );
+}
+
 #[test]
 fn test_write_and_read_pid_file() {
     let tmp = TempDir::new().unwrap();
