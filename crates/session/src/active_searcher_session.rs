@@ -6,6 +6,7 @@
 //! (no persistence / no checkpoint).
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
@@ -42,6 +43,11 @@ pub struct SearcherSession {
     pub created_at: u64,
     /// When the session reached a terminal status (`None` if still Running).
     pub finished_at: Option<u64>,
+    /// Monotonic finish sequence number for deterministic eviction ordering.
+    /// Assigned when transitioning from Running to a terminal status.
+    /// `0` means not yet finished.
+    #[serde(default)]
+    pub finish_seq: u64,
 }
 
 impl SearcherSession {
@@ -64,6 +70,7 @@ impl SearcherSession {
             status: SearcherSessionStatus::Running,
             created_at: Self::now_millis(),
             finished_at: None,
+            finish_seq: 0,
         }
     }
 }
@@ -76,6 +83,8 @@ impl SearcherSession {
 #[derive(Debug)]
 pub struct SearcherSessionTracker {
     sessions: std::sync::Mutex<HashMap<String, SearcherSession>>,
+    /// Monotonically increasing counter for finish sequence numbers.
+    next_finish_seq: AtomicU64,
 }
 
 impl Default for SearcherSessionTracker {
@@ -89,6 +98,7 @@ impl SearcherSessionTracker {
     pub fn new() -> Self {
         Self {
             sessions: std::sync::Mutex::new(HashMap::new()),
+            next_finish_seq: AtomicU64::new(1),
         }
     }
 
@@ -119,6 +129,7 @@ impl SearcherSessionTracker {
             if session.status == SearcherSessionStatus::Running {
                 session.status = status;
                 session.finished_at = Some(SearcherSession::now_millis());
+                session.finish_seq = self.next_finish_seq.fetch_add(1, Ordering::Relaxed);
             }
         }
     }
@@ -150,18 +161,24 @@ impl SearcherSessionTracker {
         }
 
         // Collect IDs of finished (non-Running) records.
-        let mut finished: Vec<(String, u64)> = map
+        let mut finished: Vec<(String, u64, u64)> = map
             .iter()
             .filter(|(_, s)| s.status != SearcherSessionStatus::Running)
-            .map(|(id, s)| (id.clone(), s.finished_at.unwrap_or(s.created_at)))
+            .map(|(id, s)| {
+                (
+                    id.clone(),
+                    s.finished_at.unwrap_or(s.created_at),
+                    s.finish_seq,
+                )
+            })
             .collect();
 
-        // Sort oldest first.
-        finished.sort_by_key(|(_, ts)| *ts);
+        // Sort oldest first; tie-break by finish_seq for determinism.
+        finished.sort_by_key(|x| (x.1, x.2));
 
         // Remove oldest until back at capacity.
         let excess = map.len() - TRACKER_CAPACITY;
-        for (id, _) in finished.into_iter().take(excess) {
+        for (id, _, _) in finished.into_iter().take(excess) {
             map.remove(&id);
         }
     }
