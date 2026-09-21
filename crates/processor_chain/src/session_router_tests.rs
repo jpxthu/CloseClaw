@@ -51,15 +51,15 @@ async fn test_terminal_session_key_computed() {
     );
 }
 
-#[tokio::test]
-async fn test_deterministic_key() {
-    let router = make_router();
+/// Build a `MessageContext` for session_key checks. `msg.timestamp` is a
+/// fixed past value that must NOT influence the computed `session_key`.
+fn det_ctx(sender: &str) -> MessageContext {
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
-        sender_id: "ou_abc".to_string(),
+        sender_id: sender.to_string(),
         peer_id: "oc_xyz".to_string(),
         content: "hi".to_string(),
-        timestamp: chrono::Utc::now().timestamp_millis(),
+        timestamp: 1_577_836_800_000,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -67,25 +67,68 @@ async fn test_deterministic_key() {
         account_id: String::new(),
         ..Default::default()
     };
-    let ctx = make_ctx(msg);
-    let r1 = router.process(&ctx).await.unwrap().unwrap();
-    let r2 = router.process(&ctx).await.unwrap().unwrap();
-    let k1 = r1.metadata.get("session_key").map(|s| s.as_str()).unwrap();
-    let k2 = r2.metadata.get("session_key").map(|s| s.as_str()).unwrap();
+    make_ctx(msg)
+}
 
-    assert!(!k1.is_empty(), "session_key must not be empty");
-    assert!(!k2.is_empty(), "session_key must not be empty");
-    assert!(k1.contains('-'), "key must contain '-' separator: {k1}");
-    assert!(k2.contains('-'), "key must contain '-' separator: {k2}");
-
-    let hash1 = &k1[k1.find('-').unwrap() + 1..];
-    let hash2 = &k2[k2.find('-').unwrap() + 1..];
-    assert_eq!(hash1.len(), 64, "hash must be 64 hex chars: {k1}");
+/// Parse a `{timestamp_ms}-{64 hex}` session_key, asserting its structure.
+fn split_key(key: &str) -> (i64, &str) {
+    let pos = key.find('-').expect("key must contain '-' separator");
+    let ts: i64 = key[..pos]
+        .parse()
+        .expect("key timestamp prefix must parse as i64");
+    let hash = &key[pos + 1..];
+    assert_eq!(hash.len(), 64, "hash must be 64 hex chars: {key}");
     assert!(
-        hash1.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash must be hex: {k1}"
+        hash.chars().all(|c| c.is_ascii_hexdigit()),
+        "hash must be hex: {key}"
     );
-    assert_eq!(hash1, hash2, "same routing fields must produce same hash");
+    (ts, hash)
+}
+
+#[tokio::test]
+async fn test_deterministic_key() {
+    // Determinism: identical routing fields + identical timestamp_ms -> same key.
+    let ts: i64 = 1_700_000_000_123;
+    let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    let key2 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    let key3 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    assert!(!key1.is_empty(), "session_key must not be empty");
+    assert_eq!(key1, key2, "same inputs must produce identical session_key");
+    assert_eq!(key2, key3, "same inputs must stay stable across calls");
+    let (ts1, hash1) = split_key(&key1);
+    assert_eq!(ts1, ts, "key prefix must equal timestamp_ms: {key1}");
+
+    // Time participation: timestamp_ms changes prefix and hash (anti-collision).
+    let key_later = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts + 1);
+    let (ts_later, hash_later) = split_key(&key_later);
+    assert_eq!(
+        ts_later,
+        ts + 1,
+        "prefix must track its timestamp_ms: {key_later}"
+    );
+    assert_ne!(
+        hash_later, hash1,
+        "timestamp_ms must participate in hash input"
+    );
+
+    // Routing sensitivity: same timestamp, different sender -> different hash.
+    let key_other = SessionRouter::compute_key("ou_other", "oc_xyz", "feishu", None, ts);
+    let (_, hash_other) = split_key(&key_other);
+    assert_ne!(hash_other, hash1, "routing fields must participate in hash");
+
+    // process() output satisfies the design formula end to end.
+    let router = make_router();
+    let out = router.process(&det_ctx("ou_abc")).await.unwrap().unwrap();
+    let key = out
+        .metadata
+        .get("session_key")
+        .expect("session_key must be set")
+        .to_string();
+    let (key_ts, _) = split_key(&key);
+    let expect = closeclaw_common::session_key::compute_session_key(
+        "feishu", "ou_abc", "oc_xyz", None, key_ts,
+    );
+    assert_eq!(key, expect, "process() key must match design formula");
 }
 
 #[tokio::test]
