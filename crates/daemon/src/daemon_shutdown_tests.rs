@@ -96,20 +96,24 @@ async fn test_drain_signal_broadcast() {
     assert!(result2.is_ok(), "Receiver 2 did not get drain signal");
 }
 
-/// Test 4: Daemon::run() triggers graceful shutdown when receiving SIGTERM.
-#[serial_test::serial]
-#[tokio::test]
-async fn test_daemon_run_sigterm_shutdown() {
-    // Create temp dir with minimal agents.json and mandatory config files.
-    // ConfigManager receives <root>/config/ as its config_dir (design doc
-    // directory structure), so mandatory JSONs must live in the config/ sub-dir.
+/// Builds the temp config tree for `Daemon::start`: `<root>/config/` holds
+/// `agents.json` plus all mandatory configs — ConfigManager receives
+/// `<root>/config/` as its config_dir (design-doc directory structure).
+fn daemon_test_temp_config() -> tempfile::TempDir {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
     let config_dir = temp_dir.path().join("config");
     std::fs::create_dir_all(&config_dir).expect("create config dir");
     let agents_path = config_dir.join("agents.json");
     std::fs::write(&agents_path, r#"{"version":"1.0.0","agents":[]}"#).expect("write agents.json");
-
     write_mandatory_configs(&config_dir).expect("write mandatory config");
+    temp_dir
+}
+
+/// Test 4: Daemon::run() triggers graceful shutdown when receiving SIGTERM.
+#[serial_test::serial]
+#[tokio::test]
+async fn test_daemon_run_sigterm_shutdown() {
+    let temp_dir = daemon_test_temp_config();
 
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
     let mut daemon = crate::Daemon::start(temp_dir.path().to_str().unwrap())
@@ -118,16 +122,11 @@ async fn test_daemon_run_sigterm_shutdown() {
 
     let pid = std::process::id();
 
-    // Spawn a task that sends SIGTERM to this process — mirrors what an
-    // external signal source would do.
-    //
-    // Deterministic ordering (no sleep gamble): `#[tokio::test]` uses the
-    // current_thread runtime, so this spawned task cannot start before the
-    // main task first yields. The main task's next await is `daemon.run()`,
-    // whose first poll subscribes to shutdown signals (installing the OS
-    // handler) and then parks in the Phase 0 select loop. SIGTERM is thus
-    // always sent after the handler is registered and while run() is
-    // already selecting on it — no fixed delay needed.
+    // Spawn a task that sends SIGTERM to this process — mirrors an external
+    // signal source. Deterministic ordering (no sleep gamble): `#[tokio::test]`
+    // uses the current_thread runtime, so this task cannot run before the main
+    // task's first yield — the next await is run(), whose first poll
+    // synchronously registers the signal handler before parking in Phase 0.
     tokio::spawn(async move {
         // SAFETY: pid is our own process, this is safe for sending SIGTERM.
         unsafe {
