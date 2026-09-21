@@ -540,6 +540,15 @@ fn register_phase0_handlers(confirm: oneshot::Sender<()>) -> (Signal, Signal) {
     (sigint, sigterm)
 }
 
+/// Awaits the `confirm` oneshot fired by [`register_phase0_handlers`].
+/// Registration strictly precedes the send, so returning here guarantees it
+/// is safe to signal this process; panics if the spawned task died before
+/// registering (STANDARDS §9). Shared by every test that awaits the handshake.
+async fn wait_registered(rx: oneshot::Receiver<()>) {
+    rx.await
+        .expect("spawned task must confirm handler registration before signaling");
+}
+
 #[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_set_during_select_branch() {
@@ -571,9 +580,7 @@ async fn test_phase0_gate_set_during_select_branch() {
         h.is_shutting_down()
     });
 
-    registered_rx
-        .await
-        .expect("spawned task must confirm handler registration before signaling");
+    wait_registered(registered_rx).await;
 
     kill_self(libc::SIGTERM);
 
@@ -623,9 +630,7 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
         (h.is_shutting_down(), h.is_forceful())
     });
 
-    registered_rx
-        .await
-        .expect("spawned task must confirm handler registration before signaling");
+    wait_registered(registered_rx).await;
 
     kill_self(libc::SIGINT);
 
@@ -674,9 +679,7 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
         };
         (escalated, h.state())
     });
-    registered_rx
-        .await
-        .expect("spawned task must confirm handler registration before signaling");
+    wait_registered(registered_rx).await;
     kill_self(libc::SIGINT);
     let (first_started, first_state) =
         tokio::time::timeout(std::time::Duration::from_secs(10), first_rx)
