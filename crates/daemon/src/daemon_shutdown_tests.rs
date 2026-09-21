@@ -3,6 +3,7 @@
 //! Covers ShutdownHandle drain state machine scenarios.
 
 use crate::shutdown::ShutdownHandle;
+use crate::test_helpers::kill_self;
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 
@@ -120,18 +121,13 @@ async fn test_daemon_run_sigterm_shutdown() {
         .await
         .expect("daemon start");
 
-    let pid = std::process::id();
-
     // Spawn a task that sends SIGTERM to this process — mirrors an external
     // signal source. Deterministic ordering (no sleep gamble): `#[tokio::test]`
     // uses the current_thread runtime, so this task cannot run before the main
     // task's first yield — the next await is run(), whose first poll
     // synchronously registers the signal handler before parking in Phase 0.
     tokio::spawn(async move {
-        // SAFETY: pid is our own process, this is safe for sending SIGTERM.
-        unsafe {
-            libc::kill(pid as libc::pid_t, libc::SIGTERM);
-        }
+        kill_self(libc::SIGTERM);
     });
 
     // Call Daemon::run() — it blocks on signal reception. When SIGTERM is sent

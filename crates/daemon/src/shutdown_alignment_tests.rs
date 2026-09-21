@@ -7,7 +7,7 @@
 //! - Step 1.4: design-doc upgrade path (repeated signal escalates graceful → forceful)
 
 use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
-use crate::test_helpers::common_shutdown_handle;
+use crate::test_helpers::{common_shutdown_handle, kill_self};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::oneshot;
 
@@ -575,8 +575,7 @@ async fn test_phase0_gate_set_during_select_branch() {
         .await
         .expect("spawned task must confirm handler registration before signaling");
 
-    // SAFETY: pid is our own process; sending SIGTERM to it is safe here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
+    kill_self(libc::SIGTERM);
 
     let gate_active = select_result.await.unwrap();
     assert!(
@@ -625,8 +624,7 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
         .await
         .expect("spawned task must confirm handler registration before signaling");
 
-    // SAFETY: pid is our own process; sending SIGINT to it is safe here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
+    kill_self(libc::SIGINT);
 
     let actual = select_result.await.unwrap();
     assert_eq!(
@@ -673,11 +671,9 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
     registered_rx
         .await
         .expect("spawned task must confirm handler registration before signaling");
-    // SAFETY: pid is our own process; first SIGINT starts graceful shutdown here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
+    kill_self(libc::SIGINT);
     let (first_started, first_state) = first_rx.await.expect("first signal not processed");
-    // SAFETY: pid is our own process; repeated SIGTERM escalates mid-shutdown.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
+    kill_self(libc::SIGTERM);
     let (escalated, final_state) = observed.await.unwrap();
     let gate_forceful = handle.is_forceful();
     assert_eq!(
