@@ -526,13 +526,20 @@ async fn test_common_busy_count_delegation_drain_completes() {
 
 // ── Step 1.1: Phase 0 gate timing in select branches ────────────────
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_set_during_select_branch() {
     // Verifies the fix: try_start_shutdown() is called INSIDE each
     // tokio::select! branch, so the gate is set the instant the signal
     // arrives — not after select returns.
+    // serial: signals are process-wide broadcast — serialize with the other
+    // kill-this-process tests to prevent cross-talk (STANDARDS §7).
     let handle = ShutdownHandle::new();
     use tokio::signal::unix::{signal, SignalKind};
+
+    // Registration handshake (STANDARDS §9): the spawned task notifies via
+    // oneshot only after both handlers are registered — no sleep gamble.
+    let (registered_tx, registered_rx) = tokio::sync::oneshot::channel();
 
     // Spawn a task that mimics the run() method's Phase 0: register
     // signal handlers and call try_start_shutdown inside select branches.
@@ -540,6 +547,7 @@ async fn test_phase0_gate_set_during_select_branch() {
     let select_result = tokio::spawn(async move {
         let mut sigint = signal(SignalKind::interrupt()).unwrap();
         let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let _ = registered_tx.send(()); // handlers registered — may signal now
 
         tokio::select! {
             _ = sigint.recv() => {
@@ -555,10 +563,11 @@ async fn test_phase0_gate_set_during_select_branch() {
         h.is_shutting_down()
     });
 
-    // Give the task time to register signal handlers
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    registered_rx
+        .await
+        .expect("spawned task must confirm signal-handler registration before SIGTERM");
 
-    // Send SIGTERM to trigger the select branch
+    // SAFETY: pid is our own process; sending SIGTERM to it is safe here.
     unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
 
     let gate_active = select_result.await.unwrap();
