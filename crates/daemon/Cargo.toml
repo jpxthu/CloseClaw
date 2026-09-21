@@ -63,3 +63,4 @@ closeclaw-tasks = { path = "../tasks" }
 
 [dev-dependencies]
 libc = "0.2"
+serial_test = "3.4"

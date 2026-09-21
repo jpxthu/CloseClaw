@@ -97,6 +97,7 @@ async fn test_drain_signal_broadcast() {
 }
 
 /// Test 4: Daemon::run() triggers graceful shutdown when receiving SIGTERM.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_daemon_run_sigterm_shutdown() {
     // Create temp dir with minimal agents.json and mandatory config files.
@@ -117,10 +118,17 @@ async fn test_daemon_run_sigterm_shutdown() {
 
     let pid = std::process::id();
 
-    // Spawn a task that sends SIGTERM to this process after a short delay.
-    // This mirrors what an external signal source would do.
+    // Spawn a task that sends SIGTERM to this process — mirrors what an
+    // external signal source would do.
+    //
+    // Deterministic ordering (no sleep gamble): `#[tokio::test]` uses the
+    // current_thread runtime, so this spawned task cannot start before the
+    // main task first yields. The main task's next await is `daemon.run()`,
+    // whose first poll subscribes to shutdown signals (installing the OS
+    // handler) and then parks in the Phase 0 select loop. SIGTERM is thus
+    // always sent after the handler is registered and while run() is
+    // already selecting on it — no fixed delay needed.
     tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(200)).await;
         // SAFETY: pid is our own process, this is safe for sending SIGTERM.
         unsafe {
             libc::kill(pid as libc::pid_t, libc::SIGTERM);
