@@ -6,8 +6,14 @@
 //! pre-flight check in `send_outbound_streaming_inner`.
 //!
 //! These tests verify the updated send_text behavior (no middleware).
+//!
+//! Log-capture note: tests asserting WARN output use the file-local
+//! `capture_warn_logs` helper and carry `#[serial_test::serial]`. The
+//! tracing callsite-interest cache is process-global; concurrent
+//! registration on the same callsite can drop events and empty the
+//! capture buffer (issue #3102 race).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
@@ -36,6 +42,88 @@ fn test_gw() -> Gateway {
     };
     let sm = std::sync::Arc::new(SessionManager::new(&config, None, None, Default::default()));
     Gateway::new(config, sm)
+}
+
+/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
+/// subscriber can write into it while the caller keeps a handle to read
+/// the captured bytes back.
+#[derive(Clone, Default)]
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for VecWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
+    type Writer = VecWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Install a thread-local WARN-level fmt subscriber (no target/ansi)
+/// writing into an in-memory buffer, run `f`, drop the subscriber guard
+/// so the buffer is flushed, and return the closure's result together
+/// with the captured log output. File-local copy of config's
+/// `capture_warn_logs` mechanism (issue #3102), kept per-module rather
+/// than shared because each crate pins its own level policy.
+///
+/// # Concurrency
+///
+/// Caller tests **must** carry `#[serial_test::serial]`. Installing the
+/// subscriber registers WARN callsites in the process-global tracing
+/// callsite-interest cache; concurrent registration on the same callsite
+/// can drop events and empty the capture buffer (issue #3102 race).
+fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
+    let buffer = VecWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_target(false)
+        .with_ansi(false)
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let value = f();
+    drop(guard);
+    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    (value, logs)
+}
+
+/// Run `f` on a fresh current-thread runtime. A log-capture test drives its
+/// async scenario inside the synchronous `capture_warn_logs` closure through
+/// this helper, so spawned tasks stay on this OS thread and the thread-local
+/// subscriber captures their output. Shared by the positive/negative
+/// 1s-constraint tests.
+fn block_on_current_thread<F: std::future::Future>(f: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(f)
+}
+
+/// Render content blocks as a plain-text `RenderedOutput` — the shared body
+/// behind every mock plugin's `render()` in this file (each impl delegates
+/// here instead of repeating the join).
+fn render_plain(content_blocks: &[ContentBlock]) -> RenderedOutput {
+    let text = content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    RenderedOutput {
+        msg_type: "text".into(),
+        payload: serde_json::json!({"content": {"text": text}}),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -100,18 +188,7 @@ impl IMPlugin for SendTrackingPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -255,18 +332,7 @@ impl IMPlugin for FastSendPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -301,18 +367,7 @@ impl IMPlugin for SlowSendPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -430,7 +485,7 @@ async fn test_send_system_notification_no_plugin_fallback() {
 }
 
 // ===========================================================================
-// 1-second response constraint monitoring test (Step 1.4)
+// 1-second response constraint monitoring tests (Steps 1.4-1.5)
 // ===========================================================================
 
 /// Mock plugin whose `parse_inbound()` sleeps for 1.5 seconds, causing
@@ -469,18 +524,67 @@ impl IMPlugin for SlowParsePlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
+        render_plain(content_blocks)
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+/// Mock plugin whose `parse_inbound()` completes immediately — total
+/// inbound processing stays far below the 1-second response constraint.
+///
+/// A trailing sentinel request (payload marker `sentinel`) notifies
+/// `done`: the inbound queue is FIFO, so the sentinel's parse only runs
+/// after the fast request has been fully processed — including its
+/// response-constraint check — giving the negative test a deterministic
+/// completion signal without fixed sleeps.
+struct FastParsePlugin {
+    done: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl IMPlugin for FastParsePlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        if String::from_utf8_lossy(payload).contains("sentinel") {
+            self.done.notify_one();
+            return Ok(None);
         }
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "u1".into(),
+            peer_id: "p1".into(),
+            content: "fast-parse".into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            message_type: closeclaw_common::MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            reply_ref: None,
+            account_id: "u1".into(),
+            ..Default::default()
+        }))
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -496,32 +600,78 @@ impl IMPlugin for SlowParsePlugin {
 
 /// When inbound processing exceeds 1 second, the 1-second response constraint
 /// monitor should fire a warn log. This test enqueues a message through the
-/// consumer with a slow-parse plugin and verifies the log is emitted.
-#[tokio::test]
-async fn test_1s_response_constraint_warn_log() {
-    use tracing_subscriber::layer::SubscriberExt;
-    use tracing_subscriber::Layer;
-    use tracing_subscriber::Registry;
-
-    // Set up a tracing subscriber that captures warn-level logs.
-    let subscriber = Registry::default().with(
-        tracing_subscriber::fmt::layer()
-            .with_test_writer()
-            .with_filter(tracing_subscriber::EnvFilter::new("warn")),
+/// consumer with a slow-parse plugin (1500ms parse > 1s constraint) and
+/// asserts the captured buffer contains the warn message anchor and the
+/// request's `trace_id` field.
+///
+/// `#[serial]` per the module log-capture note (issue #3102 callsite race).
+#[serial_test::serial]
+#[test]
+fn test_1s_response_constraint_warn_log() {
+    // `capture_warn_logs` is synchronous (config form), so the scenario runs
+    // on this thread (see `block_on_current_thread`): the spawned inbound
+    // consumer then stays on this OS thread and the thread-local subscriber
+    // captures its warn output.
+    let (_result, logs) = capture_warn_logs(|| {
+        block_on_current_thread(async {
+            let gw = make_gateway_for_1s_test();
+            gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
+                .await;
+            let handle = gw.start_inbound_queue();
+            handle.try_send(queued(make_slow_request())).unwrap();
+            // Wait for processing to complete (>1.5s for slow parse).
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        })
+    });
+    assert!(
+        logs.contains("exceeded 1s response constraint"),
+        "1s-constraint warn missing; captured: {logs}"
     );
-    let _guard = tracing::subscriber::set_default(subscriber);
+    assert!(
+        logs.contains("trace_id=slow-parse-trace"),
+        "trace_id field anchor missing; captured: {logs}"
+    );
+}
 
-    let gw = make_gateway_for_1s_test();
-    gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
-        .await;
-    let handle = gw.start_inbound_queue();
-
-    let req = make_slow_request();
-    handle.try_send(queued(req)).unwrap();
-
-    // Wait for processing to complete (>1.5s for slow parse).
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-    // No panic = the warn log was emitted successfully.
+/// Negative dual of [`test_1s_response_constraint_warn_log`]: inbound
+/// processing that stays under the 1-second constraint (fast parse) must
+/// not fire the monitor — the captured buffer has to distinguish "warn
+/// emitted" from "warn not emitted". The sentinel request queued behind
+/// the fast one parses only after the fast request's constraint check
+/// (queue is FIFO), so the test needs no fixed sleep.
+///
+/// `#[serial]` per the module log-capture note (issue #3102 callsite race).
+#[serial_test::serial]
+#[test]
+fn test_no_1s_response_constraint_warn_on_fast_path() {
+    // Same capture driver as the positive case: the scenario runs on this
+    // thread (see `block_on_current_thread`) so the thread-local subscriber
+    // sees the spawned consumer's output.
+    let (_result, logs) = capture_warn_logs(|| {
+        block_on_current_thread(async {
+            let gw = make_gateway_for_1s_test();
+            let done = Arc::new(tokio::sync::Notify::new());
+            let plugin = FastParsePlugin {
+                done: Arc::clone(&done),
+            };
+            gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
+                .await;
+            let handle = gw.start_inbound_queue();
+            handle.try_send(queued(make_fast_request())).unwrap();
+            handle.try_send(queued(make_sentinel_request())).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), done.notified())
+                .await
+                .expect("fast-path request must finish under the 5s ceiling");
+        })
+    });
+    assert!(
+        !logs.contains("exceeded 1s response constraint"),
+        "sub-second processing must not emit the constraint warn; captured: {logs}"
+    );
+    assert!(
+        !logs.contains("trace_id=fast-parse-trace"),
+        "constraint warn trace_id must be absent on the fast path; captured: {logs}"
+    );
 }
 
 fn make_gateway_for_1s_test() -> Arc<Gateway> {
@@ -543,6 +693,28 @@ fn make_slow_request() -> InboundRequest {
         raw_payload: b"{}".to_vec(),
         peer_id: "p1".into(),
         trace_id: "slow-parse-trace".into(),
+        span_id: None,
+    }
+}
+
+fn make_fast_request() -> InboundRequest {
+    InboundRequest {
+        platform: "feishu".into(),
+        raw_payload: br#"{"kind":"fast"}"#.to_vec(),
+        peer_id: "p1".into(),
+        trace_id: "fast-parse-trace".into(),
+        span_id: None,
+    }
+}
+
+/// Sentinel queued behind the fast request: its parse marks that the fast
+/// request's response-constraint check has already run (queue is FIFO).
+fn make_sentinel_request() -> InboundRequest {
+    InboundRequest {
+        platform: "feishu".into(),
+        raw_payload: br#"{"kind":"sentinel"}"#.to_vec(),
+        peer_id: "p1".into(),
+        trace_id: "sentinel-trace".into(),
         span_id: None,
     }
 }

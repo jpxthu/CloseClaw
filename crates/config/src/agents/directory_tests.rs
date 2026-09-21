@@ -45,6 +45,14 @@ impl<'a> MakeWriter<'a> for VecWriter {
 /// guard so the buffer is flushed, and return the closure's result
 /// together with the captured log output. Reusable log-capture helper
 /// for tests asserting WARN behaviour (issue #3102).
+///
+/// # Concurrency
+///
+/// Caller tests **must** carry `#[serial_test::serial]`. Installing the
+/// subscriber registers WARN callsites in the process-global tracing
+/// callsite-interest cache; concurrent registration on the same callsite
+/// can drop events and empty the capture buffer (issue #3102 race). This
+/// module serialises every test — see the module header convention above.
 fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
     let buffer = VecWriter::default();
     let subscriber = tracing_subscriber::fmt()
