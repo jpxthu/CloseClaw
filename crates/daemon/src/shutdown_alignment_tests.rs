@@ -5,7 +5,7 @@
 //! - Step 1.2: shutdown gate checks (is_shutting_down gating)
 //! - Step 1.3: hard timeout removal (graceful waits, forceful immediate)
 
-use crate::shutdown::{ShutdownHandle, ShutdownMode};
+use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
 use crate::test_helpers::common_shutdown_handle;
 
 // ── Step 1.1: busy_count registration ──────────────────────────────────
@@ -636,5 +636,98 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
         !forceful,
         "expected first SIGINT to stay Graceful, never escalate (shutdown.md:75-77 \
          first signal -> Graceful mode), actual is_forceful=true"
+    );
+}
+
+// ── Step 1.4: design doc 升级路径（shutdown.md:39-41、:77）────────────────────
+
+// shutdown.md:77「关闭进行中再次收到任一信号 → Forceful 模式」（升级路径 :39-41）：
+// 首信号 SIGINT → graceful gate（shutdown.md:75），关闭进行中重复 SIGTERM → 升级
+// ForcefulShuttingDown。与 Step 1.3 同构：oneshot 注册确认（STANDARDS §9）+
+// oneshot 首信号处理确认后再发重复信号（消除信号合并赌博）+ serial（STANDARDS §7）。
+#[serial_test::serial]
+#[tokio::test]
+async fn test_repeated_signal_escalates_graceful_to_forceful() {
+    let handle = ShutdownHandle::new();
+    use tokio::signal::unix::{signal, SignalKind};
+    let (registered_tx, registered_rx) = tokio::sync::oneshot::channel();
+    let (first_tx, first_rx) = tokio::sync::oneshot::channel();
+    let h = handle.clone();
+    let observed = tokio::spawn(async move {
+        let mut sigint = signal(SignalKind::interrupt()).unwrap();
+        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        // handlers registered — may signal now（oneshot 注册确认，STANDARDS §9）
+        let _ = registered_tx.send(());
+        // 首信号：Phase 0 分支内设 graceful gate（同生产 lifecycle/mod.rs 首信号路径）
+        let first_started = tokio::select! {
+            _ = sigint.recv() => h.try_start_shutdown(),
+            _ = sigterm.recv() => h.try_start_shutdown(),
+        };
+        let _ = first_tx.send((first_started, h.state()));
+        // 重复信号（关闭进行中）：escalation 分支（同生产 lifecycle/mod.rs:433/:550）
+        let escalated = tokio::select! {
+            _ = sigint.recv() => h.escalate_to_forceful(),
+            _ = sigterm.recv() => h.escalate_to_forceful(),
+        };
+        (escalated, h.state())
+    });
+    registered_rx.await.expect("registration handshake missing");
+    // SAFETY: pid is our own process; first SIGINT starts graceful shutdown here.
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
+    let (first_started, first_state) = first_rx.await.expect("first signal not processed");
+    // SAFETY: pid is our own process; repeated SIGTERM escalates mid-shutdown.
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
+    let (escalated, final_state) = observed.await.unwrap();
+    assert_eq!(
+        (first_started, first_state),
+        (true, ShutdownState::ShuttingDown),
+        "期望首信号 Running→ShuttingDown 置 graceful gate（shutdown.md:75）"
+    );
+    assert_eq!(
+        (escalated, final_state, handle.is_forceful()),
+        (true, ShutdownState::ForcefulShuttingDown, true),
+        "期望重复信号升级 forceful（shutdown.md:39-41、:77）且 gate is_forceful"
+    );
+}
+
+// shutdown.md:41「升级是单向迁移」+ 升级路径仅在关闭进行中适用（shutdown.md:39-41）；
+// shutdown.rs:69-80：try_start_forceful_shutdown 的 CAS 仅限 Running→Forceful，
+// 关闭开始后必须走 escalate_to_forceful（shutdown.rs:85-110）。
+#[test]
+fn test_forceful_escalation_is_one_way_and_requires_shutdown_started() {
+    let handle = ShutdownHandle::new();
+    assert!(
+        !handle.escalate_to_forceful(),
+        "期望 Running 态无关闭可升级时返回 false，实际返回 true"
+    );
+    assert!(
+        !handle.is_shutting_down(),
+        "期望被拒绝的升级不改动 gate，实际 is_shutting_down=true"
+    );
+    assert!(
+        handle.try_start_shutdown(),
+        "期望首信号 Running→ShuttingDown 成功，实际返回 false"
+    );
+    assert!(
+        handle.escalate_to_forceful(),
+        "期望 ShuttingDown→ForcefulShuttingDown 升级成功，实际返回 false"
+    );
+    assert!(
+        !handle.escalate_to_forceful(),
+        "期望已 forceful 后重复升级返回 false，实际返回 true"
+    );
+    assert!(
+        !handle.try_start_shutdown(),
+        "期望升级单向：forceful 后不得回退 graceful，实际返回 true"
+    );
+    assert!(
+        !handle.try_start_forceful_shutdown(),
+        "期望关闭开始后直接 forceful CAS 失败（升级只能走 escalate），实际返回 true"
+    );
+    assert_eq!(
+        handle.state(),
+        ShutdownState::ForcefulShuttingDown,
+        "期望 gate 停留在 ForcefulShuttingDown，实际 {:?}",
+        handle.state()
     );
 }
