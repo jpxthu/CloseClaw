@@ -165,9 +165,7 @@ pub fn spawn_active_searcher(
     memory_db_path: &Option<PathBuf>,
     deps: SearcherDependencies,
 ) -> Option<tokio::task::JoinHandle<()>> {
-    let Some(ref db_path) = *memory_db_path else {
-        return None;
-    };
+    let db_path = (*memory_db_path).as_ref()?;
 
     Some(spawn_search_task(
         session_id,
