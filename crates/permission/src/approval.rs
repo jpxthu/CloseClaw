@@ -12,9 +12,9 @@
 //! ## Single-use approval (`Once` mode)
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest};
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw::permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest};
+//! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+//! use closeclaw_permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
@@ -56,9 +56,11 @@
 //! High and critical risk operations are rejected.
 //!
 //! ```
-//! use closeclaw::permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget};
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw::permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_permission::approval::{
+//!     ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget,
+//! };
+//! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+//! use closeclaw_permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
@@ -101,12 +103,12 @@
 //! High-risk operations are rejected with [`RejectWhitelistReason::HighRisk`]:
 //!
 //! ```
-//! use closeclaw::permission::approval::{
+//! use closeclaw_permission::approval::{
 //!     ApprovalQueue, ApprovalMode, EnqueueRequest, RejectWhitelistReason,
 //!     WhitelistTarget,
 //! };
-//! use closeclaw::permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw::permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+//! use closeclaw_permission::engine::engine_risk::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
