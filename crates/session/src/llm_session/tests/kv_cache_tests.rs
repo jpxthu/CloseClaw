@@ -5,67 +5,10 @@
 //! 2. Cache break detection triggers `tracing::warn!` when thresholds are met
 //! 3. Cache hit rate calculation is correct
 
+use super::capture_logs;
 use crate::llm_session::ConversationSession;
 use closeclaw_common::UnifiedUsage;
-use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
-use tracing::Subscriber;
-use tracing_subscriber::layer::Context;
-use tracing_subscriber::layer::SubscriberExt;
-use tracing_subscriber::registry::LookupSpan;
-
-// ---------------------------------------------------------------------------
-// Log-capture Layer — captures warn+ log output into a shared buffer
-// ---------------------------------------------------------------------------
-
-/// A `tracing_subscriber::Layer` that captures formatted log output
-/// into an `Arc<Mutex<Vec<u8>>>` for test assertions.
-struct CaptureLayer {
-    buf: Arc<Mutex<Vec<u8>>>,
-}
-
-impl<S: Subscriber + for<'a> LookupSpan<'a>> tracing_subscriber::Layer<S> for CaptureLayer {
-    fn on_event(&self, event: &tracing::Event<'_>, _ctx: Context<'_, S>) {
-        let mut visitor = MsgVisitor {
-            message: String::new(),
-            fields: String::new(),
-        };
-        event.record(&mut visitor);
-
-        let meta = event.metadata();
-        let level = meta.level();
-        let target = meta.target();
-
-        let mut output = format!("[{level}] {target}: {}", visitor.message);
-        if !visitor.fields.is_empty() {
-            output.push_str(&format!(" {}", visitor.fields));
-        }
-        output.push('\n');
-
-        if let Ok(mut buf) = self.buf.lock() {
-            use std::io::Write;
-            let _ = buf.write_all(output.as_bytes());
-        }
-    }
-}
-
-/// Visitor that extracts all fields from a `tracing::Event`.
-struct MsgVisitor {
-    message: String,
-    fields: String,
-}
-impl tracing::field::Visit for MsgVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.message = format!("{value:?}");
-        } else {
-            if !self.fields.is_empty() {
-                self.fields.push(' ');
-            }
-            self.fields.push_str(&format!("{}={value:?}", field.name()));
-        }
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -151,42 +94,41 @@ async fn test_cache_hit_accumulation() {
 /// - `detect_cache_break_for_usage()` returns `Some(CacheBreakInfo)`
 /// - `tracing::warn!` is emitted with cache break info
 ///
-/// Uses `#[serial]` and `with_default` to capture log output on this thread.
+/// Uses `#[serial]` plus the shared `capture_logs` helper (thread-local
+/// `set_default`) to capture log output on this thread. The `WARN`
+/// level keeps info events out of the buffer, matching the previous
+/// `EnvFilter::new("warn")` semantics.
 #[serial_test::serial]
 #[tokio::test]
 async fn test_cache_break_detection() {
-    use tracing_subscriber::EnvFilter;
+    let (break_info, log_output) = capture_logs(
+        || {
+            let test_root = TempDir::new().unwrap();
+            let mut session = ConversationSession::new(
+                "test-cache-break".into(),
+                "glm-5".into(),
+                test_root.path().to_path_buf(),
+            );
 
-    let buf = Arc::new(Mutex::new(Vec::new()));
-    let read_buf = Arc::clone(&buf);
+            // Rounds 1–3: stable cache at 50 000
+            for _ in 1..=3 {
+                let usage = make_usage(1000, 200, Some(1200), Some(50_000), None);
+                simulate_round(&mut session, &usage);
+            }
 
-    let layer = CaptureLayer { buf };
+            // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
+            let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
+            let break_info = session.detect_cache_break_for_usage(
+                drop_usage.cache_read_tokens,
+                Some(drop_usage.prompt_tokens),
+            );
 
-    let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"));
-
-    let subscriber = tracing_subscriber::registry().with(filter).with(layer);
-
-    // Use with_default to temporarily override the global subscriber
-    // on this thread. This captures warn+ logs while the guard is alive.
-    let _guard = tracing::subscriber::set_default(subscriber);
-
-    let test_root = TempDir::new().unwrap();
-    let mut session = ConversationSession::new(
-        "test-cache-break".into(),
-        "glm-5".into(),
-        test_root.path().to_path_buf(),
+            // Accumulate the dropped round's usage
+            session.accumulate_usage(&drop_usage);
+            break_info
+        },
+        tracing::Level::WARN,
     );
-
-    // Rounds 1–3: stable cache at 50 000
-    for _ in 1..=3 {
-        let usage = make_usage(1000, 200, Some(1200), Some(50_000), None);
-        simulate_round(&mut session, &usage);
-    }
-
-    // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
-    let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
-    let break_info = session
-        .detect_cache_break_for_usage(drop_usage.cache_read_tokens, Some(drop_usage.prompt_tokens));
 
     // Assert: detect returns Some with correct break info
     let info = break_info.expect("expected cache break to be detected");
@@ -199,20 +141,7 @@ async fn test_cache_break_detection() {
         info.drop_ratio
     );
 
-    // Accumulate the dropped round's usage
-    session.accumulate_usage(&drop_usage);
-
-    // Drop the guard to flush the layer
-    drop(_guard);
-
     // Assert: tracing::warn! was emitted with cache break details
-    let log_output = {
-        let mut guard = read_buf.lock().unwrap();
-        let output = String::from_utf8_lossy(&guard).to_string();
-        guard.clear();
-        output
-    };
-
     assert!(
         log_output.contains("cache break"),
         "expected warn log to contain 'cache break', got:\n{log_output}"
