@@ -112,7 +112,7 @@ fn daemon_test_temp_config() -> tempfile::TempDir {
 
 /// Test 4: Daemon::run() triggers graceful shutdown when receiving SIGTERM.
 #[serial_test::serial]
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 async fn test_daemon_run_sigterm_shutdown() {
     let temp_dir = daemon_test_temp_config();
 
@@ -122,10 +122,11 @@ async fn test_daemon_run_sigterm_shutdown() {
         .expect("daemon start");
 
     // Spawn a task that sends SIGTERM to this process — mirrors an external
-    // signal source. Deterministic ordering (no sleep gamble): `#[tokio::test]`
-    // uses the current_thread runtime, so this task cannot run before the main
-    // task's first yield — the next await is run(), whose first poll
-    // synchronously registers the signal handler before parking in Phase 0.
+    // signal source. Deterministic ordering (no sleep gamble): the explicit
+    // `flavor = "current_thread"` test attribute pins a single-threaded runtime,
+    // so this task cannot run before the main task's first yield — the next
+    // await is run(), whose first poll synchronously registers the signal
+    // handler before parking in Phase 0.
     tokio::spawn(async move {
         kill_self(libc::SIGTERM);
     });
