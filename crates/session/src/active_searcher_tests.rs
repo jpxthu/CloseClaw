@@ -5,6 +5,7 @@ mod tests {
     use std::collections::HashSet;
     use std::path::PathBuf;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use crate::active_searcher::{
         extract_context_turns, extract_timeout_ms, spawn_active_searcher, SearcherDependencies,
@@ -53,7 +54,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_no_spawn_when_db_path_none() {
-        // With memory_db_path = None, spawn_active_searcher returns None.
+        // With memory_db_path = None, spawn_active_searcher is a no-op.
+        // We verify by confirming the injected flag was never set.
         let injection_called: Arc<tokio::sync::Mutex<bool>> =
             Arc::new(tokio::sync::Mutex::new(false));
         let called = Arc::clone(&injection_called);
@@ -66,11 +68,9 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &None, deps);
-        assert!(
-            handle.is_none(),
-            "should return None when memory_db_path is None"
-        );
+        spawn_active_searcher("s1", "a1", "hello", "user", &None, deps);
+        // Give a brief moment (shouldn't be needed since no spawn happens).
+        tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(
             !*injection_called.lock().await,
             "should not spawn task when memory_db_path is None"
@@ -93,11 +93,9 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        // Wait for the spawned task to complete.
+        tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(
             *task_ran.lock().await,
             "background task should have run when memory_db_path is Some"
@@ -145,11 +143,8 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher(session_id, agent_id, "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher(session_id, agent_id, "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let pos = seen_position.lock().await;
         assert_eq!(
@@ -204,7 +199,7 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher(
+        spawn_active_searcher(
             session_id,
             agent_id,
             "my response",
@@ -212,10 +207,7 @@ mod tests {
             &Some(db),
             deps,
         );
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let pos = seen_position.lock().await;
         assert_eq!(
@@ -252,11 +244,8 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
         // If we reach here without panicking, graceful degradation works.
         assert!(
             !*task_ran.lock().await,
@@ -284,11 +273,8 @@ mod tests {
         );
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert!(
             !*injection_called.lock().await,
@@ -328,11 +314,8 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
         assert!(ids.contains(&42));
@@ -373,11 +356,8 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ctx = seen_ctx.lock().await;
         assert_eq!(ctx.len(), 2);
@@ -411,11 +391,8 @@ mod tests {
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
         assert!(ids.contains(&10));
@@ -450,21 +427,16 @@ mod tests {
                 })
             },
         );
-        // Searcher sleeps longer than the timeout — the 60s sentinel inside
-        // the run_searcher future is never truly waited; tokio::time::timeout
-        // drops it after 1ms.
+        // Searcher sleeps longer than the timeout.
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async {
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
                 Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Injection should NOT have been called because the searcher timed out.
         assert!(
@@ -550,11 +522,8 @@ mod tests {
             },
         );
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert!(
             !*searcher_ran.lock().await,
@@ -587,11 +556,8 @@ mod tests {
                 .push(format!("{sid}:{status:?}"));
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // end_searcher_session was called with the test ID.
         let calls = end_called_with.lock().await;
@@ -620,11 +586,8 @@ mod tests {
             Box::pin(async { Some(("found".into(), "after_current".into(), HashSet::new())) })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
         assert_eq!(*status, Some(SearcherSessionStatus::Injected));
@@ -648,11 +611,8 @@ mod tests {
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
         assert_eq!(*status, Some(SearcherSessionStatus::NoResult));
@@ -682,16 +642,13 @@ mod tests {
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async {
-                tokio::time::sleep(std::time::Duration::from_secs(60)).await;
+                tokio::time::sleep(Duration::from_secs(60)).await;
                 Some(("r".into(), "after_current".into(), HashSet::new()))
             })
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
         assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
@@ -719,11 +676,8 @@ mod tests {
             *status_ref.try_lock().unwrap() = Some(status);
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
         assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
@@ -749,11 +703,8 @@ mod tests {
             *sid_ref.try_lock().unwrap() = Some(sid);
         });
 
-        let handle = spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
-        handle
-            .expect("should return Some handle")
-            .await
-            .expect("task should complete");
+        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        tokio::time::sleep(Duration::from_millis(200)).await;
 
         let sid = end_sid.lock().await;
         assert_eq!(sid.as_deref(), Some("my-searcher-id-123"));
