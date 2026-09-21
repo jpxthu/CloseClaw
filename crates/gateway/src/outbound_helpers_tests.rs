@@ -276,7 +276,12 @@ async fn test_send_text_dispatches_directly() {
     let gw = test_gw();
     let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1", &gw);
     send_text(&ctx, "hello world").await.unwrap();
-    assert!(tracker.was_send_called());
+    assert!(
+        tracker.was_send_called(),
+        "send_text(\"hello world\") should trigger plugin.send, but send was \
+         not called; last_sent_text = {:?} (None = not dispatched)",
+        tracker.last_sent_text()
+    );
     assert_eq!(tracker.last_sent_text().unwrap(), "hello world");
 }
 
@@ -287,7 +292,12 @@ async fn test_send_text_empty_string() {
     let gw = test_gw();
     let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2", &gw);
     send_text(&ctx, "").await.unwrap();
-    assert!(tracker.was_send_called());
+    assert!(
+        tracker.was_send_called(),
+        "send_text(\"\") (empty string) should trigger plugin.send, but \
+         send was not called; last_sent_text = {:?} (None = not dispatched)",
+        tracker.last_sent_text()
+    );
     assert_eq!(tracker.last_sent_text().unwrap(), "");
 }
 
@@ -300,7 +310,12 @@ async fn test_send_text_special_characters() {
     send_text(&ctx, "hello 🌍 <script>alert('xss')</script>")
         .await
         .unwrap();
-    assert!(tracker.was_send_called());
+    assert!(
+        tracker.was_send_called(),
+        "send_text with special characters should trigger plugin.send, \
+         but send was not called; last_sent_text = {:?} (None = not dispatched)",
+        tracker.last_sent_text()
+    );
     assert_eq!(
         tracker.last_sent_text().unwrap(),
         "hello 🌍 <script>alert('xss')</script>"
