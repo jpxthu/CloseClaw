@@ -487,7 +487,7 @@ async fn test_send_system_notification_no_plugin_fallback() {
 }
 
 // ===========================================================================
-// 1-second response constraint monitoring test (Step 1.4)
+// 1-second response constraint monitoring tests (Steps 1.4-1.5)
 // ===========================================================================
 
 /// Mock plugin whose `parse_inbound()` sleeps for 1.5 seconds, causing
@@ -511,6 +511,77 @@ impl IMPlugin for SlowParsePlugin {
             sender_id: "u1".into(),
             peer_id: "p1".into(),
             content: "slow-parse".into(),
+            timestamp: chrono::Utc::now().timestamp(),
+            message_type: closeclaw_common::MessageType::Text,
+            media_refs: vec![],
+            thread_id: None,
+            reply_ref: None,
+            account_id: "u1".into(),
+            ..Default::default()
+        }))
+    }
+
+    fn render(
+        &self,
+        content_blocks: &[ContentBlock],
+        _dsl_result: Option<&DslParseResult>,
+    ) -> RenderedOutput {
+        let text = content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        RenderedOutput {
+            msg_type: "text".into(),
+            payload: serde_json::json!({"content": {"text": text}}),
+        }
+    }
+
+    async fn send(
+        &self,
+        _output: &RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
+    ) -> Result<(), AdapterError> {
+        Ok(())
+    }
+}
+
+/// Mock plugin whose `parse_inbound()` completes immediately — total
+/// inbound processing stays far below the 1-second response constraint.
+///
+/// A trailing sentinel request (payload marker `sentinel`) notifies
+/// `done`: the inbound queue is FIFO, so the sentinel's parse only runs
+/// after the fast request has been fully processed — including its
+/// response-constraint check — giving the negative test a deterministic
+/// completion signal without fixed sleeps.
+struct FastParsePlugin {
+    done: Arc<tokio::sync::Notify>,
+}
+
+#[async_trait]
+impl IMPlugin for FastParsePlugin {
+    fn platform(&self) -> &str {
+        "feishu"
+    }
+
+    async fn parse_inbound(
+        &self,
+        payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        if String::from_utf8_lossy(payload).contains("sentinel") {
+            self.done.notify_one();
+            return Ok(None);
+        }
+        Ok(Some(NormalizedMessage {
+            platform: "feishu".into(),
+            sender_id: "u1".into(),
+            peer_id: "p1".into(),
+            content: "fast-parse".into(),
             timestamp: chrono::Utc::now().timestamp(),
             message_type: closeclaw_common::MessageType::Text,
             media_refs: vec![],
@@ -590,6 +661,51 @@ fn test_1s_response_constraint_warn_log() {
     );
 }
 
+/// Negative dual of [`test_1s_response_constraint_warn_log`]: inbound
+/// processing that stays under the 1-second constraint (fast parse) must
+/// not fire the monitor — the captured buffer has to distinguish "warn
+/// emitted" from "warn not emitted". The sentinel request queued behind
+/// the fast one parses only after the fast request's constraint check
+/// (queue is FIFO), so the test needs no fixed sleep.
+///
+/// `#[serial]` per the module log-capture note (issue #3102 callsite race).
+#[serial_test::serial]
+#[test]
+fn test_no_1s_response_constraint_warn_on_fast_path() {
+    // Same capture form as the positive case: run the scenario on a
+    // current-thread runtime inside the closure so the spawned consumer
+    // runs on this OS thread and the thread-local subscriber sees it.
+    let (_result, logs) = capture_warn_logs(|| {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        rt.block_on(async {
+            let gw = make_gateway_for_1s_test();
+            let done = Arc::new(tokio::sync::Notify::new());
+            let plugin = FastParsePlugin {
+                done: Arc::clone(&done),
+            };
+            gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
+                .await;
+            let handle = gw.start_inbound_queue();
+            handle.try_send(queued(make_fast_request())).unwrap();
+            handle.try_send(queued(make_sentinel_request())).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), done.notified())
+                .await
+                .expect("fast-path request must finish under the 5s ceiling");
+        });
+    });
+    assert!(
+        !logs.contains("exceeded 1s response constraint"),
+        "sub-second processing must not emit the constraint warn; captured: {logs}"
+    );
+    assert!(
+        !logs.contains("trace_id=fast-parse-trace"),
+        "constraint warn trace_id must be absent on the fast path; captured: {logs}"
+    );
+}
+
 fn make_gateway_for_1s_test() -> Arc<Gateway> {
     let config = GatewayConfig {
         name: "outbound_helpers_1s_test".into(),
@@ -609,6 +725,28 @@ fn make_slow_request() -> InboundRequest {
         raw_payload: b"{}".to_vec(),
         peer_id: "p1".into(),
         trace_id: "slow-parse-trace".into(),
+        span_id: None,
+    }
+}
+
+fn make_fast_request() -> InboundRequest {
+    InboundRequest {
+        platform: "feishu".into(),
+        raw_payload: br#"{"kind":"fast"}"#.to_vec(),
+        peer_id: "p1".into(),
+        trace_id: "fast-parse-trace".into(),
+        span_id: None,
+    }
+}
+
+/// Sentinel queued behind the fast request: its parse marks that the fast
+/// request's response-constraint check has already run (queue is FIFO).
+fn make_sentinel_request() -> InboundRequest {
+    InboundRequest {
+        platform: "feishu".into(),
+        raw_payload: br#"{"kind":"sentinel"}"#.to_vec(),
+        peer_id: "p1".into(),
+        trace_id: "sentinel-trace".into(),
         span_id: None,
     }
 }
