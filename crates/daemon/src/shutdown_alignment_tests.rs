@@ -577,38 +577,64 @@ async fn test_phase0_gate_set_during_select_branch() {
     );
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_sigint_sets_gate_immediately() {
-    // SIGINT should trigger forceful mode directly — assert is_forceful()
-    // rather than just is_shutting_down().
+    // First SIGINT must set the GRACEFUL gate immediately inside the Phase 0
+    // select branch: shutdown.md:73 "gate flag rejects from Phase 0" +
+    // shutdown.md:75-77 "first signal (SIGTERM or SIGINT) -> Graceful mode".
+    // Escalation to Forceful on a *repeated* signal is a separate concern
+    // (upgrade path). Production code (lifecycle/mod.rs) calls
+    // try_start_shutdown() for both SIGINT and SIGTERM on the first signal —
+    // mirror that here.
+    // serial: signals are process-wide broadcast — serialize with the other
+    // kill-this-process tests to prevent cross-talk (STANDARDS §7).
     let handle = ShutdownHandle::new();
     use tokio::signal::unix::{signal, SignalKind};
 
+    // Registration handshake (STANDARDS §9): the spawned task notifies via
+    // oneshot only after both handlers are registered — no sleep gamble.
+    let (registered_tx, registered_rx) = tokio::sync::oneshot::channel();
+
+    // Spawn a task that mimics the run() method's Phase 0: register
+    // signal handlers and call try_start_shutdown inside select branches.
     let h = handle.clone();
     let select_result = tokio::spawn(async move {
         let mut sigint = signal(SignalKind::interrupt()).unwrap();
         let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let _ = registered_tx.send(()); // handlers registered — may signal now
 
         tokio::select! {
             _ = sigint.recv() => {
-                h.try_start_forceful_shutdown();
+                // First signal -> Graceful, same as production lifecycle/mod.rs
+                h.try_start_shutdown();
             }
             _ = sigterm.recv() => {
                 h.try_start_shutdown();
             }
         }
 
-        h.is_forceful()
+        // Gate facts captured right after select returns — the gate must have
+        // been set synchronously inside the branch, no extra time window.
+        (h.is_shutting_down(), h.is_forceful())
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    registered_rx
+        .await
+        .expect("spawned task must confirm signal-handler registration before SIGINT");
 
-    // Send SIGINT
+    // SAFETY: pid is our own process; sending SIGINT to it is safe here.
     unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
 
-    let is_forceful = select_result.await.unwrap();
+    let (gate_active, forceful) = select_result.await.unwrap();
     assert!(
-        is_forceful,
-        "SIGINT must set ForcefulShuttingDown immediately (inside select branch)"
+        gate_active,
+        "expected graceful gate set immediately inside the Phase 0 select branch \
+         (shutdown.md:73), actual is_shutting_down=false"
+    );
+    assert!(
+        !forceful,
+        "expected first SIGINT to stay Graceful, never escalate (shutdown.md:75-77 \
+         first signal -> Graceful mode), actual is_forceful=true"
     );
 }
