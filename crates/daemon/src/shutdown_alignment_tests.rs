@@ -7,7 +7,7 @@
 //! - Step 1.4: design-doc upgrade path (repeated signal escalates graceful → forceful)
 
 use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
-use crate::test_helpers::{common_shutdown_handle, kill_self};
+use crate::test_helpers::{common_shutdown_handle, kill_self, TestShutdownSignal};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::oneshot;
 
@@ -582,7 +582,7 @@ async fn test_phase0_gate_set_during_select_branch() {
 
     wait_registered(registered_rx).await;
 
-    kill_self(libc::SIGTERM);
+    kill_self(TestShutdownSignal::Sigterm);
 
     let gate_active = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
         .await
@@ -632,7 +632,7 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
 
     wait_registered(registered_rx).await;
 
-    kill_self(libc::SIGINT);
+    kill_self(TestShutdownSignal::Sigint);
 
     let actual = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
         .await
@@ -680,13 +680,13 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
         (escalated, h.state())
     });
     wait_registered(registered_rx).await;
-    kill_self(libc::SIGINT);
+    kill_self(TestShutdownSignal::Sigint);
     let (first_started, first_state) =
         tokio::time::timeout(std::time::Duration::from_secs(10), first_rx)
             .await
             .expect("signal not delivered: first signal not processed within 10s")
             .expect("first signal not processed");
-    kill_self(libc::SIGTERM);
+    kill_self(TestShutdownSignal::Sigterm);
     let (escalated, final_state) =
         tokio::time::timeout(std::time::Duration::from_secs(10), observed)
             .await
