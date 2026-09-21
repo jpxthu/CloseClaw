@@ -2,6 +2,7 @@ use super::*;
 use crate::persistence::PendingMessage;
 use crate::run_health::TranscriptOp;
 use closeclaw_common::{UnifiedResponse, UnifiedUsage};
+use std::sync::{Arc, Mutex};
 
 mod announce_dedup_tests;
 mod announce_queue_tests;
@@ -42,7 +43,7 @@ mod waiting_state_tests;
 /// subscriber can write into it while the caller keeps a handle to read
 /// the captured bytes back.
 #[derive(Clone, Default)]
-struct VecWriter(std::sync::Arc<std::sync::Mutex<Vec<u8>>>);
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for VecWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {

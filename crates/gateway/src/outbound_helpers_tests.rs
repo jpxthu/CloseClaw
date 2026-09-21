@@ -13,7 +13,7 @@
 //! registration on the same callsite can drop events and empty the
 //! capture buffer (issue #3102 race).
 
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
@@ -48,7 +48,7 @@ fn test_gw() -> Gateway {
 /// subscriber can write into it while the caller keeps a handle to read
 /// the captured bytes back.
 #[derive(Clone, Default)]
-struct VecWriter(Arc<std::sync::Mutex<Vec<u8>>>);
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for VecWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
