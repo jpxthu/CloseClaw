@@ -107,8 +107,8 @@ impl Default for SharedState {
 /// # Builder
 ///
 /// ```
-/// # use closeclaw::llm::{FakeProvider, ChatRequest, Message};
-/// # use closeclaw::llm::provider::ProviderError;
+/// # use closeclaw_llm::{FakeProvider, ChatRequest, Message};
+/// # use closeclaw_llm::provider::ProviderError;
 /// let provider = FakeProvider::builder()
 ///     .then_ok("response 1", "gpt-4")
 ///     .then_err(ProviderError::Legacy("rate limit".into()))
