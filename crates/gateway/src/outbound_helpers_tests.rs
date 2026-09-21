@@ -95,6 +95,37 @@ fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
     (value, logs)
 }
 
+/// Run `f` on a fresh current-thread runtime. A log-capture test drives its
+/// async scenario inside the synchronous `capture_warn_logs` closure through
+/// this helper, so spawned tasks stay on this OS thread and the thread-local
+/// subscriber captures their output. Shared by the positive/negative
+/// 1s-constraint tests.
+fn block_on_current_thread<F: std::future::Future>(f: F) -> F::Output {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .unwrap();
+    rt.block_on(f)
+}
+
+/// Render content blocks as a plain-text `RenderedOutput` — the shared body
+/// behind every mock plugin's `render()` in this file (each impl delegates
+/// here instead of repeating the join).
+fn render_plain(content_blocks: &[ContentBlock]) -> RenderedOutput {
+    let text = content_blocks
+        .iter()
+        .filter_map(|b| match b {
+            ContentBlock::Text(t) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("");
+    RenderedOutput {
+        msg_type: "text".into(),
+        payload: serde_json::json!({"content": {"text": text}}),
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Mock plugin
 // ---------------------------------------------------------------------------
@@ -157,18 +188,7 @@ impl IMPlugin for SendTrackingPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -312,18 +332,7 @@ impl IMPlugin for FastSendPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -358,18 +367,7 @@ impl IMPlugin for SlowSendPlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -526,18 +524,7 @@ impl IMPlugin for SlowParsePlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -597,18 +584,7 @@ impl IMPlugin for FastParsePlugin {
         content_blocks: &[ContentBlock],
         _dsl_result: Option<&DslParseResult>,
     ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
+        render_plain(content_blocks)
     }
 
     async fn send(
@@ -632,16 +608,12 @@ impl IMPlugin for FastParsePlugin {
 #[serial_test::serial]
 #[test]
 fn test_1s_response_constraint_warn_log() {
-    // `capture_warn_logs` is synchronous (config form), so drive the scenario
-    // on a current-thread runtime created inside the closure: the spawned
-    // inbound consumer then runs on this same OS thread and the thread-local
-    // subscriber captures its warn output.
+    // `capture_warn_logs` is synchronous (config form), so the scenario runs
+    // on this thread (see `block_on_current_thread`): the spawned inbound
+    // consumer then stays on this OS thread and the thread-local subscriber
+    // captures its warn output.
     let (_result, logs) = capture_warn_logs(|| {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async {
+        block_on_current_thread(async {
             let gw = make_gateway_for_1s_test();
             gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
                 .await;
@@ -649,7 +621,7 @@ fn test_1s_response_constraint_warn_log() {
             handle.try_send(queued(make_slow_request())).unwrap();
             // Wait for processing to complete (>1.5s for slow parse).
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        });
+        })
     });
     assert!(
         logs.contains("exceeded 1s response constraint"),
@@ -672,15 +644,11 @@ fn test_1s_response_constraint_warn_log() {
 #[serial_test::serial]
 #[test]
 fn test_no_1s_response_constraint_warn_on_fast_path() {
-    // Same capture form as the positive case: run the scenario on a
-    // current-thread runtime inside the closure so the spawned consumer
-    // runs on this OS thread and the thread-local subscriber sees it.
+    // Same capture driver as the positive case: the scenario runs on this
+    // thread (see `block_on_current_thread`) so the thread-local subscriber
+    // sees the spawned consumer's output.
     let (_result, logs) = capture_warn_logs(|| {
-        let rt = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .unwrap();
-        rt.block_on(async {
+        block_on_current_thread(async {
             let gw = make_gateway_for_1s_test();
             let done = Arc::new(tokio::sync::Notify::new());
             let plugin = FastParsePlugin {
@@ -694,7 +662,7 @@ fn test_no_1s_response_constraint_warn_on_fast_path() {
             tokio::time::timeout(std::time::Duration::from_secs(5), done.notified())
                 .await
                 .expect("fast-path request must finish under the 5s ceiling");
-        });
+        })
     });
     assert!(
         !logs.contains("exceeded 1s response constraint"),

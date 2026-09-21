@@ -95,9 +95,11 @@ async fn test_cache_hit_accumulation() {
 /// - `tracing::warn!` is emitted with cache break info
 ///
 /// Uses `#[serial]` plus the shared `capture_logs` helper (thread-local
-/// `set_default`) to capture log output on this thread. The `WARN`
-/// level keeps info events out of the buffer, matching the previous
-/// `EnvFilter::new("warn")` semantics.
+/// `set_default`) to capture log output on this thread. The previous inline
+/// capture used `EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))`:
+/// env-driven when `RUST_LOG` parses, warn otherwise. Pinning `WARN` matches
+/// that default path's semantics and is now deterministic regardless of
+/// `RUST_LOG`.
 #[serial_test::serial]
 #[tokio::test]
 async fn test_cache_break_detection() {

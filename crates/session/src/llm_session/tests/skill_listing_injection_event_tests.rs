@@ -151,10 +151,19 @@ async fn test_single_entry_listing_event_fields() {
         tracing::Level::INFO,
     );
 
-    assert!(output.contains("skill_listing_injection"));
-    assert!(output.contains("entry_count=1"));
+    assert!(
+        output.contains("skill_listing_injection"),
+        "expected skill_listing_injection event, got: {output}"
+    );
+    assert!(
+        output.contains("entry_count=1"),
+        "expected entry_count=1, got: {output}"
+    );
     // first_entry field exists (value format depends on tracing Debug impl)
-    assert!(output.contains("first_entry"));
+    assert!(
+        output.contains("first_entry"),
+        "expected first_entry field in event, got: {output}"
+    );
 }
 
 /// Listing with blank lines: only non-empty lines counted.
@@ -169,9 +178,18 @@ async fn test_listing_with_blank_lines_count() {
         tracing::Level::INFO,
     );
 
-    assert!(output.contains("skill_listing_injection"));
+    assert!(
+        output.contains("skill_listing_injection"),
+        "expected skill_listing_injection event, got: {output}"
+    );
     // entry_count filters out empty lines, so 2 non-empty lines.
-    assert!(output.contains("entry_count=2"));
+    assert!(
+        output.contains("entry_count=2"),
+        "expected entry_count=2, got: {output}"
+    );
     // first_entry field exists (value depends on tracing Debug format)
-    assert!(output.contains("first_entry"));
+    assert!(
+        output.contains("first_entry"),
+        "expected first_entry field in event, got: {output}"
+    );
 }
