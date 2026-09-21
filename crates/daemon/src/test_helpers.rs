@@ -320,3 +320,25 @@ pub(crate) fn make_dispatch_context(config: GatewayConfig) -> ChatContext {
         rpc_plugin,
     }
 }
+
+/// Send signal `sig` to the current process itself.
+///
+/// Single point wrapping the libc kill call for daemon tests — call sites
+/// only differ by the signal name.
+pub(crate) fn kill_self(sig: libc::c_int) {
+    // SAFETY: the target pid is `std::process::id()`, i.e. this process
+    // itself, so the signal is delivered only to the calling process and
+    // never to another one; `sig` is a test-chosen signal (SIGTERM/SIGINT)
+    // whose effect on this process is exactly what the surrounding test
+    // exercises.
+    //
+    // The return value is checked so a failed kill surfaces the OS error
+    // immediately instead of letting the test hang on the un-sent signal.
+    let ret = unsafe { libc::kill(std::process::id() as libc::pid_t, sig) };
+    assert_eq!(
+        ret,
+        0,
+        "kill self failed: {}",
+        std::io::Error::last_os_error()
+    );
+}

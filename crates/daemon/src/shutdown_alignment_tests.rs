@@ -7,7 +7,7 @@
 //! - Step 1.4: design-doc upgrade path (repeated signal escalates graceful → forceful)
 
 use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
-use crate::test_helpers::common_shutdown_handle;
+use crate::test_helpers::{common_shutdown_handle, kill_self};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::oneshot;
 
@@ -540,6 +540,15 @@ fn register_phase0_handlers(confirm: oneshot::Sender<()>) -> (Signal, Signal) {
     (sigint, sigterm)
 }
 
+/// Awaits the `confirm` oneshot fired by [`register_phase0_handlers`].
+/// Registration strictly precedes the send, so returning here guarantees it
+/// is safe to signal this process; panics if the spawned task died before
+/// registering (STANDARDS §9). Shared by every test that awaits the handshake.
+async fn wait_registered(rx: oneshot::Receiver<()>) {
+    rx.await
+        .expect("spawned task must confirm handler registration before signaling");
+}
+
 #[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_set_during_select_branch() {
@@ -571,14 +580,14 @@ async fn test_phase0_gate_set_during_select_branch() {
         h.is_shutting_down()
     });
 
-    registered_rx
+    wait_registered(registered_rx).await;
+
+    kill_self(libc::SIGTERM);
+
+    let gate_active = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
         .await
-        .expect("spawned task must confirm handler registration before signaling");
-
-    // SAFETY: pid is our own process; sending SIGTERM to it is safe here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
-
-    let gate_active = select_result.await.unwrap();
+        .expect("signal not delivered: Phase 0 gate select did not complete within 10s")
+        .unwrap();
     assert!(
         gate_active,
         "gate must be ShuttingDown immediately after signal (inside select branch)"
@@ -621,14 +630,14 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
         (h.is_shutting_down(), h.is_forceful())
     });
 
-    registered_rx
+    wait_registered(registered_rx).await;
+
+    kill_self(libc::SIGINT);
+
+    let actual = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
         .await
-        .expect("spawned task must confirm handler registration before signaling");
-
-    // SAFETY: pid is our own process; sending SIGINT to it is safe here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
-
-    let actual = select_result.await.unwrap();
+        .expect("signal not delivered: Phase 0 SIGINT gate select did not complete within 10s")
+        .unwrap();
     assert_eq!(
         actual,
         (true, false),
@@ -670,15 +679,19 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
         };
         (escalated, h.state())
     });
-    registered_rx
-        .await
-        .expect("spawned task must confirm handler registration before signaling");
-    // SAFETY: pid is our own process; first SIGINT starts graceful shutdown here.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
-    let (first_started, first_state) = first_rx.await.expect("first signal not processed");
-    // SAFETY: pid is our own process; repeated SIGTERM escalates mid-shutdown.
-    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
-    let (escalated, final_state) = observed.await.unwrap();
+    wait_registered(registered_rx).await;
+    kill_self(libc::SIGINT);
+    let (first_started, first_state) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), first_rx)
+            .await
+            .expect("signal not delivered: first signal not processed within 10s")
+            .expect("first signal not processed");
+    kill_self(libc::SIGTERM);
+    let (escalated, final_state) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+            .await
+            .expect("signal not delivered: escalation observation did not complete within 10s")
+            .unwrap();
     let gate_forceful = handle.is_forceful();
     assert_eq!(
         (first_started, first_state),
