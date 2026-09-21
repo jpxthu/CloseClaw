@@ -175,12 +175,12 @@ impl SendTracker {
 /// Failure message follows STANDARDS §9 "expected / actual": the scenario,
 /// the expected `send_called = true`, and the raw tracker fields.
 fn assert_send_dispatched(tracker: &SendTracker, scenario: &str) {
+    let send_called = tracker.was_send_called();
     assert!(
-        tracker.was_send_called(),
-        "{}: expected send_called = true (send dispatched), but send was \
-         not called; send_called = {}, last_sent_text = {:?}",
+        send_called,
+        "{}: expected send_called = true, but send_called = {}, last_sent_text = {:?}",
         scenario,
-        tracker.was_send_called(),
+        send_called,
         tracker.last_sent_text()
     );
 }
