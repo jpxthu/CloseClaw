@@ -1,12 +1,15 @@
-//! Unit tests for shutdown alignment changes (Steps 1.1–1.3).
+//! Unit tests for shutdown alignment changes (Steps 1.1–1.4).
 //!
 //! Covers:
 //! - Step 1.1: busy_count registration (increment/decrement lifecycle)
 //! - Step 1.2: shutdown gate checks (is_shutting_down gating)
 //! - Step 1.3: hard timeout removal (graceful waits, forceful immediate)
+//! - Step 1.4: design-doc upgrade path (repeated signal escalates graceful → forceful)
 
-use crate::shutdown::{ShutdownHandle, ShutdownMode};
+use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
 use crate::test_helpers::common_shutdown_handle;
+use tokio::signal::unix::{signal, Signal, SignalKind};
+use tokio::sync::oneshot;
 
 // ── Step 1.1: busy_count registration ──────────────────────────────────
 
@@ -526,20 +529,33 @@ async fn test_common_busy_count_delegation_drain_completes() {
 
 // ── Step 1.1: Phase 0 gate timing in select branches ────────────────
 
+/// Registers the Phase 0 SIGINT + SIGTERM handlers on the caller's task,
+/// then fires `confirm`. The send strictly follows both registrations, so
+/// awaiting the receiver guarantees it is safe to signal this process —
+/// the registration handshake exists only here (STANDARDS §9).
+fn register_phase0_handlers(confirm: oneshot::Sender<()>) -> (Signal, Signal) {
+    let sigint = signal(SignalKind::interrupt()).expect("register SIGINT handler");
+    let sigterm = signal(SignalKind::terminate()).expect("register SIGTERM handler");
+    let _ = confirm.send(());
+    (sigint, sigterm)
+}
+
+#[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_set_during_select_branch() {
     // Verifies the fix: try_start_shutdown() is called INSIDE each
     // tokio::select! branch, so the gate is set the instant the signal
     // arrives — not after select returns.
+    // serial: signals are process-wide broadcast — serialize with the other
+    // kill-this-process tests to prevent cross-talk (STANDARDS §7).
     let handle = ShutdownHandle::new();
-    use tokio::signal::unix::{signal, SignalKind};
+    let (registered_tx, registered_rx) = oneshot::channel();
 
-    // Spawn a task that mimics the run() method's Phase 0: register
-    // signal handlers and call try_start_shutdown inside select branches.
+    // Spawned task mimics run()'s Phase 0: register handlers via the shared
+    // helper, then set the gate inside the select branches.
     let h = handle.clone();
     let select_result = tokio::spawn(async move {
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let (mut sigint, mut sigterm) = register_phase0_handlers(registered_tx);
 
         tokio::select! {
             _ = sigint.recv() => {
@@ -555,10 +571,11 @@ async fn test_phase0_gate_set_during_select_branch() {
         h.is_shutting_down()
     });
 
-    // Give the task time to register signal handlers
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    registered_rx
+        .await
+        .expect("spawned task must confirm handler registration before signaling");
 
-    // Send SIGTERM to trigger the select branch
+    // SAFETY: pid is our own process; sending SIGTERM to it is safe here.
     unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
 
     let gate_active = select_result.await.unwrap();
@@ -568,38 +585,167 @@ async fn test_phase0_gate_set_during_select_branch() {
     );
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_sigint_sets_gate_immediately() {
-    // SIGINT should trigger forceful mode directly — assert is_forceful()
-    // rather than just is_shutting_down().
+    // First SIGINT must set the GRACEFUL gate immediately inside the Phase 0
+    // select branch: shutdown.md:73 "gate flag rejects from Phase 0" +
+    // shutdown.md:75-77 "first signal (SIGTERM or SIGINT) -> Graceful mode".
+    // Production first-signal paths call try_start_shutdown() for both
+    // signals — mirror that here; escalation on a *repeated* signal is a
+    // separate concern (upgrade path), covered by
+    // test_repeated_signal_escalates_graceful_to_forceful.
+    // serial: signals are process-wide broadcast — serialize with the other
+    // kill-this-process tests to prevent cross-talk (STANDARDS §7).
     let handle = ShutdownHandle::new();
-    use tokio::signal::unix::{signal, SignalKind};
+    let (registered_tx, registered_rx) = oneshot::channel();
 
+    // Spawned task mimics run()'s Phase 0: register handlers via the shared
+    // helper, then call try_start_shutdown inside the select branches.
     let h = handle.clone();
     let select_result = tokio::spawn(async move {
-        let mut sigint = signal(SignalKind::interrupt()).unwrap();
-        let mut sigterm = signal(SignalKind::terminate()).unwrap();
+        let (mut sigint, mut sigterm) = register_phase0_handlers(registered_tx);
 
         tokio::select! {
             _ = sigint.recv() => {
-                h.try_start_forceful_shutdown();
+                // First signal -> Graceful, same as production first-signal paths
+                h.try_start_shutdown();
             }
             _ = sigterm.recv() => {
                 h.try_start_shutdown();
             }
         }
 
-        h.is_forceful()
+        // Gate facts captured right after select returns — the gate must have
+        // been set synchronously inside the branch, no extra time window.
+        (h.is_shutting_down(), h.is_forceful())
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    registered_rx
+        .await
+        .expect("spawned task must confirm handler registration before signaling");
 
-    // Send SIGINT
+    // SAFETY: pid is our own process; sending SIGINT to it is safe here.
     unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
 
-    let is_forceful = select_result.await.unwrap();
+    let actual = select_result.await.unwrap();
+    assert_eq!(
+        actual,
+        (true, false),
+        "expected graceful gate set immediately inside the Phase 0 select branch \
+         (shutdown.md:73) and first SIGINT to stay Graceful (shutdown.md:75-77), \
+         actual (is_shutting_down, is_forceful) = {actual:?}"
+    );
+}
+
+// ── Step 1.4: design-doc upgrade path (shutdown.md:39-41, :77) ──────────
+
+// shutdown.md:77 "repeated signal while shutdown is in progress → Forceful
+// mode" (upgrade path shutdown.md:39-41): the first SIGINT sets the graceful
+// gate (shutdown.md:75); a repeated SIGTERM mid-shutdown escalates the state
+// to ForcefulShuttingDown. Same shape as the other Phase 0 signal tests:
+// shared registration helper + oneshot first-signal confirmation before the
+// repeated signal (no coalescing gamble) + serial (STANDARDS §7).
+#[serial_test::serial]
+#[tokio::test]
+async fn test_repeated_signal_escalates_graceful_to_forceful() {
+    let handle = ShutdownHandle::new();
+    let (registered_tx, registered_rx) = oneshot::channel();
+    let (first_tx, first_rx) = oneshot::channel();
+    let h = handle.clone();
+    let observed = tokio::spawn(async move {
+        let (mut sigint, mut sigterm) = register_phase0_handlers(registered_tx);
+        // First signal: the Phase 0 branch sets the graceful gate, the same
+        // way production first-signal paths call try_start_shutdown().
+        let first_started = tokio::select! {
+            _ = sigint.recv() => h.try_start_shutdown(),
+            _ = sigterm.recv() => h.try_start_shutdown(),
+        };
+        let _ = first_tx.send((first_started, h.state()));
+        // Repeated signal (shutdown in progress): the production Phase 1 and
+        // Phase 2 select branches call escalate_to_forceful().
+        let escalated = tokio::select! {
+            _ = sigint.recv() => h.escalate_to_forceful(),
+            _ = sigterm.recv() => h.escalate_to_forceful(),
+        };
+        (escalated, h.state())
+    });
+    registered_rx
+        .await
+        .expect("spawned task must confirm handler registration before signaling");
+    // SAFETY: pid is our own process; first SIGINT starts graceful shutdown here.
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGINT) };
+    let (first_started, first_state) = first_rx.await.expect("first signal not processed");
+    // SAFETY: pid is our own process; repeated SIGTERM escalates mid-shutdown.
+    unsafe { libc::kill(std::process::id() as i32, libc::SIGTERM) };
+    let (escalated, final_state) = observed.await.unwrap();
+    let gate_forceful = handle.is_forceful();
+    assert_eq!(
+        (first_started, first_state),
+        (true, ShutdownState::ShuttingDown),
+        "expected first signal → Running→ShuttingDown graceful gate \
+         (shutdown.md:75), actual ({first_started}, {first_state:?})"
+    );
+    assert_eq!(
+        (escalated, final_state, gate_forceful),
+        (true, ShutdownState::ForcefulShuttingDown, true),
+        "expected repeated signal → ForcefulShuttingDown escalation \
+         (shutdown.md:39-41, :77) with is_forceful=true, \
+         actual ({escalated}, {final_state:?}, {gate_forceful})"
+    );
+}
+
+// shutdown.md:41 "escalation is a one-way migration" + the upgrade path only
+// applies while shutdown is in progress (shutdown.md:39-41): once shutdown
+// has started only `escalate_to_forceful` can upgrade, while
+// `try_start_forceful_shutdown`'s CAS accepts only Running→Forceful.
+// Division of labor: test_shutdown_handle_escalate_idempotent covers
+// escalation idempotency and
+// test_daemon_shutdown_signal_escalate_returns_correctly covers ShutdownSignal
+// trait delegation; this test pins the complete one-way state machine —
+// refused upgrade leaves the gate untouched, direct forceful CAS refused
+// mid-shutdown — with exact state assertions.
+#[test]
+fn test_forceful_escalation_is_one_way_and_requires_shutdown_started() {
+    let handle = ShutdownHandle::new();
     assert!(
-        is_forceful,
-        "SIGINT must set ForcefulShuttingDown immediately (inside select branch)"
+        !handle.escalate_to_forceful(),
+        "expected escalation to be refused while Running (nothing to upgrade \
+         yet), actual returned true"
+    );
+    assert!(
+        !handle.is_shutting_down(),
+        "expected a refused escalation to leave the gate untouched, \
+         actual is_shutting_down=true"
+    );
+    assert!(
+        handle.try_start_shutdown(),
+        "expected first signal Running→ShuttingDown to succeed, actual returned false"
+    );
+    assert!(
+        handle.escalate_to_forceful(),
+        "expected ShuttingDown→ForcefulShuttingDown escalation to succeed, \
+         actual returned false"
+    );
+    assert!(
+        !handle.escalate_to_forceful(),
+        "expected repeated escalation to be a no-op once forceful, \
+         actual returned true"
+    );
+    assert!(
+        !handle.try_start_shutdown(),
+        "expected one-way upgrade: no graceful fallback after forceful, \
+         actual returned true"
+    );
+    assert!(
+        !handle.try_start_forceful_shutdown(),
+        "expected direct forceful CAS to fail once shutdown has started \
+         (upgrade path only), actual returned true"
+    );
+    assert_eq!(
+        handle.state(),
+        ShutdownState::ForcefulShuttingDown,
+        "expected gate to stay ForcefulShuttingDown, actual {:?}",
+        handle.state()
     );
 }
