@@ -361,6 +361,19 @@ fn test_directory_provider_id_mismatch_warn() {
         "expected WARN log, got: {}",
         output
     );
+    // The WARN must carry the mismatch context emitted by
+    // `inject_dirname_id` (`agent_id` + `dirname` fields), so the log
+    // identifies which agent/dir disagreed (directory.rs warn! call).
+    assert!(
+        output.contains("agent_id=other"),
+        "WARN should include agent_id context, got: {}",
+        output
+    );
+    assert!(
+        output.contains("dirname=foo"),
+        "WARN should include dirname context, got: {}",
+        output
+    );
 }
 
 /// `config.json` with `id` set to an empty string `""` must cause
