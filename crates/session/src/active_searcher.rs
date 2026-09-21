@@ -144,9 +144,10 @@ enum SearchResult {
 
 /// Spawn a background active-searcher task for the given message.
 ///
-/// This is a fire-and-forget function: the background task runs
-/// independently and is not tracked by the caller. If `memory_db_path`
-/// is `None`, the task is not spawned.
+/// Returns a task handle that the caller can await or ignore. Ignoring
+/// the handle preserves fire-and-forget semantics (the task runs to
+/// completion independently). If `memory_db_path` is `None`, no task
+/// is spawned and `None` is returned.
 ///
 /// # Arguments
 ///
@@ -163,24 +164,24 @@ pub fn spawn_active_searcher(
     message_role: &str,
     memory_db_path: &Option<PathBuf>,
     deps: SearcherDependencies,
-) {
+) -> Option<tokio::task::JoinHandle<()>> {
     let Some(ref db_path) = *memory_db_path else {
-        return;
+        return None;
     };
 
-    spawn_search_task(
+    Some(spawn_search_task(
         session_id,
         agent_id,
         content,
         message_role,
         db_path.clone(),
         deps,
-    );
+    ))
 }
 
 // ── Helper functions ────────────────────────────────────────────────────
 
-/// Spawn the background search task.
+/// Spawn the background search task and return its handle.
 fn spawn_search_task(
     session_id: &str,
     agent_id: &str,
@@ -188,7 +189,7 @@ fn spawn_search_task(
     message_role: &str,
     db_path: PathBuf,
     deps: SearcherDependencies,
-) {
+) -> tokio::task::JoinHandle<()> {
     let sid = session_id.to_string();
     let aid = agent_id.to_string();
     let content = content.to_string();
@@ -244,7 +245,7 @@ fn spawn_search_task(
         .await;
 
         handle_search_result(&deps, &sid, result, &searcher_session_id).await;
-    });
+    })
 }
 
 /// Load agent config; returns `Ok((model, memory_config))`.
