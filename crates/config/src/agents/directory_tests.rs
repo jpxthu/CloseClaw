@@ -2,8 +2,11 @@
 
 use super::*;
 use crate::agents::config_types::{ActionPermission, PermissionLimits};
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
+use tracing_subscriber::fmt::MakeWriter;
 
 // Every test in this module carries `#[serial_test::serial]` (issue
 // #3102). Constructing `AgentDirectoryProvider` reaches `warn!`
@@ -13,6 +16,49 @@ use tempfile::TempDir;
 // empty the log-capture buffer in
 // `test_directory_provider_id_mismatch_warn`. Module-wide serialisation
 // removes the race at negligible cost (<1s).
+
+/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
+/// subscriber can write into it while the caller keeps a handle to
+/// read the captured bytes back.
+#[derive(Clone, Default)]
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
+
+impl Write for VecWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> MakeWriter<'a> for VecWriter {
+    type Writer = VecWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Install a thread-local WARN-level fmt subscriber (no target/ansi)
+/// writing into an in-memory buffer, run `f`, drop the subscriber
+/// guard so the buffer is flushed, and return the closure's result
+/// together with the captured log output. Reusable log-capture helper
+/// for tests asserting WARN behaviour (issue #3102).
+fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
+    let buffer = VecWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_target(false)
+        .with_ansi(false)
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let value = f();
+    drop(guard);
+    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    (value, logs)
+}
 
 /// Write a minimal `config.json` for the given agent ID.
 fn write_config(dir: &Path, id: &str, name: &str) {
@@ -150,7 +196,7 @@ fn test_missing_config_json_is_skipped() {
 #[test]
 fn test_reload_picks_up_changes() {
     let user = TempDir::new().unwrap();
-    let provider = AgentDirectoryProvider::new(
+    let mut provider = AgentDirectoryProvider::new(
         vec!["theta".to_string()],
         user.path().to_path_buf(),
         None,
@@ -159,18 +205,9 @@ fn test_reload_picks_up_changes() {
     .unwrap();
     assert!(provider.get("theta").is_none());
 
-    // Add a config file and reload. The provider API takes `&mut self`
-    // for reload; reconstructing via the constructor is equivalent here.
+    // Add a config file and reload through the public API.
     write_config(user.path(), "theta", "Theta");
-    drop(provider);
-
-    let provider = AgentDirectoryProvider::new(
-        vec!["theta".to_string()],
-        user.path().to_path_buf(),
-        None,
-        None,
-    )
-    .unwrap();
+    provider.reload().unwrap();
     assert!(provider.get("theta").is_some());
 }
 
@@ -286,50 +323,10 @@ fn test_directory_provider_id_from_dirname() {
 /// A `config.json` `id` that disagrees with the directory name must
 /// produce a WARN log; the config's id is kept as-is.
 ///
-/// Uses `#[serial]`: the tracing callsite-interest cache is a
-/// process-global resource; concurrent tests hitting the same `warn!`
-/// callsite in `inject_dirname_id` race on interest registration and
-/// the event can be dropped, leaving the capture buffer empty
-/// (issue #3102). Serialise every test that touches that callsite.
+/// `#[serial]` rationale: see module header comment (issue #3102).
 #[serial_test::serial]
 #[test]
 fn test_directory_provider_id_mismatch_warn() {
-    use std::io::Write;
-    use std::sync::{Arc, Mutex};
-    use tracing_subscriber::fmt::MakeWriter;
-
-    /// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so
-    /// the subscriber can write into it while the test still owns the
-    /// original handle to read the captured bytes back.
-    #[derive(Clone, Default)]
-    struct VecWriter(Arc<Mutex<Vec<u8>>>);
-
-    impl Write for VecWriter {
-        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-            self.0.lock().unwrap().extend_from_slice(buf);
-            Ok(buf.len())
-        }
-        fn flush(&mut self) -> std::io::Result<()> {
-            Ok(())
-        }
-    }
-
-    impl<'a> MakeWriter<'a> for VecWriter {
-        type Writer = VecWriter;
-        fn make_writer(&'a self) -> Self::Writer {
-            self.clone()
-        }
-    }
-
-    let buffer = VecWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_target(false)
-        .with_ansi(false)
-        .finish();
-    let _guard = tracing::subscriber::set_default(subscriber);
-
     let user = TempDir::new().unwrap();
     // Directory name is `foo`, but the config.json declares id `other`.
     std::fs::create_dir_all(user.path().join("foo")).unwrap();
@@ -339,40 +336,40 @@ fn test_directory_provider_id_mismatch_warn() {
     )
     .unwrap();
 
-    let provider = AgentDirectoryProvider::new(
-        vec!["foo".to_string()],
-        user.path().to_path_buf(),
-        None,
-        None,
-    )
-    .unwrap();
+    let (provider, logs) = capture_warn_logs(|| {
+        AgentDirectoryProvider::new(
+            vec!["foo".to_string()],
+            user.path().to_path_buf(),
+            None,
+            None,
+        )
+        .unwrap()
+    });
 
     // The config's id wins (the WARN message says so explicitly).
     let entry = provider.get("foo").expect("foo should be loaded");
     assert_eq!(entry.id, "other");
     assert_eq!(entry.name, "Other Agent");
 
-    // Drop the subscriber guard so the captured buffer is fully flushed
-    // before we read it.
-    drop(_guard);
-    let output = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    // Rendering source: `agent_id` / `dirname` are structured fields
+    // on the `warn!` in `inject_dirname_id` (directory.rs:155-160),
+    // rendered as `field=value` by tracing-subscriber fmt defaults;
+    // the workspace pins tracing-subscriber `=0.3.17`. If the pin is
+    // ever lifted, re-verify these value-rendering assertions.
     assert!(
-        output.contains("does not match directory name"),
+        logs.contains("does not match directory name"),
         "expected WARN log, got: {}",
-        output
+        logs
     );
-    // The WARN must carry the mismatch context emitted by
-    // `inject_dirname_id` (`agent_id` + `dirname` fields), so the log
-    // identifies which agent/dir disagreed (directory.rs warn! call).
     assert!(
-        output.contains("agent_id=other"),
+        logs.contains("agent_id=other"),
         "WARN should include agent_id context, got: {}",
-        output
+        logs
     );
     assert!(
-        output.contains("dirname=foo"),
+        logs.contains("dirname=foo"),
         "WARN should include dirname context, got: {}",
-        output
+        logs
     );
 }
 
@@ -380,10 +377,7 @@ fn test_directory_provider_id_mismatch_warn() {
 /// provider construction to fail — the empty id does not satisfy the
 /// required-field constraint, so `new()` returns an error.
 ///
-/// Uses `#[serial]`: construction hits the same `warn!` callsite in
-/// `inject_dirname_id` as `test_directory_provider_id_mismatch_warn`
-/// (id `""` mismatches the directory name); concurrent hits race on
-/// the tracing callsite-interest cache (issue #3102).
+/// `#[serial]` rationale: see module header comment (issue #3102).
 #[serial_test::serial]
 #[test]
 fn test_directory_provider_empty_string_id_fails_construction() {
