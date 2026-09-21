@@ -14,8 +14,6 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件，集中存
 
 CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中列出的 Agent ID 才会被加载，目录中存在但未注册的 Agent 配置会被忽略。注册清单支持注释格式，注释掉某行即取消注册。每个 Agent 拥有独立的配置目录，存放该 Agent 的配置文件。
 
-项目仓库可以包含项目级 Agent 注册清单和配置，与用户级 Agent 注册清单和配置合并使用：Agent ID 列表取并集，配置字段以项目级优先覆盖用户级。
-
 > **交叉引用**：配置目录的操作系统标准位置详见 [platform §F2](platform.md)（操作系统标准配置目录）。
 > **交叉引用**：账户绑定中 User 身份与绑定规则详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
