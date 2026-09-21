@@ -5,6 +5,15 @@ use crate::agents::config_types::{ActionPermission, PermissionLimits};
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
 
+// Every test in this module carries `#[serial_test::serial]` (issue
+// #3102). Constructing `AgentDirectoryProvider` reaches `warn!`
+// callsites in `directory.rs` (no-config, parse-error, id-mismatch);
+// the tracing callsite-interest cache is process-global, and concurrent
+// registration on the same callsite can drop events — observed to
+// empty the log-capture buffer in
+// `test_directory_provider_id_mismatch_warn`. Module-wide serialisation
+// removes the race at negligible cost (<1s).
+
 /// Write a minimal `config.json` for the given agent ID.
 fn write_config(dir: &Path, id: &str, name: &str) {
     let agent_dir = dir.join(id);
@@ -13,6 +22,7 @@ fn write_config(dir: &Path, id: &str, name: &str) {
     std::fs::write(agent_dir.join("config.json"), json).unwrap();
 }
 
+#[serial_test::serial]
 #[test]
 fn test_empty_registry_produces_no_entries() {
     let user = TempDir::new().unwrap();
@@ -26,6 +36,7 @@ fn test_empty_registry_produces_no_entries() {
     assert!(provider.entries().is_empty());
 }
 
+#[serial_test::serial]
 #[test]
 fn test_user_only_load() {
     let user = TempDir::new().unwrap();
@@ -46,6 +57,7 @@ fn test_user_only_load() {
     assert_eq!(entry.source, ConfigSource::User);
 }
 
+#[serial_test::serial]
 #[test]
 fn test_project_only_load() {
     let project = TempDir::new().unwrap();
@@ -66,6 +78,7 @@ fn test_project_only_load() {
     assert_eq!(entry.source, ConfigSource::Project);
 }
 
+#[serial_test::serial]
 #[test]
 fn test_merge_project_overrides_user() {
     let user = TempDir::new().unwrap();
@@ -87,6 +100,7 @@ fn test_merge_project_overrides_user() {
     assert_eq!(entry.source, ConfigSource::Merged);
 }
 
+#[serial_test::serial]
 #[test]
 fn test_ignores_dirs_outside_registry() {
     let user = TempDir::new().unwrap();
@@ -107,6 +121,7 @@ fn test_ignores_dirs_outside_registry() {
     assert!(provider.get("unregistered").is_none());
 }
 
+#[serial_test::serial]
 #[test]
 fn test_missing_config_json_is_skipped() {
     let user = TempDir::new().unwrap();
@@ -131,6 +146,7 @@ fn test_missing_config_json_is_skipped() {
     assert_eq!(provider.agent_ids().len(), 1);
 }
 
+#[serial_test::serial]
 #[test]
 fn test_reload_picks_up_changes() {
     let user = TempDir::new().unwrap();
@@ -143,13 +159,9 @@ fn test_reload_picks_up_changes() {
     .unwrap();
     assert!(provider.get("theta").is_none());
 
-    // Add a config file and reload.
+    // Add a config file and reload. The provider API takes `&mut self`
+    // for reload; reconstructing via the constructor is equivalent here.
     write_config(user.path(), "theta", "Theta");
-    let provider = provider;
-    // Provider has no public `reload` callable here? Yes it does.
-    // We need `&mut self`, so reconstruct via the constructor for the
-    // first call, then mutate via `reload` after the change.
-    // Easier: use the constructor twice.
     drop(provider);
 
     let provider = AgentDirectoryProvider::new(
@@ -162,6 +174,7 @@ fn test_reload_picks_up_changes() {
     assert!(provider.get("theta").is_some());
 }
 
+#[serial_test::serial]
 #[test]
 fn test_no_user_dir_no_project_dir() {
     // Neither user nor project dir exists. The registry IDs should all
@@ -177,6 +190,7 @@ fn test_no_user_dir_no_project_dir() {
     assert!(provider.entries().is_empty());
 }
 
+#[serial_test::serial]
 #[test]
 fn test_merge_falls_back_to_user_field_when_project_empty() {
     // When the user config sets a field the project config does not,
@@ -217,6 +231,7 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
     assert_eq!(entry.source, ConfigSource::Merged);
 }
 
+#[serial_test::serial]
 #[test]
 fn test_action_permission_round_trip() {
     // Sanity check: ActionPermission is the type used inside
@@ -237,6 +252,7 @@ fn test_action_permission_round_trip() {
 
 /// `config.json` without an `id` field must fail to load — the agent
 /// is skipped (deserialization of the required `id` field fails).
+#[serial_test::serial]
 #[test]
 fn test_directory_provider_id_from_dirname() {
     let user = TempDir::new().unwrap();
@@ -391,6 +407,7 @@ fn test_directory_provider_empty_string_id_fails_construction() {
 // =====================================================================
 
 /// Agent with invalid JSON in user config.json → warn and skip.
+#[serial_test::serial]
 #[test]
 fn test_user_config_parse_error_skips_agent() {
     let user = TempDir::new().unwrap();
@@ -421,6 +438,7 @@ fn test_user_config_parse_error_skips_agent() {
 
 /// Agent with invalid JSON in project config.json → warn and skip project
 /// config, but still load user config.
+#[serial_test::serial]
 #[test]
 fn test_project_config_parse_error_falls_back_to_user() {
     let user = TempDir::new().unwrap();
@@ -448,6 +466,7 @@ fn test_project_config_parse_error_falls_back_to_user() {
 }
 
 /// Both user and project config.json have invalid JSON → agent skipped entirely.
+#[serial_test::serial]
 #[test]
 fn test_both_configs_parse_error_skips_agent() {
     let user = TempDir::new().unwrap();
@@ -477,6 +496,7 @@ fn test_both_configs_parse_error_skips_agent() {
 
 /// Agent directory exists but config.json is a directory (not a file) →
 /// read_to_string fails → agent is skipped.
+#[serial_test::serial]
 #[test]
 fn test_config_json_is_directory_skips_agent() {
     let user = TempDir::new().unwrap();
