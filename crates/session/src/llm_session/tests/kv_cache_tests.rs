@@ -7,7 +7,7 @@
 
 use super::capture_logs;
 use crate::llm_session::ConversationSession;
-use closeclaw_common::UnifiedUsage;
+use closeclaw_common::{CacheBreakInfo, UnifiedUsage};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -39,6 +39,39 @@ fn make_usage(
         cache_read_tokens: cache_read,
         cache_write_tokens: cache_write,
     }
+}
+
+/// Build the full cache-break scenario (issue #3112 场景分层): a fresh
+/// `ConversationSession` under a `TempDir`, rounds 1–3 with stable cache
+/// reads, then round 4 where the cache read drops sharply to trigger
+/// `detect_cache_break_for_usage`, finally accumulate the dropped round.
+///
+/// Zero environment capture, so it is a plain fn rather than inlined in
+/// the `capture_logs` closure (issue #3112 建议目标).
+///
+/// Returns round 4's detection result (`Some(CacheBreakInfo)`).
+fn run_cache_break_scenario() -> Option<CacheBreakInfo> {
+    let test_root = TempDir::new().unwrap();
+    let mut session = ConversationSession::new(
+        "test-cache-break".into(),
+        "glm-5".into(),
+        test_root.path().to_path_buf(),
+    );
+
+    // Rounds 1–3: stable cache at 50 000
+    for _ in 1..=3 {
+        let usage = make_usage(1000, 200, Some(1200), Some(50_000), None);
+        simulate_round(&mut session, &usage);
+    }
+
+    // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
+    let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
+    let break_info = session
+        .detect_cache_break_for_usage(drop_usage.cache_read_tokens, Some(drop_usage.prompt_tokens));
+
+    // Accumulate the dropped round's usage
+    session.accumulate_usage(&drop_usage);
+    break_info
 }
 
 // ---------------------------------------------------------------------------
@@ -103,34 +136,7 @@ async fn test_cache_hit_accumulation() {
 #[serial_test::serial]
 #[tokio::test]
 async fn test_cache_break_detection() {
-    let (break_info, log_output) = capture_logs(
-        || {
-            let test_root = TempDir::new().unwrap();
-            let mut session = ConversationSession::new(
-                "test-cache-break".into(),
-                "glm-5".into(),
-                test_root.path().to_path_buf(),
-            );
-
-            // Rounds 1–3: stable cache at 50 000
-            for _ in 1..=3 {
-                let usage = make_usage(1000, 200, Some(1200), Some(50_000), None);
-                simulate_round(&mut session, &usage);
-            }
-
-            // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
-            let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
-            let break_info = session.detect_cache_break_for_usage(
-                drop_usage.cache_read_tokens,
-                Some(drop_usage.prompt_tokens),
-            );
-
-            // Accumulate the dropped round's usage
-            session.accumulate_usage(&drop_usage);
-            break_info
-        },
-        tracing::Level::WARN,
-    );
+    let (break_info, log_output) = capture_logs(run_cache_break_scenario, tracing::Level::WARN);
 
     // Assert: detect returns Some with correct break info
     let info = break_info.expect("expected cache break to be detected");
