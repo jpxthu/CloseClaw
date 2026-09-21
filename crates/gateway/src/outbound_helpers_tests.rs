@@ -170,6 +170,21 @@ impl SendTracker {
     }
 }
 
+/// Assert that `send()` was dispatched for `scenario`.
+///
+/// Failure message follows STANDARDS §9 "expected / actual": the scenario,
+/// the expected `send_called = true`, and the raw tracker fields.
+fn assert_send_dispatched(tracker: &SendTracker, scenario: &str) {
+    assert!(
+        tracker.was_send_called(),
+        "{}: expected send_called = true (send dispatched), but send was \
+         not called; send_called = {}, last_sent_text = {:?}",
+        scenario,
+        tracker.was_send_called(),
+        tracker.last_sent_text()
+    );
+}
+
 #[async_trait]
 impl IMPlugin for SendTrackingPlugin {
     fn platform(&self) -> &str {
@@ -276,12 +291,7 @@ async fn test_send_text_dispatches_directly() {
     let gw = test_gw();
     let ctx = make_stream_ctx(&plugin, "s1", "mock", "chat1", &gw);
     send_text(&ctx, "hello world").await.unwrap();
-    assert!(
-        tracker.was_send_called(),
-        "send_text(\"hello world\") should trigger plugin.send, but send was \
-         not called; last_sent_text = {:?} (None = not dispatched)",
-        tracker.last_sent_text()
-    );
+    assert_send_dispatched(&tracker, "send_text(\"hello world\")");
     assert_eq!(tracker.last_sent_text().unwrap(), "hello world");
 }
 
@@ -292,12 +302,7 @@ async fn test_send_text_empty_string() {
     let gw = test_gw();
     let ctx = make_stream_ctx(&plugin, "s2", "mock", "chat2", &gw);
     send_text(&ctx, "").await.unwrap();
-    assert!(
-        tracker.was_send_called(),
-        "send_text(\"\") (empty string) should trigger plugin.send, but \
-         send was not called; last_sent_text = {:?} (None = not dispatched)",
-        tracker.last_sent_text()
-    );
+    assert_send_dispatched(&tracker, "send_text(\"\") (empty string)");
     assert_eq!(tracker.last_sent_text().unwrap(), "");
 }
 
@@ -310,11 +315,9 @@ async fn test_send_text_special_characters() {
     send_text(&ctx, "hello 🌍 <script>alert('xss')</script>")
         .await
         .unwrap();
-    assert!(
-        tracker.was_send_called(),
-        "send_text with special characters should trigger plugin.send, \
-         but send was not called; last_sent_text = {:?} (None = not dispatched)",
-        tracker.last_sent_text()
+    assert_send_dispatched(
+        &tracker,
+        "send_text(\"hello 🌍 <script>alert('xss')</script>\") (special characters)",
     );
     assert_eq!(
         tracker.last_sent_text().unwrap(),
