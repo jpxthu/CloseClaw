@@ -24,6 +24,7 @@ fn mgr() -> Arc<super::SessionManager> {
 // Gap ①: Normal path — cyclic warning includes all 5 elements
 // ══════════════════════════════════════════════════════════════════════════
 
+#[allow(clippy::too_many_lines)]
 /// Cyclic warning notification should contain:
 /// 1. 设定预期执行时长 (timeout_warning_secs value)
 /// 2. 实际运行时长 (per-child elapsed)
@@ -159,6 +160,7 @@ async fn test_cyclic_warning_notification_contains_five_elements() {
 // Gap ①: Legacy mode — "未设定" label for timeout_warning_secs
 // ══════════════════════════════════════════════════════════════════════════
 
+#[allow(clippy::too_many_lines)]
 /// Legacy mode (timeout_warning_secs=None) should show "未设定（legacy 模式）"
 /// for the timeout_warning_secs line, while still including the other 4 items.
 #[tokio::test]

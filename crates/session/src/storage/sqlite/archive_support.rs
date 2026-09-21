@@ -193,6 +193,7 @@ pub fn do_restore(
 }
 
 /// Load a SessionCheckpoint from an open DB connection.
+#[allow(clippy::too_many_lines)]
 pub fn load_checkpoint_inner(
     conn: &Connection,
     data_dir: &Path,

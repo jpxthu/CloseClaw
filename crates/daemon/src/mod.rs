@@ -223,6 +223,7 @@ impl Daemon {
             plan_archive_sweeper_handle,
         ))
     }
+    #[allow(clippy::too_many_lines)]
     /// Phase 3: Core services — Gateway, SessionManager, IM plugins, SlashDispatcher.
     async fn init_phase_3_core_services(
         config_dir: &str,
@@ -594,6 +595,7 @@ impl Daemon {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Phase 5: Background services — ArchiveSweeper, DreamingScheduler, registry population.
     async fn init_phase_5_background(
         deps: Phase5Deps<'_>,
@@ -800,6 +802,7 @@ impl Daemon {
         ))
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Spawn ArchiveSweeper and DreamingScheduler.
     ///
     /// PlanArchiveSweeper is spawned separately in `init_phase_2_registries`

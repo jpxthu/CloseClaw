@@ -42,6 +42,7 @@ impl Gateway {
     ///
     /// Non-owner senders receive a rejection message and the command is
     /// still consumed (prevents fall-through to SlashDispatcher).
+    #[allow(clippy::too_many_lines)]
     pub(crate) async fn try_handle_plan_confirm_command(
         &self,
         session_id: &str,

@@ -350,6 +350,7 @@ impl ConfigManager {
     ///
     /// `ConfigDirNotFound` / `ConfigFileNotFound` (mandatory file absent),
     /// plus I/O / parse / validation failures (corrupt file → F3 rollback).
+    #[allow(clippy::too_many_lines)]
     pub fn load(&self) -> Result<(), ConfigLoadError> {
         if !self.config_dir.exists() {
             return Err(ConfigLoadError::ConfigDirNotFound(self.config_dir.clone()));
@@ -655,6 +656,7 @@ impl ConfigManager {
         self.update_with_cross_ref(section, new_value, None, validator)
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Update with optional cross-reference data for cross-section validation.
     pub fn update_with_cross_ref(
         &self,

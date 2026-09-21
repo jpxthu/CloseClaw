@@ -505,6 +505,7 @@ async fn test_fetch_model_list_unknown_model_uses_fallback() {
 // Integration test: full call chain with mock HTTP
 // ===========================================================================
 
+#[allow(clippy::too_many_lines)]
 /// Verify the full MiniMax call chain: CacheAdapter + Plugin + Protocol serialization,
 /// all wired together via mock HTTP.
 #[tokio::test]

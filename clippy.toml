@@ -1,0 +1,5 @@
+# Clippy configuration for CloseClaw
+# See CONTRIBUTING.md for the rationale behind each threshold.
+
+# Function body line limit (硬性限制: 100)
+too-many-lines-threshold = 100

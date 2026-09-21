@@ -189,6 +189,7 @@ impl SessionManager {
         .await
     }
 
+    #[allow(clippy::too_many_lines)]
     #[allow(clippy::too_many_arguments)]
     pub async fn create_child_session(
         &self,
@@ -601,6 +602,7 @@ impl SessionManager {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Rebuild the spawn tree (children table) from persisted checkpoints.
     pub async fn rebuild_spawn_tree(&self) -> Result<(), PersistenceError> {
         let cm_arc = {

@@ -254,6 +254,7 @@ impl SessionManager {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Drain unsent outbound pending messages and re-deliver via gateway.
     ///
     /// Step 1.3: Drive source is `pending_operations` with `op_type ==
@@ -435,6 +436,7 @@ impl SessionManager {
 // ── try_push_announce + private helpers ─────────────────────────────────────
 
 impl SessionManager {
+    #[allow(clippy::too_many_lines)]
     /// Push announce from completed child to parent's queue.
     pub async fn try_push_announce(&self, child_session_id: &str, priority: NotificationPriority) {
         let Some((parent_session_id, child_agent_id)) =

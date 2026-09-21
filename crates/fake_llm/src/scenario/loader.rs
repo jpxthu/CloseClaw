@@ -135,6 +135,7 @@ mod tests {
         assert!(err_msg.contains("failed to read scenario directory"));
     }
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn load_directory_propagates_parse_error() {
         let tmp = TempDir::new().unwrap();

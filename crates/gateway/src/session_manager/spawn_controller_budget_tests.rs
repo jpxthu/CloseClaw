@@ -293,6 +293,7 @@ async fn test_depth_budget_child_narrows_via_min() {
         .expect("should pass: parent budget > 0, child created with effective=1");
     assert_eq!(result2.effective_max_spawn_depth, 1);
 }
+#[allow(clippy::too_many_lines)]
 /// Full multi-level spawn tree from design doc:
 /// root(3) → child1(5,eff=2) → child2(5,eff=1) → child3(1,eff=0)
 #[tokio::test]
@@ -845,6 +846,7 @@ async fn test_validate_child_ownership_all_modes() {
         .await;
     assert!(unknown.is_none());
 }
+#[allow(clippy::too_many_lines)]
 /// Verify kill_child cascades token to grandchild sessions
 /// (parent → child → grandchild, kill child cascade-stops grandchild token).
 #[tokio::test]

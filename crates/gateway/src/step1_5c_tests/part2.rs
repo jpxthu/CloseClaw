@@ -163,6 +163,7 @@ async fn test_dsl_mixed_with_non_dsl_accumulates_correctly() {
 // 2. Finish phase skips VerbosityFilter
 // ═══════════════════════════════════════════════════════════════════════════
 
+#[allow(clippy::too_many_lines)]
 /// With a real ProcessorRegistry (VerbosityFilter + DslParser), the finish
 /// phase calls `process_outbound_without_verbosity`, which runs DslParser
 /// but skips VerbosityFilter. Since VerbosityFilter already ran per-chunk

@@ -25,6 +25,7 @@ fn test_message() -> Message {
 
 // ── Sweeper self-healing: archived session → resolve creates new ──────────
 
+#[allow(clippy::too_many_lines)]
 /// Verify the self-healing scenario: Sweeper archives a session outside
 /// SessionManager. On next resolve(), the key_registry entry points to
 /// the archived session. resolve() detects it's archived (status check)

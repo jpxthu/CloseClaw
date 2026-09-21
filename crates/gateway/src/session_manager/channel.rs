@@ -35,6 +35,7 @@ impl SessionManager {
         channel_map.get(channel).cloned()
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Force-create a new session for the given channel, replacing the
     /// channel→session mapping. The old session is preserved in the
     /// sessions map for recovery but is no longer routed to by default.

@@ -492,6 +492,7 @@ mod tests {
         assert!(result.is_err(), "should fail for nonexistent file");
     }
 
+    #[allow(clippy::too_many_lines)]
     #[test]
     fn test_load_from_file_strict_parse_error() {
         let tmp = TempDir::new().unwrap();

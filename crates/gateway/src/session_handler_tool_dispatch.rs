@@ -109,6 +109,7 @@ async fn resolve_caller_user_id(session_mgr: &SessionManager, ctx: &ToolContext)
 
 #[async_trait::async_trait]
 impl ToolExecutor for TraitObjectExecutor {
+    #[allow(clippy::too_many_lines)]
     async fn execute(&self, call: &PendingToolCall) -> ToolResult {
         let mut ctx = self.base_ctx.clone();
         ctx.call_id = Some(call.id.clone());

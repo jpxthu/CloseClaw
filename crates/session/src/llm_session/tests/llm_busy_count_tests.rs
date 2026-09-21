@@ -386,6 +386,7 @@ async fn test_session_stream_without_handle_does_not_panic() {
 
 // ── Streaming forceful upgrade ────────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 /// When `escalate_to_forceful` is called during streaming, the stream
 /// must terminate early with `Err(LLMError::Cancelled)` on the next poll.
 #[tokio::test]

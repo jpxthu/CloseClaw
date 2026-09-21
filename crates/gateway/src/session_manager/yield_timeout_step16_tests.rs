@@ -19,6 +19,7 @@ fn mgr() -> Arc<super::SessionManager> {
 
 // ── 16. Structured notification lists child status and elapsed time ──────
 
+#[allow(clippy::too_many_lines)]
 /// Verify that the timeout notification lists each child's session ID,
 /// status (completed/running), and elapsed execution time.
 #[tokio::test]
@@ -438,6 +439,7 @@ async fn test_child_session_info_created_at() {
 
 // ── 21. Yield timeout with multiple children ─────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 /// Verify that `start_yield_timeout` works correctly with multiple
 /// children registered under the parent.
 #[tokio::test]

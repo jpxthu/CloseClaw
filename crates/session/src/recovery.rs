@@ -114,6 +114,7 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
     /// - 有 `parent_session_id` 且父 session 也已恢复 → 注册为父节点的子节点
     /// - 有 `parent_session_id` 但父 session 未恢复（已被 sweep）→ 降级为根节点，depth 重置为 0
     /// - 无 `parent_session_id` → 确认为根节点
+    #[allow(clippy::too_many_lines)]
     pub async fn recover(&self) -> Result<RecoveryReport, PersistenceError> {
         let active_sessions = self.storage.list_active_sessions().await?;
         let mut recovered = Vec::new();

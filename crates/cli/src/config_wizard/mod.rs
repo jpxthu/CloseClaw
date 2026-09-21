@@ -354,6 +354,7 @@ fn build_model_lister(info: &ProviderInfo, credential: &str) -> Arc<dyn ModelLis
     }
 }
 
+#[allow(clippy::too_many_lines)]
 /// Run the interactive config wizard.
 ///
 /// Returns `Ok(Some(output))` on success, `Ok(None)` on clean Ctrl+C exit,

@@ -342,6 +342,7 @@ async fn anthropic_streaming_text_contract() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 /// Anthropic tool-use streaming: `anthropic-tool-use-streaming.txt`
 ///
 /// Expected event sequence per protocol-mapping.md:

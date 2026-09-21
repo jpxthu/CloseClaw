@@ -859,6 +859,7 @@ impl ConversationSession {
     }
 }
 impl std::fmt::Debug for ConversationSession {
+    #[allow(clippy::too_many_lines)]
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("ConversationSession")
             .field("session_id", &self.session_id)
@@ -981,7 +982,6 @@ impl Drop for ConversationSession {
         self.stats.reset();
     }
 }
-
 #[cfg(test)]
 #[allow(deprecated)]
 /// Helper: create a temporary directory path for tests.

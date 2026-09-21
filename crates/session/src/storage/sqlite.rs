@@ -99,6 +99,7 @@ impl SqliteStorage {
     }
 
     /// Initialize the database schema
+    #[allow(clippy::too_many_lines)]
     fn init_schema(conn: &Connection) -> Result<(), PersistenceError> {
         conn.execute_batch(
             r#"

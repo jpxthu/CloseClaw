@@ -539,6 +539,7 @@ impl Gateway {
             .await
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Core streaming outbound dispatch.
     ///
     /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,

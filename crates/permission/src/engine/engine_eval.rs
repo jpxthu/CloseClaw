@@ -437,6 +437,7 @@ impl PermissionEngine {
         )
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Core evaluation logic shared by `evaluate` and `evaluate_with_rules`.
     ///
     /// `agent_rule_index` and `user_agent_rule_index` provide O(1) lookup

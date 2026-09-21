@@ -95,6 +95,7 @@ impl ToolRegistrar for ImAdapterToolsRegistrar {
         4
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn register(
         &self,
         registry: &dyn closeclaw_common::tool_registry::ToolRegistry,

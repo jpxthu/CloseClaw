@@ -16,6 +16,7 @@ impl Daemon {
         let audit_logger = Self::create_audit_logger(config_dir);
         Self::start_with_engine(config_dir, audit_logger).await
     }
+    #[allow(clippy::too_many_lines)]
     /// Start the daemon with an optional audit logger.
     /// If `None`, the engine runs without audit logging.
     pub async fn start_with_engine(
@@ -245,6 +246,7 @@ impl Daemon {
             pid_file_path,
         })
     }
+    #[allow(clippy::too_many_lines)]
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.
     pub async fn run(&mut self) -> anyhow::Result<()> {
@@ -446,6 +448,7 @@ impl Daemon {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Phase 2: Session stop (leaf → root) with progress card updates.
     ///
     /// Sends a progress notification card at the start, monitors for

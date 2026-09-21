@@ -147,6 +147,7 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
 // OpenAI streaming fixture tests
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 /// UNPRODUCED_FIELDS (OpenAI streaming):
 /// - `system_fingerprint`: fixture has "fp_fake"; code omits entirely
 /// - `created`: fixture has 1700000008; code generates `fake-{model}`
@@ -320,6 +321,7 @@ fn openai_streaming_text_fixture_matches_semantics() {
 // OpenAI tool-use streaming fixture tests
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 /// UNPRODUCED_FIELDS (OpenAI tool-use streaming):
 /// - `system_fingerprint`: fixture has "fp_fake"; code omits
 /// - `created`: fixture has 1700000009; code generates `fake-{model}`
@@ -489,6 +491,7 @@ fn openai_streaming_tool_use_fixture_matches_semantics() {
 // Anthropic streaming fixture tests
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 /// UNPRODUCED_FIELDS (Anthropic streaming):
 /// - `id` in message_start: fixture has `msg_01_stream_fake_model_e5f6a7b8c9d0e1f2`;
 ///   code generates `msg_fake_{model}` — shape-locked
@@ -686,6 +689,7 @@ fn anthropic_streaming_text_fixture_matches_semantics() {
 // Anthropic tool-use streaming fixture tests
 // ---------------------------------------------------------------------------
 
+#[allow(clippy::too_many_lines)]
 /// UNPRODUCED_FIELDS (Anthropic tool-use streaming):
 /// - `id` in content_block_start: fixture has `toolu_fake_01_RB518jPIPEP2M9orwlNX7643`;
 ///   code generates `toolu_{model}_{idx}` — shape-locked

@@ -252,6 +252,7 @@ impl ChatProtocol for OpenAiProtocol {
         SseStateMachine::new()
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn parse_sse_stream(
         &self,
         incoming: IncomingSseStream,

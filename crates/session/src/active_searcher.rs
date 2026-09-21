@@ -156,6 +156,7 @@ enum SearchResult {
 /// * `message_role` – Role of the message (`"user"` or `"assistant"`).
 /// * `memory_db_path` – Path to the SQLite database for entity search.
 /// * `deps` – All async dependency closures bundled together.
+#[allow(clippy::too_many_lines)]
 pub fn spawn_active_searcher(
     session_id: &str,
     agent_id: &str,

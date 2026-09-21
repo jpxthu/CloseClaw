@@ -164,6 +164,7 @@ mod tests {
         let _ = stream.next().await;
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Verify that `call_streaming` walks the fallback chain: first entry
     /// streaming fails → falls through to second entry which succeeds.
     #[tokio::test]

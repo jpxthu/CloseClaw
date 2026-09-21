@@ -514,6 +514,7 @@ async fn test_kill_active_child_cascades() {
     assert_eq!(mgr.count_active_children("parent-kill-active").await, 0);
 }
 
+#[allow(clippy::too_many_lines)]
 /// Verify cascade kill handles a mix of active and completed children
 /// at different levels of the spawn tree.
 #[tokio::test]

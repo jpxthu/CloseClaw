@@ -286,6 +286,7 @@ impl Tool for SessionsSpawnTool {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let spawn_args = Self::parse_args(&args)?;
 

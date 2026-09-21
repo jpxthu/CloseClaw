@@ -14,6 +14,7 @@ fn parse(json: &str) -> MemoryConfigData {
 
 // ── Normal load: complete memory.json ────────────────────────────────────
 
+#[allow(clippy::too_many_lines)]
 #[test]
 fn test_full_memory_json_all_sections() {
     let json = r#"{

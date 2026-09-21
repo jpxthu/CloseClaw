@@ -151,6 +151,7 @@ impl Gateway {
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Build and send a shutdown progress card to all active session chats.
     ///
     /// Displays per-session status (LLM streaming / tool executing / idle)

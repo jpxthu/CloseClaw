@@ -124,6 +124,7 @@ async fn test_spawn_registers_child_state_in_checkpoint() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 /// After `try_push_announce` completes for a run-mode child, the
 /// parent's `child_states` should no longer contain the child entry.
 #[tokio::test]
@@ -233,6 +234,7 @@ async fn test_child_completion_deregisters_child_state() {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 /// Verify that `register_child_state` on `ToolSession` trait adds the
 /// child to `child_states` and triggers checkpoint persistence.
 #[tokio::test]

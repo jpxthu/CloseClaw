@@ -208,6 +208,7 @@ impl SessionMessageHandler {
         // See design-doc §生命周期联动 for the two correct trigger points.
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Returns `true` if the caller should skip `drain_pending_loop`
     /// (recovery action requested a stop).
     async fn clear_busy_and_send(
@@ -986,7 +987,6 @@ pub(crate) mod tests {
             );
         }
     }
-
     #[test]
     fn test_resolve_effective_level_anthropic_model_name_detection() {
         // is_anthropic_model helper test.

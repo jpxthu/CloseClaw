@@ -139,6 +139,7 @@ async fn test_tool_calls_arguments_chunking() {
     assert!(stream.next().await.is_none());
 }
 
+#[allow(clippy::too_many_lines)]
 /// Test multiple tool calls behavior (matches current implementation)
 /// Note: Current parser assigns all continuation chunks to the last active tool block
 #[tokio::test]

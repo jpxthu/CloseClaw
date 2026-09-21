@@ -134,6 +134,7 @@ impl UnifiedFallbackClient {
             .unwrap_or_default()
     }
 
+    #[allow(clippy::too_many_lines)]
     /// Send a streaming chat request through the fallback chain.
     ///
     /// Walks the chain trying `chat_streaming` on each entry, skipping

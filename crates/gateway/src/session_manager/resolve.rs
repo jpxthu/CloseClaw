@@ -20,6 +20,7 @@ use tokio::sync::RwLock;
 use tracing::{info, warn};
 
 impl SessionManager {
+    #[allow(clippy::too_many_lines)]
     /// Resolve session_key → session_id via registry lookup or new creation.
     pub async fn resolve(
         &self,

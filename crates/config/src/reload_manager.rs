@@ -177,6 +177,7 @@ impl ConfigReloadManager {
     ///
     /// Read → parse → validate → update cache. On failure, keeps
     /// the in-memory old config. File is NOT rolled back per design doc.
+    #[allow(clippy::too_many_lines)]
     pub fn reload_section(&self, section: ConfigSection) -> Result<(), ConfigLoadError> {
         let path = section.path(self.config_manager.config_dir());
 

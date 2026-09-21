@@ -133,6 +133,7 @@ impl ToolRegistryExecutor {
 
 #[async_trait]
 impl ToolExecutor for ToolRegistryExecutor {
+    #[allow(clippy::too_many_lines)]
     async fn execute(&self, call: &PendingToolCall) -> closeclaw_common::tool_trait::ToolResult {
         let guard = self.registry.tools.read().await;
         let tool = guard
