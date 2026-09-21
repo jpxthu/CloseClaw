@@ -56,7 +56,9 @@
 //! High and critical risk operations are rejected.
 //!
 //! ```
-//! use closeclaw_permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget};
+//! use closeclaw_permission::approval::{
+//!     ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget,
+//! };
 //! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 //! use closeclaw_permission::engine::engine_risk::RiskLevel;
 //!
