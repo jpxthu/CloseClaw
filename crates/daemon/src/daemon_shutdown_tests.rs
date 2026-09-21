@@ -3,7 +3,7 @@
 //! Covers ShutdownHandle drain state machine scenarios.
 
 use crate::shutdown::ShutdownHandle;
-use crate::test_helpers::kill_self;
+use crate::test_helpers::{kill_self, TestShutdownSignal};
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 
@@ -128,7 +128,7 @@ async fn test_daemon_run_sigterm_shutdown() {
     // await is run(), whose first poll synchronously registers the signal
     // handler before parking in Phase 0.
     tokio::spawn(async move {
-        kill_self(libc::SIGTERM);
+        kill_self(TestShutdownSignal::Sigterm);
     });
 
     // Call Daemon::run() — it blocks on signal reception. When SIGTERM is sent

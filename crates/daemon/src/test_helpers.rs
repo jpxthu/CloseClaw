@@ -321,20 +321,46 @@ pub(crate) fn make_dispatch_context(config: GatewayConfig) -> ChatContext {
     }
 }
 
-/// Send signal `sig` to the current process itself.
+/// Graceful-shutdown signals a test may deliver to its own process.
 ///
-/// Single point wrapping the libc kill call for daemon tests — call sites
-/// only differ by the signal name.
-pub(crate) fn kill_self(sig: libc::c_int) {
+/// Test-only type carrying the SIGTERM/SIGINT-only invariant of
+/// [`kill_self`] in code instead of a caller convention: every variant is
+/// one of the two graceful first-signal shutdowns defined by
+/// `docs/design/daemon/shutdown.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TestShutdownSignal {
+    /// SIGTERM — graceful shutdown trigger.
+    Sigterm,
+    /// SIGINT — graceful shutdown trigger.
+    Sigint,
+}
+
+impl TestShutdownSignal {
+    /// The libc signal number this variant delivers.
+    pub(crate) fn as_libc_signal(self) -> libc::c_int {
+        match self {
+            TestShutdownSignal::Sigterm => libc::SIGTERM,
+            TestShutdownSignal::Sigint => libc::SIGINT,
+        }
+    }
+}
+
+/// Send shutdown signal `sig` to the current process itself.
+///
+/// Single point wrapping the libc kill call for daemon tests — the signal
+/// is chosen through [`TestShutdownSignal`], so the type, not caller
+/// convention, limits delivery to the graceful SIGTERM/SIGINT pair.
+pub(crate) fn kill_self(sig: TestShutdownSignal) {
     // SAFETY: the target pid is `std::process::id()`, i.e. this process
     // itself, so the signal is delivered only to the calling process and
-    // never to another one; `sig` is a test-chosen signal (SIGTERM/SIGINT)
-    // whose effect on this process is exactly what the surrounding test
-    // exercises.
+    // never to another one; `sig` is a `TestShutdownSignal`, whose only
+    // variants are the graceful SIGTERM/SIGINT shutdown signals, so the
+    // delivered signal's effect on this process is exactly what the
+    // surrounding test exercises.
     //
     // The return value is checked so a failed kill surfaces the OS error
     // immediately instead of letting the test hang on the un-sent signal.
-    let ret = unsafe { libc::kill(std::process::id() as libc::pid_t, sig) };
+    let ret = unsafe { libc::kill(std::process::id() as libc::pid_t, sig.as_libc_signal()) };
     assert_eq!(
         ret,
         0,
