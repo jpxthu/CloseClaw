@@ -269,6 +269,13 @@ fn test_directory_provider_id_from_dirname() {
 
 /// A `config.json` `id` that disagrees with the directory name must
 /// produce a WARN log; the config's id is kept as-is.
+///
+/// Uses `#[serial]`: the tracing callsite-interest cache is a
+/// process-global resource; concurrent tests hitting the same `warn!`
+/// callsite in `inject_dirname_id` race on interest registration and
+/// the event can be dropped, leaving the capture buffer empty
+/// (issue #3102). Serialise every test that touches that callsite.
+#[serial_test::serial]
 #[test]
 fn test_directory_provider_id_mismatch_warn() {
     use std::io::Write;
@@ -343,6 +350,12 @@ fn test_directory_provider_id_mismatch_warn() {
 /// `config.json` with `id` set to an empty string `""` must cause
 /// provider construction to fail — the empty id does not satisfy the
 /// required-field constraint, so `new()` returns an error.
+///
+/// Uses `#[serial]`: construction hits the same `warn!` callsite in
+/// `inject_dirname_id` as `test_directory_provider_id_mismatch_warn`
+/// (id `""` mismatches the directory name); concurrent hits race on
+/// the tracing callsite-interest cache (issue #3102).
+#[serial_test::serial]
 #[test]
 fn test_directory_provider_empty_string_id_fails_construction() {
     let user = TempDir::new().unwrap();
