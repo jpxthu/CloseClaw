@@ -577,7 +577,10 @@ async fn test_phase0_gate_set_during_select_branch() {
 
     kill_self(libc::SIGTERM);
 
-    let gate_active = select_result.await.unwrap();
+    let gate_active = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
+        .await
+        .expect("signal not delivered: Phase 0 gate select did not complete within 10s")
+        .unwrap();
     assert!(
         gate_active,
         "gate must be ShuttingDown immediately after signal (inside select branch)"
@@ -626,7 +629,10 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
 
     kill_self(libc::SIGINT);
 
-    let actual = select_result.await.unwrap();
+    let actual = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
+        .await
+        .expect("signal not delivered: Phase 0 SIGINT gate select did not complete within 10s")
+        .unwrap();
     assert_eq!(
         actual,
         (true, false),
@@ -672,9 +678,17 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
         .await
         .expect("spawned task must confirm handler registration before signaling");
     kill_self(libc::SIGINT);
-    let (first_started, first_state) = first_rx.await.expect("first signal not processed");
+    let (first_started, first_state) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), first_rx)
+            .await
+            .expect("signal not delivered: first signal not processed within 10s")
+            .expect("first signal not processed");
     kill_self(libc::SIGTERM);
-    let (escalated, final_state) = observed.await.unwrap();
+    let (escalated, final_state) =
+        tokio::time::timeout(std::time::Duration::from_secs(10), observed)
+            .await
+            .expect("signal not delivered: escalation observation did not complete within 10s")
+            .unwrap();
     let gate_forceful = handle.is_forceful();
     assert_eq!(
         (first_started, first_state),
