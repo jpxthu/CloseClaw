@@ -331,7 +331,14 @@ pub(crate) fn kill_self(sig: libc::c_int) {
     // never to another one; `sig` is a test-chosen signal (SIGTERM/SIGINT)
     // whose effect on this process is exactly what the surrounding test
     // exercises.
-    unsafe {
-        libc::kill(std::process::id() as libc::pid_t, sig);
-    }
+    //
+    // The return value is checked so a failed kill surfaces the OS error
+    // immediately instead of letting the test hang on the un-sent signal.
+    let ret = unsafe { libc::kill(std::process::id() as libc::pid_t, sig) };
+    assert_eq!(
+        ret,
+        0,
+        "kill self failed: {}",
+        std::io::Error::last_os_error()
+    );
 }
