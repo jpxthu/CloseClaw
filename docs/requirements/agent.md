@@ -57,7 +57,7 @@ Agent 的能力边界由配置档案中的字段组合与权限基线共同决�
 
 ### F6. 运行时配置查询
 
-系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 定义的全部能力维度——身份标识、模型选择、工作目录、身份加载模式、Bootstrap 文件目录、无 Bootstrap 文件声明、工具白名单/黑名单、技能白名单、子 Session 创建控制、子 Session 超时、记忆配置。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
+系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 列出的全部能力维度。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单、运行模式决定的工具范围（运行模式定义见 [mode §F1](mode.md)（运行模式））。
 
 配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单变更（Agent 增删）或 Agent 配置变更对 Session 的生效边界详见 [session §F6](session.md)（Session 归档与清理）。
 
@@ -130,14 +130,12 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 ### 性能
 
-- Agent 配置查询延迟足够低，Session 创建不出现可感知等待
-- 权限与 Agent 配置变更的生效机制详见 [config §F7](config.md)（生效机制与重启类判定）
-- 子 Session 结果自动回传，父 Agent 不阻塞等待（详见 [session §F4](session.md)（子 Session 委托与协调））
+Agent 配置查询延迟足够低，Session 创建不出现可感知等待。子 Session 结果自动回传，父 Agent 不阻塞等待（详见 [session §F4](session.md)（子 Session 委托与协调））。权限与 Agent 配置变更的生效机制详见 [config §F7](config.md)（生效机制与重启类判定）。
 
 ### 安全性
 
-- 子 Session 权限的沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）
+子 Session 权限的沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）。
 
 ### 可扩展性
 
-- 新增 Agent 能力维度时无需系统升级即可生效
+新增 Agent 能力维度时无需系统升级即可生效。
