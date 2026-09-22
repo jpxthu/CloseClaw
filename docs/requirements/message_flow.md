@@ -24,7 +24,7 @@
 > **交叉引用**：步骤 5 详见 [gateway §F2](gateway.md)（入站消息预处理）、[gateway §F3](gateway.md)（消息类型识别与非文本处理）。
 > **交叉引用**：步骤 6 详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：步骤 7 详见 [session §F1](session.md)（对话持久化与恢复）。
-> **交叉引用**：步骤 4、6 所用绑定的定义详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：步骤 4、6 所用绑定的定义与基数规则详见 [config §F1](config.md)（多文件配置结构）。
 
 ### F2. 出站链路
 
@@ -50,12 +50,6 @@ Agent 回复从生成到送达用户的完整环节：
 
 > **交叉引用**：身份映射与跨平台归并详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：事件字段与跨应用 ID 隔离的实测语义见 `tests/fixtures/feishu/cli-poc/`——`group-mention-user-b1view.json` 与 `group-mention-user-b2view.json` 是同一条群消息被两个 bot 分别接收的事件（同 `message_id`，`sender_id` 与 `mentions[].id` 全部不同）；`p2p-top-text.json` 与 `p2p-thread-reply.json` 展示私聊顶层消息与话题回复的字段形态。
-
-### F4. 绑定基数
-
-单个 IM 平台下，机器人 ↔ Agent、IM 用户 ↔ User 各自一一对应；跨平台时，单个 CloseClaw Agent 可对应多个 IM 平台的机器人，单个 CloseClaw User 可对应多个 IM 平台的用户。
-
-> **交叉引用**：双向绑定的权威定义、入站/出站方向划分、基数规则及其存储与生效机制详见 [config §F1](config.md)（多文件配置结构）。
 
 ## 非功能需求
 
