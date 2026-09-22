@@ -256,7 +256,7 @@ impl crate::Daemon {
                 match new_gw_ref.enqueue_inbound(req).await {
                     Ok(()) => replayed += 1,
                     Err(e) => {
-                        tracing::warn!(
+                        warn!(
                             trace_id = %e.request.trace_id,
                             peer_id = %e.request.peer_id,
                             "replay: new queue full — returning to stash"

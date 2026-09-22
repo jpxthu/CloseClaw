@@ -195,7 +195,7 @@ impl Daemon {
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
-                tracing::warn!("session config provider not available after load, using defaults");
+                warn!("session config provider not available after load, using defaults");
                 Arc::new(
                     closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
                 )
@@ -315,7 +315,7 @@ impl Daemon {
                     (Vec::new(), Vec::new())
                 }
                 Err(_) => {
-                    tracing::warn!("recovery scan timed out (10s) — continuing without recovery");
+                    warn!("recovery scan timed out (10s) — continuing without recovery");
                     (Vec::new(), Vec::new())
                 }
             }
@@ -324,16 +324,16 @@ impl Daemon {
             session_manager.remove_stale_key_registry_entries(sid).await;
         }
         if let Err(e) = session_manager.rebuild_key_registry().await {
-            tracing::warn!(error = %e, "failed to rebuild key_registry — continuing");
+            warn!(error = %e, "failed to rebuild key_registry — continuing");
         }
         // Startup consistency check: SQLite ↔ file system bidirectional scan.
         if let Err(e) = session_manager.run_consistency_check().await {
-            tracing::warn!(error = %e, "consistency check failed — continuing");
+            warn!(error = %e, "consistency check failed — continuing");
         }
         // Mark the scan timestamp so subsequent periodic checks are incremental.
         session_manager.initialize_consistency_check_time();
         if let Err(e) = session_manager.rebuild_spawn_tree().await {
-            tracing::warn!(error = %e, "failed to rebuild spawn_tree — continuing");
+            warn!(error = %e, "failed to rebuild spawn_tree — continuing");
         }
         let gateway = Arc::new(gateway);
         gateway
@@ -352,7 +352,7 @@ impl Daemon {
         let media_config = match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
             Ok(cfg) => cfg,
             Err(e) => {
-                tracing::warn!(error = %e, path = %media_config_path.display(),
+                warn!(error = %e, path = %media_config_path.display(),
                     "failed to load media.json — using defaults");
                 closeclaw_config::MediaConfigData::default()
             }
@@ -368,7 +368,7 @@ impl Daemon {
                     Some(store)
                 }
                 Err(e) => {
-                    tracing::warn!(error = %e, storage_dir = %media_config.storage_dir,
+                    warn!(error = %e, storage_dir = %media_config.storage_dir,
                         "failed to create MediaStore — media features disabled");
                     None
                 }
@@ -419,7 +419,7 @@ impl Daemon {
                             );
                         }
                         Err(e) => {
-                            tracing::warn!(
+                            warn!(
                                 session_id = %session_id,
                                 error = %e,
                                 "outbound pending drain failed"
@@ -490,7 +490,7 @@ impl Daemon {
                     "agent rule cache invalidated after whitelist approval"
                 );
             } else {
-                tracing::warn!(
+                warn!(
                     agent = %agent_id,
                     "permission engine write lock contended, skipping cache invalidation"
                 );

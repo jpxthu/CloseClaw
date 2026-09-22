@@ -5,7 +5,7 @@
 //! agent directories under `<root>/agents/`, both inside the TempDir.
 
 use crate::config_reload::reload::{extract_agent_id_from_permissions_path, DaemonReloadCallback};
-use crate::test_helpers::write_mandatory_configs;
+use crate::test_helpers::{make_config_manager, write_mandatory_configs};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_config::manager::ConfigManager;
@@ -17,18 +17,6 @@ use tempfile::TempDir;
 /// The config subdir under a temp root (`<root>/config`).
 fn config_dir_under(root: &Path) -> PathBuf {
     root.join("config")
-}
-
-/// Build a ConfigManager over `<root>/config` with the mandatory
-/// skeleton configs written, so agent directories resolve to
-/// `<root>/agents` (production layout: `config_dir.parent()/agents`).
-fn make_config_manager(root: &Path) -> Arc<ConfigManager> {
-    let config_dir = config_dir_under(root);
-    std::fs::create_dir_all(&config_dir).expect("create config dir");
-    write_mandatory_configs(&config_dir).expect("mandatory configs");
-    let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
-    cm.load().expect("ConfigManager::load");
-    Arc::new(cm)
 }
 
 fn make_agent_registry() -> Arc<AgentRegistry> {
@@ -167,9 +155,6 @@ fn test_daemon_callback_permissions_changed() {
         before.get("epsilon").is_some(),
         "epsilon permissions should load from disk before the invalid write"
     );
-
-    // Sleep to ensure mtime changes
-    std::thread::sleep(std::time::Duration::from_secs(1));
 
     // Write invalid JSON
     std::fs::write(&perms_path, "not valid json{{").unwrap();

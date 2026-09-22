@@ -6,6 +6,13 @@ use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
 use tempfile::TempDir;
 
+/// Total Phase 3 stop budget for one background task: 10s
+/// (= join 7s + abort grace 3s — compile-time asserted by
+/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`).
+/// Test-side join waits anchor on this budget as their upper bound,
+/// mirroring `phase_3_background_stop`.
+const PHASE3_STOP_TOTAL_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+
 /// Verify `Defaults::user_defaults()` returns all Deny for every field.
 /// This is the semantic contract: non-Owner users have no privileges
 /// unless explicitly granted.
@@ -195,20 +202,17 @@ async fn test_phase3_join_handles_taken_after_stop() {
     assert!(plan_archive_handle.is_some());
 
     // Simulate phase_3_background_stop: take each handle
-    // Must match phase_3_background_stop() join_timeout (10s).
-    let join_timeout = std::time::Duration::from_secs(10);
-
     if let Some(handle) = archive_handle.take() {
-        let _ = tokio::time::timeout(join_timeout, handle).await;
+        let _ = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     }
     if let Some(handle) = announce_handle.take() {
-        let _ = tokio::time::timeout(join_timeout, handle).await;
+        let _ = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     }
     if let Some(handle) = dreaming_handle.take() {
-        let _ = tokio::time::timeout(join_timeout, handle).await;
+        let _ = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     }
     if let Some(handle) = plan_archive_handle.take() {
-        let _ = tokio::time::timeout(join_timeout, handle).await;
+        let _ = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     }
 
     // All handles should now be None
@@ -238,9 +242,7 @@ async fn test_phase3_background_tasks_exit_on_signal() {
     let _ = tx.send(());
 
     // Task should exit cleanly within timeout
-    // Must match phase_3_background_stop() join_timeout (10s).
-    let join_timeout = std::time::Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     assert!(result.is_ok(), "task should exit after shutdown signal");
     let join_result = result.unwrap();
     assert!(join_result.is_ok(), "task should not panic");
@@ -269,8 +271,7 @@ async fn test_phase3_mock_exit_requires_signal() {
 
     // Signal arrives → the same task exits (exit is signal-driven).
     let _ = tx.send(());
-    let join_timeout = std::time::Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     assert!(
         result.is_ok(),
         "mock task should exit after the shutdown signal"
@@ -305,13 +306,11 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
     let _ = tx3.send(());
     let _ = tx4.send(());
 
-    // Must match phase_3_background_stop() join_timeout (10s).
-    let join_timeout = std::time::Duration::from_secs(10);
     let (r1, r2, r3, r4) = tokio::join!(
-        tokio::time::timeout(join_timeout, h1),
-        tokio::time::timeout(join_timeout, h2),
-        tokio::time::timeout(join_timeout, h3),
-        tokio::time::timeout(join_timeout, h4),
+        tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, h1),
+        tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, h2),
+        tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, h3),
+        tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, h4),
     );
 
     assert!(r1.is_ok(), "ArchiveSweeper mock should exit");
@@ -403,9 +402,7 @@ async fn test_phase3_panicked_task_returns_err() {
         panic!("mock background task panic");
     });
 
-    // Must match phase_3_background_stop() join_timeout (10s).
-    let join_timeout = std::time::Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
 
     // Join completes (not timeout) — it's an Err from the panic
     assert!(result.is_ok(), "panicked task join should not timeout");
@@ -426,10 +423,8 @@ async fn test_phase3_join_timeout_is_10_seconds() {
         std::future::pending::<()>().await;
     });
 
-    // Use the exact timeout from phase_3_background_stop (10s)
-    let join_timeout = std::time::Duration::from_secs(10);
     let start = tokio::time::Instant::now();
-    let result = tokio::time::timeout(join_timeout, hang_handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, hang_handle).await;
     let elapsed = start.elapsed();
 
     // Timeout should fire — the hung task is abandoned
@@ -458,9 +453,8 @@ async fn test_phase3_clean_task_exits_within_10s() {
     // Signal immediately — task should exit well before 10s
     let _ = tx.send(());
 
-    let join_timeout = std::time::Duration::from_secs(10);
     let start = tokio::time::Instant::now();
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     let elapsed = start.elapsed();
 
     assert!(result.is_ok(), "clean task should join within 10s");
@@ -696,9 +690,8 @@ async fn test_plan_archive_sweeper_signal_causes_clean_exit() {
     // Send shutdown signal
     let _ = shutdown_tx.send(());
 
-    // Task should exit cleanly within join_timeout (matching Phase 3)
-    let join_timeout = std::time::Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    // Task should exit cleanly within the Phase 3 stop budget
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     assert!(
         result.is_ok(),
         "PlanArchiveSweeper should exit after shutdown signal"
