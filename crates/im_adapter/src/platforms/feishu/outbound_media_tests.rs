@@ -531,17 +531,23 @@ async fn test_upload_file_success_returns_file_key() {
 }
 
 /// Copy to outbound preserved even when upload (lark-cli) fails.
+///
+/// The mock script exits 1 with an error code/msg on stderr; the test must
+/// take that exit-1 path (not a spawn failure such as ETXTBSY).
 #[tokio::test]
 async fn test_send_file_copy_preserved_on_upload_failure() {
     let tmp = TempDir::new().unwrap();
-    // Failing mock CLI.
-    use std::io::Write;
+    // Failing mock CLI. The write handle must be closed before send_file()
+    // spawns it: a write handle alive across the spawn makes execve fail
+    // with ETXTBSY (Text file busy).
     let script = tmp.path().join("fail.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":999}}' >&2").unwrap();
-    writeln!(f, "echo '{{\"code\":999}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
+    {
+        let mut f = std::fs::File::create(&script).unwrap();
+        writeln!(f, "#!/bin/bash").unwrap();
+        writeln!(f, "echo '{{\"code\":999,\"msg\":\"upload rejected\"}}' >&2").unwrap();
+        writeln!(f, "echo '{{\"code\":999,\"msg\":\"upload rejected\"}}'").unwrap();
+        writeln!(f, "exit 1").unwrap();
+    } // write handle dropped here, before any spawn
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -552,11 +558,27 @@ async fn test_send_file_copy_preserved_on_upload_failure() {
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "pdf content").unwrap();
     let adapter = make_adapter(&cli, tmp.path(), None);
-    // send_file should fail (lark-cli error) but outbound copy is preserved.
     let result = adapter
         .send_file("oc_chat_fail", file.to_str().unwrap())
         .await;
-    assert!(result.is_err(), "lark-cli failure should propagate as Err");
+    // Must be the script's exit-1 failure, never a spawn failure (ETXTBSY).
+    match result {
+        Err(AdapterError::SendFailed(msg)) => {
+            assert!(
+                !msg.contains("lark-cli spawn error"),
+                "spawn failure: {msg}"
+            );
+            assert!(
+                msg.contains("lark-cli exited with code Some(1)"),
+                "expect script exit-1, got: {msg}"
+            );
+            assert!(
+                msg.contains("\"code\":999") && msg.contains("upload rejected"),
+                "expect script error code/msg, got: {msg}"
+            );
+        }
+        other => panic!("expected SendFailed, got: {other:?}"),
+    }
     let outbound = adapter.media_store.outbound_dir().join("doc.pdf");
     assert!(
         outbound.exists(),
