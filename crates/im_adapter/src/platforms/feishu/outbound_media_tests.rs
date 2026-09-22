@@ -292,10 +292,17 @@ fn create_echo_cli(tmp: &TempDir) -> String {
     let script = tmp.path().join("echo.sh");
     let args_file = tmp.path().join("captured_args");
     let args_path = args_file.to_str().unwrap().to_string();
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo \"$@\" > {args_path}").unwrap();
-    writeln!(f, "echo '{{\"code\":0}}'").unwrap();
+    // Atomic create: write to a temp name in the same directory, close the
+    // handle, then rename into place so the exec path never coexists with
+    // an open write handle (avoids ETXTBSY on spawn).
+    let script_tmp = tmp.path().join("echo.sh.tmp");
+    {
+        let mut f = std::fs::File::create(&script_tmp).unwrap();
+        writeln!(f, "#!/bin/bash").unwrap();
+        writeln!(f, "echo \"$@\" > {args_path}").unwrap();
+        writeln!(f, "echo '{{\"code\":0}}'").unwrap();
+    } // write handle dropped here
+    std::fs::rename(&script_tmp, &script).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -426,9 +433,16 @@ async fn test_send_file_whitelist_violation_skips_send() {
 /// with a non-zero code and error message.
 fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
     let script = tmp.path().join("reject.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"{msg}\"}}'").unwrap();
+    // Atomic create: write temp → close handle → rename into place → chmod,
+    // so the exec path only exists after the write handle is gone
+    // (avoids ETXTBSY on spawn).
+    let script_tmp = tmp.path().join("reject.sh.tmp");
+    {
+        let mut f = std::fs::File::create(&script_tmp).unwrap();
+        writeln!(f, "#!/bin/bash").unwrap();
+        writeln!(f, "echo '{{\"code\":{code},\"msg\":\"{msg}\"}}'").unwrap();
+    } // write handle dropped here
+    std::fs::rename(&script_tmp, &script).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -441,9 +455,16 @@ fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
 /// with the given data payload.
 fn create_success_cli(tmp: &TempDir, data: &str) -> String {
     let script = tmp.path().join("success.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'").unwrap();
+    // Atomic create: write temp → close handle → rename into place → chmod,
+    // so the exec path only exists after the write handle is gone
+    // (avoids ETXTBSY on spawn).
+    let script_tmp = tmp.path().join("success.sh.tmp");
+    {
+        let mut f = std::fs::File::create(&script_tmp).unwrap();
+        writeln!(f, "#!/bin/bash").unwrap();
+        writeln!(f, "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'").unwrap();
+    } // write handle dropped here
+    std::fs::rename(&script_tmp, &script).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
