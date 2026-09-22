@@ -168,9 +168,6 @@ fn test_daemon_callback_permissions_changed() {
         "epsilon permissions should load from disk before the invalid write"
     );
 
-    // Sleep to ensure mtime changes
-    std::thread::sleep(std::time::Duration::from_secs(1));
-
     // Write invalid JSON
     std::fs::write(&perms_path, "not valid json{{").unwrap();
 

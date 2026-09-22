@@ -69,14 +69,10 @@ impl SessionConfigProvider for MockConfig {
 fn make_scheduler(
     storage: Arc<dyn PersistenceService>,
     config: Arc<dyn SessionConfigProvider>,
+    root: &std::path::Path,
 ) -> DreamingScheduler {
     let config_manager = Arc::new(
-        ConfigManager::new(std::path::PathBuf::from("/tmp/test-config")).unwrap_or_else(|_| {
-            // If temp dir doesn't exist, create it
-            let _ = std::fs::create_dir_all("/tmp/test-config");
-            ConfigManager::new(std::path::PathBuf::from("/tmp/test-config"))
-                .expect("failed to create test ConfigManager")
-        }),
+        ConfigManager::new(root.join("config")).expect("failed to create test ConfigManager"),
     );
     DreamingScheduler::new(
         storage,
@@ -86,8 +82,8 @@ fn make_scheduler(
             closeclaw_memory::miner::MinerConfig::default(),
             Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
             Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-            std::path::PathBuf::from("/tmp/test-memory.db"),
-            "/tmp/test-MEMORY.md".to_string(),
+            root.join("memory.db"),
+            root.join("MEMORY.md").to_string_lossy().into_owned(),
         )),
         config_manager,
     )
@@ -100,7 +96,8 @@ fn make_scheduler(
 async fn test_dreaming_scheduler_shutdown_exits_loop() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let mut scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut scheduler = make_scheduler(storage, config, tmp.path());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
 
@@ -127,7 +124,8 @@ async fn test_dreaming_scheduler_run_once_calls_dreaming_then_mining() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
-    let scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     // run_once should succeed even with no data (empty pipeline + no unmined).
     let result = scheduler.run_once().await;
@@ -140,7 +138,8 @@ async fn test_dreaming_scheduler_skips_unconfigured_agents() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     // Config with no agents → list_agents() returns empty → run_once returns early.
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     let result = scheduler.run_once().await;
     assert!(
@@ -154,7 +153,8 @@ async fn test_dreaming_scheduler_skips_unconfigured_agents() {
 async fn test_dreaming_scheduler_no_agents_no_error() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     // Multiple run_once calls should all succeed without error.
     for _ in 0..3 {
@@ -180,7 +180,8 @@ async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
     let storage: Arc<dyn PersistenceService> = Arc::new(storage);
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::new(vec!["configured-agent".to_string()]));
-    let scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     // run_once should succeed; the unconfigured session should be skipped
     let result = scheduler.run_once().await;
@@ -195,8 +196,9 @@ async fn test_dreaming_scheduler_mining_skips_unconfigured_agents() {
 async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let tmp = tempfile::tempdir().expect("temp dir");
     let mut scheduler =
-        make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+        make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 3 * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -218,8 +220,9 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
 async fn test_dreaming_scheduler_invalid_cron_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let tmp = tempfile::tempdir().expect("temp dir");
     let mut scheduler =
-        make_scheduler(storage, config).with_schedule(Some("not-a-cron".to_string()));
+        make_scheduler(storage, config, tmp.path()).with_schedule(Some("not-a-cron".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -241,7 +244,8 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
 async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let mut scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut scheduler = make_scheduler(storage, config, tmp.path());
 
     assert!(scheduler.schedule.is_none());
 
@@ -267,7 +271,9 @@ async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
 fn test_with_schedule_stores_cron_expression() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(Some("0 3 * * *".to_string()));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler =
+        make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 3 * * *".to_string()));
     assert_eq!(scheduler.schedule.as_deref(), Some("0 3 * * *"));
 }
 
@@ -276,7 +282,8 @@ fn test_with_schedule_stores_cron_expression() {
 fn test_with_schedule_none() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let scheduler = make_scheduler(storage, config).with_schedule(None);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let scheduler = make_scheduler(storage, config, tmp.path()).with_schedule(None);
     assert!(scheduler.schedule.is_none());
 }
 
@@ -285,7 +292,9 @@ fn test_with_schedule_none() {
 async fn test_with_schedule_empty_string_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let mut scheduler = make_scheduler(storage, config).with_schedule(Some(String::new()));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut scheduler =
+        make_scheduler(storage, config, tmp.path()).with_schedule(Some(String::new()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -307,8 +316,9 @@ async fn test_with_schedule_empty_string_fallback() {
 async fn test_dreaming_scheduler_hourly_cron() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let tmp = tempfile::tempdir().expect("temp dir");
     let mut scheduler =
-        make_scheduler(storage, config).with_schedule(Some("0 * * * *".to_string()));
+        make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 * * * *".to_string()));
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -337,8 +347,8 @@ fn make_test_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
 /// Setup: build a pipeline and miner with dreaming/mining DISABLED, so a
 /// Memory section reload can be verified to flip them on (or stay off).
 fn make_disabled_pipeline_and_miner(
-    db_path: &str,
-    memory_md_path: &str,
+    db_path: &std::path::Path,
+    memory_md_path: &std::path::Path,
 ) -> (Arc<DreamingPipeline>, Arc<MemoryMiner>) {
     let pipeline = Arc::new(DreamingPipeline::with_config(
         closeclaw_config::agents::DreamingConfig {
@@ -353,8 +363,8 @@ fn make_disabled_pipeline_and_miner(
         },
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-        std::path::PathBuf::from(db_path),
-        memory_md_path.to_string(),
+        db_path.to_path_buf(),
+        memory_md_path.to_string_lossy().into_owned(),
     ));
     (pipeline, miner)
 }
@@ -445,11 +455,12 @@ async fn assert_dreaming_status_after_run_once(
 #[tokio::test]
 async fn test_config_change_memory_section_updates_components() {
     // Setup: disabled pipeline/miner, Memory section cache with dreaming on.
-    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-reload"));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache(&config_manager);
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
-        "/tmp/test-memory-reload.db",
-        "/tmp/test-MEMORY-reload.md",
+        &tmp.path().join("memory-reload.db"),
+        &tmp.path().join("MEMORY-reload.md"),
     );
     let scheduler =
         make_config_change_scheduler(pipeline.clone(), miner.clone(), config_manager.clone());
@@ -482,10 +493,11 @@ async fn test_config_change_memory_section_updates_components() {
 #[tokio::test]
 async fn test_config_change_non_memory_ignored() {
     // Setup: disabled pipeline/miner, no Memory section cache involved.
-    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-ignore"));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
-        "/tmp/test-memory-ignore.db",
-        "/tmp/test-MEMORY-ignore.md",
+        &tmp.path().join("memory-ignore.db"),
+        &tmp.path().join("MEMORY-ignore.md"),
     );
     let scheduler =
         make_config_change_scheduler(pipeline.clone(), miner.clone(), config_manager.clone());
@@ -566,9 +578,9 @@ async fn test_immediate_hook_triggers_mining() {
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
 
-    let config_manager = make_test_config_manager(std::path::Path::new("/tmp/test-config-hook"));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
-    let tmp_db = tempfile::tempdir().unwrap();
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
             enabled: true,
@@ -576,8 +588,11 @@ async fn test_immediate_hook_triggers_mining() {
         },
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-        tmp_db.path().join("memory-miner-test.db"),
-        "/tmp/test-MEMORY-hook.md".to_string(),
+        tmp.path().join("memory-miner-test.db"),
+        tmp.path()
+            .join("MEMORY-hook.md")
+            .to_string_lossy()
+            .into_owned(),
     ));
 
     let scheduler = DreamingScheduler::new(storage, config, pipeline, miner, config_manager);
@@ -608,7 +623,8 @@ fn test_dreaming_shutdown_grace_secs_is_ten() {
 async fn test_dreaming_shutdown_no_active_task_exits_immediately() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    let mut scheduler = make_scheduler(storage, config);
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let mut scheduler = make_scheduler(storage, config, tmp.path());
 
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
