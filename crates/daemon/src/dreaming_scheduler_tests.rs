@@ -10,9 +10,11 @@ use closeclaw_common::CompactConfig;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;
 use closeclaw_config::PerAgentSessionConfig;
-use closeclaw_memory::dreaming::DreamingPipeline;
+use closeclaw_memory::dreaming::{DreamingError, DreamingPipeline};
 use closeclaw_memory::miner::MemoryMiner;
-use closeclaw_session::persistence::{AgentRole, PersistenceService, SessionCheckpoint};
+use closeclaw_session::persistence::{
+    AgentRole, DreamingStatus, PersistenceService, SessionCheckpoint,
+};
 
 // ── Test helpers ─────────────────────────────────────────────────────────
 
@@ -428,27 +430,29 @@ async fn run_scheduler_briefly(mut scheduler: DreamingScheduler) {
     assert!(result.is_ok(), "scheduler should exit promptly");
 }
 
-/// Assert: run the pipeline once over a fresh mined+undreamt checkpoint and
-/// verify the dreaming status it ends up with.
-async fn assert_dreaming_status_after_run_once(
+/// Scenario: run the pipeline once over a fresh mined+undreamt checkpoint and
+/// return the dreaming status it ends up with (assertions stay at call sites).
+async fn run_once_and_get_status(
     pipeline: &DreamingPipeline,
     session_id: &str,
-    expected: closeclaw_session::persistence::DreamingStatus,
-    run_ok_msg: &str,
-    status_msg: &str,
-) {
+) -> Result<DreamingStatus, DreamingError> {
     let storage = TestStorage::default();
-    let mut cp = closeclaw_session::persistence::SessionCheckpoint::new(session_id.to_string());
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
     cp.mined = true;
-    cp.dreaming_status = closeclaw_session::persistence::DreamingStatus::Pending;
+    cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
 
-    let result = pipeline.run_once(&storage).await;
-    assert!(result.is_ok(), "{run_ok_msg}");
+    pipeline.run_once(&storage).await?;
 
     let cps = storage.checkpoints.lock().unwrap();
-    let cp = cps.iter().find(|c| c.session_id == session_id).unwrap();
-    assert_eq!(cp.dreaming_status, expected, "{status_msg}");
+    let cp = cps
+        .iter()
+        .find(|c| c.session_id == session_id)
+        .unwrap_or_else(|| {
+            let known: Vec<&str> = cps.iter().map(|c| c.session_id.as_str()).collect();
+            panic!("session {session_id} not found in known checkpoints: {known:?}");
+        });
+    Ok(cp.dreaming_status)
 }
 
 /// Receiving ConfigChangeEvent::Reloaded{section:Memory} updates pipeline/miner config.
@@ -479,14 +483,14 @@ async fn test_config_change_memory_section_updates_components() {
 
     // Assert: pipeline is enabled now, so run_once processes the session
     // (mined+undreamt checkpoint must move Pending → Completed).
-    assert_dreaming_status_after_run_once(
-        &pipeline,
-        "post-reload",
-        closeclaw_session::persistence::DreamingStatus::Completed,
-        "run_once after config reload should succeed",
-        "pipeline should be enabled after config reload",
-    )
-    .await;
+    let status = run_once_and_get_status(&pipeline, "post-reload")
+        .await
+        .expect("run_once after config reload should succeed");
+    assert_eq!(
+        status,
+        DreamingStatus::Completed,
+        "pipeline should be enabled after config reload"
+    );
 }
 
 /// Non-Memory section events do not trigger pipeline/miner config updates.
@@ -513,14 +517,14 @@ async fn test_config_change_non_memory_ignored() {
 
     // Assert: pipeline stays disabled, so the pending session is untouched
     // (mined+undreamt checkpoint must remain Pending).
-    assert_dreaming_status_after_run_once(
-        &pipeline,
-        "ignore-test",
-        closeclaw_session::persistence::DreamingStatus::Pending,
-        "run_once should succeed even when pipeline is disabled",
-        "non-Memory event should not enable pipeline",
-    )
-    .await;
+    let status = run_once_and_get_status(&pipeline, "ignore-test")
+        .await
+        .expect("run_once should succeed even when pipeline is disabled");
+    assert_eq!(
+        status,
+        DreamingStatus::Pending,
+        "non-Memory event should not enable pipeline"
+    );
 }
 
 // ── Step 1.3: Channel safety + immediate hook trigger tests ────────
