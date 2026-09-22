@@ -70,6 +70,25 @@ pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
     cm
 }
 
+/// Create `<root>/config` with the mandatory skeleton written, and return a
+/// loaded `Arc<ConfigManager>` over it — shared base for the per-file
+/// `make_config_manager` test constructors (issue #3148).
+///
+/// The config subdir lives under `root`, matching the production layout
+/// where agent directories resolve to `config_dir.parent()/agents`.
+/// The new + load sequence matches [`load_config_manager`]; the dir
+/// creation and skeleton write make it usable directly on a fresh
+/// TempDir root. Mandatory files only — write extra files (e.g.
+/// `session.json`) before calling this helper if `load` must see them.
+pub fn make_config_manager(root: &std::path::Path) -> Arc<ConfigManager> {
+    let config_dir = root.join("config");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    write_mandatory_configs(&config_dir).expect("mandatory configs");
+    let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
+    cm.load().expect("ConfigManager::load");
+    Arc::new(cm)
+}
+
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus the optional models.json.

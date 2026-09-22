@@ -91,19 +91,19 @@ impl SessionConfigProvider for MockSessionConfigProvider {
     }
 }
 
-/// Build a ConfigManager whose config/ subdir contains the given files.
-/// Note: the session config file is named `session.json` (matching
-/// `ConfigSection::Session.filename()`).
+/// Build a ConfigManager whose `config/` subdir contains the given
+/// `session.json` (named per `ConfigSection::Session.filename()`), on
+/// top of the shared base constructor
+/// [`crate::test_helpers::make_config_manager`].
 fn make_config_manager(dir: &std::path::Path, session_json: Option<&str>) -> Arc<ConfigManager> {
-    let config_dir = dir.join("config");
-    std::fs::create_dir_all(&config_dir).unwrap();
-    crate::test_helpers::write_mandatory_configs(&config_dir).unwrap();
+    // session.json must exist before the base constructor's `load`;
+    // the mandatory skeleton write does not touch it.
     if let Some(json) = session_json {
-        std::fs::write(config_dir.join("session.json"), json).unwrap();
+        let config_dir = dir.join("config");
+        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        std::fs::write(config_dir.join("session.json"), json).expect("write session.json");
     }
-    let cm = Arc::new(ConfigManager::new(config_dir).expect("ConfigManager::new failed"));
-    cm.load().expect("ConfigManager::load failed");
-    cm
+    crate::test_helpers::make_config_manager(dir)
 }
 
 /// Build a SessionManager with default GatewayConfig.
