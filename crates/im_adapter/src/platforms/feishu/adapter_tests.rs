@@ -8,6 +8,7 @@ use crate::plugin::IMPlugin;
 use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
+use serial_test::serial;
 use tempfile::TempDir;
 
 /// Create a test MediaStore rooted in a temp directory.
@@ -533,6 +534,7 @@ fn make_message_event_with_parent_and_root(
 
 // --- Test 1: parent_id + CLI returns text type → content contains blockquote ---
 
+#[serial]
 #[tokio::test]
 async fn test_quote_text_type_prepends_blockquote() {
     let tmp = TempDir::new().unwrap();
@@ -563,6 +565,7 @@ async fn test_quote_text_type_prepends_blockquote() {
 
 // --- Test 2: parent_id + CLI returns post type → content contains expanded blockquote ---
 
+#[serial]
 #[tokio::test]
 async fn test_quote_post_type_prepends_expanded_blockquote() {
     let tmp = TempDir::new().unwrap();
@@ -596,6 +599,7 @@ async fn test_quote_post_type_prepends_expanded_blockquote() {
 // --- Test 3: quote content > 500 chars → truncated with "..." ---
 
 /// Quote truncation at 500 chars and boundary (exactly 500 = no truncation).
+#[serial]
 #[tokio::test]
 async fn test_quote_truncation_boundary() {
     let tmp = TempDir::new().unwrap();
@@ -665,6 +669,7 @@ async fn test_quote_truncation_boundary() {
 
 // --- Test 5: parent_id exists but CLI fails → no blockquote ---
 
+#[serial]
 #[tokio::test]
 async fn test_quote_api_failure_no_blockquote() {
     let tmp = TempDir::new().unwrap();
@@ -682,6 +687,7 @@ async fn test_quote_api_failure_no_blockquote() {
 
 // --- Test 6+7: no parent_id unchanged, image type no blockquote ---
 
+#[serial]
 #[tokio::test]
 async fn test_quote_no_parent_id_and_image_type_unchanged() {
     // No parent_id → behavior unchanged
@@ -713,6 +719,7 @@ async fn test_quote_no_parent_id_and_image_type_unchanged() {
 
 // --- Test 8: parent_id + root_id → thread_id uses root_id, quote still works ---
 
+#[serial]
 #[tokio::test]
 async fn test_quote_with_root_id_thread_uses_root_id() {
     let tmp = TempDir::new().unwrap();

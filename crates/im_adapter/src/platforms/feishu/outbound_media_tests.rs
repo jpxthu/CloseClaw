@@ -3,6 +3,7 @@
 use super::outbound_media::*;
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
+use serial_test::serial;
 use std::fs;
 use std::io::Write;
 use std::sync::Arc;
@@ -326,6 +327,7 @@ fn make_adapter(
 
 /// send_image with workspace-relative path → outbound copy created,
 /// sent path is the outbound copy, returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let tmp = TempDir::new().unwrap();
@@ -354,6 +356,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
 
 /// send_file with absolute path inside media store → outbound copy created,
 /// sent path is the outbound copy, returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     let tmp = TempDir::new().unwrap();
@@ -475,6 +478,7 @@ fn create_success_cli(tmp: &TempDir, data: &str) -> String {
 
 /// upload_image with mock CLI returning non-zero code → SendFailed
 /// with platform error code/msg in error string.
+#[serial]
 #[tokio::test]
 async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
     let tmp = TempDir::new().unwrap();
@@ -500,6 +504,7 @@ async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
 
 /// upload_file with mock CLI returning non-zero code → SendFailed
 /// with platform error code/msg in error string.
+#[serial]
 #[tokio::test]
 async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
     let tmp = TempDir::new().unwrap();
@@ -525,6 +530,7 @@ async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
 
 /// upload_image with mock CLI returning code 0 + image_key → returns
 /// the image key successfully.
+#[serial]
 #[tokio::test]
 async fn test_upload_image_success_returns_image_key() {
     let tmp = TempDir::new().unwrap();
@@ -539,6 +545,7 @@ async fn test_upload_image_success_returns_image_key() {
 
 /// upload_file with mock CLI returning code 0 + file_key → returns
 /// the file key successfully.
+#[serial]
 #[tokio::test]
 async fn test_upload_file_success_returns_file_key() {
     let tmp = TempDir::new().unwrap();
@@ -555,6 +562,7 @@ async fn test_upload_file_success_returns_file_key() {
 ///
 /// The mock script exits 1 with an error code/msg on stderr; the test must
 /// take that exit-1 path (not a spawn failure such as ETXTBSY).
+#[serial]
 #[tokio::test]
 async fn test_send_file_copy_preserved_on_upload_failure() {
     let tmp = TempDir::new().unwrap();
@@ -668,6 +676,7 @@ async fn test_dispatch_send_media_http_url_skips_local_copy() {
 
 /// dispatch_send_media with audio file (file extension) →
 /// validates and copies to outbound before sending.
+#[serial]
 #[tokio::test]
 async fn test_dispatch_send_media_audio_file_outbound_copy() {
     use closeclaw_common::processor::ContentBlock;

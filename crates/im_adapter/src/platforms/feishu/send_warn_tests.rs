@@ -7,6 +7,7 @@
 //! - send_card_json lark-cli command not found → warn + Err
 
 use super::*;
+use serial_test::serial;
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -53,6 +54,7 @@ fn card_payload_with_markdown(text: &str) -> String {
 }
 
 /// send_message: mock CLI returns error code → returns Err (warn logged).
+#[serial]
 #[tokio::test]
 async fn test_send_message_cli_error_returns_err() {
     let tmp = TempDir::new().unwrap();
@@ -87,6 +89,7 @@ async fn test_send_message_cli_error_returns_err() {
 
 /// send_card_json: non-capability error (code 99999) → warn + return Err,
 /// no text fallback attempted.
+#[serial]
 #[tokio::test]
 async fn test_send_card_non_capability_error_returns_err_no_fallback() {
     let tmp = TempDir::new().unwrap();

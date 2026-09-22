@@ -10,6 +10,7 @@
 
 use super::*;
 use crate::plugin::IMPlugin;
+use serial_test::serial;
 use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -202,6 +203,7 @@ fn extract_card_plain_text_no_elements() {
 // =====================================================================
 
 /// text send: mock CLI fails → warn + return Ok(()) per design doc.
+#[serial]
 #[tokio::test]
 async fn text_send_failure_returns_ok() {
     let tmp = TempDir::new().unwrap();
@@ -213,6 +215,7 @@ async fn text_send_failure_returns_ok() {
 }
 
 /// interactive send: mock CLI fails with capability error → text fallback succeeds.
+#[serial]
 #[tokio::test]
 async fn interactive_send_failure_falls_back_to_text_success() {
     let tmp = TempDir::new().unwrap();
@@ -228,6 +231,7 @@ async fn interactive_send_failure_falls_back_to_text_success() {
 }
 
 /// interactive send: mock CLI fails → text fallback also fails → Ok(())
+#[serial]
 #[tokio::test]
 async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
     let tmp = TempDir::new().unwrap();
@@ -260,6 +264,7 @@ async fn unknown_msg_type_returns_err() {
 }
 
 /// Card with no extractable text → empty plain_text → return Ok(())
+#[serial]
 #[tokio::test]
 async fn interactive_empty_text_fallback_returns_ok() {
     let tmp = TempDir::new().unwrap();
@@ -310,6 +315,7 @@ fn card_payload_with_markdown(text: &str) -> String {
     .to_string()
 }
 
+#[serial]
 #[tokio::test]
 async fn send_card_capability_error_fallback_to_text_succeeds() {
     let tmp = TempDir::new().unwrap();
@@ -324,6 +330,7 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
     );
 }
 
+#[serial]
 #[tokio::test]
 async fn send_card_capability_error_fallback_text_also_fails() {
     let tmp = TempDir::new().unwrap();
@@ -338,6 +345,7 @@ async fn send_card_capability_error_fallback_text_also_fails() {
     );
 }
 
+#[serial]
 #[tokio::test]
 async fn send_card_non_capability_error_returns_err() {
     let tmp = TempDir::new().unwrap();
@@ -351,6 +359,7 @@ async fn send_card_non_capability_error_returns_err() {
     );
 }
 
+#[serial]
 #[tokio::test]
 async fn send_card_success_no_fallback() {
     let tmp = TempDir::new().unwrap();
