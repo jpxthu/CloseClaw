@@ -283,12 +283,13 @@ mod tests {
 
     #[test]
     fn state_reset_clears_all() {
-        let mut state = FeishuStreamingState::default();
-        state.card_id = Some("card_123".to_string());
-        state.sequence = 5;
-        state.is_active = true;
-        state.last_update = Some(Instant::now());
-        state.pending_text = "some text".to_string();
+        let mut state = FeishuStreamingState {
+            card_id: Some("card_123".to_string()),
+            sequence: 5,
+            is_active: true,
+            last_update: Some(Instant::now()),
+            pending_text: "some text".to_string(),
+        };
         state.reset();
         assert!(state.card_id.is_none());
         assert_eq!(state.sequence, 0);
