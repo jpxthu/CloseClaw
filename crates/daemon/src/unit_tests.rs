@@ -597,15 +597,15 @@ fn assert_chain_entry_ids(chain: &[closeclaw_llm::unified_fallback::ChainEntry])
     // Verify model_id equals provider_id for each entry
     assert_eq!(
         chain[0].model_id, "openai",
-        "model_id should equal_provider_id"
+        "model_id should equal provider_id"
     );
     assert_eq!(
         chain[1].model_id, "anthropic",
-        "model_id should equal_provider_id"
+        "model_id should equal provider_id"
     );
     assert_eq!(
         chain[2].model_id, "minimax",
-        "model_id should equal_provider_id"
+        "model_id should equal provider_id"
     );
 }
 

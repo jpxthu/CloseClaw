@@ -13,3 +13,5 @@ pub use reload::DaemonReloadCallback;
 
 #[cfg(test)]
 mod manager_reload_tests;
+#[cfg(test)]
+mod reload_tests;
