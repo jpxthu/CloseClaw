@@ -17,7 +17,8 @@ User 上下文的来源由场景决定：IM 消息来自发送者、心跳（Hea
 
 > **交叉引用**：CLI 渠道的 User 上下文详见 [cli §F1](cli.md)（终端对话）。
 > **交叉引用**：IM 消息的发送者标识等入站归一化字段详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
-> **交叉引用**：机器人与 Agent 的绑定（账户绑定）、IM 用户与 User 的绑定存储详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：机器人 ↔ Agent、IM 用户 ↔ User 两类双向绑定（含入站/出站方向与基数规则）的权威定义与存储详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：跨平台身份映射在完整消息流中的角色详见 [message_flow §F3](message_flow.md)（跨机器人双接收与身份归并）——建议结合阅读以理解完整产品流程。
 > **交叉引用**：消息路由到 Agent 详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：平台身份标识按接收方应用语境取值、跨应用隔离（如飞书 open_id）详见 [im_adapter/feishu §F1](im_adapter/feishu.md)（飞书入站消息接收）。
