@@ -5,7 +5,6 @@ use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use serial_test::serial;
 use std::fs;
-use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -287,28 +286,29 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // send_media_file integration — outbound copy before send
 // =================================================================
 
-/// Helper: create a mock CLI that records args to a file and succeeds.
-fn create_echo_cli(tmp: &TempDir) -> String {
-    use std::io::Write;
-    let script = tmp.path().join("echo.sh");
-    let args_file = tmp.path().join("captured_args");
-    let args_path = args_file.to_str().unwrap().to_string();
-    // Atomic create: write to a temp name in the same directory, close the
-    // handle, then rename into place so the exec path never coexists with
-    // an open write handle (avoids ETXTBSY on spawn).
-    let script_tmp = tmp.path().join("echo.sh.tmp");
-    {
-        let mut f = std::fs::File::create(&script_tmp).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo \"$@\" > {args_path}").unwrap();
-        writeln!(f, "echo '{{\"code\":0}}'").unwrap();
-    } // write handle dropped here
-    std::fs::rename(&script_tmp, &script).unwrap();
+/// Helper: write a mock shell script atomically — temp-name write, handle
+/// closed, rename into place, chmod 0755 — so the exec path never coexists
+/// with an open write handle (avoids ETXTBSY on spawn).
+fn write_mock_script(path: &std::path::Path, content: &str) {
+    let mut tmp_name = path.as_os_str().to_os_string();
+    tmp_name.push(".tmp");
+    let script_tmp = std::path::PathBuf::from(tmp_name);
+    std::fs::write(&script_tmp, content).unwrap(); // write & close before rename
+    std::fs::rename(&script_tmp, path).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(path, PermissionsExt::from_mode(0o755)).unwrap();
     }
+}
+
+/// Helper: create a mock CLI that records args to a file and succeeds.
+fn create_echo_cli(tmp: &TempDir) -> String {
+    let script = tmp.path().join("echo.sh");
+    let args_file = tmp.path().join("captured_args");
+    let args_path = args_file.to_str().unwrap().to_string();
+    let content = format!("#!/bin/bash\necho \"$@\" > {args_path}\necho '{{\"code\":0}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
@@ -436,21 +436,8 @@ async fn test_send_file_whitelist_violation_skips_send() {
 /// with a non-zero code and error message.
 fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
     let script = tmp.path().join("reject.sh");
-    // Atomic create: write temp → close handle → rename into place → chmod,
-    // so the exec path only exists after the write handle is gone
-    // (avoids ETXTBSY on spawn).
-    let script_tmp = tmp.path().join("reject.sh.tmp");
-    {
-        let mut f = std::fs::File::create(&script_tmp).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{{\"code\":{code},\"msg\":\"{msg}\"}}'").unwrap();
-    } // write handle dropped here
-    std::fs::rename(&script_tmp, &script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = format!("#!/bin/bash\necho '{{\"code\":{code},\"msg\":\"{msg}\"}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
@@ -458,21 +445,8 @@ fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
 /// with the given data payload.
 fn create_success_cli(tmp: &TempDir, data: &str) -> String {
     let script = tmp.path().join("success.sh");
-    // Atomic create: write temp → close handle → rename into place → chmod,
-    // so the exec path only exists after the write handle is gone
-    // (avoids ETXTBSY on spawn).
-    let script_tmp = tmp.path().join("success.sh.tmp");
-    {
-        let mut f = std::fs::File::create(&script_tmp).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'").unwrap();
-    } // write handle dropped here
-    std::fs::rename(&script_tmp, &script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = format!("#!/bin/bash\necho '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
@@ -566,22 +540,17 @@ async fn test_upload_file_success_returns_file_key() {
 #[tokio::test]
 async fn test_send_file_copy_preserved_on_upload_failure() {
     let tmp = TempDir::new().unwrap();
-    // Failing mock CLI. The write handle must be closed before send_file()
-    // spawns it: a write handle alive across the spawn makes execve fail
-    // with ETXTBSY (Text file busy).
+    // Failing mock CLI, created via write_mock_script (temp write → handle
+    // closed → rename → chmod): no write handle is alive when send_file()
+    // spawns it, so execve cannot fail with ETXTBSY (Text file busy).
     let script = tmp.path().join("fail.sh");
-    {
-        let mut f = std::fs::File::create(&script).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{{\"code\":999,\"msg\":\"upload rejected\"}}' >&2").unwrap();
-        writeln!(f, "echo '{{\"code\":999,\"msg\":\"upload rejected\"}}'").unwrap();
-        writeln!(f, "exit 1").unwrap();
-    } // write handle dropped here, before any spawn
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = concat!(
+        "#!/bin/bash\n",
+        "echo '{\"code\":999,\"msg\":\"upload rejected\"}' >&2\n",
+        "echo '{\"code\":999,\"msg\":\"upload rejected\"}'\n",
+        "exit 1\n",
+    );
+    write_mock_script(&script, content);
     let cli = script.to_str().unwrap().to_string();
 
     let file = tmp.path().join("doc.pdf");
