@@ -25,7 +25,8 @@
 
 > **交叉引用**：步骤 2 的飞书实现详见 [im_adapter/feishu §F1](im_adapter/feishu.md)（飞书入站消息接收）。
 > **交叉引用**：步骤 3 详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
-> **交叉引用**：步骤 5 详见 [gateway §F2](gateway.md)（入站消息预处理）、[gateway §F3](gateway.md)（消息类型识别与非文本处理）；斜杠指令的拦截与分派详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+> **交叉引用**：步骤 5 预处理与类型识别详见 [gateway §F2](gateway.md)（入站消息预处理）、[gateway §F3](gateway.md)（消息类型识别与非文本处理）。
+> **交叉引用**：斜杠指令的拦截与分派详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：步骤 6 详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：步骤 7 详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：步骤 4、6 所用绑定的定义与基数规则详见 [config §F1](config.md)（多文件配置结构）。
@@ -40,10 +41,12 @@ Agent 回复从生成到送达用户的完整步骤：
 4. 渲染与发送分离，经平台 API 发送。
 5. 话题型消息携带话题标识，定向回复到对应 Session 的话题。
 
-> **交叉引用**：步骤 1 详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）、[im_adapter §F4](im_adapter.md)（流式增量渲染）、[im_adapter/feishu §F4](im_adapter/feishu.md)（飞书卡片渲染）。
+> **交叉引用**：步骤 1 格式选择详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）、[im_adapter §F4](im_adapter.md)（流式增量渲染）。
+> **交叉引用**：飞书卡片渲染详见 [im_adapter/feishu §F4](im_adapter/feishu.md)（飞书卡片渲染）。
 > **交叉引用**：步骤 2 详见 [gateway §F7](gateway.md)（出站消息统一处理）。
 > **交叉引用**：步骤 3 所用绑定的定义详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：步骤 4 详见 [im_adapter §F6](im_adapter.md)（渲染与发送分离）、[im_adapter/feishu §F3](im_adapter/feishu.md)（飞书消息发送）。
+> **交叉引用**：步骤 4 渲染与发送分离详见 [im_adapter §F6](im_adapter.md)（渲染与发送分离）。
+> **交叉引用**：飞书消息发送详见 [im_adapter/feishu §F3](im_adapter/feishu.md)（飞书消息发送）。
 > **交叉引用**：步骤 5 详见 [im_adapter/feishu §F7](im_adapter/feishu.md)（飞书话题与 Session 匹配）。
 
 ### F3. 跨机器人双接收与身份归并
@@ -58,4 +61,4 @@ Agent 回复从生成到送达用户的完整步骤：
 
 ## 非功能需求
 
-各环节的可靠性、性能、安全等质量属性由对应模块需求文档定义，本模块不重复。
+- **可靠性**：入站与出站链路的任意环节异常时，系统降级或回滚的边界由各环节对应模块需求文档定义，本模块不重复；各环节的质量期望见对应模块文档。
