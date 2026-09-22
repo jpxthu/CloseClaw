@@ -19,12 +19,29 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件，集中存
 - 插件列表
 - Session 参数
 
-后续如有系统设置，可考虑单列一个配置文件。其中「账户绑定」记录 IM 侧身份与 CloseClaw 侧身份的对应关系：机器人对应到 Agent，IM 用户对应到 User。
+后续如有系统设置，可考虑单列一个配置文件。
+
+其中「账户绑定」建立 IM 侧身份与 CloseClaw 侧身份的双向关系，分两类：
+
+**双向遍历**——同一份绑定按消息流向被反向遍历：
+
+- **机器人 ↔ Agent**：
+  - 入站：按接收方 bot 解析出 Agent（消息路由）。
+  - 出站：按 Agent 解析出 bot（发送通道）。
+- **IM 用户 ↔ User**：
+  - 入站：按发送者解析出 User（会话归属、权限主体）。
+  - 出站：按 User 解析出 User 对应的 IM 用户（@ 解析）。
+
+**基数**：
+
+- 单个 IM 平台下，IM 用户 ↔ User、机器人 ↔ Agent 各自一一对应。
+- 单个 CloseClaw User 可对应多个 IM 平台的用户；单个 CloseClaw Agent 可对应多个 IM 平台的机器人。
+跨平台身份归并由身份映射保证，详见 [permission §F1](permission.md)（身份体系）。
 
 CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中列出的 Agent ID 才会被加载，目录中存在但未注册的 Agent 配置会被忽略。注册清单支持注释格式，注释掉某行即取消注册。每个 Agent 拥有独立的配置目录，存放该 Agent 的配置文件。
 
 > **交叉引用**：配置目录的操作系统标准位置详见 [platform §F2](platform.md)（操作系统标准配置目录）。
-> **交叉引用**：账户绑定中 User 身份与绑定规则详见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：身份体系与跨平台身份映射详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
 > **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
@@ -85,7 +102,11 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 记忆配置 | 边界生效（下次触发） | [memory §F7](memory.md)（记忆功能的精细化开关） |
 | 日志级别与保留期 | 边界生效（下一条日志/下次清理） | [debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留） |
 | workflow 定义 | 边界生效（下次 workflow 启动） | [workflow §F1](workflow.md)（workflow 定义） |
-| 机器人↔Agent 绑定、Gateway 服务参数、平台启用清单、模型与凭据定义 | 重启生效（择机重启后生效） | 本节判定标准；重启行为见 [daemon §F6](daemon.md)（配置触发的网关重启） |
+| 机器人 → Agent（入站路由） | 重启生效 | [gateway §F4](gateway.md)（普通消息路由到对话） |
+| Agent → 机器人（出站选择） | 重启生效 | [gateway §F4](gateway.md)（普通消息路由到对话） |
+| IM 用户 → User（入站识别） | 即时生效 | [permission §F1](permission.md)（身份体系） |
+| User → IM 用户（出站解析） | 即时生效 | [permission §F1](permission.md)（身份体系） |
+| Gateway 服务参数、平台启用清单、模型与凭据定义 | 重启生效（择机重启后生效） | 本节判定标准；重启行为见 [daemon §F6](daemon.md)（配置触发的网关重启） |
 
 > 本表为汇总索引，各配置生效机制的权威定义为「定义位置」所列模块文档；若各模块文档与本表不一致，以各模块文档为准，并修订本表与之一致。
 
