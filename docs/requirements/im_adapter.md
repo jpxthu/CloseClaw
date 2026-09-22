@@ -36,7 +36,7 @@ CloseClaw 需要支持多种 IM 平台，每个平台以独立插件形式接入
 
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：机器人 ↔ Agent、IM 用户 ↔ User 两类双向绑定（含入站/出站方向与基数规则）的权威定义详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：入站归一化在完整消息流链路中的位置详见 [message_flow](message_flow.md)（完整消息流）——建议结合阅读以理解完整产品流程。
+> **交叉引用**：入站归一化在完整消息流链路中的位置详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
 > **交叉引用**：User 身份体系与绑定规则详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：Session 的确定、查找、创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：飞书标识的名称与取值语义详见 [im_adapter/feishu §F1](im_adapter/feishu.md)（飞书入站消息接收）。
