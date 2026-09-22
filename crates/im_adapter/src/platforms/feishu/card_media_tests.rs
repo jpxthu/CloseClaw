@@ -9,6 +9,7 @@
 //! - unknown tag → skipped
 
 use super::*;
+use serial_test::serial;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -281,6 +282,7 @@ async fn test_process_card_media_file_http_url_skipped() {
 // ===========================================================================
 
 /// Audio element with local file: upload succeeds, file_token replaced with platform key.
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_audio_success() {
     let tmp = TempDir::new().unwrap();
@@ -319,6 +321,7 @@ async fn test_process_card_media_audio_success() {
 }
 
 /// File element with local file: upload succeeds, file_token replaced with platform key.
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_file_success() {
     let tmp = TempDir::new().unwrap();

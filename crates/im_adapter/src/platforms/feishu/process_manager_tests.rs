@@ -9,6 +9,7 @@
 //! - Process lifecycle (PID, running state)
 
 use super::process_manager::*;
+use serial_test::serial;
 use std::os::unix::fs::PermissionsExt;
 
 // ===========================================================================
@@ -284,6 +285,7 @@ fn test_parse_event_line_deeply_nested() {
 // ProcessManager lifecycle tests
 // ===========================================================================
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_start_and_receive_events() {
     let cli_event = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
@@ -314,6 +316,7 @@ async fn test_process_manager_start_and_receive_events() {
     manager.shutdown().await.unwrap();
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_empty_output() {
     let (_dir, script) = create_mock_script(&[]);
@@ -328,6 +331,7 @@ async fn test_process_manager_empty_output() {
     manager.shutdown().await.unwrap();
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_ready_timeout() {
     let dir = tempfile::TempDir::new().unwrap();
@@ -365,6 +369,7 @@ async fn test_process_manager_parse_event_exposed() {
     }
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_process_id() {
     let (_dir, script) = create_mock_script(&[]);
@@ -377,6 +382,7 @@ async fn test_process_manager_process_id() {
     manager.shutdown().await.unwrap();
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_graceful_shutdown() {
     let event = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;
@@ -395,6 +401,7 @@ async fn test_process_manager_graceful_shutdown() {
     assert!(!manager.is_running());
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_burst_events() {
     let (_dir, script) = create_burst_script(100);
@@ -426,6 +433,7 @@ async fn test_process_manager_new_defaults() {
     assert_eq!(manager.args, vec!["event", "consume"]);
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_double_shutdown() {
     let (_dir, script) = create_mock_script(&[]);
@@ -445,6 +453,7 @@ async fn test_process_manager_invalid_command() {
     assert!(result.is_err());
 }
 
+#[serial]
 #[tokio::test]
 async fn test_process_manager_event_channel_dropped() {
     let event = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;

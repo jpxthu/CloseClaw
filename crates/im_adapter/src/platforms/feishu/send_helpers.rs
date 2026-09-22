@@ -382,6 +382,7 @@ pub(crate) fn is_capability_error(error_msg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::io::Write;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -425,6 +426,7 @@ mod tests {
         adapter
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_run_cli_success() {
         let tmp = TempDir::new().unwrap();
@@ -434,6 +436,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_run_cli_error_code() {
         let tmp = TempDir::new().unwrap();
@@ -450,6 +453,7 @@ mod tests {
         }
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_run_cli_non_json_output() {
         let tmp = TempDir::new().unwrap();
@@ -459,6 +463,7 @@ mod tests {
         assert!(result.is_ok());
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_run_cli_process_failure() {
         let tmp = TempDir::new().unwrap();
@@ -551,6 +556,7 @@ mod tests {
         script_path.to_str().unwrap().to_string()
     }
 
+    #[serial]
     #[tokio::test]
     async fn test_run_cli_inserts_profile_arg() {
         let tmp = TempDir::new().unwrap();
@@ -578,6 +584,7 @@ mod tests {
     // =====================================================================
 
     /// Composite peer_id without reply_ref → extract user-id, send new message.
+    #[serial]
     #[tokio::test]
     async fn test_send_msg_composite_peer_id_no_reply() {
         let tmp = TempDir::new().unwrap();
@@ -596,6 +603,7 @@ mod tests {
     }
 
     /// Composite peer_id with Thread reply_ref → use +messages-reply --reply-in-thread.
+    #[serial]
     #[tokio::test]
     async fn test_send_msg_composite_peer_id_thread_reply() {
         let tmp = TempDir::new().unwrap();
@@ -617,6 +625,7 @@ mod tests {
     }
 
     /// Composite peer_id with Message reply_ref → use +messages-reply without --reply-in-thread.
+    #[serial]
     #[tokio::test]
     async fn test_send_msg_composite_peer_id_message_reply() {
         let tmp = TempDir::new().unwrap();
@@ -638,6 +647,7 @@ mod tests {
     }
 
     /// Simple (non-composite) peer_id without reply_ref → send new message.
+    #[serial]
     #[tokio::test]
     async fn test_send_msg_simple_peer_id_no_reply() {
         let tmp = TempDir::new().unwrap();
@@ -653,6 +663,7 @@ mod tests {
     }
 
     /// Composite peer_id with group chat (oc_) → extract user-id portion.
+    #[serial]
     #[tokio::test]
     async fn test_send_msg_composite_peer_id_group_chat() {
         let tmp = TempDir::new().unwrap();
@@ -679,6 +690,7 @@ mod tests {
     /// Places a source file in the media store's storage dir (which is under cwd),
     /// so `prepare_outbound_local_media` copies it to outbound/ and `send_media_file`
     /// converts the outbound path to relative.
+    #[serial]
     #[tokio::test]
     async fn test_send_media_file_outbound_under_cwd_uses_relative_path() {
         // Create temp dir under the project cwd so outbound path can be stripped.
@@ -722,6 +734,7 @@ mod tests {
     ///
     /// Places media store under /tmp (outside project cwd), so the outbound path
     /// cannot be stripped to a cwd-relative path.
+    #[serial]
     #[tokio::test]
     async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
         let external_dir = TempDir::new_in("/tmp").unwrap();

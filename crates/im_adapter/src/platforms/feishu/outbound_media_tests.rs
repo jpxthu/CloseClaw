@@ -3,8 +3,8 @@
 use super::outbound_media::*;
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
+use serial_test::serial;
 use std::fs;
-use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -286,21 +286,29 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // send_media_file integration — outbound copy before send
 // =================================================================
 
-/// Helper: create a mock CLI that records args to a file and succeeds.
-fn create_echo_cli(tmp: &TempDir) -> String {
-    use std::io::Write;
-    let script = tmp.path().join("echo.sh");
-    let args_file = tmp.path().join("captured_args");
-    let args_path = args_file.to_str().unwrap().to_string();
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo \"$@\" > {args_path}").unwrap();
-    writeln!(f, "echo '{{\"code\":0}}'").unwrap();
+/// Helper: write a mock shell script atomically — temp-name write, handle
+/// closed, rename into place, chmod 0755 — so the exec path never coexists
+/// with an open write handle (avoids ETXTBSY on spawn).
+fn write_mock_script(path: &std::path::Path, content: &str) {
+    let mut tmp_name = path.as_os_str().to_os_string();
+    tmp_name.push(".tmp");
+    let script_tmp = std::path::PathBuf::from(tmp_name);
+    std::fs::write(&script_tmp, content).unwrap(); // write & close before rename
+    std::fs::rename(&script_tmp, path).unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
+        std::fs::set_permissions(path, PermissionsExt::from_mode(0o755)).unwrap();
     }
+}
+
+/// Helper: create a mock CLI that records args to a file and succeeds.
+fn create_echo_cli(tmp: &TempDir) -> String {
+    let script = tmp.path().join("echo.sh");
+    let args_file = tmp.path().join("captured_args");
+    let args_path = args_file.to_str().unwrap().to_string();
+    let content = format!("#!/bin/bash\necho \"$@\" > {args_path}\necho '{{\"code\":0}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
@@ -319,6 +327,7 @@ fn make_adapter(
 
 /// send_image with workspace-relative path → outbound copy created,
 /// sent path is the outbound copy, returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let tmp = TempDir::new().unwrap();
@@ -347,6 +356,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
 
 /// send_file with absolute path inside media store → outbound copy created,
 /// sent path is the outbound copy, returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     let tmp = TempDir::new().unwrap();
@@ -426,14 +436,8 @@ async fn test_send_file_whitelist_violation_skips_send() {
 /// with a non-zero code and error message.
 fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
     let script = tmp.path().join("reject.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"{msg}\"}}'").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = format!("#!/bin/bash\necho '{{\"code\":{code},\"msg\":\"{msg}\"}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
@@ -441,19 +445,14 @@ fn create_reject_cli(tmp: &TempDir, code: i64, msg: &str) -> String {
 /// with the given data payload.
 fn create_success_cli(tmp: &TempDir, data: &str) -> String {
     let script = tmp.path().join("success.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = format!("#!/bin/bash\necho '{{\"code\":0,\"msg\":\"ok\",\"data\":{data}}}'\n");
+    write_mock_script(&script, &content);
     script.to_str().unwrap().to_string()
 }
 
 /// upload_image with mock CLI returning non-zero code → SendFailed
 /// with platform error code/msg in error string.
+#[serial]
 #[tokio::test]
 async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
     let tmp = TempDir::new().unwrap();
@@ -479,6 +478,7 @@ async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
 
 /// upload_file with mock CLI returning non-zero code → SendFailed
 /// with platform error code/msg in error string.
+#[serial]
 #[tokio::test]
 async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
     let tmp = TempDir::new().unwrap();
@@ -504,6 +504,7 @@ async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
 
 /// upload_image with mock CLI returning code 0 + image_key → returns
 /// the image key successfully.
+#[serial]
 #[tokio::test]
 async fn test_upload_image_success_returns_image_key() {
     let tmp = TempDir::new().unwrap();
@@ -518,6 +519,7 @@ async fn test_upload_image_success_returns_image_key() {
 
 /// upload_file with mock CLI returning code 0 + file_key → returns
 /// the file key successfully.
+#[serial]
 #[tokio::test]
 async fn test_upload_file_success_returns_file_key() {
     let tmp = TempDir::new().unwrap();
@@ -531,32 +533,50 @@ async fn test_upload_file_success_returns_file_key() {
 }
 
 /// Copy to outbound preserved even when upload (lark-cli) fails.
+///
+/// The mock script exits 1 with an error code/msg on stderr; the test must
+/// take that exit-1 path (not a spawn failure such as ETXTBSY).
+#[serial]
 #[tokio::test]
 async fn test_send_file_copy_preserved_on_upload_failure() {
     let tmp = TempDir::new().unwrap();
-    // Failing mock CLI.
-    use std::io::Write;
+    // Failing mock CLI, created via write_mock_script (temp write → handle
+    // closed → rename → chmod): no write handle is alive when send_file()
+    // spawns it, so execve cannot fail with ETXTBSY (Text file busy).
     let script = tmp.path().join("fail.sh");
-    let mut f = std::fs::File::create(&script).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":999}}' >&2").unwrap();
-    writeln!(f, "echo '{{\"code\":999}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = concat!(
+        "#!/bin/bash\n",
+        "echo '{\"code\":999,\"msg\":\"upload rejected\"}' >&2\n",
+        "echo '{\"code\":999,\"msg\":\"upload rejected\"}'\n",
+        "exit 1\n",
+    );
+    write_mock_script(&script, content);
     let cli = script.to_str().unwrap().to_string();
 
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "pdf content").unwrap();
     let adapter = make_adapter(&cli, tmp.path(), None);
-    // send_file should fail (lark-cli error) but outbound copy is preserved.
     let result = adapter
         .send_file("oc_chat_fail", file.to_str().unwrap())
         .await;
-    assert!(result.is_err(), "lark-cli failure should propagate as Err");
+    // Must be the script's exit-1 failure, never a spawn failure (ETXTBSY).
+    match result {
+        Err(AdapterError::SendFailed(msg)) => {
+            assert!(
+                !msg.contains("lark-cli spawn error"),
+                "spawn failure: {msg}"
+            );
+            assert!(
+                msg.contains("lark-cli exited with code Some(1)"),
+                "expect script exit-1, got: {msg}"
+            );
+            assert!(
+                msg.contains("\"code\":999") && msg.contains("upload rejected"),
+                "expect script error code/msg, got: {msg}"
+            );
+        }
+        other => panic!("expected SendFailed, got: {other:?}"),
+    }
     let outbound = adapter.media_store.outbound_dir().join("doc.pdf");
     assert!(
         outbound.exists(),
@@ -625,6 +645,7 @@ async fn test_dispatch_send_media_http_url_skips_local_copy() {
 
 /// dispatch_send_media with audio file (file extension) →
 /// validates and copies to outbound before sending.
+#[serial]
 #[tokio::test]
 async fn test_dispatch_send_media_audio_file_outbound_copy() {
     use closeclaw_common::processor::ContentBlock;
