@@ -365,7 +365,7 @@ fn make_disabled_pipeline_and_miner(
         },
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
         Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-        db_path.to_path_buf(),
+        db_path,
         memory_md_path.to_string_lossy().into_owned(),
     ));
     (pipeline, miner)
