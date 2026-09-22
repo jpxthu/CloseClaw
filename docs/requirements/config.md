@@ -45,6 +45,7 @@ CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
 > **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：本节定义的绑定在完整消息流链路中的使用位置详见 [message_flow](message_flow.md)（完整消息流故事）。
 
 ### F2. 安全写入
 

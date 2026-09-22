@@ -20,6 +20,7 @@
 | [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、交互按钮 | ✅
 | [llm](llm.md) | 多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | Session 后自动挖掘记忆、实体体系、升格为行为规则 | ✅
+| [message_flow](message_flow.md) | 完整消息流：入站（IM → Agent）与出站（Agent → IM）产品链路概述 | ✅
 | [mode](mode.md) | Plan Mode / Auto Mode、plan 文件、执行与失败处理 | ✅
 | [permission](permission.md) | 身份型访问控制、审批工作流、子 Session 权限继承 | ✅
 | [platform](platform.md) | 跨平台进程与路径管理、终端自适应、系统差异隔离 | ✅
