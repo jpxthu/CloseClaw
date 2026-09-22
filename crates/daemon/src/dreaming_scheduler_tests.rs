@@ -414,16 +414,40 @@ async fn notify_section_reload(
     tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 }
 
-/// Scenario: run the scheduler loop so it can receive and process pending
-/// config events, then shut it down and verify prompt exit.
-async fn run_scheduler_briefly(mut scheduler: DreamingScheduler) {
+/// Poll `ready` until it holds, failing the test if it doesn't within 1s.
+///
+/// Deterministic substitute for fixed sleeps: waits on an observable state
+/// flip (e.g. config taking effect) with a deadline instead of guessing a
+/// wall-clock window (STANDARDS §9: 确定性优先).
+async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(1);
+    loop {
+        if ready() {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out after 1s waiting for {what}"
+        );
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// Scenario: run the scheduler loop, wait for `event_consumed` — the
+/// caller's signal that the pending config event has been received and
+/// applied (an observable state flip; or a bounded window when the event
+/// intentionally produces no observable change) — then shut the loop down
+/// and verify prompt exit.
+async fn run_scheduler_briefly(
+    mut scheduler: DreamingScheduler,
+    event_consumed: impl std::future::Future<Output = ()>,
+) {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
         scheduler.run(shutdown_rx).await;
     });
 
-    // Give the loop time to start, receive the event, and process it.
-    tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+    event_consumed.await;
     shutdown_tx.send(()).unwrap();
 
     let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
@@ -479,7 +503,16 @@ async fn test_config_change_memory_section_updates_components() {
         "memory.json",
     )
     .await;
-    run_scheduler_briefly(scheduler).await;
+    // Deterministic signal: handle_config_change() updates the pipeline and
+    // then the miner, so miner flipping to enabled proves the Memory reload
+    // event was consumed and applied (pipeline update precedes it).
+    run_scheduler_briefly(
+        scheduler,
+        wait_until("Memory section reload applied (miner enabled)", || {
+            miner.is_enabled()
+        }),
+    )
+    .await;
 
     // Assert: pipeline is enabled now, so run_once processes the session
     // (mined+undreamt checkpoint must move Pending → Completed).
@@ -513,7 +546,17 @@ async fn test_config_change_non_memory_ignored() {
         "gateway.json",
     )
     .await;
-    run_scheduler_briefly(scheduler).await;
+    // Conservative fixed window (#3148 item 4): a non-Memory event is
+    // intentionally a no-op — it produces NO observable state change, and
+    // that absence is exactly what this test asserts — so unlike the Memory
+    // path there is no consumption signal to poll. The scheduler's config
+    // receiver subscribed at construction, so the event is already buffered;
+    // the 200ms only needs to cover the spawned loop reaching its first
+    // select poll, where the buffered event is drained.
+    run_scheduler_briefly(scheduler, async {
+        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await
+    })
+    .await;
 
     // Assert: pipeline stays disabled, so the pending session is untouched
     // (mined+undreamt checkpoint must remain Pending).
