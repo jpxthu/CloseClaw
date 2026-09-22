@@ -21,22 +21,16 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件，集中存
 
 后续如有系统设置，可考虑单列一个配置文件。
 
-其中「账户绑定」建立 IM 侧身份与 CloseClaw 侧身份的双向关系，分两类：
+#### 账户绑定
 
-**双向遍历**——同一份绑定按消息流向被反向遍历：
+「账户绑定」建立 IM 侧身份与 CloseClaw 侧身份的双向关系，分两类。每类绑定按消息流向被反向遍历：
 
-- **机器人 ↔ Agent**：
-  - 入站：按接收方 bot 解析出 Agent（消息路由）。
-  - 出站：按 Agent 解析出 bot（发送通道）。
-- **IM 用户 ↔ User**：
-  - 入站：按发送者解析出 User（会话归属、权限主体）。
-  - 出站：按 User 解析出 User 对应的 IM 用户（@ 解析）。
+- **机器人 ↔ Agent**：入站按接收方 bot 解析出 Agent（消息路由）；出站按 Agent 解析出 bot（发送通道）。
+- **IM 用户 ↔ User**：入站按发送者解析出 User（会话归属、权限主体）；出站按 User 解析出该 User 对应的 IM 用户（@ 解析）。
 
-**基数**：
+基数：单个 IM 平台下，IM 用户 ↔ User、机器人 ↔ Agent 各自一一对应；单个 CloseClaw User 可对应多个 IM 平台的用户，单个 CloseClaw Agent 可对应多个 IM 平台的机器人。跨平台身份归并由身份映射保证（详见 [permission §F1](permission.md)（身份体系））。
 
-- 单个 IM 平台下，IM 用户 ↔ User、机器人 ↔ Agent 各自一一对应。
-- 单个 CloseClaw User 可对应多个 IM 平台的用户；单个 CloseClaw Agent 可对应多个 IM 平台的机器人。
-跨平台身份归并由身份映射保证，详见 [permission §F1](permission.md)（身份体系）。
+#### Agent 注册清单
 
 CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中列出的 Agent ID 才会被加载，目录中存在但未注册的 Agent 配置会被忽略。注册清单支持注释格式，注释掉某行即取消注册。每个 Agent 拥有独立的配置目录，存放该 Agent 的配置文件。
 
@@ -45,7 +39,7 @@ CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
 > **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
-> **交叉引用**：本节定义的绑定在完整消息流链路中的使用位置详见 [message_flow](message_flow.md)（完整消息流故事）。
+> **交叉引用**：本模块定义的绑定在完整消息流链路中的使用位置详见 [message_flow](message_flow.md)（完整消息流）——建议结合阅读以理解完整产品流程。
 
 ### F2. 安全写入
 

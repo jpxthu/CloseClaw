@@ -42,7 +42,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 > **交叉引用**：User 身份体系与绑定规则详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：Session 活跃状态判定与消息排队行为详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：机器人 ↔ Agent 双向绑定（入站路由、出站选择）与基数规则详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：本节在完整消息流链路中的位置详见 [message_flow](message_flow.md)（完整消息流故事）。
+> **交叉引用**：本节在完整消息流链路中的位置详见 [message_flow](message_flow.md)（完整消息流）——建议结合阅读以理解完整产品流程。
 > **交叉引用**：配置重载详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：生效机制与重启类判定详见 [config §F7](config.md)（生效机制与重启类判定）。
 
@@ -77,7 +77,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 
 > **交叉引用**：出站消息按目标平台的要求展示，格式自动选择由 IM Adapter 模块负责。详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）。
 > **交叉引用**：选 bot 走「Agent → 机器人」方向，绑定与基数规则详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：本节在出站链路中的位置详见 [message_flow](message_flow.md)（完整消息流故事）。
+> **交叉引用**：本节在出站链路中的位置详见 [message_flow](message_flow.md)（完整消息流）——建议结合阅读以理解完整产品流程。
 
 ### F8. 调试日志
 
