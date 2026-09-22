@@ -107,7 +107,8 @@ fn test_build_permission_engine_user_defaults_not_engine_default() {
     assert_ne!(
         ud.message,
         Effect::Allow,
-        "user_defaults.message must be Deny, not Allow (would indicate Defaults::default() was used)"
+        "user_defaults.message must be Deny, not Allow \
+         (would indicate Defaults::default() was used)"
     );
 }
 
@@ -225,17 +226,12 @@ async fn test_phase3_join_handles_taken_after_stop() {
 async fn test_phase3_background_tasks_exit_on_signal() {
     let (tx, rx) = tokio::sync::watch::channel(());
 
-    // Spawn a mock background task that watches for shutdown
+    // Spawn a mock background task that watches for shutdown.
+    // Exit must genuinely depend on the signal (first change), not on
+    // an always-true initial-value check.
     let handle = tokio::spawn(async move {
         let mut rx = rx;
-        loop {
-            if *rx.borrow_and_update() == () {
-                break;
-            }
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
+        let _ = rx.changed().await;
     });
 
     // Send shutdown signal
@@ -250,6 +246,38 @@ async fn test_phase3_background_tasks_exit_on_signal() {
     assert!(join_result.is_ok(), "task should not panic");
 }
 
+/// Negative guard for the mock exit semantics: with no shutdown signal
+/// sent, the mock task must NOT exit within a grace period — its exit
+/// genuinely depends on `tx.send(())`. This locks the signal-driven
+/// semantics and prevents regressing to an always-true check that
+/// passes regardless of the signal.
+#[tokio::test]
+async fn test_phase3_mock_exit_requires_signal() {
+    let (tx, rx) = tokio::sync::watch::channel(());
+    let mut handle = tokio::spawn(async move {
+        let mut rx = rx;
+        let _ = rx.changed().await;
+    });
+
+    // No signal: join must still be pending after the grace period.
+    let grace = std::time::Duration::from_millis(100);
+    let pending = tokio::time::timeout(grace, &mut handle).await;
+    assert!(
+        pending.is_err(),
+        "mock task must not exit before the shutdown signal is sent"
+    );
+
+    // Signal arrives → the same task exits (exit is signal-driven).
+    let _ = tx.send(());
+    let join_timeout = std::time::Duration::from_secs(10);
+    let result = tokio::time::timeout(join_timeout, handle).await;
+    assert!(
+        result.is_ok(),
+        "mock task should exit after the shutdown signal"
+    );
+    assert!(result.unwrap().is_ok(), "mock task should not panic");
+}
+
 /// Verify that multiple background tasks all exit when signalled.
 /// Mirrors phase_3_background_stop sending signals to 4 tasks.
 #[tokio::test]
@@ -259,16 +287,10 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
     let (tx3, rx3) = tokio::sync::watch::channel(());
     let (tx4, rx4) = tokio::sync::watch::channel(());
 
-    let make_task = |mut rx: tokio::sync::watch::Receiver<()>| {
+    let make_task = |rx: tokio::sync::watch::Receiver<()>| {
         tokio::spawn(async move {
-            loop {
-                if *rx.borrow_and_update() == () {
-                    break;
-                }
-                if rx.changed().await.is_err() {
-                    break;
-                }
-            }
+            let mut rx = rx;
+            let _ = rx.changed().await;
         })
     };
 
@@ -334,14 +356,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     // Clean task: exits on signal
     let clean_handle = tokio::spawn(async move {
         let mut rx = rx_clean;
-        loop {
-            if *rx.borrow_and_update() == () {
-                break;
-            }
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
+        let _ = rx.changed().await;
     });
 
     // Hung task: never exits
@@ -437,14 +452,7 @@ async fn test_phase3_clean_task_exits_within_10s() {
 
     let handle = tokio::spawn(async move {
         let mut rx = rx;
-        loop {
-            if *rx.borrow_and_update() == () {
-                break;
-            }
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
+        let _ = rx.changed().await;
     });
 
     // Signal immediately — task should exit well before 10s
