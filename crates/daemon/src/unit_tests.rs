@@ -544,10 +544,11 @@ fn test_cache_adapter_mapping_matches_design_doc() {
     }
 }
 
-/// Verify that the full LLM chain assembly produces correct chain
-/// entries with correct cache adapters for each provider.
-#[test]
-fn test_llm_chain_assembly_correct_adapters() {
+// ── LLM chain assembly test helpers (setup / assert) ────────────────────
+
+/// Setup: build a UnifiedFallbackClient whose chain entries mirror the
+/// lifecycle.rs assembly logic (stub provider + per-provider cache adapter).
+fn make_chain_assembly_fallback() -> closeclaw_llm::unified_fallback::UnifiedFallbackClient {
     use closeclaw_llm::cache_adapter::for_provider;
     use closeclaw_llm::interpreter::InterpreterRegistry;
     use closeclaw_llm::plugin::PluginPipeline;
@@ -582,10 +583,12 @@ fn test_llm_chain_assembly_correct_adapters() {
     }
 
     let cooldown = Arc::new(CooldownManager::new());
-    let fallback = UnifiedFallbackClient::new(chain_entries, cooldown);
+    UnifiedFallbackClient::new(chain_entries, cooldown)
+}
 
-    // Verify chain has correct entries
-    let chain = fallback.chain();
+/// Assert: the chain has correct entries — expected provider ids in order —
+/// and model_id equals provider_id for each entry.
+fn assert_chain_entry_ids(chain: &[closeclaw_llm::unified_fallback::ChainEntry]) {
     assert_eq!(chain.len(), 3);
     assert_eq!(chain[0].provider_id, "openai");
     assert_eq!(chain[1].provider_id, "anthropic");
@@ -604,9 +607,11 @@ fn test_llm_chain_assembly_correct_adapters() {
         chain[2].model_id, "minimax",
         "model_id should equal provider_id"
     );
+}
 
-    // Verify each client's Debug output contains the correct adapter name
-    // (UnifiedChatClient Debug impl includes cache_adapter.name())
+/// Assert: each client's Debug output contains the correct adapter name
+/// (UnifiedChatClient Debug impl includes cache_adapter.name()).
+fn assert_chain_debug_adapters(chain: &[closeclaw_llm::unified_fallback::ChainEntry]) {
     let debug_0 = format!("{:?}", chain[0].client);
     assert!(
         debug_0.contains("noop"),
@@ -624,6 +629,18 @@ fn test_llm_chain_assembly_correct_adapters() {
         debug_2.contains("anthropic"),
         "minimax client should use anthropic adapter, got: {debug_2}"
     );
+}
+
+/// Verify that the full LLM chain assembly produces correct chain
+/// entries with correct cache adapters for each provider.
+#[test]
+fn test_llm_chain_assembly_correct_adapters() {
+    // Setup: assemble the chain mirroring lifecycle.rs assembly logic.
+    let fallback = make_chain_assembly_fallback();
+
+    // Verify chain entries and each client's cache adapter (via Debug).
+    assert_chain_entry_ids(fallback.chain());
+    assert_chain_debug_adapters(fallback.chain());
 }
 
 /// Verify that FallbackLlmCaller wraps the correct UnifiedFallbackClient

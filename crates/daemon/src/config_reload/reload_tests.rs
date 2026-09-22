@@ -1,241 +1,233 @@
-#[cfg(test)]
-mod reload_tests {
-    use crate::config_reload::reload::{
-        extract_agent_id_from_permissions_path, DaemonReloadCallback,
-    };
-    use closeclaw_agent::registry::AgentRegistry;
-    use closeclaw_config::manager::{ConfigManager, ConfigSection};
-    use closeclaw_config::ReloadCallback;
-    use std::path::Path;
-    use std::sync::Arc;
-    use tempfile::TempDir;
+//! Tests for daemon-level reload helpers: agent-id extraction from
+//! permissions paths and `DaemonReloadCallback` reload reactions.
+//!
+//! Layout mirrors production: config files under `<root>/config/`,
+//! agent directories under `<root>/agents/`, both inside the TempDir.
 
-    fn make_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
-        let sections = [
-            ("models.json", r#"{"models":[]}"#),
-            ("channels.json", r#"{"channels":{}}"#),
-            ("gateway.json", r#"{"port":8080}"#),
-            ("plugins.json", r#"{"plugins":[]}"#),
-            ("system.json", r#"{"version":"1"}"#),
-            ("accounts.json", r#"{"accounts":[]}"#),
-        ];
-        for (name, content) in &sections {
-            std::fs::write(dir.join(name), content).unwrap();
-        }
-        let cm = ConfigManager::new(dir.to_path_buf()).unwrap();
-        cm.load().unwrap();
-        Arc::new(cm)
-    }
+use crate::config_reload::reload::{extract_agent_id_from_permissions_path, DaemonReloadCallback};
+use crate::test_helpers::write_mandatory_configs;
+use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_config::agents::AgentPermissionProvider;
+use closeclaw_config::manager::ConfigManager;
+use closeclaw_config::ReloadCallback;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
+use tempfile::TempDir;
 
-    fn make_agent_registry() -> Arc<AgentRegistry> {
-        Arc::new(AgentRegistry::new())
-    }
+/// The config subdir under a temp root (`<root>/config`).
+fn config_dir_under(root: &Path) -> PathBuf {
+    root.join("config")
+}
 
-    // ------------------------------------------------------------------
-    // extract_agent_id_from_permissions_path
-    // ------------------------------------------------------------------
+/// Build a ConfigManager over `<root>/config` with the mandatory
+/// skeleton configs written, so agent directories resolve to
+/// `<root>/agents` (production layout: `config_dir.parent()/agents`).
+fn make_config_manager(root: &Path) -> Arc<ConfigManager> {
+    let config_dir = config_dir_under(root);
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    write_mandatory_configs(&config_dir).expect("mandatory configs");
+    let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
+    cm.load().expect("ConfigManager::load");
+    Arc::new(cm)
+}
 
-    #[test]
-    fn test_extract_agent_id_from_permissions_path() {
-        let d = TempDir::new().unwrap();
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let agents_dir = root_dir.join("agents").join("gamma");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        std::fs::write(agents_dir.join("config.json"), r#"{"id":"gamma"}"#).unwrap();
-        let perm_path = agents_dir.join("permissions.json");
-        assert_eq!(
-            extract_agent_id_from_permissions_path(&perm_path),
-            Some("gamma".to_string())
-        );
-    }
+fn make_agent_registry() -> Arc<AgentRegistry> {
+    Arc::new(AgentRegistry::new())
+}
 
-    #[test]
-    fn test_extract_agent_id_no_config_json() {
-        let d = TempDir::new().unwrap();
-        let agents_dir = d.path().join("agents").join("ghost");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        let perm_path = agents_dir.join("permissions.json");
-        assert_eq!(extract_agent_id_from_permissions_path(&perm_path), None);
-    }
+/// Create `<root>/agents/<id>/` containing a `config.json`.
+fn make_agent_dir(root: &Path, id: &str, name: &str) -> PathBuf {
+    let dir = root.join("agents").join(id);
+    std::fs::create_dir_all(&dir).expect("create agent dir");
+    let json = format!(r#"{{"id":"{id}","name":"{name}"}}"#);
+    std::fs::write(dir.join("config.json"), json).expect("write agent config");
+    dir
+}
 
-    // ------------------------------------------------------------------
-    // DaemonReloadCallback — agent reload + registry sync
-    // ------------------------------------------------------------------
+// ------------------------------------------------------------------
+// extract_agent_id_from_permissions_path
+// ------------------------------------------------------------------
 
-    #[test]
-    fn test_daemon_callback_agents_changed_syncs_registry() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new_for_test(ar.clone());
+#[test]
+fn test_extract_agent_id_from_permissions_path() {
+    let d = TempDir::new().unwrap();
+    let agents_dir = d.path().join("agents").join("gamma");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    std::fs::write(agents_dir.join("config.json"), r#"{"id":"gamma"}"#).unwrap();
+    let perm_path = agents_dir.join("permissions.json");
+    assert_eq!(
+        extract_agent_id_from_permissions_path(&perm_path),
+        Some("gamma".to_string())
+    );
+}
 
-        let agents_json_path = d.path().join("agents.json");
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+#[test]
+fn test_extract_agent_id_no_config_json() {
+    let d = TempDir::new().unwrap();
+    let agents_dir = d.path().join("agents").join("ghost");
+    std::fs::create_dir_all(&agents_dir).unwrap();
+    let perm_path = agents_dir.join("permissions.json");
+    assert_eq!(extract_agent_id_from_permissions_path(&perm_path), None);
+}
 
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let alpha_dir = root_dir.join("agents").join("alpha");
-        std::fs::create_dir_all(&alpha_dir).unwrap();
-        std::fs::write(
-            alpha_dir.join("config.json"),
-            r#"{ "id": "alpha", "name": "Alpha" }"#,
-        )
-        .unwrap();
+// ------------------------------------------------------------------
+// DaemonReloadCallback — agent reload + registry sync
+// ------------------------------------------------------------------
 
-        callback.on_agents_changed(&agents_json_path, &cm);
+#[test]
+fn test_daemon_callback_agents_changed_syncs_registry() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let ar = make_agent_registry();
+    let callback = DaemonReloadCallback::new_for_test(ar.clone());
 
-        let agents: Vec<_> = ar.iter().map(|e| e.key().clone()).collect();
-        assert!(
-            agents.contains(&"alpha".to_string()),
-            "AgentRegistry should contain alpha after callback"
-        );
-    }
+    let agents_json_path = config_dir_under(d.path()).join("agents.json");
+    std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+    make_agent_dir(d.path(), "alpha", "Alpha");
 
-    #[test]
-    fn test_daemon_callback_agents_failure_no_disk_rollback() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new_for_test(ar);
+    callback.on_agents_changed(&agents_json_path, &cm);
 
-        let agents_json_path = d.path().join("agents.json");
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+    let agents: Vec<_> = ar.iter().map(|e| e.key().clone()).collect();
+    assert!(
+        agents.contains(&"alpha".to_string()),
+        "AgentRegistry should contain alpha after callback; registry keys: {agents:?}"
+    );
+}
 
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let alpha_dir = root_dir.join("agents").join("alpha");
-        std::fs::create_dir_all(&alpha_dir).unwrap();
-        std::fs::write(
-            alpha_dir.join("config.json"),
-            r#"{ "id": "alpha", "name": "Alpha" }"#,
-        )
-        .unwrap();
+#[test]
+fn test_daemon_callback_agents_failure_no_disk_rollback() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let ar = make_agent_registry();
+    let callback = DaemonReloadCallback::new_for_test(ar);
 
-        cm.load_agents(None).unwrap();
-        let old_agents = cm.snapshot_agents();
+    let agents_json_path = config_dir_under(d.path()).join("agents.json");
+    std::fs::write(&agents_json_path, r#"{ "agents": ["alpha"] }"#).unwrap();
+    let alpha_dir = make_agent_dir(d.path(), "alpha", "Alpha");
 
-        // Backup before modification
-        let _ = cm.backup_manager().backup(&agents_json_path);
-        let _ = cm.backup_manager().backup(alpha_dir.join("config.json"));
+    cm.load_agents(None).unwrap();
+    let old_agents = cm.snapshot_agents();
 
-        let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
+    // Backup before modification
+    let _ = cm.backup_manager().backup(&agents_json_path);
+    let _ = cm.backup_manager().backup(alpha_dir.join("config.json"));
 
-        // Add beta
-        let beta_dir = root_dir.join("agents").join("beta");
-        std::fs::create_dir_all(&beta_dir).unwrap();
-        std::fs::write(
-            beta_dir.join("config.json"),
-            r#"{ "id": "beta", "name": "Beta" }"#,
-        )
-        .unwrap();
-        std::fs::write(&agents_json_path, r#"{ "agents": ["alpha", "beta"] }"#).unwrap();
-        cm.reload_agents().unwrap();
-        assert!(cm.agents().contains_key("beta"));
+    let original_agents_json = std::fs::read_to_string(&agents_json_path).unwrap();
 
-        cm.restore_agents(old_agents);
+    // Add beta, reload through the daemon callback
+    make_agent_dir(d.path(), "beta", "Beta");
+    std::fs::write(&agents_json_path, r#"{ "agents": ["alpha", "beta"] }"#).unwrap();
+    callback.on_agents_changed(&agents_json_path, &cm);
+    assert!(
+        cm.agents().contains_key("beta"),
+        "reload should pick up beta from disk; in-memory agents: {:?}",
+        cm.agents().keys().collect::<Vec<_>>()
+    );
 
-        assert!(cm.agents().contains_key("alpha"));
-        assert!(!cm.agents().contains_key("beta"));
+    cm.restore_agents(old_agents);
 
-        // Disk NOT rolled back
-        let current = std::fs::read_to_string(&agents_json_path).unwrap();
-        assert_ne!(current, original_agents_json);
-    }
+    assert!(
+        cm.agents().contains_key("alpha"),
+        "restore_agents should keep the pre-reload alpha entry"
+    );
+    assert!(
+        !cm.agents().contains_key("beta"),
+        "restore_agents should drop the beta entry added by reload"
+    );
 
-    // ------------------------------------------------------------------
-    // DaemonReloadCallback — permissions
-    // ------------------------------------------------------------------
+    // Disk NOT rolled back
+    let current = std::fs::read_to_string(&agents_json_path).unwrap();
+    assert_ne!(
+        current, original_agents_json,
+        "restore_agents is in-memory only; agents.json on disk should still list beta"
+    );
+}
 
-    #[test]
-    fn test_daemon_callback_permissions_changed() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new_for_test(ar);
+// ------------------------------------------------------------------
+// DaemonReloadCallback — permissions
+// ------------------------------------------------------------------
 
-        let root_dir = d.path().parent().unwrap().to_path_buf();
-        let agents_dir = root_dir.join("agents").join("epsilon");
-        std::fs::create_dir_all(&agents_dir).unwrap();
-        std::fs::write(
-            agents_dir.join("config.json"),
-            r#"{"id":"epsilon","name":"Epsilon"}"#,
-        )
-        .unwrap();
-        let perms_path = agents_dir.join("permissions.json");
-        std::fs::write(&perms_path, r#"{"agent_id":"epsilon","permissions":{}}"#).unwrap();
+#[test]
+fn test_daemon_callback_permissions_changed() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let ar = make_agent_registry();
+    let callback = DaemonReloadCallback::new_for_test(ar);
 
-        let agents_json = d.path().join("agents.json");
-        std::fs::write(&agents_json, r#"{"agents":["epsilon"]}"#).unwrap();
-        cm.load_agents(None).unwrap();
+    let epsilon_dir = make_agent_dir(d.path(), "epsilon", "Epsilon");
+    let perms_path = epsilon_dir.join("permissions.json");
+    std::fs::write(&perms_path, r#"{"agent_id":"epsilon","permissions":{}}"#).unwrap();
 
-        let before = cm.agent_permissions();
-        assert!(before.get("epsilon").is_some());
+    let agents_json = config_dir_under(d.path()).join("agents.json");
+    std::fs::write(&agents_json, r#"{"agents":["epsilon"]}"#).unwrap();
+    cm.load_agents(None).unwrap();
 
-        // Sleep to ensure mtime changes
-        std::thread::sleep(std::time::Duration::from_secs(1));
+    let before = cm.agent_permissions();
+    assert!(
+        before.get("epsilon").is_some(),
+        "epsilon permissions should load from disk before the invalid write"
+    );
 
-        // Write invalid JSON
-        std::fs::write(&perms_path, "not valid json{{").unwrap();
+    // Sleep to ensure mtime changes
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
-        callback.on_permissions_changed(&perms_path, &cm);
+    // Write invalid JSON
+    std::fs::write(&perms_path, "not valid json{{").unwrap();
 
-        let after = cm.agent_permissions();
-        assert!(
-            after.get("epsilon").is_none(),
-            "lazy loader should return None for invalid permissions file"
-        );
-    }
+    callback.on_permissions_changed(&perms_path, &cm);
 
-    // ------------------------------------------------------------------
-    // DaemonReloadCallback — session
-    // ------------------------------------------------------------------
+    let after = cm.agent_permissions();
+    assert!(
+        after.get("epsilon").is_none(),
+        "lazy loader should return None for invalid permissions file"
+    );
+}
 
-    #[test]
-    fn test_daemon_callback_session_reloaded() {
-        let d = TempDir::new().unwrap();
-        let sections = [
-            ("models.json", r#"{"models":[]}"#),
-            ("channels.json", r#"{"channels":{}}"#),
-            ("gateway.json", r#"{"port":8080}"#),
-            ("plugins.json", r#"{"plugins":[]}"#),
-            ("system.json", r#"{"version":"1"}"#),
-            ("accounts.json", r#"{"accounts":[]}"#),
-            (
-                "session.json",
-                r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":600}"#,
-            ),
-        ];
-        for (name, content) in &sections {
-            std::fs::write(d.path().join(name), content).unwrap();
-        }
-        let cm = Arc::new(ConfigManager::new(d.path().to_path_buf()).unwrap());
-        cm.load().unwrap();
-        let ar = make_agent_registry();
-        let callback = DaemonReloadCallback::new_for_test(ar);
+// ------------------------------------------------------------------
+// DaemonReloadCallback — session
+// ------------------------------------------------------------------
 
-        let provider = cm.session_config_provider().unwrap();
-        assert_eq!(provider.sweeper_interval_secs(), 600);
+#[test]
+fn test_daemon_callback_session_reloaded() {
+    let d = TempDir::new().unwrap();
+    let config_dir = config_dir_under(d.path());
+    std::fs::create_dir_all(&config_dir).unwrap();
+    write_mandatory_configs(&config_dir).unwrap();
+    let session_path = config_dir.join("session.json");
+    std::fs::write(
+        &session_path,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
+    )
+    .unwrap();
+    let cm = Arc::new(ConfigManager::new(config_dir).unwrap());
+    cm.load().unwrap();
+    let ar = make_agent_registry();
+    let callback = DaemonReloadCallback::new_for_test(ar);
 
-        std::fs::write(
-            d.path().join("session.json"),
-            r#"{"defaults":{},"agents":{},"sweeperIntervalSecs":9999}"#,
-        )
-        .unwrap();
+    let provider = cm.session_config_provider().unwrap();
+    assert_eq!(provider.sweeper_interval_secs(), 600);
 
-        callback.on_session_reloaded(&cm);
+    std::fs::write(
+        &session_path,
+        r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":9999}"#,
+    )
+    .unwrap();
 
-        let provider = cm.session_config_provider().unwrap();
-        assert_eq!(provider.sweeper_interval_secs(), 9999);
-    }
+    callback.on_session_reloaded(&cm);
 
-    // ------------------------------------------------------------------
-    // ConfigReloadManager import from config crate
-    // ------------------------------------------------------------------
+    let provider = cm.session_config_provider().unwrap();
+    assert_eq!(provider.sweeper_interval_secs(), 9999);
+}
 
-    #[test]
-    fn test_config_reload_manager_importable_from_config_crate() {
-        let d = TempDir::new().unwrap();
-        let cm = make_config_manager(d.path());
-        let ar = make_agent_registry();
-        let callback = Arc::new(DaemonReloadCallback::new_for_test(ar));
-        let _mgr = closeclaw_config::ConfigReloadManager::with_defaults(cm, callback);
-    }
+// ------------------------------------------------------------------
+// ConfigReloadManager import from config crate
+// ------------------------------------------------------------------
+
+#[test]
+fn test_config_reload_manager_importable_from_config_crate() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let ar = make_agent_registry();
+    let callback = Arc::new(DaemonReloadCallback::new_for_test(ar));
+    let _mgr = closeclaw_config::ConfigReloadManager::with_defaults(cm, callback);
 }

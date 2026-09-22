@@ -20,7 +20,7 @@ pub mod startup;
 pub mod trait_adapters;
 use crate::startup::{all_component_entries, topo_sort_layers, StartupError};
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
-use closeclaw_common::{NoopMetricsEmitter, SessionLookup};
+use closeclaw_common::{AgentToolsConfigQuery, NoopMetricsEmitter, SessionLookup};
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};
@@ -47,7 +47,7 @@ use closeclaw_tools::ToolRegistry;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
-use tracing::info;
+use tracing::{info, warn};
 mod noop_miner_llm;
 mod skills_helper;
 /// Parse an .env file into key-value pairs (comments, whitespace trimmed).
@@ -311,7 +311,7 @@ impl Daemon {
                     (report.dirty_sessions, report.migrated_sessions)
                 }
                 Ok(Err(e)) => {
-                    tracing::warn!(error = %e, "recovery scan failed — continuing without recovery");
+                    warn!(error = %e, "recovery scan failed — continuing without recovery");
                     (Vec::new(), Vec::new())
                 }
                 Err(_) => {
@@ -704,7 +704,7 @@ impl Daemon {
             Arc::new(closeclaw_memory::MemoryFragmentProvider::new()),
             Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
                 Arc::clone(tool_registry),
-                Some(Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>),
+                Some(Arc::clone(agent_registry) as Arc<dyn AgentToolsConfigQuery>),
                 None,
             )),
         ];

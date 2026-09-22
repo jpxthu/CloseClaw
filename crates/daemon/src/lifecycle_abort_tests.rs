@@ -16,14 +16,8 @@ async fn test_abort_join_clean_task_exits_normally() {
     let (tx, rx) = tokio::sync::watch::channel(());
     let handle = tokio::spawn(async move {
         let mut rx = rx;
-        loop {
-            if *rx.borrow_and_update() == () {
-                break;
-            }
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
+        // Exit genuinely depends on the shutdown signal (first change).
+        let _ = rx.changed().await;
     });
 
     let _ = tx.send(());
@@ -116,14 +110,7 @@ async fn test_abort_join_mixed_tasks_resolve_independently() {
 
     let clean_handle = tokio::spawn(async move {
         let mut rx = rx_clean;
-        loop {
-            if *rx.borrow_and_update() == () {
-                break;
-            }
-            if rx.changed().await.is_err() {
-                break;
-            }
-        }
+        let _ = rx.changed().await;
     });
 
     let hang_handle = tokio::spawn(async {
