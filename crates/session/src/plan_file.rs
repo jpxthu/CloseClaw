@@ -160,22 +160,35 @@ pub fn create_plan_file_with_format(
 /// No global mutable state is involved: exclusion is scoped to the sidecar
 /// file only.
 ///
+/// # Reentrancy
+///
+/// `transform` runs while the sidecar lock is held and must **not** call back
+/// into any lock-taking plan API ([`touch_access_timestamp`],
+/// [`update_plan_timestamp`], [`append_to_plan_section`],
+/// [`acquire_plan_lock`], or the archival rename in `plan_archive`). Every
+/// acquisition locks a fresh file descriptor, so a same-process re-lock of
+/// the same sidecar blocks forever (flock treats descriptors independently —
+/// self-deadlock, no error is ever returned).
+///
 /// # Errors
-/// Returns `NotFound` if the plan file does not exist, otherwise the first
-/// error from creating/locking the sidecar, reading the plan file, running
-/// `transform`, or writing the result back.
+/// Returns `NotFound` if the plan file does not exist — checked while the
+/// lock is held, so the check cannot race an archival rename — otherwise the
+/// first error from creating/locking the sidecar, reading the plan file,
+/// running `transform`, or writing the result back.
 fn mutate_plan_file<F>(plan_path: &Path, transform: F) -> io::Result<()>
 where
     F: FnOnce(&mut String) -> io::Result<()>,
 {
+    let _lock = acquire_plan_lock(plan_path)?;
+
+    // Checked under the lock: a pre-lock check would race a concurrent
+    // archival rename (check-then-act) and split NotFound across two sources.
     if !plan_path.exists() {
         return Err(io::Error::new(
             io::ErrorKind::NotFound,
             format!("plan file not found: {}", plan_path.display()),
         ));
     }
-
-    let _lock = acquire_plan_lock(plan_path)?;
 
     let mut content = std::fs::read_to_string(plan_path)?;
     transform(&mut content)?;
@@ -195,6 +208,15 @@ where
 /// This is the single lock domain shared by every plan-file writer — the
 /// [`mutate_plan_file`] read-modify-write helpers and the archival rename in
 /// `plan_archive` alike. It involves no global mutable state.
+///
+/// # Reentrancy
+///
+/// The lock is **not** reentrant. Every call opens a fresh sidecar descriptor,
+/// so acquiring it again for the same plan while it is already held — by this
+/// thread, another thread, or another handle in this process — blocks forever
+/// (flock is per-descriptor: self-deadlock, not an error). Callers must never
+/// invoke this, [`mutate_plan_file`], or the archival rename while the same
+/// plan's lock is already held (e.g. from inside a `transform` closure).
 ///
 /// # Errors
 /// Returns an error if the sidecar cannot be created or locked.
@@ -248,8 +270,8 @@ fn refresh_update_time_line(content: &mut String, path: &Path) -> io::Result<()>
 /// Stored as `<!-- accessed: {ISO-8601 UTC} -->` on the line immediately
 /// after the `# {title}` heading.  The marker is portable: it travels with
 /// the file across renames (archive) and requires no external storage.
-const ACCESS_TIMESTAMP_MARKER_PREFIX: &str = "<!-- accessed: ";
-const ACCESS_TIMESTAMP_MARKER_SUFFIX: &str = " -->";
+pub(crate) const ACCESS_TIMESTAMP_MARKER_PREFIX: &str = "<!-- accessed: ";
+pub(crate) const ACCESS_TIMESTAMP_MARKER_SUFFIX: &str = " -->";
 
 /// Read the application-layer access timestamp from a plan file.
 ///
@@ -328,7 +350,10 @@ fn apply_access_marker(content: &mut String, marker: &str) -> io::Result<()> {
 }
 
 /// Parse the access timestamp marker from plan file content.
-fn parse_access_timestamp(content: &str) -> Option<DateTime<Utc>> {
+///
+/// `pub(crate)` so the archiver can parse the content it has already read
+/// instead of re-reading the file inside the same lock domain.
+pub(crate) fn parse_access_timestamp(content: &str) -> Option<DateTime<Utc>> {
     let idx = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX)?;
     let start = idx + ACCESS_TIMESTAMP_MARKER_PREFIX.len();
     let rest = &content[start..];

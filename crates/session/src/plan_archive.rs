@@ -124,7 +124,7 @@ fn archive_plan(
         return Ok(false);
     }
 
-    if !is_age_exceeded(path, now, threshold)? {
+    if !is_age_exceeded(path, &content, now, threshold)? {
         debug!("skipping {} (not old enough)", path.display());
         return Ok(false);
     }
@@ -141,24 +141,19 @@ fn archive_plan(
 
 /// Decide whether a plan's access age exceeds the archival threshold.
 ///
-/// Uses the application-layer access timestamp when present, and falls back
-/// to filesystem mtime for legacy plans.
+/// Parses the application-layer access timestamp from the already-read
+/// `content` — no second read inside the lock domain — and falls back to
+/// filesystem mtime for legacy plans without a usable marker.
 fn is_age_exceeded(
     path: &Path,
+    content: &str,
     now: chrono::DateTime<chrono::Utc>,
     threshold: chrono::Duration,
 ) -> Result<bool, ArchiveError> {
-    match super::plan_file::read_access_timestamp(path) {
-        Ok(Some(access_ts)) => Ok(now.signed_duration_since(access_ts) > threshold),
-        // Legacy plan without access timestamp — fallback to mtime
-        Ok(None) => is_mtime_exceeded(path, now, threshold),
-        Err(e) => {
-            warn!(
-                "failed to read access timestamp for {}: {e}, falling back to mtime",
-                path.display()
-            );
-            is_mtime_exceeded(path, now, threshold)
-        }
+    match super::plan_file::parse_access_timestamp(content) {
+        Some(access_ts) => Ok(now.signed_duration_since(access_ts) > threshold),
+        // Legacy plan / unparseable marker — fallback to mtime
+        None => is_mtime_exceeded(path, now, threshold),
     }
 }
 

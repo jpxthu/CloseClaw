@@ -70,7 +70,9 @@ fn test_touch_rapid_sequential_touches() {
     // File should have exactly one marker
     let content = std::fs::read_to_string(&path).unwrap();
     assert_eq!(
-        content.matches("<!-- accessed:").count(),
+        content
+            .matches(plan_file::ACCESS_TIMESTAMP_MARKER_PREFIX)
+            .count(),
         1,
         "should have exactly one access timestamp marker after 20 touches"
     );
@@ -109,7 +111,9 @@ fn test_touch_concurrent_threads_no_panic() {
     // File should be readable and have exactly one marker
     let content = std::fs::read_to_string(&*path).unwrap();
     assert_eq!(
-        content.matches("<!-- accessed:").count(),
+        content
+            .matches(plan_file::ACCESS_TIMESTAMP_MARKER_PREFIX)
+            .count(),
         1,
         "should have exactly one marker after concurrent touches"
     );
@@ -249,7 +253,9 @@ fn assert_plan_intact(path: &Path, context: &str) -> chrono::DateTime<chrono::Ut
         );
     }
     assert_eq!(
-        content.matches("<!-- accessed:").count(),
+        content
+            .matches(plan_file::ACCESS_TIMESTAMP_MARKER_PREFIX)
+            .count(),
         1,
         "{context}: expected exactly one access marker"
     );
@@ -262,8 +268,8 @@ fn assert_plan_intact(path: &Path, context: &str) -> chrono::DateTime<chrono::Ut
 /// treats the plan as due regardless of its threshold.
 fn age_access_marker(path: &Path, age: chrono::Duration) {
     let mut content = std::fs::read_to_string(path).expect("plan readable");
-    let prefix = "<!-- accessed: ";
-    let suffix = " -->";
+    let prefix = plan_file::ACCESS_TIMESTAMP_MARKER_PREFIX;
+    let suffix = plan_file::ACCESS_TIMESTAMP_MARKER_SUFFIX;
     let start = content.find(prefix).expect("marker prefix present");
     let end = start
         + content[start..]
@@ -324,8 +330,21 @@ fn test_touch_concurrent_multi_round_content_intact() {
     assert!(diff < 60, "timestamp should be recent, diff={diff}s");
 }
 
+/// Assert every collected RMW outcome succeeded, naming the first failure.
+fn assert_outcomes_ok(outcomes: &[std::io::Result<()>], op: &str) {
+    for (round, outcome) in outcomes.iter().enumerate() {
+        if let Err(e) = outcome {
+            panic!("{op} round {round} failed: {e}");
+        }
+    }
+}
+
 /// State transition (no lost update): touch and append interleaved behind a
 /// round barrier keep every appended line and all four sections.
+///
+/// Workers collect their `Result`s instead of panicking inside the barrier
+/// region: a panic there would strand the peer thread at `Barrier::wait`
+/// forever and hang the test past the 30 s hard limit.
 #[test]
 fn test_touch_append_interleaved_no_lost_update() {
     // One append per round, each round into a different still-empty,
@@ -341,26 +360,36 @@ fn test_touch_append_interleaved_no_lost_update() {
     let touch_path = path.clone();
     let touch_barrier = Arc::clone(&barrier);
     let toucher = thread::spawn(move || {
-        for round in 0..ROUNDS {
+        let mut outcomes = Vec::with_capacity(ROUNDS);
+        for _ in 0..ROUNDS {
             touch_barrier.wait();
-            plan_file::touch_access_timestamp(&touch_path)
-                .unwrap_or_else(|e| panic!("round {round}: touch failed: {e}"));
+            outcomes.push(plan_file::touch_access_timestamp(&touch_path));
         }
+        outcomes
     });
 
     let append_path = path.clone();
     let append_barrier = Arc::clone(&barrier);
     let appender = thread::spawn(move || {
+        let mut outcomes = Vec::with_capacity(ROUNDS);
         for (round, section) in SECTIONS.iter().enumerate() {
             append_barrier.wait();
             let line = format!("- interleaved-append-{round}\n");
-            plan_file::append_to_plan_section(&append_path, section, &line)
-                .unwrap_or_else(|e| panic!("round {round}: append failed: {e}"));
+            outcomes.push(plan_file::append_to_plan_section(
+                &append_path,
+                section,
+                &line,
+            ));
         }
+        outcomes
     });
 
-    toucher.join().expect("touch thread must not panic");
-    appender.join().expect("append thread must not panic");
+    // Both joins complete because neither worker panics; assertions run only
+    // after the barrier region is fully drained.
+    let touch_outcomes = toucher.join().expect("touch thread must not panic");
+    let append_outcomes = appender.join().expect("append thread must not panic");
+    assert_outcomes_ok(&touch_outcomes, "touch");
+    assert_outcomes_ok(&append_outcomes, "append");
 
     assert_plan_intact(&path, "after touch × append interleaving");
     let content = std::fs::read_to_string(&path).unwrap();
