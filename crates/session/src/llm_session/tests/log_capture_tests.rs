@@ -19,9 +19,10 @@
 //!   distinguishes "installed then unloaded" from "never installed"
 //!
 //! Every test carries `#[serial_test::serial]` per the helper's
-//! threading contract (issue #3102 callsite-interest race); each is
-//! driven by the default current-thread `#[tokio::test]` flavor the
-//! helper's thread-affinity contract requires.
+//! threading contract (issue #3102 callsite-interest race); each
+//! declares the helper's required current-thread flavor explicitly
+//! as `#[tokio::test(flavor = "current_thread")]`, so the hard
+//! contract no longer leans on the attribute's implicit default.
 
 use super::{capture_logs_async, is_installed};
 
@@ -33,7 +34,7 @@ use super::{capture_logs_async, is_installed};
 /// appears in the returned `String` with its message, its level
 /// marker and its structured field — i.e. the whole formatted line,
 /// not just a fragment.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_returns_value_and_captures_logs_at_level() {
     let ((answer, marker), logs) = capture_logs_async(
@@ -74,15 +75,16 @@ async fn test_capture_logs_async_returns_value_and_captures_logs_at_level() {
 /// task awaited inside the capture scope must be captured as well.
 ///
 /// **Spawn attribution basis (measured 2026-09-23, this test):**
-/// `#[tokio::test]` runs the default current-thread flavor, so the
-/// runtime polls both the test future and the spawned child on the
-/// *same* thread; the `set_default` guard is thread-local and stays
-/// installed for the whole `f().await`, so the child's events reach
+/// `#[tokio::test(flavor = "current_thread")]` runs the
+/// current-thread flavor, so the runtime polls both the test future
+/// and the spawned child on the *same* thread; the `set_default`
+/// guard is thread-local and stays installed for the whole
+/// `f().await`, so the child's events reach
 /// the same `VecWriter`. With a multi-thread flavor — or a child
 /// outliving the scope — the child could run on another thread (or
 /// after the guard drops) and its events would be missed; that is
 /// exactly what `capture_logs_async`'s threading contract forbids.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_captures_events_after_await_and_in_spawned_tasks() {
     let (child_output, logs) = capture_logs_async(
@@ -129,7 +131,7 @@ async fn test_capture_logs_async_captures_events_after_await_and_in_spawned_task
 /// in it. Pinning both directions means neither a fixed-WARN filter
 /// (config's `capture_warn_logs` shape) nor an exact-match filter
 /// can pass this test.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_filters_events_below_the_requested_level() {
     let (_, logs) = capture_logs_async(
@@ -162,7 +164,7 @@ async fn test_capture_logs_async_filters_events_below_the_requested_level() {
 /// must be empty (the fmt subscriber writes nothing until an event
 /// fires) while the future's value still comes back — the empty
 /// buffer is a valid capture, not a failure.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_returns_empty_string_when_no_events() {
     let (value, logs) = capture_logs_async(
@@ -201,7 +203,7 @@ async fn test_capture_logs_async_returns_empty_string_when_no_events() {
 /// holds. The positive half is what makes the negative half
 /// load-bearing — without it "guard was never installed" would pass
 /// the same `!is_installed()` check.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_unloads_guard_after_future_panic() {
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
