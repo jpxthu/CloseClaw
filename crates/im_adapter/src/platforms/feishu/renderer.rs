@@ -864,7 +864,7 @@ mod tests {
         }
     }
 
-    fn assert_single_action<'a>(els: &'a [CardElement]) -> &'a [CardAction] {
+    fn assert_single_action(els: &[CardElement]) -> &[CardAction] {
         assert_eq!(els.len(), 1);
         match &els[0] {
             CardElement::Action { actions } => actions,
