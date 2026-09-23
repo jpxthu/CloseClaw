@@ -299,7 +299,7 @@ impl ConversationSession {
     pub async fn force_kill(&self) {
         // Kill every registered tool process first, per design doc
         // stop sequence: cascade → kill tools → cancel LLM → cleanup.
-        self.kill_tool_handles().await;
+        self.kill_tool_handles(STOP_KILL_TIMEOUT).await;
 
         // Then cancel in-flight LLM requests. Streaming calls observe
         // this via `cancel_token.cancelled()` in the Gateway's
@@ -456,6 +456,27 @@ impl ConversationSession {
         mode: ShutdownMode,
         timeout: Duration,
     ) -> CascadeStopInfo {
+        self.stop_inner(cascade, mode, timeout, STOP_KILL_TIMEOUT)
+            .await
+    }
+
+    /// Internal [`stop`](Self::stop) implementation carrying the
+    /// per-handle kill budget.
+    ///
+    /// Production callers go through `stop()`, which passes the
+    /// default [`STOP_KILL_TIMEOUT`]. Tests inject a small budget
+    /// through the `#[cfg(test)]`-gated `stop_with_kill_budget` seam
+    /// so the budget-expiry path can be exercised with a true
+    /// wall-clock assertion ("stop returns within the budget's order
+    /// of magnitude") instead of waiting out the production 5 s
+    /// budget (STANDARDS §6: no single test case over 5 s).
+    async fn stop_inner(
+        &self,
+        cascade: bool,
+        mode: ShutdownMode,
+        timeout: Duration,
+        kill_budget: Duration,
+    ) -> CascadeStopInfo {
         match mode {
             ShutdownMode::Graceful => {
                 // Cascade children with the same Graceful mode,
@@ -503,7 +524,7 @@ impl ConversationSession {
                     self.cascade_stop_children(mode, timeout).await;
                 }
                 // 2. Kill every registered tool handle.
-                self.kill_tool_handles().await;
+                self.kill_tool_handles(kill_budget).await;
                 // 3. Cancel in-flight LLM requests via cancel token.
                 self.cancel_token.cancel();
                 // 4. Reset execution state.
@@ -511,6 +532,21 @@ impl ConversationSession {
                 CascadeStopInfo::default()
             }
         }
+    }
+
+    /// `#[cfg(test)]`-only test seam: `stop()` with a caller-chosen
+    /// per-handle kill budget, forwarding to the private `stop_inner`.
+    /// Gated so the budget injection point never enters the production
+    /// compile unit (issue #3161 Step 1.4).
+    #[cfg(test)]
+    pub(super) async fn stop_with_kill_budget(
+        &self,
+        cascade: bool,
+        mode: ShutdownMode,
+        timeout: Duration,
+        kill_budget: Duration,
+    ) -> CascadeStopInfo {
+        self.stop_inner(cascade, mode, timeout, kill_budget).await
     }
 
     /// Recursively call `stop(cascade, mode)` on every live child
@@ -617,12 +653,25 @@ impl ConversationSession {
     }
 
     /// Call `kill()` on every registered tool handle, bounded by
-    /// [`STOP_KILL_TIMEOUT`] per handle.
+    /// `kill_budget` per handle (the stop path passes
+    /// [`STOP_KILL_TIMEOUT`]).
+    ///
+    /// `KillHandle::kill` is synchronous by contract and may block,
+    /// so each call is dispatched to the blocking pool: a stalled
+    /// kill can no longer freeze the executor task and defeat the
+    /// wall-clock budget (see `docs/design/common/core-traits.md`,
+    /// KillHandle — the stop path backstops with a wall-clock
+    /// budget). When the budget expires, the wait is abandoned with
+    /// a warning and stop proceeds; the detached task finishes on
+    /// the pool in the background. A `kill()` that never returns
+    /// therefore strands its blocking-pool thread until the process
+    /// exits — the stranded-thread upper bound is one per registered
+    /// handle, i.e. ≤ handle count.
     ///
     /// Before killing, any tool in `RunningForeground` or
     /// `RunningBackground` state is marked `Terminated` so the state
     /// machine reaches a proper terminal state before cleanup.
-    async fn kill_tool_handles(&self) {
+    async fn kill_tool_handles(&self, kill_budget: Duration) {
         // Set Terminated on all Running tools before killing.
         // This ensures the state machine reaches a terminal state
         // before the process is reaped and clear_exec_state runs.
@@ -651,21 +700,45 @@ impl ConversationSession {
         };
 
         for (call_id, handle) in snapshot {
-            let kill_fut = async { handle.kill() };
-            match tokio::time::timeout(STOP_KILL_TIMEOUT, kill_fut).await {
-                Ok(Ok(())) => {}
-                Ok(Err(e)) => {
+            // Dispatch the synchronous (possibly blocking) kill to
+            // the blocking pool so it cannot stall the executor and
+            // make the wall-clock budget below unenforceable.
+            let kill_task = tokio::task::spawn_blocking(move || handle.kill());
+            match tokio::time::timeout(kill_budget, kill_task).await {
+                Ok(Ok(Ok(()))) => {}
+                Ok(Ok(Err(e))) => {
                     tracing::warn!(
                         call_id = %call_id,
                         error = %e,
                         "kill_tool_handles: handle.kill() returned error"
                     );
                 }
+                Ok(Err(join_err)) => {
+                    // A panic inside `kill()` surfaces as a
+                    // `JoinError` on the blocking task; re-raise it
+                    // so a panicking kill keeps the pre-existing
+                    // "panic propagates out of stop()" semantics.
+                    // A shutdown join error (executor going down)
+                    // is treated like a failed kill. Not covered by
+                    // a dedicated UT (issue #3161 Step 1.4): the
+                    // non-panic variant needs the runtime to tear
+                    // down the blocking pool mid-kill, which
+                    // cannot be built deterministically in a unit
+                    // test.
+                    if join_err.is_panic() {
+                        std::panic::resume_unwind(join_err.into_panic());
+                    }
+                    tracing::warn!(
+                        call_id = %call_id,
+                        error = %join_err,
+                        "kill_tool_handles: kill task join failed"
+                    );
+                }
                 Err(_elapsed) => {
                     tracing::warn!(
                         call_id = %call_id,
                         "kill_tool_handles: handle.kill() timed out after {:?}",
-                        STOP_KILL_TIMEOUT
+                        kill_budget
                     );
                 }
             }
