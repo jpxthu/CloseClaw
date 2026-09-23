@@ -4,9 +4,12 @@
 //!
 //! `tests/mod.rs` re-exports [`capture_logs`]
 //! (`use self::log_capture::capture_logs;`), so callers keep writing
-//! `use super::capture_logs;` unchanged; `VecWriter` is not
-//! re-exported (referenced only by `log_capture_tests`, for its
-//! `is::<CaptureSubscriber>()` guard discrimination).
+//! `use super::capture_logs;` unchanged. The subscriber type and its
+//! `VecWriter` writer stay private to this module: [`install`]
+//! constructs [`CaptureSubscriber`] under an explicit type annotation
+//! (construction and discrimination compile-time locked to one type)
+//! and [`is_installed`] answers guard-state questions, so no test
+//! needs the subscriber's generic parameters.
 //!
 //! Two capture entry points coexist long-term: synchronous
 //! [`capture_logs`] for tests with synchronous bodies, and async
@@ -148,16 +151,43 @@ fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String
     String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap()
 }
 
+/// The concrete subscriber type [`install`] puts on the current
+/// thread — the single point where this helper's type knowledge
+/// lives. `install()` constructs it under this explicit annotation,
+/// so the subscriber's generic setup and the [`is_installed`]
+/// discrimination are compile-time locked to one type: reworking
+/// writer/fields/format/filter in `install()` becomes a compile error
+/// here instead of a silent mismatch in a test. The `VecWriter`
+/// writer parameter keeps the type unique to this helper (it is never
+/// installed globally), so [`is_installed`] only ever reports this
+/// helper's own subscriber.
+type CaptureSubscriber = tracing_subscriber::fmt::Subscriber<
+    tracing_subscriber::fmt::format::DefaultFields,
+    tracing_subscriber::fmt::format::Format<tracing_subscriber::fmt::format::Full>,
+    tracing_subscriber::filter::LevelFilter,
+    VecWriter,
+>;
+
 /// Build the fmt subscriber (no target/ansi) filtered to `level`,
 /// writing into `buffer`, and install it as this thread's default
 /// subscriber; dropping the returned guard uninstalls it so the
 /// buffer stops being written and can be read back.
 fn install(buffer: &VecWriter, level: tracing::Level) -> tracing::subscriber::DefaultGuard {
-    let subscriber = tracing_subscriber::fmt()
+    let subscriber: CaptureSubscriber = tracing_subscriber::fmt()
         .with_writer(buffer.clone())
         .with_max_level(level)
         .with_target(false)
         .with_ansi(false)
         .finish();
     tracing::subscriber::set_default(subscriber)
+}
+
+/// Whether this thread's current default dispatcher is still the
+/// subscriber [`install`] put in place: `true` while the capture
+/// guard lives, `false` after it drops (or when nothing was ever
+/// installed here). Tests pin "installed then unloaded" versus
+/// "never installed" (guard-leak detection) as a positive/negative
+/// pair of these observations without naming the subscriber type.
+pub(super) fn is_installed() -> bool {
+    tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>())
 }

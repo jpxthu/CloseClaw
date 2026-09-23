@@ -23,20 +23,7 @@
 //! driven by the default current-thread `#[tokio::test]` flavor the
 //! helper's thread-affinity contract requires.
 
-use super::log_capture::capture_logs_async;
-
-/// The concrete subscriber type installed by `log_capture::install`,
-/// needed to ask the thread's current default dispatcher whether the
-/// capture guard is still installed (error-path test below). Type
-/// identity is what matters: the `VecWriter` writer parameter makes
-/// this type unique to the helper — it is never installed globally —
-/// so `is::<CaptureSubscriber>()` only ever matches a leaked guard.
-type CaptureSubscriber = tracing_subscriber::fmt::Subscriber<
-    tracing_subscriber::fmt::format::DefaultFields,
-    tracing_subscriber::fmt::format::Format<tracing_subscriber::fmt::format::Full>,
-    tracing_subscriber::filter::LevelFilter,
-    super::log_capture::VecWriter,
->;
+use super::log_capture::{capture_logs_async, is_installed};
 
 // ── normal path: return value passes through, level logs land in the String ──
 
@@ -209,11 +196,11 @@ async fn test_capture_logs_async_returns_empty_string_when_no_events() {
 ///
 /// The unload state is pinned as a **closed loop**: inside each
 /// captured future (while the guard is in place) a positive assertion
-/// checks `Dispatch::is::<CaptureSubscriber>()` holds, and after each
+/// checks `log_capture::is_installed()` holds, and after each
 /// scope ends the matching negative assertion checks it no longer
 /// holds. The positive half is what makes the negative half
 /// load-bearing — without it "guard was never installed" would pass
-/// the same `!get_default(...)` check.
+/// the same `!is_installed()` check.
 #[tokio::test]
 #[serial_test::serial]
 async fn test_capture_logs_async_unloads_guard_after_future_panic() {
@@ -224,11 +211,10 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
                 // Positive half of the install/unload loop: the guard
                 // is in place for the whole `f().await`, so this must
                 // hold *inside* the future — it is what makes the
-                // post-panic `!is::<CaptureSubscriber>()` check able
-                // to tell "installed then unloaded" from "never
-                // installed".
+                // post-panic `!is_installed()` check able to tell
+                // "installed then unloaded" from "never installed".
                 assert!(
-                    tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+                    is_installed(),
                     "the capture guard must be installed while the future runs"
                 );
                 panic!("capture future exploded");
@@ -250,7 +236,7 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
         "the panic payload must cross the helper unchanged; got: {msg}"
     );
     assert!(
-        !tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+        !is_installed(),
         "the set_default guard must be unloaded after the future panicked"
     );
 
@@ -262,10 +248,10 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
     let (value, logs) = capture_logs_async(
         || async {
             // Positive half of the second loop: this scope's guard is
-            // in place here, so the final `!is::<CaptureSubscriber>()`
-            // check below negates an observed install, not an absence.
+            // in place here, so the final `!is_installed()` check
+            // below negates an observed install, not an absence.
             assert!(
-                tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+                is_installed(),
                 "the capture guard must be installed while the second capture runs"
             );
             tracing::warn!("post-panic capture marker");
@@ -294,7 +280,7 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
          captured logs: {logs}"
     );
     assert!(
-        !tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+        !is_installed(),
         "the second capture's guard must be unloaded as well"
     );
 }
