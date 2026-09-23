@@ -831,7 +831,18 @@ impl SessionManager {
         message: &Message,
         channel: &str,
     ) -> Result<(), ProcessError> {
-        if let Some(cp) = cm.load(session_id).await.ok().flatten() {
+        // Read straight from storage, bypassing the CM local cache:
+        // restore_migrating_on_timeout has just flipped the checkpoint back
+        // to Active via raw storage, but the cache may still pin the stale
+        // Migrating value written by the earlier status check — the rebuild
+        // must use the authoritative post-restore checkpoint.
+        if let Some(cp) = cm
+            .storage()
+            .load_checkpoint(session_id)
+            .await
+            .ok()
+            .flatten()
+        {
             self.rebuild_session_from_checkpoint(session_id, &cp, message)
                 .await?;
             let mut sessions = self.sessions.write().await;
@@ -862,14 +873,22 @@ impl SessionManager {
             (channel.to_string(), Some("正在恢复会话…".to_string())),
         );
     }
-    /// Poll cm.load(session_id) every 500ms for up to 5s until Archived.
+    /// Poll raw storage for `session_id` every 500ms for up to 30s until Archived.
+    ///
+    /// Reads deliberately bypass the CheckpointManager local cache
+    /// (`cm.storage().load_checkpoint` instead of `cm.load`): archiving is
+    /// performed by the Sweeper directly on raw storage and never invalidates
+    /// the CM cache, so a cache-first read would keep returning the stale
+    /// Migrating checkpoint and the poll would always burn the full 30s
+    /// deadline. Storage is the only authoritative status source while
+    /// polling.
     async fn wait_for_archive_completion(
         cm: &CheckpointManager<dyn PersistenceService>,
         session_id: &str,
     ) -> bool {
         // Immediate check before first poll: if archive completed
         // before we even start sleeping, return right away.
-        if let Ok(Some(cp)) = cm.load(session_id).await {
+        if let Ok(Some(cp)) = cm.storage().load_checkpoint(session_id).await {
             if cp.status == SessionStatus::Archived {
                 return true;
             }
@@ -877,7 +896,7 @@ impl SessionManager {
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(30);
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-            match cm.load(session_id).await {
+            match cm.storage().load_checkpoint(session_id).await {
                 Ok(Some(refreshed)) if refreshed.status == SessionStatus::Archived => {
                     return true;
                 }
