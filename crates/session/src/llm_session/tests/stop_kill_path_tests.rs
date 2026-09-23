@@ -27,8 +27,8 @@
 //! (CONTRIBUTING.md hard limits).
 
 use super::super::KillHandle;
+use super::capture_logs_async;
 use super::kill_doubles::{make_session, MockKillHandle};
-use super::log_capture::capture_logs_async;
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};

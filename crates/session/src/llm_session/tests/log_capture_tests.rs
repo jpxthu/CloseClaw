@@ -23,7 +23,7 @@
 //! driven by the default current-thread `#[tokio::test]` flavor the
 //! helper's thread-affinity contract requires.
 
-use super::log_capture::{capture_logs_async, is_installed};
+use super::{capture_logs_async, is_installed};
 
 // ── normal path: return value passes through, level logs land in the String ──
 

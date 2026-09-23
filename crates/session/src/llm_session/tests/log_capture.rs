@@ -2,11 +2,15 @@
 //! `tests/mod.rs` (issue #3112) so that `mod.rs` keeps only module
 //! declarations (CONTRIBUTING.md §模块).
 //!
-//! `tests/mod.rs` re-exports [`capture_logs`]
-//! (`use self::log_capture::capture_logs;`), so callers keep writing
-//! `use super::capture_logs;` unchanged. The subscriber type and its
-//! `VecWriter` writer stay private to this module: [`install`]
-//! constructs [`CaptureSubscriber`] under an explicit type annotation
+//! `tests/mod.rs` re-exports the whole helper API — [`capture_logs`],
+//! [`capture_logs_async`] and [`is_installed`] (sibling
+//! `use self::log_capture::…;` lines, the single export point for both
+//! capture entry points) — so callers keep writing
+//! `use super::capture_logs;` / `use super::capture_logs_async;` /
+//! `use super::is_installed;` unchanged: tests never import the helper
+//! module path directly. The subscriber type and its `VecWriter`
+//! writer stay private to this module: [`install`] constructs
+//! [`CaptureSubscriber`] under an explicit type annotation
 //! (construction and discrimination compile-time locked to one type)
 //! and [`is_installed`] answers guard-state questions, so no test
 //! needs the subscriber's generic parameters.
