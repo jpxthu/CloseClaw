@@ -7,6 +7,11 @@
 //! `use super::capture_logs;` unchanged; `VecWriter` is not re-exported
 //! (no caller references it).
 //!
+//! Two capture entry points coexist long-term: synchronous
+//! [`capture_logs`] for tests with synchronous bodies, and async
+//! [`capture_logs_async`] for tests whose body awaits (see its docs for
+//! the threading contract).
+//!
 //! Constraint: every calling test **must** carry `#[serial_test::serial]`
 //! — see the `# Concurrency` section on [`capture_logs`].
 
@@ -56,15 +61,75 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// can drop events and empty the capture buffer (issue #3102 race).
 pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, String) {
     let buffer = VecWriter::default();
+    let guard = install(&buffer, level);
+    let value = f();
+    drop(guard);
+    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    (value, logs)
+}
+
+/// Async twin of [`capture_logs`]: same subscriber setup, but `f`
+/// builds a future that is awaited to completion instead of running a
+/// synchronous closure; returns `(T, String)` with the future's output
+/// and the logs captured up to the await's end. Lets async tests use
+/// `#[tokio::test]` directly instead of the `Runtime::new()` +
+/// `rt.block_on(...)` boilerplate (issue #3168).
+///
+/// `f: impl FnOnce() -> Fut` (not an async closure) for Rust-version
+/// compatibility; call it as
+/// `capture_logs_async(|| async { ... }, level).await`.
+///
+/// # Threading contract (caller must satisfy)
+///
+/// - **`#[tokio::test]` with the default current-thread flavor.** The
+///   `set_default` guard is thread-local: it installs the subscriber
+///   on the thread that runs `f().await`'s first poll and can only be
+///   uninstalled on that same thread. If the future migrates across
+///   threads (multi-thread runtime, `tokio::spawn` inside the capture
+///   scope, ...), the guard drops away from the installing thread and
+///   the buffer is never released — so drive the future on one
+///   current-thread runtime. Blocking std calls (e.g.
+///   `recv_timeout`) must not appear in the async body either: there
+///   is no other thread to poll it.
+/// - **`#[serial_test::serial]`**, for the same callsite-interest
+///   cache reason as [`capture_logs`] (issue #3102 race): concurrent
+///   registration on the same callsite can drop events and empty the
+///   buffer.
+///
+/// # Relation to [`capture_logs`]
+///
+/// The two helpers coexist long-term: this one covers async test
+/// bodies, while the sync version keeps its existing call sites
+/// (and sync tests) unchanged.
+// TODO(issue #3168): temporary until this issue's Step 1.2/1.3 land
+// the first call sites — helper alone must not warn (`allow`, not
+// `expect`, so it stays silent once used).
+#[allow(dead_code)]
+pub(super) async fn capture_logs_async<T, Fut>(
+    f: impl FnOnce() -> Fut,
+    level: tracing::Level,
+) -> (T, String)
+where
+    Fut: std::future::Future<Output = T>,
+{
+    let buffer = VecWriter::default();
+    let guard = install(&buffer, level);
+    let value = f().await;
+    drop(guard);
+    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    (value, logs)
+}
+
+/// Build the fmt subscriber (no target/ansi) filtered to `level`,
+/// writing into `buffer`, and install it as this thread's default
+/// subscriber; dropping the returned guard uninstalls it so the
+/// buffer stops being written and can be read back.
+fn install(buffer: &VecWriter, level: tracing::Level) -> tracing::subscriber::DefaultGuard {
     let subscriber = tracing_subscriber::fmt()
         .with_writer(buffer.clone())
         .with_max_level(level)
         .with_target(false)
         .with_ansi(false)
         .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
-    let value = f();
-    drop(guard);
-    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
-    (value, logs)
+    tracing::subscriber::set_default(subscriber)
 }
