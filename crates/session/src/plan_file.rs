@@ -175,16 +175,35 @@ where
         ));
     }
 
-    let mut lock_name = plan_path.as_os_str().to_os_string();
-    lock_name.push(".lock");
-    let lock_file = File::create(PathBuf::from(&lock_name))?;
-    lock_file.lock()?;
+    let _lock = acquire_plan_lock(plan_path)?;
 
     let mut content = std::fs::read_to_string(plan_path)?;
     transform(&mut content)?;
 
     let mode = std::fs::metadata(plan_path)?.permissions().mode();
     write_atomically(plan_path, content.as_bytes(), Some(mode))
+}
+
+/// Open (creating it if needed) the sidecar lock file for `plan_path` and
+/// take the exclusive advisory lock on it.
+///
+/// The sidecar lives at `{plan_path}.lock`; the caller holds the lock until
+/// the returned [`File`] is dropped. Its `lock` extension never matches the
+/// `.md` filter used by plan resolution, listing, and archiving, so lock
+/// files stay invisible to them.
+///
+/// This is the single lock domain shared by every plan-file writer — the
+/// [`mutate_plan_file`] read-modify-write helpers and the archival rename in
+/// `plan_archive` alike. It involves no global mutable state.
+///
+/// # Errors
+/// Returns an error if the sidecar cannot be created or locked.
+pub(crate) fn acquire_plan_lock(plan_path: &Path) -> io::Result<File> {
+    let mut lock_name = plan_path.as_os_str().to_os_string();
+    lock_name.push(".lock");
+    let lock_file = File::create(PathBuf::from(&lock_name))?;
+    lock_file.lock()?;
+    Ok(lock_file)
 }
 
 /// Update only the update timestamp field in a plan file.
@@ -196,23 +215,30 @@ where
 /// the update time line is not found.
 pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error> {
     let path = Path::new(plan_file_path);
-    if !path.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("plan file not found: {plan_file_path}"),
-        ));
-    }
+    mutate_plan_file(path, |content| refresh_update_time_line(content, path))
+}
 
-    let content = std::fs::read_to_string(path)?;
+/// Rewrite the `| 更新时间 | … |` line in `content` to the current local time.
+///
+/// Called from within a [`mutate_plan_file`] transform, so the timestamp is
+/// taken while the sidecar lock is held and the refresh lands in the same
+/// atomic write-back as the surrounding modification.
+///
+/// # Errors
+/// Returns [`io::ErrorKind::InvalidData`] when the update-time line is missing.
+fn refresh_update_time_line(content: &mut String, path: &Path) -> io::Result<()> {
     let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    match replace_update_time_line(&content, &new_timestamp) {
-        Some(c) => std::fs::write(path, c),
-        None => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("update time line not found in plan file: {plan_file_path}"),
-        )),
-    }
+    let updated = replace_update_time_line(content, &new_timestamp).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "update time line not found in plan file: {}",
+                path.display()
+            ),
+        )
+    })?;
+    *content = updated;
+    Ok(())
 }
 
 // ── Application-layer access timestamp ───────────────────────────────────
@@ -536,26 +562,21 @@ pub fn append_to_plan_section(
     section: &str,
     content: &str,
 ) -> Result<(), std::io::Error> {
-    let mut file_content = std::fs::read_to_string(plan_path)?;
     let section_heading = format!("## {section}");
-
-    if let Some(insert_pos) = find_section_insert_position(&file_content, &section_heading) {
-        // Insert content before the next ## heading (or at end)
-        file_content.insert_str(insert_pos, content);
-    } else {
-        // Section doesn't exist; append at end
-        if !file_content.ends_with('\n') {
-            file_content.push('\n');
+    mutate_plan_file(plan_path, |file_content| {
+        if let Some(insert_pos) = find_section_insert_position(file_content, &section_heading) {
+            // Insert content before the next ## heading (or at end)
+            file_content.insert_str(insert_pos, content);
+        } else {
+            // Section doesn't exist; append at end
+            if !file_content.ends_with('\n') {
+                file_content.push('\n');
+            }
+            file_content.push_str(&format!("\n{section_heading}\n\n{content}"));
         }
-        file_content.push_str(&format!("\n{section_heading}\n\n{content}"));
-    }
-
-    std::fs::write(plan_path, &file_content)?;
-    // Refresh update timestamp
-    let path_str = plan_path
-        .to_str()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"))?;
-    update_plan_timestamp(path_str)
+        // Refresh update timestamp within the same locked, atomic write-back
+        refresh_update_time_line(file_content, plan_path)
+    })
 }
 
 /// Read the content of a named section in a plan file.

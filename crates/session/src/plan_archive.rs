@@ -4,7 +4,9 @@
 //! those whose application-layer access timestamp exceeds a configurable
 //! threshold.  For legacy plan files without an access timestamp the
 //! fallback is filesystem mtime.  Archived files are moved to
-//! `plans/archive/` via `std::fs::rename`.
+//! `plans/archive/` via `std::fs::rename` while holding the plan's sidecar
+//! lock — the same lock domain as plan-file write-backs — so archiving can
+//! never interleave with a concurrent read-modify-write.
 
 use std::path::{Path, PathBuf};
 use tracing::{debug, info, warn};
@@ -85,50 +87,78 @@ impl PlanArchiver {
                 continue;
             }
 
-            let content = match std::fs::read_to_string(&path) {
-                Ok(c) => c,
-                Err(e) => {
-                    warn!("failed to read {}: {e}", path.display());
-                    continue;
-                }
-            };
-
-            if !is_completed_plan(&content) {
-                continue;
-            }
-
-            // Use application-layer access timestamp when present;
-            // fall back to filesystem mtime for legacy plans.
-            let age_exceeded = match super::plan_file::read_access_timestamp(&path) {
-                Ok(Some(access_ts)) => now.signed_duration_since(access_ts) > threshold,
-                Ok(None) => {
-                    // Legacy plan without access timestamp — fallback to mtime
-                    is_mtime_exceeded(&path, now, threshold)?
-                }
-                Err(e) => {
-                    warn!(
-                        "failed to read access timestamp for {}: {e}, falling back to mtime",
-                        path.display()
-                    );
-                    is_mtime_exceeded(&path, now, threshold)?
-                }
-            };
-
-            if age_exceeded {
-                let file_name = path
-                    .file_name()
-                    .ok_or_else(|| ArchiveError::InvalidPath(path.clone()))?;
-                let dest = archive_dir.join(file_name);
-
-                info!("archiving {} → {}", path.display(), dest.display());
-                std::fs::rename(&path, &dest)?;
+            if archive_plan(&path, &archive_dir, now, threshold)? {
                 archived_count += 1;
-            } else {
-                debug!("skipping {} (not old enough)", path.display());
             }
         }
 
         Ok(archived_count)
+    }
+}
+
+/// Read a single plan, decide whether it is due, and rename it into
+/// `archive_dir` — all while holding the plan's exclusive sidecar lock
+/// (the same lock domain as plan-file read-modify-write writers), so an
+/// archival rename can never interleave with a write-back (no resurrected
+/// ghost files, no lost archives).
+///
+/// Returns `true` when the plan was archived, `false` when it was skipped
+/// (unreadable, not completed, or not old enough).
+fn archive_plan(
+    path: &Path,
+    archive_dir: &Path,
+    now: chrono::DateTime<chrono::Utc>,
+    threshold: chrono::Duration,
+) -> Result<bool, ArchiveError> {
+    let _plan_lock = super::plan_file::acquire_plan_lock(path)?;
+
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("failed to read {}: {e}", path.display());
+            return Ok(false);
+        }
+    };
+
+    if !is_completed_plan(&content) {
+        return Ok(false);
+    }
+
+    if !is_age_exceeded(path, now, threshold)? {
+        debug!("skipping {} (not old enough)", path.display());
+        return Ok(false);
+    }
+
+    let file_name = path
+        .file_name()
+        .ok_or_else(|| ArchiveError::InvalidPath(path.to_path_buf()))?;
+    let dest = archive_dir.join(file_name);
+
+    info!("archiving {} → {}", path.display(), dest.display());
+    std::fs::rename(path, &dest)?;
+    Ok(true)
+}
+
+/// Decide whether a plan's access age exceeds the archival threshold.
+///
+/// Uses the application-layer access timestamp when present, and falls back
+/// to filesystem mtime for legacy plans.
+fn is_age_exceeded(
+    path: &Path,
+    now: chrono::DateTime<chrono::Utc>,
+    threshold: chrono::Duration,
+) -> Result<bool, ArchiveError> {
+    match super::plan_file::read_access_timestamp(path) {
+        Ok(Some(access_ts)) => Ok(now.signed_duration_since(access_ts) > threshold),
+        // Legacy plan without access timestamp — fallback to mtime
+        Ok(None) => is_mtime_exceeded(path, now, threshold),
+        Err(e) => {
+            warn!(
+                "failed to read access timestamp for {}: {e}, falling back to mtime",
+                path.display()
+            );
+            is_mtime_exceeded(path, now, threshold)
+        }
     }
 }
 
