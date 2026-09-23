@@ -27,8 +27,8 @@
 //! (CONTRIBUTING.md hard limits).
 
 use super::super::KillHandle;
-use super::capture_logs;
 use super::kill_doubles::{make_session, MockKillHandle};
+use super::log_capture::capture_logs_async;
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -321,38 +321,34 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 /// `kill()` returning `Err` must not abort stop: the error branch
 /// warns (existing semantics) and cleanup still completes — stopped
 /// flag set, handle map cleared, kill ran exactly once.
-#[test]
+#[tokio::test]
 #[serial_test::serial]
-fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
-    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
     let handle = FailingKillHandle::new();
     let kill_count = Arc::clone(&handle.kill_count);
-    rt.block_on(async {
-        cs.read()
-            .await
-            .register_tool_handle("call-err", handle as Arc<dyn KillHandle>);
-    });
+    cs.read()
+        .await
+        .register_tool_handle("call-err", handle as Arc<dyn KillHandle>);
 
-    let ((stopped, handles_len), logs) = capture_logs(
-        || {
-            rt.block_on(async {
-                cs.read()
-                    .await
-                    .stop(false, ShutdownMode::Forceful, Duration::ZERO)
-                    .await;
-                let s = cs.read().await;
-                let stopped = s.is_stopped();
-                let handles_len = s
-                    .tool_handles
-                    .read()
-                    .expect("tool_handles lock poisoned")
-                    .len();
-                (stopped, handles_len)
-            })
+    let ((stopped, handles_len), logs) = capture_logs_async(
+        || async {
+            cs.read()
+                .await
+                .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+                .await;
+            let s = cs.read().await;
+            let stopped = s.is_stopped();
+            let handles_len = s
+                .tool_handles
+                .read()
+                .expect("tool_handles lock poisoned")
+                .len();
+            (stopped, handles_len)
         },
         tracing::Level::WARN,
-    );
+    )
+    .await;
 
     assert!(stopped, "stop() must complete even when kill() returns Err");
     assert_eq!(
@@ -377,45 +373,41 @@ fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 /// branch while the kill is still blocked, and cleanup still
 /// completes. Complements the 500 ms over-budget case above by
 /// pinning the extreme of the budget scale (issue #3161 Step 1.3).
-#[test]
+#[tokio::test]
 #[serial_test::serial]
-fn test_stop_with_near_zero_kill_budget_returns_immediately() {
-    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
     let (handle, release, _entered_rx) = BlockingKillHandle::new();
     let finished = Arc::clone(&handle.finished);
-    rt.block_on(async {
-        cs.read()
-            .await
-            .register_tool_handle("zero-budget", handle as Arc<dyn KillHandle>);
-    });
+    cs.read()
+        .await
+        .register_tool_handle("zero-budget", handle as Arc<dyn KillHandle>);
 
-    let ((elapsed, stopped, handles_len), logs) = capture_logs(
-        || {
-            rt.block_on(async {
-                let start = Instant::now();
-                cs.read()
-                    .await
-                    .stop_with_kill_budget(
-                        false,
-                        ShutdownMode::Forceful,
-                        Duration::ZERO,
-                        Duration::ZERO,
-                    )
-                    .await;
-                let elapsed = start.elapsed();
-                let s = cs.read().await;
-                let stopped = s.is_stopped();
-                let handles_len = s
-                    .tool_handles
-                    .read()
-                    .expect("tool_handles lock poisoned")
-                    .len();
-                (elapsed, stopped, handles_len)
-            })
+    let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
+        || async {
+            let start = Instant::now();
+            cs.read()
+                .await
+                .stop_with_kill_budget(
+                    false,
+                    ShutdownMode::Forceful,
+                    Duration::ZERO,
+                    Duration::ZERO,
+                )
+                .await;
+            let elapsed = start.elapsed();
+            let s = cs.read().await;
+            let stopped = s.is_stopped();
+            let handles_len = s
+                .tool_handles
+                .read()
+                .expect("tool_handles lock poisoned")
+                .len();
+            (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
-    );
+    )
+    .await;
 
     assert!(
         elapsed < Duration::from_secs(1),
@@ -445,10 +437,9 @@ fn test_stop_with_near_zero_kill_budget_returns_immediately() {
 /// stop takes the Ok branch (no budget-expiry warn), returns as soon
 /// as the kill finishes instead of waiting out the full budget, and
 /// still cleans up (issue #3161 Step 1.3).
-#[test]
+#[tokio::test]
 #[serial_test::serial]
-fn test_stop_with_sufficient_budget_awaits_kill_completion() {
-    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     let cs = make_session("s_kill_sufficient");
     let (handle, release, entered_rx) = BlockingKillHandle::new();
     let entered = Arc::clone(&handle.entered);
@@ -462,33 +453,30 @@ fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         drop(release);
     });
 
-    rt.block_on(async {
-        cs.read()
-            .await
-            .register_tool_handle("sufficient-budget", handle as Arc<dyn KillHandle>);
-    });
+    cs.read()
+        .await
+        .register_tool_handle("sufficient-budget", handle as Arc<dyn KillHandle>);
 
-    let ((elapsed, stopped, handles_len), logs) = capture_logs(
-        || {
-            rt.block_on(async {
-                let start = Instant::now();
-                cs.read()
-                    .await
-                    .stop(false, ShutdownMode::Forceful, Duration::ZERO)
-                    .await;
-                let elapsed = start.elapsed();
-                let s = cs.read().await;
-                let stopped = s.is_stopped();
-                let handles_len = s
-                    .tool_handles
-                    .read()
-                    .expect("tool_handles lock poisoned")
-                    .len();
-                (elapsed, stopped, handles_len)
-            })
+    let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
+        || async {
+            let start = Instant::now();
+            cs.read()
+                .await
+                .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+                .await;
+            let elapsed = start.elapsed();
+            let s = cs.read().await;
+            let stopped = s.is_stopped();
+            let handles_len = s
+                .tool_handles
+                .read()
+                .expect("tool_handles lock poisoned")
+                .len();
+            (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
-    );
+    )
+    .await;
     releaser.join().expect("releaser thread must exit");
 
     assert_eq!(
@@ -527,9 +515,9 @@ fn test_stop_with_sufficient_budget_awaits_kill_completion() {
 /// the pool while a kill is in flight, which cannot be constructed
 /// deterministically in a unit test (reason also noted at the branch
 /// in `session_handles.rs`, issue #3161 Step 1.4).
-#[test]
+#[tokio::test]
 #[serial_test::serial]
-fn test_stop_with_panicking_kill_handle_propagates_panic() {
+async fn test_stop_with_panicking_kill_handle_propagates_panic() {
     struct PanickingKillHandle;
 
     impl KillHandle for PanickingKillHandle {
@@ -538,23 +526,19 @@ fn test_stop_with_panicking_kill_handle_propagates_panic() {
         }
     }
 
-    let rt = tokio::runtime::Runtime::new().expect("test runtime");
     let cs = make_session("s_kill_panic");
-    rt.block_on(async {
-        cs.read().await.register_tool_handle(
-            "panic-tool",
-            Arc::new(PanickingKillHandle) as Arc<dyn KillHandle>,
-        );
-    });
+    cs.read().await.register_tool_handle(
+        "panic-tool",
+        Arc::new(PanickingKillHandle) as Arc<dyn KillHandle>,
+    );
 
-    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        rt.block_on(async {
-            cs.read()
-                .await
-                .stop(false, ShutdownMode::Forceful, Duration::ZERO)
-                .await;
-        })
-    }));
+    let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
+        cs.read()
+            .await
+            .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+            .await;
+    }))
+    .await;
 
     let payload = outcome.expect_err("a panicking kill() must propagate out of stop()");
     let msg = payload
@@ -570,7 +554,7 @@ fn test_stop_with_panicking_kill_handle_propagates_panic() {
     // The escape aborted stop between "kill tools" and "cancel LLM →
     // cleanup": the stopped flag is set *before* the kill loop (design
     // order), so the observable effect is that cleanup never ran.
-    let s = rt.block_on(async { cs.read().await });
+    let s = cs.read().await;
     assert!(
         s.is_stopped(),
         "stopped flag is set before the kill loop, panic or not"
