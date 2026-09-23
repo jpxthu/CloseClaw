@@ -52,7 +52,7 @@ async fn test_capture_logs_async_returns_value_and_captures_logs_at_level() {
     let ((answer, marker), logs) = capture_logs_async(
         || async {
             tracing::warn!(dropped = 40_000, "cache break threshold crossed");
-            (42u32, "value-from-after-the-await")
+            (42u32, "value-from-the-future")
         },
         tracing::Level::WARN,
     )
@@ -63,7 +63,7 @@ async fn test_capture_logs_async_returns_value_and_captures_logs_at_level() {
         "the closure's return value must pass through unchanged; captured logs: {logs}"
     );
     assert_eq!(
-        marker, "value-from-after-the-await",
+        marker, "value-from-the-future",
         "the returned value must be the future's own output; captured logs: {logs}"
     );
     assert!(

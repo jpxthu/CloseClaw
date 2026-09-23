@@ -84,19 +84,27 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 /// - **`#[tokio::test]` with the default current-thread flavor.** The
 ///   `set_default` guard is thread-local: it installs the subscriber
 ///   on the thread that runs `f().await`'s first poll and can only be
-///   uninstalled on that same thread, so the future must stay on one
-///   thread. Two real risks if it does not (the spawn-attribution
-///   pair measured in `log_capture_tests.rs`): a **multi-thread
-///   flavor** can migrate the future — or a `tokio::spawn`ed child —
-///   onto another thread, so the guard drops away from the installing
-///   thread and the buffer is never released; a **child task
-///   outliving the capture scope** keeps running after the guard
-///   drops, so its events are missed. `tokio::spawn` inside the
-///   capture scope is therefore not itself a violation: awaited
-///   *inside* the scope on the current-thread runtime, the runtime
-///   polls the test future and the child on the same thread, so the
-///   child's events reach the same buffer (the measured basis
-///   recorded in `log_capture_tests.rs`). Blocking std calls (e.g.
+///   uninstalled on that same thread, so nothing in the capture scope
+///   may run on a second thread. Two real risks if it does (the
+///   spawn-attribution basis measured in `log_capture_tests.rs`):
+///   - **(a) the helper itself awaited inside a `tokio::spawn`ed
+///     task:** under a multi-thread flavor that task can migrate
+///     across threads mid-capture, so the guard is unloaded on a
+///     thread other than the installing one while the installing
+///     thread keeps the subscriber (and the buffer) forever — the
+///     tid thread-migration assertion below exists precisely to
+///     intercept this at runtime;
+///   - **(b) a `tokio::spawn`ed child under a multi-thread flavor:**
+///     the child runs on a worker thread, so its events leave the
+///     thread-local buffer entirely — and a child outliving the
+///     capture scope emits after the guard has already dropped, so
+///     those events are lost.
+///   Keeping the default current-thread flavor and awaiting any
+///   spawn *inside* the capture scope folds everything — helper,
+///   child, events — onto the one installing thread, which is what
+///   makes both risks moot (the measured basis recorded in
+///   `log_capture_tests.rs`); a violation of that is caught at
+///   runtime by the tid assertion. Blocking std calls (e.g.
 ///   `recv_timeout`) must not appear in the async body either: there
 ///   is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest

@@ -477,9 +477,11 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         tracing::Level::WARN,
     )
     .await;
-    // Join off the async runtime: awaiting `join()` directly here
-    // would block the current-thread runtime that must keep polling
-    // `stop()`'s blocking-pool joins.
+    // Join off the async runtime: a direct `releaser.join()` here
+    // would block this thread for up to ~1s (the releaser's bounded
+    // recv timeout), violating CONTRIBUTING's ban on blocking in
+    // async context; `spawn_blocking` moves that wait off the
+    // runtime thread.
     tokio::task::spawn_blocking(move || releaser.join().expect("releaser thread must exit"))
         .await
         .expect("releaser join must run to completion");
