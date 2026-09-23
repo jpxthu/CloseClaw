@@ -198,7 +198,20 @@ async fn test_resolve_miss_migrating_archive_completes() {
 
     // resolve(): Path 3 → active miss → migrating hit → poll → archived →
     // restore → returns original session_id.
-    let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    // 5s wall upper bound guards against regression to the full 30s poll
+    // (e.g. if a cache-first read sneaks back in and stalls the poll).
+    let start = std::time::Instant::now();
+    let resolved = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mgr.find_or_create("feishu", &msg, None),
+    )
+    .await
+    .expect("resolve should complete within 5s once archive completes")
+    .unwrap();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "archive_completes path should finish well under the 5s budget"
+    );
 
     // Should restore the original session (not create a new one)
     assert_eq!(
@@ -229,7 +242,11 @@ async fn test_resolve_miss_migrating_archive_completes() {
 /// Registry miss + migrating session in SQLite → notification injected →
 /// poll times out (still migrating after 30 s) → restores migrating session
 /// via checkpoint restore → verify returned session_id equals migrating_id.
-#[tokio::test]
+///
+/// Uses a paused tokio clock: the 30s poll deadline advances automatically
+/// through the 500ms sleeps, so the test folds logical time to milliseconds
+/// while still exercising the real timeout-restore path.
+#[tokio::test(start_paused = true)]
 async fn test_resolve_miss_migrating_timeout_creates_new() {
     let migrating_id = "migrating-miss-timeout".to_string();
 

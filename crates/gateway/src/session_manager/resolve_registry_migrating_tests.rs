@@ -185,7 +185,20 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
 
     // resolve(): Path 1 detects migrating → polls → archive completes →
     // falls through to Path 3 → archived check restores.
-    let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    // 5s wall upper bound guards against regression to the full 30s poll
+    // (e.g. if a cache-first read sneaks back in and stalls the poll).
+    let start = std::time::Instant::now();
+    let resolved = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mgr.find_or_create("feishu", &msg, None),
+    )
+    .await
+    .expect("resolve should complete within 5s once archive completes")
+    .unwrap();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "archive_completes path should finish well under the 5s budget"
+    );
 
     // Should restore the original session (not create a new one)
     assert_eq!(
@@ -216,7 +229,11 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
 /// When a registry-hit session is migrating and the Sweeper does NOT
 /// complete archiving within the poll window, resolve() should restore
 /// the migrating session via checkpoint restore (not create a new one).
-#[tokio::test]
+///
+/// Uses a paused tokio clock: the 30s poll deadline advances automatically
+/// through the 500ms sleeps, so the test folds logical time to milliseconds
+/// while still exercising the real timeout-restore path.
+#[tokio::test(start_paused = true)]
 async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
     let session_id = "migrating-timeout".to_string();
 
@@ -281,7 +298,9 @@ async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
 /// Verify that a migrating session in the registry goes through the
 /// polling wait before being returned. After timeout, the migrating
 /// session is restored via checkpoint restore (resolved == session_id).
-#[tokio::test]
+///
+/// Uses a paused tokio clock (see timeout test above).
+#[tokio::test(start_paused = true)]
 async fn test_resolve_migrating_not_directly_restored() {
     let session_id = "migrating-no-direct".to_string();
 
