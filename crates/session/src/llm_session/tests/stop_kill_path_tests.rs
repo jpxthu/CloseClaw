@@ -11,6 +11,11 @@
 //! - **error**: `kill()` returning `Err` warns and stop still
 //!   completes its cleanup
 //!
+//! Plus two budget boundary cases (issue #3161 Step 1.3): a
+//! degenerate near-zero budget cuts the wait off immediately, and a
+//! sufficient (production) budget awaits an in-flight kill that
+//! completes within it.
+//!
 //! Split out of `stop_tests.rs` to respect the 1000-line file cap
 //! (CONTRIBUTING.md hard limits).
 
@@ -54,31 +59,45 @@ impl KillHandle for FastKillHandle {
 /// `kill()` instantly (drop also runs on unwind, so a failing
 /// assertion can never strand the blocking-pool thread), and
 /// `recv_timeout` bounds the wait as a last-resort fallback.
+///
+/// A second channel (best-effort) notifies the test as soon as
+/// `kill()` starts, so a test can release the block at a controlled
+/// point of the stop flow without any polling wait.
 struct BlockingKillHandle {
     /// Incremented when `kill()` starts blocking.
     entered: Arc<AtomicUsize>,
     /// Incremented when `kill()` returns (0 while still blocked).
     finished: Arc<AtomicUsize>,
     rx: Mutex<std::sync::mpsc::Receiver<()>>,
+    /// Fired (best-effort) when `kill()` starts blocking.
+    entered_tx: std::sync::mpsc::Sender<()>,
 }
 
 impl BlockingKillHandle {
-    /// Returns the handle plus its release sender; dropping (or
-    /// sending on) the sender lets a blocked `kill()` finish.
-    fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
+    /// Returns the handle, its release sender, and the "kill started"
+    /// receiver; dropping (or sending on) the release sender lets a
+    /// blocked `kill()` finish.
+    fn new() -> (
+        Arc<Self>,
+        std::sync::mpsc::Sender<()>,
+        std::sync::mpsc::Receiver<()>,
+    ) {
         let (tx, rx) = std::sync::mpsc::channel();
+        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let handle = Arc::new(Self {
             entered: Arc::new(AtomicUsize::new(0)),
             finished: Arc::new(AtomicUsize::new(0)),
             rx: Mutex::new(rx),
+            entered_tx,
         });
-        (handle, tx)
+        (handle, tx, entered_rx)
     }
 }
 
 impl KillHandle for BlockingKillHandle {
     fn kill(&self) -> io::Result<()> {
         self.entered.fetch_add(1, Ordering::SeqCst);
+        let _ = self.entered_tx.send(());
         // Wait for the test to release. The bounded timeout is a
         // safety fallback only — the sender's drop always releases,
         // so no fixed multi-second wait ever happens by design.
@@ -184,7 +203,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     // 5 s budget" without a fragile tight time comparison.
     let loose_bound = Duration::from_secs(4);
 
-    let (handle, release) = BlockingKillHandle::new();
+    let (handle, release, _entered_rx) = BlockingKillHandle::new();
     let entered = Arc::clone(&handle.entered);
     let finished = Arc::clone(&handle.finished);
     cs.read()
@@ -284,5 +303,150 @@ fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     assert!(
         logs.contains("handle.kill() returned error"),
         "kill() error must be warned about; captured logs: {logs}"
+    );
+}
+
+// ── boundary: near-zero kill budget ─────────────────────────────────────
+
+/// Boundary: a degenerate (zero) kill budget cuts the wait off at
+/// once — stop returns immediately through the budget-expiry warn
+/// branch while the kill is still blocked, and cleanup still
+/// completes. Complements the 500 ms over-budget case above by
+/// pinning the extreme of the budget scale (issue #3161 Step 1.3).
+#[test]
+#[serial_test::serial]
+fn test_stop_with_near_zero_kill_budget_returns_immediately() {
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    let cs = make_session("s_kill_zero_budget");
+    let (handle, release, _entered_rx) = BlockingKillHandle::new();
+    let finished = Arc::clone(&handle.finished);
+    rt.block_on(async {
+        cs.read()
+            .await
+            .register_tool_handle("zero-budget", handle as Arc<dyn KillHandle>);
+    });
+
+    let ((elapsed, stopped, handles_len), logs) = capture_logs(
+        || {
+            rt.block_on(async {
+                let start = Instant::now();
+                cs.read()
+                    .await
+                    .stop_with_kill_budget(
+                        false,
+                        ShutdownMode::Forceful,
+                        Duration::ZERO,
+                        Duration::ZERO,
+                    )
+                    .await;
+                let elapsed = start.elapsed();
+                let s = cs.read().await;
+                let stopped = s.is_stopped();
+                let handles_len = s
+                    .tool_handles
+                    .read()
+                    .expect("tool_handles lock poisoned")
+                    .len();
+                (elapsed, stopped, handles_len)
+            })
+        },
+        tracing::Level::WARN,
+    );
+
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "a zero kill budget must not hold up stop; took {elapsed:?}"
+    );
+    assert!(stopped, "stopped flag must be set");
+    assert_eq!(handles_len, 0, "tool_handles must be cleared");
+    assert_eq!(
+        finished.load(Ordering::SeqCst),
+        0,
+        "kill() must still be blocked when stop() returns at a zero budget"
+    );
+    assert!(
+        logs.contains("timed out after"),
+        "budget expiry must go through the warn branch; captured logs: {logs}"
+    );
+
+    // Release the abandoned kill so the blocking-pool thread exits
+    // before the runtime tears down.
+    drop(release);
+}
+
+// ── boundary: sufficient budget awaits the in-flight kill ──────────────
+
+/// Boundary: with the production budget, a kill that blocks for a
+/// while but completes within the budget is awaited to completion —
+/// stop takes the Ok branch (no budget-expiry warn), returns as soon
+/// as the kill finishes instead of waiting out the full budget, and
+/// still cleans up (issue #3161 Step 1.3).
+#[test]
+#[serial_test::serial]
+fn test_stop_with_sufficient_budget_awaits_kill_completion() {
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    let cs = make_session("s_kill_sufficient");
+    let (handle, release, entered_rx) = BlockingKillHandle::new();
+    let entered = Arc::clone(&handle.entered);
+    let finished = Arc::clone(&handle.finished);
+
+    // Release the kill only after it has actually started blocking —
+    // models a slow-but-within-budget kill with no fixed wait (the
+    // bounded recv is a failure fallback only).
+    let releaser = std::thread::spawn(move || {
+        let _ = entered_rx.recv_timeout(Duration::from_secs(5));
+        drop(release);
+    });
+
+    rt.block_on(async {
+        cs.read()
+            .await
+            .register_tool_handle("sufficient-budget", handle as Arc<dyn KillHandle>);
+    });
+
+    let ((elapsed, stopped, handles_len), logs) = capture_logs(
+        || {
+            rt.block_on(async {
+                let start = Instant::now();
+                cs.read()
+                    .await
+                    .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+                    .await;
+                let elapsed = start.elapsed();
+                let s = cs.read().await;
+                let stopped = s.is_stopped();
+                let handles_len = s
+                    .tool_handles
+                    .read()
+                    .expect("tool_handles lock poisoned")
+                    .len();
+                (elapsed, stopped, handles_len)
+            })
+        },
+        tracing::Level::WARN,
+    );
+    releaser.join().expect("releaser thread must exit");
+
+    assert_eq!(
+        entered.load(Ordering::SeqCst),
+        1,
+        "kill() must have started before stop() returned"
+    );
+    assert_eq!(
+        finished.load(Ordering::SeqCst),
+        1,
+        "stop() must await a kill that finishes within the budget"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "stop() must return when the kill completes, not after the full \
+         budget; took {elapsed:?}"
+    );
+    assert!(stopped, "stopped flag must be set");
+    assert_eq!(handles_len, 0, "tool_handles must be cleared");
+    assert!(
+        !logs.contains("timed out after"),
+        "a sufficient budget must not hit the expiry branch; \
+         captured logs: {logs}"
     );
 }

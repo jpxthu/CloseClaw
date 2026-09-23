@@ -577,6 +577,36 @@ fn test_prepare_run_env_var_expansion() {
     }
 }
 
+/// Boundary: `~` and an env var in the same config_dir — expand_path
+/// expands the home shorthand first, then substitutes the env var, so
+/// `~/$TESTVAR` resolves to `<home>/<value>` end to end through the
+/// helper child (issue #3161 Step 1.3). The child inherits the parent's
+/// HOME, so the expected value is computed from the parent's home dir.
+#[test]
+fn test_prepare_run_tilde_and_env_var_combined() {
+    let home = dirs::home_dir().expect("HOME should be available in test env");
+    let result = run_helper("~/$TESTVAR", &[("TESTVAR", "conf-sub")]);
+    assert_eq!(
+        PathBuf::from(result.trim()),
+        home.join("conf-sub"),
+        "~/ must expand before $TESTVAR is substituted"
+    );
+}
+
+/// Boundary: an env var *value* containing `~` is not home-expanded —
+/// expand_path is a single forward pass (home → env), so the literal
+/// `~/` coming from the substituted value survives as-is. Locks the
+/// expansion order (issue #3161 Step 1.3).
+#[test]
+fn test_prepare_run_env_value_tilde_not_reexpanded() {
+    let result = run_helper("$TESTVAR", &[("TESTVAR", "~/literal")]);
+    assert_eq!(
+        PathBuf::from(result.trim()),
+        PathBuf::from("~/literal"),
+        "env values must not be re-scanned for ~ after substitution"
+    );
+}
+
 /// root_dir() failure (HOME unset) propagates as an error.
 /// When HOME is unset, root_dir() returns an error, so prepare_run("") must
 /// fail: the helper child reports it on stderr and exits non-zero.
