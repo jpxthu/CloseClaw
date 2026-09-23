@@ -19,6 +19,7 @@ mod llm_busy_count_tests;
 mod llm_gate_check_tests;
 mod log_capture;
 use self::log_capture::capture_logs;
+mod log_capture_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
 mod progress_removal_session_tests;
