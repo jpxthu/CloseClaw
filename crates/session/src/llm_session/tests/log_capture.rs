@@ -4,8 +4,9 @@
 //!
 //! `tests/mod.rs` re-exports [`capture_logs`]
 //! (`use self::log_capture::capture_logs;`), so callers keep writing
-//! `use super::capture_logs;` unchanged; `VecWriter` is not re-exported
-//! (no caller references it).
+//! `use super::capture_logs;` unchanged; `VecWriter` is not
+//! re-exported (referenced only by `log_capture_tests`, for its
+//! `is::<CaptureSubscriber>()` guard discrimination).
 //!
 //! Two capture entry points coexist long-term: synchronous
 //! [`capture_logs`] for tests with synchronous bodies, and async
@@ -63,8 +64,7 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
     let buffer = VecWriter::default();
     let guard = install(&buffer, level);
     let value = f();
-    drop(guard);
-    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    let logs = drain(&buffer, guard);
     (value, logs)
 }
 
@@ -84,11 +84,19 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 /// - **`#[tokio::test]` with the default current-thread flavor.** The
 ///   `set_default` guard is thread-local: it installs the subscriber
 ///   on the thread that runs `f().await`'s first poll and can only be
-///   uninstalled on that same thread. If the future migrates across
-///   threads (multi-thread runtime, `tokio::spawn` inside the capture
-///   scope, ...), the guard drops away from the installing thread and
-///   the buffer is never released — so drive the future on one
-///   current-thread runtime. Blocking std calls (e.g.
+///   uninstalled on that same thread, so the future must stay on one
+///   thread. Two real risks if it does not (the spawn-attribution
+///   pair measured in `log_capture_tests.rs`): a **multi-thread
+///   flavor** can migrate the future — or a `tokio::spawn`ed child —
+///   onto another thread, so the guard drops away from the installing
+///   thread and the buffer is never released; a **child task
+///   outliving the capture scope** keeps running after the guard
+///   drops, so its events are missed. `tokio::spawn` inside the
+///   capture scope is therefore not itself a violation: awaited
+///   *inside* the scope on the current-thread runtime, the runtime
+///   polls the test future and the child on the same thread, so the
+///   child's events reach the same buffer (the measured basis
+///   recorded in `log_capture_tests.rs`). Blocking std calls (e.g.
 ///   `recv_timeout`) must not appear in the async body either: there
 ///   is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest
@@ -110,10 +118,26 @@ where
 {
     let buffer = VecWriter::default();
     let guard = install(&buffer, level);
+    let tid = std::thread::current().id();
     let value = f().await;
-    drop(guard);
-    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
+    assert_eq!(
+        std::thread::current().id(),
+        tid,
+        "capture_logs_async must run on a single thread: the set_default guard \
+         is thread-affine, so a future that migrated across threads cannot be \
+         unloaded on the installing thread; drive it with the current-thread \
+         #[tokio::test] flavor"
+    );
+    let logs = drain(&buffer, guard);
     (value, logs)
+}
+
+/// Shared tail of [`capture_logs`] and [`capture_logs_async`]: drop
+/// `guard` so the subscriber is uninstalled and stops writing, then
+/// read back everything it captured as UTF-8 text.
+fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String {
+    drop(guard);
+    String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap()
 }
 
 /// Build the fmt subscriber (no target/ansi) filtered to `level`,

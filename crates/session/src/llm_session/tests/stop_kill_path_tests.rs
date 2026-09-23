@@ -477,7 +477,12 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         tracing::Level::WARN,
     )
     .await;
-    releaser.join().expect("releaser thread must exit");
+    // Join off the async runtime: awaiting `join()` directly here
+    // would block the current-thread runtime that must keep polling
+    // `stop()`'s blocking-pool joins.
+    tokio::task::spawn_blocking(move || releaser.join().expect("releaser thread must exit"))
+        .await
+        .expect("releaser join must run to completion");
 
     assert_eq!(
         entered.load(Ordering::SeqCst),
