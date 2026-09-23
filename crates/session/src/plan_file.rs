@@ -4,9 +4,11 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::{DateTime, Local, Utc};
-use closeclaw_config::IdentifierFormat;
+use closeclaw_config::{write_atomically, IdentifierFormat};
 use rand::seq::SliceRandom;
+use std::fs::File;
 use std::io;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -141,6 +143,91 @@ pub fn create_plan_file_with_format(
     Ok(file_path)
 }
 
+// ── Concurrency-safe read-modify-write ─────────────────────────────────
+
+/// Perform a read-modify-write cycle on a plan file under an exclusive lock.
+///
+/// The whole cycle — read → `transform` → atomic write-back — runs while
+/// holding an exclusive advisory lock on the sidecar `{path}.lock` file, so
+/// concurrent writers (threads and separate processes alike) are serialized
+/// and can never observe a truncated file or lose each other's updates. The
+/// write-back goes through [`closeclaw_config::write_atomically`] (tempfile +
+/// fsync + rename) with the original file mode preserved, so readers only
+/// ever see the complete old content or the complete new content.
+///
+/// The sidecar's `lock` extension never matches the `.md` filter used by plan
+/// resolution, listing, and archiving, so lock files stay invisible to them.
+/// No global mutable state is involved: exclusion is scoped to the sidecar
+/// file only.
+///
+/// # Reentrancy
+///
+/// `transform` runs while the sidecar lock is held and must **not** call back
+/// into any lock-taking plan API ([`touch_access_timestamp`],
+/// [`update_plan_timestamp`], [`append_to_plan_section`],
+/// [`acquire_plan_lock`], or the archival rename in `plan_archive`). Every
+/// acquisition locks a fresh file descriptor, so a same-process re-lock of
+/// the same sidecar blocks forever (flock treats descriptors independently —
+/// self-deadlock, no error is ever returned).
+///
+/// # Errors
+/// Returns `NotFound` if the plan file does not exist — checked while the
+/// lock is held, so the check cannot race an archival rename — otherwise the
+/// first error from creating/locking the sidecar, reading the plan file,
+/// running `transform`, or writing the result back.
+fn mutate_plan_file<F>(plan_path: &Path, transform: F) -> io::Result<()>
+where
+    F: FnOnce(&mut String) -> io::Result<()>,
+{
+    let _lock = acquire_plan_lock(plan_path)?;
+
+    // Checked under the lock: a pre-lock check would race a concurrent
+    // archival rename (check-then-act) and split NotFound across two sources.
+    if !plan_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("plan file not found: {}", plan_path.display()),
+        ));
+    }
+
+    let mut content = std::fs::read_to_string(plan_path)?;
+    transform(&mut content)?;
+
+    let mode = std::fs::metadata(plan_path)?.permissions().mode();
+    write_atomically(plan_path, content.as_bytes(), Some(mode))
+}
+
+/// Open (creating it if needed) the sidecar lock file for `plan_path` and
+/// take the exclusive advisory lock on it.
+///
+/// The sidecar lives at `{plan_path}.lock`; the caller holds the lock until
+/// the returned [`File`] is dropped. Its `lock` extension never matches the
+/// `.md` filter used by plan resolution, listing, and archiving, so lock
+/// files stay invisible to them.
+///
+/// This is the single lock domain shared by every plan-file writer — the
+/// [`mutate_plan_file`] read-modify-write helpers and the archival rename in
+/// `plan_archive` alike. It involves no global mutable state.
+///
+/// # Reentrancy
+///
+/// The lock is **not** reentrant. Every call opens a fresh sidecar descriptor,
+/// so acquiring it again for the same plan while it is already held — by this
+/// thread, another thread, or another handle in this process — blocks forever
+/// (flock is per-descriptor: self-deadlock, not an error). Callers must never
+/// invoke this, [`mutate_plan_file`], or the archival rename while the same
+/// plan's lock is already held (e.g. from inside a `transform` closure).
+///
+/// # Errors
+/// Returns an error if the sidecar cannot be created or locked.
+pub(crate) fn acquire_plan_lock(plan_path: &Path) -> io::Result<File> {
+    let mut lock_name = plan_path.as_os_str().to_os_string();
+    lock_name.push(".lock");
+    let lock_file = File::create(PathBuf::from(&lock_name))?;
+    lock_file.lock()?;
+    Ok(lock_file)
+}
+
 /// Update only the update timestamp field in a plan file.
 ///
 /// Replaces `| 更新时间 | xxx |` with the current time.
@@ -150,23 +237,30 @@ pub fn create_plan_file_with_format(
 /// the update time line is not found.
 pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error> {
     let path = Path::new(plan_file_path);
-    if !path.exists() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::NotFound,
-            format!("plan file not found: {plan_file_path}"),
-        ));
-    }
+    mutate_plan_file(path, |content| refresh_update_time_line(content, path))
+}
 
-    let content = std::fs::read_to_string(path)?;
+/// Rewrite the `| 更新时间 | … |` line in `content` to the current local time.
+///
+/// Called from within a [`mutate_plan_file`] transform, so the timestamp is
+/// taken while the sidecar lock is held and the refresh lands in the same
+/// atomic write-back as the surrounding modification.
+///
+/// # Errors
+/// Returns [`io::ErrorKind::InvalidData`] when the update-time line is missing.
+fn refresh_update_time_line(content: &mut String, path: &Path) -> io::Result<()> {
     let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
-
-    match replace_update_time_line(&content, &new_timestamp) {
-        Some(c) => std::fs::write(path, c),
-        None => Err(std::io::Error::new(
-            std::io::ErrorKind::InvalidData,
-            format!("update time line not found in plan file: {plan_file_path}"),
-        )),
-    }
+    let updated = replace_update_time_line(content, &new_timestamp).ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!(
+                "update time line not found in plan file: {}",
+                path.display()
+            ),
+        )
+    })?;
+    *content = updated;
+    Ok(())
 }
 
 // ── Application-layer access timestamp ───────────────────────────────────
@@ -176,8 +270,8 @@ pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error>
 /// Stored as `<!-- accessed: {ISO-8601 UTC} -->` on the line immediately
 /// after the `# {title}` heading.  The marker is portable: it travels with
 /// the file across renames (archive) and requires no external storage.
-const ACCESS_TIMESTAMP_MARKER_PREFIX: &str = "<!-- accessed: ";
-const ACCESS_TIMESTAMP_MARKER_SUFFIX: &str = " -->";
+pub(crate) const ACCESS_TIMESTAMP_MARKER_PREFIX: &str = "<!-- accessed: ";
+pub(crate) const ACCESS_TIMESTAMP_MARKER_SUFFIX: &str = " -->";
 
 /// Read the application-layer access timestamp from a plan file.
 ///
@@ -203,10 +297,20 @@ pub fn read_access_timestamp(plan_path: &Path) -> Result<Option<DateTime<Utc>>, 
 /// Returns an error if the file cannot be read/written, or if the
 /// title heading line is missing.
 pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
-    let mut content = std::fs::read_to_string(plan_path)?;
-    let now = Utc::now().to_rfc3339();
-    let marker = format!("<!-- accessed: {now} -->");
+    mutate_plan_file(plan_path, |content| {
+        // `now` is taken inside the lock so serialized writers apply markers
+        // in lock-acquisition order and the timestamp never regresses.
+        let marker = format!("<!-- accessed: {} -->", Utc::now().to_rfc3339());
+        apply_access_marker(content, &marker)
+    })
+}
 
+/// Replace the existing access timestamp marker in `content` with `marker`,
+/// or insert `marker` on the line immediately after the `# {title}` heading.
+///
+/// Files with an unterminated marker or without a title heading are rejected
+/// with [`io::ErrorKind::InvalidData`].
+fn apply_access_marker(content: &mut String, marker: &str) -> io::Result<()> {
     if let Some(idx) = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX) {
         let start = idx;
         let end = match content[start..].find(ACCESS_TIMESTAMP_MARKER_SUFFIX) {
@@ -218,7 +322,7 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
                 ));
             }
         };
-        content.replace_range(start..end, &marker);
+        content.replace_range(start..end, marker);
     } else {
         // Insert after the `# {title}` heading line.
         // The heading may be at the very start of the file (no leading newline)
@@ -242,12 +346,14 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
             })?;
         content.insert_str(insert_pos, &format!("{marker}\n"));
     }
-
-    std::fs::write(plan_path, content)
+    Ok(())
 }
 
 /// Parse the access timestamp marker from plan file content.
-fn parse_access_timestamp(content: &str) -> Option<DateTime<Utc>> {
+///
+/// `pub(crate)` so the archiver can parse the content it has already read
+/// instead of re-reading the file inside the same lock domain.
+pub(crate) fn parse_access_timestamp(content: &str) -> Option<DateTime<Utc>> {
     let idx = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX)?;
     let start = idx + ACCESS_TIMESTAMP_MARKER_PREFIX.len();
     let rest = &content[start..];
@@ -481,26 +587,21 @@ pub fn append_to_plan_section(
     section: &str,
     content: &str,
 ) -> Result<(), std::io::Error> {
-    let mut file_content = std::fs::read_to_string(plan_path)?;
     let section_heading = format!("## {section}");
-
-    if let Some(insert_pos) = find_section_insert_position(&file_content, &section_heading) {
-        // Insert content before the next ## heading (or at end)
-        file_content.insert_str(insert_pos, content);
-    } else {
-        // Section doesn't exist; append at end
-        if !file_content.ends_with('\n') {
-            file_content.push('\n');
+    mutate_plan_file(plan_path, |file_content| {
+        if let Some(insert_pos) = find_section_insert_position(file_content, &section_heading) {
+            // Insert content before the next ## heading (or at end)
+            file_content.insert_str(insert_pos, content);
+        } else {
+            // Section doesn't exist; append at end
+            if !file_content.ends_with('\n') {
+                file_content.push('\n');
+            }
+            file_content.push_str(&format!("\n{section_heading}\n\n{content}"));
         }
-        file_content.push_str(&format!("\n{section_heading}\n\n{content}"));
-    }
-
-    std::fs::write(plan_path, &file_content)?;
-    // Refresh update timestamp
-    let path_str = plan_path
-        .to_str()
-        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidData, "non-UTF-8 path"))?;
-    update_plan_timestamp(path_str)
+        // Refresh update timestamp within the same locked, atomic write-back
+        refresh_update_time_line(file_content, plan_path)
+    })
 }
 
 /// Read the content of a named section in a plan file.
