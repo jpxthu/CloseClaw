@@ -99,14 +99,14 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 ///     thread-local buffer entirely — and a child outliving the
 ///     capture scope emits after the guard has already dropped, so
 ///     those events are lost.
-///   Keeping the default current-thread flavor and awaiting any
-///   spawn *inside* the capture scope folds everything — helper,
-///   child, events — onto the one installing thread, which is what
-///   makes both risks moot (the measured basis recorded in
-///   `log_capture_tests.rs`); a violation of that is caught at
-///   runtime by the tid assertion. Blocking std calls (e.g.
-///   `recv_timeout`) must not appear in the async body either: there
-///   is no other thread to poll it.
+///     Keeping the default current-thread flavor and awaiting any
+///     spawn *inside* the capture scope folds everything — helper,
+///     child, events — onto the one installing thread, which is what
+///     makes both risks moot (the measured basis recorded in
+///     `log_capture_tests.rs`); a violation of that is caught at
+///     runtime by the tid assertion. Blocking std calls (e.g.
+///     `recv_timeout`) must not appear in the async body either: there
+///     is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest
 ///   cache reason as [`capture_logs`] (issue #3102 race): concurrent
 ///   registration on the same callsite can drop events and empty the
