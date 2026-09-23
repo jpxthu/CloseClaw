@@ -12,7 +12,7 @@ use super::run::{
 use closeclaw_platform::process::{read_pid_file, write_pid_file};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Helper: create an isolated PID file path under a TempDir.
@@ -456,105 +456,102 @@ fn test_prepare_run_bare_tilde_is_home() {
     );
 }
 
-// ── Env var expansion tests (subprocess-based) ────────────────────────────
-// Env mutation is prohibited by CONTRIBUTING.md §7,
-// so env var expansion is tested by spawning a subprocess with the
-// target env set and parsing the output.
+// ── Env var expansion tests (re-exec child) ──────────────────────────────
+// Env mutation is prohibited by CONTRIBUTING.md §7, so env var expansion is
+// tested by re-exec'ing this test binary as a gated helper child with the
+// target env injected (precedent: crates/platform/src/process_tests.rs).
 
-/// Run the helper binary with optional env vars set and return its stdout.
-/// On failure, outputs both stdout and stderr for debugging.
-fn run_helper(helper: &std::path::Path, config_dir: &str, envs: &[(&str, &str)]) -> String {
-    let mut cmd = std::process::Command::new(helper);
-    cmd.arg(config_dir);
+/// Env gate: set only on the re-exec'd child so normal test runs skip the
+/// helper sub-test.
+const HELPER_CHILD_GATE: &str = "PREPARE_RUN_HELPER_CHILD";
+
+/// Raw `--config-dir` input injected by the parent test into the child.
+const HELPER_CONFIG_DIR: &str = "PREPARE_RUN_HELPER_CONFIG_DIR";
+
+/// Marker prefix of the resolved-path line printed by the helper child.
+const HELPER_RESULT_MARKER: &str = "PREPARE_RUN_RESOLVED=";
+
+/// `--exact` filter selecting only the helper sub-test inside the child.
+const HELPER_CHILD_TEST: &str = "admin::run_tests::test_prepare_run_helper_child";
+
+/// Re-exec the current test binary as the `prepare_run` helper child.
+///
+/// `--exact` restricts the child to the helper sub-test; `envs` /
+/// `remove_home` reproduce the isolation semantics of the old compiled
+/// helper binary (subprocess-only env, no process-global mutation).
+fn spawn_helper_child(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+    remove_home: bool,
+) -> std::process::Output {
+    let test_binary = std::env::current_exe().expect("failed to resolve current test binary");
+    let mut cmd = std::process::Command::new(test_binary);
+    cmd.env(HELPER_CHILD_GATE, "1")
+        .env(HELPER_CONFIG_DIR, config_dir)
+        .arg("--exact")
+        .arg("--nocapture")
+        .arg(HELPER_CHILD_TEST);
     for (k, v) in envs {
         cmd.env(k, v);
     }
-    let output = cmd.output().expect("failed to execute helper binary");
+    if remove_home {
+        cmd.env_remove("HOME");
+    }
+    cmd.output().expect("failed to execute helper child")
+}
+
+/// Helper sub-test body: resolves `prepare_run` under the parent-injected
+/// env and prints the result with [`HELPER_RESULT_MARKER`]. Inert during a
+/// normal run (gate unset); the parent tests drive it by re-exec'ing this
+/// binary with [`HELPER_CHILD_GATE`] + `--exact` filtering.
+#[test]
+fn test_prepare_run_helper_child() {
+    if std::env::var(HELPER_CHILD_GATE).is_err() {
+        eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
+    let config_dir = std::env::var(HELPER_CONFIG_DIR).expect("missing config_dir input");
+    match prepare_run(&config_dir, None) {
+        Ok((resolved, _)) => println!("{HELPER_RESULT_MARKER}{}", resolved.display()),
+        Err(err) => {
+            eprintln!("prepare_run failed: {err:?}");
+            std::process::exit(1);
+        }
+    }
+}
+
+/// Run the helper child with optional env vars set and return the resolved
+/// config_dir it printed (stripped from the [`HELPER_RESULT_MARKER`] line).
+/// On failure, outputs both stdout and stderr for debugging.
+fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
+    let output = spawn_helper_child(config_dir, envs, false);
     assert!(
         output.status.success(),
-        "helper binary failed\nstdout: {}\nstderr: {}",
+        "helper child failed\nstdout: {}\nstderr: {}",
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
-    String::from_utf8(output.stdout).expect("helper output is not UTF-8")
+    let stdout = String::from_utf8(output.stdout).expect("helper output is not UTF-8");
+    stdout
+        .lines()
+        .find_map(|line| line.split(HELPER_RESULT_MARKER).nth(1))
+        .map(str::to_string)
+        .unwrap_or_else(|| {
+            panic!("helper child printed no {HELPER_RESULT_MARKER} line, stdout: {stdout}")
+        })
 }
 
-/// Helper binary source: compiled into a temporary crate at test time.
-/// Prints the config_dir path returned by prepare_run.
-/// Panics immediately if config_dir argument is missing.
-const HELPER_SRC: &str = r#"fn main() {
-    let config_dir = std::env::args().nth(1).expect("missing config_dir argument");
-    let (resolved, _) = closeclaw_cli::admin::prepare_run(&config_dir, None).unwrap();
-    println!("{}", resolved.display());
-}"#;
-
-// ── Helper infrastructure for env var tests ────────────────────────────────
-// Compiled once via OnceLock so all env var test cases share a single build
-// (CI red line: single case >5s must fix).
-static HELPER: OnceLock<(tempfile::TempDir, std::path::PathBuf)> = OnceLock::new();
-
-fn helper_path() -> &'static std::path::Path {
-    &HELPER.get_or_init(create_helper_project).1
-}
-
-/// Write a minimal Cargo project that depends on closeclaw-cli and compiles
-/// the helper binary. Returns (temp_dir, binary_path).
-fn create_helper_project() -> (TempDir, std::path::PathBuf) {
-    let tmp = TempDir::new().unwrap();
-    let proj = tmp.path().join("helper_proj");
-    std::fs::create_dir_all(proj.join("src")).unwrap();
-
-    // Find workspace root for path dependencies.
-    let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
-    let workspace_root = manifest_dir.parent().unwrap().parent().unwrap();
-    let cli_path = workspace_root.join("crates").join("cli");
-    // Write Cargo.toml with path dep to closeclaw-cli.
-    let cargo_toml = format!(
-        r#"[package]
-name = "prepare_run_helper"
-version = "0.0.0"
-edition = "2021"
-
-[dependencies]
-closeclaw-cli = {{ path = "{}" }}"#,
-        cli_path.display()
-    );
-    std::fs::write(proj.join("Cargo.toml"), &cargo_toml).unwrap();
-    std::fs::write(proj.join("src").join("main.rs"), HELPER_SRC).unwrap();
-
-    // Build.
-    let status = std::process::Command::new("cargo")
-        .arg("build")
-        .arg("--manifest-path")
-        .arg(proj.join("Cargo.toml"))
-        .arg("--target-dir")
-        .arg(tmp.path().join("target"))
-        .current_dir(&workspace_root)
-        .status()
-        .expect("failed to compile helper binary");
-    assert!(status.success(), "helper binary compilation failed");
-
-    let helper = tmp
-        .path()
-        .join("target")
-        .join("debug")
-        .join("prepare_run_helper");
-    assert!(
-        helper.exists(),
-        "helper binary not found at {}",
-        helper.display()
-    );
-
-    (tmp, helper)
-}
+/// One env-expansion case: (input config_dir, injected env vars, expected
+/// output).
+type ExpansionCase<'a> = (&'a str, &'a [(&'a str, &'a str)], &'a str);
 
 /// Env var expansion: table-driven test covering all cases.
-/// Helper binary is compiled once via OnceLock and shared across all cases.
+/// Each case re-execs the current test binary as the helper child — no
+/// compile step, so every case stays well under the 5s red line.
 /// Cases: (input, env vars, expected output)
 #[test]
 fn test_prepare_run_env_var_expansion() {
-    let helper = helper_path();
-    let cases: &[(&str, &[(&str, &str)], &str)] = &[
+    let cases: &[ExpansionCase<'_>] = &[
         // $TESTVAR is expanded to its value when set
         (
             "$TESTVAR/sub",
@@ -571,7 +568,7 @@ fn test_prepare_run_env_var_expansion() {
         ("$UNDEFINED_XYZ_12345/sub", &[], "$UNDEFINED_XYZ_12345/sub"),
     ];
     for (input, envs, expected) in cases {
-        let result = run_helper(helper, input, envs);
+        let result = run_helper(input, envs);
         assert_eq!(
             result.trim(),
             *expected,
@@ -581,26 +578,21 @@ fn test_prepare_run_env_var_expansion() {
 }
 
 /// root_dir() failure (HOME unset) propagates as an error.
-/// When HOME is unset, root_dir() returns an error, and prepare_run(""")
-/// must propagate it rather than panicking.
+/// When HOME is unset, root_dir() returns an error, so prepare_run("") must
+/// fail: the helper child reports it on stderr and exits non-zero.
 #[test]
 fn test_prepare_run_root_dir_failure_propagates() {
-    let (tmp, helper) = create_helper_project();
-    let output = std::process::Command::new(&helper)
-        .arg("")
-        .env_remove("HOME")
-        .output()
-        .expect("failed to execute helper binary");
+    let output = spawn_helper_child("", &[], true);
     assert!(
         !output.status.success(),
-        "should fail when HOME is unset and config_dir is empty"
+        "should fail when HOME is unset and config_dir is empty\nstdout: {}",
+        String::from_utf8_lossy(&output.stdout)
     );
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(
         stderr.contains("HOME") || stderr.contains("environment variable"),
         "error should reference HOME or environment variable, got: {stderr}"
     );
-    drop(tmp);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
