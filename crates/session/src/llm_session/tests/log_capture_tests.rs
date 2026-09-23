@@ -196,10 +196,12 @@ async fn test_capture_logs_async_returns_empty_string_when_no_events() {
 /// guard (and its buffer) has already dropped — must have its event
 /// **absent** from the returned `String` (risk (b) of the helper's
 /// threading contract). Each half of the check is load-bearing: the
-/// parked-send proves the child never ran inside the scope, the
-/// done-signal proves it really emitted after the release (so the
-/// negative assertion cannot pass vacuously), and the in-scope event
-/// proves this capture's own buffer worked.
+/// parked-send proves the handshake was still unconsumed when the
+/// scope ended — the child never got past it, so it cannot have
+/// emitted inside the scope — the done-signal proves it really
+/// emitted after the release (so the negative assertion cannot pass
+/// vacuously), and the in-scope event proves this capture's own
+/// buffer worked.
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_misses_events_from_child_outliving_scope() {
@@ -228,11 +230,17 @@ async fn test_capture_logs_async_misses_events_from_child_outliving_scope() {
         !is_installed(),
         "the capture guard must be unloaded once the scope has ended"
     );
-    release_tx
-        .send(())
-        .expect("child must still be parked — it must not run inside the scope");
-    emitted_rx
+    release_tx.send(()).expect(
+        "the handshake must still be unconsumed when the scope ended — \
+                 the child never got past it",
+    );
+    // Hang-guard only (STANDARDS §6's 30s hard cap for unit tests):
+    // if the child never runs after the release, fail with an explicit
+    // error instead of stalling the whole suite. The normal path
+    // resolves immediately, so the generous bound changes no behaviour.
+    tokio::time::timeout(std::time::Duration::from_secs(10), emitted_rx)
         .await
+        .expect("the child never emitted within 10s of the release")
         .expect("the child must have emitted after the release");
 
     assert!(

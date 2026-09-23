@@ -5,10 +5,10 @@
 //! `tests/mod.rs` re-exports the whole helper API — [`capture_logs`],
 //! [`capture_logs_async`] and [`is_installed`] (sibling
 //! `use self::log_capture::…;` lines, the single export point for both
-//! capture entry points) — so callers keep writing
-//! `use super::capture_logs;` / `use super::capture_logs_async;` /
-//! `use super::is_installed;` unchanged: tests never import the helper
-//! module path directly. The subscriber type and its `VecWriter`
+//! capture entry points) — so callers always use the plain `super::`
+//! form (`use super::capture_logs;` / `use super::capture_logs_async;`
+//! / `use super::is_installed;`), never the helper module path
+//! directly. The subscriber type and its `VecWriter`
 //! writer stay private to this module: [`install`] constructs
 //! [`CaptureSubscriber`] under an explicit type annotation
 //! (construction and discrimination compile-time locked to one type)
@@ -29,7 +29,7 @@ use std::sync::{Arc, Mutex};
 /// subscriber can write into it while the caller keeps a handle to read
 /// the captured bytes back.
 #[derive(Clone, Default)]
-pub(super) struct VecWriter(Arc<Mutex<Vec<u8>>>);
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for VecWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
