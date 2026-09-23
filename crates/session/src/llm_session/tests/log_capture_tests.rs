@@ -12,7 +12,11 @@
 //! - **level filter**: `level` is an upper bound, not an exact match
 //! - **boundary**: an event-free scope captures an empty `String`
 //! - **error path**: a panicking future unwinds with the
-//!   `set_default` guard unloaded and does not break later captures
+//!   `set_default` guard unloaded and does not break later captures;
+//!   the install/unload state is pinned by a *pair* of assertions —
+//!   a positive one while the guard is in place (inside the future)
+//!   and the negative one after it drops — so the check really
+//!   distinguishes "installed then unloaded" from "never installed"
 //!
 //! Every test carries `#[serial_test::serial]` per the helper's
 //! threading contract (issue #3102 callsite-interest race); each is
@@ -196,13 +200,20 @@ async fn test_capture_logs_async_returns_empty_string_when_no_events() {
 /// guard: `catch_unwind` observes the panic payload crossing the
 /// helper unchanged, the `set_default` guard has been dropped on the
 /// way out (the thread's current default is no longer the helper's
-/// subscriber — the load-bearing assertion, checked via
-/// `Dispatch::is`), and a subsequent capture still gets a clean,
+/// subscriber), and a subsequent capture still gets a clean,
 /// complete buffer of its own events only. (The interrupted
 /// capture's partial buffer is dropped together with its future — a
 /// panicking capture returns no `(T, String)` — so "buffer still
 /// retrievable" is pinned by the next capture working, not by
 /// reading back the aborted one.)
+///
+/// The unload state is pinned as a **closed loop**: inside each
+/// captured future (while the guard is in place) a positive assertion
+/// checks `Dispatch::is::<CaptureSubscriber>()` holds, and after each
+/// scope ends the matching negative assertion checks it no longer
+/// holds. The positive half is what makes the negative half
+/// load-bearing — without it "guard was never installed" would pass
+/// the same `!get_default(...)` check.
 #[tokio::test]
 #[serial_test::serial]
 async fn test_capture_logs_async_unloads_guard_after_future_panic() {
@@ -210,6 +221,16 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
         capture_logs_async(
             || async {
                 tracing::warn!("event emitted before the panic");
+                // Positive half of the install/unload loop: the guard
+                // is in place for the whole `f().await`, so this must
+                // hold *inside* the future — it is what makes the
+                // post-panic `!is::<CaptureSubscriber>()` check able
+                // to tell "installed then unloaded" from "never
+                // installed".
+                assert!(
+                    tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+                    "the capture guard must be installed while the future runs"
+                );
                 panic!("capture future exploded");
             },
             tracing::Level::WARN,
@@ -240,6 +261,13 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
 
     let (value, logs) = capture_logs_async(
         || async {
+            // Positive half of the second loop: this scope's guard is
+            // in place here, so the final `!is::<CaptureSubscriber>()`
+            // check below negates an observed install, not an absence.
+            assert!(
+                tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>()),
+                "the capture guard must be installed while the second capture runs"
+            );
             tracing::warn!("post-panic capture marker");
             5u8
         },
