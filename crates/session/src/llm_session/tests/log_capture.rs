@@ -106,14 +106,16 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 ///     thread-local buffer entirely — and a child outliving the
 ///     capture scope emits after the guard has already dropped, so
 ///     those events are lost.
-///     Keeping the default current-thread flavor and awaiting any
-///     spawn *inside* the capture scope folds everything — helper,
-///     child, events — onto the one installing thread, which is what
-///     makes both risks moot (the measured basis recorded in
-///     `log_capture_tests.rs`); a violation of that is caught at
-///     runtime by the tid assertion. Blocking std calls (e.g.
-///     `recv_timeout`) must not appear in the async body either: there
-///     is no other thread to poll it.
+/// - Keeping the default current-thread flavor and awaiting any
+///   spawn *inside* the capture scope folds everything — helper,
+///   child, events — onto the one installing thread, which is what
+///   makes both risks moot (the measured basis recorded in
+///   `log_capture_tests.rs`); a net thread migration (the guard-leak
+///   case) is caught at runtime by the tid assertion; a transient
+///   round-trip migration can still drop events, only prevented by
+///   honouring the current-thread flavor. Blocking std calls (e.g.
+///   `recv_timeout`) must not appear in the async body either: there
+///   is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest
 ///   cache reason as [`capture_logs`] (issue #3102 race): concurrent
 ///   registration on the same callsite can drop events and empty the
@@ -152,7 +154,7 @@ where
 /// read back everything it captured as UTF-8 text.
 fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String {
     drop(guard);
-    String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap()
+    String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap()
 }
 
 /// The concrete subscriber type [`install`] puts on the current
