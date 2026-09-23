@@ -39,6 +39,10 @@ fn test_message() -> Message {
 /// - `load_checkpoint` returns migrating on the first call, then archived
 ///   on subsequent calls (or always migrating if `archive_immediately` is
 ///   false).
+/// - `storage_always_archived` models the race where the Sweeper finished
+///   archiving BEFORE resolve() started: every `load_checkpoint` returns
+///   archived (non-consuming), so the stale Migrating value only ever
+///   exists in the CM local cache.
 /// - `restore_checkpoint` moves the checkpoint from archived to active and
 ///   records that it was called.
 /// - `find_archived_session_by_routing` returns `archived_id` when set.
@@ -49,6 +53,9 @@ struct MigratingPollMock {
     archived_cp: tokio::sync::Mutex<Option<SessionCheckpoint>>,
     /// If true, first load returns migrating, second returns archived.
     archive_after_first_poll: bool,
+    /// If true, every load returns archived (archive completed before
+    /// resolve started polling).
+    storage_always_archived: bool,
     /// Session ID to return from `find_archived_session_by_routing`.
     archived_id: std::sync::Mutex<Option<String>>,
     /// Whether `restore_checkpoint` was called.
@@ -65,6 +72,12 @@ impl PersistenceService for MigratingPollMock {
         &self,
         _id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        if self.storage_always_archived {
+            // Storage already holds the archived checkpoint; the stale
+            // Migrating value lives only in the CM cache.
+            let archived = self.archived_cp.lock().await;
+            return Ok(archived.as_ref().cloned());
+        }
         if self.archive_after_first_poll {
             // First call: return migrating; subsequent: return archived
             let mut migrating = self.migrating_cp.lock().await;
@@ -155,6 +168,7 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
         migrating_cp: tokio::sync::Mutex::new(Some(cp_migrating)),
         archived_cp: tokio::sync::Mutex::new(Some(cp_archived)),
         archive_after_first_poll: true,
+        storage_always_archived: false,
         archived_id: std::sync::Mutex::new(Some(session_id.clone())),
         restore_called: tokio::sync::Mutex::new(false),
     });
@@ -224,6 +238,151 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
     );
 }
 
+// ── Immediate-archived fast path: archive completed before resolve ─────────
+
+/// Boundary case for the status-transition race: the Sweeper completed the
+/// archiving BEFORE resolve() even started (storage already Archived while
+/// the CM cache still pins the stale Migrating checkpoint, e.g. written by
+/// an earlier registry-hit status check). The wait helper's immediate check
+/// must hit Archived on its first storage read and return WITHOUT any poll
+/// sleep, so resolve falls straight through to the archived restore and the
+/// archiving notification injected by the Migrating branch is replaced by
+/// the restore notification.
+#[tokio::test]
+async fn test_resolve_migrating_registry_hit_immediate_archived() {
+    let session_id = "migrating-immediate-archived".to_string();
+
+    // Stale Migrating value that only lives in the CM cache: it models the
+    // checkpoint status read by an earlier registry-hit Path 1 status check,
+    // cached before the Sweeper flipped the storage row to Archived.
+    let mut cp_stale_migrating = SessionCheckpoint::new(session_id.clone())
+        .with_status(SessionStatus::Migrating)
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    cp_stale_migrating.sender_id = Some("user-a".to_string());
+
+    // What raw storage already holds: the archive is done.
+    let mut cp_archived = SessionCheckpoint::new(session_id.clone())
+        .with_status(SessionStatus::Archived)
+        .with_platform("feishu".to_string())
+        .with_peer_id("agent-b".to_string())
+        .with_agent_id("agent-b".to_string());
+    cp_archived.sender_id = Some("user-a".to_string());
+
+    let mock = Arc::new(MigratingPollMock {
+        migrating_cp: tokio::sync::Mutex::new(None),
+        archived_cp: tokio::sync::Mutex::new(Some(cp_archived)),
+        archive_after_first_poll: false,
+        storage_always_archived: true,
+        archived_id: std::sync::Mutex::new(Some(session_id.clone())),
+        restore_called: tokio::sync::Mutex::new(false),
+    });
+
+    let mgr = SessionManager::new(&test_config(), Some(mock.clone()), None, Default::default());
+
+    let msg = test_message();
+    let routing_key = SessionManager::compute_routing_key("feishu", &msg, None);
+
+    // Register the session in key_registry and in-memory sessions map
+    // (registry-hit precondition, same as the archive_completes test).
+    {
+        let mut reg = mgr.key_registry.write().await;
+        reg.insert(routing_key.clone(), session_id.clone());
+    }
+    {
+        let mut sessions = mgr.sessions.write().await;
+        sessions.insert(
+            session_id.clone(),
+            crate::Session {
+                id: session_id.clone(),
+                agent_id: "agent-b".to_string(),
+                channel: "feishu".to_string(),
+                created_at: chrono::Utc::now().timestamp(),
+                depth: 0,
+            },
+        );
+    }
+
+    // Prime the CM cache with the stale Migrating checkpoint: models the
+    // production race where an earlier Path 1 status check cached Migrating
+    // and the cache never got invalidated when the Sweeper archived. After
+    // this cm.load returns Migrating from cache even though storage is
+    // already Archived.
+    {
+        let cm_guard = mgr.checkpoint_manager.read().await;
+        let cm = cm_guard.as_ref().expect("checkpoint manager must be set");
+        cm.save_raw(&cp_stale_migrating).await.unwrap();
+        // Move storage to Archived behind the cache's back (as the Sweeper
+        // does): save_raw cached Migrating, storage_always_archived now
+        // reports Archived for every direct storage read.
+        let cached = cm.load(&session_id).await.unwrap().unwrap();
+        assert_eq!(
+            cached.status,
+            SessionStatus::Migrating,
+            "cache should pin the stale Migrating checkpoint"
+        );
+    }
+
+    // resolve(): Path 1 status check reads the stale Migrating from cache →
+    // wait immediate check reads Archived straight from storage → returns
+    // with zero poll sleeps → falls through to archived restore.
+    // 1s wall upper bound pins the fast path: it only holds if the immediate
+    // check succeeds on the first storage read (no 500ms poll loop, and no
+    // regression to a cache-first read that would stall the full 30s).
+    let start = std::time::Instant::now();
+    let resolved = tokio::time::timeout(
+        std::time::Duration::from_secs(1),
+        mgr.find_or_create("feishu", &msg, None),
+    )
+    .await
+    .expect(
+        "resolve must complete via the immediate-archived fast path \
+         (zero poll sleeps); a stall here means the stale-cache \
+         regression is back",
+    )
+    .unwrap();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(1),
+        "immediate-archived fast path should finish in well under 1s, took {:?}",
+        start.elapsed()
+    );
+
+    // Should restore the original session (not create a new one)
+    assert_eq!(
+        resolved, session_id,
+        "should restore the original session after the pre-completed archive"
+    );
+
+    // The Migrating branch injects an archiving notification before waiting;
+    // the fast path must end with the RESTORE notification (injected by
+    // try_restore_archived_session) as the last write — (chat_id, None) means
+    // the default restore text. A timeout-restore would instead leave the
+    // custom "正在恢复会话…" recovery message injected by
+    // restore_migrating_on_timeout, so the None here also discriminates the
+    // two paths.
+    let notification = mgr.take_restore_notification(&session_id).await;
+    assert!(
+        notification.is_some(),
+        "restore notification should be present after the fast-path restore"
+    );
+    assert_eq!(
+        notification.unwrap().1,
+        None,
+        "notification should be the default restore text (no archiving message left)"
+    );
+
+    // Routing key must point back at the restored session.
+    {
+        let reg = mgr.key_registry.read().await;
+        assert_eq!(
+            reg.get(&routing_key).unwrap(),
+            &session_id,
+            "routing_key should point to the restored session"
+        );
+    }
+}
+
 // ── Timeout path: archive does not complete → restore migrating session ────
 
 /// When a registry-hit session is migrating and the Sweeper does NOT
@@ -248,6 +407,7 @@ async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
         migrating_cp: tokio::sync::Mutex::new(Some(cp_migrating)),
         archived_cp: tokio::sync::Mutex::new(None),
         archive_after_first_poll: false, // Always returns migrating → timeout
+        storage_always_archived: false,
         archived_id: std::sync::Mutex::new(None),
         restore_called: tokio::sync::Mutex::new(false),
     });
@@ -315,6 +475,7 @@ async fn test_resolve_migrating_not_directly_restored() {
         migrating_cp: tokio::sync::Mutex::new(Some(cp_migrating)),
         archived_cp: tokio::sync::Mutex::new(None),
         archive_after_first_poll: false,
+        storage_always_archived: false,
         archived_id: std::sync::Mutex::new(None),
         restore_called: tokio::sync::Mutex::new(false),
     });
