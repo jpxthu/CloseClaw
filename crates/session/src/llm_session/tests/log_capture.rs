@@ -2,11 +2,18 @@
 //! `tests/mod.rs` (issue #3112) so that `mod.rs` keeps only module
 //! declarations (CONTRIBUTING.md §模块).
 //!
-//! `tests/mod.rs` re-exports [`capture_logs`]
-//! (`use self::log_capture::capture_logs;`), so callers keep writing
-//! `use super::capture_logs;` unchanged; `VecWriter` is not
-//! re-exported (referenced only by `log_capture_tests`, for its
-//! `is::<CaptureSubscriber>()` guard discrimination).
+//! `tests/mod.rs` re-exports the whole helper API — [`capture_logs`],
+//! [`capture_logs_async`] and [`is_installed`] (sibling
+//! `use self::log_capture::…;` lines, the single export point for both
+//! capture entry points) — so callers always use the plain `super::`
+//! form (`use super::capture_logs;` / `use super::capture_logs_async;`
+//! / `use super::is_installed;`), never the helper module path
+//! directly. The subscriber type and its `VecWriter`
+//! writer stay private to this module: [`install`] constructs
+//! [`CaptureSubscriber`] under an explicit type annotation
+//! (construction and discrimination compile-time locked to one type)
+//! and [`is_installed`] answers guard-state questions, so no test
+//! needs the subscriber's generic parameters.
 //!
 //! Two capture entry points coexist long-term: synchronous
 //! [`capture_logs`] for tests with synchronous bodies, and async
@@ -22,7 +29,7 @@ use std::sync::{Arc, Mutex};
 /// subscriber can write into it while the caller keeps a handle to read
 /// the captured bytes back.
 #[derive(Clone, Default)]
-pub(super) struct VecWriter(Arc<Mutex<Vec<u8>>>);
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
 
 impl std::io::Write for VecWriter {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
@@ -98,15 +105,26 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 ///     the child runs on a worker thread, so its events leave the
 ///     thread-local buffer entirely — and a child outliving the
 ///     capture scope emits after the guard has already dropped, so
-///     those events are lost.
-///     Keeping the default current-thread flavor and awaiting any
-///     spawn *inside* the capture scope folds everything — helper,
-///     child, events — onto the one installing thread, which is what
-///     makes both risks moot (the measured basis recorded in
-///     `log_capture_tests.rs`); a violation of that is caught at
-///     runtime by the tid assertion. Blocking std calls (e.g.
-///     `recv_timeout`) must not appear in the async body either: there
-///     is no other thread to poll it.
+///     those events are lost. The outliving half holds on the
+///     current-thread flavor too: once `capture_logs_async` returns,
+///     the guard (and its buffer) is gone, so whatever a still-running
+///     child emits afterwards cannot reach that `String` either.
+///     Behaviour pinned by
+///     `test_capture_logs_async_misses_events_from_child_outliving_scope`
+///     in `log_capture_tests.rs` — a handshake releases the spawned
+///     child only after the helper returned — with the awaited-spawn
+///     capture as its contrast: join every child *inside* the capture
+///     scope, or accept its events missing from the result.
+/// - Keeping the default current-thread flavor and awaiting any
+///   spawn *inside* the capture scope folds everything — helper,
+///   child, events — onto the one installing thread, which is what
+///   makes both risks moot (the measured basis recorded in
+///   `log_capture_tests.rs`); a net thread migration (the guard-leak
+///   case) is caught at runtime by the tid assertion; a transient
+///   round-trip migration can still drop events, only prevented by
+///   honouring the current-thread flavor. Blocking std calls (e.g.
+///   `recv_timeout`) must not appear in the async body either: there
+///   is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest
 ///   cache reason as [`capture_logs`] (issue #3102 race): concurrent
 ///   registration on the same callsite can drop events and empty the
@@ -145,19 +163,46 @@ where
 /// read back everything it captured as UTF-8 text.
 fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String {
     drop(guard);
-    String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap()
+    String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap()
 }
+
+/// The concrete subscriber type [`install`] puts on the current
+/// thread — the single point where this helper's type knowledge
+/// lives. `install()` constructs it under this explicit annotation,
+/// so the subscriber's generic setup and the [`is_installed`]
+/// discrimination are compile-time locked to one type: reworking
+/// writer/fields/format/filter in `install()` becomes a compile error
+/// here instead of a silent mismatch in a test. The `VecWriter`
+/// writer parameter keeps the type unique to this helper (it is never
+/// installed globally), so [`is_installed`] only ever reports this
+/// helper's own subscriber.
+type CaptureSubscriber = tracing_subscriber::fmt::Subscriber<
+    tracing_subscriber::fmt::format::DefaultFields,
+    tracing_subscriber::fmt::format::Format<tracing_subscriber::fmt::format::Full>,
+    tracing_subscriber::filter::LevelFilter,
+    VecWriter,
+>;
 
 /// Build the fmt subscriber (no target/ansi) filtered to `level`,
 /// writing into `buffer`, and install it as this thread's default
 /// subscriber; dropping the returned guard uninstalls it so the
 /// buffer stops being written and can be read back.
 fn install(buffer: &VecWriter, level: tracing::Level) -> tracing::subscriber::DefaultGuard {
-    let subscriber = tracing_subscriber::fmt()
+    let subscriber: CaptureSubscriber = tracing_subscriber::fmt()
         .with_writer(buffer.clone())
         .with_max_level(level)
         .with_target(false)
         .with_ansi(false)
         .finish();
     tracing::subscriber::set_default(subscriber)
+}
+
+/// Whether this thread's current default dispatcher is still the
+/// subscriber [`install`] put in place: `true` while the capture
+/// guard lives, `false` after it drops (or when nothing was ever
+/// installed here). Tests pin "installed then unloaded" versus
+/// "never installed" (guard-leak detection) as a positive/negative
+/// pair of these observations without naming the subscriber type.
+pub(super) fn is_installed() -> bool {
+    tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>())
 }

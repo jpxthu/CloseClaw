@@ -27,8 +27,8 @@
 //! (CONTRIBUTING.md hard limits).
 
 use super::super::KillHandle;
+use super::capture_logs_async;
 use super::kill_doubles::{make_session, MockKillHandle};
-use super::log_capture::capture_logs_async;
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -138,7 +138,7 @@ impl KillHandle for FailingKillHandle {
 /// A fast `kill()` must not make stop wait out the kill budget
 /// (default 5 s) — stop returns promptly, the handle fires exactly
 /// once, and cleanup completes.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
@@ -187,7 +187,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 /// panics ("cannot block the current thread from within a
 /// runtime"); on a blocking-pool thread the same bridge is legal.
 /// Locks that cross-crate behaviour change (issue #3161 Step 1.5).
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     struct BridgingKillHandle {
@@ -250,7 +250,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
 /// real — the old version's 30 s `timeout` only saw the inner future
 /// become ready after the kill's fixed 60 s park, so it passed while
 /// wall time was 60 s (issue #3161).
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let cs = make_session("s_slow");
@@ -284,7 +284,15 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     // Bounded handshake: wait (≤1 s) for the blocking thread's
     // "kill started" notification, so the assertion below cannot
     // race the thread's startup inside the 500 ms budget window.
-    let _ = entered_rx.recv_timeout(Duration::from_secs(1));
+    // A direct `recv_timeout` here would stall the current-thread
+    // runtime's only thread (CONTRIBUTING bans blocking in async
+    // context); `spawn_blocking` moves the bounded wait onto the
+    // blocking pool — the same pattern the sufficient-budget case
+    // below uses for its releaser join. `let _ =` keeps the
+    // original best-effort tolerance: the notification is a timing
+    // handshake, not a contract.
+    let _ =
+        tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(1))).await;
 
     // The kill must have started and must still be blocked: stop
     // ended the wait via the wall-clock budget, not because kill()
@@ -321,7 +329,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 /// `kill()` returning `Err` must not abort stop: the error branch
 /// warns (existing semantics) and cleanup still completes — stopped
 /// flag set, handle map cleared, kill ran exactly once.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
@@ -373,7 +381,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 /// branch while the kill is still blocked, and cleanup still
 /// completes. Complements the 500 ms over-budget case above by
 /// pinning the extreme of the budget scale (issue #3161 Step 1.3).
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
@@ -437,7 +445,7 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
 /// stop takes the Ok branch (no budget-expiry warn), returns as soon
 /// as the kill finishes instead of waiting out the full budget, and
 /// still cleans up (issue #3161 Step 1.3).
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     let cs = make_session("s_kill_sufficient");
@@ -522,7 +530,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
 /// the pool while a kill is in flight, which cannot be constructed
 /// deterministically in a unit test (reason also noted at the branch
 /// in `session_handles.rs`, issue #3161 Step 1.4).
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_panicking_kill_handle_propagates_panic() {
     struct PanickingKillHandle;
