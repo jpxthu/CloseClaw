@@ -10,6 +10,8 @@
 //!   stop — the wall-clock budget is genuinely enforced
 //! - **error**: `kill()` returning `Err` warns and stop still
 //!   completes its cleanup
+//! - **panic**: a panicking `kill()` propagates out of stop (it is
+//!   re-raised from the blocking task's `JoinError`)
 //!
 //! Plus two budget boundary cases (issue #3161 Step 1.3): a
 //! degenerate near-zero budget cuts the wait off immediately, and a
@@ -21,36 +23,18 @@
 
 use super::super::KillHandle;
 use super::capture_logs;
-use super::*;
+use super::kill_doubles::{make_session, MockKillHandle};
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tokio::sync::RwLock;
 
 // ── test doubles ─────────────────────────────────────────────────────────
 
-/// `KillHandle` that returns `Ok(())` immediately — the normal,
-/// non-blocking path through `kill_tool_handles`.
-struct FastKillHandle {
-    kill_count: Arc<AtomicUsize>,
-}
-
-impl FastKillHandle {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            kill_count: Arc::new(AtomicUsize::new(0)),
-        })
-    }
-}
-
-impl KillHandle for FastKillHandle {
-    fn kill(&self) -> io::Result<()> {
-        self.kill_count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
+// The fast/counting double and `make_session` are shared with
+// `stop_tests.rs` via `kill_doubles.rs` (issue #3161 Step 1.4); the
+// doubles declared below are specific to this file's kill paths.
 
 /// `KillHandle` whose `kill()` blocks until the test releases it —
 /// models a kill that outlives the stop budget (a process ignoring
@@ -63,6 +47,13 @@ impl KillHandle for FastKillHandle {
 /// A second channel (best-effort) notifies the test as soon as
 /// `kill()` starts, so a test can release the block at a controlled
 /// point of the stop flow without any polling wait.
+///
+/// The receiver is kept behind a `Mutex` because
+/// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
+/// repo's toolchain, rustc 1.94.0 / MSRV 1.80 — the "`Receiver: Sync`
+/// since Rust 1.72" premise does not hold, issue #3161 Step 1.4),
+/// while the double must be `Sync` to be held as `Arc<dyn KillHandle>`;
+/// drop the `Mutex` only if that ever changes.
 struct BlockingKillHandle {
     /// Incremented when `kill()` starts blocking.
     entered: Arc<AtomicUsize>,
@@ -134,13 +125,7 @@ impl KillHandle for FailingKillHandle {
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
-    Arc::new(RwLock::new(ConversationSession::new(
-        id.to_string(),
-        "gpt-4o".to_string(),
-        tmp_path(),
-    )))
-}
+// (`make_session` is shared via `kill_doubles.rs`.)
 
 // ── normal path: fast kill returns without paying the budget ────────────
 
@@ -148,10 +133,11 @@ fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
 /// (default 5 s) — stop returns promptly, the handle fires exactly
 /// once, and cleanup completes.
 #[tokio::test]
+#[serial_test::serial]
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
-    let handle = FastKillHandle::new();
-    let kill_count = Arc::clone(&handle.kill_count);
+    let handle = Arc::new(MockKillHandle::new());
+    let kill_count = handle.kill_count();
     cs.read()
         .await
         .register_tool_handle("call-fast", handle as Arc<dyn KillHandle>);
@@ -193,6 +179,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 /// become ready after the kill's fixed 60 s park, so it passed while
 /// wall time was 60 s (issue #3161).
 #[tokio::test]
+#[serial_test::serial]
 async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let cs = make_session("s_slow");
     // Small budget: waiting out the production 5 s budget would push
@@ -448,5 +435,75 @@ fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         !logs.contains("timed out after"),
         "a sufficient budget must not hit the expiry branch; \
          captured logs: {logs}"
+    );
+}
+
+// ── panic path: kill() panic propagates out of stop ────────────────────
+
+/// A panic inside `kill()` surfaces as a `JoinError` on the blocking
+/// task and is re-raised via `resume_unwind` — it must escape `stop()`
+/// instead of being swallowed like a failed kill, and the steps after
+/// the kill loop (cancel token, `clear_exec_state`) must not have run.
+///
+/// The **non-panic** `JoinError` branch (blocking pool shut down
+/// mid-kill) is exempt from testing: it needs a runtime tearing down
+/// the pool while a kill is in flight, which cannot be constructed
+/// deterministically in a unit test (reason also noted at the branch
+/// in `session_handles.rs`, issue #3161 Step 1.4).
+#[test]
+#[serial_test::serial]
+fn test_stop_with_panicking_kill_handle_propagates_panic() {
+    struct PanickingKillHandle;
+
+    impl KillHandle for PanickingKillHandle {
+        fn kill(&self) -> io::Result<()> {
+            panic!("kill() exploded");
+        }
+    }
+
+    let rt = tokio::runtime::Runtime::new().expect("test runtime");
+    let cs = make_session("s_kill_panic");
+    rt.block_on(async {
+        cs.read().await.register_tool_handle(
+            "panic-tool",
+            Arc::new(PanickingKillHandle) as Arc<dyn KillHandle>,
+        );
+    });
+
+    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        rt.block_on(async {
+            cs.read()
+                .await
+                .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+                .await;
+        })
+    }));
+
+    let payload = outcome.expect_err("a panicking kill() must propagate out of stop()");
+    let msg = payload
+        .downcast_ref::<&str>()
+        .map(|s| s.to_string())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "<non-string panic payload>".to_string());
+    assert!(
+        msg.contains("kill() exploded"),
+        "panic payload must cross stop() unchanged; got: {msg}"
+    );
+
+    // The escape aborted stop between "kill tools" and "cancel LLM →
+    // cleanup": the stopped flag is set *before* the kill loop (design
+    // order), so the observable effect is that cleanup never ran.
+    let s = rt.block_on(async { cs.read().await });
+    assert!(
+        s.is_stopped(),
+        "stopped flag is set before the kill loop, panic or not"
+    );
+    assert_eq!(
+        s.tool_handles
+            .read()
+            .expect("tool_handles lock poisoned")
+            .len(),
+        1,
+        "clear_exec_state must not have run after the kill() panic"
     );
 }

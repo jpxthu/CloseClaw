@@ -472,7 +472,19 @@ const HELPER_CONFIG_DIR: &str = "PREPARE_RUN_HELPER_CONFIG_DIR";
 const HELPER_RESULT_MARKER: &str = "PREPARE_RUN_RESOLVED=";
 
 /// `--exact` filter selecting only the helper sub-test inside the child.
-const HELPER_CHILD_TEST: &str = "admin::run_tests::test_prepare_run_helper_child";
+///
+/// Derived from `module_path!()` (issue #3161 Step 1.4 review) instead
+/// of a hand-written string, so a module refactor cannot silently
+/// desync the filter. libtest reports names *without* the leading crate
+/// segment (`admin::run_tests::…`) while `module_path!()` includes it
+/// (`closeclaw_cli::admin::run_tests::…`), so the crate-name prefix is
+/// stripped here.
+fn helper_child_test_name() -> String {
+    let full = concat!(module_path!(), "::test_prepare_run_helper_child");
+    full.strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
+        .unwrap_or(full)
+        .to_string()
+}
 
 /// Re-exec the current test binary as the `prepare_run` helper child.
 ///
@@ -490,7 +502,7 @@ fn spawn_helper_child(
         .env(HELPER_CONFIG_DIR, config_dir)
         .arg("--exact")
         .arg("--nocapture")
-        .arg(HELPER_CHILD_TEST);
+        .arg(helper_child_test_name());
     for (k, v) in envs {
         cmd.env(k, v);
     }

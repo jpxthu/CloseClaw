@@ -7,47 +7,11 @@
 use super::super::session_handles::{CascadeStopInfo, GracefulStopResult};
 use super::super::KillHandle;
 use super::super::*;
+use super::kill_doubles::{make_session, MockKillHandle};
 use closeclaw_common::shutdown::ShutdownMode;
-use std::io;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::RwLock;
-// ── test doubles ─────────────────────────────────────────────────────────
-
-/// `KillHandle` that records every `kill()` call and returns `Ok`.
-/// Lets tests assert "the kill handle was invoked exactly once".
-struct MockKillHandle {
-    kill_count: Arc<AtomicUsize>,
-}
-
-impl MockKillHandle {
-    fn new() -> Self {
-        Self {
-            kill_count: Arc::new(AtomicUsize::new(0)),
-        }
-    }
-
-    fn kill_count(&self) -> Arc<AtomicUsize> {
-        Arc::clone(&self.kill_count)
-    }
-}
-
-impl KillHandle for MockKillHandle {
-    fn kill(&self) -> io::Result<()> {
-        self.kill_count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
-// ── helpers ──────────────────────────────────────────────────────────────
-
-fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
-    Arc::new(RwLock::new(ConversationSession::new(
-        id.to_string(),
-        "gpt-4o".to_string(),
-        tmp_path(),
-    )))
-}
 // ── 1. stop(false): kills tools, cancels LLM, clears state; no cascade ──
 
 #[tokio::test]
@@ -58,7 +22,7 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
     cs.read()
         .await
         .set_llm_state(closeclaw_common::LlmState::Requesting);
-    assert!(cs.read().await.cancel_token().is_cancelled() == false);
+    assert!(!cs.read().await.cancel_token().is_cancelled());
 
     // Register a kill handle and a tool state.
     let handle = Arc::new(MockKillHandle::new());
@@ -637,7 +601,7 @@ async fn test_cascade_runs_grandchild_stop_even_if_already_cancelled() {
     // child). The grandchild's `stopped` flag is *not* set, so
     // `stop(true)` must still run on it.
     assert!(!grandchild.read().await.is_stopped());
-    assert!(grandchild.read().await.is_cancelled() == false);
+    assert!(!grandchild.read().await.is_cancelled());
     parent
         .read()
         .await

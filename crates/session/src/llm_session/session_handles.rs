@@ -456,20 +456,21 @@ impl ConversationSession {
         mode: ShutdownMode,
         timeout: Duration,
     ) -> CascadeStopInfo {
-        self.stop_with_kill_budget(cascade, mode, timeout, STOP_KILL_TIMEOUT)
+        self.stop_inner(cascade, mode, timeout, STOP_KILL_TIMEOUT)
             .await
     }
 
-    /// Internal [`stop`](Self::stop) variant carrying the per-handle
-    /// kill budget.
+    /// Internal [`stop`](Self::stop) implementation carrying the
+    /// per-handle kill budget.
     ///
     /// Production callers go through `stop()`, which passes the
     /// default [`STOP_KILL_TIMEOUT`]. Tests inject a small budget
-    /// here so the budget-expiry path can be exercised with a true
+    /// through the `#[cfg(test)]`-gated `stop_with_kill_budget` seam
+    /// so the budget-expiry path can be exercised with a true
     /// wall-clock assertion ("stop returns within the budget's order
     /// of magnitude") instead of waiting out the production 5 s
     /// budget (STANDARDS §6: no single test case over 5 s).
-    pub(super) async fn stop_with_kill_budget(
+    async fn stop_inner(
         &self,
         cascade: bool,
         mode: ShutdownMode,
@@ -531,6 +532,21 @@ impl ConversationSession {
                 CascadeStopInfo::default()
             }
         }
+    }
+
+    /// `#[cfg(test)]`-only test seam: `stop()` with a caller-chosen
+    /// per-handle kill budget, forwarding to the private `stop_inner`.
+    /// Gated so the budget injection point never enters the production
+    /// compile unit (issue #3161 Step 1.4).
+    #[cfg(test)]
+    pub(super) async fn stop_with_kill_budget(
+        &self,
+        cascade: bool,
+        mode: ShutdownMode,
+        timeout: Duration,
+        kill_budget: Duration,
+    ) -> CascadeStopInfo {
+        self.stop_inner(cascade, mode, timeout, kill_budget).await
     }
 
     /// Recursively call `stop(cascade, mode)` on every live child
@@ -647,7 +663,10 @@ impl ConversationSession {
     /// KillHandle — the stop path backstops with a wall-clock
     /// budget). When the budget expires, the wait is abandoned with
     /// a warning and stop proceeds; the detached task finishes on
-    /// the pool in the background.
+    /// the pool in the background. A `kill()` that never returns
+    /// therefore strands its blocking-pool thread until the process
+    /// exits — the stranded-thread upper bound is one per registered
+    /// handle, i.e. ≤ handle count.
     ///
     /// Before killing, any tool in `RunningForeground` or
     /// `RunningBackground` state is marked `Terminated` so the state
@@ -700,7 +719,12 @@ impl ConversationSession {
                     // so a panicking kill keeps the pre-existing
                     // "panic propagates out of stop()" semantics.
                     // A shutdown join error (executor going down)
-                    // is treated like a failed kill.
+                    // is treated like a failed kill. Not covered by
+                    // a dedicated UT (issue #3161 Step 1.4): the
+                    // non-panic variant needs the runtime to tear
+                    // down the blocking pool mid-kill, which
+                    // cannot be built deterministically in a unit
+                    // test.
                     if join_err.is_panic() {
                         std::panic::resume_unwind(join_err.into_panic());
                     }
