@@ -523,13 +523,8 @@ fn test_prepare_run_helper_child() {
         return;
     }
     let config_dir = std::env::var(HELPER_CONFIG_DIR).expect("missing config_dir input");
-    match prepare_run(&config_dir, None) {
-        Ok((resolved, _)) => println!("{HELPER_RESULT_MARKER}{}", resolved.display()),
-        Err(err) => {
-            eprintln!("prepare_run failed: {err:?}");
-            std::process::exit(1);
-        }
-    }
+    let (resolved, _) = prepare_run(&config_dir, None).expect("prepare_run failed");
+    println!("{HELPER_RESULT_MARKER}{}", resolved.display());
 }
 
 /// Run the helper child with optional env vars set and return the resolved
@@ -546,7 +541,7 @@ fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
     let stdout = String::from_utf8(output.stdout).expect("helper output is not UTF-8");
     stdout
         .lines()
-        .find_map(|line| line.split(HELPER_RESULT_MARKER).nth(1))
+        .find_map(|line| line.strip_prefix(HELPER_RESULT_MARKER))
         .map(str::to_string)
         .unwrap_or_else(|| {
             panic!("helper child printed no {HELPER_RESULT_MARKER} line, stdout: {stdout}")

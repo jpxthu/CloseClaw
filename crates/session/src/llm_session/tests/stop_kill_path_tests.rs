@@ -2,7 +2,7 @@
 //! `kill_tool_handles` (issue #3161; §10 of the stop test matrix,
 //! issue #858).
 //!
-//! Three paths of the per-handle kill loop:
+//! Four paths of the per-handle kill loop:
 //!
 //! - **normal**: a fast `kill()` completes without paying the kill
 //!   budget — stop returns promptly and cleans up
@@ -12,6 +12,11 @@
 //!   completes its cleanup
 //! - **panic**: a panicking `kill()` propagates out of stop (it is
 //!   re-raised from the blocking task's `JoinError`)
+//!
+//! Plus a sync→async bridging variant (issue #3161 Step 1.5): a
+//! `kill()` that bridges into async itself via `Handle::current()
+//! .block_on` — the `BackgroundKillHandle` pattern — now succeeds
+//! on the blocking pool instead of panicking on the executor.
 //!
 //! Plus two budget boundary cases (issue #3161 Step 1.3): a
 //! degenerate near-zero budget cuts the wait off immediately, and a
@@ -90,10 +95,11 @@ impl KillHandle for BlockingKillHandle {
         self.entered.fetch_add(1, Ordering::SeqCst);
         let _ = self.entered_tx.send(());
         // Wait for the test to release. The bounded timeout is a
-        // safety fallback only — the sender's drop always releases,
-        // so no fixed multi-second wait ever happens by design.
+        // safety fallback only (≤1 s, STANDARDS §6) — the sender's
+        // drop always releases, so no fixed wait ever happens by
+        // design.
         let rx = self.rx.lock().expect("release channel poisoned");
-        let _ = rx.recv_timeout(Duration::from_secs(5));
+        let _ = rx.recv_timeout(Duration::from_secs(1));
         self.finished.fetch_add(1, Ordering::SeqCst);
         Ok(())
     }
@@ -169,6 +175,72 @@ async fn test_stop_with_fast_kill_returns_promptly() {
     );
 }
 
+// ── normal path: kill() bridging sync→async internally succeeds ─────────
+
+/// A `kill()` that bridges sync→async itself — `Handle::current()
+/// .block_on(...)` driving an async body, exactly how
+/// `BackgroundKillHandle::kill` drives `TaskManager::kill_task` in
+/// closeclaw-tools — must succeed through stop, not panic.
+///
+/// Before kills were isolated to the blocking pool (issue #3161
+/// Step 1.1) `kill()` ran inline on the executor, where `block_on`
+/// panics ("cannot block the current thread from within a
+/// runtime"); on a blocking-pool thread the same bridge is legal.
+/// Locks that cross-crate behaviour change (issue #3161 Step 1.5).
+#[tokio::test]
+#[serial_test::serial]
+async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
+    struct BridgingKillHandle {
+        kill_count: Arc<AtomicUsize>,
+    }
+
+    impl KillHandle for BridgingKillHandle {
+        fn kill(&self) -> io::Result<()> {
+            let handle = tokio::runtime::Handle::current();
+            handle.block_on(async {
+                tokio::task::yield_now().await;
+            });
+            self.kill_count.fetch_add(1, Ordering::SeqCst);
+            Ok(())
+        }
+    }
+
+    let cs = make_session("s_kill_bridge");
+    let handle = Arc::new(BridgingKillHandle {
+        kill_count: Arc::new(AtomicUsize::new(0)),
+    });
+    let kill_count = Arc::clone(&handle.kill_count);
+    cs.read()
+        .await
+        .register_tool_handle("bridge", handle as Arc<dyn KillHandle>);
+
+    let start = Instant::now();
+    cs.read()
+        .await
+        .stop(false, ShutdownMode::Forceful, Duration::ZERO)
+        .await;
+    let elapsed = start.elapsed();
+
+    let s = cs.read().await;
+    assert!(s.is_stopped(), "stopped flag must be set");
+    assert!(
+        s.tool_handles
+            .read()
+            .expect("tool_handles lock poisoned")
+            .is_empty(),
+        "tool_handles map must be cleared after stop"
+    );
+    assert_eq!(
+        kill_count.load(Ordering::SeqCst),
+        1,
+        "bridging kill() must run exactly once"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "bridging kill must be served promptly; stop took {elapsed:?}"
+    );
+}
+
 // ── over-budget path: a blocked kill must not wedge stop ────────────────
 
 /// A `kill()` that blocks far beyond the budget must not hold up
@@ -190,7 +262,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     // 5 s budget" without a fragile tight time comparison.
     let loose_bound = Duration::from_secs(4);
 
-    let (handle, release, _entered_rx) = BlockingKillHandle::new();
+    let (handle, release, entered_rx) = BlockingKillHandle::new();
     let entered = Arc::clone(&handle.entered);
     let finished = Arc::clone(&handle.finished);
     cs.read()
@@ -208,6 +280,11 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     )
     .await
     .expect("stop() must return within the loose bound while kill() is blocked");
+
+    // Bounded handshake: wait (≤1 s) for the blocking thread's
+    // "kill started" notification, so the assertion below cannot
+    // race the thread's startup inside the 500 ms budget window.
+    let _ = entered_rx.recv_timeout(Duration::from_secs(1));
 
     // The kill must have started and must still be blocked: stop
     // ended the wait via the wall-clock budget, not because kill()
@@ -381,7 +458,7 @@ fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     // models a slow-but-within-budget kill with no fixed wait (the
     // bounded recv is a failure fallback only).
     let releaser = std::thread::spawn(move || {
-        let _ = entered_rx.recv_timeout(Duration::from_secs(5));
+        let _ = entered_rx.recv_timeout(Duration::from_secs(1));
         drop(release);
     });
 
