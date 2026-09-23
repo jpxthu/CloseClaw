@@ -101,10 +101,6 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 /// The two helpers coexist long-term: this one covers async test
 /// bodies, while the sync version keeps its existing call sites
 /// (and sync tests) unchanged.
-// TODO(issue #3168): temporary until this issue's Step 1.2/1.3 land
-// the first call sites — helper alone must not warn (`allow`, not
-// `expect`, so it stays silent once used).
-#[allow(dead_code)]
 pub(super) async fn capture_logs_async<T, Fut>(
     f: impl FnOnce() -> Fut,
     level: tracing::Level,
