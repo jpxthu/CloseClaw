@@ -32,6 +32,7 @@ mod skill_listing_tests;
 mod step1_3_conditional_injection_tests;
 mod step1_4_behavior_tests;
 mod step1_5_ut_tests;
+mod stop_kill_path_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;

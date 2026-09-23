@@ -19,16 +19,12 @@ use tokio::sync::RwLock;
 /// Lets tests assert "the kill handle was invoked exactly once".
 struct MockKillHandle {
     kill_count: Arc<AtomicUsize>,
-    /// When `Some`, the handle blocks for this long before returning.
-    /// Used to model a stuck process that ignores SIGKILL.
-    block_for: Option<Duration>,
 }
 
 impl MockKillHandle {
     fn new() -> Self {
         Self {
             kill_count: Arc::new(AtomicUsize::new(0)),
-            block_for: None,
         }
     }
 
@@ -39,25 +35,7 @@ impl MockKillHandle {
 
 impl KillHandle for MockKillHandle {
     fn kill(&self) -> io::Result<()> {
-        if let Some(d) = self.block_for {
-            std::thread::sleep(d);
-        }
         self.kill_count.fetch_add(1, Ordering::SeqCst);
-        Ok(())
-    }
-}
-
-/// `KillHandle` whose `kill()` blocks indefinitely (or for a long
-/// time). Used to verify that the per-handle timeout in
-/// `ConversationSession::kill_tool_handles` fires and the session
-/// still reaches a clean state.
-struct SlowKillHandle;
-
-impl KillHandle for SlowKillHandle {
-    fn kill(&self) -> io::Result<()> {
-        // Block for longer than the 5 s stop-timeout. The blocking
-        // is wrapped in `park_timeout` to keep the executor healthy.
-        std::thread::park_timeout(Duration::from_secs(60));
         Ok(())
     }
 }
@@ -347,38 +325,10 @@ async fn test_stop_empty_session_does_not_panic() {
         .expect("child_states lock poisoned")
         .is_empty());
 }
-// ── 10. kill timeout: SlowKillHandle doesn't wedge stop() ───────────────
+// ── 10. kill timeout: moved to stop_kill_path_tests.rs (issue #3161):
+//        normal / over-budget / error kill paths split out here to keep
+//        this file under the 1000-line cap. ──────────────────────────────
 
-#[tokio::test]
-async fn test_stop_with_slow_kill_handle_does_not_wedge() {
-    let cs = make_session("s_slow");
-    cs.read()
-        .await
-        .register_tool_handle("slow", Arc::new(SlowKillHandle) as Arc<dyn KillHandle>);
-
-    // 5 s is the production timeout in session_handles. The test
-    // budget is 30 s to absorb CI jitter.
-    let res = tokio::time::timeout(
-        Duration::from_secs(30),
-        cs.read()
-            .await
-            .stop(false, ShutdownMode::Forceful, Duration::ZERO),
-    )
-    .await;
-    assert!(
-        res.is_ok(),
-        "stop() must return within budget even if kill() blocks"
-    );
-    let s = cs.read().await;
-    assert!(s.is_stopped());
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
-}
 // ── 11. 3-level cascade: parent -> child -> grandchild ──────────────────
 
 #[tokio::test]
