@@ -10,7 +10,10 @@
 //!   captured, and a `tokio::spawn`ed child's events are captured
 //!   too — basis recorded in the test itself
 //! - **level filter**: `level` is an upper bound, not an exact match
-//! - **boundary**: an event-free scope captures an empty `String`
+//! - **boundary**: an event-free scope captures an empty `String`; a
+//!   spawned child released only *after* the scope ended (guard
+//!   already dropped) has its events missed — the contrast pair of
+//!   the awaited-spawn capture above
 //! - **error path**: a panicking future unwinds with the
 //!   `set_default` guard unloaded and does not break later captures;
 //!   the install/unload state is pinned by a *pair* of assertions —
@@ -180,6 +183,66 @@ async fn test_capture_logs_async_returns_empty_string_when_no_events() {
     assert!(
         logs.is_empty(),
         "an event-free scope must capture nothing; got: {logs:?}"
+    );
+}
+
+// ── boundary: a child outliving the capture scope → its events missed ───────
+
+/// The contrast pair of
+/// `test_capture_logs_async_captures_events_after_await_and_in_spawned_tasks`
+/// (awaited inside the scope → captured): a `tokio::spawn`ed child that
+/// is **not** awaited in the scope, and is released by handshake only
+/// after `capture_logs_async` returned — i.e. once the `set_default`
+/// guard (and its buffer) has already dropped — must have its event
+/// **absent** from the returned `String` (risk (b) of the helper's
+/// threading contract). Each half of the check is load-bearing: the
+/// parked-send proves the child never ran inside the scope, the
+/// done-signal proves it really emitted after the release (so the
+/// negative assertion cannot pass vacuously), and the in-scope event
+/// proves this capture's own buffer worked.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_capture_logs_async_misses_events_from_child_outliving_scope() {
+    let (release_tx, release_rx) = tokio::sync::oneshot::channel::<()>();
+    let (emitted_tx, emitted_rx) = tokio::sync::oneshot::channel::<()>();
+
+    let (_, logs) = capture_logs_async(
+        move || async move {
+            tokio::spawn(async move {
+                // Park on the handshake: the child can only proceed —
+                // and emit — after the test releases it, i.e. strictly
+                // after the capture scope has ended.
+                let _ = release_rx.await;
+                tracing::warn!("event from a child outliving the scope");
+                let _ = emitted_tx.send(());
+            });
+            tracing::warn!("event inside the capture scope");
+        },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    // The helper dropped the guard (and its buffer) on its way out;
+    // release the child only now so its emission cannot race the scope.
+    assert!(
+        !is_installed(),
+        "the capture guard must be unloaded once the scope has ended"
+    );
+    release_tx
+        .send(())
+        .expect("child must still be parked — it must not run inside the scope");
+    emitted_rx
+        .await
+        .expect("the child must have emitted after the release");
+
+    assert!(
+        logs.contains("event inside the capture scope"),
+        "positive control: the in-scope event must be captured; captured logs: {logs}"
+    );
+    assert!(
+        !logs.contains("event from a child outliving the scope"),
+        "a child released after the scope ended must not contribute to this \
+         capture — its events are lost (risk (b)); captured logs: {logs}"
     );
 }
 

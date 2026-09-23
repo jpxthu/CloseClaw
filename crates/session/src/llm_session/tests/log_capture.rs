@@ -105,7 +105,16 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 ///     the child runs on a worker thread, so its events leave the
 ///     thread-local buffer entirely — and a child outliving the
 ///     capture scope emits after the guard has already dropped, so
-///     those events are lost.
+///     those events are lost. The outliving half holds on the
+///     current-thread flavor too: once `capture_logs_async` returns,
+///     the guard (and its buffer) is gone, so whatever a still-running
+///     child emits afterwards cannot reach that `String` either.
+///     Behaviour pinned by
+///     `test_capture_logs_async_misses_events_from_child_outliving_scope`
+///     in `log_capture_tests.rs` — a handshake releases the spawned
+///     child only after the helper returned — with the awaited-spawn
+///     capture as its contrast: join every child *inside* the capture
+///     scope, or accept its events missing from the result.
 /// - Keeping the default current-thread flavor and awaiting any
 ///   spawn *inside* the capture scope folds everything — helper,
 ///   child, events — onto the one installing thread, which is what
