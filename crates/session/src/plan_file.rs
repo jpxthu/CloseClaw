@@ -4,9 +4,11 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::{DateTime, Local, Utc};
-use closeclaw_config::IdentifierFormat;
+use closeclaw_config::{write_atomically, IdentifierFormat};
 use rand::seq::SliceRandom;
+use std::fs::File;
 use std::io;
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
@@ -141,6 +143,50 @@ pub fn create_plan_file_with_format(
     Ok(file_path)
 }
 
+// ── Concurrency-safe read-modify-write ─────────────────────────────────
+
+/// Perform a read-modify-write cycle on a plan file under an exclusive lock.
+///
+/// The whole cycle — read → `transform` → atomic write-back — runs while
+/// holding an exclusive advisory lock on the sidecar `{path}.lock` file, so
+/// concurrent writers (threads and separate processes alike) are serialized
+/// and can never observe a truncated file or lose each other's updates. The
+/// write-back goes through [`closeclaw_config::write_atomically`] (tempfile +
+/// fsync + rename) with the original file mode preserved, so readers only
+/// ever see the complete old content or the complete new content.
+///
+/// The sidecar's `lock` extension never matches the `.md` filter used by plan
+/// resolution, listing, and archiving, so lock files stay invisible to them.
+/// No global mutable state is involved: exclusion is scoped to the sidecar
+/// file only.
+///
+/// # Errors
+/// Returns `NotFound` if the plan file does not exist, otherwise the first
+/// error from creating/locking the sidecar, reading the plan file, running
+/// `transform`, or writing the result back.
+fn mutate_plan_file<F>(plan_path: &Path, transform: F) -> io::Result<()>
+where
+    F: FnOnce(&mut String) -> io::Result<()>,
+{
+    if !plan_path.exists() {
+        return Err(io::Error::new(
+            io::ErrorKind::NotFound,
+            format!("plan file not found: {}", plan_path.display()),
+        ));
+    }
+
+    let mut lock_name = plan_path.as_os_str().to_os_string();
+    lock_name.push(".lock");
+    let lock_file = File::create(PathBuf::from(&lock_name))?;
+    lock_file.lock()?;
+
+    let mut content = std::fs::read_to_string(plan_path)?;
+    transform(&mut content)?;
+
+    let mode = std::fs::metadata(plan_path)?.permissions().mode();
+    write_atomically(plan_path, content.as_bytes(), Some(mode))
+}
+
 /// Update only the update timestamp field in a plan file.
 ///
 /// Replaces `| 更新时间 | xxx |` with the current time.
@@ -203,10 +249,20 @@ pub fn read_access_timestamp(plan_path: &Path) -> Result<Option<DateTime<Utc>>, 
 /// Returns an error if the file cannot be read/written, or if the
 /// title heading line is missing.
 pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
-    let mut content = std::fs::read_to_string(plan_path)?;
-    let now = Utc::now().to_rfc3339();
-    let marker = format!("<!-- accessed: {now} -->");
+    mutate_plan_file(plan_path, |content| {
+        // `now` is taken inside the lock so serialized writers apply markers
+        // in lock-acquisition order and the timestamp never regresses.
+        let marker = format!("<!-- accessed: {} -->", Utc::now().to_rfc3339());
+        apply_access_marker(content, &marker)
+    })
+}
 
+/// Replace the existing access timestamp marker in `content` with `marker`,
+/// or insert `marker` on the line immediately after the `# {title}` heading.
+///
+/// Files with an unterminated marker or without a title heading are rejected
+/// with [`io::ErrorKind::InvalidData`].
+fn apply_access_marker(content: &mut String, marker: &str) -> io::Result<()> {
     if let Some(idx) = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX) {
         let start = idx;
         let end = match content[start..].find(ACCESS_TIMESTAMP_MARKER_SUFFIX) {
@@ -218,7 +274,7 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
                 ));
             }
         };
-        content.replace_range(start..end, &marker);
+        content.replace_range(start..end, marker);
     } else {
         // Insert after the `# {title}` heading line.
         // The heading may be at the very start of the file (no leading newline)
@@ -242,8 +298,7 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
             })?;
         content.insert_str(insert_pos, &format!("{marker}\n"));
     }
-
-    std::fs::write(plan_path, content)
+    Ok(())
 }
 
 /// Parse the access timestamp marker from plan file content.
