@@ -50,10 +50,10 @@ use std::time::{Duration, Instant};
 /// `recv_timeout` bounds the wait as a last-resort fallback.
 ///
 /// A `tokio::sync::Notify` (best-effort) fires as soon as `kill()`
-/// starts: the test awaits that handshake with a bounded async
-/// timeout (≤1 s) — no blocking-pool hop inside the async body.
-/// The wait is a timing handshake, not a contract; on timeout the
-/// test proceeds without it.
+/// starts: tests that need the handshake await it (directly or
+/// from a spawned releaser) via `wait_kill_started` — only 2 of
+/// this file's 7 tests consume it; the others never wait on the
+/// notify, and no async test body hops to the blocking pool.
 ///
 /// The receiver is kept behind a `Mutex` because
 /// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
@@ -128,6 +128,16 @@ impl KillHandle for FailingKillHandle {
 // ── helpers ──────────────────────────────────────────────────────────────
 
 // (`make_session` is shared via `kill_doubles.rs`.)
+
+/// Best-effort "kill started" handshake: wait up to 1 s for the
+/// notify `kill()` fires when it starts blocking, then proceed
+/// either way. A timing handshake, not a contract — on timeout the
+/// test continues without it. Single source for the wait's ≤1 s
+/// upper bound and its best-effort reading; the wait stays async,
+/// so no test body hops to the blocking pool.
+async fn wait_kill_started(notify: &tokio::sync::Notify) {
+    let _ = tokio::time::timeout(Duration::from_secs(1), notify.notified()).await;
+}
 
 // ── normal path: fast kill returns without paying the budget ────────────
 
@@ -278,7 +288,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     .await
     .expect("stop() must return within the loose bound while kill() is blocked");
 
-    let _ = tokio::time::timeout(Duration::from_secs(1), entered_notify.notified()).await;
+    wait_kill_started(&entered_notify).await;
 
     // The kill must have started and must still be blocked: stop
     // ended the wait via the wall-clock budget, not because kill()
@@ -444,7 +454,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     // models a slow-but-within-budget kill with no fixed wait (the
     // bounded timeout is a failure fallback only).
     let releaser = tokio::spawn(async move {
-        let _ = tokio::time::timeout(Duration::from_secs(1), entered_notify.notified()).await;
+        wait_kill_started(&entered_notify).await;
         drop(release);
     });
 
