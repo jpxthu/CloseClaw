@@ -49,9 +49,11 @@ use std::time::{Duration, Instant};
 /// assertion can never strand the blocking-pool thread), and
 /// `recv_timeout` bounds the wait as a last-resort fallback.
 ///
-/// A second channel (best-effort) notifies the test as soon as
-/// `kill()` starts, so a test can release the block at a controlled
-/// point of the stop flow without any polling wait.
+/// A `tokio::sync::Notify` (best-effort) fires as soon as `kill()`
+/// starts: tests that need the handshake await it (directly or
+/// from a spawned releaser) via `wait_kill_started` — only 2 of
+/// this file's 7 tests consume it; the others never wait on the
+/// notify, and no async test body hops to the blocking pool.
 ///
 /// The receiver is kept behind a `Mutex` because
 /// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
@@ -65,35 +67,29 @@ struct BlockingKillHandle {
     /// Incremented when `kill()` returns (0 while still blocked).
     finished: Arc<AtomicUsize>,
     rx: Mutex<std::sync::mpsc::Receiver<()>>,
-    /// Fired (best-effort) when `kill()` starts blocking.
-    entered_tx: std::sync::mpsc::Sender<()>,
+    /// Fires (best-effort) when `kill()` starts blocking.
+    entered_notify: Arc<tokio::sync::Notify>,
 }
 
 impl BlockingKillHandle {
-    /// Returns the handle, its release sender, and the "kill started"
-    /// receiver; dropping (or sending on) the release sender lets a
-    /// blocked `kill()` finish.
-    fn new() -> (
-        Arc<Self>,
-        std::sync::mpsc::Sender<()>,
-        std::sync::mpsc::Receiver<()>,
-    ) {
+    /// Returns the handle and its release sender; dropping (or
+    /// sending on) the release sender lets a blocked `kill()` finish.
+    fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
-        let (entered_tx, entered_rx) = std::sync::mpsc::channel();
         let handle = Arc::new(Self {
             entered: Arc::new(AtomicUsize::new(0)),
             finished: Arc::new(AtomicUsize::new(0)),
             rx: Mutex::new(rx),
-            entered_tx,
+            entered_notify: Arc::new(tokio::sync::Notify::new()),
         });
-        (handle, tx, entered_rx)
+        (handle, tx)
     }
 }
 
 impl KillHandle for BlockingKillHandle {
     fn kill(&self) -> io::Result<()> {
         self.entered.fetch_add(1, Ordering::SeqCst);
-        let _ = self.entered_tx.send(());
+        self.entered_notify.notify_one();
         // Wait for the test to release. The bounded timeout is a
         // safety fallback only (≤1 s, STANDARDS §6) — the sender's
         // drop always releases, so no fixed wait ever happens by
@@ -132,6 +128,16 @@ impl KillHandle for FailingKillHandle {
 // ── helpers ──────────────────────────────────────────────────────────────
 
 // (`make_session` is shared via `kill_doubles.rs`.)
+
+/// Best-effort "kill started" handshake: wait up to 1 s for the
+/// notify `kill()` fires when it starts blocking, then proceed
+/// either way. A timing handshake, not a contract — on timeout the
+/// test continues without it. Single source for the wait's ≤1 s
+/// upper bound and its best-effort reading; the wait stays async,
+/// so no test body hops to the blocking pool.
+async fn wait_kill_started(notify: &tokio::sync::Notify) {
+    let _ = tokio::time::timeout(Duration::from_secs(1), notify.notified()).await;
+}
 
 // ── normal path: fast kill returns without paying the budget ────────────
 
@@ -262,9 +268,10 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     // 5 s budget" without a fragile tight time comparison.
     let loose_bound = Duration::from_secs(4);
 
-    let (handle, release, entered_rx) = BlockingKillHandle::new();
+    let (handle, release) = BlockingKillHandle::new();
     let entered = Arc::clone(&handle.entered);
     let finished = Arc::clone(&handle.finished);
+    let entered_notify = Arc::clone(&handle.entered_notify);
     cs.read()
         .await
         .register_tool_handle("slow", handle as Arc<dyn KillHandle>);
@@ -281,18 +288,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     .await
     .expect("stop() must return within the loose bound while kill() is blocked");
 
-    // Bounded handshake: wait (≤1 s) for the blocking thread's
-    // "kill started" notification, so the assertion below cannot
-    // race the thread's startup inside the 500 ms budget window.
-    // A direct `recv_timeout` here would stall the current-thread
-    // runtime's only thread (CONTRIBUTING bans blocking in async
-    // context); `spawn_blocking` moves the bounded wait onto the
-    // blocking pool — the same pattern the sufficient-budget case
-    // below uses for its releaser join. `let _ =` keeps the
-    // original best-effort tolerance: the notification is a timing
-    // handshake, not a contract.
-    let _ =
-        tokio::task::spawn_blocking(move || entered_rx.recv_timeout(Duration::from_secs(1))).await;
+    wait_kill_started(&entered_notify).await;
 
     // The kill must have started and must still be blocked: stop
     // ended the wait via the wall-clock budget, not because kill()
@@ -385,7 +381,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 #[serial_test::serial]
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
-    let (handle, release, _entered_rx) = BlockingKillHandle::new();
+    let (handle, release) = BlockingKillHandle::new();
     let finished = Arc::clone(&handle.finished);
     cs.read()
         .await
@@ -449,15 +445,16 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
 #[serial_test::serial]
 async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     let cs = make_session("s_kill_sufficient");
-    let (handle, release, entered_rx) = BlockingKillHandle::new();
+    let (handle, release) = BlockingKillHandle::new();
     let entered = Arc::clone(&handle.entered);
     let finished = Arc::clone(&handle.finished);
+    let entered_notify = Arc::clone(&handle.entered_notify);
 
     // Release the kill only after it has actually started blocking —
     // models a slow-but-within-budget kill with no fixed wait (the
-    // bounded recv is a failure fallback only).
-    let releaser = std::thread::spawn(move || {
-        let _ = entered_rx.recv_timeout(Duration::from_secs(1));
+    // bounded timeout is a failure fallback only).
+    let releaser = tokio::spawn(async move {
+        wait_kill_started(&entered_notify).await;
         drop(release);
     });
 
@@ -485,14 +482,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         tracing::Level::WARN,
     )
     .await;
-    // Join off the async runtime: a direct `releaser.join()` here
-    // would block this thread for up to ~1s (the releaser's bounded
-    // recv timeout), violating CONTRIBUTING's ban on blocking in
-    // async context; `spawn_blocking` moves that wait off the
-    // runtime thread.
-    tokio::task::spawn_blocking(move || releaser.join().expect("releaser thread must exit"))
-        .await
-        .expect("releaser join must run to completion");
+    releaser.await.expect("releaser task must exit");
 
     assert_eq!(
         entered.load(Ordering::SeqCst),

@@ -82,8 +82,8 @@ async fn test_capture_logs_async_returns_value_and_captures_logs_at_level() {
 /// current-thread flavor, so the runtime polls both the test future
 /// and the spawned child on the *same* thread; the `set_default`
 /// guard is thread-local and stays installed for the whole
-/// `f().await`, so the child's events reach
-/// the same `VecWriter`. With a multi-thread flavor — or a child
+/// `f().await`, so the child's events reach the same capture
+/// buffer (writer). With a multi-thread flavor — or a child
 /// outliving the scope — the child could run on another thread (or
 /// after the guard drops) and its events would be missed; that is
 /// exactly what `capture_logs_async`'s threading contract forbids.
@@ -268,8 +268,8 @@ async fn test_capture_logs_async_misses_events_from_child_outliving_scope() {
 /// reading back the aborted one.)
 ///
 /// The unload state is pinned as a **closed loop**: inside each
-/// captured future (while the guard is in place) a positive assertion
-/// checks `log_capture::is_installed()` holds, and after each
+/// captured future (while the guard is in place) a positive
+/// assertion checks `is_installed()` holds, and after each
 /// scope ends the matching negative assertion checks it no longer
 /// holds. The positive half is what makes the negative half
 /// load-bearing — without it "guard was never installed" would pass
