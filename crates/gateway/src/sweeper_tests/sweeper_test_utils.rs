@@ -74,8 +74,17 @@ impl MemStorage {
     /// calls: each armed call either returns `Err` or panics (see
     /// [`StorageFault`]), letting tests execute the production error
     /// branches for real.
+    ///
+    /// `count` is exact: the fault fires on at most the next `count`
+    /// calls and then stops. `count == 0` arms nothing and disarms any
+    /// previously armed fault — it never triggers.
     pub fn inject_list_idle_fault(&self, fault: StorageFault, count: usize) {
-        *self.list_idle_fault.lock().unwrap() = Some((fault, count));
+        let mut guard = self.list_idle_fault.lock().unwrap();
+        *guard = if count == 0 {
+            None
+        } else {
+            Some((fault, count))
+        };
     }
 
     /// Number of `list_idle_sessions_for_agent` calls so far — proves the

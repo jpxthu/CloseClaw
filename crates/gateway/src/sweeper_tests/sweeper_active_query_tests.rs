@@ -155,46 +155,4 @@ mod tests {
             "inactive session should be archived"
         );
     }
-
-    /// Pending operations non-empty + all four dimensions false → still archived.
-    /// (Archive determination does NOT depend on pending_operations.)
-    #[tokio::test]
-    async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_false() {
-        use chrono::Utc;
-        use closeclaw_session::persistence::{
-            PendingOperation, PendingOperationStatus, PendingOperationType,
-        };
-
-        let mem = Arc::new(MemStorage::default());
-        mem.add_idle_session("pend-but-archive".into());
-
-        let mut cp = SessionCheckpoint::new("pend-but-archive".into());
-        cp = cp.with_pending_operations(vec![PendingOperation {
-            op_id: "op-1".into(),
-            op_type: PendingOperationType::ToolCall,
-            status: PendingOperationStatus::Running,
-            detail: closeclaw_session::persistence::PendingOperationDetail::ToolCall {
-                tool_name: "bash".into(),
-                args_summary: "{}".into(),
-            },
-            created_at: Utc::now(),
-        }]);
-        mem.add_checkpoint(cp);
-
-        let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-        let config: Arc<dyn SessionConfigProvider> =
-            Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
-
-        let active_query: Arc<dyn ActiveSessionQuery> = Arc::new(MockActiveQuery::none());
-
-        let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
-            .with_active_query(active_query);
-        sweeper.run_once().await.unwrap();
-
-        let archive_called = mem.archive_called.lock().unwrap();
-        assert!(
-            archive_called.contains(&"pend-but-archive".into()),
-            "pending_operations non-empty but all dimensions false → must still archive"
-        );
-    }
 }

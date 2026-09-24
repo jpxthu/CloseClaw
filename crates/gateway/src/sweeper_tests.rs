@@ -2,10 +2,9 @@
 //! per-dimension cases (run_once, cascade, shutdown, purge, archive decision,
 //! active-query gating).
 //!
-//! The whole family sits behind a single `#![cfg(test)]` gate below so the
-//! crate root only needs a bare `mod sweeper_tests;` declaration.
-
-#![cfg(test)]
+//! The family is gated at its crate-root declaration (`#[cfg(test)]` on
+//! `mod sweeper_tests;` in `lib.rs`), matching every other test module in
+//! this crate; the submodules below carry no extra gate.
 
 mod sweeper_active_query_tests;
 mod sweeper_archive_decision_tests;

@@ -114,7 +114,8 @@ async fn test_run_once_storage_err_swallowed_loop_continues() {
         let archive_called = mem.archive_called.lock().unwrap();
         assert!(
             archive_called.is_empty(),
-            "no session must be archived while list_idle errors; actual archive calls: {archive_called:?}"
+            "no session must be archived while list_idle errors; \
+             actual archive calls: {archive_called:?}"
         );
     }
 
@@ -131,10 +132,30 @@ async fn test_run_once_storage_err_swallowed_loop_continues() {
         4,
         "recovered run_once must sweep both roles again (4 list_idle calls total)"
     );
-    let archive_called = mem.archive_called.lock().unwrap();
+    {
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            archive_called.contains(&"session-1".into()),
+            "recovered run_once must archive session-1; actual archive calls: {archive_called:?}"
+        );
+    }
+
+    // Fault-injection contract: `count == 0` disarms instead of arming
+    // one fault, so this run must sweep both roles healthy and archive
+    // twice (once per role) — a spurious fault would archive only once
+    // (the MainAgent iteration would error out).
+    mem.inject_list_idle_fault(StorageFault::Err, 0);
+    let archive_before = mem.archive_called.lock().unwrap().len();
+    let disarmed = sweeper.run_once().await;
     assert!(
-        archive_called.contains(&"session-1".into()),
-        "recovered run_once must archive session-1; actual archive calls: {archive_called:?}"
+        disarmed.is_ok(),
+        "run_once with a disarmed fault (count == 0) must return Ok, actual: {disarmed:?}"
+    );
+    let archive_delta = mem.archive_called.lock().unwrap().len() - archive_before;
+    assert_eq!(
+        archive_delta, 2,
+        "count == 0 must not fire a fault: both roles must archive session-1 \
+         (expected archive delta 2, actual {archive_delta})"
     );
 }
 
@@ -152,7 +173,8 @@ async fn test_run_once_storage_panic_is_caught() {
     let result = sweeper.run_once().await;
     assert!(
         result.is_ok(),
-        "run_once must catch the injected storage panic (catch_unwind) and return Ok, actual: {result:?}"
+        "run_once must catch the injected storage panic (catch_unwind) \
+         and return Ok, actual: {result:?}"
     );
     assert_eq!(
         mem.list_idle_calls(),
@@ -178,7 +200,8 @@ async fn test_run_once_storage_panic_is_caught() {
     assert_eq!(
         mem.list_idle_calls(),
         3,
-        "post-panic run_once must sweep both roles (3 list_idle calls total: 1 panicked + 2 healthy)"
+        "post-panic run_once must sweep both roles \
+         (3 list_idle calls total: 1 panicked + 2 healthy)"
     );
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(

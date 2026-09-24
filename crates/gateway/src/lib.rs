@@ -100,6 +100,7 @@ mod streaming_pipeline_tests;
 #[cfg(test)]
 mod streaming_preflight_tests;
 pub mod sweeper;
+#[cfg(test)]
 mod sweeper_tests;
 #[cfg(test)]
 pub mod tests_checkpoint;
