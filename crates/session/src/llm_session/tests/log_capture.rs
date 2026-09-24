@@ -1,11 +1,12 @@
 //! Shared log-capture helper for `llm_session` tests, extracted from
 //! `tests/mod.rs` (issue #3112) so that `mod.rs` keeps only module
-//! declarations (CONTRIBUTING.md §模块).
+//! declarations, helper imports, and its inline tests (CONTRIBUTING.md
+//! §模块 states a stricter ideal: `pub use` / `pub mod` only).
 //!
-//! `tests/mod.rs` re-exports the whole helper API — [`capture_logs`],
+//! `tests/mod.rs` re-exposes the whole helper API — [`capture_logs`],
 //! [`capture_logs_async`] and [`is_installed`] (a single merged
-//! `use self::log_capture::{…};` line, the single export point for both
-//! capture entry points) — so callers always use the plain `super::`
+//! `use self::log_capture::{…};` line, the single re-exposure point
+//! for both capture entry points) — so callers always use the plain `super::`
 //! form (`use super::capture_logs;` / `use super::capture_logs_async;`
 //! / `use super::is_installed;`), never the helper module path
 //! directly. The subscriber type and its `VecWriter`

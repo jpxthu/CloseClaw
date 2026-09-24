@@ -1,6 +1,7 @@
 //! Shared test doubles/helpers for the `llm_session` stop & kill-path
 //! tests (issue #3161 Step 1.4; extracted along the `log_capture.rs`
-//! precedent so `tests/mod.rs` keeps only module declarations).
+//! precedent so `tests/mod.rs` keeps only module declarations, helper
+//! imports, and its inline tests).
 //!
 //! [`stop_tests.rs`](super::stop_tests) and
 //! [`stop_kill_path_tests.rs`](super::stop_kill_path_tests) both used
