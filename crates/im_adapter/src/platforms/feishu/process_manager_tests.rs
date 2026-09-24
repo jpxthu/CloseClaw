@@ -11,6 +11,12 @@
 use super::process_manager::*;
 use serial_test::serial;
 use std::os::unix::fs::PermissionsExt;
+use std::time::Duration;
+
+/// Short ready-wait timeout injected by lifecycle tests so the "subprocess
+/// never signals ready" path fails fast instead of waiting out the
+/// production `READY_TIMEOUT` (30s) default.
+const TEST_READY_TIMEOUT: Duration = Duration::from_millis(200);
 
 // ===========================================================================
 // Helpers
@@ -331,6 +337,8 @@ async fn test_process_manager_empty_output() {
     manager.shutdown().await.unwrap();
 }
 
+/// 子进程永不发 ready 信号时，`start` 必须在注入的等待窗口内返回
+/// `ReadyTimeout`（外层 tokio timeout 仅为防挂死护栏）。
 #[serial]
 #[tokio::test]
 async fn test_process_manager_ready_timeout() {
@@ -344,13 +352,18 @@ async fn test_process_manager_ready_timeout() {
         vec![script_path.to_str().unwrap().to_string()],
     );
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(35), manager.start()).await;
+    // 护栏：注入 200ms 窗口后仍须远早于 5s 返回，防止注入失效挂死。
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        manager.start_with_ready_timeout(TEST_READY_TIMEOUT),
+    )
+    .await
+    .expect("start must return within the guard timeout, injection failed?");
 
     match result {
-        Ok(Err(ProcessError::ReadyTimeout)) => {} // Expected
-        Ok(Err(e)) => panic!("expected ReadyTimeout, got: {e}"),
-        Ok(Ok(())) => panic!("expected error, got Ok"),
-        Err(_) => {} // Timeout is also acceptable
+        Err(ProcessError::ReadyTimeout) => {} // Expected
+        Err(e) => panic!("expected ReadyTimeout, got: {e}"),
+        Ok(()) => panic!("expected ReadyTimeout, got Ok"),
     }
 
     let _ = manager.shutdown().await;
