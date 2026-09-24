@@ -412,6 +412,50 @@ async fn test_process_manager_ready_early_exit_eof() {
     let _ = manager.shutdown().await;
 }
 
+/// 子进程向 stderr 写入非法 UTF-8 字节后退出时，`wait_for_ready` 的
+/// `read_line` 读错误分支（`Err(_) => Ok(false)`）必须收敛为
+/// `ReadyTimeout`，且耗时明显短于注入窗口——锁定读错误路径的快速
+/// 返回语义（tokio `read_line` 对非法 UTF-8 确定性返回
+/// `Err(InvalidData)`，与是否带换行/EOF 无关）。
+#[serial]
+#[tokio::test]
+async fn test_process_manager_ready_stderr_read_error() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let script_path = dir.path().join("invalid_utf8_stderr.sh");
+    std::fs::write(&script_path, "#!/bin/bash\nprintf '\\xff' >&2\nexit 0\n").unwrap();
+    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+
+    let (mut manager, _rx) = ProcessManager::new(
+        "bash".into(),
+        vec![script_path.to_str().unwrap().to_string()],
+    );
+
+    // 注入秒级窗口：读错误快速返回耗时须明显短于该窗口（不真实长等）。
+    let injected = Duration::from_secs(4);
+    let start = std::time::Instant::now();
+    // 护栏：5s 内必须返回，防止注入失效或读循环挂死。
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        manager.start_with_ready_timeout(injected),
+    )
+    .await
+    .expect("start must return within the guard timeout, injection failed?");
+    let elapsed = start.elapsed();
+
+    match result {
+        Err(ProcessError::ReadyTimeout) => {} // read error → Ok(false) → ReadyTimeout
+        Err(e) => panic!("expected ReadyTimeout, got: {e}"),
+        Ok(()) => panic!("expected ReadyTimeout, got Ok"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "read-error must return promptly instead of waiting out the \
+         injected window, took {elapsed:?} (injected {injected:?})"
+    );
+
+    let _ = manager.shutdown().await;
+}
+
 #[tokio::test]
 async fn test_process_manager_parse_event_exposed() {
     let cli_line = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;
