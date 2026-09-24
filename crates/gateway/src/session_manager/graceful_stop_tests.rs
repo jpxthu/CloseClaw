@@ -194,15 +194,17 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
         is_shutting_down: std::sync::atomic::AtomicBool::new(true),
         is_forceful: std::sync::atomic::AtomicBool::new(is_forceful),
     });
+    // Build a single shared handle and fan it out (cloned Arc) to the
+    // manager and every conversation session — the same shape as the
+    // production entry points (resolve/spawn/channel/...), where one
+    // `Arc<ShutdownHandle>` is installed on both sides. The session-side
+    // `graceful_stop` polls only its own handle.
     let handle = Arc::new(crate::shutdown_handle::ShutdownHandle::new(
         mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>
     ));
-    mgr.set_shutdown_handle(handle).await;
-    // Propagate to all live conversation sessions, mirroring the
-    // production entry points (resolve/spawn/channel/...). The
-    // session-side `graceful_stop` polls only its own handle.
+    mgr.set_shutdown_handle(handle.clone()).await;
     for cs in conversation_sessions_snapshot(mgr).await {
-        cs.write().await.set_shutdown_handle(mock.clone());
+        cs.write().await.set_shutdown_handle(handle.clone());
     }
     mock
 }
@@ -547,6 +549,10 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
         result.succeeded >= 1,
         "escalation should force-stop the session successfully"
     );
+    assert_eq!(
+        result.timed_out, 0,
+        "escalation must interrupt before the drain backstop"
+    );
 }
 
 /// Forceful escalation during tool running interrupts graceful wait
@@ -597,6 +603,10 @@ async fn test_graceful_escalation_interrupts_tool_info() {
     assert!(
         result.succeeded >= 1,
         "escalation should force-stop the session successfully"
+    );
+    assert_eq!(
+        result.timed_out, 0,
+        "escalation must interrupt before the drain backstop"
     );
 }
 
@@ -664,6 +674,10 @@ async fn test_graceful_escalation_interrupts_streaming() {
         r.succeeded >= 1,
         "escalation should force-stop the session successfully"
     );
+    assert_eq!(
+        r.timed_out, 0,
+        "escalation must interrupt before the drain backstop"
+    );
 }
 
 /// Forceful escalation interrupts graceful wait for running tool
@@ -714,6 +728,10 @@ async fn test_graceful_escalation_interrupts_tool_running() {
     assert!(
         r.succeeded >= 1,
         "escalation should force-stop the session successfully"
+    );
+    assert_eq!(
+        r.timed_out, 0,
+        "escalation must interrupt before the drain backstop"
     );
 }
 
