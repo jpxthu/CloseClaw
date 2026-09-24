@@ -603,40 +603,60 @@ async fn test_sweeper_grace_period_clean_exit_within_grace() {
 
 /// A slow sweep that exceeds the grace period is aborted.
 /// Tests the abort path in wait_grace_period.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock (`start_paused`): the hanging task is
+/// parked on `std::future::pending` (registers no timer), so the paused
+/// clock's auto-advance drives only the grace-period `sleep` inside
+/// `wait_grace_period`. The full timing chain — grace period expires →
+/// task abort (future dropped) — is still genuinely executed and
+/// asserted while real wall-clock cost collapses to milliseconds
+/// (STANDARDS §9, determinism over real-time comparisons).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_sweeper_grace_period_abort_on_timeout() {
-    // Create a target whose get_run_mode_children returns a child,
-    // and whose run_once will block (simulating a slow sweep).
-    // We do this by using a target that never resolves idle check.
-    let target = Arc::new(MockTarget::new());
-    target.add_child("slow-child", "parent-slow").await;
-    // Don't set idle — run_once will check is_session_idle which
-    // returns false, so it won't block on announce. But it will
-    // call sweep_reclaim. We need it to actually block.
-    // Instead, test the grace period abort via the static method
-    // by spawning a task that blocks forever and passing it as the
-    // running task.
-    let hanging_task = tokio::task::spawn(async {
+    use std::sync::atomic::{AtomicBool, Ordering};
+
+    // Drop guard for the hanging task: flips `aborted` when the task
+    // future is dropped, proving the abort branch actually ran.
+    struct AbortGuard(Arc<AtomicBool>);
+    impl Drop for AbortGuard {
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    let aborted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&aborted);
+    let hanging_task = tokio::task::spawn(async move {
+        let _guard = AbortGuard(flag);
         std::future::pending::<()>().await;
     });
 
-    // Call wait_grace_period directly — it's a static method on
-    // AnnounceSweeper. Since we're in the same module tree, we
-    // can call it.
+    // Virtual-clock start: `wait_grace_period` must consume exactly the
+    // grace constant before aborting — any early return (or waiting on
+    // a completion that can never happen here) shifts `elapsed`.
     let start = tokio::time::Instant::now();
     super::announce_sweeper::AnnounceSweeper::wait_grace_period(Some(hanging_task)).await;
     let elapsed = start.elapsed();
 
-    // Should have waited ~10s (grace period) then aborted
-    assert!(
-        elapsed >= std::time::Duration::from_secs(9),
-        "should wait at least 9s for grace period, got {:?}",
-        elapsed
+    // Paused clock is deterministic: the select can only exit via the
+    // grace sleep, so elapsed is exactly the grace period.
+    assert_eq!(
+        elapsed,
+        tokio::time::Duration::from_secs(super::announce_sweeper::ANNOUNCE_SWEEP_GRACE_PERIOD_SECS),
+        "must wait out exactly the grace period before aborting, took {elapsed:?}"
     );
+
+    // Abort proof: let the runtime drop the aborted future if it did
+    // not already happen synchronously inside `abort()`.
+    for _ in 0..10 {
+        if aborted.load(Ordering::SeqCst) {
+            break;
+        }
+        tokio::task::yield_now().await;
+    }
     assert!(
-        elapsed <= std::time::Duration::from_secs(12),
-        "should not wait more than 12s, got {:?}",
-        elapsed
+        aborted.load(Ordering::SeqCst),
+        "hanging task future must have been dropped by the abort branch"
     );
 }
 
