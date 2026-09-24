@@ -40,10 +40,19 @@ async fn test_cascade_kill_children_deletes_descendants() {
 
     // Both descendants should be deleted
     let deleted = mem.deleted_ids();
-    assert!(deleted.contains(&"child1".to_string()));
-    assert!(deleted.contains(&"grandchild".to_string()));
+    assert!(
+        deleted.contains(&"child1".to_string()),
+        "cascade must delete child1; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"grandchild".to_string()),
+        "cascade must delete grandchild; actual deleted ids: {deleted:?}"
+    );
     // Parent itself should NOT be deleted by cascade_kill_children
-    assert!(!deleted.contains(&"parent".to_string()));
+    assert!(
+        !deleted.contains(&"parent".to_string()),
+        "cascade must not delete parent itself; actual deleted ids: {deleted:?}"
+    );
 }
 
 #[tokio::test]
@@ -58,7 +67,10 @@ async fn test_cascade_kill_children_no_children_noop() {
 
     // No children to delete
     let deleted = mem.deleted_ids();
-    assert!(deleted.is_empty());
+    assert!(
+        deleted.is_empty(),
+        "no children: cascade must delete nothing; actual deleted ids: {deleted:?}"
+    );
 }
 
 #[tokio::test]
@@ -88,10 +100,19 @@ async fn test_cascade_kill_children_siblings_only() {
         .unwrap();
 
     let deleted = mem.deleted_ids();
-    assert!(deleted.contains(&"child_a".to_string()));
-    assert!(deleted.contains(&"child_b".to_string()));
+    assert!(
+        deleted.contains(&"child_a".to_string()),
+        "cascade must delete child_a under parent; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"child_b".to_string()),
+        "cascade must delete child_b under parent; actual deleted ids: {deleted:?}"
+    );
     // other_child should NOT be deleted
-    assert!(!deleted.contains(&"other_child".to_string()));
+    assert!(
+        !deleted.contains(&"other_child".to_string()),
+        "cascade must not delete other_child (other parent); actual deleted ids: {deleted:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -117,11 +138,17 @@ async fn test_cascade_archive_kills_children_then_archives_parent() {
 
     // Child should be deleted
     let deleted = mem.deleted_ids();
-    assert!(deleted.contains(&"child-archive".to_string()));
+    assert!(
+        deleted.contains(&"child-archive".to_string()),
+        "cascade_archive must delete child-archive; actual deleted ids: {deleted:?}"
+    );
 
     // Parent should be archived
     let archive_called = mem.archive_called.lock().unwrap();
-    assert!(archive_called.contains(&"parent-archive".into()));
+    assert!(
+        archive_called.contains(&"parent-archive".into()),
+        "cascade_archive must archive parent-archive; actual archive calls: {archive_called:?}"
+    );
 }
 
 #[tokio::test]
@@ -136,11 +163,17 @@ async fn test_cascade_archive_no_children_archives_parent() {
 
     // No children deleted
     let deleted = mem.deleted_ids();
-    assert!(deleted.is_empty());
+    assert!(
+        deleted.is_empty(),
+        "no children: cascade_archive must delete nothing; actual deleted ids: {deleted:?}"
+    );
 
     // Parent should be archived
     let archive_called = mem.archive_called.lock().unwrap();
-    assert!(archive_called.contains(&"solo-parent".into()));
+    assert!(
+        archive_called.contains(&"solo-parent".into()),
+        "cascade_archive must archive solo-parent; actual archive calls: {archive_called:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -195,13 +228,31 @@ async fn test_cascade_kill_children_multi_branch_tree() {
 
     // All 5 descendants should be deleted
     let deleted = mem.deleted_ids();
-    assert!(deleted.contains(&"child_a".to_string()));
-    assert!(deleted.contains(&"child_b".to_string()));
-    assert!(deleted.contains(&"gc_a1".to_string()));
-    assert!(deleted.contains(&"gc_a2".to_string()));
-    assert!(deleted.contains(&"gc_b1".to_string()));
+    assert!(
+        deleted.contains(&"child_a".to_string()),
+        "multi-branch cascade must delete child_a; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"child_b".to_string()),
+        "multi-branch cascade must delete child_b; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"gc_a1".to_string()),
+        "multi-branch cascade must delete gc_a1; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"gc_a2".to_string()),
+        "multi-branch cascade must delete gc_a2; actual deleted ids: {deleted:?}"
+    );
+    assert!(
+        deleted.contains(&"gc_b1".to_string()),
+        "multi-branch cascade must delete gc_b1; actual deleted ids: {deleted:?}"
+    );
     // Root itself should NOT be deleted
-    assert!(!deleted.contains(&"root".to_string()));
+    assert!(
+        !deleted.contains(&"root".to_string()),
+        "multi-branch cascade must not delete root; actual deleted ids: {deleted:?}"
+    );
     assert_eq!(deleted.len(), 5);
 
     // Verify deletion order: all depth-2 nodes before depth-1 nodes

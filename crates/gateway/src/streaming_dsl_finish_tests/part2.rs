@@ -1,5 +1,6 @@
-//! Step 1.5c tests — part 2: state transition, finish VerbosityFilter skip,
-//! edge cases, batch success, regression, and merge_dsl_results.
+//! Streaming DSL state & finish-phase tests — part 2: state transition,
+//! finish VerbosityFilter skip, edge cases, batch success, regression, and
+//! merge_dsl_results.
 
 use super::*;
 

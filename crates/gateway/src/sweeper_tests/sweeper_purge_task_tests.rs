@@ -2,14 +2,13 @@
 //! purge, with session-level isolation.
 
 use closeclaw_session::persistence::PersistenceService;
-use closeclaw_tasks::TaskManager;
 use std::sync::Arc;
 
 use crate::sweeper::ArchiveSweeper;
 
 use super::sweeper_test_utils::{MemStorage, MockTaskManager};
 
-// ── Step 1.5: purge + TaskManager integration ──────────────────────
+// ── purge + TaskManager integration ────────────────────────────────
 
 /// When `purge_and_invalidate_impl` is called with a TaskManager,
 /// `cleanup_all_finished()` is invoked to remove all terminal task
@@ -20,28 +19,30 @@ async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
     mem.add_expired_session("purge-with-tm".into());
     let storage: Arc<dyn PersistenceService> = mem.clone() as _;
 
-    let (tm, called_flag, sid_arg) = MockTaskManager::new();
-    let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+    let tm = Arc::new(MockTaskManager::new());
 
     ArchiveSweeper::purge_and_invalidate_impl(
         Arc::clone(&storage),
         "purge-with-tm".into(),
-        Some(tm_ref.as_ref()),
+        Some(tm.as_ref()),
     )
     .await
     .unwrap();
 
     assert!(
-        *called_flag.lock().unwrap(),
+        tm.was_called(),
         "cleanup_all_finished must be called when task_manager is provided"
     );
     assert_eq!(
-        sid_arg.lock().unwrap().as_deref(),
+        tm.last_session_id().as_deref(),
         Some("purge-with-tm"),
         "cleanup_all_finished must receive the correct session_id"
     );
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.contains(&"purge-with-tm".into()));
+    assert!(
+        purge_called.contains(&"purge-with-tm".into()),
+        "purge must be called for purge-with-tm; actual purge calls: {purge_called:?}"
+    );
 }
 
 /// Purging session A must not invoke cleanup for session B,
@@ -52,19 +53,18 @@ async fn test_purge_session_a_does_not_affect_session_b() {
     mem.add_expired_session("session-a".into());
     let storage: Arc<dyn PersistenceService> = mem.clone() as _;
 
-    let (tm, _, sid_arg) = MockTaskManager::new();
-    let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+    let tm = Arc::new(MockTaskManager::new());
 
     ArchiveSweeper::purge_and_invalidate_impl(
         Arc::clone(&storage),
         "session-a".into(),
-        Some(tm_ref.as_ref()),
+        Some(tm.as_ref()),
     )
     .await
     .unwrap();
 
     assert_eq!(
-        sid_arg.lock().unwrap().as_deref(),
+        tm.last_session_id().as_deref(),
         Some("session-a"),
         "cleanup_all_finished must receive session-a, not session-b"
     );
@@ -83,5 +83,8 @@ async fn test_purge_and_invalidate_without_task_manager_skips_cleanup() {
         .unwrap();
 
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.contains(&"purge-no-tm".into()));
+    assert!(
+        purge_called.contains(&"purge-no-tm".into()),
+        "purge must be called for purge-no-tm (no TaskManager); actual: {purge_called:?}"
+    );
 }

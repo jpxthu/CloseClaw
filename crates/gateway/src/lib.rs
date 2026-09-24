@@ -94,25 +94,14 @@ mod slash_permission_tests;
 #[cfg(test)]
 mod step1_4_e2e_tests;
 #[cfg(test)]
-mod step1_5c_tests;
+mod streaming_dsl_finish_tests;
 #[cfg(test)]
 mod streaming_pipeline_tests;
 #[cfg(test)]
 mod streaming_preflight_tests;
 pub mod sweeper;
-mod sweeper_active_query_tests;
 #[cfg(test)]
-mod sweeper_archive_decision_tests;
-#[cfg(test)]
-mod sweeper_cascade_tests;
-#[cfg(test)]
-mod sweeper_purge_task_tests;
-#[cfg(test)]
-mod sweeper_run_once_tests;
-#[cfg(test)]
-mod sweeper_shutdown_tests;
-#[cfg(test)]
-mod sweeper_test_utils;
+mod sweeper_tests;
 #[cfg(test)]
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]

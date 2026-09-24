@@ -4,15 +4,29 @@
 
 use async_trait::async_trait;
 use closeclaw_common::SessionActivityDimensions;
-use closeclaw_config::session::PerAgentSessionConfig;
+use closeclaw_config::session::{PerAgentSessionConfig, DEFAULT_SWEEPER_INTERVAL_SECS};
 use closeclaw_config::SessionConfigProvider;
 use closeclaw_session::persistence::{
     AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
 };
 use closeclaw_tasks::{BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
-use crate::sweeper::ActiveSessionQuery;
+use crate::sweeper::{ActiveSessionQuery, ArchiveSweeper};
+
+/// Fault to inject into [`MemStorage`]'s `list_idle_sessions_for_agent`
+/// calls so tests can drive the sweeper's real error/panic handling
+/// branches without touching production code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageFault {
+    /// Return `PersistenceError::Io` — swallowed by `sweep_agent_role`'s
+    /// `if let Ok(...)`, the sweep loop must continue.
+    Err,
+    /// Panic inside the storage call — caught by `run_once`'s
+    /// `catch_unwind`, which turns it into `Ok(())`.
+    Panic,
+}
 
 /// In-memory storage suitable for tests.
 #[derive(Debug, Default)]
@@ -28,6 +42,10 @@ pub struct MemStorage {
     expired_sessions: Mutex<Vec<String>>,
     /// Session IDs deleted via `delete_checkpoint`.
     deleted: Mutex<Vec<String>>,
+    /// Total `list_idle_sessions_for_agent` calls observed (fault probe).
+    list_idle_calls: AtomicUsize,
+    /// Pending injected faults for `list_idle_sessions_for_agent`.
+    list_idle_fault: Mutex<Option<(StorageFault, usize)>>,
 }
 
 impl MemStorage {
@@ -50,6 +68,42 @@ impl MemStorage {
     /// Get IDs of sessions deleted via `delete_checkpoint`.
     pub fn deleted_ids(&self) -> Vec<String> {
         self.deleted.lock().unwrap().clone()
+    }
+
+    /// Arm `count` faults on the next `list_idle_sessions_for_agent`
+    /// calls: each armed call either returns `Err` or panics (see
+    /// [`StorageFault`]), letting tests execute the production error
+    /// branches for real.
+    ///
+    /// `count` is exact: the fault fires on at most the next `count`
+    /// calls and then stops. `count == 0` arms nothing and disarms any
+    /// previously armed fault — it never triggers.
+    pub fn inject_list_idle_fault(&self, fault: StorageFault, count: usize) {
+        let mut guard = self.list_idle_fault.lock().unwrap();
+        *guard = if count == 0 {
+            None
+        } else {
+            Some((fault, count))
+        };
+    }
+
+    /// Number of `list_idle_sessions_for_agent` calls so far — proves the
+    /// injected faults actually executed (and how far the sweep got).
+    pub fn list_idle_calls(&self) -> usize {
+        self.list_idle_calls.load(Ordering::SeqCst)
+    }
+
+    /// Pop the next pending fault, if any. The fault mutex guard is
+    /// released before the caller panics, so it is never poisoned.
+    fn take_list_idle_fault(&self) -> Option<StorageFault> {
+        let mut guard = self.list_idle_fault.lock().unwrap();
+        let (fault, remaining) = (*guard)?;
+        if remaining <= 1 {
+            *guard = None;
+        } else {
+            *guard = Some((fault, remaining - 1));
+        }
+        Some(fault)
     }
 }
 
@@ -118,7 +172,16 @@ impl PersistenceService for MemStorage {
         _role: AgentRole,
         _idle_minutes: i64,
     ) -> Result<Vec<String>, PersistenceError> {
-        Ok(self.idle_sessions.lock().unwrap().clone())
+        self.list_idle_calls.fetch_add(1, Ordering::SeqCst);
+        match self.take_list_idle_fault() {
+            Some(StorageFault::Err) => Err(PersistenceError::Io(std::io::Error::other(
+                "injected list_idle failure (sweeper error-path test)",
+            ))),
+            Some(StorageFault::Panic) => {
+                panic!("injected list_idle panic (sweeper catch_unwind test)")
+            }
+            None => Ok(self.idle_sessions.lock().unwrap().clone()),
+        }
     }
 
     async fn list_expired_archived_sessions_for_agent(
@@ -149,7 +212,6 @@ impl PersistenceService for MemStorage {
 pub struct MockConfig {
     agents: Mutex<Vec<String>>,
     pub session_config: Mutex<PerAgentSessionConfig>,
-    interval_secs: Mutex<u64>,
 }
 
 impl MockConfig {
@@ -167,7 +229,10 @@ impl SessionConfigProvider for MockConfig {
     }
 
     fn sweeper_interval_secs(&self) -> u64 {
-        *self.interval_secs.lock().unwrap()
+        // Production default, never 0: `ArchiveSweeper::run` derives
+        // `next_fire` from this, and a zero would degenerate into a
+        // busy-fire loop instead of a periodic tick.
+        DEFAULT_SWEEPER_INTERVAL_SECS
     }
 
     fn dreaming_interval_secs(&self) -> u64 {
@@ -193,6 +258,30 @@ impl SessionConfigProvider for MockConfig {
     fn audit_log_limit(&self) -> usize {
         1000
     }
+}
+
+// ── sweeper construction helpers ──────────────────────────────────
+
+/// Build an [`ArchiveSweeper`] over shared fixtures: fresh in-memory
+/// storage plus a [`MockConfig`] seeded with `agents` and the default
+/// session config. Returns the storage so cases can assert on the
+/// recorded `archive_called` / `purge_called` calls.
+pub fn sweeper_with_agents(agents: Vec<String>) -> (Arc<MemStorage>, ArchiveSweeper) {
+    sweeper_with_session_config(agents, PerAgentSessionConfig::default())
+}
+
+/// Like [`sweeper_with_agents`], but with an explicit session config —
+/// e.g. a non-zero `purge_after_minutes` to exercise the purge path.
+pub fn sweeper_with_session_config(
+    agents: Vec<String>,
+    session_config: PerAgentSessionConfig,
+) -> (Arc<MemStorage>, ArchiveSweeper) {
+    let mem = Arc::new(MemStorage::default());
+    let config = Arc::new(MockConfig::with_agents(agents));
+    *config.session_config.lock().unwrap() = session_config;
+    let storage: Arc<dyn PersistenceService> = Arc::clone(&mem) as _;
+    let sweeper = ArchiveSweeper::new(storage, config);
+    (mem, sweeper)
 }
 
 /// Mock ActiveSessionQuery that returns all-false (no active dimensions).
@@ -237,24 +326,31 @@ impl ActiveSessionQuery for MockActiveQueryWithDimensions {
     }
 }
 
-/// Mock TaskManager that tracks `cleanup_all_finished` calls.
+/// Mock TaskManager that records `cleanup_all_finished` calls.
+///
+/// Callers hold the mock directly (e.g. `Arc::new(MockTaskManager::new())`)
+/// and read the recorded state back via [`Self::was_called`] /
+/// [`Self::last_session_id`].
+#[derive(Default)]
 pub struct MockTaskManager {
-    cleanup_all_finished_called: Arc<Mutex<bool>>,
-    session_id_arg: Arc<Mutex<Option<String>>>,
+    cleanup_all_finished_called: Mutex<bool>,
+    last_session_id: Mutex<Option<String>>,
 }
 
 impl MockTaskManager {
-    pub fn new() -> (Self, Arc<Mutex<bool>>, Arc<Mutex<Option<String>>>) {
-        let called = Arc::new(Mutex::new(false));
-        let sid = Arc::new(Mutex::new(None));
-        (
-            Self {
-                cleanup_all_finished_called: Arc::clone(&called),
-                session_id_arg: Arc::clone(&sid),
-            },
-            called,
-            sid,
-        )
+    /// Create a mock with no recorded calls yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether `cleanup_all_finished` has been invoked.
+    pub fn was_called(&self) -> bool {
+        *self.cleanup_all_finished_called.lock().unwrap()
+    }
+
+    /// `session_id` passed to the most recent `cleanup_all_finished` call.
+    pub fn last_session_id(&self) -> Option<String> {
+        self.last_session_id.lock().unwrap().clone()
     }
 }
 
@@ -292,7 +388,7 @@ impl TaskManager for MockTaskManager {
     }
     async fn cleanup_all_finished(&self, session_id: &str) {
         *self.cleanup_all_finished_called.lock().unwrap() = true;
-        *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
+        *self.last_session_id.lock().unwrap() = Some(session_id.to_owned());
     }
     fn max_execution_secs(&self) -> u64 {
         3600
