@@ -84,6 +84,16 @@ fn make_gateway() -> Arc<Gateway> {
     ))
 }
 
+/// Helper: create a shutdown watch channel (initial state `false`) for
+/// `spawn_config_change_subscriber` calls. Bind the returned sender to a
+/// named variable (e.g. `_shutdown_tx`) to keep the channel open.
+fn make_shutdown_channel() -> (
+    tokio::sync::watch::Sender<bool>,
+    tokio::sync::watch::Receiver<bool>,
+) {
+    tokio::sync::watch::channel(false)
+}
+
 // ---------------------------------------------------------------------------
 // spawn_config_change_subscriber tests
 // ---------------------------------------------------------------------------
@@ -95,7 +105,13 @@ async fn test_subscriber_handles_reloaded_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
@@ -118,7 +134,13 @@ async fn test_subscriber_ignores_failed_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -139,7 +161,13 @@ async fn test_subscriber_handles_multiple_events() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -184,7 +212,13 @@ async fn test_subscriber_exits_on_channel_close() {
     let config_mgr = make_config_manager(&tmp);
     let _session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), _session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        _session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -375,7 +409,13 @@ async fn test_subscriber_failed_event_with_owner_display() {
     let _ = config_mgr.reload_section(ConfigSection::System, None);
 
     let session_mgr = make_session_manager();
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
