@@ -68,7 +68,7 @@ fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
 }
 
 /// Helper: create a SessionManager with defaults.
-fn make_session_manager() -> Arc<SessionManager> {
+pub(super) fn make_session_manager() -> Arc<SessionManager> {
     Arc::new(SessionManager::new(
         &GatewayConfig::default(),
         None,
@@ -78,7 +78,7 @@ fn make_session_manager() -> Arc<SessionManager> {
 }
 
 /// Helper: create a Gateway with defaults (for subscriber tests).
-fn make_gateway() -> Arc<Gateway> {
+pub(super) fn make_gateway() -> Arc<Gateway> {
     Arc::new(Gateway::new(
         GatewayConfig::default(),
         make_session_manager(),
@@ -112,6 +112,28 @@ fn spawn_test_subscriber(
         shutdown_rx,
     );
     (shutdown_tx, subscriber)
+}
+
+/// Helper: assert that a subscriber task exits cleanly within a bounded
+/// time — timeout + join strong assertion, never a busy-yield loop.
+///
+/// Replaces the three-part inline pattern (`timeout(..).await` → `is_ok()`
+/// → join `Ok`) that was repeated at 5 shutdown-exit call sites.
+pub(super) async fn assert_subscriber_exits(
+    subscriber: tokio::task::JoinHandle<()>,
+    timeout_secs: u64,
+    context: &str,
+) {
+    let joined =
+        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), subscriber).await;
+    assert!(
+        joined.is_ok(),
+        "{context}: must exit within {timeout_secs}s"
+    );
+    assert!(
+        joined.unwrap().is_ok(),
+        "{context}: join must be Ok (clean exit, no panic/abort)"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -213,13 +235,14 @@ async fn test_subscriber_handles_multiple_events() {
 /// `ConfigManager` → join under a timeout) is unreachable by construction:
 /// the subscriber task owns the last `Arc<ConfigManager>`, and the broadcast
 /// sender lives inside it, so the channel cannot close while the subscriber
-/// runs — that structural fact is asserted explicitly below. The
-/// closed-channel exit decision is therefore exercised where it is
-/// observable: a genuinely closed config-change channel (its manager
-/// dropped) fed to `handle_config_event`, which must report
-/// [`EventOutcome::Exit`] — the very value the subscriber loop breaks on.
+/// runs — that structural fact is asserted in the companion test
+/// `test_subscriber_keeps_config_manager_alive`. The closed-channel exit
+/// decision is therefore exercised where it is observable: a genuinely
+/// closed config-change channel (its manager dropped) fed to
+/// `handle_config_event`, which must report [`EventOutcome::Exit`] — the
+/// very value the subscriber loop breaks on.
 #[tokio::test]
-async fn test_subscriber_exits_on_channel_close() {
+async fn test_handle_config_event_exits_on_closed_channel() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
@@ -252,12 +275,19 @@ async fn test_subscriber_exits_on_channel_close() {
         matches!(outcome, EventOutcome::Exit),
         "a closed config-change channel must map to EventOutcome::Exit (subscriber break)"
     );
+}
 
-    // Structural guard: the subscriber keeps the ConfigManager alive, so the
-    // event channel can never close under a running subscriber — the reason
-    // the exit assertion above lives at the handler boundary instead of on
-    // a subscriber-level join.
-    let (_shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+/// Structural guard split out of the former
+/// `test_subscriber_exits_on_channel_close`: the subscriber task owns the
+/// last `Arc<ConfigManager>` and the broadcast sender lives inside it, so
+/// the config-change channel can never close while the subscriber runs —
+/// which is why the closed-channel exit decision is asserted at the
+/// handler boundary instead of on a subscriber-level join.
+#[tokio::test]
+async fn test_subscriber_keeps_config_manager_alive() {
+    let tmp = TempDir::new().unwrap();
+    let config_mgr = make_config_manager(&tmp);
+    let (_shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, make_session_manager());
     tokio::task::yield_now().await;
     drop(config_mgr);
     assert!(
@@ -348,15 +378,7 @@ async fn test_subscriber_clean_exit_on_shutdown_signal() {
         .send(true)
         .expect("shutdown sender should still be open");
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
-    assert!(
-        result.is_ok(),
-        "subscriber should exit within 2s after the shutdown signal"
-    );
-    assert!(
-        result.unwrap().is_ok(),
-        "subscriber should exit cleanly (join Ok, no panic/abort)"
-    );
+    assert_subscriber_exits(subscriber, 2, "explicit shutdown signal").await;
 }
 
 /// ② Edge: the shutdown signal racing with config events. Events and the
@@ -394,15 +416,7 @@ async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
     });
     let _ = shutdown_tx.send(true);
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
-    assert!(
-        result.is_ok(),
-        "subscriber should exit within 2s despite events racing the shutdown signal"
-    );
-    assert!(
-        result.unwrap().is_ok(),
-        "subscriber must not panic when the shutdown signal races events"
-    );
+    assert_subscriber_exits(subscriber, 2, "shutdown signal racing events").await;
 }
 
 /// ③ Edge: the shutdown sender is dropped **without** an explicit
@@ -428,15 +442,46 @@ async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
     // Implicit shutdown: close the watch channel without ever sending `true`.
     drop(shutdown_tx);
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert_subscriber_exits(subscriber, 2, "shutdown sender dropped").await;
+}
+
+/// ④ Regression (Step 1.5, E2 Review-B): the shutdown signal must be
+/// visible **while** the subscriber executes an event branch body — the
+/// Step 1.1 blind-spot fix.
+///
+/// A bare `notify_change(Reloaded)` publishes no snapshot, so the
+/// subscriber enters the branch and parks on `snapshot_rx.recv()`, the
+/// exact inner await that was a shutdown blind spot before Step 1.1.
+/// `send(true)` issued while parked there must still yield a bounded clean
+/// exit (timeout + join). Fails by timeout on the pre-Step-1.1
+/// implementation, passes on the current one.
+#[tokio::test]
+async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
+    let tmp = TempDir::new().unwrap();
+    let config_mgr = make_config_manager(&tmp);
+    let session_mgr = make_session_manager();
+
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+    tokio::task::yield_now().await;
+
+    // Bare Reloaded event with no snapshot broadcast: the subscriber enters
+    // the event branch and parks waiting for a snapshot that never arrives.
+    config_mgr.notify_change(ConfigChangeEvent::Reloaded {
+        section: ConfigSection::Models,
+        path: "models.json".into(),
+    });
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
     assert!(
-        result.is_ok(),
-        "subscriber should exit within 2s after the shutdown sender is dropped"
+        !subscriber.is_finished(),
+        "subscriber should be parked inside the event branch body before shutdown"
     );
-    assert!(
-        result.unwrap().is_ok(),
-        "subscriber should exit cleanly (join Ok, no panic/abort)"
-    );
+
+    shutdown_tx
+        .send(true)
+        .expect("shutdown sender must still be open");
+
+    assert_subscriber_exits(subscriber, 2, "shutdown while parked in branch body").await;
 }
 
 // ---------------------------------------------------------------------------
@@ -838,144 +883,4 @@ async fn test_populate_registries_success_with_valid_setup() {
         "populate_registries should succeed with valid setup: {:?}",
         result.err()
     );
-}
-
-// ---------------------------------------------------------------------------
-// Step 1.7 — ConfigWatcherHandle tests
-// ---------------------------------------------------------------------------
-
-/// ConfigWatcherHandle holds both the watcher and subscriber handles.
-/// Verified via init_config_hot_reload returning Ok with valid config dir.
-#[tokio::test]
-async fn test_config_watcher_handle_holds_both_handles() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
-    let config_mgr =
-        Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
-    let session_mgr = make_session_manager();
-    let gateway = make_gateway();
-    let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
-
-    let handle = super::init_config_hot_reload(
-        tmp.path().to_str().unwrap(),
-        config_mgr,
-        agent_registry,
-        session_mgr,
-        gateway,
-        None,
-    )
-    .expect("init_config_hot_reload should succeed");
-
-    // into_subscriber_handle() returns the subscriber JoinHandle and signals
-    // the subscriber to exit (shutdown watch send, issue #3176 B16).
-    let subscriber = handle.into_subscriber_handle();
-    // The subscriber must now exit cleanly within the timeout — no more
-    // timeout-abort reliance.
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
-    assert!(
-        result.is_ok(),
-        "subscriber should exit within 2s after into_subscriber_handle() sends the shutdown signal"
-    );
-    assert!(
-        result.unwrap().is_ok(),
-        "subscriber should exit cleanly without panic"
-    );
-}
-
-/// `into_subscriber_handle()` drops the filesystem watcher and returns
-/// the subscriber JoinHandle so callers can join it in Phase 3.
-#[tokio::test]
-async fn test_config_watcher_handle_into_subscriber_handle() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
-    let config_mgr =
-        Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
-    let session_mgr = make_session_manager();
-    let gateway = make_gateway();
-    let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
-
-    let handle = super::init_config_hot_reload(
-        tmp.path().to_str().unwrap(),
-        config_mgr,
-        agent_registry,
-        session_mgr,
-        gateway,
-        None,
-    )
-    .expect("init_config_hot_reload should succeed");
-
-    // into_subscriber_handle() drops the watcher and sends the shutdown
-    // signal in one step — the subscriber must exit cleanly within the
-    // timeout (issue #3176 B16: no more timeout-abort reliance in Phase 3).
-    let subscriber = handle.into_subscriber_handle();
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
-    assert!(
-        result.is_ok(),
-        "subscriber should exit within 2s after into_subscriber_handle() sends the shutdown signal"
-    );
-    assert!(
-        result.unwrap().is_ok(),
-        "subscriber should exit cleanly without panic"
-    );
-}
-
-/// Phase 3: ConfigWatcher subscriber is included in the 5-task background
-/// stop list. This test verifies the subscriber exits cleanly when its
-/// broadcast channel closes, matching the Phase 3 confirmation pattern.
-#[tokio::test]
-async fn test_phase3_config_watcher_subscriber_in_task_list() {
-    use closeclaw_config::events::ConfigChangeEvent;
-    use tokio::sync::broadcast;
-
-    let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(16);
-    let mut subscriber_rx = tx.subscribe();
-
-    let subscriber = tokio::spawn(async move {
-        loop {
-            match subscriber_rx.recv().await {
-                Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => break,
-            }
-        }
-    });
-
-    tokio::task::yield_now().await;
-    assert!(!subscriber.is_finished(), "subscriber should be running");
-
-    // Simulate Phase 3: drop watcher (closes channel), subscriber should exit
-    drop(tx);
-
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
-    assert!(
-        result.is_ok(),
-        "ConfigWatcher subscriber should exit after channel close in Phase 3"
-    );
-    assert!(result.unwrap().is_ok(), "subscriber should not panic");
 }

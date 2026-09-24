@@ -107,6 +107,7 @@ fn spawn_config_change_subscriber(
 }
 
 /// Outcome of handling a single config-change event.
+#[derive(Debug)]
 enum EventOutcome {
     /// Keep waiting for further config-change events.
     Continue,
@@ -281,3 +282,9 @@ pub(crate) fn init_config_hot_reload(
 #[cfg(test)]
 #[path = "config_reload_tests.rs"]
 mod tests;
+
+// ConfigWatcherHandle / Phase 3 tests split into a sibling module so both
+// files stay within the 1000-line limit (CONTRIBUTING.md hard cap).
+#[cfg(test)]
+#[path = "config_watcher_handle_tests.rs"]
+mod handle_tests;
