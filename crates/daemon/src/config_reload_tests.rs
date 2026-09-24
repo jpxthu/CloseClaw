@@ -141,7 +141,7 @@ async fn test_subscriber_handles_reloaded_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
@@ -155,6 +155,12 @@ async fn test_subscriber_handles_reloaded_event() {
 
     // Allow the spawned task to process the event.
     tokio::task::yield_now().await;
+
+    // Trigger shutdown and assert a bounded clean exit, so a panic inside
+    // the subscriber task surfaces via the join result instead of being
+    // silently swallowed by a dropped JoinHandle.
+    drop(shutdown_tx);
+    assert_subscriber_exits(subscriber, 2, "test_subscriber_handles_reloaded_event").await;
 }
 
 /// Failed events should be logged but NOT trigger a session notification.
@@ -164,7 +170,7 @@ async fn test_subscriber_ignores_failed_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -176,6 +182,10 @@ async fn test_subscriber_ignores_failed_event() {
     });
 
     tokio::task::yield_now().await;
+
+    // Trigger shutdown and assert a bounded clean exit (JoinError observed).
+    drop(shutdown_tx);
+    assert_subscriber_exits(subscriber, 2, "test_subscriber_ignores_failed_event").await;
 }
 
 /// Multiple consecutive events are all processed without panic.
@@ -185,7 +195,7 @@ async fn test_subscriber_handles_multiple_events() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -220,6 +230,10 @@ async fn test_subscriber_handles_multiple_events() {
     // Allow all events to be processed.
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
+
+    // Trigger shutdown and assert a bounded clean exit (JoinError observed).
+    drop(shutdown_tx);
+    assert_subscriber_exits(subscriber, 2, "test_subscriber_handles_multiple_events").await;
 }
 
 /// Error path: a closed config-change channel maps to subscriber exit
@@ -595,7 +609,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
     let _ = config_mgr.reload_section(ConfigSection::System, None);
 
     let session_mgr = make_session_manager();
-    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -609,13 +623,15 @@ async fn test_subscriber_failed_event_with_owner_display() {
 
     // Allow the spawned task to process the event without panic.
     tokio::task::yield_now().await;
-    tokio::time::timeout(std::time::Duration::from_millis(200), async {
-        loop {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .ok();
+
+    // Trigger shutdown and assert a bounded clean exit (JoinError observed).
+    drop(shutdown_tx);
+    assert_subscriber_exits(
+        subscriber,
+        2,
+        "test_subscriber_failed_event_with_owner_display",
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------
