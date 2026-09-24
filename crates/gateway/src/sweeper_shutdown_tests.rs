@@ -29,7 +29,7 @@ async fn test_shutdown_exits_loop() {
     });
 
     let _ = tx.send(());
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handle).await;
+    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
 }
 
 // ── shutdown grace period tests ─────────────────────────────────
@@ -47,7 +47,7 @@ async fn test_shutdown_no_running_task_exits_immediately() {
     });
     // Send shutdown immediately — no task running
     let _ = tx.send(());
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), handle).await;
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(2), handle).await;
     assert!(
         result.is_ok(),
         "sweeper should exit quickly when no task is running"
@@ -69,6 +69,13 @@ async fn test_shutdown_grace_period_expires_aborts() {
     }
 
     impl FakeSweeper {
+        // Cross-reference: this run() is an inline mirror of the
+        // production `ArchiveSweeper::run` (crates/gateway/src/sweeper.rs:112,
+        // select main loop 122-160) plus `wait_grace_period`
+        // (sweeper.rs:168-196) — the same select-loop structure and
+        // grace-abort semantics are replicated here with a fake task.
+        // When that production logic evolves, update this fake in
+        // lockstep to prevent semantic drift.
         async fn run(&self, mut shutdown: watch::Receiver<()>) {
             let mut running_task: Option<tokio::task::JoinHandle<()>> = None;
             let interval = tokio::time::Duration::from_millis(50);
@@ -82,7 +89,7 @@ async fn test_shutdown_grace_period_expires_aborts() {
                         let storage = Arc::clone(&self.storage);
                         let task = tokio::task::spawn(async move {
                             // Simulate a task that takes longer than grace period
-                            tokio::time::sleep(std::time::Duration::from_secs(30)).
+                            tokio::time::sleep(tokio::time::Duration::from_secs(30)).
                                 await;
                             let _ = storage;
                         });
@@ -140,7 +147,7 @@ async fn test_shutdown_grace_period_expires_aborts() {
     // Guard (virtual time too): if the abort path regresses and the
     // loop keeps sweeping, time runs past 20 s and this fails with a
     // message instead of hanging the test.
-    let result = tokio::time::timeout(std::time::Duration::from_secs(20), handle).await;
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(20), handle).await;
     let elapsed = start.elapsed();
     assert!(
         result.is_ok(),
@@ -156,7 +163,7 @@ async fn test_shutdown_grace_period_expires_aborts() {
     // Upper bound: well below the task's 30 s body — proves the exit
     // came from the abort branch, not from natural task completion.
     assert!(
-        elapsed < std::time::Duration::from_secs(30),
+        elapsed < tokio::time::Duration::from_secs(30),
         "sweeper must abort the task instead of waiting for natural completion, took {elapsed:?}"
     );
 }
