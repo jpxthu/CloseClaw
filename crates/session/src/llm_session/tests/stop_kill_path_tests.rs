@@ -568,3 +568,36 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
         "clear_exec_state must not have run after the kill() panic"
     );
 }
+
+// ── handshake: wait_kill_started's timeout branch ─────────────────────────────
+
+/// Pins the **timeout branch** of the methodized handshake (issue
+/// #3181 Step 1.1): with `kill()` never invoked the notify never
+/// fires, yet `wait_kill_started()` must still return — after
+/// genuinely waiting out its ≤1 s bound (never vacuously early, so
+/// real callers keep a working handshake) instead of hanging the
+/// test. Both in-suite call sites (slow / sufficient) only ever hit
+/// the notified branch; the lower-bound assertion is deterministic
+/// here precisely because no notify can fire in this setup.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_wait_kill_started_returns_when_notify_never_fires() {
+    let (handle, _release) = BlockingKillHandle::new();
+    // `kill()` is never invoked, so `entered_notify` never fires.
+
+    let start = Instant::now();
+    let waited = tokio::time::timeout(Duration::from_secs(2), handle.wait_kill_started()).await;
+    let elapsed = start.elapsed();
+
+    waited.expect("wait_kill_started must return on its own, never hang");
+    assert_eq!(
+        handle.entered.load(Ordering::SeqCst),
+        0,
+        "kill() never ran in this case, so no notify could fire"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(950),
+        "the wait must actually wait out its bound when no notify fires; \
+         returned after {elapsed:?}"
+    );
+}
