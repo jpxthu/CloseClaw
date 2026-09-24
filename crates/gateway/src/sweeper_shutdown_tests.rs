@@ -29,7 +29,20 @@ async fn test_shutdown_exits_loop() {
     });
 
     let _ = tx.send(());
-    let _ = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    // State transition: after the shutdown signal, run() must return
+    // within this 5 s guard — a hang fails here instead of passing
+    // vacuously.
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(
+        result.is_ok(),
+        "run() must exit within the 5 s guard after the shutdown signal"
+    );
+    // Error path: the sweeper task exits normally, without panicking.
+    let join_result = result.expect("timeout is Ok, per assertion above");
+    assert!(
+        join_result.is_ok(),
+        "sweeper task must not panic while exiting"
+    );
 }
 
 // ── shutdown grace period tests ─────────────────────────────────
@@ -72,10 +85,9 @@ struct FakeSweeper {
 
 impl FakeSweeper {
     // Cross-reference: this run() is an inline mirror of the
-    // production `ArchiveSweeper::run` (crates/gateway/src/sweeper.rs:112,
-    // select main loop 122-160) plus `wait_grace_period`
-    // (sweeper.rs:168-196) — the same select-loop structure and
-    // grace-abort semantics are replicated here with a fake task.
+    // production `ArchiveSweeper::run` and `wait_grace_period`
+    // (crates/gateway/src/sweeper.rs) — the same select-loop structure
+    // and grace-abort semantics are replicated here with a fake task.
     // When that production logic evolves, update this fake in
     // lockstep to prevent semantic drift.
     async fn run(&self, mut shutdown: watch::Receiver<()>) {
