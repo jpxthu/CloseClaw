@@ -159,6 +159,21 @@ impl closeclaw_common::shutdown::ShutdownSignal for MockEscalationSignal {
     }
 }
 
+/// Snapshot the currently registered conversation sessions. The
+/// snapshot is taken under a single `read()` that is released before
+/// returning — do not hold it across any subsequent session
+/// `write()`/`read()`.
+async fn conversation_sessions_snapshot(
+    mgr: &SessionManager,
+) -> Vec<Arc<tokio::sync::RwLock<ConversationSession>>> {
+    mgr.conversation_sessions
+        .read()
+        .await
+        .values()
+        .cloned()
+        .collect()
+}
+
 /// Install a mock shutdown handle on a `SessionManager` and propagate
 /// it to every registered `ConversationSession`.
 ///
@@ -170,6 +185,10 @@ impl closeclaw_common::shutdown::ShutdownSignal for MockEscalationSignal {
 /// this helper must replicate that propagation — installing the
 /// handle on the manager alone leaves the session polling loop blind
 /// to escalation.
+///
+/// Timing contract: the mock handle is propagated only to the
+/// conversation sessions already registered at call time; sessions
+/// created afterwards do not automatically receive it.
 async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<MockEscalationSignal> {
     let mock = Arc::new(MockEscalationSignal {
         is_shutting_down: std::sync::atomic::AtomicBool::new(true),
@@ -182,14 +201,7 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
     // Propagate to all live conversation sessions, mirroring the
     // production entry points (resolve/spawn/channel/...). The
     // session-side `graceful_stop` polls only its own handle.
-    let sessions: Vec<_> = mgr
-        .conversation_sessions
-        .read()
-        .await
-        .values()
-        .cloned()
-        .collect();
-    for cs in sessions {
+    for cs in conversation_sessions_snapshot(mgr).await {
         cs.write().await.set_shutdown_handle(mock.clone());
     }
     mock
@@ -705,6 +717,8 @@ async fn test_graceful_escalation_interrupts_tool_running() {
     );
 }
 
+// ── Regression guard: handle propagation ────────────────────────────────
+
 /// Regression guard for the `install_mock_handle` helper: the mock
 /// handle must be propagated to every registered conversation session
 /// (mirroring the production resolve/spawn/channel wiring), not just
@@ -725,13 +739,7 @@ async fn test_escalation_handle_propagated_to_sessions() {
 
     // Every conversation session must hold a shutdown handle, and it
     // must start in the graceful (non-forceful) state.
-    let sessions: Vec<_> = mgr
-        .conversation_sessions
-        .read()
-        .await
-        .values()
-        .cloned()
-        .collect();
+    let sessions = conversation_sessions_snapshot(&mgr).await;
     assert!(!sessions.is_empty(), "expected registered sessions");
     for cs in &sessions {
         let handle = cs
