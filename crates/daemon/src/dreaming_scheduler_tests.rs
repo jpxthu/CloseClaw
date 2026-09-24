@@ -724,15 +724,25 @@ async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
     );
 }
 
-/// When an active task exceeds SHUTDOWN_GRACE_SECS, it is aborted
+/// When an active task exceeds SHUTDOWN_GRACE_SECS, it is abandoned
 /// and the scheduler exits after the timeout.
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the slow task parks in
+/// `std::future::pending` (no timer registered), so auto-advance only
+/// drives the `timeout(SHUTDOWN_GRACE_SECS, ...)` timer inside
+/// `wait_for_active_task`. The full timing chain — task exceeding the
+/// budget → 10s grace timer fires → task abandoned with a warning —
+/// is still genuinely executed end to end, while real wall-clock cost
+/// drops to milliseconds (precisely as in PR #3202).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_dreaming_shutdown_aborts_task_after_grace_period() {
     use crate::dreaming_scheduler::SHUTDOWN_GRACE_SECS;
 
-    // Spawn a task that takes 30s (well beyond 10s grace period)
+    // Spawn a hanging task that never completes: parked on
+    // `std::future::pending` (registers no timer), well beyond the
+    // 10s grace period.
     let handle = tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(30)).await;
+        std::future::pending::<()>().await;
         Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
     });
 
@@ -740,11 +750,13 @@ async fn test_dreaming_shutdown_aborts_task_after_grace_period() {
     crate::dreaming_scheduler::wait_for_active_task(handle).await;
     let elapsed = start.elapsed();
 
-    // Should abort after ~10s grace period, not wait full 30s
-    assert!(
-        elapsed >= std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS - 1)
-            && elapsed < std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS + 3),
-        "task exceeding grace period should be aborted after ~{}s, took {:?}",
+    // Virtual clock: elapsed must equal the grace period exactly,
+    // proving we waited out the whole 10s budget instead of returning
+    // early (the task never completes on its own).
+    assert_eq!(
+        elapsed,
+        std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS),
+        "task exceeding grace period should be abandoned after exactly {}s, took {:?}",
         SHUTDOWN_GRACE_SECS,
         elapsed
     );
