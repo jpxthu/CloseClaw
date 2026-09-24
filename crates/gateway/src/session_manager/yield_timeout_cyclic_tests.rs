@@ -10,8 +10,15 @@
 //! the full timing chain is genuinely executed while wall-clock cost
 //! collapses to milliseconds.
 //!
-//! `#[serial]` is unrelated to the virtual clock: it serializes the tests
-//! around the shared global prompt state (`clear_global_prompt_state`).
+//! `#[serial]` is unrelated to the virtual clock: it survives from the
+//! era of the real global section cache (its clearing helper,
+//! `clear_global_prompt_state`, is now an explicit no-op) and also
+//! serializes access to the process-wide `SHARED_CONFIG_DIR` tempdir
+//! shared by `make_test_mgr`.
+//!
+//! Note: test 17 (`test_yield_cyclic_warning_ratio_2_0_boundary`) still
+//! uses the real clock; it is slated for the same paused-clock treatment
+//! in a later batch.
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
@@ -69,7 +76,7 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
     }
 
     // overall=4s, warning_secs=2s, ratio=0.1
-    // interval = max(2*0.1, 1) = 1s.
+    // interval = max(round(2*0.1), 1) = max(0, 1) = 1s.
     // Warnings at T=2 and T=3; after the T=3 injection elapsed=4 >= 4,
     // so the loop breaks without a further sleep. Hard timeout at T=4.
     mgr.start_yield_timeout(&parent_id, "agent-x", 4, Some(2), Some(0.1))
