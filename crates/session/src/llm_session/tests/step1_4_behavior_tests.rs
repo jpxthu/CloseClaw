@@ -11,6 +11,7 @@
 //!    cascade → kill tools → cancel LLM → cleanup (design doc order).
 
 use super::super::*;
+use super::kill_doubles::register_kill_handle;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::{SessionExecStatus, ToolExecState};
 use std::io;
@@ -380,10 +381,7 @@ async fn test_forceful_stop_order_cascade_before_cancel_before_clear() {
     // Add a kill handle on the child.
     let child_kill_count = Arc::new(AtomicUsize::new(0));
     let child_handle = OrderTrackingKillHandle::new(Arc::clone(&child_kill_count));
-    child
-        .read()
-        .await
-        .register_tool_handle("child-tool", Arc::new(child_handle));
+    register_kill_handle(&child, "child-tool", Arc::new(child_handle)).await;
 
     // Run stop(Forceful).
     parent
@@ -458,10 +456,7 @@ async fn test_forceful_stop_sequence_log() {
             OrderTrackingKillHandle::with_callback(Arc::new(AtomicUsize::new(0)), move || {
                 seq.lock().unwrap().push("kill".to_string());
             });
-        child
-            .read()
-            .await
-            .register_tool_handle("child-tool", Arc::new(handle));
+        register_kill_handle(&child, "child-tool", Arc::new(handle)).await;
     }
 
     // Before stop: log is empty.

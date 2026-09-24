@@ -7,7 +7,7 @@
 use super::super::session_handles::{CascadeStopInfo, GracefulStopResult};
 use super::super::KillHandle;
 use super::super::*;
-use super::kill_doubles::{make_session, MockKillHandle};
+use super::kill_doubles::{make_session, register_kill_handle, MockKillHandle};
 use closeclaw_common::shutdown::ShutdownMode;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -27,9 +27,9 @@ async fn test_stop_false_kills_tools_cancels_llm_clears_state() {
     // Register a kill handle and a tool state.
     let handle = Arc::new(MockKillHandle::new());
     let kill_count = handle.kill_count();
+    register_kill_handle(&cs, "call-1", handle.clone()).await;
     {
         let s = cs.read().await;
-        s.register_tool_handle("call-1", handle as Arc<dyn KillHandle>);
         s.register_tool_call("call-1", "bash", "test cmd");
         s.update_tool_state("call-1", closeclaw_common::ToolExecState::RunningForeground);
     }
@@ -81,10 +81,7 @@ async fn test_stop_true_cascades_to_child_sessions() {
     // Add a tool handle on the child so we can verify it gets killed.
     let child_handle = Arc::new(MockKillHandle::new());
     let child_kill_count = child_handle.kill_count();
-    child
-        .read()
-        .await
-        .register_tool_handle("call-c1", child_handle as Arc<dyn KillHandle>);
+    register_kill_handle(&child, "call-c1", child_handle.clone()).await;
 
     parent
         .read()
@@ -135,8 +132,8 @@ async fn test_tool_handle_register_unregister() {
     let cs = make_session("s_tool_reg");
     let h1 = Arc::new(MockKillHandle::new()) as Arc<dyn KillHandle>;
     let h2 = Arc::new(MockKillHandle::new()) as Arc<dyn KillHandle>;
-    cs.read().await.register_tool_handle("call-a", h1);
-    cs.read().await.register_tool_handle("call-b", h2);
+    register_kill_handle(&cs, "call-a", h1).await;
+    register_kill_handle(&cs, "call-b", h2).await;
 
     // The internal map length isn't part of the public surface, but
     // we can verify behaviour through stop(): both handles should
@@ -145,12 +142,8 @@ async fn test_tool_handle_register_unregister() {
     let h1_count = h1.kill_count();
     let h2 = Arc::new(MockKillHandle::new());
     let h2_count = h2.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("call-a", h1 as Arc<dyn KillHandle>);
-    cs.read()
-        .await
-        .register_tool_handle("call-b", h2 as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "call-a", h1.clone()).await;
+    register_kill_handle(&cs, "call-b", h2.clone()).await;
 
     // Unregister one; it must NOT be killed.
     cs.read().await.unregister_tool_handle("call-a");
@@ -239,9 +232,7 @@ async fn test_stop_is_idempotent() {
     let cs = make_session("s_idem");
     let h = Arc::new(MockKillHandle::new());
     let h_count = h.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("call-idem", h as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "call-idem", h.clone()).await;
 
     cs.read()
         .await
@@ -306,18 +297,9 @@ async fn test_three_level_cascade_kills_all_tool_handles() {
     let parent_count = parent_h.kill_count();
     let child_count = child_h.kill_count();
     let gc_count = gc_h.kill_count();
-    parent
-        .read()
-        .await
-        .register_tool_handle("p-tool", parent_h as Arc<dyn KillHandle>);
-    child
-        .read()
-        .await
-        .register_tool_handle("c-tool", child_h as Arc<dyn KillHandle>);
-    grandchild
-        .read()
-        .await
-        .register_tool_handle("g-tool", gc_h as Arc<dyn KillHandle>);
+    register_kill_handle(&parent, "p-tool", parent_h.clone()).await;
+    register_kill_handle(&child, "c-tool", child_h.clone()).await;
+    register_kill_handle(&grandchild, "g-tool", gc_h.clone()).await;
 
     parent
         .read()
@@ -406,17 +388,9 @@ async fn test_three_level_cascade_graceful_does_not_cancel_tokens() {
     let root_count = root_h.kill_count();
     let child_count = child_h.kill_count();
     let gc_count = gc_h.kill_count();
-    root.read()
-        .await
-        .register_tool_handle("root-tool", root_h as Arc<dyn KillHandle>);
-    child
-        .read()
-        .await
-        .register_tool_handle("child-tool", child_h as Arc<dyn KillHandle>);
-    grandchild
-        .read()
-        .await
-        .register_tool_handle("gc-tool", gc_h as Arc<dyn KillHandle>);
+    register_kill_handle(&root, "root-tool", root_h.clone()).await;
+    register_kill_handle(&child, "child-tool", child_h.clone()).await;
+    register_kill_handle(&grandchild, "gc-tool", gc_h.clone()).await;
 
     root.read()
         .await
@@ -578,10 +552,7 @@ async fn test_cascade_runs_grandchild_stop_even_if_already_cancelled() {
     let grandchild = make_session("g2");
     let gc_handle = Arc::new(MockKillHandle::new());
     let gc_count = gc_handle.kill_count();
-    grandchild
-        .read()
-        .await
-        .register_tool_handle("g2-tool", gc_handle as Arc<dyn KillHandle>);
+    register_kill_handle(&grandchild, "g2-tool", gc_handle.clone()).await;
 
     // Wire: parent → (intermediate) → grandchild. The intermediate
     // is here purely so the cascade path is parent -> intermediate
@@ -731,9 +702,7 @@ async fn test_nested_cascade_propagation() {
     let leaf = make_session("s_nested_leaf");
     let leaf_handle = Arc::new(MockKillHandle::new());
     let leaf_kill_count = leaf_handle.kill_count();
-    leaf.read()
-        .await
-        .register_tool_handle("leaf-tool", leaf_handle as Arc<dyn KillHandle>);
+    register_kill_handle(&leaf, "leaf-tool", leaf_handle.clone()).await;
 
     root.read()
         .await
@@ -782,12 +751,8 @@ async fn test_force_kill_sets_terminated_on_running_tools() {
     let fg_kill_count = fg_handle.kill_count();
     let bg_handle = Arc::new(MockKillHandle::new());
     let bg_kill_count = bg_handle.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("fg-tool", fg_handle as Arc<dyn KillHandle>);
-    cs.read()
-        .await
-        .register_tool_handle("bg-tool", bg_handle as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "fg-tool", fg_handle.clone()).await;
+    register_kill_handle(&cs, "bg-tool", bg_handle.clone()).await;
 
     // force_kill() sets Terminated + kills handles, but does NOT
     // clear_exec_state(), so we can inspect tool_states afterwards.
@@ -825,9 +790,7 @@ async fn test_forceful_stop_sets_terminated_then_clears() {
     }
     let handle = Arc::new(MockKillHandle::new());
     let kill_count = handle.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("tool-1", handle as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "tool-1", handle.clone()).await;
 
     cs.read()
         .await
@@ -853,9 +816,7 @@ async fn test_forceful_stop_fg_terminated_then_cleared() {
     }
     let h = Arc::new(MockKillHandle::new());
     let count = h.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("fg-t", h as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "fg-t", h.clone()).await;
 
     cs.read()
         .await
@@ -880,9 +841,7 @@ async fn test_forceful_stop_bg_terminated_then_cleared() {
     }
     let h = Arc::new(MockKillHandle::new());
     let count = h.kill_count();
-    cs.read()
-        .await
-        .register_tool_handle("bg-t", h as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "bg-t", h.clone()).await;
 
     cs.read()
         .await

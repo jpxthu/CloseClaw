@@ -57,3 +57,21 @@ pub(super) fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
         tmp_path(),
     )))
 }
+
+/// One-line registration helper: collapses the repeated
+/// "`cs.read().await` + `register_tool_handle` + `as Arc<dyn
+/// KillHandle>`" boilerplate at the test call sites into a single
+/// call (issue #3186 Step 1.1).
+///
+/// The `Arc<dyn KillHandle>` parameter is a coercion site, so callers
+/// hand over their concrete `Arc<H>` (or an already-erased
+/// `Arc<dyn KillHandle>`) with no cast at the call site. Semantics
+/// are identical to the inlined form: take a read lock, register the
+/// handle under `call_id`.
+pub(super) async fn register_kill_handle(
+    cs: &Arc<RwLock<ConversationSession>>,
+    call_id: &str,
+    handle: Arc<dyn KillHandle>,
+) {
+    cs.read().await.register_tool_handle(call_id, handle);
+}
