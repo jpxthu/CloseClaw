@@ -7,7 +7,7 @@ use crate::config_reload::DaemonReloadCallback;
 use anyhow::Context;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
-use closeclaw_config::manager::{ConfigManager, ConfigSection};
+use closeclaw_config::manager::{ConfigManager, ConfigSection, ConfigSnapshot};
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -52,6 +52,10 @@ impl ConfigWatcherHandle {
 /// Spawn a background task that subscribes to config change events and
 /// notifies the [`SessionManager`].
 ///
+/// The in-flight event handling is `select!`-raced against the shutdown
+/// signal, so shutdown stays visible while a branch body is awaiting
+/// inside it (no shutdown blind spot).
+///
 /// Returns the [`JoinHandle`] so the caller can await task completion
 /// (e.g. during Phase 3 background-task shutdown).
 fn spawn_config_change_subscriber(
@@ -69,80 +73,141 @@ fn spawn_config_change_subscriber(
                     // Shutdown requested (send(true)) or the sender side was
                     // dropped (RAII drop of ConfigWatcherHandle without
                     // into_subscriber_handle) — either way, exit cleanly.
-                    if result.is_err() || *shutdown_rx.borrow() {
-                        info!(
-                            "config change subscriber received shutdown signal, exiting"
-                        );
+                    if shutdown_exit_requested(result, &shutdown_rx) {
                         break;
                     }
                 }
                 event = event_rx.recv() => {
-                    match event {
-                        Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
-                            info!(
-                                section = %section,
-                                "config change event received, notifying sessions"
-                            );
-                            let snapshot = match snapshot_rx.recv().await {
-                                Ok(s) => s,
-                                Err(e) => {
-                                    warn!(
-                                        section = %section,
-                                        error = %e,
-                                        "failed to receive config snapshot, skipping notification"
-                                    );
-                                    continue;
-                                }
-                            };
-                            session_manager
-                                .notify_config_changed(section, snapshot)
-                                .await;
-                        }
-                        Ok(ConfigChangeEvent::Failed { section, error, .. }) => {
-                            warn!(
-                                section = %section,
-                                error = %error,
-                                "config change event failed, skipping session notification"
-                            );
-                            let target = parse_owner_target(&config_manager);
-                            if let Some((channel, chat_id)) = target {
-                                let msg = format!(
-                                    "⚠️ Config reload failed for section `{}`: {}",
-                                    section, error
-                                );
-                                if let Err(e) = gateway
-                                    .send_outbound_simplified(&chat_id, &channel, &msg)
-                                    .await
-                                {
-                                    warn!(
-                                        error = %e,
-                                        "failed to send config reload failure notification to owner"
-                                    );
-                                }
-                            } else {
-                                warn!(
-                                    section = %section,
-                                    "owner_display not configured — skipping IM notification"
-                                );
+                    // Race event handling against the shutdown signal so the
+                    // branch body is not a shutdown blind spot — cancellation
+                    // rationale lives on `handle_config_event`.
+                    tokio::select! {
+                        outcome = handle_config_event(
+                            event,
+                            &config_manager,
+                            &session_manager,
+                            &gateway,
+                            &mut snapshot_rx,
+                        ) => {
+                            if matches!(outcome, EventOutcome::Exit) {
+                                break;
                             }
                         }
-                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                            warn!(
-                                missed = n,
-                                "config change subscriber lagged, missed events"
-                            );
-                        }
-                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                            info!(
-                                "config change broadcast channel closed, subscriber exiting"
-                            );
-                            break;
+                        result = shutdown_rx.changed() => {
+                            if shutdown_exit_requested(result, &shutdown_rx) {
+                                break;
+                            }
                         }
                     }
                 }
             }
         }
     })
+}
+
+/// Outcome of handling a single config-change event.
+enum EventOutcome {
+    /// Keep waiting for further config-change events.
+    Continue,
+    /// The config-change broadcast channel closed — exit the subscriber.
+    Exit,
+}
+
+/// Handle one config-change event: notify sessions of a reload, IM-notify
+/// the owner of a failure, absorb lag, and detect broadcast closure.
+///
+/// Handling runs as its own future so the subscriber loop can `select!` it
+/// against the shutdown signal: every inner `.await` (snapshot fetch,
+/// session notification, owner IM notification) becomes a point where
+/// shutdown is observed immediately instead of only after the whole branch
+/// body completes. Cancelling those awaits is safe by design: cancelling a
+/// broadcast `recv()` never loses buffered events, and cancelling a
+/// notification drops that notification — matching the shutdown semantics
+/// of "stop now, stay on the last valid config".
+async fn handle_config_event(
+    event: Result<ConfigChangeEvent, tokio::sync::broadcast::error::RecvError>,
+    config_manager: &ConfigManager,
+    session_manager: &SessionManager,
+    gateway: &Gateway,
+    snapshot_rx: &mut tokio::sync::broadcast::Receiver<ConfigSnapshot>,
+) -> EventOutcome {
+    match event {
+        Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
+            info!(
+                section = %section,
+                "config change event received, notifying sessions"
+            );
+            let snapshot = match snapshot_rx.recv().await {
+                Ok(s) => s,
+                Err(e) => {
+                    warn!(
+                        section = %section,
+                        error = %e,
+                        "failed to receive config snapshot, skipping notification"
+                    );
+                    return EventOutcome::Continue;
+                }
+            };
+            session_manager
+                .notify_config_changed(section, snapshot)
+                .await;
+        }
+        Ok(ConfigChangeEvent::Failed { section, error, .. }) => {
+            warn!(
+                section = %section,
+                error = %error,
+                "config change event failed, skipping session notification"
+            );
+            let target = parse_owner_target(config_manager);
+            if let Some((channel, chat_id)) = target {
+                let msg = format!(
+                    "⚠️ Config reload failed for section `{}`: {}",
+                    section, error
+                );
+                if let Err(e) = gateway
+                    .send_outbound_simplified(&chat_id, &channel, &msg)
+                    .await
+                {
+                    warn!(
+                        error = %e,
+                        "failed to send config reload failure notification to owner"
+                    );
+                }
+            } else {
+                warn!(
+                    section = %section,
+                    "owner_display not configured — skipping IM notification"
+                );
+            }
+        }
+        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+            warn!(missed = n, "config change subscriber lagged, missed events");
+        }
+        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+            info!("config change broadcast channel closed, subscriber exiting");
+            return EventOutcome::Exit;
+        }
+    }
+    EventOutcome::Continue
+}
+
+/// Shared shutdown-exit check for the subscriber loop.
+///
+/// Returns `true` when the subscriber must exit: `changed()` errored (the
+/// shutdown sender was dropped — RAII drop of `ConfigWatcherHandle` without
+/// `into_subscriber_handle`) or the watch carries an explicit shutdown
+/// (`true` sent by `into_subscriber_handle`). Both paths share one exit log
+/// here; a `false` update keeps the loop running.
+fn shutdown_exit_requested(
+    result: Result<(), tokio::sync::watch::error::RecvError>,
+    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
+) -> bool {
+    if result.is_err() || *shutdown_rx.borrow() {
+        info!("config change subscriber received shutdown signal, exiting");
+        true
+    } else {
+        false
+    }
 }
 
 /// Parse the owner notification target from `SystemConfigData.commands.owner_display`.

@@ -342,9 +342,10 @@ async fn test_subscriber_clean_exit_on_shutdown_signal() {
 ///
 /// Note: the Reloaded event is published via `update_section_cache` (the real
 /// write path) so the matching snapshot is buffered before the event; a bare
-/// `notify_change(Reloaded)` would leave the subscriber blocked inside the
-/// event branch on `snapshot_rx.recv()` where the shutdown signal is not
-/// observed until the branch completes.
+/// `notify_change(Reloaded)` would leave the subscriber waiting inside the
+/// event branch on `snapshot_rx.recv()` for a snapshot that never arrives.
+/// Either way the branch body now selects its inner awaits against shutdown,
+/// so the signal is observed without waiting for the event to complete.
 #[tokio::test]
 async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
     let tmp = TempDir::new().unwrap();
