@@ -66,6 +66,65 @@ async fn test_shutdown_no_running_task_exits_immediately() {
 const TASK_BODY: tokio::time::Duration = tokio::time::Duration::from_secs(30);
 const GUARD: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
+struct FakeSweeper {
+    storage: Arc<dyn PersistenceService>,
+}
+
+impl FakeSweeper {
+    // Cross-reference: this run() is an inline mirror of the
+    // production `ArchiveSweeper::run` (crates/gateway/src/sweeper.rs:112,
+    // select main loop 122-160) plus `wait_grace_period`
+    // (sweeper.rs:168-196) — the same select-loop structure and
+    // grace-abort semantics are replicated here with a fake task.
+    // When that production logic evolves, update this fake in
+    // lockstep to prevent semantic drift.
+    async fn run(&self, mut shutdown: watch::Receiver<()>) {
+        let mut running_task: Option<tokio::task::JoinHandle<()>> = None;
+        let interval = tokio::time::Duration::from_millis(50);
+        let mut next_fire = tokio::time::Instant::now() + interval;
+        loop {
+            tokio::select! {
+                _ = shutdown.changed() => break,
+                _ = tokio::time::sleep_until(next_fire),
+                    if running_task.is_none() =>
+                {
+                    let storage = Arc::clone(&self.storage);
+                    let task = tokio::task::spawn(async move {
+                        // Simulate a task that takes longer than grace period
+                        tokio::time::sleep(TASK_BODY).await;
+                        let _ = storage;
+                    });
+                    running_task = Some(task);
+                    next_fire += interval;
+                }
+                result = async {
+                    match running_task.as_mut() {
+                        Some(t) => t.await,
+                        None => std::future::pending().await,
+                    }
+                } => {
+                    running_task = None;
+                    if result.is_err() {
+                        tracing::error!("task panicked");
+                    }
+                }
+            }
+        }
+        if let Some(mut task) = running_task {
+            let grace = tokio::time::Duration::from_secs(SWEEPER_GRACE_PERIOD_SECS);
+            tokio::select! {
+                result = &mut task => {
+                    let _ = result;
+                }
+                _ = tokio::time::sleep(grace) => {
+                    task.abort();
+                    tracing::warn!("grace period expired, aborting");
+                }
+            }
+        }
+    }
+}
+
 /// Shutdown signal with running task that exceeds grace period → abort.
 ///
 /// Runs on a paused tokio clock (`start_paused`): every
@@ -76,65 +135,6 @@ const GUARD: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 /// asserted while real wall-clock cost collapses to milliseconds.
 #[tokio::test(start_paused = true)]
 async fn test_shutdown_grace_period_expires_aborts() {
-    struct FakeSweeper {
-        storage: Arc<dyn PersistenceService>,
-    }
-
-    impl FakeSweeper {
-        // Cross-reference: this run() is an inline mirror of the
-        // production `ArchiveSweeper::run` (crates/gateway/src/sweeper.rs:112,
-        // select main loop 122-160) plus `wait_grace_period`
-        // (sweeper.rs:168-196) — the same select-loop structure and
-        // grace-abort semantics are replicated here with a fake task.
-        // When that production logic evolves, update this fake in
-        // lockstep to prevent semantic drift.
-        async fn run(&self, mut shutdown: watch::Receiver<()>) {
-            let mut running_task: Option<tokio::task::JoinHandle<()>> = None;
-            let interval = tokio::time::Duration::from_millis(50);
-            let mut next_fire = tokio::time::Instant::now() + interval;
-            loop {
-                tokio::select! {
-                    _ = shutdown.changed() => break,
-                    _ = tokio::time::sleep_until(next_fire),
-                        if running_task.is_none() =>
-                    {
-                        let storage = Arc::clone(&self.storage);
-                        let task = tokio::task::spawn(async move {
-                            // Simulate a task that takes longer than grace period
-                            tokio::time::sleep(TASK_BODY).await;
-                            let _ = storage;
-                        });
-                        running_task = Some(task);
-                        next_fire += interval;
-                    }
-                    result = async {
-                        match running_task.as_mut() {
-                            Some(t) => t.await,
-                            None => std::future::pending().await,
-                        }
-                    } => {
-                        running_task = None;
-                        if result.is_err() {
-                            tracing::error!("task panicked");
-                        }
-                    }
-                }
-            }
-            if let Some(mut task) = running_task {
-                let grace = tokio::time::Duration::from_secs(SWEEPER_GRACE_PERIOD_SECS);
-                tokio::select! {
-                    result = &mut task => {
-                        let _ = result;
-                    }
-                    _ = tokio::time::sleep(grace) => {
-                        task.abort();
-                        tracing::warn!("grace period expired, aborting");
-                    }
-                }
-            }
-        }
-    }
-
     let mem = Arc::new(MemStorage::default());
     let sweeper = FakeSweeper {
         storage: mem.clone() as _,
