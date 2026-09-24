@@ -18,7 +18,10 @@ async fn test_run_once_calls_archive() {
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();
-    assert!(archive_called.contains(&"session-1".into()));
+    assert!(
+        archive_called.contains(&"session-1".into()),
+        "run_once must archive idle session-1; actual archive calls: {archive_called:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -38,7 +41,10 @@ async fn test_run_once_calls_purge() {
     sweeper.run_once().await.unwrap();
 
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.contains(&"session-2".into()));
+    assert!(
+        purge_called.contains(&"session-2".into()),
+        "run_once must purge expired session-2; actual purge calls: {purge_called:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -55,9 +61,15 @@ async fn test_purge_after_zero_skips_purge() {
 
     let result = sweeper.run_once().await;
 
-    assert!(result.is_ok());
+    assert!(
+        result.is_ok(),
+        "run_once must return Ok when purge is disabled, actual: {result:?}"
+    );
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.is_empty());
+    assert!(
+        purge_called.is_empty(),
+        "purge_after_minutes=0 must skip purge scan; actual purge calls: {purge_called:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -70,7 +82,10 @@ async fn test_no_agents_no_error() {
 
     let result = sweeper.run_once().await;
 
-    assert!(result.is_ok());
+    assert!(
+        result.is_ok(),
+        "run_once must return Ok with no agents, actual: {result:?}"
+    );
 }
 
 // -----------------------------------------------------------------
@@ -82,8 +97,14 @@ async fn test_run_once_error_does_not_stop_loop() {
     let (_mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
 
     let result1 = sweeper.run_once().await;
-    assert!(result1.is_ok());
+    assert!(
+        result1.is_ok(),
+        "first run_once call must return Ok, actual: {result1:?}"
+    );
 
     let result2 = sweeper.run_once().await;
-    assert!(result2.is_ok());
+    assert!(
+        result2.is_ok(),
+        "repeated run_once call must return Ok, actual: {result2:?}"
+    );
 }

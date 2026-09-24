@@ -39,7 +39,10 @@ async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
         "cleanup_all_finished must receive the correct session_id"
     );
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.contains(&"purge-with-tm".into()));
+    assert!(
+        purge_called.contains(&"purge-with-tm".into()),
+        "purge must be called for purge-with-tm; actual purge calls: {purge_called:?}"
+    );
 }
 
 /// Purging session A must not invoke cleanup for session B,
@@ -80,5 +83,8 @@ async fn test_purge_and_invalidate_without_task_manager_skips_cleanup() {
         .unwrap();
 
     let purge_called = mem.purge_called.lock().unwrap();
-    assert!(purge_called.contains(&"purge-no-tm".into()));
+    assert!(
+        purge_called.contains(&"purge-no-tm".into()),
+        "purge must be called for purge-no-tm (no TaskManager); actual: {purge_called:?}"
+    );
 }
