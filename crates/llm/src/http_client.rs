@@ -99,6 +99,7 @@ mod timeout_mock {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::LLMError;
     use crate::ModelLister;
     use std::sync::Arc;
 
@@ -173,16 +174,33 @@ mod tests {
 
     #[tokio::test]
     async fn test_fetch_model_list_routes_through_trait() {
+        let mut server = mockito::Server::new_async().await;
+        let mock = server
+            .mock("GET", "/v1/models")
+            .match_header(
+                "Authorization",
+                mockito::Matcher::Regex(r"Bearer .+".to_string()),
+            )
+            .with_status(401)
+            .with_header("Content-Type", "application/json")
+            .with_body(r#"{"error":{"message":"invalid api key"}}"#)
+            .create_async()
+            .await;
+
         let provider = crate::MiniMaxProvider::with_http_client(
             "test-key".into(),
-            "http://localhost/v1".into(),
+            server.url(),
             reqwest::Client::new(),
         );
 
-        // With reqwest::Client (not MockHttpClient), a request to localhost
-        // will fail at the network level. This verifies the provider is
-        // properly constructed.
-        let err = provider.fetch_model_list("test-key").await;
-        assert!(err.is_err());
+        // The 401 mock proves the full route: provider -> HttpClient -> local
+        // mock server -> /v1/models endpoint, with the Authorization header
+        // passing the matcher, and the 401 response mapped to AuthFailed.
+        let err = provider.fetch_model_list("test-key").await.unwrap_err();
+        mock.assert_async().await;
+        assert!(
+            matches!(&err, LLMError::AuthFailed(msg) if msg.contains("401")),
+            "expected AuthFailed mentioning 401, got: {err:?}"
+        );
     }
 }
