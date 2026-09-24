@@ -369,6 +369,49 @@ async fn test_process_manager_ready_timeout() {
     let _ = manager.shutdown().await;
 }
 
+/// 子进程不发 ready 信号即退出、stderr 关闭（EOF）时，
+/// `start_with_ready_timeout` 必须立即收敛为 `ReadyTimeout`，
+/// 不等满注入窗口——锁定 `wait_for_ready` 的「EOF → `Ok(false)`
+/// 立即返回」分支快速返回语义。
+#[serial]
+#[tokio::test]
+async fn test_process_manager_ready_early_exit_eof() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let script_path = dir.path().join("exits_without_ready.sh");
+    std::fs::write(&script_path, "#!/bin/bash\nexit 0\n").unwrap();
+    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+
+    let (mut manager, _rx) = ProcessManager::new(
+        "bash".into(),
+        vec![script_path.to_str().unwrap().to_string()],
+    );
+
+    // 注入秒级窗口：EOF 快速返回耗时须明显短于该窗口（不真实长等）。
+    let injected = Duration::from_secs(4);
+    let start = std::time::Instant::now();
+    // 护栏：5s 内必须返回，防止注入失效或读循环挂死。
+    let result = tokio::time::timeout(
+        Duration::from_secs(5),
+        manager.start_with_ready_timeout(injected),
+    )
+    .await
+    .expect("start must return within the guard timeout, injection failed?");
+    let elapsed = start.elapsed();
+
+    match result {
+        Err(ProcessError::ReadyTimeout) => {} // EOF → Ok(false) → ReadyTimeout
+        Err(e) => panic!("expected ReadyTimeout, got: {e}"),
+        Ok(()) => panic!("expected ReadyTimeout, got Ok"),
+    }
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "early-exit EOF must return promptly instead of waiting out the \
+         injected window, took {elapsed:?} (injected {injected:?})"
+    );
+
+    let _ = manager.shutdown().await;
+}
+
 #[tokio::test]
 async fn test_process_manager_parse_event_exposed() {
     let cli_line = r#"{"type":"im.message.receive_v1","event_id":"ev_001"}"#;
