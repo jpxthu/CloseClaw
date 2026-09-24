@@ -2,7 +2,8 @@
 //!
 //! Verifies:
 //! - Normal path: migrating → poll detects archived → restore archived session
-//! - Timeout path: migrating → poll times out → create new session
+//! - Timeout path: migrating → poll times out →
+//!   restores migrating session (checkpoint restore, not new session)
 //! - Migrating sessions are never directly restored (must wait for archive)
 //! - Archived recovery path regression (existing behavior unbroken)
 //! - session_key used in log structured fields
@@ -187,7 +188,7 @@ impl PersistenceService for MigratingPollMock {
 // ── Normal path: archive completes within poll window ───────────────────────
 
 /// When a registry-hit session is migrating and the Sweeper completes
-/// archiving within the 5-second poll window, resolve() should restore
+/// archiving within the 30-second poll window, resolve() should restore
 /// the archived session (same session_id) rather than creating a new one.
 #[tokio::test]
 async fn test_resolve_migrating_registry_hit_archive_completes() {
