@@ -63,12 +63,12 @@ use std::time::{Duration, Instant};
 /// drop the `Mutex` only if that ever changes.
 struct BlockingKillHandle {
     /// Incremented when `kill()` starts blocking.
-    entered: Arc<AtomicUsize>,
+    entered: AtomicUsize,
     /// Incremented when `kill()` returns (0 while still blocked).
-    finished: Arc<AtomicUsize>,
+    finished: AtomicUsize,
     rx: Mutex<std::sync::mpsc::Receiver<()>>,
     /// Fires (best-effort) when `kill()` starts blocking.
-    entered_notify: Arc<tokio::sync::Notify>,
+    entered_notify: tokio::sync::Notify,
 }
 
 impl BlockingKillHandle {
@@ -77,10 +77,10 @@ impl BlockingKillHandle {
     fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let handle = Arc::new(Self {
-            entered: Arc::new(AtomicUsize::new(0)),
-            finished: Arc::new(AtomicUsize::new(0)),
+            entered: AtomicUsize::new(0),
+            finished: AtomicUsize::new(0),
             rx: Mutex::new(rx),
-            entered_notify: Arc::new(tokio::sync::Notify::new()),
+            entered_notify: tokio::sync::Notify::new(),
         });
         (handle, tx)
     }
@@ -114,13 +114,13 @@ impl KillHandle for BlockingKillHandle {
 /// `KillHandle` whose `kill()` fails — models an adapter that cannot
 /// deliver the termination request.
 struct FailingKillHandle {
-    kill_count: Arc<AtomicUsize>,
+    kill_count: AtomicUsize,
 }
 
 impl FailingKillHandle {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            kill_count: Arc::new(AtomicUsize::new(0)),
+            kill_count: AtomicUsize::new(0),
         })
     }
 }
@@ -197,7 +197,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 #[serial_test::serial]
 async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     struct BridgingKillHandle {
-        kill_count: Arc<AtomicUsize>,
+        kill_count: AtomicUsize,
     }
 
     impl KillHandle for BridgingKillHandle {
@@ -213,7 +213,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
 
     let cs = make_session("s_kill_bridge");
     let handle = Arc::new(BridgingKillHandle {
-        kill_count: Arc::new(AtomicUsize::new(0)),
+        kill_count: AtomicUsize::new(0),
     });
     cs.read()
         .await
