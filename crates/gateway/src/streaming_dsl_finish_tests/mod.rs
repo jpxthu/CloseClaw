@@ -1,8 +1,7 @@
-//! Step 1.5c tests: state transition, finish VerbosityFilter skip, edge
-//! cases, and batch success regression.
+//! Streaming DSL state & finish-phase tests: incremental DSL accumulation,
+//! finish VerbosityFilter skip, edge cases, and batch success regression.
 //!
-//! Covers the remaining test dimensions not addressed by Step 1.5a (registry +
-//! incremental DSL) and Step 1.5b (batch failure + middleware rejection):
+//! Test dimensions:
 //!
 //! - **State transition**: incremental DSL instructions accumulate in
 //!   `StreamState::dsl_instructions` and merge into the final `dsl_result`.
@@ -343,7 +342,7 @@ impl IMPlugin for FailingPlugin {
 
 pub fn make_config() -> GatewayConfig {
     GatewayConfig {
-        name: "test-15c".to_string(),
+        name: "test-dsl-finish".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 65536,
         ..Default::default()

@@ -9,7 +9,7 @@ use crate::sweeper::ArchiveSweeper;
 
 use super::sweeper_test_utils::{MemStorage, MockTaskManager};
 
-// ── Step 1.5: purge + TaskManager integration ──────────────────────
+// ── purge + TaskManager integration ────────────────────────────────
 
 /// When `purge_and_invalidate_impl` is called with a TaskManager,
 /// `cleanup_all_finished()` is invoked to remove all terminal task

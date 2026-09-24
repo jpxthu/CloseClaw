@@ -1,4 +1,4 @@
-//! Step 1.6: ActiveSessionQuery integration tests for ArchiveSweeper.
+//! ActiveSessionQuery integration tests for ArchiveSweeper.
 //!
 //! Verifies that the sweeper correctly skips archiving sessions that are
 //! actively executing work (LLM call, tool execution, etc.).

@@ -68,16 +68,16 @@ async fn test_shutdown_no_running_task_exits_immediately() {
 }
 
 // Timing constants for the grace-abort test below (virtual time),
-// one definition per concept. Invariant `task_body > guard >= grace`
+// one definition per concept. Invariant `fake_task_body > exit_guard >= grace`
 // (30 s > 20 s >= 10 s, grace = SWEEPER_GRACE_PERIOD_SECS):
-// - task_body > grace: the fake task outlives the grace period, so
+// - fake_task_body > grace: the fake task outlives the grace period, so
 //   shutdown can only exit via the abort branch;
-// - guard >= grace: the grace-bounded exit wait fits inside the
-//   guard window, i.e. `elapsed ∈ [grace, guard)` is achievable;
-// - guard < task_body: an abort regression to natural completion
-//   trips GUARD before TASK_BODY, failing `result.is_ok()` cleanly.
-const TASK_BODY: tokio::time::Duration = tokio::time::Duration::from_secs(30);
-const GUARD: tokio::time::Duration = tokio::time::Duration::from_secs(20);
+// - exit_guard >= grace: the grace-bounded exit wait fits inside the
+//   exit-guard window, i.e. `elapsed ∈ [grace, exit_guard)` is achievable;
+// - exit_guard < fake_task_body: an abort regression to natural completion
+//   trips EXIT_GUARD before FAKE_TASK_BODY, failing `result.is_ok()` cleanly.
+const FAKE_TASK_BODY: tokio::time::Duration = tokio::time::Duration::from_secs(30);
+const EXIT_GUARD: tokio::time::Duration = tokio::time::Duration::from_secs(20);
 
 struct FakeSweeper {
     storage: Arc<dyn PersistenceService>,
@@ -103,7 +103,7 @@ impl FakeSweeper {
                     let storage = Arc::clone(&self.storage);
                     let task = tokio::task::spawn(async move {
                         // Simulate a task that takes longer than grace period
-                        tokio::time::sleep(TASK_BODY).await;
+                        tokio::time::sleep(FAKE_TASK_BODY).await;
                         let _ = storage;
                     });
                     running_task = Some(task);
@@ -141,7 +141,7 @@ impl FakeSweeper {
 ///
 /// Runs on a paused tokio clock (`start_paused`): every
 /// `sleep`/`sleep_until` inside the FakeSweeper (50 ms sweep interval,
-/// `TASK_BODY` task, 10 s grace period) completes instantly in
+/// `FAKE_TASK_BODY` task, 10 s grace period) completes instantly in
 /// virtual time, so the full timing chain — task spawned → shutdown arrives →
 /// grace period expires → abort — is still genuinely executed and
 /// asserted while real wall-clock cost collapses to milliseconds.
@@ -158,22 +158,22 @@ async fn test_shutdown_grace_period_expires_aborts() {
 
     // Wait for the sweeper to start a task. Under the paused clock
     // this wait is deterministic: auto-advance fires the first 50 ms
-    // interval tick immediately, and the spawned task's TASK_BODY
+    // interval tick immediately, and the spawned task's FAKE_TASK_BODY
     // sleep is parked on the virtual clock, so once this sleep
     // completes the sweep task is guaranteed to be running.
     tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
     // Send shutdown — task will NOT finish within grace period
     let _ = tx.send(());
-    // Virtual-clock start: the exit wait must land in [grace, GUARD)
-    // — full grace consumed, exit strictly before guard expiry.
+    // Virtual-clock start: the exit wait must land in [grace, EXIT_GUARD)
+    // — full grace consumed, exit strictly before exit-guard expiry.
     let start = tokio::time::Instant::now();
-    // Guard (virtual time too): if the abort path regresses to
-    // waiting for natural completion (TASK_BODY > GUARD, so GUARD
-    // fires first) or the loop never exits, this fails the
+    // Exit guard (virtual time too): if the abort path regresses to
+    // waiting for natural completion (FAKE_TASK_BODY > EXIT_GUARD, so
+    // EXIT_GUARD fires first) or the loop never exits, this fails the
     // `result.is_ok()` assertion with a message instead of hanging
     // the test. Excluding natural task completion is established by
-    // this guard + the `is_ok()` chain, NOT by the upper bound below.
-    let result = tokio::time::timeout(GUARD, handle).await;
+    // this exit-guard + the `is_ok()` chain, NOT by the upper bound below.
+    let result = tokio::time::timeout(EXIT_GUARD, handle).await;
     let elapsed = start.elapsed();
     assert!(
         result.is_ok(),
@@ -186,16 +186,16 @@ async fn test_shutdown_grace_period_expires_aborts() {
         elapsed >= grace,
         "sweeper must wait out the full grace period before aborting, took {elapsed:?}"
     );
-    // Upper bound, shared with the timeout guard: exit strictly
-    // before GUARD — the abort fired inside the guard window,
+    // Upper bound, shared with the exit-guard timeout: exit strictly
+    // before EXIT_GUARD — the abort fired inside the exit-guard window,
     // never after it.
     assert!(
-        elapsed < GUARD,
-        "sweeper must abort before the guard expires, took {elapsed:?}"
+        elapsed < EXIT_GUARD,
+        "sweeper must abort before the exit-guard expires, took {elapsed:?}"
     );
 }
 
-// ── Step 1.5: SWEEPER_GRACE_PERIOD_SECS constant test ───────────────
+// ── SWEEPER_GRACE_PERIOD_SECS constant test ────────────────────────
 
 /// Verify SWEEPER_GRACE_PERIOD_SECS == 10 (design doc alignment).
 #[test]
