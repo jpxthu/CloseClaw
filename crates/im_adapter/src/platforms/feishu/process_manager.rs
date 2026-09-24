@@ -336,26 +336,26 @@ impl ProcessManager {
     ) -> Result<bool, ProcessError> {
         let mut reader = BufReader::new(&mut stderr);
         let mut line = String::new();
-        let deadline = tokio::time::Instant::now() + timeout;
 
-        loop {
-            let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-            if remaining.is_zero() {
-                return Ok(false);
-            }
-
-            match tokio::time::timeout(remaining, reader.read_line(&mut line)).await {
-                Ok(Ok(0)) => return Ok(false), // EOF
-                Ok(Ok(_)) => {
-                    if line.contains(READY_SIGNAL) {
-                        return Ok(true);
+        // A single outer timeout bounds the entire read loop instead of
+        // shrinking a per-read timeout on every iteration.
+        let ready = tokio::time::timeout(timeout, async {
+            loop {
+                match reader.read_line(&mut line).await {
+                    Ok(0) => return false, // EOF
+                    Ok(_) => {
+                        if line.contains(READY_SIGNAL) {
+                            return true;
+                        }
+                        line.clear();
                     }
-                    line.clear();
+                    Err(_) => return false,
                 }
-                Ok(Err(_)) => return Ok(false),
-                Err(_) => return Ok(false), // Timeout
             }
-        }
+        })
+        .await;
+
+        Ok(ready.unwrap_or(false)) // false when the total window elapses
     }
 
     /// Start the monitor task that owns the child process and manages its
