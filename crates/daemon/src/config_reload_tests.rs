@@ -89,7 +89,7 @@ pub(super) fn make_gateway() -> Arc<Gateway> {
 /// channel (initial state `false`).
 ///
 /// Encapsulates the `spawn_config_change_subscriber()` boilerplate that
-/// was repeated at 7 call sites. Returns the shutdown sender and the
+/// was repeated across call sites. Returns the shutdown sender and the
 /// subscriber [`tokio::task::JoinHandle`]: bind the sender to a named
 /// variable (e.g. `_shutdown_tx`) to keep the channel open, and keep the
 /// handle to join and assert on subscriber exit (timeout + join, never
@@ -134,7 +134,9 @@ pub(super) async fn assert_subscriber_exits(
 // spawn_config_change_subscriber tests
 // ---------------------------------------------------------------------------
 
-/// Reloaded events should be received by the subscriber without panic.
+/// After a Reloaded event flows into the subscriber, it must exit cleanly
+/// within 2s of shutdown being triggered; event completion itself is not
+/// asserted.
 #[tokio::test]
 async fn test_subscriber_handles_reloaded_event() {
     let tmp = TempDir::new().unwrap();
@@ -146,8 +148,7 @@ async fn test_subscriber_handles_reloaded_event() {
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
 
-    // Send a Reloaded event — subscriber should receive and call
-    // notify_config_changed without panic.
+    // Send a Reloaded event; delivery/completion is not asserted below.
     config_mgr.notify_change(ConfigChangeEvent::Reloaded {
         section: ConfigSection::Models,
         path: "models.json".into(),
@@ -163,7 +164,9 @@ async fn test_subscriber_handles_reloaded_event() {
     assert_subscriber_exits(subscriber, 2, "test_subscriber_handles_reloaded_event").await;
 }
 
-/// Failed events should be logged but NOT trigger a session notification.
+/// After a Failed event flows into the subscriber, it must exit cleanly
+/// within 2s of shutdown being triggered; logging/notification side
+/// effects are not asserted.
 #[tokio::test]
 async fn test_subscriber_ignores_failed_event() {
     let tmp = TempDir::new().unwrap();
@@ -174,7 +177,7 @@ async fn test_subscriber_ignores_failed_event() {
 
     tokio::task::yield_now().await;
 
-    // Send a Failed event — subscriber should log and skip notification.
+    // Send a Failed event (logging/notification side effects not asserted).
     config_mgr.notify_change(ConfigChangeEvent::Failed {
         section: ConfigSection::Channels,
         path: "channels.json".into(),
@@ -188,7 +191,9 @@ async fn test_subscriber_ignores_failed_event() {
     assert_subscriber_exits(subscriber, 2, "test_subscriber_ignores_failed_event").await;
 }
 
-/// Multiple consecutive events are all processed without panic.
+/// After multiple consecutive events flow into the subscriber, it must
+/// exit cleanly within 2s of shutdown being triggered; per-event
+/// processing completion is not asserted.
 #[tokio::test]
 async fn test_subscriber_handles_multiple_events() {
     let tmp = TempDir::new().unwrap();
@@ -587,9 +592,10 @@ fn test_parse_owner_target_empty_parts() {
     assert_eq!(result, None);
 }
 
-/// Subscriber handles Failed event when owner_display is configured.
-/// Since no IM plugin is registered, send_outbound_simplified will fail
-/// with UnknownChannel — the subscriber handles this gracefully.
+/// Failed event with owner_display configured: after the event flows in,
+/// the subscriber must exit cleanly within 2s of shutdown being triggered;
+/// the in-task UnknownChannel failure path (no IM plugin registered) is
+/// not asserted here.
 #[tokio::test]
 async fn test_subscriber_failed_event_with_owner_display() {
     let tmp = TempDir::new().unwrap();
@@ -613,15 +619,15 @@ async fn test_subscriber_failed_event_with_owner_display() {
 
     tokio::task::yield_now().await;
 
-    // Send a Failed event — subscriber will try IM notification but
-    // Gateway has no plugins registered, so it logs a warning.
+    // Send a Failed event with owner_display configured (in-task IM
+    // notification path not asserted).
     config_mgr.notify_change(ConfigChangeEvent::Failed {
         section: ConfigSection::Models,
         path: "models.json".into(),
         error: "test failure for IM notification".to_string(),
     });
 
-    // Allow the spawned task to process the event without panic.
+    // Give the spawned task a chance to run before shutdown.
     tokio::task::yield_now().await;
 
     // Trigger shutdown and assert a bounded clean exit (JoinError observed).
