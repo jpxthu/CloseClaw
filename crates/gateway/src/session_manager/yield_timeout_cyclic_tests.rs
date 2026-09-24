@@ -2,6 +2,23 @@
 //!
 //! Covers cyclic warning ratio boundaries and stop-before-hard-timeout
 //! behavior.
+//!
+//! Timing-sensitive tests here run on a paused tokio clock
+//! (`#[tokio::test(start_paused = true)]`): every `tokio::time::sleep`
+//! inside `start_yield_timeout` — the cyclic warning timer and the hard
+//! timeout timer — is registered on and fired by the virtual clock, so
+//! the full timing chain is genuinely executed while wall-clock cost
+//! collapses to milliseconds.
+//!
+//! `#[serial]` is unrelated to the virtual clock: it survives from the
+//! era of the real global section cache (its clearing helper,
+//! `clear_global_prompt_state`, is now an explicit no-op) and also
+//! serializes access to the process-wide `SHARED_CONFIG_DIR` tempdir
+//! shared by `make_test_mgr`.
+//!
+//! Note: test 17 (`test_yield_cyclic_warning_ratio_2_0_boundary`) still
+//! uses the real clock; it is slated for the same paused-clock treatment
+//! in a later batch.
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
@@ -16,7 +33,13 @@ use std::sync::Arc;
 /// When `notify_interval_ratio = 0.1`, the interval is
 /// `warning_secs * 0.1`, which may be < 1s. The implementation clamps
 /// to `max(interval, 1)` so warnings still fire at a 1-second cadence.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock: the 4s hard timeout and the
+/// 1s-cadence cyclic warning sleeps are virtual, so the full chain —
+/// first warning at T=2, one more at T=3 (two in total), hard timeout
+/// at T=4, drain completes — executes deterministically in
+/// milliseconds of wall time.
+#[tokio::test(start_paused = true)]
 #[serial]
 async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
     clear_global_prompt_state();
@@ -53,15 +76,19 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
     }
 
     // overall=4s, warning_secs=2s, ratio=0.1
-    // interval = max(2*0.1, 1) = 1s.
-    // Warnings at T=2, T=3, T=4 (loop breaks when elapsed=5 > 4).
+    // interval = max(round(2*0.1), 1) = max(0, 1) = 1s.
+    // Warnings at T=2 and T=3; after the T=3 injection elapsed=4 >= 4,
+    // so the loop breaks without a further sleep. Hard timeout at T=4.
     mgr.start_yield_timeout(&parent_id, "agent-x", 4, Some(2), Some(0.1))
         .await;
 
-    // Wait 5s: hard timeout at T=4 fires and drains.
-    // Note: the cyclic warning loop and hard timeout both fire at T=4,
-    // so the drain may or may not catch the last warning (non-
-    // deterministic). We verify the transcript instead of the queue.
+    // Under the paused clock this 5s virtual sleep auto-advances
+    // through the pending timers in order (warnings at T=2/3, hard
+    // timeout at T=4) and returns only after the hard timeout fired
+    // and drained — deterministic, ms-level wall-clock.
+    // The last warning is enqueued at T=3, before the T=4 drain, so
+    // the queue is deterministically empty afterwards; the transcript
+    // scan below acts as the routing check.
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
@@ -172,7 +199,14 @@ async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
 /// timeout — no warning is sent after `elapsed >= overall_timeout_secs`.
 /// After hard timeout fires and drains, the queue contains only
 /// warnings that were enqueued before the drain ran.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock: the 5s hard timeout and the
+/// 2s-interval cyclic warning sleeps are virtual, so the full chain —
+/// the single warning at T=3 (the loop exits right after that
+/// injection, when elapsed reaches the hard timeout), hard timeout at
+/// T=5, drain completes — executes deterministically in milliseconds
+/// of wall time.
+#[tokio::test(start_paused = true)]
 #[serial]
 async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
     clear_global_prompt_state();
@@ -209,12 +243,19 @@ async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
     }
 
     // overall=5s, warning_secs=3s, ratio=0.5
-    // interval = max(3*0.5, 1) = max(1.5, 1) = 1s.
-    // Warnings at T=3, T=4, T=5. Loop breaks when elapsed=6 > 5.
+    // interval = max(round(3*0.5), 1) = max(2, 1) = 2s.
+    // Single warning at T=3; after the injection elapsed=5 >= 5, so
+    // the loop breaks without a further sleep — no warning at or after
+    // the hard timeout. Hard timeout at T=5.
     mgr.start_yield_timeout(&parent_id, "agent-x", 5, Some(3), Some(0.5))
         .await;
 
-    // Wait 7s: hard timeout at T=5 fires and drains.
+    // Under the paused clock this 7s virtual sleep auto-advances
+    // through the pending timers in order (warning at T=3, hard
+    // timeout at T=5) and returns only after the hard timeout fired
+    // and drained — deterministic, ms-level wall-clock. The 2s margin
+    // beyond T=5 guarantees the hard-timeout callback (the only timer
+    // left by then) is fully polled before the assertions below.
     tokio::time::sleep(std::time::Duration::from_secs(7)).await;
 
     let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
