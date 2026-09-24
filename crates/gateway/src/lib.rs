@@ -102,7 +102,17 @@ mod streaming_preflight_tests;
 pub mod sweeper;
 mod sweeper_active_query_tests;
 #[cfg(test)]
-mod sweeper_tests;
+mod sweeper_archive_decision_tests;
+#[cfg(test)]
+mod sweeper_cascade_tests;
+#[cfg(test)]
+mod sweeper_purge_task_tests;
+#[cfg(test)]
+mod sweeper_run_once_tests;
+#[cfg(test)]
+mod sweeper_shutdown_tests;
+#[cfg(test)]
+mod sweeper_test_utils;
 #[cfg(test)]
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
