@@ -704,3 +704,59 @@ async fn test_graceful_escalation_interrupts_tool_running() {
         "escalation should force-stop the session successfully"
     );
 }
+
+/// Regression guard for the `install_mock_handle` helper: the mock
+/// handle must be propagated to every registered conversation session
+/// (mirroring the production resolve/spawn/channel wiring), not just
+/// installed on the manager — the session-side `graceful_stop` loop
+/// only polls its own handle. A manager-only install would leave
+/// escalation invisible to the sessions and silently regress the
+/// escalation interrupt tests above to full drain timeouts.
+#[tokio::test]
+async fn test_escalation_handle_propagated_to_sessions() {
+    let mgr = make_test_session_manager();
+    let parent_id = "parent-escalate-propagation";
+    setup_parent_with_conv(&mgr, parent_id).await;
+    let child_id = "child-escalate-propagation";
+    setup_child_with_conv(&mgr, parent_id, child_id).await;
+
+    let mock = install_mock_handle(&mgr, false).await;
+    assert!(!mock.is_forceful(), "mock should start graceful");
+
+    // Every conversation session must hold a shutdown handle, and it
+    // must start in the graceful (non-forceful) state.
+    let sessions: Vec<_> = mgr
+        .conversation_sessions
+        .read()
+        .await
+        .values()
+        .cloned()
+        .collect();
+    assert!(!sessions.is_empty(), "expected registered sessions");
+    for cs in &sessions {
+        let handle = cs
+            .read()
+            .await
+            .get_shutdown_handle()
+            .expect("conversation session must have a propagated shutdown handle");
+        assert!(
+            !handle.is_forceful(),
+            "propagated handle should start non-forceful"
+        );
+    }
+
+    // Escalating the shared signal must be observable through every
+    // session-side handle (they all point at the same mock).
+    mock.escalate_to_forceful();
+    for cs in &sessions {
+        let handle = cs
+            .read()
+            .await
+            .get_shutdown_handle()
+            .expect("conversation session must have a propagated shutdown handle");
+        assert!(
+            handle.is_forceful(),
+            "escalation must reflect through the session-side handle"
+        );
+    }
+}
