@@ -14,6 +14,7 @@
 
 use crate::error::AdapterError;
 use std::process::Stdio;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{Child, Command};
 use tokio::sync::mpsc;
@@ -26,6 +27,10 @@ const INITIAL_RESTART_DELAY_MS: u64 = 1_000;
 
 /// Maximum delay between restart attempts (milliseconds).
 const MAX_RESTART_DELAY_MS: u64 = 30_000;
+
+/// Maximum time to wait for the `[event] ready` signal after spawning
+/// (or respawning) the subprocess before treating it as failed to start.
+const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 // ---------------------------------------------------------------------------
 // Event types
@@ -269,9 +274,22 @@ impl ProcessManager {
     /// Start the subprocess and begin consuming events.
     ///
     /// Blocks until the `[event] ready` signal is received on stderr
-    /// (within `timeout`). Returns an error if the process fails to start
-    /// or the ready signal is not received.
+    /// (within [`READY_TIMEOUT`]). Returns an error if the process fails to
+    /// start or the ready signal is not received.
     pub async fn start(&mut self) -> Result<(), ProcessError> {
+        self.start_with_ready_timeout(READY_TIMEOUT).await
+    }
+
+    /// Internal variant of [`start`] with an injectable ready-wait timeout.
+    ///
+    /// Production callers go through [`start`], which applies the
+    /// [`READY_TIMEOUT`] default. Tests inject a short timeout so the
+    /// "subprocess never signals ready" path fails fast instead of waiting
+    /// out the full production timeout.
+    pub(crate) async fn start_with_ready_timeout(
+        &mut self,
+        timeout: Duration,
+    ) -> Result<(), ProcessError> {
         // Spawn the initial child process.
         let mut child = Command::new(&self.command)
             .args(&self.args)
@@ -289,7 +307,7 @@ impl ProcessManager {
 
         // Monitor stderr for ready signal.
         let stderr = child.stderr.take().expect("stderr piped");
-        let ready = Self::wait_for_ready(stderr).await?;
+        let ready = Self::wait_for_ready(stderr, timeout).await?;
         if !ready {
             return Err(ProcessError::ReadyTimeout);
         }
@@ -310,12 +328,14 @@ impl ProcessManager {
 
     /// Wait for the `[event] ready` signal on stderr.
     ///
-    /// Returns `Ok(true)` when the signal is received, `Ok(false)` on
-    /// timeout.
-    async fn wait_for_ready(mut stderr: tokio::process::ChildStderr) -> Result<bool, ProcessError> {
+    /// Returns `Ok(true)` when the signal is received within `timeout`;
+    /// `Ok(false)` on timeout, EOF, or read error.
+    async fn wait_for_ready(
+        mut stderr: tokio::process::ChildStderr,
+        timeout: Duration,
+    ) -> Result<bool, ProcessError> {
         let mut reader = BufReader::new(&mut stderr);
         let mut line = String::new();
-        let timeout = std::time::Duration::from_secs(30);
         let deadline = tokio::time::Instant::now() + timeout;
 
         loop {
@@ -438,7 +458,7 @@ impl ProcessManager {
                 let pid = new_child.id();
                 tracing::info!(pid = pid, "lark-cli subprocess restarted");
                 let stderr = new_child.stderr.take().expect("stderr piped");
-                match Self::wait_for_ready(stderr).await {
+                match Self::wait_for_ready(stderr, READY_TIMEOUT).await {
                     Ok(true) => {
                         tracing::info!("lark-cli subprocess ready after restart");
                         last_pid.store(pid.unwrap_or(0), std::sync::atomic::Ordering::SeqCst);
