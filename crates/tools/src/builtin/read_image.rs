@@ -156,38 +156,42 @@ mod tests {
 
     #[test]
     fn test_resize_image_large_resizes() {
-        // Create a 4000x3000 image
-        let img = image::RgbaImage::from_fn(4000, 3000, |_, _| image::Rgba([0, 0, 255, 255]));
+        // Create a 400x300 image; use a small max_dim to keep the test fast
+        // while exercising the same downscale logic as production MAX_IMAGE_DIM.
+        let img = image::RgbaImage::from_fn(400, 300, |_, _| image::Rgba([0, 0, 255, 255]));
         let mut buf = std::io::Cursor::new(Vec::new());
         img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
         let raw = buf.into_inner();
 
-        let result = resize_image(&raw, MAX_IMAGE_DIM).unwrap();
+        let max_dim = 200;
+        let result = resize_image(&raw, max_dim).unwrap();
         let decoded = image::load_from_memory(&result).unwrap();
         let (w, h) = decoded.dimensions();
-        assert!(w <= MAX_IMAGE_DIM);
-        assert!(h <= MAX_IMAGE_DIM);
-        // Aspect ratio: 4000/3000 = 4/3, so width should be 2000, height 1500
-        assert_eq!(w, 2000);
-        assert_eq!(h, 1500);
+        assert!(w <= max_dim);
+        assert!(h <= max_dim);
+        // Aspect ratio: 400/300 = 4/3, so width should be 200, height 150
+        assert_eq!(w, 200);
+        assert_eq!(h, 150);
     }
 
     #[test]
     fn test_resize_image_preserves_aspect_ratio() {
-        // Create a 3000x1000 image
-        let img = image::RgbaImage::from_fn(3000, 1000, |_, _| image::Rgba([0, 128, 0, 255]));
+        // Create a 900x300 image; use a small max_dim to keep the test fast
+        // while exercising the same downscale logic as production MAX_IMAGE_DIM.
+        let img = image::RgbaImage::from_fn(900, 300, |_, _| image::Rgba([0, 128, 0, 255]));
         let mut buf = std::io::Cursor::new(Vec::new());
         img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
         let raw = buf.into_inner();
 
-        let result = resize_image(&raw, MAX_IMAGE_DIM).unwrap();
+        let max_dim = 600;
+        let result = resize_image(&raw, max_dim).unwrap();
         let decoded = image::load_from_memory(&result).unwrap();
         let (w, h) = decoded.dimensions();
-        // 3000/1000 = 3:1, so width=2000, height=666 (rounded)
-        assert!(w <= MAX_IMAGE_DIM);
-        assert!(h <= MAX_IMAGE_DIM);
+        // 900/300 = 3:1, so width=600, height=200
+        assert!(w <= max_dim);
+        assert!(h <= max_dim);
         // Check aspect ratio is approximately preserved (within 1px rounding)
-        let original_ratio = 3000.0 / 1000.0;
+        let original_ratio = 900.0 / 300.0;
         let result_ratio = w as f64 / h as f64;
         assert!(
             (original_ratio - result_ratio).abs() < 0.01,
