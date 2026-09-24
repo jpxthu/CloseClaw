@@ -471,6 +471,11 @@ fn test_auto_bg_timeout_constants() {
 async fn test_excluded_command_exceeds_max_execution_force_killed() {
     let tmp = TempDir::new().unwrap();
     // Mock with 1-second max execution limit.
+    // NOTE: `max_secs: 1` and `"sleep 3"` below are a tuned pair: the
+    // force-kill fires at ~1s, while the orphaned sleep keeps the pipe
+    // write end open until ~3s — that 2s gap doubles as the kill-timer
+    // delay margin. Do not shorten the sleep further, or a late timer
+    // makes this test flake as Completed instead of Failed.
     let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 1 });
 
     let (outcome, _) = execute_foreground_command(
