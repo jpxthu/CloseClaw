@@ -99,8 +99,7 @@ mod timeout_mock {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::LLMError;
-    use crate::ModelLister;
+    use crate::{LLMError, ModelLister};
     use std::sync::Arc;
 
     // --- ReqwestHttpClient construction tests ---
