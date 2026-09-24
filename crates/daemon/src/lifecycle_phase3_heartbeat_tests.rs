@@ -329,12 +329,27 @@ async fn test_wait_with_heartbeat_timeout_aborts_task() {
 // Grace period boundary tests
 // =====================================================================
 
-/// Task completing exactly at the grace boundary (9.9s) is NOT aborted.
+/// Task completing at 9.9s (within the 10s grace) is NOT aborted.
 /// This tests the boundary: within grace → clean exit.
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the task registers a 9.9s timer
+/// while the grace window registers a 10s one, so auto-advance jumps to
+/// the nearest expiry (the task at 9.9s). The full timing chain — task
+/// finishes within grace → select takes the completion branch, grace
+/// timer never fires — is genuinely executed end to end, while real
+/// wall-clock cost drops to milliseconds (precisely as in commit
+/// 5682a75b / PR #3211). The exact elapsed == 9.9s assertion proves the
+/// task waited out its own duration and completed naturally, consuming
+/// less than the full grace (a stronger guarantee than the old
+/// "elapsed < 10s" wall-clock bound, which was a jitter compromise).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_grace_period_within_boundary_no_abort() {
-    let mut task = tokio::task::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(9900)).await;
+    // Single source of truth for the task duration: both the task body's
+    // sleep and the elapsed assertion below reuse this binding (Duration
+    // is Copy, so `async move` copies it into the task).
+    let task_duration = std::time::Duration::from_millis(9900);
+    let mut task = tokio::task::spawn(async move {
+        tokio::time::sleep(task_duration).await;
     });
 
     let grace = std::time::Duration::from_secs(10);
@@ -350,10 +365,11 @@ async fn test_grace_period_within_boundary_no_abort() {
     }
 
     let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(10),
-        "task should complete within grace, took {:?}",
-        elapsed
+    // Virtual clock: exact equality — completed after its own duration, not the grace window.
+    assert_eq!(
+        elapsed, task_duration,
+        "expected task to complete after its own {:?} duration, got {:?}",
+        task_duration, elapsed
     );
 }
 
