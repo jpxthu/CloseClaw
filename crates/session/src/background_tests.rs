@@ -1,6 +1,8 @@
 use super::background::PlanArchiveTask;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 fn create_workspaces_root(dir: &Path) {
     fs::create_dir_all(dir.join("workspaces/agent1/user1/plans")).unwrap();
@@ -18,6 +20,15 @@ fn create_plan_file(dir: &Path, agent: &str, user: &str, name: &str, status: &st
     };
     let content = format!("# Plan\n\n## Tasks\n\n{step_marker}\n");
     fs::write(&path, content).unwrap();
+}
+
+/// Drop guard for a hung task future: flips the shared flag when the
+/// task future is dropped, proving the abort branch actually ran.
+struct AbortGuard(Arc<AtomicBool>);
+impl Drop for AbortGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 #[tokio::test]
@@ -286,18 +297,6 @@ async fn test_plan_archive_grace_period_no_abort_when_completed() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_plan_archive_grace_period_abort_on_timeout() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    // Drop guard for the hanging task: flips `aborted` when the task
-    // future is dropped, proving the abort branch actually ran.
-    struct AbortGuard(Arc<AtomicBool>);
-    impl Drop for AbortGuard {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
     let hanging_task = tokio::task::spawn(async move {
@@ -395,18 +394,6 @@ async fn test_plan_archive_signal_grace_clean_exit() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_plan_archive_hung_task_aborted_after_grace() {
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
-    // Drop guard for the hung task: flips `aborted` when the task
-    // future is dropped, proving `abort()` actually took effect.
-    struct AbortGuard(Arc<AtomicBool>);
-    impl Drop for AbortGuard {
-        fn drop(&mut self) {
-            self.0.store(true, Ordering::SeqCst);
-        }
-    }
-
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
     // Spawn a task that never exits (simulates a hung sweep)
