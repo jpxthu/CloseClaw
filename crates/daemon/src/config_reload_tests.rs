@@ -85,26 +85,20 @@ pub(super) fn make_gateway() -> Arc<Gateway> {
     ))
 }
 
-/// Helper: create a shutdown watch channel (initial state `false`) for
-/// `spawn_config_change_subscriber` calls. Bind the returned sender to a
-/// named variable (e.g. `_shutdown_tx`) to keep the channel open.
-fn make_shutdown_channel() -> (watch::Sender<bool>, watch::Receiver<bool>) {
-    watch::channel(false)
-}
-
-/// Helper: spawn a subscriber test task with a fresh shutdown channel.
+/// Helper: spawn a subscriber test task with a fresh shutdown watch
+/// channel (initial state `false`).
 ///
-/// Encapsulates the `make_shutdown_channel()` +
-/// `spawn_config_change_subscriber()` boilerplate that was repeated at 7
-/// call sites. Returns the shutdown sender and the subscriber
-/// [`tokio::task::JoinHandle`]: bind the sender to a named variable (e.g.
-/// `_shutdown_tx`) to keep the channel open, and keep the handle to join
-/// and assert on subscriber exit (timeout + join, never busy-yield).
+/// Encapsulates the `spawn_config_change_subscriber()` boilerplate that
+/// was repeated at 7 call sites. Returns the shutdown sender and the
+/// subscriber [`tokio::task::JoinHandle`]: bind the sender to a named
+/// variable (e.g. `_shutdown_tx`) to keep the channel open, and keep the
+/// handle to join and assert on subscriber exit (timeout + join, never
+/// busy-yield).
 fn spawn_test_subscriber(
     config_mgr: &Arc<ConfigManager>,
     session_mgr: Arc<SessionManager>,
 ) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
-    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let subscriber = spawn_config_change_subscriber(
         Arc::clone(config_mgr),
         session_mgr,
