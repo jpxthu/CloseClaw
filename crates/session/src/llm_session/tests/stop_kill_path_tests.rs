@@ -28,7 +28,7 @@
 
 use super::super::KillHandle;
 use super::capture_logs_async;
-use super::kill_doubles::{make_session, MockKillHandle};
+use super::kill_doubles::{make_session, register_kill_handle, MockKillHandle};
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -37,8 +37,9 @@ use std::time::{Duration, Instant};
 
 // ── test doubles ─────────────────────────────────────────────────────────
 
-// The fast/counting double and `make_session` are shared with
-// `stop_tests.rs` via `kill_doubles.rs` (issue #3161 Step 1.4); the
+// The fast/counting double, `make_session`, and the one-line
+// `register_kill_handle` helper are shared with `stop_tests.rs` via
+// `kill_doubles.rs` (issue #3161 Step 1.4; issue #3186 Step 1.1); the
 // doubles declared below are specific to this file's kill paths.
 
 /// `KillHandle` whose `kill()` blocks until the test releases it —
@@ -140,7 +141,8 @@ impl KillHandle for FailingKillHandle {
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-// (`make_session` is shared via `kill_doubles.rs`.)
+// (`make_session` and `register_kill_handle` are shared via
+// `kill_doubles.rs`.)
 
 // ── normal path: fast kill returns without paying the budget ────────────
 
@@ -152,9 +154,7 @@ impl KillHandle for FailingKillHandle {
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
     let handle = Arc::new(MockKillHandle::new());
-    cs.read()
-        .await
-        .register_tool_handle("call-fast", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "call-fast", handle.clone()).await;
 
     let start = Instant::now();
     cs.read()
@@ -217,9 +217,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     let handle = Arc::new(BridgingKillHandle {
         kill_count: AtomicUsize::new(0),
     });
-    cs.read()
-        .await
-        .register_tool_handle("bridge", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "bridge", handle.clone()).await;
 
     let start = Instant::now();
     cs.read()
@@ -270,9 +268,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let loose_bound = Duration::from_secs(4);
 
     let (handle, release) = BlockingKillHandle::new();
-    cs.read()
-        .await
-        .register_tool_handle("slow", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "slow", handle.clone()).await;
 
     tokio::time::timeout(
         loose_bound,
@@ -328,9 +324,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
     let handle = FailingKillHandle::new();
-    cs.read()
-        .await
-        .register_tool_handle("call-err", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "call-err", handle.clone()).await;
 
     let ((stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -379,9 +373,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
     let (handle, release) = BlockingKillHandle::new();
-    cs.read()
-        .await
-        .register_tool_handle("zero-budget", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "zero-budget", handle.clone()).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -454,10 +446,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         }
     });
 
-    cs.read().await.register_tool_handle(
-        "sufficient-budget",
-        Arc::clone(&handle) as Arc<dyn KillHandle>,
-    );
+    register_kill_handle(&cs, "sufficient-budget", handle.clone()).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -530,9 +519,7 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 
     let cs = make_session("s_kill_panic");
     let handle = Arc::new(PanickingKillHandle);
-    cs.read()
-        .await
-        .register_tool_handle("panic-tool", Arc::clone(&handle) as Arc<dyn KillHandle>);
+    register_kill_handle(&cs, "panic-tool", handle.clone()).await;
 
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
         cs.read()
