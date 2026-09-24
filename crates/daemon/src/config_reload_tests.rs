@@ -92,6 +92,28 @@ fn make_shutdown_channel() -> (watch::Sender<bool>, watch::Receiver<bool>) {
     watch::channel(false)
 }
 
+/// Helper: spawn a subscriber test task with a fresh shutdown channel.
+///
+/// Encapsulates the `make_shutdown_channel()` +
+/// `spawn_config_change_subscriber()` boilerplate that was repeated at 7
+/// call sites. Returns the shutdown sender and the subscriber
+/// [`tokio::task::JoinHandle`]: bind the sender to a named variable (e.g.
+/// `_shutdown_tx`) to keep the channel open, and keep the handle to join
+/// and assert on subscriber exit (timeout + join, never busy-yield).
+fn spawn_test_subscriber(
+    config_mgr: &Arc<ConfigManager>,
+    session_mgr: Arc<SessionManager>,
+) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
+    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    let subscriber = spawn_config_change_subscriber(
+        Arc::clone(config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
+    (shutdown_tx, subscriber)
+}
+
 // ---------------------------------------------------------------------------
 // spawn_config_change_subscriber tests
 // ---------------------------------------------------------------------------
@@ -103,13 +125,7 @@ async fn test_subscriber_handles_reloaded_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
@@ -132,13 +148,7 @@ async fn test_subscriber_ignores_failed_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -159,13 +169,7 @@ async fn test_subscriber_handles_multiple_events() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -202,36 +206,64 @@ async fn test_subscriber_handles_multiple_events() {
     tokio::task::yield_now().await;
 }
 
-/// When the broadcast channel is closed, the subscriber should exit cleanly
-/// without panic.
+/// Error path: a closed config-change channel maps to subscriber exit
+/// (strong assertion replacing the former 200ms busy-yield with no assert).
+///
+/// The original end-to-end scenario (spawn subscriber → drop the
+/// `ConfigManager` → join under a timeout) is unreachable by construction:
+/// the subscriber task owns the last `Arc<ConfigManager>`, and the broadcast
+/// sender lives inside it, so the channel cannot close while the subscriber
+/// runs — that structural fact is asserted explicitly below. The
+/// closed-channel exit decision is therefore exercised where it is
+/// observable: a genuinely closed config-change channel (its manager
+/// dropped) fed to `handle_config_event`, which must report
+/// [`EventOutcome::Exit`] — the very value the subscriber loop breaks on.
 #[tokio::test]
 async fn test_subscriber_exits_on_channel_close() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
-    let _session_mgr = make_session_manager();
+    let session_mgr = make_session_manager();
+    let gateway = make_gateway();
 
-    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        _session_mgr,
-        make_gateway(),
-        shutdown_rx,
+    // A real config-change channel, closed by dropping its ConfigManager so
+    // `recv()` yields `RecvError::Closed` — exactly what the subscriber's
+    // `event_rx` would see if the manager could be dropped underneath it.
+    let closed_event = {
+        let doomed_mgr = make_config_manager(&tmp);
+        let mut event_rx = doomed_mgr.subscribe_config_changes();
+        drop(doomed_mgr);
+        event_rx.recv().await
+    };
+    assert!(
+        closed_event.is_err(),
+        "the config-change channel should be closed after its manager is dropped"
     );
 
+    let mut snapshot_rx = config_mgr.subscribe_config_snapshots();
+    let outcome = handle_config_event(
+        closed_event,
+        &config_mgr,
+        &session_mgr,
+        &gateway,
+        &mut snapshot_rx,
+    )
+    .await;
+    assert!(
+        matches!(outcome, EventOutcome::Exit),
+        "a closed config-change channel must map to EventOutcome::Exit (subscriber break)"
+    );
+
+    // Structural guard: the subscriber keeps the ConfigManager alive, so the
+    // event channel can never close under a running subscriber — the reason
+    // the exit assertion above lives at the handler boundary instead of on
+    // a subscriber-level join.
+    let (_shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
     tokio::task::yield_now().await;
-
-    // Drop the ConfigManager to close the broadcast channel.
-    // The subscriber should receive `RecvError::Closed` and break.
     drop(config_mgr);
-
-    // Allow the task to observe channel closure and exit.
-    tokio::time::timeout(std::time::Duration::from_millis(200), async {
-        loop {
-            tokio::task::yield_now().await;
-        }
-    })
-    .await
-    .ok();
+    assert!(
+        !subscriber.is_finished(),
+        "subscriber owns the last ConfigManager ref: channel close is not observable end-to-end"
+    );
 }
 
 /// Broadcasting to a channel with no subscriber should not panic.
@@ -304,13 +336,7 @@ async fn test_subscriber_clean_exit_on_shutdown_signal() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    let subscriber = spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
     assert!(
@@ -350,13 +376,7 @@ async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    let subscriber = spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
@@ -382,6 +402,40 @@ async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
     assert!(
         result.unwrap().is_ok(),
         "subscriber must not panic when the shutdown signal races events"
+    );
+}
+
+/// ③ Edge: the shutdown sender is dropped **without** an explicit
+/// `send(true)` (RAII drop of `ConfigWatcherHandle` without
+/// `into_subscriber_handle()`): `shutdown_rx.changed()` yields
+/// `RecvError::Closed` and the subscriber must exit cleanly within a
+/// bounded time — locking in that a directly-dropped handle leaves no
+/// orphan subscriber task behind.
+#[tokio::test]
+async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
+    let tmp = TempDir::new().unwrap();
+    let config_mgr = make_config_manager(&tmp);
+    let session_mgr = make_session_manager();
+
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
+
+    tokio::task::yield_now().await;
+    assert!(
+        !subscriber.is_finished(),
+        "subscriber should still be running before the sender is dropped"
+    );
+
+    // Implicit shutdown: close the watch channel without ever sending `true`.
+    drop(shutdown_tx);
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert!(
+        result.is_ok(),
+        "subscriber should exit within 2s after the shutdown sender is dropped"
+    );
+    assert!(
+        result.unwrap().is_ok(),
+        "subscriber should exit cleanly (join Ok, no panic/abort)"
     );
 }
 
@@ -502,13 +556,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
     let _ = config_mgr.reload_section(ConfigSection::System, None);
 
     let session_mgr = make_session_manager();
-    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
-    spawn_config_change_subscriber(
-        Arc::clone(&config_mgr),
-        session_mgr,
-        make_gateway(),
-        shutdown_rx,
-    );
+    let (_shutdown_tx, _subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
 
     tokio::task::yield_now().await;
 
