@@ -470,11 +470,11 @@ fn test_auto_bg_timeout_constants() {
 #[tokio::test]
 async fn test_excluded_command_exceeds_max_execution_force_killed() {
     let tmp = TempDir::new().unwrap();
-    // Mock with 2-second max execution limit.
-    let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 2 });
+    // Mock with 1-second max execution limit.
+    let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 1 });
 
     let (outcome, _) = execute_foreground_command(
-        "sleep 10",
+        "sleep 3",
         tmp.path().to_str().unwrap(),
         None, // No agent timeout — whitelist path
         &bg,
