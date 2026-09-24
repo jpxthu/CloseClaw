@@ -64,3 +64,5 @@ closeclaw-tasks = { path = "../tasks" }
 [dev-dependencies]
 libc = "0.2"
 serial_test = "3.4"
+# Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
+tokio = { version = "=1.35.0", features = ["test-util"] }

@@ -414,9 +414,16 @@ async fn test_phase3_panicked_task_returns_err() {
 
 /// Verify that phase_3_background_stop uses a 10-second join timeout.
 /// This test spawns a hung task and verifies it is abandoned after
-/// approximately 10 seconds — confirming the timeout matches the
+/// exactly 10 seconds — confirming the timeout matches the
 /// design doc requirement ("最长 10 秒").
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the hung task parks in
+/// `std::future::pending` (no timer registered), so auto-advance only
+/// drives the `timeout(PHASE3_STOP_TOTAL_BUDGET, ...)` timer. The full
+/// timing chain — hung task → 10s join timeout fires → task abandoned —
+/// is still genuinely executed end to end, while real wall-clock cost
+/// drops to milliseconds (precisely as in commit 2de47d08 / PR #3202).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_phase3_join_timeout_is_10_seconds() {
     // Spawn a task that never exits
     let hang_handle = tokio::spawn(async {
@@ -429,11 +436,11 @@ async fn test_phase3_join_timeout_is_10_seconds() {
 
     // Timeout should fire — the hung task is abandoned
     assert!(result.is_err(), "10s join should timeout for hung task");
-    // Elapsed should be close to 10s (within 1s tolerance)
-    assert!(
-        elapsed >= std::time::Duration::from_secs(9)
-            && elapsed <= std::time::Duration::from_secs(11),
-        "elapsed should be ~10s, got {:?}",
+    // Virtual clock: elapsed must equal the full budget exactly,
+    // proving we waited out the whole 10s instead of returning early.
+    assert_eq!(
+        elapsed, PHASE3_STOP_TOTAL_BUDGET,
+        "expected full 10s join budget to elapse before hung task is abandoned, got {:?}",
         elapsed
     );
 }

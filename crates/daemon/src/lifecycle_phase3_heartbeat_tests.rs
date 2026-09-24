@@ -357,9 +357,19 @@ async fn test_grace_period_within_boundary_no_abort() {
     );
 }
 
-/// Task exceeding the grace boundary (10.1s) IS aborted.
+/// Task well past the grace boundary (20s task vs 10s grace) IS aborted.
 /// This tests the boundary: past grace → abort.
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the slow task registers a 20s timer
+/// while the grace window registers a 10s one, so auto-advance jumps to
+/// the nearest expiry (grace). The full timing chain — slow task crosses
+/// the grace boundary → grace timeout fires → task aborted — is still
+/// genuinely executed end to end, while real wall-clock cost drops to
+/// milliseconds (precisely as in commit 2de47d08 / PR #3202). The 20s
+/// timer never fires: `abort()` drops the future at its suspension point,
+/// confirmed deterministically by the cancelled JoinError from awaiting
+/// the JoinHandle (no virtual time involved in cancellation processing).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_grace_period_past_boundary_aborts() {
     let mut task = tokio::task::spawn(async {
         tokio::time::sleep(std::time::Duration::from_secs(20)).await;
@@ -378,11 +388,28 @@ async fn test_grace_period_past_boundary_aborts() {
     }
 
     let elapsed = start.elapsed();
-    assert!(
-        elapsed >= std::time::Duration::from_secs(9),
-        "should wait ~10s before aborting, got {:?}",
-        elapsed
+    // Virtual clock: elapsed must equal the full grace period exactly,
+    // proving we waited out the whole grace before aborting instead of
+    // aborting early (the old >= 9s bound was a wall-clock jitter
+    // compromise; under the paused clock there is no jitter).
+    assert_eq!(
+        elapsed, grace,
+        "expected to wait the full {:?} grace period before aborting, got {:?}",
+        grace, elapsed
     );
+
+    // Deterministic abort confirmation: awaiting the aborted task's
+    // JoinHandle resolves once the runtime has dropped the future at its
+    // suspension point — guaranteed to be a cancellation error, so this
+    // proves the abort genuinely took effect rather than assuming it.
+    match task.await {
+        Ok(()) => panic!("aborted task should not complete successfully"),
+        Err(e) => assert!(
+            e.is_cancelled(),
+            "aborted task should be cancelled, got {:?}",
+            e
+        ),
+    }
 }
 
 /// Task completing at 5s (well within 10s grace) exits cleanly.
