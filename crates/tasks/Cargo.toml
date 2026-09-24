@@ -18,3 +18,5 @@ closeclaw-debug-log = { path = "../debug_log" }
 [dev-dependencies]
 tempfile = "3.10"
 serde_json = "1.0"
+# Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
+tokio = { version = "=1.35.0", features = ["test-util"] }

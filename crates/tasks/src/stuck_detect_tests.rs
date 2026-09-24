@@ -77,6 +77,15 @@ fn test_has_interactive_prompt_embedded_in_line() {
 
 // ---------------------------------------------------------------------------
 // stuck detection flow — triggers with short threshold
+//
+// The test below runs on a paused tokio clock
+// (`#[tokio::test(start_paused = true)]`): `monitor_loop` registers every
+// time source — `tokio::time::interval` ticks, `tokio::time::Instant`
+// staleness checks and the tail `tokio::time::sleep` — on the virtual
+// clock, so auto-advance fires the full chain (interval tick → staleness
+// timeout → tail match → emit_stuck_alert) and the 5s sleep collapses to
+// milliseconds of wall time. The behavioral verification chain is
+// unchanged.
 // ---------------------------------------------------------------------------
 
 /// Insert a Running task handle into the task map.
@@ -101,7 +110,11 @@ async fn create_test_task(tasks: &TaskMap, task_id: &str, output_path: &std::pat
     );
 }
 
-#[tokio::test]
+/// Stuck alert fires on a paused tokio clock: `monitor_loop`'s interval
+/// ticks and `Instant` staleness checks plus this test's tail sleep are
+/// all registered on the virtual clock, so the 5s wait collapses to
+/// milliseconds of wall time (see the section comment above).
+#[tokio::test(start_paused = true)]
 async fn test_stuck_detection_triggers() {
     let tmp = TempDir::new().unwrap();
     let output_path = tmp.path().join("output");
@@ -131,7 +144,8 @@ async fn test_stuck_detection_triggers() {
         config,
     );
 
-    // Wait: 1s interval + 1s timeout + margin for task scheduling on busy systems
+    // Auto-advance fires: 1s interval tick → staleness elapsed ≥ 1s →
+    // tail match → emit_stuck_alert → monitor returns. Virtual sleep only.
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     let notifs = notifications.lock().await;
@@ -254,12 +268,20 @@ async fn test_stuck_detection_skips_non_running_task() {
 
 // ---------------------------------------------------------------------------
 // stuck alert suggestion field
+//
+// Also paused-clock: same auto-advance chain as the trigger test above.
 // ---------------------------------------------------------------------------
 
 /// Verify that `emit_stuck_alert` sets the suggestion field on the
 /// generated [`CompletionNotification`], and that the suggestion text
 /// contains the expected keywords "终止任务" and "管道输入".
-#[tokio::test]
+///
+/// Runs on a paused tokio clock: `monitor_loop`'s interval ticks,
+/// `Instant` staleness check and the tail sleep all live on the virtual
+/// clock, so auto-advance drives poll → staleness timeout →
+/// `emit_stuck_alert` and the 5s sleep returns in milliseconds of wall
+/// time.
+#[tokio::test(start_paused = true)]
 async fn test_stuck_alert_notification_suggestion() {
     let tmp = TempDir::new().unwrap();
     let output_path = tmp.path().join("output");
@@ -288,6 +310,8 @@ async fn test_stuck_alert_notification_suggestion() {
         config,
     );
 
+    // Auto-advance fires the virtual timer chain; exactly one alert is
+    // expected because monitor_loop returns after emitting.
     tokio::time::sleep(Duration::from_secs(5)).await;
 
     let notifs = notifications.lock().await;
