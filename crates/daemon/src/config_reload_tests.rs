@@ -84,6 +84,16 @@ fn make_gateway() -> Arc<Gateway> {
     ))
 }
 
+/// Helper: create a shutdown watch channel (initial state `false`) for
+/// `spawn_config_change_subscriber` calls. Bind the returned sender to a
+/// named variable (e.g. `_shutdown_tx`) to keep the channel open.
+fn make_shutdown_channel() -> (
+    tokio::sync::watch::Sender<bool>,
+    tokio::sync::watch::Receiver<bool>,
+) {
+    tokio::sync::watch::channel(false)
+}
+
 // ---------------------------------------------------------------------------
 // spawn_config_change_subscriber tests
 // ---------------------------------------------------------------------------
@@ -95,7 +105,13 @@ async fn test_subscriber_handles_reloaded_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     // Give the spawned task a moment to start.
     tokio::task::yield_now().await;
@@ -118,7 +134,13 @@ async fn test_subscriber_ignores_failed_event() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -139,7 +161,13 @@ async fn test_subscriber_handles_multiple_events() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -184,7 +212,13 @@ async fn test_subscriber_exits_on_channel_close() {
     let config_mgr = make_config_manager(&tmp);
     let _session_mgr = make_session_manager();
 
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), _session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        _session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -255,6 +289,100 @@ async fn test_subscriber_handles_lagged_events() {
     assert!(
         got_lagged,
         "expected at least one Lagged error with buffer capacity 1 and 10 sends"
+    );
+}
+
+// ===========================================================================
+// Step 1.2 — subscriber shutdown signal behavior tests (issue #3176 B16)
+// ===========================================================================
+
+/// ① Normal path: after `shutdown_tx.send(true)`, the subscriber exits
+/// cleanly within a bounded time (join returns `Ok(Ok(()))`) instead of
+/// blocking forever on `recv()` and relying on the Phase 3 timeout-abort
+/// fallback.
+#[tokio::test]
+async fn test_subscriber_clean_exit_on_shutdown_signal() {
+    let tmp = TempDir::new().unwrap();
+    let config_mgr = make_config_manager(&tmp);
+    let session_mgr = make_session_manager();
+
+    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    let subscriber = spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
+
+    tokio::task::yield_now().await;
+    assert!(
+        !subscriber.is_finished(),
+        "subscriber should still be running before the shutdown signal"
+    );
+
+    shutdown_tx
+        .send(true)
+        .expect("shutdown sender should still be open");
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert!(
+        result.is_ok(),
+        "subscriber should exit within 2s after the shutdown signal"
+    );
+    assert!(
+        result.unwrap().is_ok(),
+        "subscriber should exit cleanly (join Ok, no panic/abort)"
+    );
+}
+
+/// ② Edge: the shutdown signal racing with config events. Events and the
+/// shutdown send are issued back-to-back without intervening yields, so the
+/// subscriber may observe either `select!` branch first — the event path
+/// must not panic and the subscriber must still exit cleanly.
+///
+/// Note: the Reloaded event is published via `update_section_cache` (the real
+/// write path) so the matching snapshot is buffered before the event; a bare
+/// `notify_change(Reloaded)` would leave the subscriber blocked inside the
+/// event branch on `snapshot_rx.recv()` where the shutdown signal is not
+/// observed until the branch completes.
+#[tokio::test]
+async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
+    let tmp = TempDir::new().unwrap();
+    let config_mgr = make_config_manager(&tmp);
+    let session_mgr = make_session_manager();
+
+    let (shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    let subscriber = spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
+
+    tokio::task::yield_now().await;
+
+    // Concurrent arrival: snapshot+Reloaded event (real write path), a Failed
+    // event, then the shutdown signal — all without yields in between.
+    config_mgr.update_section_cache(
+        ConfigSection::Models,
+        tmp.path().join("models.json"),
+        serde_json::json!({"version": "2.0"}),
+    );
+    config_mgr.notify_change(ConfigChangeEvent::Failed {
+        section: ConfigSection::Channels,
+        path: "channels.json".into(),
+        error: "concurrent failure".to_string(),
+    });
+    let _ = shutdown_tx.send(true);
+
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert!(
+        result.is_ok(),
+        "subscriber should exit within 2s despite events racing the shutdown signal"
+    );
+    assert!(
+        result.unwrap().is_ok(),
+        "subscriber must not panic when the shutdown signal races events"
     );
 }
 
@@ -375,7 +503,13 @@ async fn test_subscriber_failed_event_with_owner_display() {
     let _ = config_mgr.reload_section(ConfigSection::System, None);
 
     let session_mgr = make_session_manager();
-    spawn_config_change_subscriber(Arc::clone(&config_mgr), session_mgr, make_gateway());
+    let (_shutdown_tx, shutdown_rx) = make_shutdown_channel();
+    spawn_config_change_subscriber(
+        Arc::clone(&config_mgr),
+        session_mgr,
+        make_gateway(),
+        shutdown_rx,
+    );
 
     tokio::task::yield_now().await;
 
@@ -698,19 +832,20 @@ async fn test_config_watcher_handle_holds_both_handles() {
     )
     .expect("init_config_hot_reload should succeed");
 
-    // into_subscriber_handle() should return the subscriber JoinHandle
+    // into_subscriber_handle() returns the subscriber JoinHandle and signals
+    // the subscriber to exit (shutdown watch send, issue #3176 B16).
     let subscriber = handle.into_subscriber_handle();
-    // Subscriber should be joinable
-    let result = tokio::time::timeout(std::time::Duration::from_millis(200), subscriber).await;
-    // Task may still be running (timeout) or already exited cleanly — both valid.
-    // A panicked task would return Ok(Err(join_error)) where join_error.is_panic().
-    match &result {
-        Ok(Ok(())) => {} // clean exit
-        Ok(Err(e)) => {
-            assert!(!e.is_panic(), "subscriber should not have panicked: {e}");
-        }
-        Err(_) => {} // still running — timeout, acceptable
-    }
+    // The subscriber must now exit cleanly within the timeout — no more
+    // timeout-abort reliance.
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert!(
+        result.is_ok(),
+        "subscriber should exit within 2s after into_subscriber_handle() sends the shutdown signal"
+    );
+    assert!(
+        result.unwrap().is_ok(),
+        "subscriber should exit cleanly without panic"
+    );
 }
 
 /// `into_subscriber_handle()` drops the filesystem watcher and returns
@@ -748,17 +883,19 @@ async fn test_config_watcher_handle_into_subscriber_handle() {
     )
     .expect("init_config_hot_reload should succeed");
 
+    // into_subscriber_handle() drops the watcher and sends the shutdown
+    // signal in one step — the subscriber must exit cleanly within the
+    // timeout (issue #3176 B16: no more timeout-abort reliance in Phase 3).
     let subscriber = handle.into_subscriber_handle();
-    let result = tokio::time::timeout(std::time::Duration::from_millis(200), subscriber).await;
-    // Task may still be running (timeout) or already exited cleanly — both valid.
-    // A panicked task would return Ok(Err(join_error)) where join_error.is_panic().
-    match &result {
-        Ok(Ok(())) => {} // clean exit
-        Ok(Err(e)) => {
-            assert!(!e.is_panic(), "subscriber should not have panicked: {e}");
-        }
-        Err(_) => {} // still running — timeout, acceptable
-    }
+    let result = tokio::time::timeout(std::time::Duration::from_secs(2), subscriber).await;
+    assert!(
+        result.is_ok(),
+        "subscriber should exit within 2s after into_subscriber_handle() sends the shutdown signal"
+    );
+    assert!(
+        result.unwrap().is_ok(),
+        "subscriber should exit cleanly without panic"
+    );
 }
 
 /// Phase 3: ConfigWatcher subscriber is included in the 5-task background

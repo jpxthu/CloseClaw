@@ -16,10 +16,13 @@ use tracing::{info, warn};
 
 /// RAII handle for the config hot-reload system.
 ///
-/// Dropping this stops the underlying filesystem watcher. The subscriber
-/// handle can be used (e.g. in Phase 3) to verify the task has exited.
+/// Dropping this stops the underlying filesystem watcher and signals the
+/// subscriber task to shut down (via a `tokio::sync::watch` channel, same
+/// pattern as `DreamingScheduler`). The subscriber handle can be used
+/// (e.g. in Phase 3) to verify the task has exited.
 pub(crate) struct ConfigWatcherHandle {
     _watcher: WatcherHandle,
+    shutdown_tx: tokio::sync::watch::Sender<bool>,
     _subscriber_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -27,14 +30,21 @@ impl ConfigWatcherHandle {
     /// Consume self and return the subscriber JoinHandle.
     ///
     /// The filesystem watcher is dropped here (RAII stop), and the
-    /// subscriber handle is returned so the caller can join it later
-    /// (e.g. in Phase 3 `wait_all_bg_tasks`).
+    /// subscriber is signaled to exit before its handle is returned so
+    /// the caller can join it later (e.g. in Phase 3
+    /// `wait_all_bg_tasks`). A send failure means the subscriber task
+    /// is already gone — safe to ignore, mirroring the sweeper
+    /// shutdown-signal pattern.
     pub(crate) fn into_subscriber_handle(self) -> tokio::task::JoinHandle<()> {
         let ConfigWatcherHandle {
             _watcher,
+            shutdown_tx,
             _subscriber_handle,
         } = self;
         drop(_watcher);
+        // Signal the subscriber to exit (fire-and-forget; a send error
+        // means the receiver is already dropped, i.e. the task is gone).
+        let _ = shutdown_tx.send(true);
         _subscriber_handle
     }
 }
@@ -48,67 +58,87 @@ fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
     gateway: Arc<Gateway>,
+    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     let mut event_rx = config_manager.subscribe_config_changes();
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
         loop {
-            let event = event_rx.recv().await;
-            match event {
-                Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
-                    info!(
-                        section = %section,
-                        "config change event received, notifying sessions"
-                    );
-                    let snapshot = match snapshot_rx.recv().await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!(
-                                section = %section,
-                                error = %e,
-                                "failed to receive config snapshot, skipping session notification"
-                            );
-                            continue;
-                        }
-                    };
-                    session_manager
-                        .notify_config_changed(section, snapshot)
-                        .await;
-                }
-                Ok(ConfigChangeEvent::Failed { section, error, .. }) => {
-                    warn!(
-                        section = %section,
-                        error = %error,
-                        "config change event failed, skipping session notification"
-                    );
-                    let target = parse_owner_target(&config_manager);
-                    if let Some((channel, chat_id)) = target {
-                        let msg = format!(
-                            "⚠️ Config reload failed for section `{}`: {}",
-                            section, error
+            tokio::select! {
+                result = shutdown_rx.changed() => {
+                    // Shutdown requested (send(true)) or the sender side was
+                    // dropped (RAII drop of ConfigWatcherHandle without
+                    // into_subscriber_handle) — either way, exit cleanly.
+                    if result.is_err() || *shutdown_rx.borrow() {
+                        info!(
+                            "config change subscriber received shutdown signal, exiting"
                         );
-                        if let Err(e) = gateway
-                            .send_outbound_simplified(&chat_id, &channel, &msg)
-                            .await
-                        {
-                            warn!(
-                                error = %e,
-                                "failed to send config reload failure notification to owner"
-                            );
-                        }
-                    } else {
-                        warn!(
-                            section = %section,
-                            "owner_display not configured — skipping IM notification"
-                        );
+                        break;
                     }
                 }
-                Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
-                    warn!(missed = n, "config change subscriber lagged, missed events");
-                }
-                Err(tokio::sync::broadcast::error::RecvError::Closed) => {
-                    info!("config change broadcast channel closed, subscriber exiting");
-                    break;
+                event = event_rx.recv() => {
+                    match event {
+                        Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
+                            info!(
+                                section = %section,
+                                "config change event received, notifying sessions"
+                            );
+                            let snapshot = match snapshot_rx.recv().await {
+                                Ok(s) => s,
+                                Err(e) => {
+                                    warn!(
+                                        section = %section,
+                                        error = %e,
+                                        "failed to receive config snapshot, skipping notification"
+                                    );
+                                    continue;
+                                }
+                            };
+                            session_manager
+                                .notify_config_changed(section, snapshot)
+                                .await;
+                        }
+                        Ok(ConfigChangeEvent::Failed { section, error, .. }) => {
+                            warn!(
+                                section = %section,
+                                error = %error,
+                                "config change event failed, skipping session notification"
+                            );
+                            let target = parse_owner_target(&config_manager);
+                            if let Some((channel, chat_id)) = target {
+                                let msg = format!(
+                                    "⚠️ Config reload failed for section `{}`: {}",
+                                    section, error
+                                );
+                                if let Err(e) = gateway
+                                    .send_outbound_simplified(&chat_id, &channel, &msg)
+                                    .await
+                                {
+                                    warn!(
+                                        error = %e,
+                                        "failed to send config reload failure notification to owner"
+                                    );
+                                }
+                            } else {
+                                warn!(
+                                    section = %section,
+                                    "owner_display not configured — skipping IM notification"
+                                );
+                            }
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+                            warn!(
+                                missed = n,
+                                "config change subscriber lagged, missed events"
+                            );
+                        }
+                        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+                            info!(
+                                "config change broadcast channel closed, subscriber exiting"
+                            );
+                            break;
+                        }
+                    }
                 }
             }
         }
@@ -160,13 +190,18 @@ pub(crate) fn init_config_hot_reload(
         .watch(config_dir)
         .context("failed to start config hot-reload watcher")?;
 
+    // Shutdown signal for the subscriber task: watcher drop (Phase 3) →
+    // send(true) → subscriber clean exit. Same pattern as
+    // DreamingScheduler's tokio::sync::watch shutdown channel.
+    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
     let subscriber_handle =
-        spawn_config_change_subscriber(config_manager, session_manager, gateway);
+        spawn_config_change_subscriber(config_manager, session_manager, gateway, shutdown_rx);
 
     info!("config hot-reload initialized, delegating to ConfigReloadManager");
 
     Ok(ConfigWatcherHandle {
         _watcher: watcher,
+        shutdown_tx,
         _subscriber_handle: subscriber_handle,
     })
 }
