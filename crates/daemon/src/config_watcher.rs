@@ -12,6 +12,7 @@ use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 use closeclaw_gateway::{Gateway, SessionManager};
 use std::sync::Arc;
+use tokio::sync::watch;
 use tracing::{info, warn};
 
 /// RAII handle for the config hot-reload system.
@@ -22,7 +23,7 @@ use tracing::{info, warn};
 /// (e.g. in Phase 3) to verify the task has exited.
 pub(crate) struct ConfigWatcherHandle {
     _watcher: WatcherHandle,
-    shutdown_tx: tokio::sync::watch::Sender<bool>,
+    shutdown_tx: watch::Sender<bool>,
     _subscriber_handle: tokio::task::JoinHandle<()>,
 }
 
@@ -62,7 +63,7 @@ fn spawn_config_change_subscriber(
     config_manager: Arc<ConfigManager>,
     session_manager: Arc<SessionManager>,
     gateway: Arc<Gateway>,
-    mut shutdown_rx: tokio::sync::watch::Receiver<bool>,
+    mut shutdown_rx: watch::Receiver<bool>,
 ) -> tokio::task::JoinHandle<()> {
     let mut event_rx = config_manager.subscribe_config_changes();
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
@@ -202,8 +203,8 @@ async fn handle_config_event(
 /// send-then-drop sequence reports the explicit signal. A `false` update
 /// keeps the loop running.
 fn shutdown_exit_requested(
-    result: Result<(), tokio::sync::watch::error::RecvError>,
-    shutdown_rx: &tokio::sync::watch::Receiver<bool>,
+    result: Result<(), watch::error::RecvError>,
+    shutdown_rx: &watch::Receiver<bool>,
 ) -> bool {
     if *shutdown_rx.borrow() {
         info!("config change subscriber received shutdown signal, exiting");
@@ -264,7 +265,7 @@ pub(crate) fn init_config_hot_reload(
     // Shutdown signal for the subscriber task: watcher drop (Phase 3) →
     // send(true) → subscriber clean exit. Same pattern as
     // DreamingScheduler's tokio::sync::watch shutdown channel.
-    let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(false);
+    let (shutdown_tx, shutdown_rx) = watch::channel(false);
     let subscriber_handle =
         spawn_config_change_subscriber(config_manager, session_manager, gateway, shutdown_rx);
 

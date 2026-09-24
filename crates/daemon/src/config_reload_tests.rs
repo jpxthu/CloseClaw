@@ -15,6 +15,7 @@ use closeclaw_tasks::{
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
+use tokio::sync::watch;
 
 // ── Mock TaskManager ────────────────────────────────────────────────────────
 
@@ -87,11 +88,8 @@ fn make_gateway() -> Arc<Gateway> {
 /// Helper: create a shutdown watch channel (initial state `false`) for
 /// `spawn_config_change_subscriber` calls. Bind the returned sender to a
 /// named variable (e.g. `_shutdown_tx`) to keep the channel open.
-fn make_shutdown_channel() -> (
-    tokio::sync::watch::Sender<bool>,
-    tokio::sync::watch::Receiver<bool>,
-) {
-    tokio::sync::watch::channel(false)
+fn make_shutdown_channel() -> (watch::Sender<bool>, watch::Receiver<bool>) {
+    watch::channel(false)
 }
 
 // ---------------------------------------------------------------------------
@@ -292,9 +290,9 @@ async fn test_subscriber_handles_lagged_events() {
     );
 }
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // Step 1.2 — subscriber shutdown signal behavior tests (issue #3176 B16)
-// ===========================================================================
+// ---------------------------------------------------------------------------
 
 /// ① Normal path: after `shutdown_tx.send(true)`, the subscriber exits
 /// cleanly within a bounded time (join returns `Ok(Ok(()))`) instead of
@@ -533,9 +531,9 @@ async fn test_subscriber_failed_event_with_owner_display() {
     .ok();
 }
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // Step 1.2 — Hot-reload error propagation tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
 
 /// Shared test harness owning all dependencies required to build a
 /// [`RegistryContext`]. Eliminates duplicated setup across tests.
@@ -794,9 +792,9 @@ async fn test_populate_registries_success_with_valid_setup() {
     );
 }
 
-// ===========================================================================
+// ---------------------------------------------------------------------------
 // Step 1.7 — ConfigWatcherHandle tests
-// ===========================================================================
+// ---------------------------------------------------------------------------
 
 /// ConfigWatcherHandle holds both the watcher and subscriber handles.
 /// Verified via init_config_hot_reload returning Ok with valid config dir.
