@@ -1,14 +1,13 @@
 //! ArchiveSweeper shutdown tests: signal handling, grace-period abort, and
 //! the SWEEPER_GRACE_PERIOD_SECS constant.
 
-use closeclaw_config::SessionConfigProvider;
 use closeclaw_session::persistence::PersistenceService;
 use std::sync::Arc;
 use tokio::sync::watch;
 
-use crate::sweeper::{ArchiveSweeper, SWEEPER_GRACE_PERIOD_SECS};
+use crate::sweeper::SWEEPER_GRACE_PERIOD_SECS;
 
-use super::sweeper_test_utils::{MemStorage, MockConfig};
+use super::sweeper_test_utils::{sweeper_with_agents, MemStorage};
 
 // -----------------------------------------------------------------
 // Test: shutdown signal causes run() to exit
@@ -16,13 +15,9 @@ use super::sweeper_test_utils::{MemStorage, MockConfig};
 
 #[tokio::test]
 async fn test_shutdown_exits_loop() {
-    let mem = Arc::new(MemStorage::default());
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::with_agents(vec![]));
+    let (_mem, sweeper) = sweeper_with_agents(vec![]);
 
     let (tx, rx) = watch::channel(());
-
-    let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
 
     let handle = tokio::spawn(async move {
         sweeper.run(rx).await;
@@ -50,11 +45,8 @@ async fn test_shutdown_exits_loop() {
 /// Shutdown signal with no running task → exits immediately.
 #[tokio::test]
 async fn test_shutdown_no_running_task_exits_immediately() {
-    let mem = Arc::new(MemStorage::default());
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
-    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::with_agents(vec![]));
+    let (_mem, sweeper) = sweeper_with_agents(vec![]);
     let (tx, rx) = watch::channel(());
-    let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config));
     let handle = tokio::spawn(async move {
         sweeper.run(rx).await;
     });

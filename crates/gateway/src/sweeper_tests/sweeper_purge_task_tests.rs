@@ -2,7 +2,6 @@
 //! purge, with session-level isolation.
 
 use closeclaw_session::persistence::PersistenceService;
-use closeclaw_tasks::TaskManager;
 use std::sync::Arc;
 
 use crate::sweeper::ArchiveSweeper;
@@ -20,23 +19,22 @@ async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
     mem.add_expired_session("purge-with-tm".into());
     let storage: Arc<dyn PersistenceService> = mem.clone() as _;
 
-    let (tm, called_flag, sid_arg) = MockTaskManager::new();
-    let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+    let tm = Arc::new(MockTaskManager::new());
 
     ArchiveSweeper::purge_and_invalidate_impl(
         Arc::clone(&storage),
         "purge-with-tm".into(),
-        Some(tm_ref.as_ref()),
+        Some(tm.as_ref()),
     )
     .await
     .unwrap();
 
     assert!(
-        *called_flag.lock().unwrap(),
+        tm.was_called(),
         "cleanup_all_finished must be called when task_manager is provided"
     );
     assert_eq!(
-        sid_arg.lock().unwrap().as_deref(),
+        tm.last_session_id().as_deref(),
         Some("purge-with-tm"),
         "cleanup_all_finished must receive the correct session_id"
     );
@@ -52,19 +50,18 @@ async fn test_purge_session_a_does_not_affect_session_b() {
     mem.add_expired_session("session-a".into());
     let storage: Arc<dyn PersistenceService> = mem.clone() as _;
 
-    let (tm, _, sid_arg) = MockTaskManager::new();
-    let tm_ref: Arc<dyn TaskManager> = Arc::new(tm);
+    let tm = Arc::new(MockTaskManager::new());
 
     ArchiveSweeper::purge_and_invalidate_impl(
         Arc::clone(&storage),
         "session-a".into(),
-        Some(tm_ref.as_ref()),
+        Some(tm.as_ref()),
     )
     .await
     .unwrap();
 
     assert_eq!(
-        sid_arg.lock().unwrap().as_deref(),
+        tm.last_session_id().as_deref(),
         Some("session-a"),
         "cleanup_all_finished must receive session-a, not session-b"
     );

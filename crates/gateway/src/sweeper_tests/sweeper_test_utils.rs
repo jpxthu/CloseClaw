@@ -12,7 +12,7 @@ use closeclaw_session::persistence::{
 use closeclaw_tasks::{BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager};
 use std::sync::{Arc, Mutex};
 
-use crate::sweeper::ActiveSessionQuery;
+use crate::sweeper::{ActiveSessionQuery, ArchiveSweeper};
 
 /// In-memory storage suitable for tests.
 #[derive(Debug, Default)]
@@ -195,6 +195,30 @@ impl SessionConfigProvider for MockConfig {
     }
 }
 
+// ── sweeper construction helpers ──────────────────────────────────
+
+/// Build an [`ArchiveSweeper`] over shared fixtures: fresh in-memory
+/// storage plus a [`MockConfig`] seeded with `agents` and the default
+/// session config. Returns the storage so cases can assert on the
+/// recorded `archive_called` / `purge_called` calls.
+pub fn sweeper_with_agents(agents: Vec<String>) -> (Arc<MemStorage>, ArchiveSweeper) {
+    sweeper_with_session_config(agents, PerAgentSessionConfig::default())
+}
+
+/// Like [`sweeper_with_agents`], but with an explicit session config —
+/// e.g. a non-zero `purge_after_minutes` to exercise the purge path.
+pub fn sweeper_with_session_config(
+    agents: Vec<String>,
+    session_config: PerAgentSessionConfig,
+) -> (Arc<MemStorage>, ArchiveSweeper) {
+    let mem = Arc::new(MemStorage::default());
+    let config = Arc::new(MockConfig::with_agents(agents));
+    *config.session_config.lock().unwrap() = session_config;
+    let storage: Arc<dyn PersistenceService> = Arc::clone(&mem) as _;
+    let sweeper = ArchiveSweeper::new(storage, config);
+    (mem, sweeper)
+}
+
 /// Mock ActiveSessionQuery that returns all-false (no active dimensions).
 pub struct MockActiveQuery;
 
@@ -237,24 +261,31 @@ impl ActiveSessionQuery for MockActiveQueryWithDimensions {
     }
 }
 
-/// Mock TaskManager that tracks `cleanup_all_finished` calls.
+/// Mock TaskManager that records `cleanup_all_finished` calls.
+///
+/// Callers hold the mock directly (e.g. `Arc::new(MockTaskManager::new())`)
+/// and read the recorded state back via [`Self::was_called`] /
+/// [`Self::last_session_id`].
+#[derive(Default)]
 pub struct MockTaskManager {
-    cleanup_all_finished_called: Arc<Mutex<bool>>,
-    session_id_arg: Arc<Mutex<Option<String>>>,
+    cleanup_all_finished_called: Mutex<bool>,
+    last_session_id: Mutex<Option<String>>,
 }
 
 impl MockTaskManager {
-    pub fn new() -> (Self, Arc<Mutex<bool>>, Arc<Mutex<Option<String>>>) {
-        let called = Arc::new(Mutex::new(false));
-        let sid = Arc::new(Mutex::new(None));
-        (
-            Self {
-                cleanup_all_finished_called: Arc::clone(&called),
-                session_id_arg: Arc::clone(&sid),
-            },
-            called,
-            sid,
-        )
+    /// Create a mock with no recorded calls yet.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Whether `cleanup_all_finished` has been invoked.
+    pub fn was_called(&self) -> bool {
+        *self.cleanup_all_finished_called.lock().unwrap()
+    }
+
+    /// `session_id` passed to the most recent `cleanup_all_finished` call.
+    pub fn last_session_id(&self) -> Option<String> {
+        self.last_session_id.lock().unwrap().clone()
     }
 }
 
@@ -292,7 +323,7 @@ impl TaskManager for MockTaskManager {
     }
     async fn cleanup_all_finished(&self, session_id: &str) {
         *self.cleanup_all_finished_called.lock().unwrap() = true;
-        *self.session_id_arg.lock().unwrap() = Some(session_id.to_owned());
+        *self.last_session_id.lock().unwrap() = Some(session_id.to_owned());
     }
     fn max_execution_secs(&self) -> u64 {
         3600
