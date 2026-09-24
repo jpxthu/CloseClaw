@@ -89,7 +89,7 @@ fn spawn_config_change_subscriber(
                                     warn!(
                                         section = %section,
                                         error = %e,
-                                        "failed to receive config snapshot, skipping session notification"
+                                        "failed to receive config snapshot, skipping notification"
                                     );
                                     continue;
                                 }
