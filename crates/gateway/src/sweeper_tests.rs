@@ -523,10 +523,15 @@ mod tests {
     }
 
     /// Shutdown signal with running task that exceeds grace period → abort.
-    #[tokio::test]
+    ///
+    /// Runs on a paused tokio clock (`start_paused`): every
+    /// `sleep`/`sleep_until` inside the FakeSweeper (50 ms sweep interval,
+    /// 30 s task body, 10 s grace period) completes instantly in virtual
+    /// time, so the full timing chain — task spawned → shutdown arrives →
+    /// grace period expires → abort — is still genuinely executed and
+    /// asserted while real wall-clock cost collapses to milliseconds.
+    #[tokio::test(start_paused = true)]
     async fn test_shutdown_grace_period_expires_aborts() {
-        use tokio::sync::watch;
-
         struct FakeSweeper {
             storage: Arc<dyn PersistenceService>,
         }
@@ -589,23 +594,38 @@ mod tests {
             sweeper.run(rx).await;
         });
 
-        // Wait for the sweeper to start a task
+        // Wait for the sweeper to start a task. Under the paused clock
+        // this wait is deterministic: auto-advance fires the first 50 ms
+        // interval tick immediately, and the spawned task's 30 s body is
+        // parked on the virtual clock, so once this sleep completes the
+        // sweep task is guaranteed to be running.
         tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
         // Send shutdown — task will NOT finish within grace period
         let _ = tx.send(());
+        // Virtual-clock start: the exit wait must consume the full grace
+        // period and strictly less than the task's 30 s body.
         let start = tokio::time::Instant::now();
+        // Guard (virtual time too): if the abort path regresses and the
+        // loop keeps sweeping, time runs past 20 s and this fails with a
+        // message instead of hanging the test.
         let result = tokio::time::timeout(std::time::Duration::from_secs(20), handle).await;
         let elapsed = start.elapsed();
         assert!(
             result.is_ok(),
             "sweeper should exit after grace period abort"
         );
-        // The sweeper should exit within ~grace_period (10s) + overhead, not
-        // the full 30s of the task.
+        // Lower bound: the sweeper must actually wait out the entire
+        // grace period before aborting (never vacuously early).
+        let grace = tokio::time::Duration::from_secs(SWEEPER_GRACE_PERIOD_SECS);
         assert!(
-            elapsed < std::time::Duration::from_secs(14),
-            "sweeper should exit within grace period, took {:?}",
-            elapsed
+            elapsed >= grace,
+            "sweeper must wait out the full grace period before aborting, took {elapsed:?}"
+        );
+        // Upper bound: well below the task's 30 s body — proves the exit
+        // came from the abort branch, not from natural task completion.
+        assert!(
+            elapsed < std::time::Duration::from_secs(30),
+            "sweeper must abort the task instead of waiting for natural completion, took {elapsed:?}"
         );
     }
 
