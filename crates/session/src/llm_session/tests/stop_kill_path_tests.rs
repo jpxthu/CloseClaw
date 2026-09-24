@@ -52,8 +52,11 @@ use std::time::{Duration, Instant};
 /// A `tokio::sync::Notify` (best-effort) fires as soon as `kill()`
 /// starts: tests that need the handshake await it (directly or
 /// from a spawned releaser) via the `wait_kill_started` method —
-/// only 2 of this file's 7 tests consume it; the others never wait
-/// on the notify, and no async test body hops to the blocking pool.
+/// only some of this file's tests consume it: slow/sufficient
+/// take the notified branch while
+/// `test_wait_kill_started_returns_when_notify_never_fires` pins
+/// the timeout branch; the others never wait on the notify, and
+/// no async test body hops to the blocking pool.
 ///
 /// The receiver is kept behind a `Mutex` because
 /// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
@@ -149,7 +152,6 @@ impl KillHandle for FailingKillHandle {
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
     let handle = Arc::new(MockKillHandle::new());
-    let kill_count = handle.kill_count();
     cs.read()
         .await
         .register_tool_handle("call-fast", Arc::clone(&handle) as Arc<dyn KillHandle>);
@@ -171,7 +173,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
         "tool_handles map must be cleared after stop"
     );
     assert_eq!(
-        kill_count.load(Ordering::SeqCst),
+        handle.kill_count().load(Ordering::SeqCst),
         1,
         "kill() must run exactly once"
     );
@@ -572,7 +574,7 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 // ── handshake: wait_kill_started's timeout branch ─────────────────────────────
 
 /// Pins the **timeout branch** of the methodized handshake (issue
-/// #3181 Step 1.1): with `kill()` never invoked the notify never
+/// #3181 Step 1.4): with `kill()` never invoked the notify never
 /// fires, yet `wait_kill_started()` must still return — after
 /// genuinely waiting out its ≤1 s bound (never vacuously early, so
 /// real callers keep a working handshake) instead of hanging the
