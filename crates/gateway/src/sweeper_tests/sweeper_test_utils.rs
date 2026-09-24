@@ -10,9 +10,23 @@ use closeclaw_session::persistence::{
     AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
 };
 use closeclaw_tasks::{BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager};
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use crate::sweeper::{ActiveSessionQuery, ArchiveSweeper};
+
+/// Fault to inject into [`MemStorage`]'s `list_idle_sessions_for_agent`
+/// calls so tests can drive the sweeper's real error/panic handling
+/// branches without touching production code.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StorageFault {
+    /// Return `PersistenceError::Io` — swallowed by `sweep_agent_role`'s
+    /// `if let Ok(...)`, the sweep loop must continue.
+    Err,
+    /// Panic inside the storage call — caught by `run_once`'s
+    /// `catch_unwind`, which turns it into `Ok(())`.
+    Panic,
+}
 
 /// In-memory storage suitable for tests.
 #[derive(Debug, Default)]
@@ -28,6 +42,10 @@ pub struct MemStorage {
     expired_sessions: Mutex<Vec<String>>,
     /// Session IDs deleted via `delete_checkpoint`.
     deleted: Mutex<Vec<String>>,
+    /// Total `list_idle_sessions_for_agent` calls observed (fault probe).
+    list_idle_calls: AtomicUsize,
+    /// Pending injected faults for `list_idle_sessions_for_agent`.
+    list_idle_fault: Mutex<Option<(StorageFault, usize)>>,
 }
 
 impl MemStorage {
@@ -50,6 +68,33 @@ impl MemStorage {
     /// Get IDs of sessions deleted via `delete_checkpoint`.
     pub fn deleted_ids(&self) -> Vec<String> {
         self.deleted.lock().unwrap().clone()
+    }
+
+    /// Arm `count` faults on the next `list_idle_sessions_for_agent`
+    /// calls: each armed call either returns `Err` or panics (see
+    /// [`StorageFault`]), letting tests execute the production error
+    /// branches for real.
+    pub fn inject_list_idle_fault(&self, fault: StorageFault, count: usize) {
+        *self.list_idle_fault.lock().unwrap() = Some((fault, count));
+    }
+
+    /// Number of `list_idle_sessions_for_agent` calls so far — proves the
+    /// injected faults actually executed (and how far the sweep got).
+    pub fn list_idle_calls(&self) -> usize {
+        self.list_idle_calls.load(Ordering::SeqCst)
+    }
+
+    /// Pop the next pending fault, if any. The fault mutex guard is
+    /// released before the caller panics, so it is never poisoned.
+    fn take_list_idle_fault(&self) -> Option<StorageFault> {
+        let mut guard = self.list_idle_fault.lock().unwrap();
+        let (fault, remaining) = (*guard)?;
+        if remaining <= 1 {
+            *guard = None;
+        } else {
+            *guard = Some((fault, remaining - 1));
+        }
+        Some(fault)
     }
 }
 
@@ -118,7 +163,16 @@ impl PersistenceService for MemStorage {
         _role: AgentRole,
         _idle_minutes: i64,
     ) -> Result<Vec<String>, PersistenceError> {
-        Ok(self.idle_sessions.lock().unwrap().clone())
+        self.list_idle_calls.fetch_add(1, Ordering::SeqCst);
+        match self.take_list_idle_fault() {
+            Some(StorageFault::Err) => Err(PersistenceError::Io(std::io::Error::other(
+                "injected list_idle failure (sweeper error-path test)",
+            ))),
+            Some(StorageFault::Panic) => {
+                panic!("injected list_idle panic (sweeper catch_unwind test)")
+            }
+            None => Ok(self.idle_sessions.lock().unwrap().clone()),
+        }
     }
 
     async fn list_expired_archived_sessions_for_agent(

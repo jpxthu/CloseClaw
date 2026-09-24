@@ -3,7 +3,7 @@
 use closeclaw_config::session::PerAgentSessionConfig;
 use closeclaw_session::persistence::SessionCheckpoint;
 
-use super::sweeper_test_utils::{sweeper_with_agents, sweeper_with_session_config};
+use super::sweeper_test_utils::{sweeper_with_agents, sweeper_with_session_config, StorageFault};
 
 // -----------------------------------------------------------------
 // Test: run_once calls archive for idle sessions
@@ -89,22 +89,100 @@ async fn test_no_agents_no_error() {
 }
 
 // -----------------------------------------------------------------
-// Test: run_once error does not stop loop (panic is caught)
+// Test: injected storage Err is swallowed, sweep loop keeps going
 // -----------------------------------------------------------------
 
 #[tokio::test]
-async fn test_run_once_error_does_not_stop_loop() {
-    let (_mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
+async fn test_run_once_storage_err_swallowed_loop_continues() {
+    let (mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
+    mem.add_idle_session("session-1".into());
+    mem.add_checkpoint(SessionCheckpoint::new("session-1".into()));
+    // Fail both role iterations (MainAgent + SubAgent) of agent-x.
+    mem.inject_list_idle_fault(StorageFault::Err, 2);
 
-    let result1 = sweeper.run_once().await;
+    let result = sweeper.run_once().await;
     assert!(
-        result1.is_ok(),
-        "first run_once call must return Ok, actual: {result1:?}"
+        result.is_ok(),
+        "run_once must swallow the injected storage Err and return Ok, actual: {result:?}"
     );
+    assert_eq!(
+        mem.list_idle_calls(),
+        2,
+        "sweep must continue to the next role after a storage Err (2 list_idle calls expected)"
+    );
+    {
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            archive_called.is_empty(),
+            "no session must be archived while list_idle errors; actual archive calls: {archive_called:?}"
+        );
+    }
 
-    let result2 = sweeper.run_once().await;
+    // Fault budget exhausted: the following run_once must still run both
+    // role iterations and archive — the earlier errors must neither stop
+    // the loop nor pollute state.
+    let retry = sweeper.run_once().await;
     assert!(
-        result2.is_ok(),
-        "repeated run_once call must return Ok, actual: {result2:?}"
+        retry.is_ok(),
+        "run_once after the injected errors must return Ok, actual: {retry:?}"
+    );
+    assert_eq!(
+        mem.list_idle_calls(),
+        4,
+        "recovered run_once must sweep both roles again (4 list_idle calls total)"
+    );
+    let archive_called = mem.archive_called.lock().unwrap();
+    assert!(
+        archive_called.contains(&"session-1".into()),
+        "recovered run_once must archive session-1; actual archive calls: {archive_called:?}"
+    );
+}
+
+// -----------------------------------------------------------------
+// Test: run_once catches storage panic (loop not stopped)
+// -----------------------------------------------------------------
+
+#[tokio::test]
+async fn test_run_once_storage_panic_is_caught() {
+    let (mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
+    mem.add_idle_session("session-1".into());
+    mem.add_checkpoint(SessionCheckpoint::new("session-1".into()));
+    mem.inject_list_idle_fault(StorageFault::Panic, 1);
+
+    let result = sweeper.run_once().await;
+    assert!(
+        result.is_ok(),
+        "run_once must catch the injected storage panic (catch_unwind) and return Ok, actual: {result:?}"
+    );
+    assert_eq!(
+        mem.list_idle_calls(),
+        1,
+        "the injected panic must actually fire on the first list_idle call and abort this sweep"
+    );
+    {
+        let archive_called = mem.archive_called.lock().unwrap();
+        assert!(
+            archive_called.is_empty(),
+            "panicked sweep must not archive anything; actual archive calls: {archive_called:?}"
+        );
+    }
+
+    // Fault budget exhausted: repeated run_once must keep working and
+    // archive normally — a caught panic must not stop the loop or
+    // pollute state.
+    let retry = sweeper.run_once().await;
+    assert!(
+        retry.is_ok(),
+        "run_once after the caught panic must return Ok, actual: {retry:?}"
+    );
+    assert_eq!(
+        mem.list_idle_calls(),
+        3,
+        "post-panic run_once must sweep both roles (3 list_idle calls total: 1 panicked + 2 healthy)"
+    );
+    let archive_called = mem.archive_called.lock().unwrap();
+    assert!(
+        archive_called.contains(&"session-1".into()),
+        "post-panic run_once must archive session-1; actual archive calls: {archive_called:?}"
     );
 }
