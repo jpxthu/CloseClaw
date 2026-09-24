@@ -51,9 +51,12 @@ use std::time::{Duration, Instant};
 ///
 /// A `tokio::sync::Notify` (best-effort) fires as soon as `kill()`
 /// starts: tests that need the handshake await it (directly or
-/// from a spawned releaser) via `wait_kill_started` — only 2 of
-/// this file's 7 tests consume it; the others never wait on the
-/// notify, and no async test body hops to the blocking pool.
+/// from a spawned releaser) via the `wait_kill_started` method —
+/// only some of this file's tests consume it: slow/sufficient
+/// take the notified branch while
+/// `test_wait_kill_started_returns_when_notify_never_fires` pins
+/// the timeout branch; the others never wait on the notify, and
+/// no async test body hops to the blocking pool.
 ///
 /// The receiver is kept behind a `Mutex` because
 /// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
@@ -63,12 +66,12 @@ use std::time::{Duration, Instant};
 /// drop the `Mutex` only if that ever changes.
 struct BlockingKillHandle {
     /// Incremented when `kill()` starts blocking.
-    entered: Arc<AtomicUsize>,
+    entered: AtomicUsize,
     /// Incremented when `kill()` returns (0 while still blocked).
-    finished: Arc<AtomicUsize>,
+    finished: AtomicUsize,
     rx: Mutex<std::sync::mpsc::Receiver<()>>,
     /// Fires (best-effort) when `kill()` starts blocking.
-    entered_notify: Arc<tokio::sync::Notify>,
+    entered_notify: tokio::sync::Notify,
 }
 
 impl BlockingKillHandle {
@@ -77,12 +80,22 @@ impl BlockingKillHandle {
     fn new() -> (Arc<Self>, std::sync::mpsc::Sender<()>) {
         let (tx, rx) = std::sync::mpsc::channel();
         let handle = Arc::new(Self {
-            entered: Arc::new(AtomicUsize::new(0)),
-            finished: Arc::new(AtomicUsize::new(0)),
+            entered: AtomicUsize::new(0),
+            finished: AtomicUsize::new(0),
             rx: Mutex::new(rx),
-            entered_notify: Arc::new(tokio::sync::Notify::new()),
+            entered_notify: tokio::sync::Notify::new(),
         });
         (handle, tx)
+    }
+
+    /// Best-effort "kill started" handshake: wait up to 1 s for the
+    /// notify `kill()` fires when it starts blocking, then proceed
+    /// either way. A timing handshake, not a contract — on timeout the
+    /// caller continues without it. Single source for the wait's ≤1 s
+    /// upper bound and its best-effort reading; the wait stays async,
+    /// so no test body hops to the blocking pool.
+    async fn wait_kill_started(&self) {
+        let _ = tokio::time::timeout(Duration::from_secs(1), self.entered_notify.notified()).await;
     }
 }
 
@@ -104,13 +117,13 @@ impl KillHandle for BlockingKillHandle {
 /// `KillHandle` whose `kill()` fails — models an adapter that cannot
 /// deliver the termination request.
 struct FailingKillHandle {
-    kill_count: Arc<AtomicUsize>,
+    kill_count: AtomicUsize,
 }
 
 impl FailingKillHandle {
     fn new() -> Arc<Self> {
         Arc::new(Self {
-            kill_count: Arc::new(AtomicUsize::new(0)),
+            kill_count: AtomicUsize::new(0),
         })
     }
 }
@@ -129,16 +142,6 @@ impl KillHandle for FailingKillHandle {
 
 // (`make_session` is shared via `kill_doubles.rs`.)
 
-/// Best-effort "kill started" handshake: wait up to 1 s for the
-/// notify `kill()` fires when it starts blocking, then proceed
-/// either way. A timing handshake, not a contract — on timeout the
-/// test continues without it. Single source for the wait's ≤1 s
-/// upper bound and its best-effort reading; the wait stays async,
-/// so no test body hops to the blocking pool.
-async fn wait_kill_started(notify: &tokio::sync::Notify) {
-    let _ = tokio::time::timeout(Duration::from_secs(1), notify.notified()).await;
-}
-
 // ── normal path: fast kill returns without paying the budget ────────────
 
 /// A fast `kill()` must not make stop wait out the kill budget
@@ -149,10 +152,9 @@ async fn wait_kill_started(notify: &tokio::sync::Notify) {
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
     let handle = Arc::new(MockKillHandle::new());
-    let kill_count = handle.kill_count();
     cs.read()
         .await
-        .register_tool_handle("call-fast", handle as Arc<dyn KillHandle>);
+        .register_tool_handle("call-fast", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     let start = Instant::now();
     cs.read()
@@ -171,7 +173,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
         "tool_handles map must be cleared after stop"
     );
     assert_eq!(
-        kill_count.load(Ordering::SeqCst),
+        handle.kill_count().load(Ordering::SeqCst),
         1,
         "kill() must run exactly once"
     );
@@ -197,7 +199,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 #[serial_test::serial]
 async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     struct BridgingKillHandle {
-        kill_count: Arc<AtomicUsize>,
+        kill_count: AtomicUsize,
     }
 
     impl KillHandle for BridgingKillHandle {
@@ -213,12 +215,11 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
 
     let cs = make_session("s_kill_bridge");
     let handle = Arc::new(BridgingKillHandle {
-        kill_count: Arc::new(AtomicUsize::new(0)),
+        kill_count: AtomicUsize::new(0),
     });
-    let kill_count = Arc::clone(&handle.kill_count);
     cs.read()
         .await
-        .register_tool_handle("bridge", handle as Arc<dyn KillHandle>);
+        .register_tool_handle("bridge", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     let start = Instant::now();
     cs.read()
@@ -237,7 +238,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
         "tool_handles map must be cleared after stop"
     );
     assert_eq!(
-        kill_count.load(Ordering::SeqCst),
+        handle.kill_count.load(Ordering::SeqCst),
         1,
         "bridging kill() must run exactly once"
     );
@@ -269,12 +270,9 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let loose_bound = Duration::from_secs(4);
 
     let (handle, release) = BlockingKillHandle::new();
-    let entered = Arc::clone(&handle.entered);
-    let finished = Arc::clone(&handle.finished);
-    let entered_notify = Arc::clone(&handle.entered_notify);
     cs.read()
         .await
-        .register_tool_handle("slow", handle as Arc<dyn KillHandle>);
+        .register_tool_handle("slow", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     tokio::time::timeout(
         loose_bound,
@@ -288,18 +286,18 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     .await
     .expect("stop() must return within the loose bound while kill() is blocked");
 
-    wait_kill_started(&entered_notify).await;
+    handle.wait_kill_started().await;
 
     // The kill must have started and must still be blocked: stop
     // ended the wait via the wall-clock budget, not because kill()
     // returned.
     assert_eq!(
-        entered.load(Ordering::SeqCst),
+        handle.entered.load(Ordering::SeqCst),
         1,
         "kill() must have started before stop() returned"
     );
     assert_eq!(
-        finished.load(Ordering::SeqCst),
+        handle.finished.load(Ordering::SeqCst),
         0,
         "kill() must still be blocked when stop() returns"
     );
@@ -330,10 +328,9 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
     let handle = FailingKillHandle::new();
-    let kill_count = Arc::clone(&handle.kill_count);
     cs.read()
         .await
-        .register_tool_handle("call-err", handle as Arc<dyn KillHandle>);
+        .register_tool_handle("call-err", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     let ((stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -360,7 +357,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
         "tool_handles must be cleared after a failing kill"
     );
     assert_eq!(
-        kill_count.load(Ordering::SeqCst),
+        handle.kill_count.load(Ordering::SeqCst),
         1,
         "kill() must run exactly once"
     );
@@ -382,10 +379,9 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
     let (handle, release) = BlockingKillHandle::new();
-    let finished = Arc::clone(&handle.finished);
     cs.read()
         .await
-        .register_tool_handle("zero-budget", handle as Arc<dyn KillHandle>);
+        .register_tool_handle("zero-budget", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -420,7 +416,7 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     assert!(stopped, "stopped flag must be set");
     assert_eq!(handles_len, 0, "tool_handles must be cleared");
     assert_eq!(
-        finished.load(Ordering::SeqCst),
+        handle.finished.load(Ordering::SeqCst),
         0,
         "kill() must still be blocked when stop() returns at a zero budget"
     );
@@ -446,21 +442,22 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
 async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     let cs = make_session("s_kill_sufficient");
     let (handle, release) = BlockingKillHandle::new();
-    let entered = Arc::clone(&handle.entered);
-    let finished = Arc::clone(&handle.finished);
-    let entered_notify = Arc::clone(&handle.entered_notify);
 
     // Release the kill only after it has actually started blocking —
     // models a slow-but-within-budget kill with no fixed wait (the
     // bounded timeout is a failure fallback only).
-    let releaser = tokio::spawn(async move {
-        wait_kill_started(&entered_notify).await;
-        drop(release);
+    let releaser = tokio::spawn({
+        let handle = Arc::clone(&handle);
+        async move {
+            handle.wait_kill_started().await;
+            drop(release);
+        }
     });
 
-    cs.read()
-        .await
-        .register_tool_handle("sufficient-budget", handle as Arc<dyn KillHandle>);
+    cs.read().await.register_tool_handle(
+        "sufficient-budget",
+        Arc::clone(&handle) as Arc<dyn KillHandle>,
+    );
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -485,12 +482,12 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
     releaser.await.expect("releaser task must exit");
 
     assert_eq!(
-        entered.load(Ordering::SeqCst),
+        handle.entered.load(Ordering::SeqCst),
         1,
         "kill() must have started before stop() returned"
     );
     assert_eq!(
-        finished.load(Ordering::SeqCst),
+        handle.finished.load(Ordering::SeqCst),
         1,
         "stop() must await a kill that finishes within the budget"
     );
@@ -532,10 +529,10 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
     }
 
     let cs = make_session("s_kill_panic");
-    cs.read().await.register_tool_handle(
-        "panic-tool",
-        Arc::new(PanickingKillHandle) as Arc<dyn KillHandle>,
-    );
+    let handle = Arc::new(PanickingKillHandle);
+    cs.read()
+        .await
+        .register_tool_handle("panic-tool", Arc::clone(&handle) as Arc<dyn KillHandle>);
 
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
         cs.read()
@@ -571,5 +568,38 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
             .len(),
         1,
         "clear_exec_state must not have run after the kill() panic"
+    );
+}
+
+// ── handshake: wait_kill_started's timeout branch ─────────────────────────────
+
+/// Pins the **timeout branch** of the methodized handshake (issue
+/// #3181 Step 1.4): with `kill()` never invoked the notify never
+/// fires, yet `wait_kill_started()` must still return — after
+/// genuinely waiting out its ≤1 s bound (never vacuously early, so
+/// real callers keep a working handshake) instead of hanging the
+/// test. Both in-suite call sites (slow / sufficient) only ever hit
+/// the notified branch; the lower-bound assertion is deterministic
+/// here precisely because no notify can fire in this setup.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_wait_kill_started_returns_when_notify_never_fires() {
+    let (handle, _release) = BlockingKillHandle::new();
+    // `kill()` is never invoked, so `entered_notify` never fires.
+
+    let start = Instant::now();
+    let waited = tokio::time::timeout(Duration::from_secs(2), handle.wait_kill_started()).await;
+    let elapsed = start.elapsed();
+
+    waited.expect("wait_kill_started must return on its own, never hang");
+    assert_eq!(
+        handle.entered.load(Ordering::SeqCst),
+        0,
+        "kill() never ran in this case, so no notify could fire"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(950),
+        "the wait must actually wait out its bound when no notify fires; \
+         returned after {elapsed:?}"
     );
 }
