@@ -137,6 +137,32 @@ pub async fn handle_run(
     daemon_runner: &dyn DaemonRunner,
     pid_file_override: Option<&Path>,
 ) -> Result<()> {
+    run_with_socket_timeout(
+        config_dir,
+        json,
+        foreground,
+        daemon_runner,
+        pid_file_override,
+        SOCKET_WAIT_TIMEOUT_MS,
+    )
+    .await
+}
+
+/// Internal variant of [`handle_run`] with an injectable admin-socket wait
+/// timeout (milliseconds).
+///
+/// Production callers go through [`handle_run`], which applies the
+/// [`SOCKET_WAIT_TIMEOUT_MS`] default. Tests inject a short timeout so that
+/// failure paths (spawned child exits, socket never appears) do not wait
+/// out the full production timeout.
+pub(crate) async fn run_with_socket_timeout(
+    config_dir: String,
+    json: bool,
+    foreground: bool,
+    daemon_runner: &dyn DaemonRunner,
+    pid_file_override: Option<&Path>,
+    socket_wait_timeout_ms: u64,
+) -> Result<()> {
     if foreground {
         return handle_run_foreground(&config_dir, json, daemon_runner, pid_file_override).await;
     }
@@ -156,7 +182,7 @@ pub async fn handle_run(
 
     // Wait for the admin socket to become available.
     let admin_socket = crate::admin::admin_socket_path(&config_dir_path);
-    wait_for_socket(&admin_socket, SOCKET_WAIT_TIMEOUT_MS)?;
+    wait_for_socket(&admin_socket, socket_wait_timeout_ms)?;
 
     // Read the PID that the child process wrote to the PID file.
     let pid = closeclaw_platform::process::read_pid_file(&pid_file)
