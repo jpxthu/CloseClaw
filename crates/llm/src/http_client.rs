@@ -193,9 +193,10 @@ mod tests {
             reqwest::Client::new(),
         );
 
-        // The 401 mock proves the full route: provider -> HttpClient -> local
-        // mock server -> /v1/models endpoint, with the Authorization header
-        // passing the matcher, and the 401 response mapped to AuthFailed.
+        // The 401 mock proves the full route: provider -> reqwest::Client ->
+        // local mock server -> /v1/models endpoint (routed via the
+        // `ModelLister` trait), with the Authorization header passing the
+        // matcher, and the 401 response mapped to AuthFailed.
         let err = provider.fetch_model_list("test-key").await.unwrap_err();
         mock.assert_async().await;
         assert!(
