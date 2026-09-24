@@ -193,17 +193,23 @@ async fn handle_config_event(
 
 /// Shared shutdown-exit check for the subscriber loop.
 ///
-/// Returns `true` when the subscriber must exit: `changed()` errored (the
-/// shutdown sender was dropped — RAII drop of `ConfigWatcherHandle` without
-/// `into_subscriber_handle`) or the watch carries an explicit shutdown
-/// (`true` sent by `into_subscriber_handle`). Both paths share one exit log
-/// here; a `false` update keeps the loop running.
+/// Returns `true` when the subscriber must exit, emitting a distinct exit
+/// log per path so the exit reason is recoverable from logs: an explicit
+/// shutdown (`true` sent by `into_subscriber_handle`) logs a received
+/// shutdown signal, while a `changed()` error (shutdown sender dropped —
+/// RAII drop of `ConfigWatcherHandle` without `into_subscriber_handle`)
+/// logs a dropped sender. The explicit-shutdown check runs first so a
+/// send-then-drop sequence reports the explicit signal. A `false` update
+/// keeps the loop running.
 fn shutdown_exit_requested(
     result: Result<(), tokio::sync::watch::error::RecvError>,
     shutdown_rx: &tokio::sync::watch::Receiver<bool>,
 ) -> bool {
-    if result.is_err() || *shutdown_rx.borrow() {
+    if *shutdown_rx.borrow() {
         info!("config change subscriber received shutdown signal, exiting");
+        true
+    } else if result.is_err() {
+        info!("config change subscriber shutdown sender dropped, exiting");
         true
     } else {
         false
