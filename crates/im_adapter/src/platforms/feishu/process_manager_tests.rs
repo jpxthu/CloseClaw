@@ -13,9 +13,9 @@ use serial_test::serial;
 use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
-/// Short ready-wait timeout injected by lifecycle tests so the "subprocess
-/// never signals ready" path fails fast instead of waiting out the
-/// production `READY_TIMEOUT` (30s) default.
+/// Short ready-wait timeout injected by `test_process_manager_ready_timeout`
+/// so the "subprocess never signals ready" path fails fast instead of waiting
+/// out the production `READY_TIMEOUT` (30s) default.
 const TEST_READY_TIMEOUT: Duration = Duration::from_millis(200);
 
 // ===========================================================================
