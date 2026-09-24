@@ -25,12 +25,13 @@ async fn test_shutdown_exits_loop() {
 
     let _ = tx.send(());
     // State transition: after the shutdown signal, run() must return
-    // within this 5 s guard — a hang fails here instead of passing
-    // vacuously.
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    // within this 1 s guard — a hang fails here instead of passing
+    // vacuously (STANDARDS §6: no >1 s waits in unit tests).
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), handle).await;
     assert!(
         result.is_ok(),
-        "run() must exit within the 5 s guard after the shutdown signal"
+        "run() must exit within the 1 s guard after the shutdown signal, \
+         guard expired without return"
     );
     // Error path: the sweeper task exits normally, without panicking.
     let join_result = result.expect("timeout is Ok, per assertion above");
@@ -52,10 +53,11 @@ async fn test_shutdown_no_running_task_exits_immediately() {
     });
     // Send shutdown immediately — no task running
     let _ = tx.send(());
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(2), handle).await;
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(1), handle).await;
     assert!(
         result.is_ok(),
-        "sweeper should exit quickly when no task is running"
+        "sweeper should exit within the 1 s guard when no task is running, \
+         guard expired without return"
     );
 }
 
@@ -70,22 +72,26 @@ async fn test_shutdown_no_running_task_exits_immediately() {
 //   trips EXIT_GUARD before FAKE_TASK_BODY, failing `result.is_ok()` cleanly.
 const FAKE_TASK_BODY: tokio::time::Duration = tokio::time::Duration::from_secs(30);
 const EXIT_GUARD: tokio::time::Duration = tokio::time::Duration::from_secs(20);
+/// Scan tick of [`FakeSweeper::run`] (virtual time under `start_paused`).
+const SWEEP_INTERVAL: tokio::time::Duration = tokio::time::Duration::from_millis(50);
 
 struct FakeSweeper {
     storage: Arc<dyn PersistenceService>,
 }
 
 impl FakeSweeper {
-    // Cross-reference: this run() is an inline mirror of the
+    // Cross-reference: this run() is a simplified inline mirror of the
     // production `ArchiveSweeper::run` and `wait_grace_period`
     // (crates/gateway/src/sweeper.rs) — the same select-loop structure
     // and grace-abort semantics are replicated here with a fake task.
+    // Simplified: it omits the production `next_fire` drift correction
+    // (the `Instant::now() > next_fire + interval` reset), keeping only
+    // `next_fire += SWEEP_INTERVAL`.
     // When that production logic evolves, update this fake in
     // lockstep to prevent semantic drift.
     async fn run(&self, mut shutdown: watch::Receiver<()>) {
         let mut running_task: Option<tokio::task::JoinHandle<()>> = None;
-        let interval = tokio::time::Duration::from_millis(50);
-        let mut next_fire = tokio::time::Instant::now() + interval;
+        let mut next_fire = tokio::time::Instant::now() + SWEEP_INTERVAL;
         loop {
             tokio::select! {
                 _ = shutdown.changed() => break,
@@ -99,7 +105,7 @@ impl FakeSweeper {
                         let _ = storage;
                     });
                     running_task = Some(task);
-                    next_fire += interval;
+                    next_fire += SWEEP_INTERVAL;
                 }
                 result = async {
                     match running_task.as_mut() {
@@ -132,7 +138,7 @@ impl FakeSweeper {
 /// Shutdown signal with running task that exceeds grace period → abort.
 ///
 /// Runs on a paused tokio clock (`start_paused`): every
-/// `sleep`/`sleep_until` inside the FakeSweeper (50 ms sweep interval,
+/// `sleep`/`sleep_until` inside the FakeSweeper (`SWEEP_INTERVAL` tick,
 /// `FAKE_TASK_BODY` task, 10 s grace period) completes instantly in
 /// virtual time, so the full timing chain — task spawned → shutdown arrives →
 /// grace period expires → abort — is still genuinely executed and
@@ -149,11 +155,12 @@ async fn test_shutdown_grace_period_expires_aborts() {
     });
 
     // Wait for the sweeper to start a task. Under the paused clock
-    // this wait is deterministic: auto-advance fires the first 50 ms
-    // interval tick immediately, and the spawned task's FAKE_TASK_BODY
-    // sleep is parked on the virtual clock, so once this sleep
-    // completes the sweep task is guaranteed to be running.
-    tokio::time::sleep(tokio::time::Duration::from_millis(80)).await;
+    // this wait is deterministic: auto-advance fires the first
+    // SWEEP_INTERVAL tick immediately, and the spawned task's
+    // FAKE_TASK_BODY sleep is parked on the virtual clock, so once
+    // this sleep (SWEEP_INTERVAL + 30 ms slack) completes the sweep
+    // task is guaranteed to be running.
+    tokio::time::sleep(SWEEP_INTERVAL + tokio::time::Duration::from_millis(30)).await;
     // Send shutdown — task will NOT finish within grace period
     let _ = tx.send(());
     // Virtual-clock start: the exit wait must land in [grace, EXIT_GUARD)

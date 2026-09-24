@@ -4,7 +4,7 @@
 
 use async_trait::async_trait;
 use closeclaw_common::SessionActivityDimensions;
-use closeclaw_config::session::PerAgentSessionConfig;
+use closeclaw_config::session::{PerAgentSessionConfig, DEFAULT_SWEEPER_INTERVAL_SECS};
 use closeclaw_config::SessionConfigProvider;
 use closeclaw_session::persistence::{
     AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
@@ -149,7 +149,6 @@ impl PersistenceService for MemStorage {
 pub struct MockConfig {
     agents: Mutex<Vec<String>>,
     pub session_config: Mutex<PerAgentSessionConfig>,
-    interval_secs: Mutex<u64>,
 }
 
 impl MockConfig {
@@ -167,7 +166,10 @@ impl SessionConfigProvider for MockConfig {
     }
 
     fn sweeper_interval_secs(&self) -> u64 {
-        *self.interval_secs.lock().unwrap()
+        // Production default, never 0: `ArchiveSweeper::run` derives
+        // `next_fire` from this, and a zero would degenerate into a
+        // busy-fire loop instead of a periodic tick.
+        DEFAULT_SWEEPER_INTERVAL_SECS
     }
 
     fn dreaming_interval_secs(&self) -> u64 {
