@@ -1,6 +1,8 @@
 use super::background::PlanArchiveTask;
 use std::fs;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 fn create_workspaces_root(dir: &Path) {
     fs::create_dir_all(dir.join("workspaces/agent1/user1/plans")).unwrap();
@@ -18,6 +20,15 @@ fn create_plan_file(dir: &Path, agent: &str, user: &str, name: &str, status: &st
     };
     let content = format!("# Plan\n\n## Tasks\n\n{step_marker}\n");
     fs::write(&path, content).unwrap();
+}
+
+/// Drop guard for a hung task future: flips the shared flag when the
+/// task future is dropped, proving the abort branch actually ran.
+struct AbortGuard(Arc<AtomicBool>);
+impl Drop for AbortGuard {
+    fn drop(&mut self) {
+        self.0.store(true, Ordering::SeqCst);
+    }
 }
 
 #[tokio::test]
@@ -266,25 +277,70 @@ async fn test_plan_archive_grace_period_no_abort_when_completed() {
 }
 
 /// When a task exceeds the grace period, wait_grace_period aborts it.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock (`start_paused`): the hanging task is
+/// parked on `std::future::pending` (registers no timer), so the paused
+/// clock's auto-advance drives only the grace-period `sleep` inside
+/// `wait_grace_period`. The full timing chain — grace period expires →
+/// task abort (future dropped) — is still genuinely executed and
+/// asserted while real wall-clock cost collapses to milliseconds.
+///
+/// Abort proof is deterministic by waiter mode: the timing and the
+/// drop-drain run inside a `waiter` future on the same runtime, with
+/// `hanging_task` moved into it. `waiter.await` returning
+/// unconditionally guarantees the hanging future's `Drop` guard has
+/// executed — `JoinHandle::abort()` only schedules the cancellation on
+/// the runtime and never drops the future synchronously, and a task
+/// marked cancelled stays on its runtime until it is polled to
+/// completion, so the in-waiter yield drain terminates through
+/// scheduler semantics, not poll-count luck.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+#[serial_test::serial]
 async fn test_plan_archive_grace_period_abort_on_timeout() {
-    let hanging_task = tokio::task::spawn(async {
+    let aborted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&aborted);
+    let hanging_task = tokio::task::spawn(async move {
+        let _guard = AbortGuard(flag);
         std::future::pending::<()>().await;
     });
 
-    let start = tokio::time::Instant::now();
-    super::background::PlanArchiveTask::wait_grace_period(Some(hanging_task)).await;
-    let elapsed = start.elapsed();
+    // Waiter: owns the timing, the `wait_grace_period` call and the
+    // abort-drop drain on the same runtime as `hanging_task`, which is
+    // moved into it. `waiter.await` returning is itself the completion
+    // guarantee that the guard has run — no poll-count heuristics.
+    let waiter_flag = Arc::clone(&aborted);
+    let waiter = async move {
+        // Virtual-clock start: `wait_grace_period` must consume exactly the
+        // grace constant before aborting — any early return (or waiting on
+        // a completion that can never happen here) shifts `elapsed`.
+        let start = tokio::time::Instant::now();
+        super::background::PlanArchiveTask::wait_grace_period(Some(hanging_task)).await;
+        let elapsed = start.elapsed();
+
+        // Paused clock is deterministic: the select can only exit via the
+        // grace sleep, so elapsed is exactly the grace period. This also
+        // pins the abort branch as the only feasible exit before the
+        // drain loop below is allowed to run.
+        assert_eq!(
+            elapsed,
+            tokio::time::Duration::from_secs(super::background::ARCHIVE_GRACE_PERIOD_SECS),
+            "must wait out exactly the grace period before aborting, took {elapsed:?}"
+        );
+
+        // Abort proof: drain the runtime until the cancelled task has
+        // actually been polled to its `Drop`. `abort()` scheduled the
+        // cancellation on this very runtime, so each `yield_now` lets
+        // the scheduler make progress on it.
+        while !waiter_flag.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    };
+
+    waiter.await;
 
     assert!(
-        elapsed >= std::time::Duration::from_secs(9),
-        "should wait at least 9s for grace period, got {:?}",
-        elapsed
-    );
-    assert!(
-        elapsed <= std::time::Duration::from_secs(12),
-        "should not wait more than 12s, got {:?}",
-        elapsed
+        aborted.load(Ordering::SeqCst),
+        "hanging task future must have been dropped by the abort branch"
     );
 }
 
@@ -318,33 +374,81 @@ async fn test_plan_archive_signal_grace_clean_exit() {
 
 /// PlanArchiveTask: hung task → grace period expires → abort.
 /// Tests the abort path when a sweep doesn't finish in time.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock (`start_paused`): the hung task is
+/// parked on `std::future::pending` (registers no timer), so the
+/// paused clock's auto-advance drives only the grace-period `sleep`.
+/// The full select chain — hung task vs. grace sleep → abort — is
+/// still genuinely executed and asserted while real wall-clock cost
+/// collapses to milliseconds.
+///
+/// Abort proof is deterministic by waiter mode: the select and the
+/// drop-drain run inside a `waiter` future on the same runtime, with
+/// `hang_handle` moved into it. `waiter.await` returning
+/// unconditionally guarantees the hung future's `Drop` guard has
+/// executed — `JoinHandle::abort()` only schedules the cancellation on
+/// the runtime and never drops the future synchronously, and a task
+/// marked cancelled stays on its runtime until it is polled to
+/// completion, so the in-waiter yield drain terminates through
+/// scheduler semantics, not poll-count luck.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+#[serial_test::serial]
 async fn test_plan_archive_hung_task_aborted_after_grace() {
+    let aborted = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&aborted);
     // Spawn a task that never exits (simulates a hung sweep)
-    let mut hang_handle = tokio::task::spawn(async {
+    let mut hang_handle = tokio::task::spawn(async move {
+        let _guard = AbortGuard(flag);
         std::future::pending::<()>().await;
     });
 
-    // Simulate the grace period + abort pattern from PlanArchiveTask
-    let grace = std::time::Duration::from_secs(10);
-    let start = tokio::time::Instant::now();
+    // Waiter: owns the select (grace sleep vs. hung task) and the
+    // abort-drop drain on the same runtime as `hang_handle`, which is
+    // moved into it. `waiter.await` returning is itself the completion
+    // guarantee that the guard has run — no poll-count heuristics.
+    let waiter_flag = Arc::clone(&aborted);
+    let waiter = async move {
+        // Reproduce the grace period + abort select pattern from
+        // PlanArchiveTask. Virtual-clock start: the sleep must consume
+        // exactly the grace constant — any other outcome shifts `elapsed`.
+        let grace = tokio::time::Duration::from_secs(super::background::ARCHIVE_GRACE_PERIOD_SECS);
+        let start = tokio::time::Instant::now();
 
-    tokio::select! {
-        _ = &mut hang_handle => {
-            // Task completed — should not happen
-            panic!("hung task should not complete");
+        tokio::select! {
+            _ = &mut hang_handle => {
+                // Task completed — should not happen
+                panic!("hung task should not complete");
+            }
+            _ = tokio::time::sleep(grace) => {
+                // Grace period expired — abort
+                hang_handle.abort();
+            }
         }
-        _ = tokio::time::sleep(grace) => {
-            // Grace period expired — abort
-            hang_handle.abort();
-        }
-    }
 
-    let elapsed = start.elapsed();
+        // Paused clock is deterministic: the select can only exit via the
+        // grace sleep, so elapsed is exactly the grace period. This also
+        // pins the abort branch as the only feasible exit before the
+        // drain loop below is allowed to run.
+        let elapsed = start.elapsed();
+        assert_eq!(
+            elapsed, grace,
+            "should wait out exactly the grace period before aborting, took {elapsed:?}"
+        );
+
+        // Abort proof: drain the runtime until the cancelled task has
+        // actually been polled to its `Drop`. `abort()` scheduled the
+        // cancellation on this very runtime, so each `yield_now` lets
+        // the scheduler make progress on it.
+        while !waiter_flag.load(Ordering::SeqCst) {
+            tokio::task::yield_now().await;
+        }
+    };
+
+    waiter.await;
+
     assert!(
-        elapsed >= std::time::Duration::from_secs(9),
-        "should wait ~10s before aborting, got {:?}",
-        elapsed
+        aborted.load(Ordering::SeqCst),
+        "hung task future must have been dropped by the abort"
     );
 }
 
