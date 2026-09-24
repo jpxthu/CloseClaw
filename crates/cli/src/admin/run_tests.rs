@@ -7,8 +7,8 @@
 //! 4. Foreground mode writes the PID file correctly
 
 use super::run::{
-    ensure_no_running_daemon, handle_run, handle_run_foreground, prepare_run,
-    run_with_socket_timeout, DaemonRunner,
+    ensure_no_running_daemon, handle_run, handle_run_foreground, handle_run_with_socket_timeout,
+    prepare_run, DaemonRunner,
 };
 use closeclaw_platform::process::{read_pid_file, write_pid_file};
 use std::path::PathBuf;
@@ -26,6 +26,11 @@ fn isolated_pid_file(tmp: &TempDir) -> PathBuf {
     std::fs::create_dir_all(&pid_dir).expect("failed to create .closeclaw dir");
     pid_dir.join("daemon.pid")
 }
+
+/// Short socket-wait timeout injected by background-mode tests so the
+/// "socket never appears" path fails fast instead of waiting out the
+/// production 30s default.
+const TEST_SOCKET_WAIT_TIMEOUT_MS: u64 = 50;
 
 // ── Mock DaemonRunner ──────────────────────────────────────────────────────
 
@@ -89,14 +94,10 @@ async fn test_handle_run_foreground_calls_daemon_runner() {
     );
 }
 
-/// Short socket-wait timeout injected by background-mode tests so the
-/// "socket never appears" path fails fast instead of waiting out the
-/// production 30s default.
-const TEST_SOCKET_WAIT_TIMEOUT_MS: u64 = 50;
-
 // ── Test 2: handle_run(background) does NOT call DaemonRunner ───────────────
 
-/// When foreground=false, handle_run spawns a subprocess and must NOT call
+/// When foreground=false, handle_run (via its injectable internal variant
+/// handle_run_with_socket_timeout) spawns a subprocess and must NOT call
 /// DaemonRunner::start_and_run.
 #[tokio::test]
 async fn test_handle_run_background_does_not_call_daemon_runner() {
@@ -108,7 +109,7 @@ async fn test_handle_run_background_does_not_call_daemon_runner() {
     // spawned child exits immediately and the admin socket never appears,
     // so the short injected timeout makes the wait fail fast. The key
     // assertion is that the mock was never called.
-    let result = run_with_socket_timeout(
+    let result = handle_run_with_socket_timeout(
         config_dir,
         false,
         false,
@@ -311,7 +312,7 @@ async fn test_handle_run_background_cleans_stale_pid() {
     write_pid_file(&pid_file, 99999999).unwrap();
 
     let mock = MockDaemonRunner::success();
-    let _result = run_with_socket_timeout(
+    let result = handle_run_with_socket_timeout(
         config_dir,
         false,
         false,
@@ -321,8 +322,18 @@ async fn test_handle_run_background_cleans_stale_pid() {
     )
     .await;
     // The socket wait times out (spawned child never creates the admin
-    // socket in the test env), but the key point is that the stale PID was
-    // cleaned and the flow got past the check before spawn.
+    // socket in the test env), locking in that the flow reached the
+    // socket-wait stage; the key point is that the stale PID was cleaned
+    // and the mock was never called before spawn.
+    assert!(
+        result.is_err(),
+        "socket wait should time out in test env: {result:?}"
+    );
+    let err_msg = result.unwrap_err().to_string();
+    assert!(
+        err_msg.contains("Timed out waiting for daemon admin socket"),
+        "error should be the socket-wait timeout, got: {err_msg}"
+    );
     assert!(
         !pid_file.exists(),
         "stale PID file should have been removed"

@@ -137,7 +137,7 @@ pub async fn handle_run(
     daemon_runner: &dyn DaemonRunner,
     pid_file_override: Option<&Path>,
 ) -> Result<()> {
-    run_with_socket_timeout(
+    handle_run_with_socket_timeout(
         config_dir,
         json,
         foreground,
@@ -155,7 +155,7 @@ pub async fn handle_run(
 /// [`SOCKET_WAIT_TIMEOUT_MS`] default. Tests inject a short timeout so that
 /// failure paths (spawned child exits, socket never appears) do not wait
 /// out the full production timeout.
-pub(crate) async fn run_with_socket_timeout(
+pub(crate) async fn handle_run_with_socket_timeout(
     config_dir: String,
     json: bool,
     foreground: bool,
