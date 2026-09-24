@@ -66,3 +66,5 @@ tempfile = "3.10"
 serial_test = "3.4"
 serde_yaml = "0.9"
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+# Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
+tokio = { version = "=1.35.0", features = ["test-util"] }

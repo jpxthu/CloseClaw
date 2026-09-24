@@ -52,6 +52,11 @@ struct MigratingMissMock {
     archived_id: std::sync::Mutex<Option<String>>,
     /// Whether `restore_checkpoint` was called.
     restore_called: std::sync::atomic::AtomicBool,
+    /// What storage currently holds: restore flips it to Active, every
+    /// `save_checkpoint` overwrites it (mirrors sqlite/MemoryStorage).
+    storage_view: std::sync::Mutex<Option<SessionCheckpoint>>,
+    /// Last checkpoint written via `save_checkpoint` (final persisted state).
+    last_saved: tokio::sync::Mutex<Option<SessionCheckpoint>>,
 }
 
 impl MigratingMissMock {
@@ -62,6 +67,8 @@ impl MigratingMissMock {
             migrating_id: std::sync::Mutex::new(Some(migrating_id.to_string())),
             archived_id: std::sync::Mutex::new(Some(archived_id.to_string())),
             restore_called: std::sync::atomic::AtomicBool::new(false),
+            storage_view: std::sync::Mutex::new(None),
+            last_saved: tokio::sync::Mutex::new(None),
         }
     }
 
@@ -72,13 +79,19 @@ impl MigratingMissMock {
             migrating_id: std::sync::Mutex::new(Some(migrating_id.to_string())),
             archived_id: std::sync::Mutex::new(None),
             restore_called: std::sync::atomic::AtomicBool::new(false),
+            storage_view: std::sync::Mutex::new(None),
+            last_saved: tokio::sync::Mutex::new(None),
         }
     }
 }
 
 #[async_trait::async_trait]
 impl PersistenceService for MigratingMissMock {
-    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
+        // Every write lands in storage, so the final persisted state is
+        // observable via `load_checkpoint` (and recorded in `last_saved`).
+        *self.storage_view.lock().unwrap() = Some(cp.clone());
+        *self.last_saved.lock().await = Some(cp.clone());
         Ok(())
     }
 
@@ -86,12 +99,22 @@ impl PersistenceService for MigratingMissMock {
         &self,
         _id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        // Serve what storage currently holds; the generated migrating/
+        // archived responses below only apply while storage holds no row
+        // (a real backend keeps serving the stored row once one exists).
+        {
+            let view = self.storage_view.lock().unwrap();
+            if let Some(cp) = view.as_ref() {
+                return Ok(Some(cp.clone()));
+            }
+        }
         let count = self
             .poll_count
             .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         match self.transition_after_polls {
             Some(threshold) if count >= threshold => {
-                // Transitioned to archived
+                // Transitioned to archived (served as a fresh clone:
+                // the archived-restore path may re-read storage).
                 Ok(Some(
                     SessionCheckpoint::new("session".to_string())
                         .with_status(SessionStatus::Archived)
@@ -134,7 +157,17 @@ impl PersistenceService for MigratingMissMock {
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         self.restore_called
             .store(true, std::sync::atomic::Ordering::Relaxed);
-        Ok(None)
+        // Model real restore semantics (sqlite do_restore / MemoryStorage):
+        // the checkpoint moves back to active storage with status = Active.
+        let mut restored = SessionCheckpoint::new("session".to_string())
+            .with_status(SessionStatus::Active)
+            .with_platform("feishu".to_string())
+            .with_peer_id("agent-b".to_string())
+            .with_agent_id("agent-b".to_string());
+        restored.sender_id = Some("user-a".to_string());
+        let cp = restored.clone();
+        *self.storage_view.lock().unwrap() = Some(restored);
+        Ok(Some(cp))
     }
 
     async fn find_active_session_by_routing(
@@ -198,7 +231,20 @@ async fn test_resolve_miss_migrating_archive_completes() {
 
     // resolve(): Path 3 → active miss → migrating hit → poll → archived →
     // restore → returns original session_id.
-    let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    // 5s wall upper bound guards against regression to the full 30s poll
+    // (e.g. if a cache-first read sneaks back in and stalls the poll).
+    let start = std::time::Instant::now();
+    let resolved = tokio::time::timeout(
+        std::time::Duration::from_secs(5),
+        mgr.find_or_create("feishu", &msg, None),
+    )
+    .await
+    .expect("resolve should complete within 5s once archive completes")
+    .unwrap();
+    assert!(
+        start.elapsed() < std::time::Duration::from_secs(5),
+        "archive_completes path should finish well under the 5s budget"
+    );
 
     // Should restore the original session (not create a new one)
     assert_eq!(
@@ -229,7 +275,11 @@ async fn test_resolve_miss_migrating_archive_completes() {
 /// Registry miss + migrating session in SQLite → notification injected →
 /// poll times out (still migrating after 30 s) → restores migrating session
 /// via checkpoint restore → verify returned session_id equals migrating_id.
-#[tokio::test]
+///
+/// Uses a paused tokio clock: the 30s poll deadline advances automatically
+/// through the 500ms sleeps, so the test folds logical time to milliseconds
+/// while still exercising the real timeout-restore path.
+#[tokio::test(start_paused = true)]
 async fn test_resolve_miss_migrating_timeout_creates_new() {
     let migrating_id = "migrating-miss-timeout".to_string();
 
@@ -268,6 +318,30 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
         mgr.has_session(&migrating_id).await,
         "restored session should exist"
     );
+
+    // Pin the final persisted checkpoint: after the timeout-restore, the
+    // storage row must stay ACTIVE. restore_migrating_on_timeout writes the
+    // restored Active checkpoint back through cm.save_raw to refresh the CM
+    // cache; without that refresh, update_checkpoint_fields reads the stale
+    // pinned Migrating and overwrites Active → migrating, re-entering the
+    // 30s poll loop on every message.
+    {
+        let cm_guard = mgr.checkpoint_manager.read().await;
+        let cm = cm_guard.as_ref().expect("checkpoint manager must be set");
+        let final_cp = cm
+            .storage()
+            .load_checkpoint(&migrating_id)
+            .await
+            .unwrap()
+            .expect("checkpoint must exist after timeout restore");
+        assert_eq!(
+            final_cp.status,
+            SessionStatus::Active,
+            "final storage checkpoint status must stay Active after the \
+             timeout restore; a stale Migrating cache write-back regression \
+             is present"
+        );
+    }
 }
 
 // ── Migrating/Archived query isolation ──────────────────────────────────────
