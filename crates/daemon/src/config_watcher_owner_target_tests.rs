@@ -38,15 +38,24 @@ use tempfile::TempDir;
 // definition in `config_reload/reload.rs` inherits this behavior via the
 // synchronized fix; direct tests for it are issue #3241 scope.)
 //
-//   test_owner_target_whitespace_after_colon_normalized    "feishu: oc"      :292 Some (segments trimmed)
-//   test_owner_target_whitespace_before_colon_normalized   " feishu:oc"      :292 Some
-//   test_owner_target_whitespace_platform_side_normalized  "feishu :oc"      :292 Some
-//   test_owner_target_ideographic_space_normalized         "　feishu:oc　"     :292 Some (trim covers U+3000)
-//   test_owner_target_whitespace_chat_id_rejected          "feishu: "        :285→:290 None (empty after trim)
-//   test_owner_target_whitespace_platform_rejected         " :oc"            :285→:290 None
-//   test_owner_target_all_whitespace_pair_rejected         " : "             :285→:290 None
-//   test_owner_target_pure_whitespace_rejected             "   "             :285 (len != 2)→:290 None
-//   test_owner_target_no_whitespace_baseline               "feishu:oc_xxx"   :292 Some (regression baseline)
+//   test_owner_target_whitespace_after_colon_normalized    "feishu: oc"
+//     → :292 Some (segments trimmed)
+//   test_owner_target_whitespace_before_colon_normalized   " feishu:oc"
+//     → :292 Some
+//   test_owner_target_whitespace_platform_side_normalized  "feishu :oc"
+//     → :292 Some
+//   test_owner_target_ideographic_space_normalized         "　feishu:oc　"
+//     → :292 Some (trim covers U+3000)
+//   test_owner_target_whitespace_chat_id_rejected          "feishu: "
+//     → :285 parts[1].trim().is_empty() → :290 None
+//   test_owner_target_whitespace_platform_rejected         " :oc"
+//     → :285 parts[0].trim().is_empty() → :290 None
+//   test_owner_target_all_whitespace_pair_rejected         " : "
+//     → :285 parts[0].trim().is_empty() → :290 None
+//   test_owner_target_pure_whitespace_rejected             "   "
+//     → :285 parts.len() != 2 → :290 None
+//   test_owner_target_no_whitespace_baseline               "feishu:oc_xxx"
+//     → :292 Some (regression baseline)
 // ---------------------------------------------------------------------------
 
 /// Shared setup for the whitespace cases: write `system.json` with the
@@ -124,7 +133,10 @@ fn test_owner_target_ideographic_space_normalized() {
     // Self-proof before the call: U+3000 really is `char::is_whitespace`,
     // so this case exercises the trim path rather than duplicating the
     // ASCII cases above.
-    assert!('\u{3000}'.is_whitespace());
+    assert!(
+        '\u{3000}'.is_whitespace(),
+        "U+3000 must be `char::is_whitespace` for str::trim to strip it"
+    );
 
     let result = parse_owner_target_from(
         serde_json::json!({
