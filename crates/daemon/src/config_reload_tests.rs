@@ -532,6 +532,18 @@ async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
 
 // ---------------------------------------------------------------------------
 // Gap 2 — IM notification on config reload failure
+//
+// parse_owner_target coverage matrix — case × input × branch hit
+// (branch lines refer to config_watcher.rs; the last two rows were added
+// by issue #3243 and are kept here as the in-repo single point of truth
+// for the issue #3241 double-definition merge):
+//
+//   test_parse_owner_target_valid                 "feishu:oc_xxx123"  :286 happy path
+//   test_parse_owner_target_not_configured        {"version":"1.0"}   :276 commands?
+//   test_parse_owner_target_invalid_format        "no-colon-here"     :279 parts.len() != 2
+//   test_parse_owner_target_empty_parts           ":oc_xxx"           :279 parts[0].is_empty()
+//   test_parse_owner_target_owner_display_missing {"commands":{}}     :277 owner_display?
+//   test_parse_owner_target_empty_second_part     "feishu:"            :279 parts[1].is_empty()
 // ---------------------------------------------------------------------------
 
 /// Shared setup for the `parse_owner_target_*` cases: write `system.json`
@@ -613,12 +625,31 @@ fn test_parse_owner_target_empty_parts() {
 /// `owner_display` is absent (`{"commands":{}}`): per-field serde
 /// defaults yield `commands = Some(...)` with a field-defaulted
 /// `owner_display = None`, so the `owner_display?` early return fires —
-/// distinct from the no-`commands`-key case, which short-circuits one
-/// line earlier on `commands?` and never reaches the `parts` validation.
+/// distinct from `test_parse_owner_target_not_configured`, which
+/// short-circuits one line earlier on `commands?` and never reaches the
+/// `parts` validation.
 #[test]
 fn test_parse_owner_target_owner_display_missing() {
+    // Self-proof before the helper call: the payload must deserialize
+    // into SystemConfigData with `commands = Some(..)` and
+    // `owner_display = None`, so the None asserted below necessarily
+    // comes from the `owner_display?` early return (config_watcher.rs
+    // :277), not from the `.ok()?` deserialization miss (:275) — without
+    // this, a later field change could keep the test green while it
+    // silently stops covering the target branch.
+    let payload = serde_json::json!({ "commands": {} });
+    let data: SystemConfigData = serde_json::from_value(payload.clone())
+        .expect("payload deserializes into SystemConfigData");
+    let commands = data
+        .commands
+        .expect("`commands` object present → commands = Some(..)");
+    assert_eq!(
+        commands.owner_display, None,
+        "owner_display field-defaults to None, so parse hits owner_display?"
+    );
+
     let result = parse_owner_target_from(
-        serde_json::json!({ "commands": {} }),
+        payload,
         "reload system.json with commands but no owner_display succeeds",
     );
     assert_eq!(result, None);
@@ -627,10 +658,10 @@ fn test_parse_owner_target_owner_display_missing() {
 /// parse_owner_target returns None when the target segment after the
 /// colon is empty (`"feishu:"` → `splitn(2, ':')` yields `["feishu", ""]`):
 /// `parts.len() == 2` holds but `parts[1].is_empty()` trips the format
-/// guard — the symmetric counterpart of the empty-first-part case above
+/// guard — the symmetric counterpart of `test_parse_owner_target_empty_parts`
 /// (leading-empty `":oc_xxx"`), covering the trailing-empty edge.
 #[test]
-fn test_parse_owner_target_empty_target_part() {
+fn test_parse_owner_target_empty_second_part() {
     let result = parse_owner_target_from(
         serde_json::json!({
             "commands": {
