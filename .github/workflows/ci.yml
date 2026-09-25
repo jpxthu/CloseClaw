@@ -32,6 +32,11 @@ jobs:
       - name: Install Rust
         run: rustup default stable
 
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2
+        with:
+          tool: cargo-nextest
+
       - name: Cache cargo build
         uses: actions/cache@v4
         with:
