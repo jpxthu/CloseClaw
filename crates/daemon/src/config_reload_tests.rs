@@ -15,6 +15,7 @@ use closeclaw_tasks::{
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 // ── Mock TaskManager ────────────────────────────────────────────────────────
@@ -276,7 +277,7 @@ async fn test_handle_next_event_exits_on_closed_channel() {
     // subscriber-exit semantic; `Lagged` would mean backlog drop instead.
     let probe = closed_event_rx.recv().await;
     assert!(
-        matches!(probe, Err(tokio::sync::broadcast::error::RecvError::Closed)),
+        matches!(probe, Err(RecvError::Closed)),
         "expected RecvError::Closed after the manager dropped, got {probe:?}"
     );
 
@@ -357,10 +358,10 @@ async fn test_subscriber_handles_lagged_events() {
         match rx.recv().await {
             Ok(ConfigChangeEvent::Reloaded { .. }) => {}
             Ok(ConfigChangeEvent::Failed { .. }) => {}
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+            Err(RecvError::Lagged(_)) => {
                 got_lagged = true;
             }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            Err(RecvError::Closed) => break,
         }
     }
     // With capacity 1 and 10 sends, lag must have occurred.
@@ -531,7 +532,8 @@ fn test_parse_owner_target_valid() {
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
     // Load only System section (others missing, but we only need System)
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(
@@ -553,7 +555,8 @@ fn test_parse_owner_target_not_configured() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json without owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -576,7 +579,8 @@ fn test_parse_owner_target_invalid_format() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with malformed owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -598,7 +602,8 @@ fn test_parse_owner_target_empty_parts() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with empty owner_display parts succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -624,7 +629,9 @@ async fn test_subscriber_failed_event_with_owner_display() {
     )
     .unwrap();
     let config_mgr = Arc::new(ConfigManager::new(config_dir).unwrap());
-    let _ = config_mgr.reload_section(ConfigSection::System, None);
+    config_mgr
+        .reload_section(ConfigSection::System, None)
+        .expect("reload system.json for the owner notification path succeeds");
 
     let session_mgr = make_session_manager();
     let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);

@@ -278,7 +278,8 @@ fn test_per_session_graceful_timeout_reads_from_config() {
     .unwrap();
 
     let cm = ConfigManager::new(config_subdir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with shutdown timeouts succeeds");
 
     // Read the timeout the same way phase_2_session_stop does
     let timeout = cm
@@ -316,7 +317,8 @@ fn test_per_session_graceful_timeout_fallback_to_default() {
     .unwrap();
 
     let cm = ConfigManager::new(config_subdir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json without shutdown config succeeds");
 
     // Read the timeout the same way phase_2_session_stop does
     let timeout = cm
@@ -357,7 +359,8 @@ fn test_drain_timeout_reads_from_config() {
     .unwrap();
 
     let cm = ConfigManager::new(config_subdir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with drain timeout succeeds");
 
     let drain_timeout = cm
         .section(ConfigSection::System)
