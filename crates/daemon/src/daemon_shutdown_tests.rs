@@ -3,8 +3,8 @@
 //! Covers ShutdownHandle drain state machine scenarios.
 
 use crate::shutdown::ShutdownHandle;
+use crate::test_helpers::write_mandatory_configs;
 use crate::test_helpers::{kill_self, load_system_config_manager, TestShutdownSignal};
-use closeclaw_common::test_helpers::write_mandatory_configs;
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigManager, ConfigSection};
 use std::path::PathBuf;
