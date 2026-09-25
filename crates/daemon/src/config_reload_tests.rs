@@ -609,6 +609,40 @@ fn test_parse_owner_target_empty_parts() {
     assert_eq!(result, None);
 }
 
+/// parse_owner_target returns None when `commands` is present but
+/// `owner_display` is absent (`{"commands":{}}`): deserialization yields
+/// `commands = Some(default)` with `owner_display = None`, so the
+/// `owner_display?` early return fires — distinct from the no-`commands`-
+/// key case, which short-circuits one line earlier on `commands?` and
+/// never reaches the `parts` validation.
+#[test]
+fn test_parse_owner_target_owner_display_missing() {
+    // `commands` object present, `ownerDisplay` field absent
+    let result = parse_owner_target_from(
+        serde_json::json!({ "commands": {} }),
+        "reload system.json with commands but no ownerDisplay succeeds",
+    );
+    assert_eq!(result, None);
+}
+
+/// parse_owner_target returns None when the target segment after the
+/// colon is empty (`"feishu:"` → `splitn(2, ':')` yields `["feishu", ""]`):
+/// `parts.len() == 2` holds but `parts[1].is_empty()` trips the format
+/// guard — the symmetric counterpart of the empty-first-part case above
+/// (leading-empty `":oc_xxx"`), covering the trailing-empty edge.
+#[test]
+fn test_parse_owner_target_empty_target_part() {
+    let result = parse_owner_target_from(
+        serde_json::json!({
+            "commands": {
+                "ownerDisplay": "feishu:"
+            }
+        }),
+        "reload system.json with empty target part succeeds",
+    );
+    assert_eq!(result, None);
+}
+
 /// Failed event with owner_display configured: after the event flows in,
 /// the subscriber must exit cleanly within 2s of shutdown being triggered;
 /// the in-task UnknownChannel failure path (no IM plugin registered) is
