@@ -1,0 +1,14 @@
+# cargo-nextest 配置（默认 profile）
+# 文档：https://nexte.st/book/configuration.html
+#
+# 观测线：>5s 标记 SLOW（仅观测，不终止用例）。
+# 命令行可覆盖：如 `cargo nextest run --slow-timeout 10s --retries 2 --test-threads 8`
+# 配置仅为默认值，CLI 参数优先级更高（with-defaults 语义）。
+
+[profile.default]
+# 慢用例观测线：超过 5s 标记 SLOW；terminate-after-slow = false 表示只标记不 kill
+slow-timeout = { period = "5s", terminate-after-slow = false }
+# 重试：首次失败重试 1 次；重试成功输出 FLAKY 标记（配合 periodic-checks.sh --flaky）
+retries = 1
+# 测试线程数：本机 24 核，全量跑测试的默认并发度
+threads = 24
