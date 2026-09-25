@@ -351,3 +351,10 @@ mod handle_tests;
 #[cfg(test)]
 #[path = "config_watcher_select_tests.rs"]
 mod select_tests;
+
+// parse_owner_target whitespace tests (issue #3251) follow the same
+// sibling-module pattern: added, not split out, keeping
+// `config_reload_tests.rs` within the 1000-line limit.
+#[cfg(test)]
+#[path = "config_watcher_owner_target_tests.rs"]
+mod owner_target_tests;
