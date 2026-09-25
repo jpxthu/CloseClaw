@@ -7,6 +7,7 @@
 use super::tests::{
     assert_subscriber_exits, make_config_manager, make_gateway, make_session_manager,
 };
+use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use std::sync::Arc;
 
@@ -84,38 +85,43 @@ async fn test_config_watcher_handle_holds_both_handles() {
         !*handle.shutdown_tx.borrow(),
         "holds_both_handles: shutdown watch value must still be false before consumption"
     );
-    // Watcher field in place: the handle still owns `_watcher` (the sole
-    // holder of the notify `RecommendedWatcher`). Its *liveness* is the
-    // behavioral check below — if the field were dropped or replaced with
-    // a dead watcher, no event would come back.
-    assert!(
-        std::mem::size_of_val(&handle._watcher) > 0,
-        "holds_both_handles: handle must still own the filesystem watcher field"
-    );
+    // `_watcher` is held by the handle as guaranteed by the type system —
+    // no runtime assertion needed; its liveness is proven by the
+    // event-roundtrip behavioral assertion below (rewrite the watched
+    // `system.json` and wait for the config-change event to come back).
 
     // Behavioral evidence that the held watcher is still listening: touch
     // a watched tmp config file and await the resulting config-change
     // event — one bounded channel wait, no sleep/poll (STANDARDS §9).
     // Either event variant proves the pipeline ran while the handle held
     // the watcher; the reload outcome itself is not asserted here (that is
-    // reload-section behavior, not `ConfigWatcherHandle` behavior).
+    // reload-section behavior, not `ConfigWatcherHandle` behavior), but the
+    // event is pinned to the exact rewritten file path.
     let mut event_rx = config_mgr.subscribe_config_changes();
-    std::fs::write(tmp.path().join("system.json"), r#"{"version":"1.0"}"#)
-        .expect("rewrite watched system.json");
+    // Valid System config that differs from the fixture skeleton
+    // (`{"version":"1.0"}`), so the rewrite is a real content change.
+    std::fs::write(
+        tmp.path().join("system.json"),
+        r#"{"update": {"checkOnStart": false}}"#,
+    )
+    .expect("rewrite watched system.json");
     let event = tokio::time::timeout(std::time::Duration::from_secs(5), event_rx.recv())
         .await
-        .unwrap_or_else(|_| {
-            panic!("holds_both_handles: no config event within 5s — held watcher is not listening")
-        })
-        .unwrap_or_else(|e| panic!("holds_both_handles: config change channel failed: {e}"));
-    let section = match event {
-        closeclaw_config::events::ConfigChangeEvent::Reloaded { section, .. }
-        | closeclaw_config::events::ConfigChangeEvent::Failed { section, .. } => section,
+        .expect("holds_both_handles: no config event within 5s — held watcher is not listening")
+        .expect("holds_both_handles: config change channel failed");
+    let (section, path) = match event {
+        ConfigChangeEvent::Reloaded { section, path }
+        | ConfigChangeEvent::Failed { section, path, .. } => (section, path),
     };
     assert_eq!(
         section,
         ConfigSection::System,
         "holds_both_handles: expected the rewritten system.json to surface a System change event"
+    );
+    assert_eq!(
+        path,
+        tmp.path().join("system.json"),
+        "holds_both_handles: change event must carry the rewritten system.json path"
     );
 }
 
@@ -140,12 +146,12 @@ async fn test_config_watcher_handle_into_subscriber_handle() {
     // Subscribe before the move: `into_subscriber_handle(self)` consumes
     // the handle, so a pre-consumption receiver is the only way to
     // witness the signal flip at the exact consumption point.
-    let mut shutdown_rx = handle.shutdown_tx.subscribe();
+    let shutdown_rx = handle.shutdown_tx.subscribe();
 
     // Before: no shutdown signal has been sent yet (the state-transition
     // "before" snapshot — A only ever asserts this side via the sender).
     assert!(
-        !*shutdown_rx.borrow_and_update(),
+        !*shutdown_rx.borrow(),
         "into_subscriber_handle: shutdown signal must still be false before consumption"
     );
 
@@ -158,7 +164,7 @@ async fn test_config_watcher_handle_into_subscriber_handle() {
     // After: the same receiver observes the signal — proof that
     // consumption delivered it (never-sent or pre-sent both fail here).
     assert!(
-        *shutdown_rx.borrow_and_update(),
+        *shutdown_rx.borrow(),
         "into_subscriber_handle: shutdown signal must be true after consumption"
     );
 
