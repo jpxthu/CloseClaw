@@ -110,6 +110,18 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
         is_backgrounded: bool,
         session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+        // Lock the pipe reattachment behavior: the production chain
+        // (`backgroundize_child`) must reattach the taken stdout/stderr
+        // handles before handing the child to the manager. Without the
+        // reattach in `backgroundize_child`, these assertions fail.
+        assert!(
+            child.stdout.is_some(),
+            "child must arrive with its stdout pipe reattached"
+        );
+        assert!(
+            child.stderr.is_some(),
+            "child must arrive with its stderr pipe reattached"
+        );
         reap_child(child).await;
         if self.fail {
             return Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
@@ -120,7 +132,10 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
             state: closeclaw_tasks::TaskState::Running { is_backgrounded },
-            output_path: PathBuf::from("/tmp/closeclaw-backgroundize-tests/output"),
+            // Placeholder only, never written to disk: this fake never
+            // performs output I/O; the backgroundize chain under test
+            // only forwards the path into the result payload.
+            output_path: PathBuf::from("/nonexistent/closeclaw-fake-task-output"),
         };
         self.recorder
             .calls
@@ -380,6 +395,11 @@ async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
     let mut child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     let stdout_handle = child.stdout.take();
     let stderr_handle = child.stderr.take();
+    let handles = ChildHandles {
+        child,
+        stdout_handle,
+        stderr_handle,
+    };
 
     let ctx = ForegroundContext {
         bg_manager: &bg_trait,
@@ -389,7 +409,7 @@ async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
         session_id: "sess-timeout",
         force_terminate: false,
     };
-    let outcome = handle_timeout_expiry(child, stdout_handle, stderr_handle, "sleep 5", &ctx).await;
+    let outcome = handle_timeout_expiry(handles, "sleep 5", &ctx).await;
 
     let (result, task_id) = match outcome {
         ForegroundOutcome::AutoBackground(r, id) => (r, id),
