@@ -6,7 +6,7 @@
 #   每个检查段独立收集退出码，任何一段失败不影响其它段继续执行，
 #   最后统一打印汇总表，退出码 = 失败段数量（0 = 全部通过/SKIP）。
 #
-# 默认配置来自 .config/nextest.toml（slow-timeout 5s / retries 1 / test-threads 24），
+# 默认配置来自 .config/nextest.toml（slow-timeout 5s / retries 1），
 # CLI 参数可覆盖（详见该文件注释）。
 #
 # 工具（cargo-llvm-cov / cargo-deny / cargo-machete / miri / TSAN）缺失时
@@ -334,7 +334,7 @@ do_heavy() (
         ran=1
         local rc=0
         RUSTFLAGS="-Z sanitizer=thread" \
-            cargo +nightly test --workspace --target "$TSAN_TARGET" -- --test-threads=1 || rc=$?
+            cargo +nightly test --workspace --target "$TSAN_TARGET" || rc=$?
         if [[ $rc -eq 0 ]]; then
             echo "[ok] TSAN 通过"
         else

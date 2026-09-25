@@ -19,8 +19,10 @@
 ```bash
 git clone git@github.com:jpxthu/CloseClaw.git
 cd CloseClaw
-cargo build && cargo test
+cargo build && cargo nextest run
 ```
+
+（文档测试 nextest 不覆盖，用 `cargo test --workspace --doc` 补充执行）
 
 环境搭建详见 [docs/SETUP.md](docs/SETUP.md)。
 
@@ -241,7 +243,7 @@ git checkout master && git pull
 git checkout -b <prefix>/<name>
 
 # 2. 开发 + 预检
-cargo fmt && cargo clippy -- -D warnings && cargo test
+cargo fmt && cargo clippy -- -D warnings && cargo nextest run
 
 # 3. 提交
 git commit -m "<type>: 简述
@@ -285,7 +287,7 @@ git checkout master && git pull
 |------|----------|
 | `--slow` | 慢用例清单：nextest 全量，>0.1s / >1s 两档，>5s 额外标记 SLOW |
 | `--flaky` | 不稳定用例：nextest `--retries 1`，汇总重试后转绿的 FLAKY 清单；存在 FLAKY 即该段 FAIL |
-| `--doctest` | 文档测试：`cargo test --workspace --doc`（nextest 不覆盖 doctest） |
+| `--doctest` | 文档测试：`cargo test --workspace --doc`（例外：nextest 不支持 doctest） |
 | `--coverage` | 覆盖率：`cargo llvm-cov nextest --workspace` |
 | `--deps` | 依赖审计：cargo-deny check + cargo-machete |
 | `--heavy` | 重型检查：miri + TSAN（默认跳过，需显式传入，不在 `--all` 内） |

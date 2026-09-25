@@ -139,7 +139,7 @@ impl PersistenceService for RedisStorage {
 #[cfg(test)]
 mod tests {
     // Integration tests for RedisStorage require a running Redis instance.
-    // Run with: cargo test redis_storage -- --ignored
+    // Run with: cargo nextest run redis_storage -- --ignored
     //
     // #[tokio::test]
     // #[ignore]

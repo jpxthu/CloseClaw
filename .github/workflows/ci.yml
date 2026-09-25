@@ -89,11 +89,8 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all -- -D warnings
 
-      - name: Run unit and binary tests
-        run: cargo test --workspace --lib --bins --no-fail-fast
-
-      - name: Run integration tests
-        run: cargo test --workspace --tests --no-fail-fast
+      - name: Run tests (nextest)
+        run: cargo nextest run --workspace --lib --bins --tests --no-fail-fast
 
       - name: Run doc tests
         run: cargo test --workspace --doc --no-fail-fast

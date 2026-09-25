@@ -78,7 +78,7 @@ let provider = FakeProvider::builder()
 
 - 场景能力：`then_ok` / `then_ok_with` / `then_ok_with_cache` / `then_err` / `then_err_with` / `then_delay` / `or_else` / `stub`。
 - 场景按 FIFO 消费，耗尽默认 panic；需要断言「调用被捕获」时用 `captured_requests()` / `drain_requests()` / `clear_requests()`。
-- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo test --features fake-llm` 执行。
+- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo nextest run --features fake-llm` 执行。
 
 ## 6. 超时
 
