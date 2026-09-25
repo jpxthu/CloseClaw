@@ -903,7 +903,7 @@ async fn test_handle_stop_no_pid_and_self_kill() {
 /// Full chain: signal sent → zombie not reaped → wait times out → PID file preserved → Err.
 #[tokio::test]
 async fn test_handle_stop_full_chain_signal_and_timeout() {
-    use closeclaw_cli::admin::handle_stop_at;
+    use closeclaw_cli::admin::handle_stop_at_with_timeout;
     use closeclaw_platform::process::write_pid_file;
     let tmp = TempDir::new().unwrap();
     let pid_file = tmp.path().join("daemon.pid");
@@ -917,7 +917,8 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     let pid = child.id();
     write_pid_file(&pid_file, pid).unwrap();
     assert!(pid_file.exists());
-    let result = handle_stop_at(&pid_file, false).await;
+    let result =
+        handle_stop_at_with_timeout(&pid_file, false, std::time::Duration::from_millis(300)).await;
     assert!(result.is_err(), "should return Err on zombie timeout");
     assert!(pid_file.exists(), "PID file should be preserved on timeout");
     let err_msg = result.unwrap_err().to_string();
@@ -933,7 +934,8 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
     #[cfg(unix)]
     use std::os::unix::process::ExitStatusExt;
     #[cfg(unix)]
-    // Process exited from SIGTERM sent by handle_stop_at (zombie reaped by our kill+wait).
+    // Process exited from SIGTERM sent by handle_stop_at_with_timeout (zombie reaped by our
+    // kill+wait).
     assert!(
         status.signal().is_some(),
         "child should have been killed by signal"
