@@ -455,23 +455,55 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
 /// Verify the two-layer wait pattern: inner grace period (per-task)
 /// and outer join timeout (Phase 3). The inner grace is 10s for
 /// PlanArchiveTask; the outer join timeout in phase_3_background_stop
-/// is also 10s. This test verifies the inner layer works independently.
-#[tokio::test]
+/// is also 10s. This test verifies the inner layer works independently:
+/// a sweep finishing before the grace expires takes the clean completion
+/// branch of `wait_grace_period`'s select (Ok path, no abort), regardless
+/// of the outer join timeout layer.
+///
+/// Runs on a paused tokio clock (`start_paused`): both the slow task's
+/// 5s sleep and the grace period's 10s sleep register timers, so the
+/// auto-advancing clock fires the 5s one first — the task completes
+/// before the grace expires and the select resolves through the
+/// completion branch. The full timing chain — task finishes at 5s,
+/// before the 10s grace, without abort — is genuinely executed while
+/// real wall-clock cost collapses to milliseconds (same approach as
+/// `test_plan_archive_grace_period_abort_on_timeout`).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+#[serial_test::serial]
 async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
-    // A task that completes in 5s (within inner grace of 10s)
-    let slow_task = tokio::task::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // Named task duration for both the sleep and the expected elapsed —
+    // symmetric with the abort-side case expressing its expected duration
+    // via a constant (`ARCHIVE_GRACE_PERIOD_SECS`).
+    const TASK_SECS: u64 = 5;
+
+    // A task that completes in 5s (within inner grace of 10s). The flag
+    // is only set after the sleep, so it proves natural completion — an
+    // abort during the sleep would skip the store entirely.
+    let completed = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&completed);
+    let slow_task = tokio::task::spawn(async move {
+        tokio::time::sleep(tokio::time::Duration::from_secs(TASK_SECS)).await;
+        flag.store(true, Ordering::SeqCst);
     });
 
     let start = tokio::time::Instant::now();
     super::background::PlanArchiveTask::wait_grace_period(Some(slow_task)).await;
     let elapsed = start.elapsed();
 
-    // Should complete in ~5s (task finishes before 10s grace)
+    // Paused clock is deterministic: the 5s task timer fires strictly
+    // before the 10s grace timer, so the select can only exit via the
+    // task completion branch at exactly 5s. The grace branch (abort at
+    // 10s) is the only alternative and would double the elapsed time.
+    assert_eq!(
+        elapsed,
+        tokio::time::Duration::from_secs(TASK_SECS),
+        "select must exit via task completion branch at exactly {TASK_SECS}s, took {elapsed:?}"
+    );
+
+    // Completion-branch proof: the task ran to natural completion and
+    // was never aborted mid-flight.
     assert!(
-        elapsed >= std::time::Duration::from_secs(4)
-            && elapsed <= std::time::Duration::from_secs(7),
-        "slow task should complete within grace, took {:?}",
-        elapsed
+        completed.load(Ordering::SeqCst),
+        "task must complete naturally without abort"
     );
 }
