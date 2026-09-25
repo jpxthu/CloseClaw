@@ -128,18 +128,22 @@ impl closeclaw_tasks::TaskManager for ShortTimeoutBgManager {
 #[tokio::test]
 async fn test_agent_timeout_30s_completes_in_foreground() {
     let tmp = TempDir::new().unwrap();
-    let (outcome, _) = execute_foreground_command(
-        "echo done",
-        tmp.path().to_str().unwrap(),
-        Some(30_000),
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "echo done",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(30_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     // Command completes instantly → foreground result.
     match outcome {
@@ -167,18 +171,21 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
     // test, so we verify the timeout logic indirectly: spawn a child
     // that takes ~1s and check that it does NOT auto-background when
     // bg_timeout (30s) > command duration.
-    let (outcome, _) = execute_foreground_command(
-        "sleep 0.5",
-        tmp.path().to_str().unwrap(),
-        Some(30_000),
-        &bg,
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let ctx = BashExecCtx {
+        command: "sleep 0.5",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(30_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(_) => {
@@ -202,18 +209,22 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
 #[tokio::test]
 async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
     let tmp = TempDir::new().unwrap();
-    let (outcome, _) = execute_foreground_command(
-        "echo capped",
-        tmp.path().to_str().unwrap(),
-        Some(300_000),
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "echo capped",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(300_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -234,18 +245,22 @@ async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
 #[tokio::test]
 async fn test_default_timeout_quick_command_completes() {
     let tmp = TempDir::new().unwrap();
-    let (outcome, _) = execute_foreground_command(
-        "echo default",
-        tmp.path().to_str().unwrap(),
-        None,
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "echo default",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: None,
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -265,18 +280,22 @@ async fn test_default_timeout_quick_command_completes() {
 #[tokio::test]
 async fn test_excluded_command_true_not_auto_backgrounded() {
     let tmp = TempDir::new().unwrap();
-    let (outcome, _) = execute_foreground_command(
-        "true",
-        tmp.path().to_str().unwrap(),
-        None,
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: None,
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -292,18 +311,22 @@ async fn test_excluded_command_true_not_auto_backgrounded() {
 #[tokio::test]
 async fn test_excluded_command_false_not_auto_backgrounded() {
     let tmp = TempDir::new().unwrap();
-    let (outcome, _) = execute_foreground_command(
-        "false",
-        tmp.path().to_str().unwrap(),
-        None,
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "false",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: None,
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -322,18 +345,22 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
     let tmp = TempDir::new().unwrap();
     // sleep is excluded → uses agent_timeout_ms.unwrap_or(120_000).
     // With a short sleep, it should complete in foreground.
-    let (outcome, _) = execute_foreground_command(
-        "sleep 0.1",
-        tmp.path().to_str().unwrap(),
-        None,
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "sleep 0.1",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: None,
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -357,18 +384,22 @@ async fn test_excluded_command_with_agent_timeout_uses_agent_timeout() {
     // White list commands with agent timeout follow the normal
     // clamped logic: min(agent, cap). Quick command completes in
     // foreground since 60s > command duration.
-    let (outcome, _) = execute_foreground_command(
-        "true",
-        tmp.path().to_str().unwrap(),
-        Some(60_000),
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(60_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -390,18 +421,22 @@ async fn test_excluded_command_sleep_with_agent_timeout_auto_backgrounds() {
     let tmp = TempDir::new().unwrap();
     // Agent says 1s timeout, excluded command → normal clamped logic.
     // `sleep 0.5` completes before 1s → foreground completion.
-    let (outcome, _) = execute_foreground_command(
-        "sleep 0.5",
-        tmp.path().to_str().unwrap(),
-        Some(1_000),
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "sleep 0.5",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(1_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -423,18 +458,22 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
     let tmp = TempDir::new().unwrap();
     // `echo` is not excluded; agent specifies 500s → capped to 120s.
     // Quick command completes normally.
-    let (outcome, _) = execute_foreground_command(
-        "echo hello",
-        tmp.path().to_str().unwrap(),
-        Some(500_000),
-        &bg_trait(),
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let bg = bg_trait();
+    let ctx = BashExecCtx {
+        command: "echo hello",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(500_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Completed(result) => {
@@ -478,18 +517,21 @@ async fn test_excluded_command_exceeds_max_execution_force_killed() {
     // makes this test flake as Completed instead of Failed.
     let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 1 });
 
-    let (outcome, _) = execute_foreground_command(
-        "sleep 3",
-        tmp.path().to_str().unwrap(),
-        None, // No agent timeout — whitelist path
-        &bg,
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let ctx = BashExecCtx {
+        command: "sleep 3",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: None,
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::Failed(msg) => {
@@ -518,18 +560,21 @@ async fn test_excluded_command_with_agent_timeout_long_command_backgrounds() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
     // Agent timeout = 1s, sleep takes 5s → should auto-background.
-    let (outcome, _) = execute_foreground_command(
-        "sleep 5",
-        tmp.path().to_str().unwrap(),
-        Some(1_000), // Explicit agent timeout
-        &bg,
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_foreground_command should succeed");
+    let ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(1_000),
+        manual_bg_signal: None,
+    };
+    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+        .await
+        .expect("execute_foreground_command should succeed");
 
     match outcome {
         ForegroundOutcome::AutoBackground(_, _) => {
