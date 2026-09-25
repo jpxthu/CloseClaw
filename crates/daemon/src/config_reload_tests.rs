@@ -519,8 +519,8 @@ async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
 /// [`ConfigManager`], then parse the owner target from it.
 ///
 /// `reload_expect` is the per-case success message for the mandatory
-/// reload step; the per-case `assert_eq!` on the returned value stays in
-/// the calling test (nothing asserted here).
+/// reload step, which this helper checks itself; the per-case `assert_eq!`
+/// on the parsed value stays in the calling test.
 fn parse_owner_target_from(
     system_json: serde_json::Value,
     reload_expect: &str,
@@ -615,7 +615,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
         serde_json::to_string(&system_json).unwrap(),
     )
     .unwrap();
-    let config_mgr = Arc::new(ConfigManager::new(config_dir).unwrap());
+    let config_mgr = make_config_manager(&tmp);
     config_mgr
         .reload_section(ConfigSection::System, None)
         .expect("reload system.json for the owner notification path succeeds");
@@ -712,7 +712,7 @@ impl RegistryHarness {
     /// can retrieve it.
     async fn new() -> Self {
         let tmp = TempDir::new().unwrap();
-        let config_mgr = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
+        let config_mgr = make_config_manager(&tmp);
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
         let skill_registry: Arc<RwLock<Option<closeclaw_skills::DiskSkillRegistry>>> =
             Arc::new(RwLock::new(None));
@@ -818,7 +818,7 @@ async fn test_hot_reload_init_success_with_valid_config_dir() {
         )
         .unwrap();
     }
-    let config_mgr = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
+    let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
     let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
@@ -894,9 +894,7 @@ async fn test_populate_registries_success_with_valid_setup() {
         )
         .unwrap();
     }
-    harness.set_config_mgr(Arc::new(
-        ConfigManager::new(harness.tmp.path().to_path_buf()).unwrap(),
-    ));
+    harness.set_config_mgr(make_config_manager(&harness.tmp));
 
     let ctx = harness.ctx();
     let result = populate_registries(&ctx).await;
