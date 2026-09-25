@@ -1,24 +1,27 @@
 //! Stop handler function for CLI admin.
 
+use std::path::Path;
+use std::time::Duration;
+
 use super::common::{json_output, StopOutput};
 use anyhow::Result;
 
 /// Production default timeout for waiting the daemon to exit after SIGTERM.
-pub const STOP_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+pub const STOP_TIMEOUT: Duration = Duration::from_secs(5);
 
 pub async fn handle_stop(json: bool) -> Result<()> {
     let pid_file = closeclaw_platform::process::pid_file_path()?;
     handle_stop_at(&pid_file, json).await
 }
 
-pub async fn handle_stop_at(pid_file: &std::path::Path, json: bool) -> Result<()> {
+pub async fn handle_stop_at(pid_file: &Path, json: bool) -> Result<()> {
     handle_stop_at_with_timeout(pid_file, json, STOP_TIMEOUT).await
 }
 
 pub async fn handle_stop_at_with_timeout(
-    pid_file: &std::path::Path,
+    pid_file: &Path,
     json: bool,
-    timeout: std::time::Duration,
+    timeout: Duration,
 ) -> Result<()> {
     // Self-kill guard: read PID before calling stop_daemon so we can bail
     // early without side effects.
