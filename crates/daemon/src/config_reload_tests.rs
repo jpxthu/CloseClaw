@@ -473,7 +473,7 @@ async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
 /// timeout whenever the await sits outside the race and passes on the
 /// current structure.
 #[tokio::test]
-async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
+async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();

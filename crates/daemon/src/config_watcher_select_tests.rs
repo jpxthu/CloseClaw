@@ -18,7 +18,7 @@
 //! (deliberately not duplicated): closed channel → `EventOutcome::Exit`
 //! (`test_handle_next_event_exits_on_closed_channel`), shutdown racing an
 //! in-flight event (`test_subscriber_shutdown_signal_concurrent_with_events_no_panic`,
-//! `test_subscriber_shutdown_signal_visible_inside_event_branch`) and
+//! `test_subscriber_shutdown_signal_visible_during_receive_handle`) and
 //! dropped shutdown sender → clean exit
 //! (`test_subscriber_clean_exit_on_shutdown_sender_drop`).
 
