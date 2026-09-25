@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::registries::RegistryContext;
+use crate::test_helpers::load_system_config_manager;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
@@ -526,16 +527,9 @@ fn parse_owner_target_from(
     reload_expect: &str,
 ) -> Option<(String, String)> {
     let tmp = TempDir::new().unwrap();
-    std::fs::write(
-        tmp.path().join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-    // Same construction path as the other tests in this file (config_dir = tmp root).
-    let cm = make_config_manager(&tmp);
-    // Load only System section (others missing, but we only need System)
-    cm.reload_section(ConfigSection::System, None)
-        .expect(reload_expect);
+    // Shared primitive: write system.json + new + reload System only;
+    // config_dir = tmp root, the layout the other tests in this file use.
+    let cm = load_system_config_manager(tmp.path(), system_json, reload_expect);
     parse_owner_target(&cm)
 }
 
@@ -603,21 +597,17 @@ fn test_parse_owner_target_empty_parts() {
 #[tokio::test]
 async fn test_subscriber_failed_event_with_owner_display() {
     let tmp = TempDir::new().unwrap();
-    // Write system.json with owner_display
-    let system_json = serde_json::json!({
-        "commands": {
-            "ownerDisplay": "feishu:oc_test"
-        }
-    });
-    std::fs::write(
-        tmp.path().join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-    let config_mgr = make_config_manager(&tmp);
-    config_mgr
-        .reload_section(ConfigSection::System, None)
-        .expect("reload system.json for the owner notification path succeeds");
+    // Shared primitive: write system.json (owner_display) + new + reload
+    // System only; config_dir = tmp root, the file's usual layout.
+    let config_mgr = Arc::new(load_system_config_manager(
+        tmp.path(),
+        serde_json::json!({
+            "commands": {
+                "ownerDisplay": "feishu:oc_test"
+            }
+        }),
+        "reload system.json for the owner notification path succeeds",
+    ));
 
     let session_mgr = make_session_manager();
     let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
@@ -803,20 +793,7 @@ impl RegistryHarness {
 async fn test_hot_reload_init_success_with_valid_config_dir() {
     let tmp = TempDir::new().unwrap();
     // Write mandatory config files so the watcher has something to watch.
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
+    closeclaw_common::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
@@ -879,20 +856,7 @@ async fn test_populate_registries_success_with_valid_setup() {
     *harness.skill_registry.write().unwrap() = Some(disk_reg);
 
     // Write mandatory config files so the watcher and ConfigManager load correctly.
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            harness.tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
+    closeclaw_common::test_helpers::write_mandatory_configs(harness.tmp.path()).unwrap();
     harness.set_config_mgr(make_config_manager(&harness.tmp));
 
     let ctx = harness.ctx();

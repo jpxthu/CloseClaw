@@ -9,6 +9,7 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_config::manager::ConfigSection;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -120,6 +121,40 @@ pub fn load_cm(
         write_provider_credential(dir, provider, api_key).expect("credential file");
     }
     load_config_manager(dir)
+}
+
+/// Write `<config_dir>/system.json` from `system_json`, build a
+/// [`ConfigManager`] over exactly `config_dir`, then reload **only** the
+/// `System` section into it — shared system-section fixture primitive
+/// (issue #3245), single definition of the sequence
+/// "write system.json → new → reload_section(System)".
+///
+/// Preconditions: `config_dir` must exist (a `TempDir` root, or a subdir
+/// the caller created such as `<tmp>/config`); other section files may be
+/// absent, because only `System` is reloaded and `load()` is never called
+/// (for the full mandatory skeleton see [`make_config_manager`] /
+/// [`write_mandatory_configs`], a different-semantics helper).
+///
+/// Failure handling: serialization, the file write and
+/// `ConfigManager::new` panic here; the `reload_section(System)` failure
+/// panics with the caller-supplied `reload_expect` message, so each call
+/// site keeps its own wording. The returned manager is owned — callers
+/// wrap it in `Arc` or their own fixture struct and keep the `TempDir`
+/// alive themselves.
+pub fn load_system_config_manager(
+    config_dir: &std::path::Path,
+    system_json: serde_json::Value,
+    reload_expect: &str,
+) -> ConfigManager {
+    std::fs::write(
+        config_dir.join("system.json"),
+        serde_json::to_string(&system_json).expect("serialize system.json"),
+    )
+    .expect("write system.json");
+    let cm = ConfigManager::new(config_dir.to_path_buf()).expect("ConfigManager::new");
+    cm.reload_section(ConfigSection::System, None)
+        .expect(reload_expect);
+    cm
 }
 
 // ── Turn-completion consumer test harness ─────────────────────────────────
