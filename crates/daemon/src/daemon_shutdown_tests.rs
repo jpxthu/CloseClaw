@@ -5,6 +5,8 @@
 use crate::shutdown::ShutdownHandle;
 use crate::test_helpers::{kill_self, TestShutdownSignal};
 use closeclaw_common::test_helpers::write_mandatory_configs;
+use closeclaw_config::providers::SystemConfigData;
+use closeclaw_config::{ConfigManager, ConfigSection};
 use std::time::Duration;
 
 /// Test 1: drain waits until busy_count reaches zero before exiting.
@@ -251,19 +253,34 @@ async fn test_drain_timeout_very_short() {
     );
 }
 
+/// Shared fixture for the config-driven shutdown-timeout tests below:
+/// creates a temp config tree (`<tmp>/config/system.json` written from
+/// `system_json`), builds a `ConfigManager`, and reloads the System section.
+/// Returns the `TempDir` guard (keeps the config tree alive for the test)
+/// plus the reloaded manager; the reload expect message is caller-supplied
+/// so each test keeps its own wording.
+fn cm_with_system(
+    system_json: serde_json::Value,
+    reload_expect: &str,
+) -> (tempfile::TempDir, ConfigManager) {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).expect("create config dir");
+    std::fs::write(
+        config_subdir.join("system.json"),
+        serde_json::to_string(&system_json).expect("serialize system.json"),
+    )
+    .expect("write system.json");
+    let cm = ConfigManager::new(config_subdir).expect("ConfigManager::new succeeds");
+    cm.reload_section(ConfigSection::System, None)
+        .expect(reload_expect);
+    (tmp, cm)
+}
+
 /// Per-session graceful timeout reads from config when available.
 /// Verifies the config-based timeout path (reading system.shutdown.gracefulTimeoutSecs).
 #[test]
 fn test_per_session_graceful_timeout_reads_from_config() {
-    use closeclaw_config::providers::SystemConfigData;
-    use closeclaw_config::{ConfigManager, ConfigSection};
-    use tempfile::TempDir;
-
-    let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
-    let config_subdir = config_dir.join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
-
     // Write system.json with custom shutdown config
     let system_json = serde_json::json!({
         "shutdown": {
@@ -271,15 +288,10 @@ fn test_per_session_graceful_timeout_reads_from_config() {
             "gracefulTimeoutSecs": 45
         }
     });
-    std::fs::write(
-        config_subdir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-
-    let cm = ConfigManager::new(config_subdir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json with shutdown timeouts succeeds");
+    let (_tmp, cm) = cm_with_system(
+        system_json,
+        "reload system.json with shutdown timeouts succeeds",
+    );
 
     // Read the timeout the same way phase_2_session_stop does
     let timeout = cm
@@ -299,26 +311,14 @@ fn test_per_session_graceful_timeout_reads_from_config() {
 /// when shutdown config is absent.
 #[test]
 fn test_per_session_graceful_timeout_fallback_to_default() {
-    use closeclaw_config::providers::SystemConfigData;
-    use closeclaw_config::{ConfigManager, ConfigSection};
     use closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
-    use tempfile::TempDir;
-
-    let tmp = TempDir::new().unwrap();
-    let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
 
     // Write system.json WITHOUT shutdown config
     let system_json = serde_json::json!({ "version": "1.0" });
-    std::fs::write(
-        config_subdir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-
-    let cm = ConfigManager::new(config_subdir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json without shutdown config succeeds");
+    let (_tmp, cm) = cm_with_system(
+        system_json,
+        "reload system.json without shutdown config succeeds",
+    );
 
     // Read the timeout the same way phase_2_session_stop does
     let timeout = cm
@@ -330,7 +330,7 @@ fn test_per_session_graceful_timeout_fallback_to_default() {
 
     assert_eq!(
         timeout, DEFAULT_GRACEFUL_TIMEOUT,
-        "should fall back to DEFAULT_GRACEful_TIMEOUT when config is absent"
+        "should fall back to DEFAULT_GRACEFUL_TIMEOUT when config is absent"
     );
 }
 
@@ -338,29 +338,16 @@ fn test_per_session_graceful_timeout_fallback_to_default() {
 /// Verifies the config-based drain timeout path (reading system.shutdown.drainTimeoutSecs).
 #[test]
 fn test_drain_timeout_reads_from_config() {
-    use closeclaw_config::providers::SystemConfigData;
-    use closeclaw_config::{ConfigManager, ConfigSection};
-    use tempfile::TempDir;
-
-    let tmp = TempDir::new().unwrap();
-    let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
-
     let system_json = serde_json::json!({
         "shutdown": {
             "drainTimeoutSecs": 20,
             "gracefulTimeoutSecs": 30
         }
     });
-    std::fs::write(
-        config_subdir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-
-    let cm = ConfigManager::new(config_subdir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json with drain timeout succeeds");
+    let (_tmp, cm) = cm_with_system(
+        system_json,
+        "reload system.json with drain timeout succeeds",
+    );
 
     let drain_timeout = cm
         .section(ConfigSection::System)
