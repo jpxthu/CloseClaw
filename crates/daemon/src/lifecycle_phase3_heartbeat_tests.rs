@@ -436,7 +436,8 @@ async fn test_grace_period_past_boundary_aborts() {
 /// finishes within grace → select takes the completion branch, grace
 /// timer never fires — is genuinely executed end to end, while real
 /// wall-clock cost drops to milliseconds (same-shaped rewrite as
-/// PR #3211 / #3214). The exact elapsed == 5s assertion proves the
+/// PR #3211 / #3214, driven by the issue #3176 unit-test wall-clock
+/// overrun cleanup list). The exact elapsed == 5s assertion proves the
 /// task waited out its own duration and completed naturally, consuming
 /// less than the full grace (a stronger guarantee than the old
 /// "4s–7s" wall-clock window, which was a jitter compromise).
@@ -463,9 +464,7 @@ async fn test_grace_period_halfway_completion_no_abort() {
     }
 
     let elapsed = start.elapsed();
-    // Virtual clock: no jitter — the task completed after waiting out its
-    // own full duration, without consuming the whole grace window (a
-    // stronger guarantee than the old wall-clock tolerance).
+    // Virtual clock: no jitter — exact equality holds.
     assert_eq!(
         elapsed, task_duration,
         "expected task to complete after its own {:?} duration, got {:?}",
