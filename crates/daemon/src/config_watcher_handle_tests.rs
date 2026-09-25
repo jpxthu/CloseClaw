@@ -103,6 +103,7 @@ async fn test_config_watcher_handle_into_subscriber_handle() {
 async fn test_phase3_config_watcher_subscriber_in_task_list() {
     use closeclaw_config::events::ConfigChangeEvent;
     use tokio::sync::broadcast;
+    use tokio::sync::broadcast::error::RecvError;
 
     let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(16);
     let mut subscriber_rx = tx.subscribe();
@@ -111,8 +112,8 @@ async fn test_phase3_config_watcher_subscriber_in_task_list() {
         loop {
             match subscriber_rx.recv().await {
                 Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => break,
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => break,
             }
         }
     });

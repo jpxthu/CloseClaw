@@ -520,6 +520,7 @@ async fn wait_with_heartbeat_sim(
 async fn test_config_watcher_subscriber_exits_on_channel_close() {
     use closeclaw_config::events::ConfigChangeEvent;
     use tokio::sync::broadcast;
+    use tokio::sync::broadcast::error::RecvError;
 
     // Create a broadcast channel to simulate config change events.
     let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(16);
@@ -531,8 +532,8 @@ async fn test_config_watcher_subscriber_exits_on_channel_close() {
         loop {
             match rx.recv().await {
                 Ok(_) => {}
-                Err(broadcast::error::RecvError::Lagged(_)) => {}
-                Err(broadcast::error::RecvError::Closed) => {
+                Err(RecvError::Lagged(_)) => {}
+                Err(RecvError::Closed) => {
                     break;
                 }
             }
@@ -560,6 +561,7 @@ async fn test_config_watcher_subscriber_exits_on_channel_close() {
 async fn test_config_watcher_subscriber_handles_lag() {
     use closeclaw_config::events::ConfigChangeEvent;
     use tokio::sync::broadcast;
+    use tokio::sync::broadcast::error::RecvError;
 
     // Small channel to force lagging
     let (tx, _rx) = broadcast::channel::<ConfigChangeEvent>(2);
@@ -574,10 +576,10 @@ async fn test_config_watcher_subscriber_handles_lag() {
                     // Slow consumer — simulate processing delay
                     tokio::time::sleep(std::time::Duration::from_millis(10)).await;
                 }
-                Err(broadcast::error::RecvError::Lagged(_)) => {
+                Err(RecvError::Lagged(_)) => {
                     // Subscriber lagged — skip missed events, keep running
                 }
-                Err(broadcast::error::RecvError::Closed) => {
+                Err(RecvError::Closed) => {
                     break;
                 }
             }
