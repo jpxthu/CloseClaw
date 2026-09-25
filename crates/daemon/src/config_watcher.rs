@@ -136,6 +136,15 @@ enum EventOutcome {
 ///   owner IM notification abandoned) — matching the shutdown semantics
 ///   of "stop now, stay on the last valid config".
 ///
+/// Symmetric shutdown side — the accounting runs both ways: when this
+/// future wins the race, the in-flight `shutdown_rx.changed()` future is
+/// the one discarded, and that loses no signal: tokio documents
+/// `changed()` as cancel-safe (the discarded call marks no value seen)
+/// and the watch value stays in the channel, so the loop's next
+/// iteration rebuilds the future and `changed()` observes the pending
+/// update right away — the exit decision merely moves to that next
+/// iteration, never away from it.
+///
 /// Shutdown-side invariant (issue #3220): the shutdown watch channel is
 /// only ever driven by `send(true)` or a dropped sender — see
 /// [`shutdown_exit_requested`] — so in production every shutdown-branch
@@ -327,8 +336,8 @@ mod tests;
 mod handle_tests;
 
 // Flattened-select behavior tests (issue #3220) live in a new sibling
-// module — added, not split out — so `config_reload_tests.rs` keeps
-// staying within the 1000-line limit (CONTRIBUTING.md hard cap).
+// module — added, not split out — so `config_reload_tests.rs` stays
+// within the 1000-line limit (CONTRIBUTING.md hard cap).
 #[cfg(test)]
 #[path = "config_watcher_select_tests.rs"]
 mod select_tests;
