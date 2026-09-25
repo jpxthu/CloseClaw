@@ -126,15 +126,23 @@ enum EventOutcome {
 /// owner IM notification) is a point where shutdown is observed.
 ///
 /// Cancellation accounting — a `select!` iteration ends with the losing
-/// branch's future discarded: when the shutdown branch completes, the
-/// in-flight copy of this future goes with it (it never survives into
-/// the next iteration). What that costs depends on how far it got:
+/// branch's future discarded, and the accounting runs both ways: when
+/// the shutdown branch completes, the in-flight copy of this future goes
+/// with it (it never survives into the next iteration) — what that costs
+/// depends on how far it got:
 /// - discarded while awaiting `recv()`: lossless — tokio documents
 ///   broadcast `recv()` as cancel-safe, no buffered event is lost;
 /// - discarded after `recv()` returned: the event goes with its
 ///   in-flight notification (snapshot fetch, session notification or
 ///   owner IM notification abandoned) — matching the shutdown semantics
-///   of "stop now, stay on the last valid config".
+///   of "stop now, stay on the last valid config";
+/// - symmetric shutdown side: when this future wins the race instead,
+///   the in-flight `shutdown_rx.changed()` future is the one discarded,
+///   and that loses no signal: tokio documents `changed()` as cancel-safe
+///   (the discarded call marks no value seen) and the watch value stays
+///   in the channel, so the loop's next iteration rebuilds the future
+///   and `changed()` observes the pending update right away — the exit
+///   decision merely moves to that next iteration, never away from it.
 ///
 /// Shutdown-side invariant (issue #3220): the shutdown watch channel is
 /// only ever driven by `send(true)` or a dropped sender — see
@@ -327,8 +335,8 @@ mod tests;
 mod handle_tests;
 
 // Flattened-select behavior tests (issue #3220) live in a new sibling
-// module — added, not split out — so `config_reload_tests.rs` keeps
-// staying within the 1000-line limit (CONTRIBUTING.md hard cap).
+// module — added, not split out — so `config_reload_tests.rs` stays
+// within the 1000-line limit (CONTRIBUTING.md hard cap).
 #[cfg(test)]
 #[path = "config_watcher_select_tests.rs"]
 mod select_tests;

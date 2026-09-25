@@ -18,7 +18,7 @@
 //! (deliberately not duplicated): closed channel → `EventOutcome::Exit`
 //! (`test_handle_next_event_exits_on_closed_channel`), shutdown racing an
 //! in-flight event (`test_subscriber_shutdown_signal_concurrent_with_events_no_panic`,
-//! `test_subscriber_shutdown_signal_visible_inside_event_branch`) and
+//! `test_subscriber_shutdown_signal_visible_during_receive_handle`) and
 //! dropped shutdown sender → clean exit
 //! (`test_subscriber_clean_exit_on_shutdown_sender_drop`).
 
@@ -110,7 +110,14 @@ async fn test_handle_next_event_failed_notifies_owner_then_continues() {
     )
     .expect("write system.json");
     let config_mgr = make_config_manager(&tmp);
-    let _ = config_mgr.reload_section(ConfigSection::System, None);
+    // Path precondition: the owner-notification path this case exercises only
+    // exists once the System section reload immediately below succeeds —
+    // `parse_owner_target` reads the in-memory System section. Fail fast
+    // instead of letting a failed reload silently degrade the test into a
+    // pass; the notification itself is not asserted (see the doc above).
+    config_mgr
+        .reload_section(ConfigSection::System, None)
+        .expect("reload system.json succeeds");
 
     let session_mgr = make_session_manager();
     let gateway = make_gateway();

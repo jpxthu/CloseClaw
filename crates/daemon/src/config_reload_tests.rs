@@ -272,9 +272,12 @@ async fn test_handle_next_event_exits_on_closed_channel() {
         drop(doomed_mgr);
         event_rx
     };
+    // Pin the exact error variant: `Closed` (all senders dropped) is the
+    // subscriber-exit semantic; `Lagged` would mean backlog drop instead.
+    let probe = closed_event_rx.recv().await;
     assert!(
-        closed_event_rx.recv().await.is_err(),
-        "the config-change channel should be closed after its manager is dropped"
+        matches!(probe, Err(tokio::sync::broadcast::error::RecvError::Closed)),
+        "expected RecvError::Closed after the manager dropped, got {probe:?}"
     );
 
     let mut snapshot_rx = config_mgr.subscribe_config_snapshots();
@@ -473,7 +476,7 @@ async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
 /// timeout whenever the await sits outside the race and passes on the
 /// current structure.
 #[tokio::test]
-async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
+async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
