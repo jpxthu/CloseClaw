@@ -10,7 +10,7 @@
 //!
 //! `RawMessage` was removed; this file now uses `NormalizedMessage`.
 //!
-//! Run with: `cargo test --test integration`
+//! Run with: `cargo nextest run --test integration`
 
 use std::path::PathBuf;
 

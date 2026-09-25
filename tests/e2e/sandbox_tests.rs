@@ -285,7 +285,7 @@ async fn test_sandbox_cannot_spawn_twice() {
     let _ = std::fs::remove_file(&socket_path);
 
     // Spawn should succeed the first time (requires compiled binary)
-    // Note: This test will be skipped in unit test context; run with cargo test --tests
+    // Note: This test will be skipped in unit test context; run with cargo nextest run --tests
     let result = sandbox.spawn().await;
     if result.is_ok() {
         // Verify state is Running

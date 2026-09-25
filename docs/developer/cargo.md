@@ -14,19 +14,22 @@ cargo build --release
 ### Test
 ```bash
 # Run all tests
-cargo test
+cargo nextest run
 
 # Run specific test
-cargo test test_name
+cargo nextest run test_name
 
 # Run with output
-cargo test -- --nocapture
+cargo nextest run -- --nocapture
 
 # Run lib tests only
-cargo test --lib
+cargo nextest run --lib
 
 # Run integration tests
-cargo test --test integration_test_name
+cargo nextest run --test integration_test_name
+
+# Run doc tests (nextest exception: no doctest support)
+cargo test --workspace --doc
 ```
 
 ### Check

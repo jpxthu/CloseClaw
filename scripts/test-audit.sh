@@ -3,9 +3,9 @@
 # test-audit.sh — 静态扫描 + 运行时监控测试合规
 # 用法: scripts/test-audit.sh [--runtime] [--target <pattern>]
 #
-# --runtime    用 strace 包住 cargo test --lib，抓运行时文件写入和网络 syscall
+# --runtime    用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT 只扫描文件路径中包含 PAT 的 .rs 文件（静态）
-#              runtime 模式下同时传递给 cargo test（如 --target permission）
+#              runtime 模式下同时传递给 nextest（如 --target permission）
 
 set -euo pipefail
 
@@ -35,7 +35,7 @@ while [[ $# -gt 0 ]]; do
       echo "用法: $0 [--runtime] [--target <pattern>]"
       echo ""
       echo "选项:"
-      echo "  --runtime       用 strace 包住 cargo test --lib，抓运行时违规"
+      echo "  --runtime       用 strace 包住 cargo nextest run --lib，抓运行时违规"
       echo "  --target PAT    过滤扫描/测试范围"
       exit 0
       ;;
@@ -60,15 +60,15 @@ if [[ $RUNTIME -eq 1 ]]; then
 
   TRACE_LOG="/tmp/test-audit-trace-$$.log"
 
-  # 构建 cargo test 命令
-  CARGO_ARGS=(--lib)
+  # 构建 nextest 命令
+  CARGO_ARGS=(nextest run --lib)
   if [[ -n "$TARGET_FILTER" ]]; then
     CARGO_ARGS+=(-- "$TARGET_FILTER")
   fi
 
-  echo "[test-audit] 运行时监控: strace cargo test ${CARGO_ARGS[*]}" >&2
+  echo "[test-audit] 运行时监控: strace cargo ${CARGO_ARGS[*]}" >&2
 
-  # 执行 strace 包裹 cargo test
+  # 执行 strace 包裹 cargo nextest
   set +e
   strace -f -e trace=openat,creat,mkdir,rmdir,unlink,rename,socket,connect \
     -o "$TRACE_LOG" \
@@ -119,9 +119,9 @@ if [[ $RUNTIME -eq 1 ]]; then
     rm -f "$TRACE_LOG"
   fi
 
-  # 检查 cargo test 本身是否失败
+  # 检查 nextest 本身是否失败
   if [[ $STRACE_EXIT -ne 0 ]]; then
-    echo "[test-audit] 警告: cargo test 退出码 ${STRACE_EXIT}" >&2
+    echo "[test-audit] 警告: cargo nextest run 退出码 ${STRACE_EXIT}" >&2
   fi
 
   echo "[test-audit] 运行时监控完成" >&2

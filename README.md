@@ -3,7 +3,7 @@
 轻量级、规则驱动的多 agent 执行框架。Rust + Tokio。
 
 ```bash
-cargo build && cargo test
+cargo build && cargo nextest run
 ```
 
 ## 模块地图

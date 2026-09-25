@@ -53,7 +53,10 @@ cargo build
 cargo build --release
 
 # 运行测试
-cargo test
+cargo nextest run
+
+# 运行文档测试（nextest 例外：不支持 doctest）
+cargo test --workspace --doc
 
 # 运行并显示输出
 cargo run -- [args]
@@ -180,7 +183,10 @@ cargo run --release -- stop
 cargo check
 
 # 运行所有测试
-cargo test
+cargo nextest run
+
+# 运行文档测试（nextest 例外：不支持 doctest）
+cargo test --workspace --doc
 
 # 查看所有内置 skills
 cargo run -- skill list

@@ -5,7 +5,7 @@
 //! expected output fixture, then asserts the cleaner produces the expected
 //! content + metadata.
 //!
-//! Run with: `cargo test --test feishu_message_cleaner_tests`
+//! Run with: `cargo nextest run --test feishu_message_cleaner_tests`
 //!
 //! NOTE: These tests were adapted from the old `im::processor` module
 //! (Step 1.4). The old `clean_feishu_message` function was removed along
