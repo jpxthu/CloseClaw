@@ -110,7 +110,12 @@ async fn test_handle_next_event_failed_notifies_owner_then_continues() {
     )
     .expect("write system.json");
     let config_mgr = make_config_manager(&tmp);
-    let _ = config_mgr.reload_section(ConfigSection::System, None);
+    // Explicit precondition: the owner-notify assertion below only holds when
+    // the system.json reload above succeeded — fail fast instead of letting a
+    // failed reload silently degrade the test into a pass.
+    config_mgr
+        .reload_section(ConfigSection::System, None)
+        .expect("reload system.json succeeds");
 
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
