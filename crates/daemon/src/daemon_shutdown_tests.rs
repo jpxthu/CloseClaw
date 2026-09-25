@@ -3,8 +3,8 @@
 //! Covers ShutdownHandle drain state machine scenarios.
 
 use crate::shutdown::ShutdownHandle;
-use crate::test_helpers::{kill_self, TestShutdownSignal};
-use closeclaw_common::test_helpers::write_mandatory_configs;
+use crate::test_helpers::write_mandatory_configs;
+use crate::test_helpers::{kill_self, load_system_config_manager, TestShutdownSignal};
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigManager, ConfigSection};
 use std::path::PathBuf;
@@ -267,21 +267,18 @@ struct SystemFixture {
 
 /// Shared fixture for the config-driven shutdown-timeout tests below:
 /// creates a temp config tree (`<tmp>/config/system.json` written from
-/// `system_json`), builds a `ConfigManager`, and reloads the System section.
+/// `system_json`), builds a `ConfigManager`, and reloads the System section
+/// — the middle sequence is delegated to the shared primitive
+/// [`crate::test_helpers::load_system_config_manager`].
 /// Returns a [`SystemFixture`]: bind the whole value (e.g. `let fixture = …`)
 /// so `_guard` stays alive for the test; the reload expect message is
 /// caller-supplied so each test keeps its own wording.
 fn system_fixture(system_json: serde_json::Value, reload_expect: &str) -> SystemFixture {
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let config_subdir = temp_config_dir(&tmp);
-    std::fs::write(
-        config_subdir.join("system.json"),
-        serde_json::to_string(&system_json).expect("serialize system.json"),
-    )
-    .expect("write system.json");
-    let cm = ConfigManager::new(config_subdir).expect("ConfigManager::new succeeds");
-    cm.reload_section(ConfigSection::System, None)
-        .expect(reload_expect);
+    // Thin wrapper: keep the `<tmp>/config` layout and the TempDir guard;
+    // write system.json + new + reload System only lives in the primitive.
+    let cm = load_system_config_manager(&config_subdir, system_json, reload_expect);
     SystemFixture { _guard: tmp, cm }
 }
 
