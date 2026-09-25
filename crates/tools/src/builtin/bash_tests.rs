@@ -452,18 +452,6 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     assert_eq!(snapshot.command, "echo run_in_bg");
     assert!(matches!(snapshot.state, TaskState::Running { .. }));
     assert!(bg_manager.is_running(task_id).await);
-
-    // Wait for completion so the spawned tokio task is dropped before
-    // the test exits (avoids leaving an orphan in CI).
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if !bg_manager.is_running(task_id).await {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    })
-    .await;
 }
 
 #[tokio::test]
@@ -498,17 +486,6 @@ async fn test_execute_command_run_in_background_with_long_command() {
     // Task is registered as Running (the actual command failure is
     // observed asynchronously in the spawned task).
     assert!(bg_manager.is_running(task_id).await);
-
-    // Wait for the spawned task to settle into a Failed state.
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(5), async {
-        loop {
-            if !bg_manager.is_running(task_id).await {
-                return;
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-        }
-    })
-    .await;
 }
 
 // --- handle_foreground_result: auto-background path ---
