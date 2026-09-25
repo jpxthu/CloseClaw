@@ -532,7 +532,8 @@ fn test_parse_owner_target_valid() {
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
     // Load only System section (others missing, but we only need System)
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(
@@ -554,7 +555,8 @@ fn test_parse_owner_target_not_configured() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json without owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -577,7 +579,8 @@ fn test_parse_owner_target_invalid_format() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with malformed owner_display succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -599,7 +602,8 @@ fn test_parse_owner_target_empty_parts() {
     )
     .unwrap();
     let cm = ConfigManager::new(config_dir).unwrap();
-    let _ = cm.reload_section(ConfigSection::System, None);
+    cm.reload_section(ConfigSection::System, None)
+        .expect("reload system.json with empty owner_display parts succeeds");
 
     let result = parse_owner_target(&cm);
     assert_eq!(result, None);
@@ -625,7 +629,9 @@ async fn test_subscriber_failed_event_with_owner_display() {
     )
     .unwrap();
     let config_mgr = Arc::new(ConfigManager::new(config_dir).unwrap());
-    let _ = config_mgr.reload_section(ConfigSection::System, None);
+    config_mgr
+        .reload_section(ConfigSection::System, None)
+        .expect("reload system.json for the owner notification path succeeds");
 
     let session_mgr = make_session_manager();
     let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, session_mgr);
