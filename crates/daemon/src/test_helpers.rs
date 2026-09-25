@@ -171,6 +171,102 @@ pub fn load_system_config_manager(
     cm
 }
 
+// ── load_system_config_manager contract tests (issue #3245) ──────────────
+
+/// Contract — happy path: the manager returned by the primitive has the
+/// `System` section cached with the written value intact.
+#[test]
+fn test_load_system_config_manager_loads_system_section() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let system_json = serde_json::json!({
+        "version": "1.0",
+        "commands": { "ownerDisplay": "feishu:oc_contract" }
+    });
+    let cm = load_system_config_manager(tmp.path(), system_json, "reload succeeds");
+    let system = cm
+        .section(ConfigSection::System)
+        .expect("System section must be cached after the primitive's reload");
+    assert_eq!(
+        system["commands"]["ownerDisplay"],
+        serde_json::json!("feishu:oc_contract"),
+        "System section must reflect the value the primitive wrote to system.json"
+    );
+}
+
+/// Contract — layout variant: `config_dir` as the TempDir root (the
+/// config_reload_tests caller layout) exposes exactly the written value.
+#[test]
+fn test_load_system_config_manager_root_layout() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let cm = load_system_config_manager(
+        tmp.path(),
+        serde_json::json!({ "version": "1.0", "source": "root-layout" }),
+        "reload succeeds",
+    );
+    assert_eq!(
+        cm.section(ConfigSection::System).expect("System section"),
+        serde_json::json!({ "version": "1.0", "source": "root-layout" }),
+        "root-layout config_dir must expose exactly the written system.json"
+    );
+    // Only System is reloaded — no other section may silently appear (the
+    // primitive must not run a full load(), which would need the skeleton).
+    assert_eq!(
+        cm.section(ConfigSection::Gateway),
+        None,
+        "primitive reloads only System; Gateway must stay absent"
+    );
+}
+
+/// Contract — layout variant: `config_dir` as a `<tmp>/config` subdir (the
+/// daemon_shutdown_tests caller layout) exposes exactly the written value.
+#[test]
+fn test_load_system_config_manager_config_subdir_layout() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let config_subdir = tmp.path().join("config");
+    std::fs::create_dir_all(&config_subdir).expect("create <tmp>/config");
+    let cm = load_system_config_manager(
+        &config_subdir,
+        serde_json::json!({ "version": "1.0", "source": "subdir-layout" }),
+        "reload succeeds",
+    );
+    assert_eq!(
+        cm.section(ConfigSection::System).expect("System section"),
+        serde_json::json!({ "version": "1.0", "source": "subdir-layout" }),
+        "<tmp>/config layout must expose exactly the written system.json"
+    );
+}
+
+/// Contract — error path: a `reload_section(System)` failure panics with
+/// the **caller-supplied** `reload_expect` message (the branch call sites
+/// rely on), not with one of the primitive's own expect labels.
+///
+/// The primitive serializes `system_json` itself, so the file it writes is
+/// always valid JSON — parse failures are unreachable by construction. The
+/// reachable failure mode is I/O: `fs::write` needs only the write bit,
+/// while the reload's `read_to_string` needs the read bit, so a
+/// **write-only** (mode 0o200) pre-existing `system.json` is overwritten by
+/// the primitive yet fails to read back → `ConfigLoadError::IoError` → the
+/// `reload_expect` panic asserted below.
+#[test]
+#[should_panic(expected = "reload failure must surface the caller-supplied message")]
+fn test_load_system_config_manager_reload_failure_uses_caller_message() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let seeded = tmp.path().join("system.json");
+    std::fs::write(&seeded, r#"{"version":"1.0"}"#).expect("seed system.json");
+    let mut perms = std::fs::metadata(&seeded)
+        .expect("stat system.json")
+        .permissions();
+    perms.set_mode(0o200); // owner-write-only: writable for fs::write, unreadable for reload
+    std::fs::set_permissions(&seeded, perms).expect("make system.json write-only");
+    load_system_config_manager(
+        tmp.path(),
+        serde_json::json!({ "version": "1.0" }),
+        "reload failure must surface the caller-supplied message",
+    );
+}
+
 // ── Turn-completion consumer test harness ─────────────────────────────────
 
 /// Shared setup result for turn-completion consumer tests
