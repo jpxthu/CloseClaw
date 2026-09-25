@@ -119,17 +119,53 @@ async fn test_config_watcher_handle_holds_both_handles() {
     );
 }
 
-/// `into_subscriber_handle()` drops the filesystem watcher and returns
-/// the subscriber JoinHandle so callers can join it in Phase 3.
+/// Consumption period (issue #3247): consuming the handle with
+/// [`super::ConfigWatcherHandle::into_subscriber_handle`] delivers the
+/// shutdown signal at the consumption point and returns the subscriber
+/// JoinHandle for Phase 3 to join:
+///
+/// - state transition: a receiver subscribed *before* consumption sees
+///   the shutdown watch value flip `false` → `true` — the signal is sent
+///   by the consumption itself, not earlier and not never;
+/// - normal path: the returned JoinHandle is the subscriber task and it
+///   exits cleanly (bounded wait, clean join — no panic/abort).
+///
+/// Distinct from [`test_config_watcher_handle_holds_both_handles`], which
+/// covers the holding period (both handles still owned, signal still
+/// `false`, watcher still listening) and never consumes the handle.
 #[tokio::test]
 async fn test_config_watcher_handle_into_subscriber_handle() {
     let (_tmp, _config_mgr, handle) = setup_hot_reload();
 
-    // into_subscriber_handle() drops the watcher and sends the shutdown
-    // signal in one step — the subscriber must exit cleanly within the
-    // timeout (issue #3176 B16: no more timeout-abort reliance in Phase 3).
+    // Subscribe before the move: `into_subscriber_handle(self)` consumes
+    // the handle, so a pre-consumption receiver is the only way to
+    // witness the signal flip at the exact consumption point.
+    let mut shutdown_rx = handle.shutdown_tx.subscribe();
+
+    // Before: no shutdown signal has been sent yet (the state-transition
+    // "before" snapshot — A only ever asserts this side via the sender).
+    assert!(
+        !*shutdown_rx.borrow_and_update(),
+        "into_subscriber_handle: shutdown signal must still be false before consumption"
+    );
+
+    // Consuming the handle drops the filesystem watcher (RAII stop) and
+    // sends `shutdown = true` in one step, returning the subscriber
+    // JoinHandle (issue #3176 B16: Phase 3 joins it instead of
+    // timeout-aborting).
     let subscriber = handle.into_subscriber_handle();
-    assert_subscriber_exits(subscriber, 2, "into_subscriber_handle() signal").await;
+
+    // After: the same receiver observes the signal — proof that
+    // consumption delivered it (never-sent or pre-sent both fail here).
+    assert!(
+        *shutdown_rx.borrow_and_update(),
+        "into_subscriber_handle: shutdown signal must be true after consumption"
+    );
+
+    // Normal path: the returned handle is the subscriber and it exits
+    // cleanly; context string is B-specific so A/B failures stay
+    // distinguishable (A uses `holds_both_handles:` prefixes).
+    assert_subscriber_exits(subscriber, 2, "into_subscriber_handle clean exit").await;
 }
 
 /// Phase 3: ConfigWatcher subscriber is included in the 5-task background
