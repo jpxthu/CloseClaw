@@ -770,8 +770,6 @@ async fn execute_background_command(ctx: &BashExecCtx<'_>) -> Result<ToolResult,
     if let (Some(s), Some(cid)) = (ctx.session, ctx.call_id) {
         s.update_tool_state(cid, ToolExecState::RunningBackground)
             .await;
-        s.update_tool_state(cid, ToolExecState::RunningBackground)
-            .await;
         if let Err(e) = s.persist_pending_checkpoint().await {
             tracing::warn!(
                 session_id = %cid,
