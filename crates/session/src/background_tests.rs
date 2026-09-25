@@ -492,7 +492,7 @@ async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     assert_eq!(
         elapsed,
         tokio::time::Duration::from_secs(5),
-        "slow task should complete within grace, took {:?}",
+        "select must exit via task completion branch at exactly 5s, took {:?}",
         elapsed
     );
 
