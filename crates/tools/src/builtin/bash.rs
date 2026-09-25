@@ -904,6 +904,10 @@ async fn execute_command(
 mod approval_tests;
 
 #[cfg(test)]
+#[path = "bash_backgroundize_tests.rs"]
+mod backgroundize_tests;
+
+#[cfg(test)]
 #[path = "bash_gap_tests.rs"]
 mod gap_tests;
 
