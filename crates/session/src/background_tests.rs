@@ -504,6 +504,6 @@ async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     // was never aborted mid-flight.
     assert!(
         completed.load(Ordering::SeqCst),
-        "task must complete naturally (no abort) within the grace period"
+        "task must complete naturally without abort"
     );
 }
