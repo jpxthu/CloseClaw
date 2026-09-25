@@ -101,7 +101,7 @@ async fn test_drain_signal_broadcast() {
 }
 
 /// Returns the `<tmp>/config` directory (created if missing): the config-tree
-/// root shared by [`daemon_test_temp_config`] and [`cm_with_system`]. Only
+/// root shared by [`daemon_test_temp_config`] and [`system_fixture`]. Only
 /// creates the directory — each fixture adds its own skeleton files.
 fn temp_config_dir(temp_dir: &tempfile::TempDir) -> PathBuf {
     let config_dir = temp_dir.path().join("config");
@@ -256,7 +256,7 @@ async fn test_drain_timeout_very_short() {
     );
 }
 
-/// Named-field fixture returned by [`cm_with_system`]: `_guard` keeps the
+/// Named-field fixture returned by [`system_fixture`]: `_guard` keeps the
 /// temp config tree alive for the whole test — a named field, so the
 /// keep-alive cannot be silently lost the way a wildcard tuple destructure
 /// would — and `cm` is the reloaded manager under test.
@@ -271,7 +271,7 @@ struct SystemFixture {
 /// Returns a [`SystemFixture`]: bind the whole value (e.g. `let fixture = …`)
 /// so `_guard` stays alive for the test; the reload expect message is
 /// caller-supplied so each test keeps its own wording.
-fn cm_with_system(system_json: serde_json::Value, reload_expect: &str) -> SystemFixture {
+fn system_fixture(system_json: serde_json::Value, reload_expect: &str) -> SystemFixture {
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let config_subdir = temp_config_dir(&tmp);
     std::fs::write(
@@ -296,7 +296,7 @@ fn test_per_session_graceful_timeout_reads_from_config() {
             "gracefulTimeoutSecs": 45
         }
     });
-    let fixture = cm_with_system(
+    let fixture = system_fixture(
         system_json,
         "reload system.json with shutdown timeouts succeeds",
     );
@@ -324,7 +324,7 @@ fn test_per_session_graceful_timeout_fallback_to_default() {
 
     // Write system.json WITHOUT shutdown config
     let system_json = serde_json::json!({ "version": "1.0" });
-    let fixture = cm_with_system(
+    let fixture = system_fixture(
         system_json,
         "reload system.json without shutdown config succeeds",
     );
@@ -354,7 +354,7 @@ fn test_drain_timeout_reads_from_config() {
             "gracefulTimeoutSecs": 30
         }
     });
-    let fixture = cm_with_system(
+    let fixture = system_fixture(
         system_json,
         "reload system.json with drain timeout succeeds",
     );

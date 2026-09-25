@@ -372,7 +372,7 @@ async fn test_subscriber_handles_lagged_events() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.2 — subscriber shutdown signal behavior tests (issue #3176 B16)
+// Subscriber shutdown signal behavior tests (issue #3176 B16)
 // ---------------------------------------------------------------------------
 
 /// ① Normal path: after `shutdown_tx.send(true)`, the subscriber exits
@@ -465,7 +465,7 @@ async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
     assert_subscriber_exits(subscriber, 2, "shutdown sender dropped").await;
 }
 
-/// ④ Regression (Step 1.5, E2 Review-B): the shutdown signal must be
+/// ④ Regression (E2 Review-B): the shutdown signal must be
 /// visible **while** the subscriber is inside the receive+handle future.
 ///
 /// A bare `notify_change(Reloaded)` publishes no snapshot, so
@@ -646,7 +646,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.2 — Hot-reload error propagation tests
+// Hot-reload error propagation tests
 // ---------------------------------------------------------------------------
 
 /// Shared test harness owning all dependencies required to build a

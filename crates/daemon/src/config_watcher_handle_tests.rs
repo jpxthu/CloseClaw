@@ -8,7 +8,7 @@ use super::tests::{assert_subscriber_exits, make_gateway, make_session_manager};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
-// Step 1.7 — ConfigWatcherHandle tests
+// ConfigWatcherHandle tests
 // ---------------------------------------------------------------------------
 
 /// ConfigWatcherHandle holds both the watcher and subscriber handles.

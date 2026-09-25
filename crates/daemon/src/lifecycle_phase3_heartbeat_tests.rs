@@ -1,7 +1,7 @@
-//! Step 1.4 tests: Phase 3 heartbeat periodicity, stop confirmation,
+//! Phase 3 heartbeat tests: periodicity, stop confirmation,
 //! and grace period boundary behavior.
 //!
-//! Step 1.5 additions: real behavior verification tests replacing
+//! Real behavior verification tests replacing
 //! trivial filter-count tests, and direct tests for
 //! `wait_for_background_task_with_heartbeat`.
 
@@ -510,7 +510,7 @@ async fn wait_with_heartbeat_sim(
 }
 
 // =====================================================================
-// Step 1.3: ConfigWatcher subscriber stop confirmation
+// ConfigWatcher subscriber stop confirmation
 // =====================================================================
 
 /// ConfigWatcher subscriber exits cleanly when the broadcast channel
