@@ -150,12 +150,9 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
         Ok(task)
     }
 
-    async fn kill_task(&self, task_id: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
-        self.recorder
-            .tasks
-            .lock()
-            .unwrap()
-            .retain(|t| t.id != task_id);
+    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+        // Deliberately a no-op: this suite never exercises the kill
+        // chain, so there is nothing meaningful to record or remove.
         Ok(())
     }
 
