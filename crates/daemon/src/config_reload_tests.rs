@@ -514,17 +514,19 @@ async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
 // Gap 2 — IM notification on config reload failure
 // ---------------------------------------------------------------------------
 
-/// parse_owner_target correctly parses a valid owner_display value.
-#[test]
-fn test_parse_owner_target_valid() {
+/// Shared setup for the `parse_owner_target_*` cases: write `system.json`
+/// with the per-case payload, load the `System` section into a fresh
+/// [`ConfigManager`], then parse the owner target from it.
+///
+/// `reload_expect` is the per-case success message for the mandatory
+/// reload step; the per-case `assert_eq!` on the returned value stays in
+/// the calling test (nothing asserted here).
+fn parse_owner_target_from(
+    system_json: serde_json::Value,
+    reload_expect: &str,
+) -> Option<(String, String)> {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_path_buf();
-    // Write system.json with owner_display
-    let system_json = serde_json::json!({
-        "commands": {
-            "ownerDisplay": "feishu:oc_xxx123"
-        }
-    });
     std::fs::write(
         config_dir.join("system.json"),
         serde_json::to_string(&system_json).unwrap(),
@@ -533,9 +535,21 @@ fn test_parse_owner_target_valid() {
     let cm = ConfigManager::new(config_dir).unwrap();
     // Load only System section (others missing, but we only need System)
     cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json with owner_display succeeds");
+        .expect(reload_expect);
+    parse_owner_target(&cm)
+}
 
-    let result = parse_owner_target(&cm);
+/// parse_owner_target correctly parses a valid owner_display value.
+#[test]
+fn test_parse_owner_target_valid() {
+    let result = parse_owner_target_from(
+        serde_json::json!({
+            "commands": {
+                "ownerDisplay": "feishu:oc_xxx123"
+            }
+        }),
+        "reload system.json with owner_display succeeds",
+    );
     assert_eq!(
         result,
         Some(("feishu".to_string(), "oc_xxx123".to_string()))
@@ -545,67 +559,40 @@ fn test_parse_owner_target_valid() {
 /// parse_owner_target returns None when owner_display is not configured.
 #[test]
 fn test_parse_owner_target_not_configured() {
-    let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
     // Write system.json without owner_display
-    let system_json = serde_json::json!({ "version": "1.0" });
-    std::fs::write(
-        config_dir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-    let cm = ConfigManager::new(config_dir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json without owner_display succeeds");
-
-    let result = parse_owner_target(&cm);
+    let result = parse_owner_target_from(
+        serde_json::json!({ "version": "1.0" }),
+        "reload system.json without owner_display succeeds",
+    );
     assert_eq!(result, None);
 }
 
 /// parse_owner_target returns None for invalid owner_display format.
 #[test]
 fn test_parse_owner_target_invalid_format() {
-    let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
     // Missing colon separator
-    let system_json = serde_json::json!({
-        "commands": {
-            "ownerDisplay": "no-colon-here"
-        }
-    });
-    std::fs::write(
-        config_dir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-    let cm = ConfigManager::new(config_dir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json with malformed owner_display succeeds");
-
-    let result = parse_owner_target(&cm);
+    let result = parse_owner_target_from(
+        serde_json::json!({
+            "commands": {
+                "ownerDisplay": "no-colon-here"
+            }
+        }),
+        "reload system.json with malformed owner_display succeeds",
+    );
     assert_eq!(result, None);
 }
 
 /// parse_owner_target returns None when owner_display has empty parts.
 #[test]
 fn test_parse_owner_target_empty_parts() {
-    let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
-    let system_json = serde_json::json!({
-        "commands": {
-            "ownerDisplay": ":oc_xxx"
-        }
-    });
-    std::fs::write(
-        config_dir.join("system.json"),
-        serde_json::to_string(&system_json).unwrap(),
-    )
-    .unwrap();
-    let cm = ConfigManager::new(config_dir).unwrap();
-    cm.reload_section(ConfigSection::System, None)
-        .expect("reload system.json with empty owner_display parts succeeds");
-
-    let result = parse_owner_target(&cm);
+    let result = parse_owner_target_from(
+        serde_json::json!({
+            "commands": {
+                "ownerDisplay": ":oc_xxx"
+            }
+        }),
+        "reload system.json with empty owner_display parts succeeds",
+    );
     assert_eq!(result, None);
 }
 
