@@ -15,6 +15,7 @@ use closeclaw_tasks::{
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use tempfile::TempDir;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 
 // ── Mock TaskManager ────────────────────────────────────────────────────────
@@ -276,7 +277,7 @@ async fn test_handle_next_event_exits_on_closed_channel() {
     // subscriber-exit semantic; `Lagged` would mean backlog drop instead.
     let probe = closed_event_rx.recv().await;
     assert!(
-        matches!(probe, Err(tokio::sync::broadcast::error::RecvError::Closed)),
+        matches!(probe, Err(RecvError::Closed)),
         "expected RecvError::Closed after the manager dropped, got {probe:?}"
     );
 
@@ -357,10 +358,10 @@ async fn test_subscriber_handles_lagged_events() {
         match rx.recv().await {
             Ok(ConfigChangeEvent::Reloaded { .. }) => {}
             Ok(ConfigChangeEvent::Failed { .. }) => {}
-            Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => {
+            Err(RecvError::Lagged(_)) => {
                 got_lagged = true;
             }
-            Err(tokio::sync::broadcast::error::RecvError::Closed) => break,
+            Err(RecvError::Closed) => break,
         }
     }
     // With capacity 1 and 10 sends, lag must have occurred.
