@@ -104,6 +104,15 @@ enum EventOutcome {
     /// Keep waiting for further config-change events.
     Continue,
     /// The config-change broadcast channel closed — exit the subscriber.
+    ///
+    /// Structural evaluation (issue #3220): defensive, unreachable in
+    /// production. The subscriber task holds `Arc<ConfigManager>` for its
+    /// whole lifetime and the broadcast sender lives inside that manager,
+    /// so the channel cannot close while the loop runs (pinned by
+    /// `test_handle_next_event_exits_on_closed_channel` and
+    /// `test_subscriber_keeps_config_manager_alive`). The `Arc` holding
+    /// is deliberately kept — switching to `Weak` would change lifetime
+    /// semantics beyond this behavior-equivalent refactor.
     Exit,
 }
 
@@ -121,6 +130,11 @@ enum EventOutcome {
 /// `recv()` as cancel-safe), and cancelling a notification drops that
 /// notification — matching the shutdown semantics of "stop now, stay on
 /// the last valid config".
+///
+/// Shutdown-side invariant (issue #3220): the shutdown watch channel is
+/// only ever driven by `send(true)` or a dropped sender — see
+/// [`shutdown_exit_requested`] — so the shutdown branch never cancels
+/// this future without the loop exiting afterwards.
 async fn handle_next_event(
     event_rx: &mut tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
     config_manager: &ConfigManager,
@@ -181,6 +195,7 @@ async fn handle_next_event(
             warn!(missed = n, "config change subscriber lagged, missed events");
         }
         Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+            // Defensive, production-unreachable — see `EventOutcome::Exit`.
             info!("config change broadcast channel closed, subscriber exiting");
             return EventOutcome::Exit;
         }
@@ -196,8 +211,21 @@ async fn handle_next_event(
 /// shutdown signal, while a `changed()` error (shutdown sender dropped —
 /// RAII drop of `ConfigWatcherHandle` without `into_subscriber_handle`)
 /// logs a dropped sender. The explicit-shutdown check runs first so a
-/// send-then-drop sequence reports the explicit signal. A `false` update
-/// keeps the loop running.
+/// send-then-drop sequence reports the explicit signal.
+///
+/// Invariant (issue #3220): production drives this channel with exactly
+/// two transitions — `send(true)` from `into_subscriber_handle` (the
+/// only production write site) or the sender being dropped (RAII drop
+/// of `ConfigWatcherHandle` without `into_subscriber_handle`). Nothing
+/// sends `false` on this channel, so a `false` update does not exist in
+/// production. Consequently the final `else` (value still `false`, sender still
+/// alive) is a defensive arm meaning "no shutdown requested yet", not a
+/// supported update: it returns `false` and the loop re-arms its
+/// `select!`. Re-arming cancels the in-flight [`handle_next_event`]
+/// future (only its `recv()` stage is cancel-safe), so a hypothetical
+/// `false` write would abort a partially handled event while leaving the
+/// loop alive — that inconsistency is why `false` writes are excluded
+/// by invariant; this arm only answers "has shutdown been requested?".
 fn shutdown_exit_requested(
     result: Result<(), watch::error::RecvError>,
     shutdown_rx: &watch::Receiver<bool>,
