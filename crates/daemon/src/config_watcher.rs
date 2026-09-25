@@ -138,6 +138,7 @@ enum EventOutcome {
 ///   in-flight notification (snapshot fetch, session notification or
 ///   owner IM notification abandoned) — matching the shutdown semantics
 ///   of "stop now, stay on the last valid config".
+///
 /// The symmetric shutdown side loses no signal: tokio documents
 /// `changed()` as cancel-safe (the discarded call marks no value seen)
 /// and the watch value stays in the channel, so the loop's next
