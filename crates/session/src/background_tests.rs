@@ -471,13 +471,18 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
+    // Named task duration for both the sleep and the expected elapsed —
+    // symmetric with the abort-side case expressing its expected duration
+    // via a constant (`ARCHIVE_GRACE_PERIOD_SECS`).
+    const TASK_SECS: u64 = 5;
+
     // A task that completes in 5s (within inner grace of 10s). The flag
     // is only set after the sleep, so it proves natural completion — an
     // abort during the sleep would skip the store entirely.
     let completed = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&completed);
     let slow_task = tokio::task::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(TASK_SECS)).await;
         flag.store(true, Ordering::SeqCst);
     });
 
@@ -491,9 +496,8 @@ async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     // 10s) is the only alternative and would double the elapsed time.
     assert_eq!(
         elapsed,
-        tokio::time::Duration::from_secs(5),
-        "select must exit via task completion branch at exactly 5s, took {:?}",
-        elapsed
+        tokio::time::Duration::from_secs(TASK_SECS),
+        "select must exit via task completion branch at exactly {TASK_SECS}s, took {elapsed:?}"
     );
 
     // Completion-branch proof: the task ran to natural completion and
