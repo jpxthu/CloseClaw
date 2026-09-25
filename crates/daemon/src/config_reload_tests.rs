@@ -534,16 +534,16 @@ async fn test_subscriber_shutdown_signal_visible_during_receive_handle() {
 // Gap 2 — IM notification on config reload failure
 //
 // parse_owner_target coverage matrix — case × input × branch hit
-// (branch lines refer to config_watcher.rs; the last two rows were added
-// by issue #3243 and are kept here as the in-repo single point of truth
-// for the issue #3241 double-definition merge):
+// (branch lines refer to config_watcher.rs, as of issue #3251 fix;
+// the last two rows were added by issue #3243 and are kept here as the
+// in-repo single point of truth for the issue #3241 double-definition merge):
 //
-//   test_parse_owner_target_valid                 "feishu:oc_xxx123"  :286 happy path
-//   test_parse_owner_target_not_configured        {"version":"1.0"}   :276 commands?
-//   test_parse_owner_target_invalid_format        "no-colon-here"     :279 parts.len() != 2
-//   test_parse_owner_target_empty_parts           ":oc_xxx"           :279 parts[0].is_empty()
-//   test_parse_owner_target_owner_display_missing {"commands":{}}     :277 owner_display?
-//   test_parse_owner_target_empty_second_part     "feishu:"            :279 parts[1].is_empty()
+// test_parse_owner_target_valid                 "feishu:oc_xxx123"  :292 happy path
+// test_parse_owner_target_not_configured        {"version":"1.0"}   :281 commands?
+// test_parse_owner_target_invalid_format        "no-colon-here"    :285 parts.len() != 2
+// test_parse_owner_target_empty_parts           ":oc_xxx"          :285 parts[0].trim().is_empty()
+// test_parse_owner_target_owner_display_missing {"commands":{}}    :282 owner_display?
+// test_parse_owner_target_empty_second_part     "feishu:"           :285 parts[1].trim().is_empty()
 // ---------------------------------------------------------------------------
 
 /// Shared setup for the `parse_owner_target_*` cases: write `system.json`
@@ -634,7 +634,7 @@ fn test_parse_owner_target_owner_display_missing() {
     // into SystemConfigData with `commands = Some(..)` and
     // `owner_display = None`, so the None asserted below necessarily
     // comes from the `owner_display?` early return (config_watcher.rs
-    // :277), not from the `.ok()?` deserialization miss (:275) — without
+    // :282), not from the `.ok()?` deserialization miss (:280) — without
     // this, a later field change could keep the test green while it
     // silently stops covering the target branch.
     let payload = serde_json::json!({ "commands": {} });
