@@ -610,17 +610,16 @@ fn test_parse_owner_target_empty_parts() {
 }
 
 /// parse_owner_target returns None when `commands` is present but
-/// `owner_display` is absent (`{"commands":{}}`): deserialization yields
-/// `commands = Some(default)` with `owner_display = None`, so the
-/// `owner_display?` early return fires — distinct from the no-`commands`-
-/// key case, which short-circuits one line earlier on `commands?` and
-/// never reaches the `parts` validation.
+/// `owner_display` is absent (`{"commands":{}}`): per-field serde
+/// defaults yield `commands = Some(...)` with a field-defaulted
+/// `owner_display = None`, so the `owner_display?` early return fires —
+/// distinct from the no-`commands`-key case, which short-circuits one
+/// line earlier on `commands?` and never reaches the `parts` validation.
 #[test]
 fn test_parse_owner_target_owner_display_missing() {
-    // `commands` object present, `ownerDisplay` field absent
     let result = parse_owner_target_from(
         serde_json::json!({ "commands": {} }),
-        "reload system.json with commands but no ownerDisplay succeeds",
+        "reload system.json with commands but no owner_display succeeds",
     );
     assert_eq!(result, None);
 }
