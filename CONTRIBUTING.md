@@ -284,7 +284,7 @@ git checkout master && git pull
 | 入口 | 检查目的 |
 |------|----------|
 | `--slow` | 慢用例清单：nextest 全量，>0.1s / >1s 两档，>5s 额外标记 SLOW |
-| `--flaky` | 不稳定用例：nextest `--retries 1`，汇总重试后转绿的 FLAKY 清单 |
+| `--flaky` | 不稳定用例：nextest `--retries 1`，汇总重试后转绿的 FLAKY 清单；存在 FLAKY 即该段 FAIL |
 | `--doctest` | 文档测试：`cargo test --workspace --doc`（nextest 不覆盖 doctest） |
 | `--coverage` | 覆盖率：`cargo llvm-cov nextest --workspace` |
 | `--deps` | 依赖审计：cargo-deny check + cargo-machete |

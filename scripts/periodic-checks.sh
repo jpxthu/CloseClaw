@@ -46,7 +46,7 @@ usage() {
 
 选项:
   --slow      慢用例检查（nextest 全量，>0.1s / >1s 两档清单，>5s 标记 SLOW）
-  --flaky     不稳定用例检查（nextest --retries 1，汇总 FLAKY 清单）
+  --flaky     不稳定用例检查（nextest --retries 1，汇总 FLAKY 清单；存在 FLAKY 即该段 FAIL）
   --doctest   文档测试（cargo test --workspace --doc --no-fail-fast）
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
   --deps      依赖检查（cargo-deny check + cargo-machete）
@@ -110,16 +110,17 @@ do_slow() (
     json_out=$(mktemp /tmp/periodic-slow.XXXXXX.json)
     trap 'rm -f "$json_out"' EXIT
     local rc=0
+    # --no-fail-fast：耗时清单是核心交付物，存在失败用例时继续收集全量数据
+    # 再一并报告（真实失败时退出码仍非零，FAIL 语义不变）
     NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1 \
-        cargo nextest run --workspace --message-format libtest-json-plus \
+        cargo nextest run --workspace --no-fail-fast --message-format libtest-json-plus \
         "${NEXTEST_EXTRA_ARGS_ARR[@]}" \
         >"$json_out" || rc=$?
     if [[ $rc -ne 0 ]]; then
-        echo "[FAIL] cargo nextest run 失败（退出码 $rc），失败明细见上方输出"
-        return "$rc"
+        echo "[WARN] cargo nextest run 退出码 $rc（存在失败用例，--no-fail-fast 已收集全量数据，清单见下）"
     fi
     python3 - "$json_out" "$SLOW_TIER1" "$SLOW_TIER2" "$SLOW_MARK_LINE" <<'PYEOF'
-import json, sys
+import json, re, sys
 
 path, t1, t2, mark = sys.argv[1], float(sys.argv[2]), float(sys.argv[3]), float(sys.argv[4])
 last = {}
@@ -139,16 +140,20 @@ for line in open(path, encoding="utf-8", errors="replace"):
     last[rec.get("name", "")] = (rec["exec_time"], ev)
 
 def disp(name):
-    # 原始 name 形如 crate::binary$path#attempt，转为可读显示
+    # 原始 name 形如 crate::binary$path#attempt：先剥离重试 #N 后缀再转为可读显示
+    name = re.sub(r"#\d+$", "", name)
     if "$" in name:
         crate, rest = name.split("$", 1)
         return f"{rest}  [{crate.split('::', 1)[0]}]"
     return name
 
 rows = sorted(last.items(), key=lambda kv: -kv[1][0])
+fail_n = sum(1 for _, ev in last.values() if ev == "failed")
 tier2 = [(n, v) for n, v in rows if v[0] > t2]
 tier1 = [(n, v) for n, v in rows if t1 < v[0] <= t2]
 print(f"[slow] 共 {len(rows)} 个用例")
+if fail_n:
+    print(f"[slow] 含 {fail_n} 个失败用例，清单基于全量数据")
 print(f"[slow] >{t2}s（其中 >{mark:g}s 即超 nextest SLOW 观测线）: {len(tier2)} 个")
 for n, (t, ev) in tier2:
     slow_tag = " [SLOW]" if t > mark else ""
@@ -158,6 +163,10 @@ for n, (t, ev) in tier1:
     print(f"  {t:8.3f}s  {ev:6}  {disp(n)}")
 print(f"[slow] 其余 <= {t1}s: {len(rows) - len(tier1) - len(tier2)} 个（不列出）")
 PYEOF
+    if [[ $rc -ne 0 ]]; then
+        echo "[FAIL] --slow 段判定失败：存在失败用例（退出码 $rc），耗时清单已基于全量数据输出"
+        return "$rc"
+    fi
     echo "[ok] --slow 检查完成"
     return 0
 )
@@ -172,10 +181,15 @@ do_flaky() (
     json_out=$(mktemp /tmp/periodic-flaky.XXXXXX.json)
     trap 'rm -f "$json_out"' EXIT
     local rc=0
+    # --no-fail-fast：FLAKY 清单是核心交付物，存在失败用例时继续收集全量数据
+    # 再一并报告；FLAKY 与真实失败并存时两者各自打印后统一返回非零
     NEXTEST_EXPERIMENTAL_LIBTEST_JSON=1 \
-        cargo nextest run --workspace --retries 1 --message-format libtest-json-plus \
+        cargo nextest run --workspace --no-fail-fast --retries 1 --message-format libtest-json-plus \
         "${NEXTEST_EXTRA_ARGS_ARR[@]}" \
         >"$json_out" || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "[WARN] cargo nextest run 退出码 $rc（存在真实失败用例，--no-fail-fast 已收集全量数据，清单见下）"
+    fi
     local flaky_rc=0
     python3 - "$json_out" <<'PYEOF' || flaky_rc=$?
 import json, re, sys
@@ -203,19 +217,27 @@ for name, (t, ev) in last.items():
     if ev == "ok" and m and int(m.group(1)) >= 2:
         flaky.append((t, re.sub(r"#\d+$", "", name)))
 
+fail_n = sum(1 for _, ev in last.values() if ev == "failed")
 print(f"[flaky] 共 {len(last)} 个用例；FLAKY（重试后转绿）: {len(flaky)} 个")
 for t, name in sorted(flaky, key=lambda x: -x[0]):
     print(f"  FLAKY  {t:8.3f}s  {name}")
+if fail_n:
+    print(f"[flaky] 真实失败（重试后仍失败）: {fail_n} 个，明细见 nextest 上方输出")
 if flaky:
     sys.exit(1)
 PYEOF
+    # FLAKY 与真实失败并存时两者各自打印，统一返回非零（失败原因完整呈现）
+    local had_fail=0
     if [[ $flaky_rc -ne 0 ]]; then
         echo "[FAIL] 存在 FLAKY 用例（清单见上），建议优先修复"
-        return 1
+        had_fail=1
     fi
     if [[ $rc -ne 0 ]]; then
-        echo "[FAIL] cargo nextest run 失败（退出码 $rc），存在真实失败，明细见上方输出"
-        return "$rc"
+        echo "[FAIL] 存在真实失败用例（nextest 退出码 $rc），清单基于全量数据，明细见上方输出"
+        had_fail=1
+    fi
+    if [[ $had_fail -ne 0 ]]; then
+        return 1
     fi
     echo "[ok] --flaky 检查完成：无 FLAKY 用例"
     return 0
