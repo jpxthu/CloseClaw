@@ -165,7 +165,7 @@ async fn test_daemon_run_sigterm_shutdown() {
 }
 
 // ======================================================================
-// Step 1.7: Drain timeout from configuration tests
+// Drain timeout from configuration tests
 // ======================================================================
 
 /// ShutdownHandle::with_drain_timeout() applies custom timeout.
@@ -307,11 +307,11 @@ fn test_per_session_graceful_timeout_reads_from_config() {
         .section(ConfigSection::System)
         .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
         .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
-        .map(std::time::Duration::from_secs);
+        .map(Duration::from_secs);
 
     assert_eq!(
         timeout,
-        Some(std::time::Duration::from_secs(45)),
+        Some(Duration::from_secs(45)),
         "per-session graceful timeout should read 45s from config"
     );
 }
@@ -335,7 +335,7 @@ fn test_per_session_graceful_timeout_fallback_to_default() {
         .section(ConfigSection::System)
         .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
         .and_then(|sys| sys.shutdown.map(|s| s.graceful_timeout_secs))
-        .map(std::time::Duration::from_secs)
+        .map(Duration::from_secs)
         .unwrap_or(DEFAULT_GRACEFUL_TIMEOUT);
 
     assert_eq!(
@@ -364,11 +364,11 @@ fn test_drain_timeout_reads_from_config() {
         .section(ConfigSection::System)
         .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
         .and_then(|sys| sys.shutdown.map(|s| s.drain_timeout_secs))
-        .map(std::time::Duration::from_secs);
+        .map(Duration::from_secs);
 
     assert_eq!(
         drain_timeout,
-        Some(std::time::Duration::from_secs(20)),
+        Some(Duration::from_secs(20)),
         "drain timeout should read 20s from config"
     );
 }

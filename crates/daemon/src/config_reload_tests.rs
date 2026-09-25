@@ -559,7 +559,7 @@ fn test_parse_owner_target_valid() {
 /// parse_owner_target returns None when owner_display is not configured.
 #[test]
 fn test_parse_owner_target_not_configured() {
-    // Write system.json without owner_display
+    // Payload omits owner_display
     let result = parse_owner_target_from(
         serde_json::json!({ "version": "1.0" }),
         "reload system.json without owner_display succeeds",
@@ -603,7 +603,6 @@ fn test_parse_owner_target_empty_parts() {
 #[tokio::test]
 async fn test_subscriber_failed_event_with_owner_display() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
     // Write system.json with owner_display
     let system_json = serde_json::json!({
         "commands": {
@@ -611,7 +610,7 @@ async fn test_subscriber_failed_event_with_owner_display() {
         }
     });
     std::fs::write(
-        config_dir.join("system.json"),
+        tmp.path().join("system.json"),
         serde_json::to_string(&system_json).unwrap(),
     )
     .unwrap();
