@@ -34,7 +34,7 @@ use tempfile::TempDir;
 // parse_owner_target whitespace coverage matrix — case × input × branch hit
 // (branch lines refer to config_watcher.rs as of the issue #3251 fix; the
 // six pre-whitespace cases and their matrix live in
-// `config_reload_tests.rs` and stay untouched. The verbatim-equal second
+// `config_reload_tests.rs` and are maintained there. The verbatim-equal second
 // definition in `config_reload/reload.rs` inherits this behavior via the
 // synchronized fix; direct tests for it are issue #3241 scope.)
 //
