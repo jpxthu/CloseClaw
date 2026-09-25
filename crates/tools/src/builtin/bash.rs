@@ -323,19 +323,35 @@ fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, S
         .map_err(|e| format!("failed to spawn command: {}", e))
 }
 
+/// Handles owned by a spawned child process: the child itself plus its
+/// piped stdout/stderr streams.
+///
+/// The three always move together through the backgroundize chain
+/// (`backgroundize_child` / `auto_backgroundize_foreground`) and the
+/// foreground result-handling chain (`handle_timeout_expiry`), so they are
+/// grouped to keep those signatures within the CONTRIBUTING 6-parameter cap.
+struct ChildHandles {
+    child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+}
+
 /// Backgroundize a child process and return the corresponding ToolResult.
 ///
 /// Reattaches stdout/stderr handles before handing off to `bg_manager`.
 /// When `by_user` is true, marks the result as `backgroundedByUser`.
 async fn backgroundize_child(
-    mut child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+    handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> Result<(ToolResult, String), String> {
+    let ChildHandles {
+        mut child,
+        stdout_handle,
+        stderr_handle,
+    } = handles;
     child.stdout = stdout_handle;
     child.stderr = stderr_handle;
     let task = bg_manager
@@ -353,25 +369,13 @@ async fn backgroundize_child(
 ///
 /// On failure, returns [`ForegroundOutcome::Failed`].
 async fn auto_backgroundize_foreground(
-    child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+    handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> ForegroundOutcome {
-    match backgroundize_child(
-        child,
-        stdout_handle,
-        stderr_handle,
-        command,
-        bg_manager,
-        by_user,
-        session_id,
-    )
-    .await
-    {
+    match backgroundize_child(handles, command, bg_manager, by_user, session_id).await {
         Ok((result, task_id)) => ForegroundOutcome::AutoBackground(result, task_id),
         Err(e) => ForegroundOutcome::Failed(e),
     }
@@ -391,13 +395,14 @@ struct ForegroundContext<'a> {
 
 /// Handle a timeout expiry: force-terminate or auto-backgroundize.
 async fn handle_timeout_expiry(
-    mut child: tokio::process::Child,
+    child: tokio::process::Child,
     stdout_handle: Option<tokio::process::ChildStdout>,
     stderr_handle: Option<tokio::process::ChildStderr>,
     command: &str,
     ctx: &ForegroundContext<'_>,
 ) -> ForegroundOutcome {
     if ctx.force_terminate {
+        let mut child = child;
         let _ = child.start_kill();
         // Drain pipes so progress monitor can report output before the kill.
         let _ = super::bash_kill::read_with_progress(
@@ -414,9 +419,11 @@ async fn handle_timeout_expiry(
         ))
     } else {
         auto_backgroundize_foreground(
-            child,
-            stdout_handle,
-            stderr_handle,
+            ChildHandles {
+                child,
+                stdout_handle,
+                stderr_handle,
+            },
             command,
             ctx.bg_manager,
             false,
@@ -453,9 +460,17 @@ async fn handle_foreground_result(
         biased;
         _ = notify_or_pending(ctx.manual_bg_signal) => {
             auto_backgroundize_foreground(
-                child, stdout_handle, stderr_handle, command, ctx.bg_manager, true,
+                ChildHandles {
+                    child,
+                    stdout_handle,
+                    stderr_handle,
+                },
+                command,
+                ctx.bg_manager,
+                true,
                 ctx.session_id,
-            ).await
+            )
+            .await
         }
         result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
             Ok(Ok(status)) => {
