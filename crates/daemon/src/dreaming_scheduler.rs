@@ -15,6 +15,7 @@ use std::time::Duration;
 
 use chrono::{Datelike, Local, Timelike};
 use thiserror::Error;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::{mpsc, watch};
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
@@ -354,10 +355,7 @@ impl DreamingScheduler {
     }
 
     /// Check if the event is a Memory config reload.
-    fn is_memory_config_reload(
-        &self,
-        result: Result<ConfigChangeEvent, tokio::sync::broadcast::error::RecvError>,
-    ) -> bool {
+    fn is_memory_config_reload(&self, result: Result<ConfigChangeEvent, RecvError>) -> bool {
         matches!(
             result,
             Ok(ConfigChangeEvent::Reloaded {

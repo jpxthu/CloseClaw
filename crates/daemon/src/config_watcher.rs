@@ -12,6 +12,7 @@ use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 use closeclaw_gateway::{Gateway, SessionManager};
 use std::sync::Arc;
+use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
@@ -126,12 +127,14 @@ enum EventOutcome {
 /// owner IM notification) is a point where shutdown is observed.
 ///
 /// Cancellation accounting — a `select!` iteration ends with the losing
-/// branch's future discarded, and the accounting runs both ways: when
-/// the shutdown branch completes, the in-flight copy of this future
-/// goes with it (it never survives into the next iteration); when this
-/// future wins instead, the in-flight `shutdown_rx.changed()` future is
-/// the one discarded. What losing this future costs depends on how far
-/// it got:
+/// branch's future discarded, and the accounting runs both ways:
+/// - when the shutdown branch completes, the in-flight copy of this
+///   future goes with it (it never survives into the next iteration);
+/// - when this future wins instead, the in-flight `shutdown_rx.changed()`
+///   future is the one discarded.
+///
+/// When this future is the one discarded, what that costs depends on how
+/// far it got:
 /// - discarded while awaiting `recv()`: lossless — tokio documents
 ///   broadcast `recv()` as cancel-safe, no buffered event is lost;
 /// - discarded after `recv()` returned: the event goes with its
@@ -207,10 +210,10 @@ async fn handle_next_event(
                 );
             }
         }
-        Err(tokio::sync::broadcast::error::RecvError::Lagged(n)) => {
+        Err(RecvError::Lagged(n)) => {
             warn!(missed = n, "config change subscriber lagged, missed events");
         }
-        Err(tokio::sync::broadcast::error::RecvError::Closed) => {
+        Err(RecvError::Closed) => {
             // Defensive, production-unreachable — see `EventOutcome::Exit`.
             info!("config change broadcast channel closed, subscriber exiting");
             return EventOutcome::Exit;

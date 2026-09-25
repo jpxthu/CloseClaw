@@ -184,7 +184,9 @@ fn test_reload_section_validation_failure_emits_failed_event() {
     fs::write(tmp.path().join("models.json"), r#"{"version": "3.0"}"#).unwrap();
 
     let validator: &SectionValidator = &|_: &serde_json::Value| Err("reject all".into());
-    let _ = manager.reload_section(ConfigSection::Models, Some(validator));
+    manager
+        .reload_section(ConfigSection::Models, Some(validator))
+        .expect_err("validator must reject");
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
@@ -207,7 +209,9 @@ fn test_reload_section_parse_failure_emits_failed_event() {
     let mut rx = manager.subscribe_config_changes();
 
     fs::write(tmp.path().join("gateway.json"), "not json").unwrap();
-    let _ = manager.reload_section(ConfigSection::Gateway, None);
+    manager
+        .reload_section(ConfigSection::Gateway, None)
+        .expect_err("parse failure must reject");
 
     let event = rx.try_recv().expect("should receive a Failed event");
     match event {
@@ -326,7 +330,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
 }
 
 // =========================================================================
-// Step 1.2 — reload_section backup/restore edge cases
+// reload_section backup/restore edge cases
 // =========================================================================
 
 // ---------------------------------------------------------------------------
@@ -579,7 +583,7 @@ fn test_restore_agents_replaces_current_state() {
 }
 
 // =========================================================================
-// Step 1.5 — validator integration tests
+// validator integration tests
 // =========================================================================
 
 // ---------------------------------------------------------------------------
