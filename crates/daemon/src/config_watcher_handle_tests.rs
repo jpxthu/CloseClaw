@@ -11,25 +11,17 @@ use std::sync::Arc;
 // ConfigWatcherHandle tests
 // ---------------------------------------------------------------------------
 
-/// ConfigWatcherHandle holds both the watcher and subscriber handles.
-/// Verified via init_config_hot_reload returning Ok with valid config dir.
-#[tokio::test]
-async fn test_config_watcher_handle_holds_both_handles() {
+/// Shared setup for the two `ConfigWatcherHandle` tests below (issue #3245):
+/// create a `TempDir`, write the 6 mandatory config files, build the
+/// `ConfigManager` / session / gateway / agent-registry handles, and call
+/// [`super::init_config_hot_reload`].
+///
+/// Returns the `TempDir` **first** so callers bind and keep it alive for the
+/// whole test — dropping it would delete the watched directory out from
+/// under the watcher.
+fn setup_hot_reload() -> (tempfile::TempDir, super::ConfigWatcherHandle) {
     let tmp = tempfile::TempDir::new().unwrap();
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
+    closeclaw_common::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
     let config_mgr =
         Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
     let session_mgr = make_session_manager();
@@ -45,6 +37,14 @@ async fn test_config_watcher_handle_holds_both_handles() {
         None,
     )
     .expect("init_config_hot_reload should succeed");
+    (tmp, handle)
+}
+
+/// ConfigWatcherHandle holds both the watcher and subscriber handles.
+/// Verified via init_config_hot_reload returning Ok with valid config dir.
+#[tokio::test]
+async fn test_config_watcher_handle_holds_both_handles() {
+    let (_tmp, handle) = setup_hot_reload();
 
     // into_subscriber_handle() returns the subscriber JoinHandle and signals
     // the subscriber to exit (shutdown watch send, issue #3176 B16).
@@ -58,36 +58,7 @@ async fn test_config_watcher_handle_holds_both_handles() {
 /// the subscriber JoinHandle so callers can join it in Phase 3.
 #[tokio::test]
 async fn test_config_watcher_handle_into_subscriber_handle() {
-    let tmp = tempfile::TempDir::new().unwrap();
-    for name in &[
-        "models.json",
-        "channels.json",
-        "gateway.json",
-        "plugins.json",
-        "system.json",
-        "accounts.json",
-    ] {
-        std::fs::write(
-            tmp.path().join(name),
-            serde_json::json!({"version": "1.0"}).to_string(),
-        )
-        .unwrap();
-    }
-    let config_mgr =
-        Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
-    let session_mgr = make_session_manager();
-    let gateway = make_gateway();
-    let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
-
-    let handle = super::init_config_hot_reload(
-        tmp.path().to_str().unwrap(),
-        config_mgr,
-        agent_registry,
-        session_mgr,
-        gateway,
-        None,
-    )
-    .expect("init_config_hot_reload should succeed");
+    let (_tmp, handle) = setup_hot_reload();
 
     // into_subscriber_handle() drops the watcher and sends the shutdown
     // signal in one step — the subscriber must exit cleanly within the
