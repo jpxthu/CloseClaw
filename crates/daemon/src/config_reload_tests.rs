@@ -62,7 +62,7 @@ impl TaskManager for MockTaskManager {
 }
 
 /// Helper: create a ConfigManager backed by a temp directory.
-fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
+pub(super) fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
     let config_dir = tmp.path().to_path_buf();
     Arc::new(ConfigManager::new(config_dir).expect("ConfigManager::new should succeed"))
 }
@@ -94,7 +94,7 @@ pub(super) fn make_gateway() -> Arc<Gateway> {
 /// variable (e.g. `_shutdown_tx`) to keep the channel open, and keep the
 /// handle to join and assert on subscriber exit (timeout + join, never
 /// busy-yield).
-fn spawn_test_subscriber(
+pub(super) fn spawn_test_subscriber(
     config_mgr: &Arc<ConfigManager>,
     session_mgr: Arc<SessionManager>,
 ) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {

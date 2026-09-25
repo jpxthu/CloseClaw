@@ -2,8 +2,9 @@
 //! (issue #3220): `handle_next_event` (recv + handle as one future) is
 //! raced against `shutdown_rx.changed()` at a single level.
 //!
-//! Split out of `config_reload_tests.rs` so every test file stays within
-//! the 1000-line limit (CONTRIBUTING.md hard cap).
+//! Added as a new sibling test module (nothing was split out of
+//! `config_reload_tests.rs`) so that file stays within the 1000-line
+//! limit (CONTRIBUTING.md hard cap).
 //!
 //! Dimensions covered here:
 //! - normal path: `Reloaded` / `Failed` events are handled → `Continue`
@@ -21,44 +22,16 @@
 //! dropped shutdown sender → clean exit
 //! (`test_subscriber_clean_exit_on_shutdown_sender_drop`).
 
-use super::tests::{assert_subscriber_exits, make_gateway, make_session_manager};
+use super::tests::{
+    assert_subscriber_exits, make_config_manager, make_gateway, make_session_manager,
+    spawn_test_subscriber,
+};
 use super::*;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
-use closeclaw_config::manager::{ConfigManager, ConfigSection};
-use std::sync::Arc;
+use closeclaw_config::manager::ConfigSection;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::TryRecvError;
-use tokio::sync::watch;
-
-// ---------------------------------------------------------------------------
-// Helpers (local copies — the `config_reload_tests` variants are private
-// to that sibling module)
-// ---------------------------------------------------------------------------
-
-/// Helper: create a ConfigManager backed by a temp directory.
-fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
-    Arc::new(
-        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
-    )
-}
-
-/// Helper: spawn the subscriber loop with a fresh shutdown watch channel
-/// (initial state `false`). The sender must stay bound to a named
-/// variable to keep the channel open; the handle is joined with a bounded
-/// timeout so a panic inside the task surfaces instead of being swallowed.
-fn spawn_test_subscriber(
-    config_mgr: &Arc<ConfigManager>,
-) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
-    let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    let subscriber = spawn_config_change_subscriber(
-        Arc::clone(config_mgr),
-        make_session_manager(),
-        make_gateway(),
-        shutdown_rx,
-    );
-    (shutdown_tx, subscriber)
-}
 
 // ---------------------------------------------------------------------------
 // Normal path — Reloaded / Failed events → Continue
@@ -116,14 +89,17 @@ async fn test_handle_next_event_reloaded_handles_then_continues() {
     );
 }
 
-/// Normal path: a `Failed` event runs the owner-notification branch —
-/// `owner_display` is configured, so `parse_owner_target` yields a target
-/// and the gateway outbound attempt really executes (no IM plugin
-/// registered → plain-text fallback; must complete, not hang/panic) —
-/// and the future reports [`EventOutcome::Continue`].
+/// Normal path: a `Failed` event takes the owner-notification branch and
+/// the future reports [`EventOutcome::Continue`]. `owner_display` is
+/// configured, so `parse_owner_target` yields a target and the gateway
+/// outbound attempt runs (no IM plugin registered → plain-text
+/// fallback): the path is exercised but not directly observed — the
+/// bounded await only proves it completes without hanging or panicking.
 ///
-/// The event-consumption + untouched-snapshot asserts separate this from
-/// the Reloaded branch, which consumes one snapshot.
+/// Asserted scope: the event is consumed and the buffered snapshot is
+/// left untouched (a Reloaded branch would consume one), which separates
+/// this test from `test_handle_next_event_reloaded_handles_then_continues`;
+/// the notification itself is not asserted.
 #[tokio::test]
 async fn test_handle_next_event_failed_notifies_owner_then_continues() {
     let tmp = TempDir::new().unwrap();
@@ -179,7 +155,7 @@ async fn test_handle_next_event_failed_notifies_owner_then_continues() {
     );
     assert!(
         snapshot_rx.try_recv().is_ok(),
-        "Failed branch must leave the snapshot stream untouched (a Reloaded branch would consume it)"
+        "Failed branch must leave the snapshot stream untouched (Reloaded would consume it)"
     );
 }
 
@@ -284,7 +260,7 @@ async fn test_handle_next_event_lagged_continues_then_handles_retained_event() {
 async fn test_subscriber_false_update_keeps_loop_alive_and_serving() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
-    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr);
+    let (shutdown_tx, subscriber) = spawn_test_subscriber(&config_mgr, make_session_manager());
 
     tokio::task::yield_now().await;
     assert!(

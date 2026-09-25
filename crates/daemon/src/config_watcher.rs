@@ -122,19 +122,25 @@ enum EventOutcome {
 ///
 /// Receive and handle run as one future so the subscriber loop can
 /// `select!` it against the shutdown signal at a single level: every
-/// inner `.await` (the `recv()` itself, snapshot fetch, session
-/// notification, owner IM notification) becomes a point where shutdown is
-/// observed immediately instead of only once the whole future has
-/// completed. Cancelling those awaits is safe by design: cancelling a
-/// broadcast `recv()` never loses buffered events (tokio documents
-/// `recv()` as cancel-safe), and cancelling a notification drops that
-/// notification — matching the shutdown semantics of "stop now, stay on
-/// the last valid config".
+/// `.await` inside it (`recv()`, snapshot fetch, session notification,
+/// owner IM notification) is a point where shutdown is observed.
+///
+/// Cancellation accounting — a `select!` iteration ends with the losing
+/// branch's future discarded: when the shutdown branch completes, the
+/// in-flight copy of this future goes with it (it never survives into
+/// the next iteration). What that costs depends on how far it got:
+/// - discarded while awaiting `recv()`: lossless — tokio documents
+///   broadcast `recv()` as cancel-safe, no buffered event is lost;
+/// - discarded after `recv()` returned: the event goes with its
+///   in-flight notification (snapshot fetch, session notification or
+///   owner IM notification abandoned) — matching the shutdown semantics
+///   of "stop now, stay on the last valid config".
 ///
 /// Shutdown-side invariant (issue #3220): the shutdown watch channel is
 /// only ever driven by `send(true)` or a dropped sender — see
-/// [`shutdown_exit_requested`] — so the shutdown branch never cancels
-/// this future without the loop exiting afterwards.
+/// [`shutdown_exit_requested`] — so in production every shutdown-branch
+/// completion is a `break`, i.e. this future is discarded only by a
+/// shutdown that ends the loop.
 async fn handle_next_event(
     event_rx: &mut tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
     config_manager: &ConfigManager,
@@ -218,14 +224,22 @@ async fn handle_next_event(
 /// only production write site) or the sender being dropped (RAII drop
 /// of `ConfigWatcherHandle` without `into_subscriber_handle`). Nothing
 /// sends `false` on this channel, so a `false` update does not exist in
-/// production. Consequently the final `else` (value still `false`, sender still
-/// alive) is a defensive arm meaning "no shutdown requested yet", not a
-/// supported update: it returns `false` and the loop re-arms its
-/// `select!`. Re-arming cancels the in-flight [`handle_next_event`]
-/// future (only its `recv()` stage is cancel-safe), so a hypothetical
-/// `false` write would abort a partially handled event while leaving the
-/// loop alive — that inconsistency is why `false` writes are excluded
-/// by invariant; this arm only answers "has shutdown been requested?".
+/// production. Consequently the final `else` (value still `false`,
+/// sender alive) is a defensive arm meaning "no shutdown requested
+/// yet", not a supported update: it answers `false` and the loop
+/// re-arms its `select!`.
+///
+/// Cancellation timing (same accounting as [`handle_next_event`]): this
+/// branch completing ends that `select!` iteration, so the in-flight
+/// [`handle_next_event`] future is discarded right there — it never
+/// survives into the next iteration, so re-arming is not what cancels
+/// it. Discarded while awaiting `recv()`, the event survives
+/// (cancel-safe, lossless); discarded after `recv()` returned, the event
+/// is abandoned with its in-flight notification. A hypothetical `false`
+/// write would therefore keep the loop running while aborting the event
+/// in progress — that inconsistency is why `false` writes are excluded
+/// by the invariant; this arm only answers "has shutdown been
+/// requested?".
 fn shutdown_exit_requested(
     result: Result<(), watch::error::RecvError>,
     shutdown_rx: &watch::Receiver<bool>,
@@ -312,9 +326,9 @@ mod tests;
 #[path = "config_watcher_handle_tests.rs"]
 mod handle_tests;
 
-// Flattened-select behavior tests (issue #3220) split into a sibling
-// module so both files stay within the 1000-line limit (CONTRIBUTING.md
-// hard cap).
+// Flattened-select behavior tests (issue #3220) live in a new sibling
+// module — added, not split out — so `config_reload_tests.rs` keeps
+// staying within the 1000-line limit (CONTRIBUTING.md hard cap).
 #[cfg(test)]
 #[path = "config_watcher_select_tests.rs"]
 mod select_tests;
