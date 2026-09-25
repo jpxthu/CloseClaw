@@ -63,7 +63,26 @@ impl TaskManager for MockTaskManager {
     }
 }
 
-/// Helper: create a ConfigManager backed by a temp directory.
+/// Create a `ConfigManager` backed directly by the TempDir **root** —
+/// this file's bare fixture variant (issue #3245).
+///
+/// Semantics (all three same-named helpers are cross-referenced in
+/// [`crate::test_helpers::make_config_manager`]):
+/// - `config_dir` is the TempDir root (`tmp.path()`), **not** a `config/`
+///   subdir;
+/// - the mandatory config skeleton is **not** written — tests that need
+///   files write them themselves (e.g. `write_mandatory_configs`);
+/// - `load()` is **never** called, so the manager only reflects what the
+///   test writes after construction;
+/// - visibility `pub(super)`: visible only inside the `config_watcher`
+///   module tree (test-only).
+///
+/// Crate-shared sibling with different semantics:
+/// [`crate::test_helpers::make_config_manager`] (`<root>/config` subdir,
+/// mandatory skeleton, `load()`). The third variant,
+/// `crate::session_config_provider_tests::make_config_manager`, delegates
+/// to the crate-shared one and pre-writes `session.json` before its
+/// `load()`.
 pub(super) fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
     let config_dir = tmp.path().to_path_buf();
     Arc::new(ConfigManager::new(config_dir).expect("ConfigManager::new should succeed"))

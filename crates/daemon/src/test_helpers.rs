@@ -81,6 +81,20 @@ pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
 /// creation and skeleton write make it usable directly on a fresh
 /// TempDir root. Mandatory files only — write extra files (e.g.
 /// `session.json`) before calling this helper if `load` must see them.
+///
+/// Same name, three different meanings across this crate (issue #3245) —
+/// pick by semantics:
+/// - **this one** (crate-shared base): config dir is the `<root>/config`
+///   subdir, the mandatory skeleton is written via
+///   [`write_mandatory_configs`], then `load()` is called;
+/// - `crate::session_config_provider_tests::make_config_manager`:
+///   file-private wrapper around this one — when given `Some(session_json)`
+///   it writes `session.json` into `<root>/config` **before** this
+///   helper's `load()`;
+/// - `crate::config_watcher::tests::make_config_manager`
+///   (`crates/daemon/src/config_reload_tests.rs`, `pub(super)`): bare
+///   variant — `config_dir` is the TempDir root itself, no skeleton write,
+///   no `load()`.
 pub fn make_config_manager(root: &std::path::Path) -> Arc<ConfigManager> {
     let config_dir = root.join("config");
     std::fs::create_dir_all(&config_dir).expect("create config dir");

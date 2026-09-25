@@ -95,6 +95,17 @@ impl SessionConfigProvider for MockSessionConfigProvider {
 /// `session.json` (named per `ConfigSection::Session.filename()`), on
 /// top of the shared base constructor
 /// [`crate::test_helpers::make_config_manager`].
+///
+/// One of three same-named helpers in this crate (issue #3245) — this is
+/// the only one that pre-writes an extra section file: with `Some(json)`
+/// it writes `session.json` (per `ConfigSection::Session.filename()`) into
+/// `<dir>/config` **before** the base constructor runs `load()`, so the
+/// loaded config already sees it; with `None` it is a pure delegation.
+/// The other two: [`crate::test_helpers::make_config_manager`]
+/// (crate-shared base: `<root>/config` subdir, mandatory skeleton,
+/// `load()`) and `crate::config_watcher::tests::make_config_manager`
+/// (`crates/daemon/src/config_reload_tests.rs`, `pub(super)` bare variant:
+/// TempDir root as `config_dir`, no skeleton, no `load()`).
 fn make_config_manager(dir: &std::path::Path, session_json: Option<&str>) -> Arc<ConfigManager> {
     // session.json must exist before the base constructor's `load`;
     // the mandatory skeleton write does not touch it.
