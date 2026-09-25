@@ -477,7 +477,7 @@ async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     let completed = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&completed);
     let slow_task = tokio::task::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(tokio::time::Duration::from_secs(5)).await;
         flag.store(true, Ordering::SeqCst);
     });
 
@@ -491,7 +491,7 @@ async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     // 10s) is the only alternative and would double the elapsed time.
     assert_eq!(
         elapsed,
-        std::time::Duration::from_secs(5),
+        tokio::time::Duration::from_secs(5),
         "slow task should complete within grace, took {:?}",
         elapsed
     );
