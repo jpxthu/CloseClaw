@@ -220,22 +220,26 @@ impl ReloadCallback for DaemonReloadCallback {
 
 /// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
 ///
-/// Expects format `"platform:chat_id"`.
+/// Expects format `"platform:chat_id"`. Leading/trailing whitespace around
+/// the whole value and around each segment is trimmed; a segment that is
+/// empty after trimming (e.g. `"feishu: "`, `" :oc"`) is treated as not
+/// configured.
 fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
     let raw = config_manager
         .get_section_value(closeclaw_config::ConfigSection::System)
         .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
         .commands?
         .owner_display?;
-    let parts: Vec<&str> = raw.splitn(2, ':').collect();
-    if parts.len() != 2 || parts[0].is_empty() || parts[1].is_empty() {
+    let trimmed = raw.trim();
+    let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
+    if parts.len() != 2 || parts[0].trim().is_empty() || parts[1].trim().is_empty() {
         warn!(
             owner_display = %raw,
             "invalid owner_display format, expected 'platform:chat_id'"
         );
         return None;
     }
-    Some((parts[0].to_string(), parts[1].to_string()))
+    Some((parts[0].trim().to_string(), parts[1].trim().to_string()))
 }
 
 /// Extract agent_id from a permissions.json path.
