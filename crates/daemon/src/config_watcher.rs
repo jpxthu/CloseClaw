@@ -53,9 +53,10 @@ impl ConfigWatcherHandle {
 /// Spawn a background task that subscribes to config change events and
 /// notifies the [`SessionManager`].
 ///
-/// The in-flight event handling is `select!`-raced against the shutdown
-/// signal, so shutdown stays visible while a branch body is awaiting
-/// inside it (no shutdown blind spot).
+/// Receiving the next event and handling it run as one future
+/// ([`handle_next_event`]) that is `select!`-raced against the shutdown
+/// signal at a single level, so shutdown stays visible while that future
+/// is awaiting inside it (no shutdown blind spot).
 ///
 /// Returns the [`JoinHandle`] so the caller can await task completion
 /// (e.g. during Phase 3 background-task shutdown).
@@ -69,36 +70,27 @@ fn spawn_config_change_subscriber(
     let mut snapshot_rx = config_manager.subscribe_config_snapshots();
     tokio::spawn(async move {
         loop {
+            // Single-level race: receive + handle one event as one future
+            // against the shutdown signal — no inner `select!`, one exit
+            // decision. Cancellation rationale lives on `handle_next_event`.
             tokio::select! {
+                outcome = handle_next_event(
+                    &mut event_rx,
+                    &config_manager,
+                    &session_manager,
+                    &gateway,
+                    &mut snapshot_rx,
+                ) => {
+                    if matches!(outcome, EventOutcome::Exit) {
+                        break;
+                    }
+                }
                 result = shutdown_rx.changed() => {
                     // Shutdown requested (send(true)) or the sender side was
                     // dropped (RAII drop of ConfigWatcherHandle without
                     // into_subscriber_handle) — either way, exit cleanly.
                     if shutdown_exit_requested(result, &shutdown_rx) {
                         break;
-                    }
-                }
-                event = event_rx.recv() => {
-                    // Race event handling against the shutdown signal so the
-                    // branch body is not a shutdown blind spot — cancellation
-                    // rationale lives on `handle_config_event`.
-                    tokio::select! {
-                        outcome = handle_config_event(
-                            event,
-                            &config_manager,
-                            &session_manager,
-                            &gateway,
-                            &mut snapshot_rx,
-                        ) => {
-                            if matches!(outcome, EventOutcome::Exit) {
-                                break;
-                            }
-                        }
-                        result = shutdown_rx.changed() => {
-                            if shutdown_exit_requested(result, &shutdown_rx) {
-                                break;
-                            }
-                        }
                     }
                 }
             }
@@ -115,25 +107,28 @@ enum EventOutcome {
     Exit,
 }
 
-/// Handle one config-change event: notify sessions of a reload, IM-notify
-/// the owner of a failure, absorb lag, and detect broadcast closure.
+/// Receive the next config-change event and handle it: notify sessions of
+/// a reload, IM-notify the owner of a failure, absorb lag, and detect
+/// broadcast closure.
 ///
-/// Handling runs as its own future so the subscriber loop can `select!` it
-/// against the shutdown signal: every inner `.await` (snapshot fetch,
-/// session notification, owner IM notification) becomes a point where
-/// shutdown is observed immediately instead of only after the whole branch
-/// body completes. Cancelling those awaits is safe by design: cancelling a
-/// broadcast `recv()` never loses buffered events, and cancelling a
-/// notification drops that notification — matching the shutdown semantics
-/// of "stop now, stay on the last valid config".
-async fn handle_config_event(
-    event: Result<ConfigChangeEvent, tokio::sync::broadcast::error::RecvError>,
+/// Receive and handle run as one future so the subscriber loop can
+/// `select!` it against the shutdown signal at a single level: every
+/// inner `.await` (the `recv()` itself, snapshot fetch, session
+/// notification, owner IM notification) becomes a point where shutdown is
+/// observed immediately instead of only once the whole future has
+/// completed. Cancelling those awaits is safe by design: cancelling a
+/// broadcast `recv()` never loses buffered events (tokio documents
+/// `recv()` as cancel-safe), and cancelling a notification drops that
+/// notification — matching the shutdown semantics of "stop now, stay on
+/// the last valid config".
+async fn handle_next_event(
+    event_rx: &mut tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
     config_manager: &ConfigManager,
     session_manager: &SessionManager,
     gateway: &Gateway,
     snapshot_rx: &mut tokio::sync::broadcast::Receiver<ConfigSnapshot>,
 ) -> EventOutcome {
-    match event {
+    match event_rx.recv().await {
         Ok(ConfigChangeEvent::Reloaded { section, .. }) => {
             info!(
                 section = %section,
