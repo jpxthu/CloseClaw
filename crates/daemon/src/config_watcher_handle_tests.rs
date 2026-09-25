@@ -4,7 +4,9 @@
 //! Split out of `config_reload_tests.rs` so both files stay within the
 //! 1000-line limit (CONTRIBUTING.md hard cap).
 
-use super::tests::{assert_subscriber_exits, make_gateway, make_session_manager};
+use super::tests::{
+    assert_subscriber_exits, make_config_manager, make_gateway, make_session_manager,
+};
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -21,9 +23,9 @@ use std::sync::Arc;
 /// under the watcher.
 fn setup_hot_reload() -> (tempfile::TempDir, super::ConfigWatcherHandle) {
     let tmp = tempfile::TempDir::new().unwrap();
-    closeclaw_common::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
-    let config_mgr =
-        Arc::new(closeclaw_config::ConfigManager::new(tmp.path().to_path_buf()).unwrap());
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    // Bare fixture variant: config_dir is the TempDir root itself (issue #3245).
+    let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
     let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());

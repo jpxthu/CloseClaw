@@ -173,6 +173,23 @@ pub fn load_system_config_manager(
 
 // ── load_system_config_manager contract tests (issue #3245) ──────────────
 
+/// Whether the current process runs as root, read from `/proc/self/status`
+/// (no libc dependency) — same precedent as
+/// `crates/tools/src/builtin/readback_tests.rs`.
+fn is_root() -> bool {
+    let Ok(status) = std::fs::read_to_string("/proc/self/status") else {
+        return false;
+    };
+    for line in status.lines() {
+        if let Some(rest) = line.strip_prefix("Uid:\t") {
+            if let Some(uid_str) = rest.split('\t').next() {
+                return uid_str == "0";
+            }
+        }
+    }
+    false
+}
+
 /// Contract — happy path: the manager returned by the primitive has the
 /// `System` section cached with the written value intact.
 #[test]
@@ -247,10 +264,20 @@ fn test_load_system_config_manager_config_subdir_layout() {
 /// **write-only** (mode 0o200) pre-existing `system.json` is overwritten by
 /// the primitive yet fails to read back → `ConfigLoadError::IoError` → the
 /// `reload_expect` panic asserted below.
+///
+/// Root guard: root bypasses DAC, so the 0o200 file stays readable, the
+/// reload succeeds and nothing panics — the test skips itself under root
+/// (same `is_root()` precedent as `crates/tools/src/builtin/readback_tests.rs`).
+/// A `#[should_panic]` attribute cannot skip (an early return would *fail*
+/// the attribute), so the panic is caught and asserted manually instead.
 #[test]
-#[should_panic(expected = "reload failure must surface the caller-supplied message")]
 fn test_load_system_config_manager_reload_failure_uses_caller_message() {
     use std::os::unix::fs::PermissionsExt;
+
+    if is_root() {
+        eprintln!("SKIP: root ignores permission bits (0o200 stays readable)");
+        return;
+    }
 
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let seeded = tmp.path().join("system.json");
@@ -260,10 +287,23 @@ fn test_load_system_config_manager_reload_failure_uses_caller_message() {
         .permissions();
     perms.set_mode(0o200); // owner-write-only: writable for fs::write, unreadable for reload
     std::fs::set_permissions(&seeded, perms).expect("make system.json write-only");
-    load_system_config_manager(
-        tmp.path(),
-        serde_json::json!({ "version": "1.0" }),
-        "reload failure must surface the caller-supplied message",
+
+    let panic = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        load_system_config_manager(
+            tmp.path(),
+            serde_json::json!({ "version": "1.0" }),
+            "reload failure must surface the caller-supplied message",
+        );
+    }))
+    .expect_err("a failed reload_section(System) must panic");
+    let msg = panic
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| panic.downcast_ref::<&str>().copied())
+        .unwrap_or("<non-string panic payload>");
+    assert!(
+        msg.contains("reload failure must surface the caller-supplied message"),
+        "the panic must carry the caller-supplied reload_expect message, got: {msg}"
     );
 }
 

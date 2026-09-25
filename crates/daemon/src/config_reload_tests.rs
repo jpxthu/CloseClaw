@@ -812,7 +812,7 @@ impl RegistryHarness {
 async fn test_hot_reload_init_success_with_valid_config_dir() {
     let tmp = TempDir::new().unwrap();
     // Write mandatory config files so the watcher has something to watch.
-    closeclaw_common::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
+    crate::test_helpers::write_mandatory_configs(tmp.path()).unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
@@ -875,7 +875,7 @@ async fn test_populate_registries_success_with_valid_setup() {
     *harness.skill_registry.write().unwrap() = Some(disk_reg);
 
     // Write mandatory config files so the watcher and ConfigManager load correctly.
-    closeclaw_common::test_helpers::write_mandatory_configs(harness.tmp.path()).unwrap();
+    crate::test_helpers::write_mandatory_configs(harness.tmp.path()).unwrap();
     harness.set_config_mgr(make_config_manager(&harness.tmp));
 
     let ctx = harness.ctx();

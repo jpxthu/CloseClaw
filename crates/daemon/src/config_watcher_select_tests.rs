@@ -27,8 +27,10 @@ use super::tests::{
     spawn_test_subscriber,
 };
 use super::*;
+use crate::test_helpers::load_system_config_manager;
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::ConfigSection;
+use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::TryRecvError;
@@ -104,18 +106,14 @@ async fn test_handle_next_event_reloaded_handles_then_continues() {
 async fn test_handle_next_event_failed_notifies_owner_then_continues() {
     let tmp = TempDir::new().unwrap();
     // owner_display configured → the owner IM notification path runs.
-    std::fs::write(
-        tmp.path().join("system.json"),
-        serde_json::json!({ "commands": { "ownerDisplay": "feishu:oc_select_tests" } }).to_string(),
-    )
-    .expect("write system.json");
-    let config_mgr = make_config_manager(&tmp);
     // Path precondition: `parse_owner_target` reads the in-memory System section,
-    // so the reload below must succeed — fail fast rather than let a failed reload
-    // silently degrade the test into a pass.
-    config_mgr
-        .reload_section(ConfigSection::System, None)
-        .expect("reload system.json succeeds");
+    // so the reload inside the primitive must succeed — fail fast rather than let
+    // a failed reload silently degrade the test into a pass.
+    let config_mgr = Arc::new(load_system_config_manager(
+        tmp.path(),
+        serde_json::json!({ "commands": { "ownerDisplay": "feishu:oc_select_tests" } }),
+        "reload system.json succeeds",
+    ));
 
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
