@@ -526,13 +526,13 @@ fn parse_owner_target_from(
     reload_expect: &str,
 ) -> Option<(String, String)> {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().to_path_buf();
     std::fs::write(
-        config_dir.join("system.json"),
+        tmp.path().join("system.json"),
         serde_json::to_string(&system_json).unwrap(),
     )
     .unwrap();
-    let cm = ConfigManager::new(config_dir).unwrap();
+    // Same construction path as the other tests in this file (config_dir = tmp root).
+    let cm = make_config_manager(&tmp);
     // Load only System section (others missing, but we only need System)
     cm.reload_section(ConfigSection::System, None)
         .expect(reload_expect);

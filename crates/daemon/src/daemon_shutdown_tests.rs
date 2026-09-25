@@ -7,6 +7,7 @@ use crate::test_helpers::{kill_self, TestShutdownSignal};
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigManager, ConfigSection};
+use std::path::PathBuf;
 use std::time::Duration;
 
 /// Test 1: drain waits until busy_count reaches zero before exiting.
@@ -99,13 +100,21 @@ async fn test_drain_signal_broadcast() {
     assert!(result2.is_ok(), "Receiver 2 did not get drain signal");
 }
 
+/// Returns `<tmp>/config` (created if missing): the config-tree root
+/// shared by [`daemon_test_temp_config`] and [`cm_with_system`]. Only
+/// creates the directory — each fixture adds its own skeleton files.
+fn temp_config_root(temp_dir: &tempfile::TempDir) -> PathBuf {
+    let config_dir = temp_dir.path().join("config");
+    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    config_dir
+}
+
 /// Builds the temp config tree for `Daemon::start`: `<root>/config/` holds
 /// `agents.json` plus all mandatory configs — ConfigManager receives
 /// `<root>/config/` as its config_dir (design-doc directory structure).
 fn daemon_test_temp_config() -> tempfile::TempDir {
     let temp_dir = tempfile::TempDir::new().expect("temp dir");
-    let config_dir = temp_dir.path().join("config");
-    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    let config_dir = temp_config_root(&temp_dir);
     let agents_path = config_dir.join("agents.json");
     std::fs::write(&agents_path, r#"{"version":"1.0.0","agents":[]}"#).expect("write agents.json");
     write_mandatory_configs(&config_dir).expect("write mandatory config");
@@ -264,8 +273,7 @@ fn cm_with_system(
     reload_expect: &str,
 ) -> (tempfile::TempDir, ConfigManager) {
     let tmp = tempfile::TempDir::new().expect("temp dir");
-    let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).expect("create config dir");
+    let config_subdir = temp_config_root(&tmp);
     std::fs::write(
         config_subdir.join("system.json"),
         serde_json::to_string(&system_json).expect("serialize system.json"),
