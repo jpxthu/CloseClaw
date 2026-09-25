@@ -62,7 +62,7 @@ impl TaskManager for MockTaskManager {
 }
 
 /// Helper: create a ConfigManager backed by a temp directory.
-fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
+pub(super) fn make_config_manager(tmp: &TempDir) -> Arc<ConfigManager> {
     let config_dir = tmp.path().to_path_buf();
     Arc::new(ConfigManager::new(config_dir).expect("ConfigManager::new should succeed"))
 }
@@ -94,7 +94,7 @@ pub(super) fn make_gateway() -> Arc<Gateway> {
 /// variable (e.g. `_shutdown_tx`) to keep the channel open, and keep the
 /// handle to join and assert on subscriber exit (timeout + join, never
 /// busy-yield).
-fn spawn_test_subscriber(
+pub(super) fn spawn_test_subscriber(
     config_mgr: &Arc<ConfigManager>,
     session_mgr: Arc<SessionManager>,
 ) -> (watch::Sender<bool>, tokio::task::JoinHandle<()>) {
@@ -252,10 +252,10 @@ async fn test_subscriber_handles_multiple_events() {
 /// `test_subscriber_keeps_config_manager_alive`. The closed-channel exit
 /// decision is therefore exercised where it is observable: a genuinely
 /// closed config-change channel (its manager dropped) fed to
-/// `handle_config_event`, which must report [`EventOutcome::Exit`] — the
+/// `handle_next_event`, which must report [`EventOutcome::Exit`] — the
 /// very value the subscriber loop breaks on.
 #[tokio::test]
-async fn test_handle_config_event_exits_on_closed_channel() {
+async fn test_handle_next_event_exits_on_closed_channel() {
     let tmp = TempDir::new().unwrap();
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
@@ -264,20 +264,22 @@ async fn test_handle_config_event_exits_on_closed_channel() {
     // A real config-change channel, closed by dropping its ConfigManager so
     // `recv()` yields `RecvError::Closed` — exactly what the subscriber's
     // `event_rx` would see if the manager could be dropped underneath it.
-    let closed_event = {
+    // `recv()` reports `Closed` and keeps reporting it, so the probe assert
+    // below and the handler call after it both observe the closed channel.
+    let mut closed_event_rx = {
         let doomed_mgr = make_config_manager(&tmp);
-        let mut event_rx = doomed_mgr.subscribe_config_changes();
+        let event_rx = doomed_mgr.subscribe_config_changes();
         drop(doomed_mgr);
-        event_rx.recv().await
+        event_rx
     };
     assert!(
-        closed_event.is_err(),
+        closed_event_rx.recv().await.is_err(),
         "the config-change channel should be closed after its manager is dropped"
     );
 
     let mut snapshot_rx = config_mgr.subscribe_config_snapshots();
-    let outcome = handle_config_event(
-        closed_event,
+    let outcome = handle_next_event(
+        &mut closed_event_rx,
         &config_mgr,
         &session_mgr,
         &gateway,
@@ -401,10 +403,11 @@ async fn test_subscriber_clean_exit_on_shutdown_signal() {
 ///
 /// Note: the Reloaded event is published via `update_section_cache` (the real
 /// write path) so the matching snapshot is buffered before the event; a bare
-/// `notify_change(Reloaded)` would leave the subscriber waiting inside the
-/// event branch on `snapshot_rx.recv()` for a snapshot that never arrives.
-/// Either way the branch body now selects its inner awaits against shutdown,
-/// so the signal is observed without waiting for the event to complete.
+/// `notify_change(Reloaded)` would leave the receive+handle future parked
+/// on `snapshot_rx.recv()` for a snapshot that never arrives. Either way
+/// that future is raced against shutdown by the subscriber's single
+/// `select!`, so the signal is observed without waiting for the event to
+/// complete.
 #[tokio::test]
 async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
     let tmp = TempDir::new().unwrap();
@@ -434,10 +437,10 @@ async fn test_subscriber_shutdown_signal_concurrent_with_events_no_panic() {
 
 /// ③ Edge: the shutdown sender is dropped **without** an explicit
 /// `send(true)` (RAII drop of `ConfigWatcherHandle` without
-/// `into_subscriber_handle()`): `shutdown_rx.changed()` yields
-/// `RecvError::Closed` and the subscriber must exit cleanly within a
-/// bounded time — locking in that a directly-dropped handle leaves no
-/// orphan subscriber task behind.
+/// `into_subscriber_handle()`): the subscriber's single `select!` sees
+/// `shutdown_rx.changed()` yield `RecvError::Closed`, and the subscriber
+/// must exit cleanly within a bounded time — locking in that a
+/// directly-dropped handle leaves no orphan subscriber task behind.
 #[tokio::test]
 async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
     let tmp = TempDir::new().unwrap();
@@ -459,15 +462,16 @@ async fn test_subscriber_clean_exit_on_shutdown_sender_drop() {
 }
 
 /// ④ Regression (Step 1.5, E2 Review-B): the shutdown signal must be
-/// visible **while** the subscriber executes an event branch body — the
-/// Step 1.1 blind-spot fix.
+/// visible **while** the subscriber is inside the receive+handle future.
 ///
-/// A bare `notify_change(Reloaded)` publishes no snapshot, so the
-/// subscriber enters the branch and parks on `snapshot_rx.recv()`, the
-/// exact inner await that was a shutdown blind spot before Step 1.1.
-/// `send(true)` issued while parked there must still yield a bounded clean
-/// exit (timeout + join). Fails by timeout on the pre-Step-1.1
-/// implementation, passes on the current one.
+/// A bare `notify_change(Reloaded)` publishes no snapshot, so
+/// `handle_next_event` receives the event and parks on
+/// `snapshot_rx.recv()` — the exact inner await that was a shutdown blind
+/// spot before the blind-spot fix. `send(true)` issued while parked there
+/// must still yield a bounded clean exit (timeout + join): that await
+/// lives inside the future raced against shutdown, so the test fails by
+/// timeout whenever the await sits outside the race and passes on the
+/// current structure.
 #[tokio::test]
 async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
     let tmp = TempDir::new().unwrap();
@@ -478,7 +482,7 @@ async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
     tokio::task::yield_now().await;
 
     // Bare Reloaded event with no snapshot broadcast: the subscriber enters
-    // the event branch and parks waiting for a snapshot that never arrives.
+    // `handle_next_event` and parks waiting for a snapshot that never arrives.
     config_mgr.notify_change(ConfigChangeEvent::Reloaded {
         section: ConfigSection::Models,
         path: "models.json".into(),
@@ -487,14 +491,19 @@ async fn test_subscriber_shutdown_signal_visible_inside_event_branch() {
     tokio::task::yield_now().await;
     assert!(
         !subscriber.is_finished(),
-        "subscriber should be parked inside the event branch body before shutdown"
+        "subscriber should be parked inside the receive+handle future before shutdown"
     );
 
     shutdown_tx
         .send(true)
         .expect("shutdown sender must still be open");
 
-    assert_subscriber_exits(subscriber, 2, "shutdown while parked in branch body").await;
+    assert_subscriber_exits(
+        subscriber,
+        2,
+        "shutdown while parked in receive+handle future",
+    )
+    .await;
 }
 
 // ---------------------------------------------------------------------------
