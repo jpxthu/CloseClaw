@@ -311,3 +311,10 @@ mod tests;
 #[cfg(test)]
 #[path = "config_watcher_handle_tests.rs"]
 mod handle_tests;
+
+// Flattened-select behavior tests (issue #3220) split into a sibling
+// module so both files stay within the 1000-line limit (CONTRIBUTING.md
+// hard cap).
+#[cfg(test)]
+#[path = "config_watcher_select_tests.rs"]
+mod select_tests;
