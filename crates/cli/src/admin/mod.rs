@@ -24,7 +24,7 @@ pub use restart::handle_restart;
 pub use rule::{handle_rule, handle_rule_with};
 pub use run::{handle_run, handle_run_foreground, prepare_run, DaemonRunner};
 pub use skill::{handle_skill, handle_skill_with};
-pub use stop::{handle_stop, handle_stop_at};
+pub use stop::{handle_stop, handle_stop_at, handle_stop_at_with_timeout};
 
 #[cfg(test)]
 mod config_tests;
