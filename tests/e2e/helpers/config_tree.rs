@@ -4,7 +4,11 @@
 //! Single implementation of the config-tree block previously inlined in
 //! `sigterm_tests` (SIGTERM/SIGINT cases) and `shutdown_checkpoint_tests`
 //! (storage case) — STANDARDS §10: shared helper extracted into a common
-//! module instead of being re-embedded per test case. Deliberately **not**
+//! module instead of being re-embedded per test case. Consumers also include
+//! the in-process case's temp-dir wrapper `daemon_test_temp_config` in
+//! `sigterm_tests` (landed with issue #3275, which carried a fourth copy of
+//! the same block): it too converges on this helper, so only the temp dir is
+//! left to the caller. Deliberately **not**
 //! feature-gated: unlike the `config` submodule (feature `fake-llm`, full
 //! fake-LLM config tree), this helper is reachable from cases built
 //! without that feature.
