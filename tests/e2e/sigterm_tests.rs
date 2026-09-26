@@ -10,7 +10,6 @@
 //! Both variants verify that SIGTERM/SIGINT triggers graceful shutdown
 //! instead of hard-killing the daemon.
 
-use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -24,14 +23,7 @@ async fn test_sigterm_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
-    let agents_dir = config_dir.join("config");
-    std::fs::create_dir_all(&agents_dir).expect("create config dir");
-    std::fs::write(
-        agents_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("failed to write test agents.json");
-    write_mandatory_configs(&agents_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(config_dir).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
     let mut daemon = helpers::spawn_daemon(config_dir);
@@ -73,14 +65,7 @@ async fn test_sigint_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_dir = temp_dir.path();
 
-    let agents_dir = config_dir.join("config");
-    std::fs::create_dir_all(&agents_dir).expect("create config dir");
-    std::fs::write(
-        agents_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("failed to write test agents.json");
-    write_mandatory_configs(&agents_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(config_dir).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
     let mut daemon = helpers::spawn_daemon(config_dir);

@@ -254,15 +254,7 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     let config_dir = temp_dir.path();
 
     // Write minimal agents.json + mandatory configs so daemon starts successfully
-    let agents_dir = config_dir.join("config");
-    std::fs::create_dir_all(&agents_dir).expect("create config dir");
-    std::fs::write(
-        agents_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("failed to write agents.json");
-    closeclaw_common::test_helpers::write_mandatory_configs(&agents_dir)
-        .expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(config_dir).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
     let mut daemon = helpers::spawn_daemon(config_dir);
