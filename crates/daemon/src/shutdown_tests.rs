@@ -1,7 +1,8 @@
 //! Unit tests for the shutdown coordinator and handle.
 //!
 //! Extracted from `shutdown.rs` to keep source files within the
-//! 1000-line CONTRIBUTING.md limit.
+//! 1000-line CONTRIBUTING.md limit. Also hosts the ShutdownHandle drain
+//! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
 use closeclaw_common::ShutdownSignal;
@@ -681,4 +682,203 @@ fn test_daemon_handle_untracked_increment_decrement_works() {
     handle.decrement_busy();
     handle.decrement_busy();
     assert_eq!(handle.busy_count(), 0);
+}
+
+// ─────────────────────────────────────────────────────────────────────
+// Merged from daemon_shutdown_tests.rs (issue #3244 Step 1.1).
+// The source file was misfiled as "E2E" but these drain scenarios are
+// ShutdownHandle unit tests; they live here from now on. The source
+// file is deleted in Step 1.3 together with its 3 config tests
+// (→ tests/integration/) and 1 e2e test (→ tests/e2e/).
+// ─────────────────────────────────────────────────────────────────────
+
+/// Drain waits until busy_count reaches zero before exiting.
+/// Covers the multi-decrement path (3x busy → decrement one-by-one).
+#[tokio::test]
+async fn test_drain_waits_until_busy_count_zero() {
+    let handle = ShutdownHandle::new();
+
+    // Increment busy count 3 times
+    handle.increment_busy();
+    handle.increment_busy();
+    handle.increment_busy();
+
+    // Spawn shutdown — should not complete while busy_count > 0
+    let handle_clone = handle.clone();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    // Give it a moment to enter ShuttingDown state
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert_eq!(handle.state(), crate::shutdown::ShutdownState::ShuttingDown);
+    assert_eq!(handle.busy_count(), 3);
+
+    // Decrement one at a time and verify state doesn't change yet
+    handle.decrement_busy();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_stopped());
+
+    handle.decrement_busy();
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_stopped());
+
+    // Last decrement — drain should complete
+    handle.decrement_busy();
+
+    // Wait for shutdown to finish (3s drain timeout in test mode + buffer)
+    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+
+    assert!(handle.is_stopped());
+}
+
+/// Drain timeout fires while busy_count is still non-zero: shutdown
+/// proceeds to Stopped and the count is left intact.
+///
+/// Renamed from `test_drain_waits_for_busy_count_zero` (issue #3244):
+/// the old name claimed the zero-count path, but the body actually
+/// exercises the timeout path — busy_count stays 1 throughout and the
+/// 300ms drain timeout is what drives the handle to Stopped.
+#[tokio::test]
+async fn test_drain_timeout_with_busy_count_nonzero() {
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    // Give it time to enter drain loop
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!handle.is_stopped(), "should still be draining");
+
+    // Wait for timeout + buffer — drain should complete even though
+    // busy_count is still 1.
+    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
+    assert!(
+        handle.is_stopped(),
+        "handle should be stopped after drain timeout"
+    );
+    // busy_count was not cleared by the drain
+    assert_eq!(handle.busy_count(), 1);
+}
+
+/// Drain signal is broadcast to all subscribers.
+#[tokio::test]
+async fn test_drain_signal_broadcast() {
+    let handle = ShutdownHandle::new();
+
+    let mut rx1 = handle.subscribe_drain();
+    let mut rx2 = handle.subscribe_drain();
+
+    // Spawn shutdown in background
+    let handle_clone = handle.clone();
+    tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    // Both receivers should receive the signal within 1 second
+    let result1 = tokio::time::timeout(Duration::from_secs(1), rx1.recv()).await;
+    let result2 = tokio::time::timeout(Duration::from_secs(1), rx2.recv()).await;
+
+    assert!(result1.is_ok(), "Receiver 1 did not get drain signal");
+    assert!(result2.is_ok(), "Receiver 2 did not get drain signal");
+}
+
+/// `with_drain_timeout()` applies a custom (200ms) timeout, overriding
+/// the default 30s drain timeout.
+#[tokio::test]
+async fn test_drain_timeout_with_custom_value() {
+    // Use a short custom timeout (200ms) to prove it overrides the default 30s.
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(200));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    // With 200ms timeout, drain should complete around 200ms.
+    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 200ms timeout"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "elapsed should be ~200ms (not 30s default), got {:?}",
+        elapsed
+    );
+    // Verify busy_count was not cleared (drain timed out)
+    assert_eq!(
+        handle.busy_count(),
+        1,
+        "busy_count should remain 1 after timeout"
+    );
+}
+
+/// `with_drain_timeout()` with an explicit short value (300ms) takes
+/// effect: drain completes around that deadline instead of the 30s
+/// default.
+///
+/// Renamed from `test_drain_timeout_default_is_30s` (issue #3244): the
+/// old name claimed coverage of the 30s default, but the body only sets
+/// an explicit 300ms value via `with_drain_timeout`. `ShutdownHandle`
+/// has no `drain_timeout()` getter, so the default cannot be asserted
+/// directly; the 30s default stays covered indirectly by
+/// `test_drain_timeout_with_custom_value` (elapsed ≪ 30s).
+#[tokio::test]
+async fn test_drain_timeout_with_explicit_short_value() {
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 300ms timeout"
+    );
+    assert!(
+        elapsed >= Duration::from_millis(250) && elapsed <= Duration::from_secs(1),
+        "elapsed should be ~300ms, got {:?}",
+        elapsed
+    );
+}
+
+/// `with_drain_timeout()` with a very short timeout (1ms) completes
+/// almost immediately.
+#[tokio::test]
+async fn test_drain_timeout_very_short() {
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(1));
+    handle.increment_busy();
+
+    let handle_clone = handle.clone();
+    let start = tokio::time::Instant::now();
+    let shutdown_task = tokio::spawn(async move {
+        handle_clone.initiate_shutdown().await;
+    });
+
+    let _ = tokio::time::timeout(Duration::from_secs(2), shutdown_task).await;
+    let elapsed = start.elapsed();
+
+    assert!(
+        handle.is_stopped(),
+        "drain should complete after 1ms timeout"
+    );
+    assert!(
+        elapsed < Duration::from_secs(1),
+        "elapsed should be <1s, got {:?}",
+        elapsed
+    );
 }
