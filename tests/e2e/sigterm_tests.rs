@@ -108,17 +108,12 @@ async fn test_sigint_triggers_graceful_shutdown() {
 /// `agents.json` plus all mandatory configs — ConfigManager receives
 /// `<root>/config/` as its config_dir (design-doc directory structure).
 /// Inlined from the daemon crate's `daemon_test_temp_config` (cfg(test)
-/// private, not reachable across crates).
+/// private, not reachable across crates); the tree itself is now written by
+/// the shared non-gated helper `helpers::config_tree::write_test_config_tree`
+/// (issue #3271), so this stays a thin wrapper owning only the temp dir.
 fn daemon_test_temp_config() -> tempfile::TempDir {
     let temp_dir = tempfile::tempdir().expect("temp dir");
-    let config_dir = temp_dir.path().join("config");
-    std::fs::create_dir_all(&config_dir).expect("create config dir");
-    std::fs::write(
-        config_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("write agents.json");
-    write_mandatory_configs(&config_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(temp_dir.path()).expect("write test config tree");
     temp_dir
 }
 
