@@ -3,10 +3,17 @@
 //! Centralizes daemon spawn logic, readiness polling, and lifecycle
 //! assertions to avoid duplication across `sigterm_tests`,
 //! `agent_profile_tests`, `shutdown_checkpoint_tests`, and
-//! `gateway_restart_turn_tests`. Chat-RPC client, fake-LLM server, and
-//! config-tree scaffolding helpers live in the [`chat`], [`fake_llm`],
-//! and [`config`] submodules (feature `fake-llm`, whose consumers are
-//! the fake-LLM-backed test files).
+//! `gateway_restart_turn_tests`. The minimal config-tree scaffolding
+//! (empty `agents.json` + mandatory configs) lives in [`config_tree`] and
+//! is **not** feature-gated, so cases built without `fake-llm` can use it.
+//! The Chat-RPC client, fake-LLM server, and full fake-LLM config-tree
+//! scaffolding live in the [`chat`], [`fake_llm`], and [`config`]
+//! submodules (feature `fake-llm`, whose consumers are the fake-LLM-backed
+//! test files).
+
+pub mod config_tree;
+#[cfg(test)]
+mod config_tree_tests;
 
 #[cfg(feature = "fake-llm")]
 pub mod chat;

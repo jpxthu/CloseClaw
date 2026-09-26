@@ -10,7 +10,6 @@
 //! Both variants verify that SIGTERM/SIGINT triggers graceful shutdown
 //! instead of hard-killing the daemon.
 
-use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::time::Duration;
 use tokio::time::timeout;
 
@@ -22,22 +21,15 @@ use super::helpers;
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
-    let config_dir = temp_dir.path();
+    let config_root = temp_dir.path();
 
-    let agents_dir = config_dir.join("config");
-    std::fs::create_dir_all(&agents_dir).expect("create config dir");
-    std::fs::write(
-        agents_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("failed to write test agents.json");
-    write_mandatory_configs(&agents_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(config_root).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
-    let mut daemon = helpers::spawn_daemon(config_dir);
+    let mut daemon = helpers::spawn_daemon(config_root);
 
     // Wait for daemon admin socket to be ready
-    helpers::wait_for_daemon_ready(config_dir).await;
+    helpers::wait_for_daemon_ready(config_root).await;
 
     // Verify daemon is still running (not crashed on startup)
     helpers::assert_daemon_alive(&mut daemon);
@@ -71,22 +63,15 @@ async fn test_sigterm_triggers_graceful_shutdown() {
 #[cfg(unix)]
 async fn test_sigint_triggers_graceful_shutdown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
-    let config_dir = temp_dir.path();
+    let config_root = temp_dir.path();
 
-    let agents_dir = config_dir.join("config");
-    std::fs::create_dir_all(&agents_dir).expect("create config dir");
-    std::fs::write(
-        agents_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("failed to write test agents.json");
-    write_mandatory_configs(&agents_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(config_root).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
-    let mut daemon = helpers::spawn_daemon(config_dir);
+    let mut daemon = helpers::spawn_daemon(config_root);
 
     // Wait for daemon admin socket to be ready
-    helpers::wait_for_daemon_ready(config_dir).await;
+    helpers::wait_for_daemon_ready(config_root).await;
 
     // Verify daemon is still running
     helpers::assert_daemon_alive(&mut daemon);
@@ -123,17 +108,12 @@ async fn test_sigint_triggers_graceful_shutdown() {
 /// `agents.json` plus all mandatory configs — ConfigManager receives
 /// `<root>/config/` as its config_dir (design-doc directory structure).
 /// Inlined from the daemon crate's `daemon_test_temp_config` (cfg(test)
-/// private, not reachable across crates).
+/// private, not reachable across crates); the tree itself is now written by
+/// the shared non-gated helper `helpers::config_tree::write_test_config_tree`
+/// (issue #3271), so this stays a thin wrapper owning only the temp dir.
 fn daemon_test_temp_config() -> tempfile::TempDir {
     let temp_dir = tempfile::tempdir().expect("temp dir");
-    let config_dir = temp_dir.path().join("config");
-    std::fs::create_dir_all(&config_dir).expect("create config dir");
-    std::fs::write(
-        config_dir.join("agents.json"),
-        r#"{"version":"1.0.0","agents":[]}"#,
-    )
-    .expect("write agents.json");
-    write_mandatory_configs(&config_dir).expect("write mandatory config");
+    helpers::config_tree::write_test_config_tree(temp_dir.path()).expect("write test config tree");
     temp_dir
 }
 
