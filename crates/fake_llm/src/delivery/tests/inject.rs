@@ -14,6 +14,10 @@ fn noop_waker() -> std::task::Waker {
         RawWakerVTable::new(clone, noop, noop, noop)
     };
     let raw = RawWaker::new(std::ptr::null(), &RAW_WAKER_VTABLE);
+    // SAFETY: `raw` comes from `RawWaker::new` with a null data pointer and a
+    // vtable whose clone returns a fresh null-data waker and whose
+    // wake/wake_by_ref/drop are no-ops; none of them ever dereference the
+    // data, so it upholds the `Waker::from_raw` contract.
     unsafe { std::task::Waker::from_raw(raw) }
 }
 
