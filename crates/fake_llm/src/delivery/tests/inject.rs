@@ -44,6 +44,79 @@ fn drain_count<S: Stream + Unpin>(mut stream: S) -> usize {
 }
 
 // ------------------------------------------------------------------
+// drain_count — stop semantics (Ready(Some) counted; Pending/None stops)
+// ------------------------------------------------------------------
+
+/// One scripted outcome for [`ScriptedStream::poll_next`].
+enum Step {
+    Item(&'static str),
+    Pending,
+}
+
+/// Stream whose poll results are fully scripted, so tests can pin down
+/// `drain_count`'s behavior at the `Poll::Pending` and `Poll::Ready(None)`
+/// boundaries instead of relying on always-ready streams.
+struct ScriptedStream {
+    steps: std::vec::IntoIter<Step>,
+}
+
+impl Stream for ScriptedStream {
+    type Item = &'static str;
+
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.get_mut().steps.next() {
+            Some(Step::Item(item)) => Poll::Ready(Some(item)),
+            Some(Step::Pending) => Poll::Pending,
+            None => Poll::Ready(None),
+        }
+    }
+}
+
+#[test]
+fn test_drain_count_counts_ready_items_until_stream_end() {
+    // Normal path: n immediately-ready items then Ready(None) → count == n.
+    let stream = futures::stream::iter(["a", "b", "c"]);
+    assert_eq!(
+        drain_count(stream),
+        3,
+        "expected all 3 ready items counted before end of stream"
+    );
+}
+
+#[test]
+fn test_drain_count_empty_stream_returns_zero() {
+    // Boundary: stream ends immediately (first poll is Ready(None)) → 0.
+    let stream = futures::stream::iter(std::iter::empty::<&str>());
+    assert_eq!(
+        drain_count(stream),
+        0,
+        "expected immediately-ended stream to drain as 0"
+    );
+}
+
+#[test]
+fn test_drain_count_stops_at_pending_without_consuming_later_items() {
+    // Pending boundary: counting stops at the first non-Ready(Some) poll.
+    // Items scripted after the Pending must stay uncounted; the helper must
+    // return (no panic, no spin) instead of polling past Pending.
+    let stream = ScriptedStream {
+        steps: vec![
+            Step::Item("a"),
+            Step::Item("b"),
+            Step::Pending,
+            Step::Item("c"), // never reached: drain stops at Pending
+            Step::Item("d"),
+        ]
+        .into_iter(),
+    };
+    assert_eq!(
+        drain_count(stream),
+        2,
+        "expected counting to stop at Pending; items after Pending stay uncounted"
+    );
+}
+
+// ------------------------------------------------------------------
 // deliver — streaming delay injection
 // ------------------------------------------------------------------
 
