@@ -46,13 +46,16 @@ ROOT = os.getcwd()
 
 SECTIONS = [
     ("clippy::too_many_lines", "1. 函数体 > 100 行（clippy::too_many_lines, threshold=100）",
-     "cargo clippy --workspace --all-targets（clippy.toml: too-many-lines-threshold=100）",
+     "cargo clippy --workspace --all-targets（clippy.toml: too-many-lines-threshold=100"
+     "，由本脚本运行时临时生成）",
      "函数级 `#[allow(clippy::too_many_lines)]` + 理由注释；根治=按阶段拆子函数/抽 match 分支方法"),
     ("clippy::too_many_arguments", "2. 函数参数 > 6（clippy::too_many_arguments, threshold=6）",
-     "cargo clippy --workspace --all-targets（clippy.toml: too-many-arguments-threshold=6）",
+     "cargo clippy --workspace --all-targets（clippy.toml: too-many-arguments-threshold=6"
+     "，由本脚本运行时临时生成）",
      "`#[allow(clippy::too_many_arguments)]` + 理由；根治=参数聚合 struct / builder / Option 组合并"),
     ("clippy::excessive_nesting", "3. 块嵌套 > 3 层（clippy::excessive_nesting, threshold=3）",
-     "cargo clippy --workspace --all-targets（clippy.toml: excessive-nesting-threshold=3）",
+     "cargo clippy --workspace --all-targets（clippy.toml: excessive-nesting-threshold=3"
+     "，由本脚本运行时临时生成）",
      "`#[allow(clippy::excessive_nesting)]`；注意口径=所有块（含 loop/block），比 CONTRIBUTING 的 match/if 口径严；根治=提前返回/guard clause/抽函数"),
     ("clippy::undocumented_unsafe_blocks", "4. unsafe 块缺 // SAFETY: 注释",
      "cargo clippy --force-warn clippy::undocumented_unsafe_blocks",
@@ -61,8 +64,10 @@ SECTIONS = [
      "cargo clippy --force-warn clippy::missing_safety_doc",
      "doc 注释补 `# Safety` 段"),
     ("clippy::disallowed_methods", "6. 禁用方法 set_var/remove_var（load_env_file 场景除外）",
-     "clippy.toml: disallowed-methods=[std::env::set_var, std::env::remove_var]",
-     "唯一豁免点：daemon load_env_file 内 `#[allow(clippy::disallowed_methods)]`；其余改参数传递/tempfile"),
+     "cargo clippy --workspace --all-targets（clippy.toml 由本脚本运行时临时生成，"
+     "非仓库文件）：disallowed-methods=[std::env::set_var, std::env::remove_var]",
+     "唯一豁免点：crates/daemon/src/mod.rs 的 load_env_file()，按行级 load_env_file 标记文本豁免"
+     "（与 CI/pre-commit 同口径：命中行内含 load_env_file 标记即豁免）；其余改参数传递/tempfile"),
 ]
 
 groups = collections.defaultdict(list)
@@ -84,6 +89,32 @@ for line in open(clippy_json, errors="replace"):
     key = (fname, span["line_start"], code, diag.get("message", ""))
     groups[code].append((fname, span["line_start"], diag.get("message", "")))
 
+# §6 行级豁免：与 CI/pre-commit（scripts/check-env-var.sh）同口径——命中行内含 load_env_file
+# 标记即豁免。clippy 侧无法表达行级豁免，故在此后处理环节过滤；豁免点为
+# crates/daemon/src/mod.rs 的 load_env_file()（行级文本标记豁免，非 #[allow] 属性）。
+# 按 fname 缓存整行列表，消除同一文件的重复打开/重复扫描（纯 no-op 重构，取行口径不变）。
+_SOURCE_LINES = {}
+
+
+def source_line(fname, ln):
+    lines = _SOURCE_LINES.get(fname)
+    if lines is None:
+        try:
+            with open(fname, errors="replace") as fh:
+                lines = fh.readlines()
+        except OSError:
+            lines = []
+        _SOURCE_LINES[fname] = lines
+    if 1 <= ln <= len(lines):
+        return lines[ln - 1]
+    return ""
+
+raw_diags = sum(len(v) for v in groups.values())
+groups["clippy::disallowed_methods"] = [
+    item for item in groups.get("clippy::disallowed_methods", [])
+    if "load_env_file" not in source_line(item[0], item[1])
+]
+
 with open(out, "w", encoding="utf-8") as f:
     f.write(f"# CONTRIBUTING 违规扫描报告（除单测时长）\n\n> commit: {commit} ｜ 生成: contributing-audit.sh ｜ 耗时项为 clippy 全量\n")
     f.write("> 用法：从各节选条目修复，完成后重跑本脚本验证条目消失。\n\n")
@@ -99,7 +130,7 @@ with open(out, "w", encoding="utf-8") as f:
             f.write(f"- [ ] `{file}:{ln}` — {m}\n")
         f.write("\n")
     f.write(f"**A 小计：{total_a} 条**\n\n")
-print("clippy done:", sum(len(v) for v in groups.values()), "diags")
+print("clippy done:", raw_diags, "diags")
 PYEOF
 rm -f "$CLIPPY_JSON"
 
