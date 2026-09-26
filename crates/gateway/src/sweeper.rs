@@ -198,8 +198,8 @@ impl ArchiveSweeper {
     /// Lower the process nice value on Unix to reduce sweeper priority.
     #[cfg(unix)]
     fn lower_priority(&self) {
-        // SAFETY: `setpriority(PRIO_PROCESS, 0, ...)` only lowers the nice
-        // value of the calling process (id 0); it takes no pointers and
+        // SAFETY: `setpriority(PRIO_PROCESS, 0, ...)` attempts to lower the
+        // nice value of the calling process (id 0); it takes no pointers and
         // failure is reported via the return value, so no invariant can be
         // violated.
         if unsafe { libc::setpriority(libc::PRIO_PROCESS, 0, 10) } != 0 {
