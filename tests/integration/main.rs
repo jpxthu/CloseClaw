@@ -19,3 +19,4 @@ mod minimax_mock_tests;
 mod minimax_stream_mock_tests;
 mod plan_mode_integration_tests;
 mod rejection_log_archive_integration_tests;
+mod shutdown_config_integration_tests;
