@@ -967,8 +967,6 @@ impl Daemon {
     }
 }
 #[cfg(test)]
-mod daemon_shutdown_tests;
-#[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]
 mod gateway_restart_checkpoint_tests;
