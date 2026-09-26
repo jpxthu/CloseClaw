@@ -1,4 +1,4 @@
-//! Direct behavior tests for the backgroundize chain (Step 1.4).
+//! Direct behavior tests for the backgroundize chain.
 //!
 //! `backgroundize_child` / `auto_backgroundize_foreground` are the
 //! terminal builders of both backgrounding paths (manual signal and
