@@ -3,23 +3,7 @@ use crate::delivery::sse::SseEvent;
 use crate::scenario::types::{HttpError, ResponseBlock, UsageResponse};
 
 use std::pin::Pin;
-use std::task::{Context, Poll, RawWaker, RawWakerVTable};
-
-fn noop_waker() -> std::task::Waker {
-    static RAW_WAKER_VTABLE: RawWakerVTable = {
-        unsafe fn clone(_: *const ()) -> RawWaker {
-            RawWaker::new(std::ptr::null(), &RAW_WAKER_VTABLE)
-        }
-        unsafe fn noop(_: *const ()) {}
-        RawWakerVTable::new(clone, noop, noop, noop)
-    };
-    let raw = RawWaker::new(std::ptr::null(), &RAW_WAKER_VTABLE);
-    // SAFETY: `raw` comes from `RawWaker::new` with a null data pointer and a
-    // vtable whose clone returns a fresh null-data waker and whose
-    // wake/wake_by_ref/drop are no-ops; none of them ever dereference the
-    // data, so it upholds the `Waker::from_raw` contract.
-    unsafe { std::task::Waker::from_raw(raw) }
-}
+use std::task::{Context, Poll};
 
 fn text_block(content: &str) -> ResponseBlock {
     ResponseBlock {
@@ -232,7 +216,7 @@ async fn deliver_streaming_interrupt_consumable() {
             let mut stream =
                 crate::delivery::sse::SseEventStream::new(events).with_max_events(max_events);
             use futures_core::Stream;
-            let waker = noop_waker();
+            let waker = futures::task::noop_waker();
             let mut cx = Context::from_waker(&waker);
             let mut count = 0;
             loop {
@@ -435,7 +419,7 @@ async fn sse_event_stream_max_events_zero() {
     ];
     let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
     use futures_core::Stream;
-    let waker = noop_waker();
+    let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
     let mut count = 0;
     loop {

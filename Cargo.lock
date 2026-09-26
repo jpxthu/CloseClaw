@@ -775,6 +775,7 @@ dependencies = [
  "anyhow",
  "axum",
  "clap",
+ "futures",
  "futures-core",
  "reqwest",
  "serde",
