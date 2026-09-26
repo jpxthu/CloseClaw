@@ -292,6 +292,10 @@ async fn test_backgroundize_child_auto_builds_auto_result() {
     let calls = recorder.calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].session_id, "sess-auto");
+    assert!(
+        calls[0].is_backgrounded,
+        "auto backgroundize chain must register is_backgrounded=true"
+    );
 }
 
 // ---------------------------------------------------------------------------
