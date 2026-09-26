@@ -10,36 +10,37 @@ BashTool 的执行链路包含五层处理：
 
 ```
 输入参数解析
-  → 安全解析（AST 分析 + 信任分级，详见 bash-security.md）
+  → 安全解析（语法解析、差异检测、信任分级，详见 bash-security.md）
     → 权限校验
       → 子进程执行（前台/后台分支）
         → 输出累积与截断
           → 结果组装（返回给 agent 或持久化引用）
 ```
 
+每次调用启动独立的 shell 进程：工作目录、环境变量等状态不跨调用保留；命令的工作目录经 `cwd` 参数传入，而非在命令内用 `cd` 切换。
+
 ### 参数
 
 | 参数 | 类型 | 必填 | 说明 |
 |------|------|------|------|
 | `command` | string | 是 | 要执行的 shell 命令，原样传递给 shell |
-| `timeout` | number | 否 | 超时毫秒数，默认 120,000（2 分钟），最大 600,000（10 分钟） |
-| `description` | string | 否 | 命令用途的简短描述，用于进度展示和通知摘要。始终用主动语态，不包含"复杂""危险"等主观词 |
+| `timeout` | number | 否 | 命令超时毫秒数，上限 600,000（10 分钟）。未设置时使用系统默认阻塞预算（见「超时控制」） |
+| `description` | string | 否 | 命令用途的简短描述（说明操作、目标与预期效果），供 Owner 审批时理解命令意图。始终用主动语态，不包含"复杂""危险"等主观词 |
 | `run_in_background` | boolean | 否 | 设为 true 将命令放入后台执行，立即返回任务标识。agent 随后通过通知获取结果 |
-| `cwd` | string | 否 | 工作目录，默认为 session 的工作目录 |
+| `cwd` | string | 否 | 工作目录，默认为 session 的工作目录；工作目录不存在时命令被拒绝 |
 
 ### 工具提示词
 
-Bash 工具的描述不包含工作目录和 Git 状态——这些上下文由 system prompt 动态层统一注入（WorkingDirectory + GitStatus Section），所有工具均可访问。单个工具不需要重复注入会话级信息。
+Bash 工具的描述不包含当前会话的工作目录状态与 Git 状态——这些会话级上下文（在启用时）由 system prompt 动态层统一注入（见 [system_prompt](../system_prompt/README.md)），所有工具均可访问，单个工具无需重复注入；命令自身的工作目录经 `cwd` 参数按调用传入。
 
 ### 超时控制
 
-命令执行有硬性时间限制。超时后子进程被终止，结果中标记 `interrupted: true`，已产生的 stdout/stderr 保留。
+命令执行受三层时间约束——前台阻塞预算（系统默认 15 秒）、超时参数上限（10 分钟）、总执行时长兜底（系统配置，必然大于超时参数上限）。三层的完整判定机制与流程见 [background-tasks.md](background-tasks.md) 自动后台化，本节只保留 BashTool 侧的要点：
 
-默认超时适应用户配置（环境变量可覆盖默认值和上限），但上限不可超过 10 分钟。超过 10 分钟的长任务应使用 `run_in_background` 后台化。
-
-agent 调用时也可手动指定更短或更长的超时（不超上限），以适应特定命令的预期执行时间。
-
-此外，agent 运行时层可触发自动后台化：当命令在前台运行超过一定时间（阻塞预算），agent 运行时将其转为后台任务继续执行，BashTool 返回 `assistantAutoBackgrounded: true` 和任务标识。
+- Agent 可通过 `timeout` 参数为命令指定超时时长，上限 10 分钟，超过上限被钳制到上限并在返回结果中告知；未设置时使用系统默认阻塞预算。
+- 达到 Agent 指定的超时或系统阻塞预算时，命令**不终止**，而是自动转入后台继续运行——BashTool 返回自动后台化标志与后台任务标识，完成后按后台任务规则通知（阻塞预算兜底路径的命令白名单排除见 background-tasks.md）。
+- 只有总执行时长兜底（以及 Session 停止清理、Agent 主动终止）会真正终止命令——结果标记为被强制终止，已产生的输出保留，命令派生的子进程一并终止，不留孤儿进程。总执行时长兜底对前台执行、显式后台、自动后台化的命令统一生效。
+- `run_in_background` 的命令直接创建后台任务，不受前台阻塞预算/超时参数转后台机制影响，仅受总执行时长兜底约束。
 
 ### 输出累积与截断
 
@@ -49,17 +50,15 @@ agent 调用时也可手动指定更短或更长的超时（不超上限），�
 
 ### 输出持久化
 
-命令输出完整写入磁盘文件。当累积器中保存的文本不足以反映全貌时（磁盘文件大小超过内存累积阈值），输出不以原始文本形式返回给 agent，而是：
+当命令输出超过内存累积阈值时，完整输出写入磁盘文件，且不以原始文本形式返回给 agent，而是：
 
-1. 完整输出保存到工具结果目录
-2. agent 收到一个 `<persisted-output>` 引用，包含文件路径、原始大小、前 2,000 字节预览
+1. 完整输出写入该 Session 的输出文件——按 Session 隔离存放于系统临时目录，与后台任务输出同一存放位置和生命周期（见 [background-tasks.md](background-tasks.md) 输出管理）
+2. agent 收到一个持久化引用，包含文件路径、原始大小、输出开头预览
 3. agent 需要完整输出时，通过文件读取工具按需加载
-
-持久化文件硬上限 64MB，超出部分截断。
 
 ### 命令分类
 
-BashTool 根据命令的第一个词对命令进行语义分类，用于 UI 展示优化：
+BashTool 根据命令的第一个词对命令进行语义分类，用于 UI 展示优化（分类仅影响展示，不改变 BashTool 自身的危险度标记）：
 
 | 类别 | 示例命令 | 展示行为 |
 |------|---------|---------|
@@ -77,30 +76,15 @@ BashTool 根据命令的第一个词对命令进行语义分类，用于 UI 展�
 
 ### 权限
 
-BashTool 自身标记为破坏性工具和昂贵工具，在工具索引中显示对应的危险度标记。
+BashTool 自身标记为破坏性工具和资源消耗型工具；破坏性标记在工具索引中显示为对应的危险度标记。
 
-命令级别的权限校验在工具执行前由权限引擎完成。BashTool 将命令和参数提交给权限引擎的**命令行**维度检查，权限引擎根据白名单配置决定放行或拒绝。
+工具执行前由 Tools 模块统一调用权限引擎校验其调用；Bash 调用按**工具维度**（当前 agent 是否有权调用 Bash）与**命令行维度**（命令自身是否被授权）依次评估，命令触发的文件读写复用**读/写维度**判定，命令的执行环境（宿主环境 / 沙盒）由命令行维度判定。权限模型与维度定义见 permission 模块（[permission-dimensions.md](../permission/permission-dimensions.md)、[approval-workflow.md](../permission/approval-workflow.md)）。
 
-### 沙箱
-
-当前 Bash 命令在主机环境直接执行，无沙箱隔离。未来沙箱功能启用时，Bash 命令将在受限环境中执行：文件系统读写范围受限、网络访问受控。沙箱旁路机制将作为独立权限维度设计。
+评估放行则执行命令；拒绝则可能进入审批（审批的入队、推送与回调见 approval-workflow.md）。命令进入审批时，BashTool 立即返回等待状态，agent 无需阻塞、可继续其他工作（不重复提交该命令），审批完成后按结果恢复执行或告知被拒绝。推送 Owner 的审批展示附带 Agent 提供的命令用途说明（`description`），帮助 Owner 判断命令意图。
 
 ### 输出结构
 
-BashTool 的 call() 返回结果包含以下字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `stdout` | string | 标准输出（≤ 累积阈值时为完整内容，> 阈值时为 `<persisted-output>` 引用） |
-| `stderr` | string | 标准错误输出 |
-| `exitCode` | number | 退出码，0 表示成功 |
-| `interrupted` | boolean | 是否因超时被终止 |
-| `backgroundTaskId` | string | 后台任务标识（仅 `run_in_background: true` 或自动后台化时返回） |
-| `assistantAutoBackgrounded` | boolean | 是否因阻塞预算超时被自动转为后台 |
-| `persistedOutputPath` | string | 持久化输出文件路径（输出超过累积阈值时） |
-| `persistedOutputSize` | number | 持久化文件的原始字节数 |
-| `returnCodeInterpretation` | string | 非错误退出码的特殊语义说明（如 grep 的 0=命中、1=未命中） |
-| `noOutputExpected` | boolean | 命令是否预期不产生输出（用于 UI 展示"Done"） |
+BashTool 返回给 agent 的结果包含：合并后的命令输出（stdout 与 stderr 合并为单一输出流，超过累积阈值时以持久化引用替代原始文本）、退出码、命令是否被强制终止；非零退出码且无内置语义时按失败呈现，有内置语义时（如 grep 未命中）附带退出码含义（内置语义对照见 [bash-security.md](bash-security.md) 退出码语义）。后台化或自动后台化的调用额外返回后台任务标识与任务输出文件路径，供 agent 后续读取输出、终止任务。
 
 ## 数据流
 
@@ -108,50 +92,38 @@ BashTool 的 call() 返回结果包含以下字段：
 
 ```
 agent 调用 BashTool（command + 可选参数）
-  → 安全解析：AST 分析 + 信任分级
-    → malicious → 拦截 + 通知 owner
-    → uncertain → 发起审批
-    → trusted：
-      → 权限引擎检查命令是否在白名单
-        → 拒绝 → 可能触发审批（通过 Gateway 推送 owner，详见 permission/approval-workflow.md）
-        → 通过：
-          → 启动子进程，合并 stdout/stderr 到输出累积器
-        → 输出流式到达，渐进累积
-          → 累积器达阈值 → 丢弃新增内容，标注截断量
-        → 命令结束或超时
-          → 超时：发送终止信号，标记 interrupted
-          → 正常完成：收集退出码
-      → 输出小于累积阈值：直接返回 stdout/stderr/exitCode
-      → 输出大于累积阈值：持久化到磁盘，返回 <persisted-output> 引用 + 预览
-      → 返回执行结果给 agent
+  → 参数校验（cwd 不存在则拒绝）
+  → 安全解析（语法解析、差异检测、信任分级，详见 bash-security.md）
+      ├─ 拦截：命中攻击模式 → 直接拦截并通知 owner，不执行
+      ├─ 审批：解析不确定 → 发起审批，等待 owner 决定（详见 approval-workflow.md）
+      └─ 放行 → 权限引擎评估（工具维度 → 命令行维度）
+          ├─ 拒绝 → 可能进入审批（详见 approval-workflow.md）
+          └─ 通过：
+              → 启动子进程，合并 stdout/stderr 到输出累积器
+              → 输出流式到达，渐进累积；达阈值则丢弃新增内容并标注截断量
+              → 命令结束，或达到超时/阻塞预算/总执行时长兜底
+                  ├─ 达到超时/阻塞预算：自动转入后台（详见 background-tasks.md 自动后台化），返回自动后台化标志 + 任务标识 + 输出文件路径
+                  ├─ 达到总执行时长兜底：强制终止（详见 background-tasks.md 总执行时长兜底），结果标记为被强制终止
+                  └─ 正常完成：收集退出码
+              → 输出未超累积阈值：直接返回合并输出 + 退出码
+              → 输出超累积阈值：持久化到磁盘，返回持久化引用 + 开头预览
+              → 返回执行结果给 agent
 ```
 
 ### 后台执行（run_in_background = true）
 
 ```
 agent 调用 BashTool（command + run_in_background: true）
-  → 同上权限校验
-    → 创建后台任务，命令异步执行
-    → 立即返回 backgroundTaskId + 输出文件路径给 agent
-    → agent 继续处理后续任务
-    → 后台命令完成后，通过通知系统向 agent 注入完成消息（机制详见 background-tasks.md）
-```
-
-### 自动后台化
-
-```
-agent 调用 BashTool（前台模式）
-  → 命令开始执行
-    → 阻塞预算计时器启动（15 秒）
-      → 15 秒内完成：正常返回结果
-      → 15 秒未完成：
-        → 命令自动转为后台任务
-        → 返回 assistantAutoBackgrounded: true + backgroundTaskId
-        → 告知 agent 命令仍在运行，完成后会通知
+  → 参数校验 + 安全解析 + 权限引擎评估（链路同前台：安全解析未通过则拦截/审批，权限拒绝则可能进入审批）
+    → 通过：创建后台任务，命令异步执行
+      → 立即返回后台任务标识 + 输出文件路径给 agent
+      → agent 继续处理后续任务
+      → 后台命令完成后，通过通知系统向 agent 注入完成消息（机制详见 background-tasks.md）
 ```
 
 ## 模块关系
 
 - **上游**：agent 运行时（调度工具调用、传递参数和上下文）
-- **下游**：安全解析模块（AST 分析、信任分级）、权限引擎（命令白名单校验）、后台任务系统（执行后台命令、管理任务生命周期、发送完成通知）、沙箱系统（规划中，限制执行环境）
+- **下游**：安全解析模块（语法解析、差异检测、信任分级）、权限引擎（工具/命令行维度校验，含执行环境判定）、后台任务系统（执行后台命令、管理任务生命周期、发送完成通知）、文件系统（持久化输出写入）
 - **无关**：processor_chain（不参与消息出站处理）、IM 适配器（不参与平台渲染）
+- **与模块内其他子功能**：与 [bash-security.md](bash-security.md)（命令安全解析）、[background-tasks.md](background-tasks.md)（后台化命令的创建、通知与输出管理）、[multi-tool-calls.md](multi-tool-calls.md)（BashTool 的并发调度与安全声明）、[read-tool.md](read-tool.md)（超阈值输出经文件读取工具按需读取完整内容）协作
