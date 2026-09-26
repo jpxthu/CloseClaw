@@ -5,6 +5,8 @@ use crate::scenario::types::{HttpError, ResponseBlock, UsageResponse};
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
+use futures_core::Stream;
+
 fn text_block(content: &str) -> ResponseBlock {
     ResponseBlock {
         block_type: "text".to_string(),
@@ -215,7 +217,6 @@ async fn deliver_streaming_interrupt_consumable() {
             assert_eq!(max_events, Some(1));
             let mut stream =
                 crate::delivery::sse::SseEventStream::new(events).with_max_events(max_events);
-            use futures_core::Stream;
             let waker = futures::task::noop_waker();
             let mut cx = Context::from_waker(&waker);
             let mut count = 0;
@@ -418,7 +419,6 @@ async fn sse_event_stream_max_events_zero() {
         },
     ];
     let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    use futures_core::Stream;
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
     let mut count = 0;
