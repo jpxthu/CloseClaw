@@ -175,7 +175,6 @@ async fn test_daemon_run_sigterm_shutdown() {
 
     // Call Daemon::run() — it blocks on signal reception. When SIGTERM is sent
     // (from the spawned task above), run() initiates shutdown and returns.
-    // The result is bound (not discarded) so the Err cause is surfaced below.
     let run_result = daemon.run().await;
 
     // Join the kill task so its `ret == 0` assertion cannot be silently
