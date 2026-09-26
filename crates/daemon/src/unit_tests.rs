@@ -126,6 +126,34 @@ fn test_load_env_file_whitespace_trimming() {
     assert_eq!(pairs[1], ("KEY2".to_string(), "value2".to_string()));
 }
 
+// End-to-end: load_env_file must apply values as env vars (not just parse).
+// The test itself performs no direct env mutation (red line: env writes are
+// confined to load_env_file); CC_TEST_E2E_* names are unique to this test.
+#[test]
+fn test_load_env_file_sets_env_vars_end_to_end() {
+    let dir = TempDir::new().unwrap();
+    let env_path = dir.path().join(".env");
+    let mut file = std::fs::File::create(&env_path).unwrap();
+    // Multi-line env file containing comments and blank lines
+    writeln!(file, "# leading comment").unwrap();
+    writeln!(file).unwrap();
+    writeln!(file, "CC_TEST_E2E_ALPHA=alpha-value").unwrap();
+    writeln!(file, "  # indented comment").unwrap();
+    writeln!(file).unwrap();
+    writeln!(file, "CC_TEST_E2E_BETA = beta value ").unwrap();
+
+    // 1st load: values from the file must be visible via env reads
+    load_env_file(&env_path).unwrap();
+    assert_eq!(std::env::var("CC_TEST_E2E_ALPHA").unwrap(), "alpha-value");
+    assert_eq!(std::env::var("CC_TEST_E2E_BETA").unwrap(), "beta value");
+
+    // 2nd load with an overridden line proves the value really comes from this
+    // file (re-applied on each load), not from pre-existing env residue
+    writeln!(file, "CC_TEST_E2E_ALPHA=overwritten").unwrap();
+    load_env_file(&env_path).unwrap();
+    assert_eq!(std::env::var("CC_TEST_E2E_ALPHA").unwrap(), "overwritten");
+}
+
 // Daemon::build_permission_engine tests
 // ============================================================
 
