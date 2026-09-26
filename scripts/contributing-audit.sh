@@ -61,8 +61,8 @@ SECTIONS = [
      "cargo clippy --force-warn clippy::missing_safety_doc",
      "doc 注释补 `# Safety` 段"),
     ("clippy::disallowed_methods", "6. 禁用方法 set_var/remove_var（load_env_file 场景除外）",
-     "clippy.toml: disallowed-methods=[std::env::set_var, std::env::remove_var]",
-     "唯一豁免点：daemon load_env_file 内 `#[allow(clippy::disallowed_methods)]`；其余改参数传递/tempfile"),
+     "cargo clippy --workspace --all-targets（clippy.toml 由本脚本运行时临时生成，非仓库文件）：disallowed-methods=[std::env::set_var, std::env::remove_var]",
+     "唯一豁免点：crates/daemon/src/mod.rs 的 load_env_file()，按行级 load_env_file 标记文本豁免（与 CI/pre-commit 同口径：命中行内含 load_env_file 标记即豁免）；其余改参数传递/tempfile"),
 ]
 
 groups = collections.defaultdict(list)
@@ -84,6 +84,25 @@ for line in open(clippy_json, errors="replace"):
     key = (fname, span["line_start"], code, diag.get("message", ""))
     groups[code].append((fname, span["line_start"], diag.get("message", "")))
 
+# §6 行级豁免：与 CI/pre-commit（scripts/check-env-var.sh）同口径——命中行内含 load_env_file
+# 标记即豁免。clippy 侧无法表达行级豁免，故在此后处理环节过滤；豁免点为
+# crates/daemon/src/mod.rs 的 load_env_file()（行级文本标记豁免，非 #[allow] 属性）。
+def source_line(fname, ln):
+    try:
+        with open(fname, errors="replace") as fh:
+            for i, line in enumerate(fh, 1):
+                if i == ln:
+                    return line
+    except OSError:
+        pass
+    return ""
+
+raw_diags = sum(len(v) for v in groups.values())
+groups["clippy::disallowed_methods"] = [
+    item for item in groups.get("clippy::disallowed_methods", [])
+    if "load_env_file" not in source_line(item[0], item[1])
+]
+
 with open(out, "w", encoding="utf-8") as f:
     f.write(f"# CONTRIBUTING 违规扫描报告（除单测时长）\n\n> commit: {commit} ｜ 生成: contributing-audit.sh ｜ 耗时项为 clippy 全量\n")
     f.write("> 用法：从各节选条目修复，完成后重跑本脚本验证条目消失。\n\n")
@@ -99,7 +118,7 @@ with open(out, "w", encoding="utf-8") as f:
             f.write(f"- [ ] `{file}:{ln}` — {m}\n")
         f.write("\n")
     f.write(f"**A 小计：{total_a} 条**\n\n")
-print("clippy done:", sum(len(v) for v in groups.values()), "diags")
+print("clippy done:", raw_diags, "diags")
 PYEOF
 rm -f "$CLIPPY_JSON"
 
