@@ -243,7 +243,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery；消费：PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
+- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery、ToolSession；消费：PermissionChecker、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
 
 ### 无关
 
