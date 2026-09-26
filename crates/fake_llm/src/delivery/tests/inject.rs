@@ -29,6 +29,20 @@ fn default_usage() -> UsageResponse {
     }
 }
 
+/// Drain `stream` while items are immediately ready, returning the number of
+/// `Poll::Ready(Some(_))` items observed.
+///
+/// Counting stops at the first `Poll::Pending` or `Poll::Ready(None)`.
+fn drain_count<S: Stream + Unpin>(mut stream: S) -> usize {
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut count = 0;
+    while let Poll::Ready(Some(_)) = Pin::new(&mut stream).poll_next(&mut cx) {
+        count += 1;
+    }
+    count
+}
+
 // ------------------------------------------------------------------
 // deliver — streaming delay injection
 // ------------------------------------------------------------------
@@ -215,17 +229,9 @@ async fn deliver_streaming_interrupt_consumable() {
             max_events,
         } => {
             assert_eq!(max_events, Some(1));
-            let mut stream =
+            let stream =
                 crate::delivery::sse::SseEventStream::new(events).with_max_events(max_events);
-            let waker = futures::task::noop_waker();
-            let mut cx = Context::from_waker(&waker);
-            let mut count = 0;
-            loop {
-                match Pin::new(&mut stream).poll_next(&mut cx) {
-                    Poll::Ready(Some(_)) => count += 1,
-                    _ => break,
-                }
-            }
+            let count = drain_count(stream);
             assert_eq!(count, 1);
         }
         _ => panic!("expected SseStreamWithConfig"),
@@ -418,15 +424,6 @@ async fn sse_event_stream_max_events_zero() {
             data: "b".into(),
         },
     ];
-    let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    let waker = futures::task::noop_waker();
-    let mut cx = Context::from_waker(&waker);
-    let mut count = 0;
-    loop {
-        match Pin::new(&mut stream).poll_next(&mut cx) {
-            Poll::Ready(Some(_)) => count += 1,
-            _ => break,
-        }
-    }
-    assert_eq!(count, 0);
+    let stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
+    assert_eq!(drain_count(stream), 0);
 }

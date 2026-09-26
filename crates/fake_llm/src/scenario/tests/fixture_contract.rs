@@ -140,7 +140,7 @@ fn request_features_from_fixture(
     let messages = parse_fixture_messages(req);
     let max_tokens = fixture
         .max_tokens_sent
-        .or_else(|| if is_anthropic { Some(1024) } else { None });
+        .or(if is_anthropic { Some(1024) } else { None });
     RequestFeatures {
         model: fixture.model.clone(),
         stream: false,
