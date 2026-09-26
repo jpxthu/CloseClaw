@@ -352,7 +352,7 @@ fn test_staged_mode_ignores_untouched_head_violation() {
     );
     repo.commit_all();
 
-    // 只改第 2 行并 stage：既有违规行既不在 diff 的 `+` 行，也不在 unified=0 上下文
+    // 只改第 2 行并 stage：既有违规行不是 staged 新增行（diff 中仅为上下文行），不判定
     repo.write(
         "src/legacy.rs",
         &format!(
@@ -548,5 +548,121 @@ fn test_staged_mode_multi_hunk_line_numbers() {
     assert!(
         !out.contains(&format!("src/multi.rs:3:{violation}")),
         "line number must reset per hunk, not accumulate across hunks, got:\n{out}"
+    );
+}
+
+/// 回归 ①：内容行以 `++` + TAB 起始（diff 原始行 `+++` + TAB 形态）的 staged 新增行，
+/// 与旧 hook 管道 `grep -v "^+++ "` 口径一致：不被文件头跳过条件吞掉，命中即报。
+#[test]
+fn test_staged_mode_flags_tab_form_content_line() {
+    let repo = TempRepo::new();
+    repo.write("src/base.rs", "pub fn base() {}\n");
+    repo.commit_all();
+
+    // 内容行 = `++` + TAB + 违规调用文本（raw diff 行以 `+++` + TAB 起始）
+    let tab_line = format!("++\t{}", set_call("TAB"));
+    repo.write("src/tab.rs", &format!("pub fn g() {{}}\n{}\n", tab_line));
+    git(repo.path(), &["add", "src/tab.rs"]);
+
+    let res = repo.check("staged");
+    assert_exit(
+        &res,
+        1,
+        "++\\t-prefixed content line must be flagged like old hook",
+    );
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/tab.rs:2:{tab_line}")),
+        "expect hit at src/tab.rs:2, got:\n{out}"
+    );
+}
+
+/// 回归 ②：被跳过的 `+++ ` 形态内容行（内容以 `++ ` 起始且含禁令 token，旧 hook 同口径
+/// 不判）仍计入新文件行号——其后命中行报出的行号按实际文件行号推进，跳过行不参与判定。
+#[test]
+fn test_staged_mode_line_number_counts_skipped_header_form_line() {
+    let repo = TempRepo::new();
+    repo.write("src/base.rs", "pub fn base() {}\n");
+    repo.commit_all();
+
+    // 新文件三行：普通行 / `++ ` 起始且含 token 的内容行（raw `+++ `，同旧口径不判）/ 违规行
+    let skipped = format!("++ // {} mentioned in a skipped-form line", BANNED_SET);
+    let hit = set_call("AFTER_SKIPPED");
+    repo.write(
+        "src/skipped.rs",
+        &format!("pub fn g() {{}}\n{}\n{}\n", skipped, hit),
+    );
+    git(repo.path(), &["add", "src/skipped.rs"]);
+
+    let res = repo.check("staged");
+    assert_exit(&res, 1, "hit after a skipped +++-form line must fail");
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/skipped.rs:3:{hit}")),
+        "expect hit at line 3 (skipped-form line counted), got:\n{out}"
+    );
+    assert!(
+        !out.contains("src/skipped.rs:2:"),
+        "+++ -form content line must not be judged (old-hook口径), got:\n{out}"
+    );
+}
+
+/// 回归 ③：修改文件的 staged diff 含上下文行与删除行——命中行号按新文件实际行号计
+/// （上下文行计入新文件并推进行号，删除行不计入）。
+#[test]
+fn test_staged_mode_line_number_counts_context_lines() {
+    let repo = TempRepo::new();
+    let original: Vec<String> = (1..=10).map(|i| format!("pub fn f{i}() {{}}")).collect();
+    repo.write("src/ctx.rs", &format!("{}\n", original.join("\n")));
+    repo.commit_all();
+
+    // 替换第 3、8 行为违规：新文件中两处命中仍在第 3、8 行；其间散布上下文行与删除行
+    let hit_a = set_call("CTX_A");
+    let hit_b = set_call("CTX_B");
+    let mut edited = original.clone();
+    edited[2] = hit_a.clone();
+    edited[7] = hit_b.clone();
+    repo.write("src/ctx.rs", &format!("{}\n", edited.join("\n")));
+    git(repo.path(), &["add", "src/ctx.rs"]);
+
+    let res = repo.check("staged");
+    assert_exit(&res, 1, "hits in a modified file must fail");
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/ctx.rs:3:{hit_a}")),
+        "expect hit at line 3, got:\n{out}"
+    );
+    assert!(
+        out.contains(&format!("src/ctx.rs:8:{hit_b}")),
+        "expect hit at line 8 (context lines before it count), got:\n{out}"
+    );
+}
+
+/// 回归 ④：文件路径含禁令 token 时，git 文件头行（`+++ b/…`）不参与判定、不误报。
+#[test]
+fn test_staged_mode_header_with_token_in_path_not_flagged() {
+    let repo = TempRepo::new();
+    // 运行时拼装路径（如 src/<token>.rs）：源码自身不出现裸 token
+    let rel = format!("src/{}.rs", BANNED_SET);
+    repo.write(&rel, "pub fn a() {}\n");
+    repo.commit_all();
+
+    repo.write(&rel, "pub fn a() {}\npub fn b() {}\n");
+    git(repo.path(), &["add", &rel]);
+
+    let res = repo.check("staged");
+    assert_exit(
+        &res,
+        0,
+        "file header whose path contains the token must not be flagged",
+    );
+    let out = res.output();
+    assert!(
+        !out.contains(&rel),
+        "path {rel} must not appear in output, got:\n{out}"
+    );
+    assert!(
+        out.contains("env var check passed"),
+        "expect passed marker in stdout, got:\n{out}"
     );
 }

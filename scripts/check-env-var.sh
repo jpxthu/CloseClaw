@@ -28,20 +28,35 @@ mode == "all" {
     next
 }
 mode == "staged" {
-    # 只跳 git 文件头（`+++ ` 空格 / `+++\t` 制表符），内容以 ++ 起始的新增行不漏判
-    if (substr($0, 1, 4) == "+++ " || substr($0, 1, 4) == "+++\t") next
+    # hunk 头：重置新文件起始行号，逐 @@ 独立记账（不跨 hunk 累加）
     if (substr($0, 1, 2) == "@@") {
         if (match($0, /[+][0-9]+(,[0-9]+)?/)) {
             split(substr($0, RSTART + 1, RLENGTH - 1), a, ",")
             newln = a[1] + 0
         }
+        in_hunk = 1
         next
     }
+    # 跳过条件仅 `+++ `（空格）形态，与旧 hook 管道的 grep -v "^+++ " 同口径：
+    #   文件头行不参与判定与行号记账；hunk 内以 `+++ ` 起始的新增行
+    #   （内容以 `++ ` 起始）旧口径同样不判，但仍计入新文件行号
+    if (substr($0, 1, 4) == "+++ ") {
+        if (in_hunk) newln++
+        next
+    }
+    # 普通新增行：判定并推进新文件行号
     if (substr($0, 1, 1) == "+") {
         content = substr($0, 2)
         if (is_hit(content)) printf "%s:%d:%s\n", file, newln, content
-        newln++
+        if (in_hunk) newln++
+        next
     }
+    # 上下文行：计入新文件，仅推进新文件行号（非新增行，不判定）
+    if (substr($0, 1, 1) == " ") {
+        if (in_hunk) newln++
+        next
+    }
+    # 其余行（`-` 删除行、`\ No newline` 标记等）：不计入新文件，不推进
 }
 '
 
@@ -72,7 +87,8 @@ collect_staged() {
         if [ -z "$f" ]; then
             continue
         fi
-        git diff --cached --diff-filter=ACMR --no-color --unified=0 -- "$f" \
+        # diff 形态与旧 hook 一致（git 默认上下文，不传 --unified），上下文行参与行号记账
+        git diff --cached --diff-filter=ACMR --no-color -- "$f" \
             | awk -v mode=staged -v file="$f" "$AWK_PROG"
     done <<< "$staged_rs"
 }
