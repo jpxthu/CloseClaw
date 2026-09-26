@@ -54,12 +54,12 @@ fn test_load_env_file_empty_lines() {
     let dir = TempDir::new().unwrap();
     let env_path = dir.path().join(".env");
     let mut file = std::fs::File::create(&env_path).unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
     writeln!(file, "KEY1=value1").unwrap();
-    writeln!(file, "").unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
+    writeln!(file).unwrap();
     writeln!(file, "KEY2=value2").unwrap();
-    writeln!(file, "").unwrap();
+    writeln!(file).unwrap();
 
     let pairs = parse_env_file(&env_path).unwrap();
 
