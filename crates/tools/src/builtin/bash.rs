@@ -323,19 +323,35 @@ fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, S
         .map_err(|e| format!("failed to spawn command: {}", e))
 }
 
+/// Handles owned by a spawned child process: the child itself plus its
+/// piped stdout/stderr streams.
+///
+/// The three always move together through the backgroundize chain
+/// (`backgroundize_child` / `auto_backgroundize_foreground`) and the
+/// foreground result-handling chain (`handle_timeout_expiry`), so they are
+/// grouped to keep those signatures within the CONTRIBUTING 6-parameter cap.
+struct ChildHandles {
+    child: tokio::process::Child,
+    stdout_handle: Option<tokio::process::ChildStdout>,
+    stderr_handle: Option<tokio::process::ChildStderr>,
+}
+
 /// Backgroundize a child process and return the corresponding ToolResult.
 ///
 /// Reattaches stdout/stderr handles before handing off to `bg_manager`.
 /// When `by_user` is true, marks the result as `backgroundedByUser`.
 async fn backgroundize_child(
-    mut child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+    handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> Result<(ToolResult, String), String> {
+    let ChildHandles {
+        mut child,
+        stdout_handle,
+        stderr_handle,
+    } = handles;
     child.stdout = stdout_handle;
     child.stderr = stderr_handle;
     let task = bg_manager
@@ -353,25 +369,13 @@ async fn backgroundize_child(
 ///
 /// On failure, returns [`ForegroundOutcome::Failed`].
 async fn auto_backgroundize_foreground(
-    child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+    handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> ForegroundOutcome {
-    match backgroundize_child(
-        child,
-        stdout_handle,
-        stderr_handle,
-        command,
-        bg_manager,
-        by_user,
-        session_id,
-    )
-    .await
-    {
+    match backgroundize_child(handles, command, bg_manager, by_user, session_id).await {
         Ok((result, task_id)) => ForegroundOutcome::AutoBackground(result, task_id),
         Err(e) => ForegroundOutcome::Failed(e),
     }
@@ -391,13 +395,16 @@ struct ForegroundContext<'a> {
 
 /// Handle a timeout expiry: force-terminate or auto-backgroundize.
 async fn handle_timeout_expiry(
-    mut child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+    handles: ChildHandles,
     command: &str,
     ctx: &ForegroundContext<'_>,
 ) -> ForegroundOutcome {
     if ctx.force_terminate {
+        let ChildHandles {
+            mut child,
+            stdout_handle,
+            stderr_handle,
+        } = handles;
         let _ = child.start_kill();
         // Drain pipes so progress monitor can report output before the kill.
         let _ = super::bash_kill::read_with_progress(
@@ -413,16 +420,7 @@ async fn handle_timeout_expiry(
             command,
         ))
     } else {
-        auto_backgroundize_foreground(
-            child,
-            stdout_handle,
-            stderr_handle,
-            command,
-            ctx.bg_manager,
-            false,
-            ctx.session_id,
-        )
-        .await
+        auto_backgroundize_foreground(handles, command, ctx.bg_manager, false, ctx.session_id).await
     }
 }
 
@@ -443,22 +441,37 @@ async fn handle_foreground_result(
         let child = guard.as_mut().expect("child present after spawn");
         (child.stdout.take(), child.stderr.take())
     };
-    let mut child = child_arc
+    let child = child_arc
         .lock()
         .expect("child mutex poisoned")
         .take()
         .expect("child present after spawn");
 
+    let mut handles = ChildHandles {
+        child,
+        stdout_handle,
+        stderr_handle,
+    };
+
     tokio::select! {
         biased;
         _ = notify_or_pending(ctx.manual_bg_signal) => {
             auto_backgroundize_foreground(
-                child, stdout_handle, stderr_handle, command, ctx.bg_manager, true,
+                handles,
+                command,
+                ctx.bg_manager,
+                true,
                 ctx.session_id,
-            ).await
+            )
+            .await
         }
-        result = tokio::time::timeout(bg_timeout, child.wait()) => match result {
+        result = tokio::time::timeout(bg_timeout, handles.child.wait()) => match result {
             Ok(Ok(status)) => {
+                let ChildHandles {
+                    stdout_handle,
+                    stderr_handle,
+                    ..
+                } = handles;
                 finalize_foreground_after_wait(
                     status, stdout_handle, stderr_handle,
                     command, ctx.session, ctx.call_id,
@@ -468,7 +481,7 @@ async fn handle_foreground_result(
                 format!("failed to wait on command: {}", e)
             ),
             Err(_elapsed) => {
-                handle_timeout_expiry(child, stdout_handle, stderr_handle, command, ctx).await
+                handle_timeout_expiry(handles, command, ctx).await
             }
         },
     }
@@ -621,16 +634,22 @@ async fn execute_bash_call(
     let cwd = prepare_and_sandbox(ctx, command, &args).await?;
 
     let session_id = ctx.session_id.as_deref().unwrap_or("");
-    execute_command(
+    let exec_ctx = BashExecCtx {
         command,
-        &cwd,
-        parse_timeout(&args),
-        args.get("run_in_background") == Some(&Value::Bool(true)),
-        bg,
-        ctx.session.as_ref(),
-        ctx.call_id.as_deref(),
-        ctx.manual_background_signal.as_ref(),
+        cwd: &cwd,
+        bg_manager: bg,
+        session: ctx.session.as_ref(),
+        call_id: ctx.call_id.as_deref(),
         session_id,
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: parse_timeout(&args),
+        manual_bg_signal: ctx.manual_background_signal.as_ref(),
+    };
+    execute_command(
+        &exec_ctx,
+        args.get("run_in_background") == Some(&Value::Bool(true)),
+        &fg_opts,
     )
     .await
     .map_err(ToolCallError::ExecutionFailed)
@@ -684,19 +703,43 @@ fn spawn_bg_monitor(
     });
 }
 
+/// Execution context shared along the bash command execution chain.
+///
+/// Groups the parameters that flow unchanged through `execute_command`,
+/// `execute_foreground_command`, and `execute_background_command`, so
+/// those signatures stay within the CONTRIBUTING 6-parameter cap.
+struct BashExecCtx<'a> {
+    command: &'a str,
+    cwd: &'a str,
+    bg_manager: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    call_id: Option<&'a str>,
+    session_id: &'a str,
+}
+
+/// Foreground-only options for the bash execution chain.
+///
+/// Consumed exclusively by the foreground path, so they stay out of the
+/// shared [`BashExecCtx`].
+struct ForegroundOptions<'a> {
+    agent_timeout_ms: Option<u64>,
+    manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
+}
+
 /// Execute a shell command in the background path.
 ///
 /// Registers the tool call, spawns the background task, registers the
 /// kill handle, transitions to `RunningBackground`, and spawns a monitor
 /// for terminal-state detection.
-async fn execute_background_command(
-    command: &str,
-    cwd: &str,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
-    session_id: &str,
-) -> Result<ToolResult, String> {
+async fn execute_background_command(ctx: &BashExecCtx<'_>) -> Result<ToolResult, String> {
+    let BashExecCtx {
+        command,
+        cwd,
+        bg_manager,
+        session,
+        call_id,
+        session_id,
+    } = *ctx;
     let mut registered_call_id = None;
     if let (Some(s), Some(cid)) = (session, call_id) {
         let summary = truncate_summary(command);
@@ -771,17 +814,18 @@ fn resolve_bg_timeout_and_force_terminate(
 /// Registers the tool call, spawns the child, registers the kill handle,
 /// waits for completion, and returns the outcome. Caller is responsible
 /// for setting the final tool state and deregistering.
-#[allow(clippy::too_many_arguments)]
 async fn execute_foreground_command(
-    command: &str,
-    cwd: &str,
-    agent_timeout_ms: Option<u64>,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
-    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
-    session_id: &str,
+    ctx: &BashExecCtx<'_>,
+    fg_opts: &ForegroundOptions<'_>,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
+    let BashExecCtx {
+        command,
+        cwd,
+        bg_manager,
+        session,
+        call_id,
+        session_id,
+    } = *ctx;
     let child = spawn_sh_command(command, cwd)?;
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
@@ -793,19 +837,19 @@ async fn execute_foreground_command(
 
     let (bg_timeout, force_terminate) = resolve_bg_timeout_and_force_terminate(
         command,
-        agent_timeout_ms,
+        fg_opts.agent_timeout_ms,
         bg_manager.max_execution_secs(),
     );
 
-    let ctx = ForegroundContext {
+    let fg_ctx = ForegroundContext {
         bg_manager,
-        manual_bg_signal,
+        manual_bg_signal: fg_opts.manual_bg_signal,
         session,
         call_id,
         session_id,
         force_terminate,
     };
-    let outcome = handle_foreground_result(child_arc, command, bg_timeout, &ctx).await;
+    let outcome = handle_foreground_result(child_arc, command, bg_timeout, &fg_ctx).await;
 
     Ok((outcome, registered_call_id))
 }
@@ -823,49 +867,31 @@ async fn execute_foreground_command(
 /// lifetime of the task. Both are `None`-safe - tool invocations
 /// outside a tracked session (CLI, tests, prompt generation) skip
 /// registration entirely.
-#[allow(clippy::too_many_arguments)]
 async fn execute_command(
-    command: &str,
-    cwd: &str,
-    agent_timeout_ms: Option<u64>,
+    ctx: &BashExecCtx<'_>,
     run_in_background: bool,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
-    session: Option<&Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&str>,
-    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
-    session_id: &str,
+    fg_opts: &ForegroundOptions<'_>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
-        return execute_background_command(command, cwd, bg_manager, session, call_id, session_id)
-            .await;
+        return execute_background_command(ctx).await;
     }
 
-    let (outcome, registered_call_id) = execute_foreground_command(
-        command,
-        cwd,
-        agent_timeout_ms,
-        bg_manager,
-        session,
-        call_id,
-        manual_bg_signal,
-        session_id,
-    )
-    .await?;
+    let (outcome, registered_call_id) = execute_foreground_command(ctx, fg_opts).await?;
     match outcome {
         ForegroundOutcome::Completed(result) => {
-            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+            if let (Some(s), Some(cid)) = (ctx.session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Completed).await;
             }
             Ok(result)
         }
         ForegroundOutcome::Failed(e) => {
-            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+            if let (Some(s), Some(cid)) = (ctx.session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::Failed).await;
             }
             Err(e)
         }
         ForegroundOutcome::AutoBackground(result, task_id) => {
-            if let (Some(s), Some(cid)) = (session, registered_call_id.as_deref()) {
+            if let (Some(s), Some(cid)) = (ctx.session, registered_call_id.as_deref()) {
                 s.update_tool_state(cid, ToolExecState::RunningBackground)
                     .await;
                 if let Err(e) = s.persist_pending_checkpoint().await {
@@ -875,7 +901,7 @@ async fn execute_command(
                         e
                     );
                 }
-                spawn_bg_monitor(s, cid, task_id, bg_manager);
+                spawn_bg_monitor(s, cid, task_id, ctx.bg_manager);
             }
             Ok(result)
         }
@@ -885,6 +911,10 @@ async fn execute_command(
 #[cfg(test)]
 #[path = "bash_approval_tests.rs"]
 mod approval_tests;
+
+#[cfg(test)]
+#[path = "bash_backgroundize_tests.rs"]
+mod backgroundize_tests;
 
 #[cfg(test)]
 #[path = "bash_gap_tests.rs"]

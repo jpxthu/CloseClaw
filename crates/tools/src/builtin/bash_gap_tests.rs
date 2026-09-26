@@ -574,18 +574,20 @@ async fn test_background_command_no_progress_reports() {
 
     let bg_manager: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(WorkingTaskManager::new());
     let tmp = tempfile::TempDir::new().unwrap();
-    let _result = execute_command(
-        "echo bg",
-        tmp.path().to_str().unwrap(),
-        Some(5_000),
-        true, // run_in_background
-        &bg_manager,
-        Some(&session_arc),
-        Some("bg-call-id"),
-        None,
-        "",
-    )
-    .await;
+    let ctx = BashExecCtx {
+        command: "echo bg",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg_manager,
+        session: Some(&session_arc),
+        call_id: Some("bg-call-id"),
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(5_000),
+        manual_bg_signal: None,
+    };
+    let _result = execute_command(&ctx, true, &fg_opts) // run_in_background
+        .await;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
 

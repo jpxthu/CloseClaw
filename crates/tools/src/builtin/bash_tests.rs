@@ -410,19 +410,21 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     };
 
     let tmp = TempDir::new().unwrap();
-    let result = execute_command(
-        "echo run_in_bg",
-        tmp.path().to_str().unwrap(),
-        Some(5_000),
-        true,
-        &bg_trait,
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_command(run_in_background) should succeed");
+    let ctx = BashExecCtx {
+        command: "echo run_in_bg",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg_trait,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(5_000),
+        manual_bg_signal: None,
+    };
+    let result = execute_command(&ctx, true, &fg_opts)
+        .await
+        .expect("execute_command(run_in_background) should succeed");
 
     // Required fields per design (background-tasks.md)
     let task_id = result.data["backgroundTaskId"]
@@ -466,19 +468,21 @@ async fn test_execute_command_run_in_background_with_long_command() {
         b as Arc<dyn closeclaw_tasks::TaskManager>
     };
     let tmp = TempDir::new().unwrap();
-    let result = execute_command(
-        "nonexistent_xyz_abcdef_12345",
-        tmp.path().to_str().unwrap(),
-        Some(5_000),
-        true,
-        &bg_trait,
-        None,
-        None,
-        None,
-        "",
-    )
-    .await
-    .expect("execute_command(run_in_background) should succeed even for unknown commands");
+    let ctx = BashExecCtx {
+        command: "nonexistent_xyz_abcdef_12345",
+        cwd: tmp.path().to_str().unwrap(),
+        bg_manager: &bg_trait,
+        session: None,
+        call_id: None,
+        session_id: "",
+    };
+    let fg_opts = ForegroundOptions {
+        agent_timeout_ms: Some(5_000),
+        manual_bg_signal: None,
+    };
+    let result = execute_command(&ctx, true, &fg_opts)
+        .await
+        .expect("execute_command(run_in_background) should succeed even for unknown commands");
     let task_id = result.data["backgroundTaskId"]
         .as_str()
         .expect("backgroundTaskId must be a string");
