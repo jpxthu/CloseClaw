@@ -145,12 +145,12 @@ impl CheckResult {
     }
 }
 
-/// 运行 `bash scripts/check-env-var.sh <mode>`：脚本取本仓库真实路径，夹具仓库为 CWD。
-fn run_check(dir: &Path, mode: &str) -> CheckResult {
+/// 在 `dir` 中以任意参数运行检查脚本（脚本取本仓库真实路径，`dir` 为 CWD）。
+fn run_script(dir: &Path, args: &[&str]) -> CheckResult {
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/check-env-var.sh");
     let out: Output = Command::new("bash")
         .arg(script)
-        .arg(mode)
+        .args(args)
         .current_dir(dir)
         .output()
         .expect("failed to spawn bash scripts/check-env-var.sh");
@@ -159,6 +159,11 @@ fn run_check(dir: &Path, mode: &str) -> CheckResult {
         stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
         stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
     }
+}
+
+/// 运行 `bash scripts/check-env-var.sh <mode>`：脚本取本仓库真实路径，夹具仓库为 CWD。
+fn run_check(dir: &Path, mode: &str) -> CheckResult {
+    run_script(dir, &[mode])
 }
 
 /// 断言退出码，失败信息附完整输出便于定位。
@@ -439,5 +444,109 @@ fn test_failure_message_has_no_stale_wording() {
     assert!(
         out.contains(REF_CONTRIBUTING),
         "expect reference {REF_CONTRIBUTING}, got:\n{out}"
+    );
+}
+
+/// 契约 ①：非法参数（未知模式 / 参数个数 > 1）→ exit 2，用法提示走 stderr。
+#[test]
+fn test_invalid_args_exit_2() {
+    let repo = TempRepo::new();
+    repo.write("src/lib.rs", "pub fn add() {}\n");
+    repo.commit_all();
+
+    let unknown = run_script(repo.path(), &["bogus"]);
+    assert_exit(&unknown, 2, "unknown mode must exit 2");
+    assert!(
+        unknown.stderr.contains("usage:"),
+        "usage hint must go to stderr, got:\n{}",
+        unknown.output()
+    );
+
+    let too_many = run_script(repo.path(), &["all", "staged"]);
+    assert_exit(&too_many, 2, "more than one argument must exit 2");
+    assert!(
+        too_many.stderr.contains("usage:"),
+        "usage hint must go to stderr, got:\n{}",
+        too_many.output()
+    );
+}
+
+/// 契约 ①：非 git 目录（仓库守卫）→ exit 2，且报出守卫文案而非静默通过。
+#[test]
+fn test_non_git_dir_exits_2() {
+    let dir = tempfile::TempDir::new().expect("create temp dir under /tmp");
+
+    let res = run_script(dir.path(), &["all"]);
+    assert_exit(&res, 2, "non-git directory must exit 2");
+    let out = res.output();
+    assert!(
+        out.contains("必须在 git 仓库内运行"),
+        "expect non-git guard message, got:\n{out}"
+    );
+}
+
+/// 契约 ②：all 模式下 0 个 tracked `.rs`（空集合）→ exit 0 并输出 passed。
+#[test]
+fn test_all_mode_empty_tracked_rs_set_passes() {
+    let repo = TempRepo::new();
+    repo.write("README.md", "# fixture without any rust source\n");
+    repo.commit_all();
+
+    let res = repo.check("all");
+    assert_exit(&res, 0, "zero tracked .rs files must pass");
+    assert!(
+        res.stdout.contains("env var check passed"),
+        "expect passed marker in stdout, got:\n{}",
+        res.output()
+    );
+}
+
+/// 契约 ②：staged 模式下 index 为空（`git init` 后无 commit、无暂存）→ exit 0 并输出 passed。
+#[test]
+fn test_staged_mode_empty_index_passes() {
+    let repo = TempRepo::new();
+
+    let res = repo.check("staged");
+    assert_exit(&res, 0, "empty staged index must pass");
+    assert!(
+        res.stdout.contains("env var check passed"),
+        "expect passed marker in stdout, got:\n{}",
+        res.output()
+    );
+}
+
+/// 契约 ③：多 hunk 下 staged 行号准确——每个 `@@` 头重置新文件起始行号，
+/// 违规落在第二及以后 hunk 时报出真实文件行号（不跨 hunk 连续累加）。
+#[test]
+fn test_staged_mode_multi_hunk_line_numbers() {
+    let repo = TempRepo::new();
+    let original: Vec<String> = (1..=10).map(|i| format!("pub fn f{i}() {{}}")).collect();
+    repo.write("src/multi.rs", &format!("{}\n", original.join("\n")));
+    repo.commit_all();
+
+    // hunk 1：原第 1 行后插入干净行；hunk 2：原第 8 行后插入违规行（相距 7 行，独立成 hunk）
+    let violation = set_call("MULTI");
+    let mut edited = original.clone();
+    edited.insert(1, "pub fn extra1() {}".to_string());
+    edited.insert(9, violation.clone());
+    repo.write("src/multi.rs", &format!("{}\n", edited.join("\n")));
+    git(repo.path(), &["add", "src/multi.rs"]);
+
+    let expected_ln = edited.iter().position(|l| *l == violation).unwrap() + 1;
+    assert_eq!(
+        expected_ln, 10,
+        "fixture layout: violation must land in the 2nd hunk at new-file line 10"
+    );
+
+    let res = repo.check("staged");
+    assert_exit(&res, 1, "violation in a later hunk must be flagged");
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/multi.rs:{expected_ln}:{violation}")),
+        "expect hit at src/multi.rs:{expected_ln} (per-@@ line reset), got:\n{out}"
+    );
+    assert!(
+        !out.contains(&format!("src/multi.rs:3:{violation}")),
+        "line number must reset per hunk, not accumulate across hunks, got:\n{out}"
     );
 }

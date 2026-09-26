@@ -28,7 +28,8 @@ mode == "all" {
     next
 }
 mode == "staged" {
-    if (substr($0, 1, 3) == "+++") next
+    # 只跳 git 文件头（`+++ ` 空格 / `+++\t` 制表符），内容以 ++ 起始的新增行不漏判
+    if (substr($0, 1, 4) == "+++ " || substr($0, 1, 4) == "+++\t") next
     if (substr($0, 1, 2) == "@@") {
         if (match($0, /[+][0-9]+(,[0-9]+)?/)) {
             split(substr($0, RSTART + 1, RLENGTH - 1), a, ",")
@@ -114,6 +115,9 @@ if ! git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     echo "ERROR: $0 必须在 git 仓库内运行（无法执行禁令检查）" >&2
     exit 2
 fi
+
+# 定位到仓库根：消除「CWD=仓库根」隐含前提（子目录调用同样扫描/判定全库，不静默缩小覆盖面）
+cd "$(git rev-parse --show-toplevel)"
 
 hits="$(collect_"$mode")"
 if [ -n "$hits" ]; then
