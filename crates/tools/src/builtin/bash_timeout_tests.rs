@@ -32,11 +32,13 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
     }
     async fn backgroundize_task(
         &self,
-        _child: tokio::process::Child,
+        mut child: tokio::process::Child,
         command: &str,
         is_backgrounded: bool,
         _session_id: &str,
     ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+        // Kill and reap the child — this suite doesn't care about its survival.
+        let _ = child.kill().await;
         // Return a fake task — the test only cares about whether the
         // child was backgroundized, not the task itself.
         Ok(closeclaw_tasks::BackgroundTask {
