@@ -727,7 +727,10 @@ async fn test_drain_waits_until_busy_count_zero() {
     handle.decrement_busy();
 
     // Wait for shutdown to finish (3s drain timeout in test mode + buffer)
-    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+    tokio::time::timeout(Duration::from_secs(5), shutdown_task)
+        .await
+        .expect("shutdown should complete within 5s")
+        .expect("shutdown task should not panic");
 
     assert!(handle.is_stopped());
 }
@@ -755,7 +758,10 @@ async fn test_drain_timeout_with_busy_count_nonzero() {
 
     // Wait for timeout + buffer — drain should complete even though
     // busy_count is still 1.
-    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
+    tokio::time::timeout(Duration::from_secs(3), shutdown_task)
+        .await
+        .expect("shutdown should complete within 3s")
+        .expect("shutdown task should not panic");
     assert!(
         handle.is_stopped(),
         "handle should be stopped after drain timeout"
@@ -801,7 +807,10 @@ async fn test_drain_timeout_with_custom_value() {
     });
 
     // With 200ms timeout, drain should complete around 200ms.
-    let _ = tokio::time::timeout(Duration::from_secs(5), shutdown_task).await;
+    tokio::time::timeout(Duration::from_secs(5), shutdown_task)
+        .await
+        .expect("shutdown should complete within 5s")
+        .expect("shutdown task should not panic");
     let elapsed = start.elapsed();
 
     assert!(
@@ -842,7 +851,10 @@ async fn test_drain_timeout_with_explicit_short_value() {
         handle_clone.initiate_shutdown().await;
     });
 
-    let _ = tokio::time::timeout(Duration::from_secs(3), shutdown_task).await;
+    tokio::time::timeout(Duration::from_secs(3), shutdown_task)
+        .await
+        .expect("shutdown should complete within 3s")
+        .expect("shutdown task should not panic");
     let elapsed = start.elapsed();
 
     assert!(
@@ -869,7 +881,10 @@ async fn test_drain_timeout_very_short() {
         handle_clone.initiate_shutdown().await;
     });
 
-    let _ = tokio::time::timeout(Duration::from_secs(2), shutdown_task).await;
+    tokio::time::timeout(Duration::from_secs(2), shutdown_task)
+        .await
+        .expect("shutdown should complete within 2s")
+        .expect("shutdown task should not panic");
     let elapsed = start.elapsed();
 
     assert!(

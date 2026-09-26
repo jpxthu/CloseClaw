@@ -158,7 +158,7 @@ async fn test_daemon_run_sigterm_shutdown() {
     // so this task cannot run before the main task's first yield — the next
     // await is run(), whose first poll synchronously registers the signal
     // handler before parking in Phase 0.
-    tokio::spawn(async {
+    let kill_task = tokio::spawn(async {
         // SAFETY: the target pid is `std::process::id()`, i.e. this process
         // itself, so the signal is delivered only to the calling process and
         // never to another one; SIGTERM is one of the graceful shutdown
@@ -176,6 +176,12 @@ async fn test_daemon_run_sigterm_shutdown() {
     // Call Daemon::run() — it blocks on signal reception. When SIGTERM is sent
     // (from the spawned task above), run() initiates shutdown and returns.
     let _ = daemon.run().await;
+
+    // Join the kill task so its `ret == 0` assertion cannot be silently
+    // swallowed: as a detached task, a panic inside it would go unnoticed.
+    kill_task
+        .await
+        .expect("kill task should complete normally (SIGTERM delivered)");
 
     // Verify stopped within 5 seconds: poll is_stopped() until it returns true
     let poll_result: Result<(), tokio::time::error::Elapsed> =
