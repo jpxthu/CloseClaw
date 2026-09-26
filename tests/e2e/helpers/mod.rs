@@ -12,6 +12,8 @@
 //! test files).
 
 pub mod config_tree;
+#[cfg(test)]
+mod config_tree_tests;
 
 #[cfg(feature = "fake-llm")]
 pub mod chat;

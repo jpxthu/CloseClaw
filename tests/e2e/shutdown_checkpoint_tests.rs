@@ -251,16 +251,16 @@ async fn test_restore_after_checkpoint_skips_all_messages() {
 #[cfg(unix)]
 async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
-    let config_dir = temp_dir.path();
+    let config_root = temp_dir.path();
 
     // Write minimal agents.json + mandatory configs so daemon starts successfully
-    helpers::config_tree::write_test_config_tree(config_dir).expect("write test config tree");
+    helpers::config_tree::write_test_config_tree(config_root).expect("write test config tree");
 
     // Spawn daemon with HOME isolation
-    let mut daemon = helpers::spawn_daemon(config_dir);
+    let mut daemon = helpers::spawn_daemon(config_root);
 
     // Wait for the daemon admin socket (final init phase) to be ready.
-    helpers::wait_for_daemon_ready(config_dir).await;
+    helpers::wait_for_daemon_ready(config_root).await;
 
     // Verify daemon is still running (didn't crash on startup)
     helpers::assert_daemon_alive(&mut daemon);
@@ -288,7 +288,7 @@ async fn test_sigterm_triggers_graceful_shutdown_with_storage() {
     );
 
     // Verify SqliteStorage was initialized — `sessions.sqlite` must exist
-    let sessions_sqlite = config_dir.join("sessions.sqlite");
+    let sessions_sqlite = config_root.join("sessions.sqlite");
     assert!(
         sessions_sqlite.exists(),
         "sessions.sqlite should exist after SIGTERM graceful shutdown, proving \

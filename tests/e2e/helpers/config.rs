@@ -5,6 +5,11 @@
 //! `write_agent_layout`) and `gateway_restart_turn_tests`
 //! (`write_config_tree`) — STANDARDS §10: shared helper extracted into a
 //! common module instead of re-implemented per test file.
+//!
+//! This module builds the **full fake-LLM** config tree; for the minimal,
+//! non-feature-gated tree (empty `agents.json` + mandatory configs only)
+//! see [`super::config_tree::write_test_config_tree`] to avoid mixing up
+//! the two similarly named helpers.
 
 use std::path::Path;
 
