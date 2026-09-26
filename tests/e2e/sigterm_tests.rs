@@ -175,13 +175,21 @@ async fn test_daemon_run_sigterm_shutdown() {
 
     // Call Daemon::run() — it blocks on signal reception. When SIGTERM is sent
     // (from the spawned task above), run() initiates shutdown and returns.
-    let _ = daemon.run().await;
+    // The result is bound (not discarded) so the Err cause is surfaced below.
+    let run_result = daemon.run().await;
 
     // Join the kill task so its `ret == 0` assertion cannot be silently
     // swallowed: as a detached task, a panic inside it would go unnoticed.
     kill_task
         .await
         .expect("kill task should complete normally (SIGTERM delivered)");
+
+    // Surface run()'s outcome explicitly: a silent `let _ =` would hide the
+    // Err root cause if graceful shutdown ever fails.
+    assert!(
+        run_result.is_ok(),
+        "daemon.run() returned error: {run_result:?}"
+    );
 
     // Verify stopped within 5 seconds: poll is_stopped() until it returns true
     let poll_result: Result<(), tokio::time::error::Elapsed> =
