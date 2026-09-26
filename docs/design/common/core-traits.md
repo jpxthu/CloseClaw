@@ -167,7 +167,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 **平台插件实现**和注册机制详见 [IM Adapter 模块](../im_adapter/README.md)。
 
-**入站身份映射**：IMPlugin 在入站解析时负责填充 [NormalizedMessage](shared-types.md#normalizedmessage) 的全部字段，包括通过 sender_id 查询账户绑定表获取 account_id。映射规则和账户配置详见 [config 模块](../config/README.md)。
+**入站身份映射**：IMPlugin 在入站解析时负责填充 [NormalizedMessage](shared-types.md#normalizedmessage) 的全部字段，包括经身份映射（platform + 接收方机器人应用 + sender_id → account_id，见 [IdentityResolver](#identityresolver)）获取 account_id。映射规则和账户配置详见 [config 模块](../config/README.md)。
 
 ### 斜杠指令分派与执行
 
@@ -224,7 +224,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 新会话 | 为指定渠道创建新会话，返回新 session_id |
 | 压缩 | 触发上下文压缩（可携带自定义指令） |
 | 系统提示词 | 应用 append/clear 动作，返回相关计数 |
-| 模式/推理/详细度 | 设置会话模式、推理深度、输出详细度 |
+| 模式/推理/详细度 | 设置会话模式、推理强度、输出详细度 |
 | shell 执行 | 以指定 agent 执行命令，权限由 Gateway 层先行校验 |
 
 #### SlashResultExecutor
@@ -297,13 +297,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### KillHandle
 
-**用途**：工具进程终止适配器。tools 的前后台进程适配器实现，LLM/session 消费——终止在途工具进程，避免循环依赖。
+**用途**：工具进程终止适配器。tools 的前后台进程适配器实现，session 消费——终止在途工具进程，避免循环依赖。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 终止 | 请求终止底层进程/任务，幂等（重复调用也返回成功）；调用方不等待实际退出，由 stop 路径经 wall-clock 预算兜底 |
+| 终止 | 请求终止底层进程/任务，幂等（重复调用也返回成功）。调用方不等待其实际退出——一次停止对本次涉及的全部工具终止施加单一 wall-clock 预算；预算内未完成的终止视为失败，其后不论正常返回、返回错误还是 panic，均不影响停止流程的完成 |
 
 #### ToolSession
 
@@ -349,7 +349,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### StreamingRenderer
 
-**用途**：LLM StreamEvent 流的增量渲染接口。各平台流式渲染组件实现，逐事件产出增量 RenderedOutput。
+**用途**：LLM [StreamEvent](shared-types.md#streamevent) 流的增量渲染接口。由 IM Adapter 的通用流式渲染组件实现（各平台插件组合持有、按需覆盖，见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)），逐事件处理事件流、产出增量 [StreamingOutput](shared-types.md#streamingoutput)。
 
 **接口契约**：
 
@@ -425,13 +425,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### IdentityResolver
 
-**用途**：平台身份解析接口。config 支持的 ConfigIdentityResolver 实现，im_adapter/gateway 消费——将 `(platform, bot_app_id, sender_id)` 解析为本地 account_id。接收方机器人应用（bot_app_id）参与映射键：IM 平台的发送者标识按「应用 × 发送者」隔离（同一用户在不同应用语境下标识不同），跨应用 ID 不可直接互换。
+**用途**：平台身份解析接口。config 支持的 ConfigIdentityResolver 实现，im_adapter 消费——将 `(platform, bot_app_id, sender_id)` 解析为本地 account_id。接收方机器人应用（bot_app_id）参与映射键：IM 平台的发送者标识按「应用 × 发送者」隔离（同一用户在不同应用语境下标识不同），跨应用 ID 不可直接互换。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 解析 | 给定 platform + sender_id 返回 account_id，无映射返回 None（启动时构造、运行期只读） |
+| 解析 | 给定 platform + bot_app_id + sender_id 返回 account_id，无映射返回 None（启动时构造、运行期只读） |
 
 #### ShutdownSignal
 
@@ -476,7 +476,7 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery）
-  - **session**（实现 ToolRegistrar、SessionModeQuery；消费 PermissionChecker、ToolSession、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
+  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession；消费 PermissionChecker、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
