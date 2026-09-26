@@ -467,8 +467,13 @@ async fn handle_foreground_result(
         }
         result = tokio::time::timeout(bg_timeout, handles.child.wait()) => match result {
             Ok(Ok(status)) => {
+                let ChildHandles {
+                    stdout_handle,
+                    stderr_handle,
+                    ..
+                } = handles;
                 finalize_foreground_after_wait(
-                    status, handles.stdout_handle, handles.stderr_handle,
+                    status, stdout_handle, stderr_handle,
                     command, ctx.session, ctx.call_id,
                 ).await
             }
