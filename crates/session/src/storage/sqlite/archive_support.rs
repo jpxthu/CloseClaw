@@ -412,14 +412,10 @@ fn resolve_session_state(
     })
 }
 
-/// Assemble the final `SessionCheckpoint` (stage ④ of
-/// `load_checkpoint_inner`) from the resolved row state, the parsed snapshot
-/// metadata and the remaining raw fields.
-#[allow(clippy::too_many_arguments)]
-fn build_checkpoint(
-    session_id: &str,
-    resolved: ResolvedSessionState,
-    parsed_meta: ParsedMetadata,
+/// Remaining raw (unparsed) row fields consumed by stage ④, bundled so
+/// `build_checkpoint` stays within the argument-count budget. Field order
+/// mirrors the original parameter list of the pre-refactor signature.
+struct CheckpointAssembly {
     agent_id_str: String,
     role_str: String,
     channel: String,
@@ -436,7 +432,35 @@ fn build_checkpoint(
     last_msg_ts: i64,
     created_ts: i64,
     msg_count: i64,
+}
+
+/// Assemble the final `SessionCheckpoint` (stage ④ of
+/// `load_checkpoint_inner`) from the resolved row state, the parsed snapshot
+/// metadata and the remaining raw fields.
+fn build_checkpoint(
+    session_id: &str,
+    assembly: CheckpointAssembly,
+    resolved: ResolvedSessionState,
+    parsed_meta: ParsedMetadata,
 ) -> SessionCheckpoint {
+    let CheckpointAssembly {
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+        last_msg_ts,
+        created_ts,
+        msg_count,
+    } = assembly;
     let ResolvedSessionState {
         depth,
         mined,
@@ -466,48 +490,21 @@ fn build_checkpoint(
         last_message_id,
         mode_state: mode_state_val,
         outbound_pending,
-        reasoning_mode: match mode_val.as_str() {
-            "plan" => crate::persistence::ReasoningMode::Plan,
-            "stream" => crate::persistence::ReasoningMode::Stream,
-            "hidden" => crate::persistence::ReasoningMode::Hidden,
-            _ => crate::persistence::ReasoningMode::Direct,
-        },
+        reasoning_mode: parse_reasoning_mode(&mode_val),
         created_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
         updated_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
         ttl_seconds: 604800,
         status,
         last_message_at,
         message_count: msg_count as u64,
-        platform: {
-            let has_new = platform_new.as_deref().is_some_and(|s| !s.is_empty());
-            if has_new {
-                platform_new
-            } else if channel.is_empty() {
-                None
-            } else {
-                Some(channel)
-            }
-        },
-        peer_id: {
-            let has_new = peer_id_new.as_deref().is_some_and(|s| !s.is_empty());
-            if has_new {
-                peer_id_new
-            } else if chat_id.is_empty() {
-                None
-            } else {
-                Some(chat_id)
-            }
-        },
+        platform: resolve_platform(platform_new, channel),
+        peer_id: resolve_peer_id(peer_id_new, chat_id),
         agent_id: if agent_id_str.is_empty() {
             None
         } else {
             Some(agent_id_str)
         },
-        role: match role_str.as_str() {
-            "main_agent" => Some(crate::persistence::AgentRole::MainAgent),
-            "sub_agent" => Some(crate::persistence::AgentRole::SubAgent),
-            _ => None,
-        },
+        role: parse_agent_role(&role_str),
         reasoning_level: crate::persistence::ReasoningLevel::default(),
         user_appends,
         account_id: account_id_new,
@@ -538,6 +535,51 @@ fn build_checkpoint(
         workflow_run: None,
         recovery_workflow_messages: Vec::new(),
         system_injection_appends: Vec::new(),
+    }
+}
+
+/// Map the raw reasoning-mode string to its enum (stage ④ helper).
+fn parse_reasoning_mode(mode_val: &str) -> crate::persistence::ReasoningMode {
+    match mode_val {
+        "plan" => crate::persistence::ReasoningMode::Plan,
+        "stream" => crate::persistence::ReasoningMode::Stream,
+        "hidden" => crate::persistence::ReasoningMode::Hidden,
+        _ => crate::persistence::ReasoningMode::Direct,
+    }
+}
+
+/// Map the raw agent-role string to its enum (stage ④ helper).
+fn parse_agent_role(role_str: &str) -> Option<crate::persistence::AgentRole> {
+    match role_str {
+        "main_agent" => Some(crate::persistence::AgentRole::MainAgent),
+        "sub_agent" => Some(crate::persistence::AgentRole::SubAgent),
+        _ => None,
+    }
+}
+
+/// Prefer the new platform value when non-empty, else fall back to the
+/// legacy channel column (stage ④ helper).
+fn resolve_platform(platform_new: Option<String>, channel: String) -> Option<String> {
+    let has_new = platform_new.as_deref().is_some_and(|s| !s.is_empty());
+    if has_new {
+        platform_new
+    } else if channel.is_empty() {
+        None
+    } else {
+        Some(channel)
+    }
+}
+
+/// Prefer the new peer id when non-empty, else fall back to the legacy
+/// chat_id column (stage ④ helper).
+fn resolve_peer_id(peer_id_new: Option<String>, chat_id: String) -> Option<String> {
+    let has_new = peer_id_new.as_deref().is_some_and(|s| !s.is_empty());
+    if has_new {
+        peer_id_new
+    } else if chat_id.is_empty() {
+        None
+    } else {
+        Some(chat_id)
     }
 }
 
@@ -589,10 +631,7 @@ pub fn load_checkpoint_inner(
 
     // --- Stage ③④: snapshot metadata JSON parsing + checkpoint assembly ---
     let parsed_meta = parse_metadata(&metadata)?;
-    Ok(Some(build_checkpoint(
-        session_id,
-        resolved,
-        parsed_meta,
+    let assembly = CheckpointAssembly {
         agent_id_str,
         role_str,
         channel,
@@ -609,6 +648,12 @@ pub fn load_checkpoint_inner(
         last_msg_ts,
         created_ts,
         msg_count,
+    };
+    Ok(Some(build_checkpoint(
+        session_id,
+        assembly,
+        resolved,
+        parsed_meta,
     )))
 }
 
