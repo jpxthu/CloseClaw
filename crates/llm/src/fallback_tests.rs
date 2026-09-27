@@ -677,7 +677,8 @@ async fn test_streaming_timeout_falls_through() {
     ));
     let entry_ok = register_provider(&registry, ok, "m-ok").await;
 
-    let client = FallbackClient::new(registry, vec![entry_hanging, entry_ok]).with_timeout(1); // 1 second timeout
+    // 1 second timeout
+    let client = FallbackClient::new(registry, vec![entry_hanging, entry_ok]).with_timeout(1);
 
     let request = streaming_request("m-hang");
     let result = client.chat_streaming(request).await;
