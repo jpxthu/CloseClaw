@@ -89,7 +89,7 @@ mod tests {
     };
 
     #[test]
-    fn handler_delegates_to_protocol() {
+    fn test_handler_delegates_to_protocol() {
         // Verify the endpoint handler compiles and can invoke protocol functions.
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
@@ -113,7 +113,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_none_yields_include_usage_false() {
+    fn test_stream_options_none_yields_include_usage_false() {
         // When stream_options is absent, include_usage should default to false
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
@@ -133,7 +133,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_include_usage_true() {
+    fn test_stream_options_include_usage_true() {
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
             messages: vec![],
@@ -154,7 +154,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_include_usage_false() {
+    fn test_stream_options_include_usage_false() {
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
             messages: vec![],

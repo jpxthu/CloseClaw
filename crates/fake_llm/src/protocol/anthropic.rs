@@ -285,7 +285,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_features_basic() {
+    fn test_extract_features_basic() {
         let req = MessageRequest {
             model: "claude-3-opus-20240229".to_string(),
             messages: vec![],
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_features_streaming() {
+    fn test_extract_features_streaming() {
         let req = MessageRequest {
             model: "claude-3-sonnet-20240229".to_string(),
             messages: vec![],
@@ -329,7 +329,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_features_with_tools() {
+    fn test_extract_features_with_tools() {
         let req = MessageRequest {
             model: "claude-3-opus-20240229".to_string(),
             messages: vec![Message {
@@ -360,7 +360,7 @@ mod tests {
     }
 
     #[test]
-    fn response_with_thinking_block() {
+    fn test_response_with_thinking_block() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -413,7 +413,7 @@ mod tests {
     }
 
     #[test]
-    fn response_with_tool_use_block() {
+    fn test_response_with_tool_use_block() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -467,7 +467,7 @@ mod tests {
     }
 
     #[test]
-    fn response_thinking_only_no_text() {
+    fn test_response_thinking_only_no_text() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn response_tool_use_only() {
+    fn test_response_tool_use_only() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn response_empty_blocks_no_placeholder_injection() {
+    fn test_response_empty_blocks_no_placeholder_injection() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -572,7 +572,7 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_with_values() {
+    fn test_response_cache_fields_with_values() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -611,7 +611,7 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_missing_with_explicit_injection() {
+    fn test_response_cache_fields_missing_with_explicit_injection() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -651,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_missing_no_explicit_omits_cache_tokens() {
+    fn test_response_cache_fields_missing_no_explicit_omits_cache_tokens() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -691,7 +691,7 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_default_zero() {
+    fn test_response_cache_fields_default_zero() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -730,7 +730,7 @@ mod tests {
     }
 
     #[test]
-    fn response_cache_fields_no_usage() {
+    fn test_response_cache_fields_no_usage() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {

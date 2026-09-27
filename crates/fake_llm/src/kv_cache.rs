@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[test]
-    fn first_request_writes_cache() {
+    fn test_first_request_writes_cache() {
         let mut sim = KvCacheSimulator::new();
         let msgs = vec![
             msg("system", "You are a helpful assistant"),
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn same_prefix_hits_cache() {
+    fn test_same_prefix_hits_cache() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -470,7 +470,7 @@ mod tests {
     }
 
     #[test]
-    fn prefix_change_breaks_cache() {
+    fn test_prefix_change_breaks_cache() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -502,7 +502,7 @@ mod tests {
     }
 
     #[test]
-    fn ttl_expiry_forces_rewrite() {
+    fn test_ttl_expiry_forces_rewrite() {
         let mut sim = KvCacheSimulator::with_ttl(Duration::from_millis(10));
         let msgs = vec![
             msg("system", "You are a helpful assistant"),
@@ -520,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_injection_overrides_auto() {
+    fn test_explicit_injection_overrides_auto() {
         let mut sim = KvCacheSimulator::new();
         let msgs = vec![
             msg("system", "You are a helpful assistant"),
@@ -537,7 +537,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_injection_with_none_falls_back_to_auto() {
+    fn test_explicit_injection_with_none_falls_back_to_auto() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -560,7 +560,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_deterministic() {
+    fn test_fingerprint_deterministic() {
         let msgs = vec![msg("user", "hello")];
         let fp1 = KvCacheSimulator::compute_fingerprint(&msgs, &[]);
         let fp2 = KvCacheSimulator::compute_fingerprint(&msgs, &[]);
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_differs_on_content_change() {
+    fn test_fingerprint_differs_on_content_change() {
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -587,7 +587,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_differs_on_tool_change() {
+    fn test_fingerprint_differs_on_tool_change() {
         let msgs = vec![msg("user", "hello")];
         let fp1 = KvCacheSimulator::compute_fingerprint(&msgs, &[]);
         let fp2 = KvCacheSimulator::compute_fingerprint(&msgs, &["search".to_string()]);
@@ -595,7 +595,7 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_stable_prefix_only() {
+    fn test_fingerprint_stable_prefix_only() {
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello"),
@@ -614,7 +614,7 @@ mod tests {
     }
 
     #[test]
-    fn estimate_prefix_tokens_positive() {
+    fn test_estimate_prefix_tokens_positive() {
         let msgs = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hello world"),
@@ -624,7 +624,7 @@ mod tests {
     }
 
     #[test]
-    fn estimate_prefix_tokens_includes_tools() {
+    fn test_estimate_prefix_tokens_includes_tools() {
         let msgs = vec![
             msg("system", "You are a helpful assistant"),
             msg("user", "hi"),
@@ -639,7 +639,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn break_residual_same_system_prompt() {
+    fn test_break_residual_same_system_prompt() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -677,7 +677,7 @@ mod tests {
     }
 
     #[test]
-    fn break_residual_completely_different() {
+    fn test_break_residual_completely_different() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "You are a helpful assistant"),
@@ -711,7 +711,7 @@ mod tests {
     }
 
     #[test]
-    fn break_residual_partial_message_overlap() {
+    fn test_break_residual_partial_message_overlap() {
         let mut sim = KvCacheSimulator::new();
         let msgs1 = vec![
             msg("system", "sys"),
@@ -748,7 +748,7 @@ mod tests {
     }
 
     #[test]
-    fn is_break_flag_true_only_on_break() {
+    fn test_is_break_flag_true_only_on_break() {
         let mut sim = KvCacheSimulator::new();
 
         let msgs1 = vec![
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn explicit_injection_correct_values_no_logging() {
+    fn test_explicit_injection_correct_values_no_logging() {
         let mut sim = KvCacheSimulator::new();
         let msgs = vec![
             msg("system", "sys"),
@@ -832,7 +832,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn explicit_then_auto_break_residual_correct() {
+    fn test_explicit_then_auto_break_residual_correct() {
         // Verify that after explicit injection, switching back to
         // auto-simulation correctly computes break residual hit using
         // the old prefix recorded during explicit injection.

@@ -84,7 +84,7 @@ mod tests {
     };
 
     #[test]
-    fn handler_delegates_to_protocol() {
+    fn test_handler_delegates_to_protocol() {
         // Verify the endpoint handler compiles and can invoke protocol functions.
         let req = MessageRequest {
             model: "claude-3-opus-20240229".to_string(),
