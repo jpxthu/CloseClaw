@@ -34,3 +34,5 @@ Platform 按操作系统能力维度划分为四个独立的抽象接口，每�
 
 - **上游**：CLI 模块（Chat 层的终端能力检测；Admin 层的进程管理与文件路径处理）、Daemon（启动关闭时的进程与信号处理、配置目录初始化）、config 模块（经配置目录接口定位配置目录并布局其下子目录，见 [配置目录](config-directory.md)）
 - **下游**：操作系统 API（进程与信号、文件系统、环境变量、终端尺寸）（platform 调用）；此外，配置数据经 config 模块供 CLI（Admin config 命令）、Gateway、IM Adapter 间接消费（三者不直接调用 platform 接口，见 [配置目录](config-directory.md)）
+- **无关**：无模块级无关关系——platform 作为底层操作系统抽象被上层模块普遍消费，不存在模块级「无调用且无数据流关联」的模块；个别接口对特定调用方的无关界定以子文档为准（如 [文件路径处理](file-path.md)、[终端能力检测](terminal.md)）
+- **共享类型**：无——platform 收发的均为操作系统原语（路径字符串、进程标识、终端尺寸等），不与业务模块共享 [common](../common/README.md) 中定义的数据结构

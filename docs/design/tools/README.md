@@ -153,3 +153,9 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 ### 共享类型 / 核心 trait
 
 - [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费：ToolSession、AgentToolsConfigQuery）
+
+### 代码映射
+
+设计文档的 tools 模块对应代码中的 `tools` crate；后台任务子功能由 tools 拆出的独立 crate `tasks` 托管（对应 [background-tasks.md](background-tasks.md)）。
+
+映射遵循 [STANDARDS.md「crate 结构跟随文档」](../STANDARDS.md)：模块文档与 crate 为一对一或一对多。

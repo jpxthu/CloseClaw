@@ -71,3 +71,7 @@ Agent 未完成验证时可继续执行。Engine 待下次验收判定条件满�
 - **LLM Provider**：Engine 不直接调用 LLM，通过注入 workflow role 消息驱动 Agent。
 - **IM Adapter**：workflow 控制消息不经过出站渲染链路。
 - **Memory**：workflow 不参与记忆挖掘或搜索注入。
+
+### 共享类型
+
+无——WorkflowRun 为 workflow 模块内部状态，经类型擦除机制交由 Session 随 checkpoint 持久化（见 [session-integration.md](session-integration.md)），不作为跨模块共享类型在 [common](../common/README.md) 中定义。
