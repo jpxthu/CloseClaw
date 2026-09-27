@@ -8,6 +8,7 @@
 //! 5. Step 1.8: send.completed event uses inbound trace_id (not fabricated)
 //! 6. Step 1.3: session.resolved and route.decision events
 
+use crate::outbound::SendOutboundIds;
 use crate::session_handler::{ActiveSearcherLlmCaller, SessionMessageHandler};
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
@@ -827,8 +828,10 @@ async fn test_outbound_feishu_events_emitted() {
             "feishu",
             "test response",
             content_blocks,
-            Some(trace_id.to_string()),
-            Some(session_key.to_string()),
+            SendOutboundIds {
+                trace_id: Some(trace_id.to_string()),
+                session_key: Some(session_key.to_string()),
+            },
         )
         .await;
     assert!(result.is_ok(), "send_outbound should succeed");
@@ -916,8 +919,10 @@ async fn test_outbound_non_feishu_no_feishu_events() {
             "discord",
             "test response",
             content_blocks,
-            Some("trace-discord-001".to_string()),
-            Some("discord:u1:chat1".to_string()),
+            SendOutboundIds {
+                trace_id: Some("trace-discord-001".to_string()),
+                session_key: Some("discord:u1:chat1".to_string()),
+            },
         )
         .await;
     assert!(result.is_ok(), "send_outbound should succeed for discord");

@@ -15,7 +15,7 @@
 
 mod part2;
 
-use crate::{Gateway, GatewayConfig, Message, OutboundMeta, SessionManager};
+use crate::{Gateway, GatewayConfig, Message, OutboundMeta, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult, ProcessedMessage};

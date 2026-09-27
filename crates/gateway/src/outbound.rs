@@ -6,8 +6,8 @@
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::{
     dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
-    notify_batch_send_failure, process_single_through_chain, send_render_block, StreamContext,
-    StreamState,
+    notify_batch_send_failure, process_single_through_chain, send_render_block, CheckpointMeta,
+    StreamContext, StreamState,
 };
 use closeclaw_common::im_plugin::{IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
@@ -107,6 +107,23 @@ pub enum SendOutcome {
     Notified,
 }
 
+/// Owned debug-log identity pair passed to [`Gateway::send_outbound`].
+///
+/// Groups the inbound trace metadata (`trace_id` / `session_key`) used for
+/// debug-log event correlation, keeping the method's parameter list within
+/// the project's 6-parameter hard limit (same pattern as [`OutboundMeta`],
+/// but owned: the values are moved into the dispatch context below).
+///
+/// `Default` yields `None` for both fields — the value used by nearly all
+/// call sites.
+#[derive(Debug, Clone, Default)]
+pub struct SendOutboundIds {
+    /// Inbound trace ID for debug-log event correlation.
+    pub trace_id: Option<String>,
+    /// Inbound session key for debug-log event correlation.
+    pub session_key: Option<String>,
+}
+
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
 struct DispatchCtx<'a> {
@@ -148,9 +165,12 @@ impl Gateway {
         channel: &str,
         raw_output: &str,
         content_blocks: Vec<ContentBlock>,
-        trace_id: Option<String>,
-        session_key: Option<String>,
+        ids: SendOutboundIds,
     ) -> Result<SendOutcome, GatewayError> {
+        let SendOutboundIds {
+            trace_id,
+            session_key,
+        } = ids;
         // 1. Resolve chat_id and plugin.
         let chat_id = self
             .session_manager
@@ -305,13 +325,15 @@ impl Gateway {
         if ctx.channel == "feishu" {
             let send_duration_ms = send_start.elapsed().as_millis() as u64;
             crate::outbound_helpers::emit_feishu_send_event(
-                self,
-                ctx.trace_id.as_deref().unwrap_or(""),
-                ctx.session_key.as_deref(),
+                crate::outbound_helpers::SendDebugCtx {
+                    gateway: self,
+                    trace_id: ctx.trace_id.as_deref(),
+                    session_key: ctx.session_key.as_deref(),
+                    parent: None,
+                },
                 ctx.channel,
                 &ctx.chat_id,
                 send_duration_ms,
-                None,
             );
         }
         if let Err(e) = send_result {
@@ -338,20 +360,23 @@ impl Gateway {
             ctx.chat_id.clone(),
             message_id.to_string(),
             content,
-            Some(ctx.channel.to_string()),
-            ctx.dsl_result.clone(),
-            ctx.content_blocks.clone(),
+            CheckpointMeta {
+                platform: Some(ctx.channel.to_string()),
+                dsl_result: ctx.dsl_result.clone(),
+                content_blocks: ctx.content_blocks.clone(),
+            },
         );
         crate::outbound_helpers::persist_outbound_checkpoint(self, ctx.session_id, &msg, true)
             .await;
         crate::outbound_helpers::emit_send_completed_log(
-            self,
-            ctx.session_id,
+            crate::outbound_helpers::SendDebugCtx {
+                gateway: self,
+                trace_id: ctx.trace_id.as_deref(),
+                session_key: ctx.session_key.as_deref(),
+                parent: None,
+            },
             ctx.channel,
             &ctx.chat_id,
-            ctx.trace_id.as_deref(),
-            ctx.session_key.as_deref(),
-            None,
         );
         Ok(SendOutcome::Sent)
     }
@@ -483,14 +508,16 @@ impl Gateway {
     }
 
     /// Build a [`Message`] for checkpoint persistence from outbound fields.
-    fn make_outbound_msg(
+    ///
+    /// `pub(crate)` so the aggregate-struct unit tests can assert the
+    /// `CheckpointMeta` → `Message` field mapping directly (same crate-level
+    /// visibility as the other outbound helpers).
+    pub(crate) fn make_outbound_msg(
         channel: &str,
         to: String,
         id: String,
         content: String,
-        platform: Option<String>,
-        dsl_result: Option<String>,
-        content_blocks: Option<String>,
+        meta: CheckpointMeta,
     ) -> Message {
         Message {
             id,
@@ -502,9 +529,9 @@ impl Gateway {
             metadata: std::collections::HashMap::new(),
             thread_id: None,
             reply_ref: None,
-            platform,
-            dsl_result,
-            content_blocks,
+            platform: meta.platform,
+            dsl_result: meta.dsl_result,
+            content_blocks: meta.content_blocks,
         }
     }
 
@@ -698,15 +725,12 @@ impl Gateway {
             .join("");
         let content_blocks_json = serde_json::to_string(&result.content_blocks).unwrap_or_default();
         let msg_id = format!("out-{}", chrono::Utc::now().timestamp_millis());
-        let msg = Self::make_outbound_msg(
-            channel,
-            chat_id,
-            msg_id,
-            text,
-            Some(channel.to_string()),
-            result.dsl_result.clone(),
-            Some(content_blocks_json),
-        );
+        let meta = CheckpointMeta {
+            platform: Some(channel.to_string()),
+            dsl_result: result.dsl_result.clone(),
+            content_blocks: Some(content_blocks_json),
+        };
+        let msg = Self::make_outbound_msg(channel, chat_id, msg_id, text, meta);
         crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
 
         Ok(result)

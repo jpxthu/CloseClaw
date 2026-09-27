@@ -593,7 +593,13 @@ async fn test_batch_send_success_no_notification() {
     gw.register_plugin(plugin.clone()).await;
 
     let result = gw
-        .send_outbound("batch_ok", "mock", "success message", vec![], None, None)
+        .send_outbound(
+            "batch_ok",
+            "mock",
+            "success message",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(result.is_ok(), "batch success should return Ok");
 
@@ -665,7 +671,13 @@ async fn test_preflight_rejection_does_not_notify_user() {
     gw.add_outbound_middleware(Arc::new(RejectAll));
 
     let result = gw
-        .send_outbound("reject", "mock", "blocked msg", vec![], None, None)
+        .send_outbound(
+            "reject",
+            "mock",
+            "blocked msg",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(result.is_ok(), "middleware rejection should return Ok");
 

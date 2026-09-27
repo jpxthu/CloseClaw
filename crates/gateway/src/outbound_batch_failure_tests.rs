@@ -6,7 +6,7 @@
 //! 2. Simplified path itself fails → error propagated (no retry, per design doc).
 //! 3. Middleware rejection is unaffected by batch failure changes.
 
-use crate::{Gateway, GatewayConfig, Session, SessionManager};
+use crate::{Gateway, GatewayConfig, SendOutboundIds, Session, SessionManager};
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_session::persistence::ReasoningLevel;
@@ -216,7 +216,13 @@ async fn test_batch_send_failure_sends_notification() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
     let gw = make_gw("s1", "mock", mock.clone()).await;
     let result = gw
-        .send_outbound("s1", "mock", "original message", vec![], None, None)
+        .send_outbound(
+            "s1",
+            "mock",
+            "original message",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
 
     // dispatch_and_persist catches the error and returns Ok.
@@ -259,7 +265,13 @@ async fn test_batch_send_failure_no_outbound_history() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
     let gw = make_gw("s2", "mock", mock.clone()).await;
     let result = gw
-        .send_outbound("s2", "mock", "test content", vec![], None, None)
+        .send_outbound(
+            "s2",
+            "mock",
+            "test content",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(result.is_ok(), "should return Ok");
 
@@ -286,7 +298,7 @@ async fn test_batch_send_failure_notification_also_fails() {
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockPlugin::always_fail());
     let gw = make_gw("s3", "mock", plugin).await;
     let result = gw
-        .send_outbound("s3", "mock", "original", vec![], None, None)
+        .send_outbound("s3", "mock", "original", vec![], SendOutboundIds::default())
         .await;
     assert!(
         result.is_ok(),
@@ -303,7 +315,13 @@ async fn test_batch_send_failure_interactive_msg_type() {
     let gw = make_gw("s4", "mock", mock.clone()).await;
 
     let result = gw
-        .send_outbound("s4", "mock", "interactive content", vec![], None, None)
+        .send_outbound(
+            "s4",
+            "mock",
+            "interactive content",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(
         result.is_ok(),
@@ -408,7 +426,13 @@ async fn test_middleware_rejection_still_works() {
     gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let result = gw
-        .send_outbound("s9", "mock", "should be rejected", vec![], None, None)
+        .send_outbound(
+            "s9",
+            "mock",
+            "should be rejected",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
 
     // Middleware rejection returns Ok(()) without sending notification.
@@ -456,7 +480,13 @@ async fn test_middleware_rejection_before_batch_send() {
     gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let result = gw
-        .send_outbound("s10", "mock", "middleware blocks", vec![], None, None)
+        .send_outbound(
+            "s10",
+            "mock",
+            "middleware blocks",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
 
     // Middleware rejection path runs first → returns Ok with rejection notification.
@@ -499,7 +529,13 @@ async fn test_no_plugin_uses_fallback_not_batch_failure() {
     let gw = Gateway::new(config, Arc::clone(&sm));
 
     let result = gw
-        .send_outbound("s11", "mock", "no plugin", vec![], None, None)
+        .send_outbound(
+            "s11",
+            "mock",
+            "no plugin",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(
         result.is_ok(),

@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::outbound::SendOutboundIds;
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -230,13 +231,15 @@ pub(crate) async fn send_render_block(
         if let Some(trace_id) = ctx.trace_id {
             if !trace_id.is_empty() {
                 emit_feishu_send_event(
-                    ctx.gateway,
-                    trace_id,
-                    ctx.session_key,
+                    SendDebugCtx {
+                        gateway: ctx.gateway,
+                        trace_id: Some(trace_id),
+                        session_key: ctx.session_key,
+                        parent: None, // outbound send event
+                    },
                     ctx.channel,
                     ctx.chat_id,
                     send_duration_ms,
-                    None, // outbound send event
                 );
             }
         }
@@ -280,6 +283,19 @@ pub(crate) fn make_outbound_meta(
         .iter()
         .map(|(k, v)| (k.to_string(), v.to_string()))
         .collect()
+}
+
+/// Owned checkpoint metadata consumed by [`Gateway::make_outbound_msg`] when
+/// building the persisted outbound [`Message`](crate::Message). Extracted
+/// from `outbound.rs` to stay within the 1000-line file limit (same as the
+/// helpers module itself); keeps that function within the 6-parameter limit.
+pub(crate) struct CheckpointMeta {
+    /// Sender platform recorded on the checkpoint message.
+    pub platform: Option<String>,
+    /// DSL result string from the processor chain (JSON serialized).
+    pub dsl_result: Option<String>,
+    /// Serialized content blocks (JSON) for checkpoint persistence.
+    pub content_blocks: Option<String>,
 }
 
 /// Extract checkpoint content from a rendered output based on msg_type.
@@ -347,6 +363,41 @@ pub(crate) fn merge_dsl_results(
 // Feishu debug-log helpers
 // ---------------------------------------------------------------------------
 
+/// Shared emit context for outbound debug-log events.
+///
+/// Groups the gateway handle and the trace metadata triple
+/// (`trace_id` / `session_key` / `parent`),
+/// keeping individual parameter lists within the project's 6-parameter
+/// hard limit (same pattern as [`StreamContext`]).
+///
+/// Passed to both [`emit_feishu_send_event`] and [`emit_send_completed_log`]
+/// so the two emitters share one uniform parameter order; event payload
+/// fields stay per-emitter.
+pub(crate) struct SendDebugCtx<'a> {
+    /// Gateway whose debug log receives the event.
+    pub gateway: &'a Gateway,
+    /// Inbound trace ID for debug-log event correlation.
+    pub trace_id: Option<&'a str>,
+    /// Inbound session key for debug-log event correlation.
+    pub session_key: Option<&'a str>,
+    /// Parent span context for debug-log child span derivation.
+    pub parent: Option<&'a closeclaw_debug_log::TraceContext>,
+}
+
+impl<'a> SendDebugCtx<'a> {
+    /// Resolve the effective trace ID (empty string when `None`).
+    ///
+    /// [`emit_feishu_send_event`] uses this as its skip check — the
+    /// aggregated form of its pre-aggregation
+    /// `if trace_id.is_empty() { return; }` guard. [`emit_send_completed_log`]
+    /// instead skips on `None` directly (`let Some(..) else { return; }`):
+    /// both emitters skip `None` identically, and only
+    /// [`emit_feishu_send_event`] additionally skips empty-string IDs.
+    pub fn trace_id_or_empty(&self) -> &'a str {
+        self.trace_id.unwrap_or("")
+    }
+}
+
 /// Emit a `feishu.outbound.rendered` debug event.
 pub(crate) fn emit_feishu_render_event(
     gateway: &Gateway,
@@ -375,29 +426,37 @@ pub(crate) fn emit_feishu_render_event(
 
 /// Emit a `feishu.api.send` debug event.
 pub(crate) fn emit_feishu_send_event(
-    gateway: &Gateway,
-    trace_id: &str,
-    session_key: Option<&str>,
+    ctx: SendDebugCtx<'_>,
     channel: &str,
     peer_id: &str,
     send_duration_ms: u64,
-    parent: Option<&closeclaw_debug_log::TraceContext>,
 ) {
+    const SOURCE_MODULE: &str = "feishu";
+    const EVENT_TYPE: &str = "feishu.api.send";
+    let trace_id = ctx.trace_id_or_empty();
     if trace_id.is_empty() {
         return;
     }
-    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    let guard = ctx
+        .gateway
+        .debug_log
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), trace_id, session_key),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(
+            guard.as_ref(),
+            trace_id,
+            ctx.session_key,
+        ),
         level: closeclaw_debug_log::LogLevel::Info,
-        source_module: "feishu",
-        event_type: "feishu.api.send",
+        source_module: SOURCE_MODULE,
+        event_type: EVENT_TYPE,
         payload: serde_json::json!({
             "platform": channel,
             "peer_id": peer_id,
             "send_duration_ms": send_duration_ms,
         }),
-        parent,
+        parent: ctx.parent,
     });
 }
 
@@ -680,29 +739,27 @@ pub(crate) async fn persist_outbound_checkpoint(
 /// Extracted from the text/interactive branches in
 /// `dispatch_and_persist` to eliminate duplicated emit code.
 /// When `trace_id` is `None`, the emit is skipped.
-pub(crate) fn emit_send_completed_log(
-    gateway: &Gateway,
-    _session_id: &str,
-    channel: &str,
-    peer_id: &str,
-    trace_id: Option<&str>,
-    session_key: Option<&str>,
-    parent: Option<&closeclaw_debug_log::TraceContext>,
-) {
-    let Some(tid) = trace_id else {
+pub(crate) fn emit_send_completed_log(ctx: SendDebugCtx<'_>, channel: &str, peer_id: &str) {
+    const SOURCE_MODULE: &str = "gateway";
+    const EVENT_TYPE: &str = "send.completed";
+    let Some(tid) = ctx.trace_id else {
         return;
     };
-    let guard = gateway.debug_log.read().unwrap_or_else(|e| e.into_inner());
+    let guard = ctx
+        .gateway
+        .debug_log
+        .read()
+        .unwrap_or_else(|e| e.into_inner());
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
-        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, session_key),
+        ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, ctx.session_key),
         level: closeclaw_debug_log::LogLevel::Info,
-        source_module: "gateway",
-        event_type: "send.completed",
+        source_module: SOURCE_MODULE,
+        event_type: EVENT_TYPE,
         payload: serde_json::json!({
             "channel": channel,
             "peer_id": peer_id,
         }),
-        parent,
+        parent: ctx.parent,
     });
 }
 
@@ -740,7 +797,13 @@ pub(crate) async fn deliver_batch_result(
         return;
     };
     if let Err(e) = gw
-        .send_outbound(session_id, &channel, text, blocks.to_vec(), None, None)
+        .send_outbound(
+            session_id,
+            &channel,
+            text,
+            blocks.to_vec(),
+            SendOutboundIds::default(),
+        )
         .await
     {
         tracing::warn!(session_id, channel, error = %e, "batch outbound delivery failed");

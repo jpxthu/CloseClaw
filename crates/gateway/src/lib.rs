@@ -35,6 +35,8 @@ pub mod message;
 mod message_routing;
 pub mod outbound;
 #[cfg(test)]
+mod outbound_aggregate_struct_tests;
+#[cfg(test)]
 mod outbound_batch_failure_tests;
 #[cfg(test)]
 mod outbound_checkpoint_last_message_at_tests;
@@ -128,7 +130,7 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
-pub use outbound::OutboundMeta;
+pub use outbound::{OutboundMeta, SendOutboundIds};
 pub(crate) use rebuild_stash::RebuildStash;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
