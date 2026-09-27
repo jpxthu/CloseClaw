@@ -18,7 +18,7 @@ mod tools;
 
 // Section validators stay crate-internal; the public API surface is
 // `for_section` plus the *_with_refs validators, matching master.
-pub(crate) use accounts::validate_accounts;
+pub use accounts::validate_accounts;
 pub(crate) use channels::validate_channels;
 pub use channels::validate_channels_with_refs;
 pub use cross_ref::{CredentialProviderSet, CrossRefData};
@@ -26,9 +26,10 @@ pub use memory::validate_memory;
 pub(crate) use models::validate_models;
 pub use models::validate_models_with_refs;
 pub use registry::for_section;
+pub use sections::validate_credentials;
 pub(crate) use sections::{
-    validate_agents, validate_credentials, validate_gateway, validate_media, validate_plugins,
-    validate_skills, validate_system,
+    validate_agents, validate_gateway, validate_media, validate_plugins, validate_skills,
+    validate_system,
 };
 pub use session::validate_session;
 pub use tools::validate_tools;

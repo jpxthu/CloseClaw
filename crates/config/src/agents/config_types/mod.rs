@@ -4,9 +4,6 @@
 //! Migrated from `closeclaw-common::agent_config`.
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
-#[cfg(test)]
-use std::collections::HashMap;
-
 mod core;
 mod memory_types;
 mod model_spec;
@@ -19,3 +16,7 @@ pub use permissions::*;
 
 #[cfg(test)]
 mod tests;
+
+#[cfg(test)]
+#[path = "model_spec_tests.rs"]
+mod model_spec_tests;
