@@ -287,6 +287,19 @@ pub(crate) fn make_outbound_meta(
         .collect()
 }
 
+/// Owned checkpoint metadata consumed by [`Gateway::make_outbound_msg`] when
+/// building the persisted outbound [`Message`](crate::Message). Extracted
+/// from `outbound.rs` to stay within the 1000-line file limit (same as the
+/// helpers module itself); keeps that function within the 6-parameter limit.
+pub(crate) struct CheckpointMeta {
+    /// Sender platform recorded on the checkpoint message.
+    pub platform: Option<String>,
+    /// DSL result string from the processor chain (JSON serialized).
+    pub dsl_result: Option<String>,
+    /// Serialized content blocks (JSON) for checkpoint persistence.
+    pub content_blocks: Option<String>,
+}
+
 /// Extract checkpoint content from a rendered output based on msg_type.
 ///
 /// Returns the text for "text" payloads, a JSON string for "interactive",
