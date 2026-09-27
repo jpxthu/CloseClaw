@@ -10,7 +10,6 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use async_trait::async_trait;
-use chrono::Utc;
 use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_common::streaming::{CodeBlockMode, DefaultStreamingRenderer};
@@ -19,8 +18,8 @@ use closeclaw_common::{
     RenderedOutput,
 };
 use closeclaw_config::CredentialsProvider;
-use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
-use tracing::{debug, info, warn};
+use closeclaw_debug_log::DebugLog;
+use tracing::{info, warn};
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
 use super::config::{load_media_config, load_platforms_config};
@@ -30,7 +29,6 @@ use super::renderer::{self, build_card};
 use super::send_helpers;
 use super::{build_text, cleaner, should_use_card_for_blocks, FeishuAdapter};
 use crate::media_store::MediaStore;
-use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::platforms::PlatformEntry;
 use crate::IMAdapter;
 
@@ -134,13 +132,13 @@ pub async fn register(
 /// Unified IM plugin for Feishu.
 pub struct FeishuPlugin {
     pub(super) adapter: Arc<FeishuAdapter>,
-    identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    pub(super) identity_resolver: Option<Arc<dyn IdentityResolver>>,
     /// Cardkit streaming renderer for incremental card updates.
     pub(super) cardkit_streaming: std::sync::Mutex<CardkitStreamingRenderer>,
     /// Default streaming renderer for text line-buffering and block accumulation.
     streaming_renderer: std::sync::Mutex<DefaultStreamingRenderer>,
     /// Debug log framework instance for structured event logging.
-    debug_log: Option<Arc<DebugLog>>,
+    pub(super) debug_log: Option<Arc<DebugLog>>,
 }
 
 impl FeishuPlugin {
@@ -187,89 +185,6 @@ impl FeishuPlugin {
             .state
             .pending_text
             .clone()
-    }
-
-    /// Get the identity resolver for cross-platform account mapping.
-    fn identity_resolver(&self) -> Option<&dyn IdentityResolver> {
-        self.identity_resolver.as_deref()
-    }
-
-    /// Generate a trace_id in the format `{platform}_{timestamp_hex}_{uuid_v4}`.
-    ///
-    /// - Platform identifier: passed as `platform` parameter
-    /// - Timestamp: Unix epoch milliseconds in hex
-    /// - Random component: UUID v4 with hyphens removed
-    ///
-    /// This format allows operators to identify the source platform and approximate
-    /// arrival time from the trace_id alone.
-    pub(crate) fn generate_trace_id(&self, platform: &str) -> String {
-        let timestamp_hex = format!("{:x}", Utc::now().timestamp_millis());
-        let uuid_no_hyphens = uuid::Uuid::new_v4().simple().to_string();
-        format!("{platform}_{timestamp_hex}_{uuid_no_hyphens}")
-    }
-
-    /// Emit a structured debug_log event asynchronously.
-    ///
-    /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
-    /// build event, spawn async send. Callers only supply `event_type` and
-    /// `payload`. Skips silently when debug_log is None or trace_id is empty.
-    pub(super) fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
-        let debug_log = match self.debug_log {
-            Some(ref dl) => dl.clone(),
-            None => return,
-        };
-        let trace_id = self
-            .adapter
-            .last_metadata
-            .try_lock()
-            .ok()
-            .and_then(|m| m.get("trace_id").cloned());
-        match trace_id {
-            Some(tid) if !tid.is_empty() => {
-                let ctx = TraceContext::new_root(tid);
-                let event =
-                    LogEvent::new(&ctx, None, LogLevel::Info, "feishu", event_type, payload);
-                tokio::spawn(async move {
-                    debug_log.log(event).await;
-                });
-            }
-            _ => {
-                warn!(
-                    event_type = %event_type,
-                    "emit_debug_event: try_lock failed or trace_id empty — skipping"
-                );
-            }
-        }
-    }
-
-    /// Normalize content and apply identity mapping to an inbound message.
-    ///
-    /// `bot_app_id` is resolved with priority:
-    /// 1. `header_app_id` from `last_metadata` (the event header's app_id)
-    /// 2. The adapter's own `app_id` (fallback for legacy flows)
-    fn normalize_inbound_message(&self, msg: &mut NormalizedMessage) {
-        msg.content = normalize_urls(&msg.content);
-        msg.content = add_code_block_language_hint(&msg.content);
-        if let Some(resolver) = self.identity_resolver() {
-            let bot_app_id = match self.adapter.last_metadata.try_lock() {
-                Ok(guard) => guard
-                    .get("header_app_id")
-                    .filter(|s| !s.is_empty())
-                    .cloned()
-                    .unwrap_or_default(),
-                Err(_) => {
-                    debug!(
-                        platform = %msg.platform,
-                        sender_id = %msg.sender_id,
-                        "try_lock failed, falling back to empty bot_app_id"
-                    );
-                    String::new()
-                }
-            };
-            msg.account_id = resolver
-                .resolve(&msg.platform, &bot_app_id, &msg.sender_id)
-                .unwrap_or(std::mem::take(&mut msg.account_id));
-        }
     }
 }
 

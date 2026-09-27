@@ -20,6 +20,7 @@ mod cleaner_tests;
 pub(crate) mod config;
 #[cfg(test)]
 mod credential_isolation_tests;
+mod debug_events;
 #[cfg(test)]
 mod debug_log_tests;
 mod event_dedup;
@@ -33,6 +34,7 @@ mod feishu_tests;
 mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
+mod inbound;
 #[cfg(test)]
 mod media_filter_tests;
 #[cfg(test)]
