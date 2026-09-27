@@ -509,10 +509,10 @@ fn test_sse_event_stream_max_events_zero() {
     let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
-    // Boundary: with max_events=Some(0), poll_next must short-circuit before the
-    // segment-delay / spawn path, so the first poll is Ready(None) with 0 events
-    // (an event or Pending here is a regression). Polled directly instead of via
-    // drain_count, which stops on Pending too and so hides a stall.
+    // Boundary: with max_events=Some(0), SseEventStream::poll_next must short-circuit before the
+    // segment-delay / spawn path, so the stream terminates immediately: first poll is Ready(None),
+    // 0 events (an event or Pending is a regression). Polled directly, not via drain_count, which
+    // stops on both Ready(None) and Pending, so it cannot tell a stall from a clean termination.
     let first = Pin::new(&mut stream).poll_next(&mut cx);
     assert!(
         matches!(first, Poll::Ready(None)),
