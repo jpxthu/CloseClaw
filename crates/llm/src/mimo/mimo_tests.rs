@@ -574,7 +574,14 @@ async fn test_send_anthropic_success_with_thinking() {
     let req = make_request("mimo-7b");
     let body = json!({
         "model": "mimo-7b",
-        "messages": [{ "role": "user", "content": [{ "type": "text", "text": "What is the answer?" }] }],
+        "messages": [
+            {
+                "role": "user",
+                "content": [
+                    { "type": "text", "text": "What is the answer?" }
+                ]
+            }
+        ],
         "max_tokens": 100
     });
 
