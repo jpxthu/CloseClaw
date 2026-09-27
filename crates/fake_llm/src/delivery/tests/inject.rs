@@ -56,6 +56,12 @@ enum Step {
 /// Stream whose poll results are fully scripted, so tests can pin down
 /// `drain_count`'s behavior at the `Poll::Pending` and `Poll::Ready(None)`
 /// boundaries instead of relying on always-ready streams.
+///
+/// Test-only helper for `drain_count`'s stop semantics: the `Pending` branch
+/// below registers no waker, so it must only ever be polled by `drain_count`
+/// (which stops at the first non-`Ready(Some(_))`). Never hand it to an
+/// executor / `block_on` / real task: a `Pending` without a registered waker
+/// would stall forever.
 struct ScriptedStream {
     steps: std::vec::IntoIter<Step>,
 }
@@ -86,7 +92,7 @@ fn test_drain_count_counts_ready_items_until_stream_end() {
 #[test]
 fn test_drain_count_empty_stream_returns_zero() {
     // Boundary: stream ends immediately (first poll is Ready(None)) → 0.
-    let stream = futures::stream::iter(std::iter::empty::<&str>());
+    let stream = futures::stream::empty::<&str>();
     assert_eq!(
         drain_count(stream),
         0,
@@ -305,7 +311,10 @@ async fn deliver_streaming_interrupt_consumable() {
             let stream =
                 crate::delivery::sse::SseEventStream::new(events).with_max_events(max_events);
             let count = drain_count(stream);
-            assert_eq!(count, 1);
+            assert_eq!(
+                count, 1,
+                "expected max_events=Some(1) to drain 1 event, got {count}"
+            );
         }
         _ => panic!("expected SseStreamWithConfig"),
     }
@@ -498,5 +507,9 @@ async fn sse_event_stream_max_events_zero() {
         },
     ];
     let stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    assert_eq!(drain_count(stream), 0);
+    let count = drain_count(stream);
+    assert_eq!(
+        count, 0,
+        "expected max_events=Some(0) to drain 0 events, got {count}"
+    );
 }
