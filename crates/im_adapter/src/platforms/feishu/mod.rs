@@ -47,6 +47,7 @@ mod post_expand;
 pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
+mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]
 mod renderer_decision_tests;
