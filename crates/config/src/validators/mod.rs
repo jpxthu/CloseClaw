@@ -16,13 +16,17 @@ mod sections;
 mod session;
 mod tools;
 
-pub use accounts::validate_accounts;
-pub use channels::{validate_channels, validate_channels_with_refs};
+// Section validators stay crate-internal; the public API surface is
+// `for_section` plus the *_with_refs validators, matching master.
+pub(crate) use accounts::validate_accounts;
+pub(crate) use channels::validate_channels;
+pub use channels::validate_channels_with_refs;
 pub use cross_ref::{CredentialProviderSet, CrossRefData};
 pub use memory::validate_memory;
-pub use models::{validate_models, validate_models_with_refs};
+pub(crate) use models::validate_models;
+pub use models::validate_models_with_refs;
 pub use registry::for_section;
-pub use sections::{
+pub(crate) use sections::{
     validate_agents, validate_credentials, validate_gateway, validate_media, validate_plugins,
     validate_skills, validate_system,
 };
@@ -31,8 +35,7 @@ pub use tools::validate_tools;
 
 // Items referenced by sibling submodules via `use super::{...}` keep their
 // module-scope names here.
-pub(crate) use helpers::{ensure_object, type_name};
-pub(crate) use sections::validate_non_negative_field;
+pub(crate) use helpers::{ensure_object, type_name, validate_non_negative_field};
 
 #[cfg(test)]
 #[path = "../validators_tests.rs"]

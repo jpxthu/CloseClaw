@@ -2,8 +2,7 @@
 
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 
-use super::helpers::{ensure_object, type_name};
-use super::sections::require_non_empty;
+use super::helpers::{ensure_object, require_non_empty, type_name};
 
 /// Validate the **accounts** config section.
 ///

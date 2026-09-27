@@ -3,16 +3,13 @@
 use crate::manager::ConfigSection;
 use crate::SectionValidator;
 
-use super::accounts::validate_accounts;
-use super::channels::validate_channels;
 use super::memory::validate_memory;
-use super::models::validate_models;
-use super::sections::{
-    validate_agents, validate_credentials, validate_gateway, validate_media, validate_plugins,
-    validate_skills, validate_system,
-};
 use super::session::validate_session;
 use super::tools::validate_tools;
+use super::{
+    validate_accounts, validate_agents, validate_channels, validate_credentials, validate_gateway,
+    validate_media, validate_models, validate_plugins, validate_skills, validate_system,
+};
 
 /// Build the default `SectionValidator` for a given config section.
 pub fn for_section(section: ConfigSection) -> Box<SectionValidator> {

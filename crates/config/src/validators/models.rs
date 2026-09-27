@@ -1,8 +1,7 @@
 //! Models config section validator.
 
 use super::cross_ref::CredentialProviderSet;
-use super::helpers::ensure_object;
-use super::sections::ensure_array;
+use super::helpers::{ensure_array, ensure_object};
 
 /// Validate the **models** config section (basic structural checks).
 pub fn validate_models(value: &serde_json::Value) -> Result<(), String> {

@@ -5,8 +5,7 @@ use std::collections::HashSet;
 use crate::providers::channels::ALLOWED_CHANNEL_TYPES;
 
 use super::cross_ref::CrossRefData;
-use super::helpers::{ensure_object, type_name};
-use super::sections::{ensure_array, require_non_empty};
+use super::helpers::{ensure_array, ensure_object, require_non_empty, type_name};
 
 /// Validate the **channels** config section.
 ///
