@@ -124,16 +124,6 @@ pub struct SendOutboundIds {
     pub session_key: Option<String>,
 }
 
-impl SendOutboundIds {
-    /// Build the identity pair with both fields set.
-    pub fn new(trace_id: Option<String>, session_key: Option<String>) -> Self {
-        Self {
-            trace_id,
-            session_key,
-        }
-    }
-}
-
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
 struct DispatchCtx<'a> {
@@ -340,8 +330,6 @@ impl Gateway {
                     trace_id: ctx.trace_id.as_deref(),
                     session_key: ctx.session_key.as_deref(),
                     parent: None,
-                    source_module: "feishu",
-                    event_type: "feishu.api.send",
                 },
                 ctx.channel,
                 &ctx.chat_id,
@@ -386,8 +374,6 @@ impl Gateway {
                 trace_id: ctx.trace_id.as_deref(),
                 session_key: ctx.session_key.as_deref(),
                 parent: None,
-                source_module: "gateway",
-                event_type: "send.completed",
             },
             ctx.channel,
             &ctx.chat_id,

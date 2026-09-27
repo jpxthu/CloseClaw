@@ -828,7 +828,10 @@ async fn test_outbound_feishu_events_emitted() {
             "feishu",
             "test response",
             content_blocks,
-            SendOutboundIds::new(Some(trace_id.to_string()), Some(session_key.to_string())),
+            SendOutboundIds {
+                trace_id: Some(trace_id.to_string()),
+                session_key: Some(session_key.to_string()),
+            },
         )
         .await;
     assert!(result.is_ok(), "send_outbound should succeed");
@@ -916,10 +919,10 @@ async fn test_outbound_non_feishu_no_feishu_events() {
             "discord",
             "test response",
             content_blocks,
-            SendOutboundIds::new(
-                Some("trace-discord-001".to_string()),
-                Some("discord:u1:chat1".to_string()),
-            ),
+            SendOutboundIds {
+                trace_id: Some("trace-discord-001".to_string()),
+                session_key: Some("discord:u1:chat1".to_string()),
+            },
         )
         .await;
     assert!(result.is_ok(), "send_outbound should succeed for discord");

@@ -236,8 +236,6 @@ pub(crate) async fn send_render_block(
                         trace_id: Some(trace_id),
                         session_key: ctx.session_key,
                         parent: None, // outbound send event
-                        source_module: "feishu",
-                        event_type: "feishu.api.send",
                     },
                     ctx.channel,
                     ctx.chat_id,
@@ -367,8 +365,8 @@ pub(crate) fn merge_dsl_results(
 
 /// Shared emit context for outbound debug-log events.
 ///
-/// Groups the gateway handle, the trace metadata triple
-/// (`trace_id` / `session_key` / `parent`) and the event identity fields,
+/// Groups the gateway handle and the trace metadata triple
+/// (`trace_id` / `session_key` / `parent`),
 /// keeping individual parameter lists within the project's 6-parameter
 /// hard limit (same pattern as [`StreamContext`]).
 ///
@@ -384,15 +382,17 @@ pub(crate) struct SendDebugCtx<'a> {
     pub session_key: Option<&'a str>,
     /// Parent span context for debug-log child span derivation.
     pub parent: Option<&'a closeclaw_debug_log::TraceContext>,
-    /// Debug-log `source_module` value (e.g. "feishu" / "gateway").
-    pub source_module: &'a str,
-    /// Debug-log `event_type` value (e.g. "feishu.api.send").
-    pub event_type: &'a str,
 }
 
 impl<'a> SendDebugCtx<'a> {
-    /// Resolve the effective trace ID (empty string when `None`), matching
-    /// the pre-aggregation behavior of both emit call sites.
+    /// Resolve the effective trace ID (empty string when `None`).
+    ///
+    /// [`emit_feishu_send_event`] uses this as its skip check — the
+    /// aggregated form of its pre-aggregation
+    /// `if trace_id.is_empty() { return; }` guard. [`emit_send_completed_log`]
+    /// instead skips on `None` directly (`let Some(..) else { return; }`):
+    /// both emitters skip `None` identically, and only
+    /// [`emit_feishu_send_event`] additionally skips empty-string IDs.
     pub fn trace_id_or_empty(&self) -> &'a str {
         self.trace_id.unwrap_or("")
     }
@@ -431,6 +431,8 @@ pub(crate) fn emit_feishu_send_event(
     peer_id: &str,
     send_duration_ms: u64,
 ) {
+    const SOURCE_MODULE: &str = "feishu";
+    const EVENT_TYPE: &str = "feishu.api.send";
     let trace_id = ctx.trace_id_or_empty();
     if trace_id.is_empty() {
         return;
@@ -447,8 +449,8 @@ pub(crate) fn emit_feishu_send_event(
             ctx.session_key,
         ),
         level: closeclaw_debug_log::LogLevel::Info,
-        source_module: ctx.source_module,
-        event_type: ctx.event_type,
+        source_module: SOURCE_MODULE,
+        event_type: EVENT_TYPE,
         payload: serde_json::json!({
             "platform": channel,
             "peer_id": peer_id,
@@ -738,6 +740,8 @@ pub(crate) async fn persist_outbound_checkpoint(
 /// `dispatch_and_persist` to eliminate duplicated emit code.
 /// When `trace_id` is `None`, the emit is skipped.
 pub(crate) fn emit_send_completed_log(ctx: SendDebugCtx<'_>, channel: &str, peer_id: &str) {
+    const SOURCE_MODULE: &str = "gateway";
+    const EVENT_TYPE: &str = "send.completed";
     let Some(tid) = ctx.trace_id else {
         return;
     };
@@ -749,8 +753,8 @@ pub(crate) fn emit_send_completed_log(ctx: SendDebugCtx<'_>, channel: &str, peer
     crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
         ctx: crate::debug_log_emitter::DebugLogContext::new(guard.as_ref(), tid, ctx.session_key),
         level: closeclaw_debug_log::LogLevel::Info,
-        source_module: ctx.source_module,
-        event_type: ctx.event_type,
+        source_module: SOURCE_MODULE,
+        event_type: EVENT_TYPE,
         payload: serde_json::json!({
             "channel": channel,
             "peer_id": peer_id,

@@ -2,6 +2,7 @@
 
 use super::spawn::SpawnMode;
 use super::SessionManager;
+use crate::outbound::SendOutboundIds;
 use crate::session_manager::communication::CommunicationError;
 use crate::Gateway;
 use chrono::Utc;
@@ -393,8 +394,11 @@ impl SessionManager {
             };
 
             // 7c. Send via gateway.
+            // Explicit SendOutboundIds::default() (not bare Default::default())
+            // to match the explicit style of all other send_outbound call sites.
+            let ids = SendOutboundIds::default();
             match gw
-                .send_outbound(session_id, &channel, &content, vec![], Default::default())
+                .send_outbound(session_id, &channel, &content, vec![], ids)
                 .await
             {
                 Ok(crate::outbound::SendOutcome::Sent) => {
@@ -895,10 +899,11 @@ impl SessionManager {
                     }
                     // Send response to user via Gateway outbound pipeline.
                     if let (Some(ref gw), Some(ref ch)) = (&gw, &channel) {
-                        if let Err(e) = gw
-                            .send_outbound(session_id, ch, &text, vec![], Default::default())
-                            .await
-                        {
+                        // Explicit SendOutboundIds::default() (not bare
+                        // Default::default()) to match the explicit style of
+                        // all other send_outbound call sites.
+                        let ids = SendOutboundIds::default();
+                        if let Err(e) = gw.send_outbound(session_id, ch, &text, vec![], ids).await {
                             warn!(
                                 session_id = %session_id,
                                 error = %e,

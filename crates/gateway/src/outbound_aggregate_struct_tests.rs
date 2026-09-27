@@ -362,7 +362,8 @@ fn dsl_result_json() -> String {
 /// - `SendOutboundIds { trace_id, session_key }` must reach both
 ///   `SendDebugCtx` construction sites (`feishu.api.send` + `send.completed`):
 ///   both events carry the exact trace_id/session_key, their own
-///   source_module/event_type, and the per-emitter payload fields.
+///   emitter-local source_module/event_type, and the per-emitter payload
+///   fields.
 /// - `CheckpointMeta` must reach `make_outbound_msg`: the checkpointed
 ///   assistant message carries platform / dsl_result / content_blocks.
 #[tokio::test]
@@ -383,7 +384,10 @@ async fn test_aggregate_ids_and_meta_full_flow() {
             "feishu",
             body,
             text_blocks(body),
-            SendOutboundIds::new(Some(trace_id.to_string()), Some(session_key.to_string())),
+            SendOutboundIds {
+                trace_id: Some(trace_id.to_string()),
+                session_key: Some(session_key.to_string()),
+            },
         )
         .await;
     assert!(matches!(result, Ok(SendOutcome::Sent)));
@@ -467,10 +471,10 @@ async fn test_send_outcome_branches_with_aggregates() {
             "feishu",
             "ok body",
             text_blocks("ok body"),
-            SendOutboundIds::new(
-                Some("trace-outcome-sent".to_string()),
-                Some("feishu:u:chat".to_string()),
-            ),
+            SendOutboundIds {
+                trace_id: Some("trace-outcome-sent".to_string()),
+                session_key: Some("feishu:u:chat".to_string()),
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
@@ -496,10 +500,10 @@ async fn test_send_outcome_branches_with_aggregates() {
             "feishu",
             "body that fails to send",
             text_blocks("body that fails to send"),
-            SendOutboundIds::new(
-                Some("trace-outcome-fail".to_string()),
-                Some("feishu:u:chat".to_string()),
-            ),
+            SendOutboundIds {
+                trace_id: Some("trace-outcome-fail".to_string()),
+                session_key: Some("feishu:u:chat".to_string()),
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Notified)));
@@ -576,10 +580,10 @@ async fn test_send_outbound_ids_none_vs_some_boundary() {
             "feishu",
             "boundary some body",
             text_blocks("boundary some body"),
-            SendOutboundIds::new(
-                Some("trace-agg-some".to_string()),
-                Some("feishu:ou_sender:oc_chat".to_string()),
-            ),
+            SendOutboundIds {
+                trace_id: Some("trace-agg-some".to_string()),
+                session_key: Some("feishu:ou_sender:oc_chat".to_string()),
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
@@ -652,8 +656,6 @@ fn test_send_debug_ctx_trace_id_or_empty_matches_pre_aggregation() {
         trace_id: None,
         session_key: None,
         parent: None,
-        source_module: "feishu",
-        event_type: "feishu.api.send",
     };
     assert_eq!(ctx_none.trace_id_or_empty(), "");
     assert_eq!(ctx_none.trace_id, None);
@@ -667,8 +669,6 @@ fn test_send_debug_ctx_trace_id_or_empty_matches_pre_aggregation() {
         trace_id: Some("trace-agg-some"),
         session_key: Some("feishu:ou_sender:oc_chat"),
         parent: Some(&child),
-        source_module: "gateway",
-        event_type: "send.completed",
     };
     assert_eq!(ctx_some.trace_id_or_empty(), "trace-agg-some");
     assert_eq!(ctx_some.trace_id, Some("trace-agg-some"));
@@ -742,7 +742,10 @@ async fn test_none_trace_id_with_some_session_key_skip_and_complete() {
             "feishu",
             "mixed identity body",
             text_blocks("mixed identity body"),
-            SendOutboundIds::new(None, Some("feishu:ou_sender:oc_chat".to_string())),
+            SendOutboundIds {
+                trace_id: None,
+                session_key: Some("feishu:ou_sender:oc_chat".to_string()),
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
@@ -800,10 +803,10 @@ async fn test_send_failure_emits_aggregated_event_then_notifies() {
             "feishu",
             "failing body",
             text_blocks("failing body"),
-            SendOutboundIds::new(
-                Some("trace-agg-fail".to_string()),
-                Some("feishu:ou_sender:oc_chat".to_string()),
-            ),
+            SendOutboundIds {
+                trace_id: Some("trace-agg-fail".to_string()),
+                session_key: Some("feishu:ou_sender:oc_chat".to_string()),
+            },
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Notified)));
