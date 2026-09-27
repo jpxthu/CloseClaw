@@ -537,4 +537,75 @@ mod tests {
             "inventory must contain at least one PlatformEntry with name \"feishu\""
         );
     }
+
+    // =====================================================================
+    // mod.rs 定义下沉 re-export 路径回归（contributing-audit D 节清零）
+    // =====================================================================
+
+    /// Create a test Gateway (no real I/O — registration only checks
+    /// `platforms.json` before touching the gateway).
+    fn make_test_gateway() -> Arc<closeclaw_gateway::Gateway> {
+        use closeclaw_gateway::{Gateway, GatewayConfig};
+
+        let config = GatewayConfig {
+            name: "test".to_owned(),
+            rate_limit_per_minute: 0,
+            max_message_size: 0,
+            inbound_queue_capacity: 4,
+            inbound_wal_dir: None,
+            ..Default::default()
+        };
+        let sm = Arc::new(closeclaw_gateway::SessionManager::new(
+            &config,
+            None,
+            None,
+            closeclaw_common::ReasoningLevel::default(),
+        ));
+        Arc::new(Gateway::new(config, sm))
+    }
+
+    /// `register_platform_plugins` stays reachable via the historical
+    /// `closeclaw_im_adapter::platforms::` path after its definition was
+    /// moved from `platforms/mod.rs` down to `platforms/registry.rs`, with
+    /// an unchanged signature (Gateway handle + config dir + optional
+    /// MediaStore/MediaConfigData) and no re-registration side effects when
+    /// the platform is disabled by `platforms.json` (missing file → empty
+    /// config → all platforms disabled → feishu `register()` exits early).
+    #[tokio::test]
+    async fn test_register_platform_plugins_reexport_path_and_signature() {
+        use crate::platforms::register_platform_plugins;
+
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        let config_dir = tmp.path().to_str().expect("utf-8 temp path");
+        let gw = make_test_gateway();
+
+        // Signature check via call: compiles and runs with unchanged args.
+        register_platform_plugins(&gw, config_dir, None, None).await;
+    }
+
+    /// `FeishuPlugin`/`FeishuAdapter`/`build_text` keep their historical
+    /// `platforms::feishu::` re-export paths and semantics after the
+    /// definitions were moved down to `feishu/plugin.rs` and
+    /// `feishu/renderer.rs`: the plugin wraps the adapter, reports the
+    /// `"feishu"` platform name, and `build_text` renders a text payload.
+    #[test]
+    fn test_feishu_reexport_types_smoke() {
+        use crate::platforms::feishu::{build_text, FeishuAdapter, FeishuPlugin};
+
+        let tmp = tempfile::TempDir::new().expect("tmp dir");
+        let adapter = Arc::new(FeishuAdapter::new(
+            "test_profile".into(),
+            Arc::new(
+                MediaStore::new(tmp.path().to_str().expect("utf-8 temp path"))
+                    .expect("media store"),
+            ),
+        ));
+        let plugin = FeishuPlugin::new(adapter);
+        assert_eq!(plugin.platform(), "feishu");
+
+        let output = build_text("ping");
+        assert_eq!(output.msg_type, "text");
+        assert_eq!(output.payload["msg_type"], "text");
+        assert_eq!(output.payload["content"]["text"], "ping");
+    }
 }
