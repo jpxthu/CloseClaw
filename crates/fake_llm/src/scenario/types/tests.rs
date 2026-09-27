@@ -1,3 +1,11 @@
+//! Scenario file / response-shape deserialization tests (split out of
+//! `types/mod.rs`, issue #3294).
+//!
+//! Raw-string whitespace notice: interior whitespace of the multi-line
+//! `r#"..."#` JSON literals below is string content, not source formatting.
+//! Do not re-indent, reflow, or otherwise rewrite these raw strings with
+//! editors or formatting tools -- any byte change alters the pinned data.
+
 use super::*;
 
 #[test]
