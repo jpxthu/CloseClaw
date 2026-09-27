@@ -1,5 +1,6 @@
 use super::*;
-use crate::types::{InternalMessage, InternalResponse, RawContentBlock};
+use crate::provider::{Provider, ProviderError};
+use crate::types::{InternalMessage, InternalRequest, InternalResponse, RawContentBlock};
 use mockito::Server;
 
 fn provider_url(server: &Server) -> String {
