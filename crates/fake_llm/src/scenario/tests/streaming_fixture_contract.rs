@@ -670,6 +670,7 @@ fn assert_anthropic_tool_message_start(
 
     assert_eq!(fix_values[0]["type"], "message_start");
     assert_eq!(fix_values[0]["message"]["role"], "assistant");
+    assert_eq!(fix_values[0]["message"]["model"], "fake-model");
     assert_eq!(fix_values[0]["message"]["usage"]["input_tokens"], 39);
 }
 
@@ -864,6 +865,15 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     // Generate SSE events — granularity=1 for character-level input_json_delta
     let events = generate_anthropic_events(&decision, 1);
     let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
+
+    // --- Event type sequence (generated side only, same as text case) ---
+    // granularity=1 splits the 29-char tool arguments into 29 input_json_delta.
+    assert_eq!(
+        events.len(),
+        35,
+        "granularity=1 should yield 35 events: message_start + content_block_start \
+         + ping + 29 input_json_delta + content_block_stop + message_delta + message_stop"
+    );
 
     // --- Semantic: message_start + input usage ---
     assert_anthropic_tool_message_start(&gen_values, &fix_values);
