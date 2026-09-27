@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::HashMap;
 
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
     let dimensions = [

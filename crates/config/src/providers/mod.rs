@@ -10,6 +10,10 @@ pub mod models;
 pub mod plugins;
 pub mod skills;
 pub mod system;
+
+mod error;
+mod provider;
+
 pub use accounts::{AccountsConfigData, BotAgentBinding};
 pub use channels::ChannelsConfigData;
 pub use credentials::CredentialsProvider;
@@ -21,49 +25,5 @@ pub use plugins::PluginsConfigData;
 pub use skills::{SkillsConfig, SkillsConfigData};
 pub use system::{AuditLogConfig, PlanArchiveConfig, RejectionLogConfig, SystemConfigData};
 
-/// Configuration provider trait for extensible config management
-pub trait ConfigProvider {
-    /// Get config version as string (semver format)
-    fn version(&self) -> &'static str;
-
-    /// Validate config schema and values
-    fn validate(&self) -> Result<(), ConfigError>;
-
-    /// Get config file path
-    fn config_path() -> &'static str
-    where
-        Self: Sized;
-
-    /// Check if this is the default config
-    fn is_default(&self) -> bool;
-}
-
-#[derive(Debug, thiserror::Error)]
-pub enum ConfigError {
-    #[error("Schema validation failed: {0}")]
-    SchemaError(String),
-
-    #[error("Invalid value for field '{field}': {message}")]
-    ValueError { field: String, message: String },
-
-    #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("JSON parse error: {0}")]
-    JsonError(#[from] serde_json::Error),
-
-    #[error("Missing required agent id in {path}")]
-    MissingId { path: String },
-
-    #[error("failed to parse credential file {path}: {error}")]
-    ParseError {
-        path: std::path::PathBuf,
-        error: String,
-    },
-
-    #[error("credential validation failed for {path}: {message}")]
-    ValidationError {
-        path: std::path::PathBuf,
-        message: String,
-    },
-}
+pub use error::ConfigError;
+pub use provider::ConfigProvider;
