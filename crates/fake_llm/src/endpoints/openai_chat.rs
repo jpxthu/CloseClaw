@@ -128,7 +128,7 @@ mod tests {
         let include_usage = req
             .stream_options
             .as_ref()
-            .map_or(false, |opts| opts.include_usage);
+            .is_some_and(|opts| opts.include_usage);
         assert!(!include_usage);
     }
 
@@ -149,7 +149,7 @@ mod tests {
         let include_usage = req
             .stream_options
             .as_ref()
-            .map_or(false, |opts| opts.include_usage);
+            .is_some_and(|opts| opts.include_usage);
         assert!(include_usage);
     }
 
@@ -170,7 +170,7 @@ mod tests {
         let include_usage = req
             .stream_options
             .as_ref()
-            .map_or(false, |opts| opts.include_usage);
+            .is_some_and(|opts| opts.include_usage);
         assert!(!include_usage);
     }
 }

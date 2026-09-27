@@ -29,6 +29,99 @@ fn default_usage() -> UsageResponse {
     }
 }
 
+/// Drain `stream` while items are immediately ready, returning the number of
+/// `Poll::Ready(Some(_))` items observed.
+///
+/// Counting stops at the first `Poll::Pending` or `Poll::Ready(None)`.
+fn drain_count<S: Stream + Unpin>(mut stream: S) -> usize {
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    let mut count = 0;
+    while let Poll::Ready(Some(_)) = Pin::new(&mut stream).poll_next(&mut cx) {
+        count += 1;
+    }
+    count
+}
+
+// ------------------------------------------------------------------
+// drain_count — stop semantics (Ready(Some) counted; Pending/None stops)
+// ------------------------------------------------------------------
+
+/// One scripted outcome for [`ScriptedStream::poll_next`].
+enum Step {
+    Item(&'static str),
+    Pending,
+}
+
+/// Stream whose poll results are fully scripted, so tests can pin down
+/// `drain_count`'s behavior at the `Poll::Pending` and `Poll::Ready(None)`
+/// boundaries instead of relying on always-ready streams.
+///
+/// Test-only helper for `drain_count`'s stop semantics: the `Pending` branch
+/// below registers no waker, so it must only ever be polled by `drain_count`
+/// (which stops at the first non-`Ready(Some(_))`). Never hand it to an
+/// executor / `block_on` / real task: a `Pending` without a registered waker
+/// would stall forever.
+struct ScriptedStream {
+    steps: std::vec::IntoIter<Step>,
+}
+
+impl Stream for ScriptedStream {
+    type Item = &'static str;
+
+    fn poll_next(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        match self.get_mut().steps.next() {
+            Some(Step::Item(item)) => Poll::Ready(Some(item)),
+            Some(Step::Pending) => Poll::Pending,
+            None => Poll::Ready(None),
+        }
+    }
+}
+
+#[test]
+fn test_drain_count_counts_ready_items_until_stream_end() {
+    // Normal path: n immediately-ready items then Ready(None) → count == n.
+    let stream = futures::stream::iter(["a", "b", "c"]);
+    assert_eq!(
+        drain_count(stream),
+        3,
+        "expected all 3 ready items counted before end of stream"
+    );
+}
+
+#[test]
+fn test_drain_count_empty_stream_returns_zero() {
+    // Boundary: stream ends immediately (first poll is Ready(None)) → 0.
+    let stream = futures::stream::empty::<&str>();
+    assert_eq!(
+        drain_count(stream),
+        0,
+        "expected immediately-ended stream to drain as 0"
+    );
+}
+
+#[test]
+fn test_drain_count_stops_at_pending_without_consuming_later_items() {
+    // Pending boundary: counting stops at the first non-Ready(Some) poll.
+    // Items scripted after the Pending must stay uncounted; the helper must
+    // return (no panic, no spin) instead of polling past Pending.
+    let stream = ScriptedStream {
+        steps: vec![
+            Step::Item("a"),
+            Step::Item("b"),
+            Step::Pending,
+            Step::Item("c"), // never reached: drain stops at Pending
+            Step::Item("d"),
+        ]
+        .into_iter(),
+    };
+    assert_eq!(
+        drain_count(stream),
+        2,
+        "expected counting to stop at Pending; items after Pending stay uncounted"
+    );
+}
+
 // ------------------------------------------------------------------
 // deliver — streaming delay injection
 // ------------------------------------------------------------------
@@ -215,18 +308,13 @@ async fn deliver_streaming_interrupt_consumable() {
             max_events,
         } => {
             assert_eq!(max_events, Some(1));
-            let mut stream =
+            let stream =
                 crate::delivery::sse::SseEventStream::new(events).with_max_events(max_events);
-            let waker = futures::task::noop_waker();
-            let mut cx = Context::from_waker(&waker);
-            let mut count = 0;
-            loop {
-                match Pin::new(&mut stream).poll_next(&mut cx) {
-                    Poll::Ready(Some(_)) => count += 1,
-                    _ => break,
-                }
-            }
-            assert_eq!(count, 1);
+            let count = drain_count(stream);
+            assert_eq!(
+                count, 1,
+                "expected max_events=Some(1) to drain 1 event, got {count}"
+            );
         }
         _ => panic!("expected SseStreamWithConfig"),
     }
@@ -418,15 +506,10 @@ async fn sse_event_stream_max_events_zero() {
             data: "b".into(),
         },
     ];
-    let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    let waker = futures::task::noop_waker();
-    let mut cx = Context::from_waker(&waker);
-    let mut count = 0;
-    loop {
-        match Pin::new(&mut stream).poll_next(&mut cx) {
-            Poll::Ready(Some(_)) => count += 1,
-            _ => break,
-        }
-    }
-    assert_eq!(count, 0);
+    let stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
+    let count = drain_count(stream);
+    assert_eq!(
+        count, 0,
+        "expected max_events=Some(0) to drain 0 events, got {count}"
+    );
 }

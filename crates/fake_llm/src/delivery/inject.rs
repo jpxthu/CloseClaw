@@ -640,7 +640,7 @@ mod tests {
         match result {
             DeliveryResult::JsonResponse(json) => {
                 assert_eq!(json["object"], "list");
-                assert!(json["data"].as_array().unwrap().len() > 0);
+                assert!(!json["data"].as_array().unwrap().is_empty());
             }
             _ => panic!("expected JsonResponse"),
         }

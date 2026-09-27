@@ -77,7 +77,7 @@ mod tests {
             DeliveryResult::JsonResponse(json) => {
                 assert_eq!(json["object"], "list");
                 // Default placeholder has at least one model
-                assert!(json["data"].as_array().unwrap().len() > 0);
+                assert!(!json["data"].as_array().unwrap().is_empty());
             }
             _ => panic!("expected JsonResponse for placeholder"),
         }

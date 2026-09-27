@@ -2,7 +2,7 @@
 name = "closeclaw-fake-llm"
 version = "0.1.0"
 edition.workspace = true
-description = "Fake LLM Server — independent HTTP test server with OpenAI & Anthropic protocol endpoints"
+description = "Fake LLM Server: independent HTTP test server for OpenAI & Anthropic protocols"
 license = "MIT"
 
 [dependencies]

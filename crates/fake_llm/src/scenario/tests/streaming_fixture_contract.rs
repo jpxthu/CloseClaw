@@ -99,7 +99,7 @@ fn request_features_from_meta(meta: &serde_json::Value, is_anthropic: bool) -> R
         .get("max_tokens_sent")
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)
-        .or_else(|| if is_anthropic { Some(1024) } else { None });
+        .or(if is_anthropic { Some(1024) } else { None });
 
     let model = meta
         .get("model")
