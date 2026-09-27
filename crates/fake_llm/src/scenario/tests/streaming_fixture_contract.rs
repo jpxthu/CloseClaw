@@ -769,7 +769,8 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     assert_eq!(fix_values[1]["content_block"]["name"], "get_weather");
 
     // --- Semantic: input_json_delta chunks ---
-    // Fixture splits by character: {, ", l, o, c, a, t, i, o, n, ", :,  , ", S, a, n,  , F, r, a, n, c, i, s, c, o, ", }
+    // Fixture splits by character:
+    // {, ", l, o, c, a, t, i, o, n, ", :,  , ", S, a, n,  , F, r, a, n, c, i, s, c, o, ", }
     // Code with granularity=1 splits similarly but may differ in exact boundaries.
     // Compare accumulated JSON — this is the semantic correctness check.
     let gen_json_deltas: Vec<&str> = gen_values

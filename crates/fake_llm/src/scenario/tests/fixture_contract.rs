@@ -437,10 +437,24 @@ fn test_openai_cache_fixture_matches() {
         completion_tokens: Some(72),
         ..Default::default()
     });
-    let scenario = make_fallback(&fixture.scenario, &fixture.model, ResponseShape::Text(TextResponse {
-        content: "HTTP keep-alive allows a single TCP connection to be reused for multiple HTTP request/response cycles instead of opening a new connection per request. The client sends `Connection: keep-alive` (or omits `Connection: close` on HTTP/1.1, where keep-alive is the default), and the server holds the socket open after sending the response. Subsequent requests reuse the same socket, avoiding the cost of TCP handshake, slow-start, and TLS negotiation (for HTTPS).".to_string(),
-        usage: None,
-    }), usage);
+    let scenario = make_fallback(
+        &fixture.scenario,
+        &fixture.model,
+        ResponseShape::Text(TextResponse {
+            content: concat!(
+                "HTTP keep-alive allows a single TCP connection to be reused for multiple ",
+                "HTTP request/response cycles instead of opening a new connection per ",
+                "request. The client sends `Connection: keep-alive` (or omits ",
+                "`Connection: close` on HTTP/1.1, where keep-alive is the default), ",
+                "and the server holds the socket open after sending the response. ",
+                "Subsequent requests reuse the same socket, avoiding the cost of TCP ",
+                "handshake, slow-start, and TLS negotiation (for HTTPS)."
+            )
+            .to_string(),
+            usage: None,
+        }),
+        usage,
+    );
     let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, false);
     let decision = match engine.decide(&features) {
@@ -455,6 +469,17 @@ fn test_openai_cache_fixture_matches() {
     assert_eq!(f.object, "chat.completion");
     assert_eq!(f.model, "fake-model");
     assert!(f.content.starts_with("HTTP keep-alive"));
+    // Split equivalence (issue #3294): concat! input == pre-split literal, byte for byte
+    assert_eq!(
+        f.content,
+        "HTTP keep-alive allows a single TCP connection to be reused for multiple \
+         HTTP request/response cycles instead of opening a new connection per \
+         request. The client sends `Connection: keep-alive` (or omits \
+         `Connection: close` on HTTP/1.1, where keep-alive is the default), \
+         and the server holds the socket open after sending the response. \
+         Subsequent requests reuse the same socket, avoiding the cost of TCP \
+         handshake, slow-start, and TLS negotiation (for HTTPS)."
+    );
     assert_eq!(f.finish_reason, "stop");
     assert_eq!(f.usage_prompt, 38);
     assert_eq!(f.usage_completion, 72);
@@ -718,6 +743,24 @@ fn test_anthropic_tool_use_fixture_matches() {
     assert_eq!(f.usage_output, 45);
 }
 
+/// Golden text block for the Anthropic cache fixture: byte-exact form of the
+/// literal as written before the issue #3294 line-width split. Held at module
+/// level (same style as `THINKING_TEXT` / `TOOLUSE_*`) and deliberately kept
+/// independent from the `concat!` input inside
+/// `test_anthropic_cache_fixture_matches`, so its split-equivalence assertion
+/// compares two distinct sources instead of a same-source copy.
+const CACHE_TEXT: &str = "HTTP/1.1 uses a request-per-connection model (or keep-alive with \
+     head-of-line blocking), while HTTP/2 multiplexes many request/response \
+     streams over a single TCP connection using binary framing.\n\n\
+     Key differences:\n\
+     - HTTP/2 sends interleaved binary frames for multiple streams on one \
+     connection.\n\
+     - HTTP/1.1 requires serial responses, leading to head-of-line blocking.\n\
+     - HTTP/2 supports stream priorities and per-stream flow control.\n\n\
+     In short, HTTP/2 multiplexing eliminates the need to open many TCP \
+     connections and avoids the head-of-line blocking that hurts HTTP/1.1 \
+     performance.";
+
 /// UNPRODUCED_FIELDS (Anthropic cache):
 /// - `usage.cache_creation_input_tokens`: fixture has 0;
 ///   code produces Usage { input_tokens, output_tokens }
@@ -733,15 +776,36 @@ fn test_anthropic_cache_fixture_matches() {
         completion_tokens: Some(110),
         ..Default::default()
     });
-    let scenario = make_fallback(&fixture.scenario, &fixture.model, ResponseShape::Reasoning(
-        ReasoningResponse {
-            content: "HTTP/1.1 uses a request-per-connection model (or keep-alive with head-of-line blocking), while HTTP/2 multiplexes many request/response streams over a single TCP connection using binary framing.\n\nKey differences:\n- HTTP/2 sends interleaved binary frames for multiple streams on one connection.\n- HTTP/1.1 requires serial responses, leading to head-of-line blocking.\n- HTTP/2 supports stream priorities and per-stream flow control.\n\nIn short, HTTP/2 multiplexing eliminates the need to open many TCP connections and avoids the head-of-line blocking that hurts HTTP/1.1 performance.".to_string(),
-            reasoning: "The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit.".to_string(),
+    let scenario = make_fallback(
+        &fixture.scenario,
+        &fixture.model,
+        ResponseShape::Reasoning(ReasoningResponse {
+            content: concat!(
+                "HTTP/1.1 uses a request-per-connection model (or keep-alive with ",
+                "head-of-line blocking), while HTTP/2 multiplexes many request/response ",
+                "streams over a single TCP connection using binary framing.\n\n",
+                "Key differences:\n",
+                "- HTTP/2 sends interleaved binary frames for multiple streams on one ",
+                "connection.\n",
+                "- HTTP/1.1 requires serial responses, leading to head-of-line blocking.\n",
+                "- HTTP/2 supports stream priorities and per-stream flow control.\n\n",
+                "In short, HTTP/2 multiplexing eliminates the need to open many TCP ",
+                "connections and avoids the head-of-line blocking that hurts HTTP/1.1 ",
+                "performance."
+            )
+            .to_string(),
+            reasoning: concat!(
+                "The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system ",
+                "prompt is cached from a previous request, so I should report ",
+                "cache_read_input_tokens > 0 to indicate a cache hit."
+            )
+            .to_string(),
             signature: Some("sig_cache_d4e5f6a7b8c9d0e1".to_string()),
             usage: None,
             ..Default::default()
-        },
-    ), usage);
+        }),
+        usage,
+    );
     let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
     let features = request_features_from_fixture(&fixture, true);
     let decision = match engine.decide(&features) {
@@ -760,12 +824,14 @@ fn test_anthropic_cache_fixture_matches() {
 
     // thinking block
     assert_eq!(f.content[0].block_type, "thinking");
+    // Independent continuation literal (issue #3294): deliberately not a copy
+    // of the concat! input, so a bad split cannot satisfy this by construction.
     assert!(
-        f.content[0]
-            .thinking
-            .as_deref()
-            .unwrap()
-            .contains("The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system prompt is cached from a previous request, so I should report cache_read_input_tokens > 0 to indicate a cache hit."),
+        f.content[0].thinking.as_deref().unwrap().contains(
+            "The user is asking about HTTP/1.1 vs HTTP/2 multiplexing. The system \
+                 prompt is cached from a previous request, so I should report \
+                 cache_read_input_tokens > 0 to indicate a cache hit.",
+        ),
         "thinking should contain base text"
     );
     assert_eq!(
@@ -780,6 +846,8 @@ fn test_anthropic_cache_fixture_matches() {
         .as_deref()
         .unwrap()
         .starts_with("HTTP/1.1"));
+    // Split equivalence (issue #3294): concat! input == CACHE_TEXT, byte for byte
+    assert_eq!(f.content[1].text.as_deref(), Some(CACHE_TEXT));
 
     assert_eq!(f.stop_reason, "end_turn");
     assert_eq!(f.usage_input, 22);

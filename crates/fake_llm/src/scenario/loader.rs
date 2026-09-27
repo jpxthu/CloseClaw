@@ -106,8 +106,14 @@ mod tests {
     fn test_load_directory_ok() {
         let tmp = TempDir::new().unwrap();
 
-        let json1 = r#"{"scenarios": [{"name": "a", "turns": [{"response": {"type": "text", "content": "A"}}]}]}"#;
-        let json2 = r#"{"scenarios": [{"name": "b", "turns": [{"response": {"type": "text", "content": "B"}}]}]}"#;
+        let json1 = concat!(
+            r#"{"scenarios": [{"name": "a", "turns": ["#,
+            r#"{"response": {"type": "text", "content": "A"}}]}]}"#
+        );
+        let json2 = concat!(
+            r#"{"scenarios": [{"name": "b", "turns": ["#,
+            r#"{"response": {"type": "text", "content": "B"}}]}]}"#
+        );
         make_temp_scenario(tmp.path(), "first.json", json1);
         make_temp_scenario(tmp.path(), "second.json", json2);
 
@@ -118,7 +124,10 @@ mod tests {
     #[test]
     fn test_load_directory_skips_non_json() {
         let tmp = TempDir::new().unwrap();
-        let json = r#"{"scenarios": [{"name": "ok", "turns": [{"response": {"type": "text", "content": "ok"}}]}]}"#;
+        let json = concat!(
+            r#"{"scenarios": [{"name": "ok", "turns": ["#,
+            r#"{"response": {"type": "text", "content": "ok"}}]}]}"#
+        );
         make_temp_scenario(tmp.path(), "good.json", json);
         make_temp_scenario(tmp.path(), "readme.txt", "not json");
         make_temp_scenario(tmp.path(), "config.yaml", "not json either");
