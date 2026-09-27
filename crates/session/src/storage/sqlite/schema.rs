@@ -6,39 +6,9 @@
 use crate::persistence::PersistenceError;
 use rusqlite::Connection;
 
-/// Add a column to sessions table if it doesn't already exist.
-///
-/// SAFETY: `column` and `col_type` are always hardcoded string literals
-/// passed from `init_schema`, never from user input. This eliminates
-/// SQL injection risk in the format-string `ALTER TABLE` statement.
-fn add_column_if_not_exists(
-    conn: &Connection,
-    column: &str,
-    col_type: &str,
-) -> Result<(), PersistenceError> {
-    let exists = {
-        let mut stmt = conn
-            .prepare("PRAGMA table_info(sessions)")
-            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-        let cols: Vec<String> = stmt
-            .query_map([], |row| row.get::<_, String>(1))
-            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
-            .filter_map(|r| r.ok())
-            .collect();
-        cols.iter().any(|name| name == column)
-    };
-    if !exists {
-        let sql = format!("ALTER TABLE sessions ADD COLUMN {column} {col_type}");
-        conn.execute(&sql, [])
-            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
-    }
-    Ok(())
-}
-
-/// Initialize the database schema
-pub(super) fn init_schema(conn: &Connection) -> Result<(), PersistenceError> {
-    conn.execute_batch(
-        r#"
+/// Core DDL: sessions table + indexes, entity_types seed data,
+/// entities / event_entities tables + indexes.
+const CORE_DDL: &str = r#"
         CREATE TABLE IF NOT EXISTS sessions (
             id TEXT PRIMARY KEY,
             agent_id TEXT NOT NULL,
@@ -122,13 +92,10 @@ pub(super) fn init_schema(conn: &Connection) -> Result<(), PersistenceError> {
 
         CREATE INDEX IF NOT EXISTS idx_event_entities_event_id
             ON event_entities(event_id);
-        "#,
-    )
-    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+"#;
 
-    // Snapshot metadata table — independent from SessionCheckpoint.
-    conn.execute_batch(
-        r#"
+/// Snapshot metadata table — independent from SessionCheckpoint.
+const SNAPSHOT_META_DDL: &str = r#"
         CREATE TABLE IF NOT EXISTS snapshot_metas (
             id TEXT PRIMARY KEY,
             session_id TEXT NOT NULL,
@@ -139,26 +106,68 @@ pub(super) fn init_schema(conn: &Connection) -> Result<(), PersistenceError> {
 
         CREATE INDEX IF NOT EXISTS idx_snapshot_metas_session_id
             ON snapshot_metas(session_id);
-        "#,
-    )
-    .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+"#;
 
-    for (col, col_type) in [
-        ("thread_id", "TEXT"),
-        ("sender_id", "TEXT"),
-        ("platform", "TEXT"),
-        ("peer_id", "TEXT"),
-        ("account_id", "TEXT"),
-        ("parent_session_id", "TEXT"),
-        ("depth", "TEXT"),
-        ("mined", "TEXT"),
-        ("dreaming_status", "TEXT"),
-        ("plan_state", "TEXT"),
-        ("mined_at", "INTEGER"),
-        ("last_user_activity_at", "INTEGER"),
-    ] {
+/// Incremental column migrations for the `sessions` table
+/// (column name, SQL type).
+const SESSION_COLUMN_MIGRATIONS: &[(&str, &str)] = &[
+    ("thread_id", "TEXT"),
+    ("sender_id", "TEXT"),
+    ("platform", "TEXT"),
+    ("peer_id", "TEXT"),
+    ("account_id", "TEXT"),
+    ("parent_session_id", "TEXT"),
+    ("depth", "TEXT"),
+    ("mined", "TEXT"),
+    ("dreaming_status", "TEXT"),
+    ("plan_state", "TEXT"),
+    ("mined_at", "INTEGER"),
+    ("last_user_activity_at", "INTEGER"),
+];
+
+/// Add a column to sessions table if it doesn't already exist.
+///
+/// SAFETY: `column` and `col_type` are always hardcoded string literals
+/// passed from `init_schema`, never from user input. This eliminates
+/// SQL injection risk in the format-string `ALTER TABLE` statement.
+fn add_column_if_not_exists(
+    conn: &Connection,
+    column: &str,
+    col_type: &str,
+) -> Result<(), PersistenceError> {
+    let exists = {
+        let mut stmt = conn
+            .prepare("PRAGMA table_info(sessions)")
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+        let cols: Vec<String> = stmt
+            .query_map([], |row| row.get::<_, String>(1))
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?
+            .filter_map(|r| r.ok())
+            .collect();
+        cols.iter().any(|name| name == column)
+    };
+    if !exists {
+        let sql = format!("ALTER TABLE sessions ADD COLUMN {column} {col_type}");
+        conn.execute(&sql, [])
+            .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+    }
+    Ok(())
+}
+
+/// Run the 12 incremental `add_column_if_not_exists` migrations.
+fn run_column_migrations(conn: &Connection) -> Result<(), PersistenceError> {
+    for &(col, col_type) in SESSION_COLUMN_MIGRATIONS {
         add_column_if_not_exists(conn, col, col_type)?;
     }
+    Ok(())
+}
 
+/// Initialize the database schema
+pub(super) fn init_schema(conn: &Connection) -> Result<(), PersistenceError> {
+    conn.execute_batch(CORE_DDL)
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+    conn.execute_batch(SNAPSHOT_META_DDL)
+        .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
+    run_column_migrations(conn)?;
     Ok(())
 }
