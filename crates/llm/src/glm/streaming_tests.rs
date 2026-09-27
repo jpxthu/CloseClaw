@@ -10,7 +10,9 @@ use tokio::sync::mpsc;
 use super::run_sse_stream;
 use crate::types::RawSseChunk;
 
-/// Serve `body` as an SSE response on a loopback mock server, run
+/// Shared collector behind [`collect_forwarded_chunks`] and
+/// [`collect_forwarded_chunks_chunked`]: serve an SSE response on a loopback
+/// mock server with the body configured by `configure`, run
 /// `run_sse_stream` to completion, and return every chunk it forwarded.
 ///
 /// The handler drops the sender when it returns (body end or `[DONE]`),
@@ -18,15 +20,18 @@ use crate::types::RawSseChunk;
 /// close — no collector task, no sleeping involved. Test bodies carry a
 /// handful of events, well under the bounded capacity, so the awaited
 /// sends never block.
-async fn collect_forwarded_chunks(body: &str) -> Vec<RawSseChunk> {
+async fn collect_forwarded_chunks_with(
+    configure: impl FnOnce(mockito::Mock) -> mockito::Mock,
+) -> Vec<RawSseChunk> {
     let mut server = mockito::Server::new_async().await;
-    let mock = server
-        .mock("GET", "/sse")
-        .with_status(200)
-        .with_header("content-type", "text/event-stream")
-        .with_body(body)
-        .create_async()
-        .await;
+    let mock = configure(
+        server
+            .mock("GET", "/sse")
+            .with_status(200)
+            .with_header("content-type", "text/event-stream"),
+    )
+    .create_async()
+    .await;
 
     let response = reqwest::get(format!("{}/sse", server.url()))
         .await
@@ -44,39 +49,26 @@ async fn collect_forwarded_chunks(body: &str) -> Vec<RawSseChunk> {
     chunks
 }
 
+/// Serve `body` as a fixed-length SSE response and return every chunk
+/// `run_sse_stream` forwarded (see [`collect_forwarded_chunks_with`]).
+async fn collect_forwarded_chunks(body: &str) -> Vec<RawSseChunk> {
+    collect_forwarded_chunks_with(|mock| mock.with_body(body)).await
+}
+
 /// Like [`collect_forwarded_chunks`], but serve the response as a chunked
 /// body written from `parts`: each element becomes one HTTP chunk, which
 /// hyper delivers as its own frame, so the handler observes each part in a
 /// separate `stream.next()` step regardless of TCP segmentation.
 async fn collect_forwarded_chunks_chunked(parts: &'static [&'static str]) -> Vec<RawSseChunk> {
-    let mut server = mockito::Server::new_async().await;
-    let mock = server
-        .mock("GET", "/sse")
-        .with_status(200)
-        .with_header("content-type", "text/event-stream")
-        .with_chunked_body(move |w| {
+    collect_forwarded_chunks_with(|mock| {
+        mock.with_chunked_body(move |w| {
             for part in parts {
                 w.write_all(part.as_bytes())?;
             }
             Ok(())
         })
-        .create_async()
-        .await;
-
-    let response = reqwest::get(format!("{}/sse", server.url()))
-        .await
-        .expect("loopback mock SSE response should be fetched");
-
-    let (tx, mut rx) = mpsc::channel(64);
-    run_sse_stream(response, tx).await;
-
-    let mut chunks = Vec::new();
-    while let Some(chunk) = rx.recv().await {
-        chunks.push(chunk);
-    }
-
-    mock.assert_async().await;
-    chunks
+    })
+    .await
 }
 
 fn data_of(chunks: &[RawSseChunk]) -> Vec<&str> {
