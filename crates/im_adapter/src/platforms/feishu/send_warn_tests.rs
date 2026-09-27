@@ -7,8 +7,13 @@
 //! - send_card_json lark-cli command not found → warn + Err
 
 use super::*;
+use crate::error::AdapterError;
+use crate::IMAdapter;
+use closeclaw_gateway::Message;
 use serial_test::serial;
+use std::collections::HashMap;
 use std::io::Write;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli script that outputs an error JSON.

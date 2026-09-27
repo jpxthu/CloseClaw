@@ -9,6 +9,7 @@
 //! - unknown tag → skipped
 
 use super::*;
+use crate::media_store::MediaStore;
 use serial_test::serial;
 use std::sync::Arc;
 use tempfile::TempDir;
