@@ -47,6 +47,7 @@ pub type PermDeps = (
 );
 
 /// Result of a command-level permission check.
+#[derive(Debug)]
 pub(crate) enum CommandPermissionResult {
     /// Command is permitted — execute normally.
     Permitted,
@@ -622,3 +623,7 @@ pub(crate) async fn check_command_permission(
 #[cfg(test)]
 #[path = "permission_check_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "permission_check_route_tests.rs"]
+mod route_tests;

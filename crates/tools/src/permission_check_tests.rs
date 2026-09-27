@@ -34,7 +34,7 @@ fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<Permissio
     ))
 }
 
-fn make_sm() -> Arc<SessionManager> {
+pub(crate) fn make_sm() -> Arc<SessionManager> {
     use closeclaw_gateway::GatewayConfig;
     use closeclaw_session::persistence::ReasoningLevel;
     Arc::new(SessionManager::new(
@@ -58,7 +58,7 @@ fn make_cm() -> Arc<ConfigManager> {
 }
 
 /// Standard approval flow — enqueues denials (approval-pending path).
-fn make_af() -> Arc<ApprovalMutex> {
+pub(crate) fn make_af() -> Arc<ApprovalMutex> {
     Arc::new(TokioMutex::new(ApprovalFlow::new(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
@@ -71,7 +71,7 @@ fn make_af() -> Arc<ApprovalMutex> {
 }
 
 /// Denying approval flow — submit_denial returns None (hard deny path).
-fn make_af_deny() -> Arc<ApprovalMutex> {
+pub(crate) fn make_af_deny() -> Arc<ApprovalMutex> {
     Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
