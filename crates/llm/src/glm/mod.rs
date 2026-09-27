@@ -19,4 +19,7 @@ pub(crate) use crate::{ModelInfo, ModelLister};
 pub(crate) use types::*;
 
 #[cfg(test)]
+mod streaming_tests;
+
+#[cfg(test)]
 mod tests;
