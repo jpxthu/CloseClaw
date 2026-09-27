@@ -129,6 +129,7 @@ fn test_load_env_file_whitespace_trimming() {
 // End-to-end: load_env_file must apply values as env vars (not just parse).
 // The test itself performs no direct env mutation (red line: env writes are
 // confined to load_env_file); CC_TEST_E2E_* names are unique to this test.
+#[serial_test::serial]
 #[test]
 fn test_load_env_file_sets_env_vars_end_to_end() {
     let dir = TempDir::new().unwrap();

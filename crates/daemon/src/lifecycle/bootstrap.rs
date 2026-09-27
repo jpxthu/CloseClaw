@@ -49,7 +49,7 @@ impl Daemon {
     ///
     /// Reads `{config_dir}/config/debug_log.json`. If the file is missing
     /// or invalid, returns `None` — the daemon continues without debug logging.
-    pub(crate) async fn init_debug_log(config_dir: &str) -> Option<DebugLog> {
+    pub(super) async fn init_debug_log(config_dir: &str) -> Option<DebugLog> {
         let config_path = std::path::Path::new(config_dir)
             .join("config")
             .join("debug_log.json");

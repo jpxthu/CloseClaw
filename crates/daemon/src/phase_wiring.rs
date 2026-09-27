@@ -4,23 +4,56 @@
 //! limits (`mod.rs` only holds `pub use` / `pub mod` re-exports).
 
 use super::{daemon_struct::Phase5Deps, phase_init::ServiceShutdownReceivers, Daemon};
-use crate::{config_watcher, noop_miner_llm, registries};
+use crate::{
+    bridge::{SkillListingProviderWrapper, SkillRegistryWrapper},
+    chat_rpc::{
+        chat_socket_path, spawn_chat_rpc_server, spawn_turn_completion_consumer, ChatRpcInit,
+    },
+    config_watcher,
+    dreaming_scheduler::DreamingScheduler,
+    noop_miner_llm, registries,
+};
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
-use closeclaw_common::{AgentToolsConfigQuery, SessionLookup};
+use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::{
+    AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
+    SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
+};
+use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;
-pub use closeclaw_gateway::SpawnController;
+use closeclaw_config::{agents::default_dreaming_schedule, ConfigSection};
+use closeclaw_debug_log::DebugLog;
+use closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker;
+use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};
+use closeclaw_gateway::sweeper::ActiveSessionQuery;
+use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{sweeper::ArchiveSweeper, Gateway, SessionManager};
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
+use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::{PermissionEngine, RuleSet};
+use closeclaw_permission::{AuditLogger, PermissionEngine, RuleSet};
+use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
+use closeclaw_session::spawn::controller::SpawnContext;
+use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
 use closeclaw_session::{persistence::PersistenceService, storage::SqliteStorage};
 use closeclaw_skills::builtin::builtin_skills;
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsFragmentProvider};
+use closeclaw_slash::{skill_handler::SkillSlashHandler, SlashHandler};
+use closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter;
+use closeclaw_system_prompt::{BootstrapFragmentProvider, SystemPromptDynamicBuilder};
+use closeclaw_tasks::{BackgroundTaskManager, TaskManager};
+use closeclaw_tools::builtin::CreateChildSessionFn;
+use closeclaw_tools::ToolsFragmentProvider;
+use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
-use tokio::sync::watch;
+use std::time::Duration;
+use tokio::sync::{mpsc, watch, Mutex};
+use tokio::task::JoinHandle;
 use tracing::{info, warn};
 
 // --- Phase 4-5 initialization ---
@@ -32,11 +65,8 @@ impl Daemon {
         session_manager: &Arc<SessionManager>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
         config_dir: &str,
-        audit_logger: Option<Arc<dyn closeclaw_permission::AuditLogger>>,
-    ) -> (
-        Arc<tokio::sync::Mutex<ApprovalFlow>>,
-        Arc<BuiltinSkillRegistry>,
-    ) {
+        audit_logger: Option<Arc<dyn AuditLogger>>,
+    ) -> (Arc<Mutex<ApprovalFlow>>, Arc<BuiltinSkillRegistry>) {
         // Build the whitelist-updated callback: invalidate the agent's
         // cached rules so the next evaluate() lazily re-reads from disk.
         let pe_clone = Arc::clone(permission_engine);
@@ -60,13 +90,13 @@ impl Daemon {
             whitelist_cb,
             tokio::runtime::Handle::current(),
             HeartbeatApprovalMode::default(),
-            std::path::PathBuf::from(config_dir),
+            PathBuf::from(config_dir),
             RuleSet::default(),
         );
         if let Some(logger) = audit_logger {
             af = af.with_audit_logger(logger);
         }
-        let approval_flow = Arc::new(tokio::sync::Mutex::new(af));
+        let approval_flow = Arc::new(Mutex::new(af));
         // Sync approval flow snapshot with actual loaded rules.
         {
             let pe_guard = permission_engine.read().await;
@@ -94,15 +124,13 @@ impl Daemon {
     /// Build the child-session creation callback for plan execution.
     pub(crate) fn build_create_child_fn(
         sm: Arc<SessionManager>,
-        cm: Arc<closeclaw_config::ConfigManager>,
-    ) -> closeclaw_tools::builtin::CreateChildSessionFn {
+        cm: Arc<ConfigManager>,
+    ) -> CreateChildSessionFn {
         Arc::new(
             move |parent_session_id: String,
                   plan_content: String,
                   step_selection: Option<Vec<usize>>|
-                  -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<String, String>> + Send>,
-            > {
+                  -> Pin<Box<dyn Future<Output = Result<String, String>> + Send>> {
                 let sm = Arc::clone(&sm);
                 let cm = Arc::clone(&cm);
                 Box::pin(async move {
@@ -125,7 +153,6 @@ impl Daemon {
                         .get_effective_max_spawn_depth(&parent_session_id)
                         .await
                         .unwrap_or(3);
-                    use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};
                     let child_config = ChildSessionConfig {
                         config,
                         parent_session_id,
@@ -155,19 +182,19 @@ impl Daemon {
     /// Phase 5: Background services — ArchiveSweeper, DreamingScheduler, registry population.
     pub(crate) async fn init_phase_5_background(
         deps: Phase5Deps<'_>,
-        data_dir: &std::path::Path,
-        session_config_provider: Arc<dyn closeclaw_config::session::SessionConfigProvider>,
+        data_dir: &Path,
+        session_config_provider: Arc<dyn SessionConfigProvider>,
     ) -> anyhow::Result<(
         watch::Sender<()>,
         watch::Sender<()>,
         watch::Sender<()>,
         config_watcher::ConfigWatcherHandle,
-        tokio::task::JoinHandle<()>,
-        tokio::task::JoinHandle<()>,
-        tokio::task::JoinHandle<()>,
+        JoinHandle<()>,
+        JoinHandle<()>,
+        JoinHandle<()>,
         Arc<SpawnController>,
-        Arc<dyn closeclaw_common::SystemPromptBuilder>,
-        tokio::sync::mpsc::Receiver<String>,
+        Arc<dyn SystemPromptBuilder>,
+        mpsc::Receiver<String>,
     )> {
         let Phase5Deps {
             config_manager,
@@ -201,23 +228,19 @@ impl Daemon {
             );
         session_manager.set_task_manager(task_manager).await;
         let spawn_controller = Arc::new({
-            let pc: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
-                closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
-                    Arc::clone(session_manager),
-                    Arc::clone(config_manager),
-                    Arc::clone(permission_engine),
-                ),
-            );
-            closeclaw_session::spawn::controller::SpawnController::new(
+            let pc: Arc<dyn PermissionChecker> = Arc::new(GatewayPermissionChecker::new(
+                Arc::clone(session_manager),
                 Arc::clone(config_manager),
-                Arc::clone(session_manager)
-                    as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+                Arc::clone(permission_engine),
+            ));
+            SpawnController::new(
+                Arc::clone(config_manager),
+                Arc::clone(session_manager) as Arc<dyn SpawnContext>,
                 pc,
             )
         });
         let config_subdir = PathBuf::from(data_dir).join("config");
-        let late_bound_session_manager =
-            Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+        let late_bound_session_manager = Arc::new(LateBoundSessionManagerOps::new());
         let builtin_skill_listing = Arc::clone(builtin_skill_registry);
         // Create the restart signal channel. Sender captured by
         // DaemonReloadCallback; receiver consumed by daemon main loop.
@@ -243,38 +266,34 @@ impl Daemon {
         // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
         // to the Provider-driven pipeline.
         let adapter_registry = {
-            let new_reg = closeclaw_agent::registry::AgentRegistry::new();
+            let new_reg = AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
             Arc::new(tokio::sync::RwLock::new(new_reg))
         };
-        let skill_provider: Arc<dyn closeclaw_common::SkillListingProvider> =
-            Arc::new(crate::bridge::SkillListingProviderWrapper::new(
+        let skill_provider: Arc<dyn SkillListingProvider> =
+            Arc::new(SkillListingProviderWrapper::new(
                 skill_registry.clone(),
                 Arc::clone(&builtin_skill_listing),
             ));
         // Build Provider list from domain crates.
-        let mut providers: Vec<Arc<dyn closeclaw_common::PromptFragmentProvider>> = vec![
-            Arc::new(closeclaw_system_prompt::BootstrapFragmentProvider::new()),
-            Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
-                skill_provider,
-            )),
-            Arc::new(closeclaw_memory::MemoryFragmentProvider::new()),
-            Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
+        let mut providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
+            Arc::new(BootstrapFragmentProvider::new()),
+            Arc::new(SkillsFragmentProvider::new(skill_provider)),
+            Arc::new(MemoryFragmentProvider::new()),
+            Arc::new(ToolsFragmentProvider::new(
                 Arc::clone(tool_registry),
                 Some(Arc::clone(agent_registry) as Arc<dyn AgentToolsConfigQuery>),
                 None,
             )),
         ];
         providers.sort_by_key(|p| p.priority());
-        let prompt_builder_adapter = Arc::new(
-            closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter::new_with_providers(
-                adapter_registry,
-                data_dir.to_path_buf(),
-                Arc::clone(shared_cache),
-                providers,
-            ),
-        ) as Arc<dyn closeclaw_common::SystemPromptBuilder>;
+        let prompt_builder_adapter = Arc::new(SystemPromptBuilderAdapter::new_with_providers(
+            adapter_registry,
+            data_dir.to_path_buf(),
+            Arc::clone(shared_cache),
+            providers,
+        )) as Arc<dyn SystemPromptBuilder>;
         session_manager
             .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
             .await;
@@ -282,7 +301,6 @@ impl Daemon {
         // Register SkillSlashHandler for all user-invocable skills.
         // Must happen after populate_registries so DiskSkillRegistry is loaded.
         {
-            use closeclaw_slash::skill_handler::SkillSlashHandler;
             let disk_reg = {
                 let guard = skill_registry.read().unwrap();
                 guard.as_ref().map(|dr| Arc::new(dr.clone()))
@@ -293,10 +311,8 @@ impl Daemon {
                     Arc::clone(builtin_skill_registry),
                 ));
                 for name in skill_handler.invocable_names().await {
-                    slash_registry.register_named(
-                        &name,
-                        Arc::clone(&skill_handler) as Arc<dyn closeclaw_slash::SlashHandler>,
-                    );
+                    slash_registry
+                        .register_named(&name, Arc::clone(&skill_handler) as Arc<dyn SlashHandler>);
                 }
                 let count = slash_registry.all_commands().len();
                 info!(count = count, "slash registry fully populated");
@@ -304,30 +320,24 @@ impl Daemon {
         }
         // Inject real SessionManager into late-bound proxy (layer 4 after layer 3).
         if late_bound_session_manager
-            .set(Arc::clone(session_manager)
-                as Arc<dyn closeclaw_session::tools::SessionManagerOps>)
+            .set(Arc::clone(session_manager) as Arc<dyn SessionManagerOps>)
             .is_err()
         {
             panic!("late_bound_session_manager should not be set twice");
         }
         session_manager
-            .set_tool_registry(
-                Arc::clone(tool_registry) as Arc<dyn closeclaw_common::ToolRegistryQuery>
-            )
+            .set_tool_registry(Arc::clone(tool_registry) as Arc<dyn ToolRegistryQuery>)
             .await;
         session_manager
-            .set_skill_registry(Arc::new(crate::bridge::SkillRegistryWrapper(
-                skill_registry.clone(),
-            ))
-                as Arc<dyn closeclaw_common::SkillRegistryQuery>)
+            .set_skill_registry(Arc::new(SkillRegistryWrapper(skill_registry.clone()))
+                as Arc<dyn SkillRegistryQuery>)
             .await;
         // Inject skill listing provider for per-turn skill attachment.
         session_manager
-            .set_skill_listing_provider(Arc::new(crate::bridge::SkillListingProviderWrapper::new(
+            .set_skill_listing_provider(Arc::new(SkillListingProviderWrapper::new(
                 skill_registry.clone(),
                 Arc::clone(&builtin_skill_listing),
-            ))
-                as Arc<dyn closeclaw_common::SkillListingProvider>)
+            )) as Arc<dyn SkillListingProvider>)
             .await;
         // Inject static-layer cache invalidation callback.
         session_manager
@@ -340,9 +350,7 @@ impl Daemon {
             .await;
         // Inject dynamic prompt builder for dynamic-layer injection.
         session_manager
-            .set_dynamic_prompt_builder(Arc::new(
-                closeclaw_system_prompt::SystemPromptDynamicBuilder,
-            ))
+            .set_dynamic_prompt_builder(Arc::new(SystemPromptDynamicBuilder))
             .await;
         Ok((
             sweeper_tx,
@@ -365,15 +373,15 @@ impl Daemon {
     pub(crate) fn spawn_background_services(
         config_manager: &Arc<ConfigManager>,
         session_manager: &Arc<SessionManager>,
-        data_dir: &std::path::Path,
+        data_dir: &Path,
         shutdown_receivers: ServiceShutdownReceivers,
         session_config_provider: Arc<dyn SessionConfigProvider>,
-        debug_log: Option<closeclaw_debug_log::DebugLog>,
+        debug_log: Option<DebugLog>,
     ) -> (
-        tokio::task::JoinHandle<()>,
-        tokio::task::JoinHandle<()>,
-        tokio::task::JoinHandle<()>,
-        Arc<dyn closeclaw_tasks::TaskManager>,
+        JoinHandle<()>,
+        JoinHandle<()>,
+        JoinHandle<()>,
+        Arc<dyn TaskManager>,
     ) {
         let ServiceShutdownReceivers {
             sweeper: sweeper_rx,
@@ -387,16 +395,15 @@ impl Daemon {
         // Create mining notification channel: sweeper + sub-agent → scheduler
         let (mining_notify_tx, mining_notify_rx) = tokio::sync::mpsc::channel(32);
         session_manager.set_mining_notify_tx(mining_notify_tx.clone());
-        let mut task_mgr = closeclaw_tasks::BackgroundTaskManager::new();
+        let mut task_mgr = BackgroundTaskManager::new();
         if let Some(dl) = debug_log {
             task_mgr = task_mgr.with_debug_log(Arc::new(dl));
         }
-        let task_manager: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(task_mgr);
+        let task_manager: Arc<dyn TaskManager> = Arc::new(task_mgr);
         let sweeper = Arc::new(
             ArchiveSweeper::new(Arc::clone(&storage), session_config_provider.clone())
                 .with_mining_notify_tx(mining_notify_tx)
-                .with_active_query(Arc::clone(session_manager)
-                    as Arc<dyn closeclaw_gateway::sweeper::ActiveSessionQuery>)
+                .with_active_query(Arc::clone(session_manager) as Arc<dyn ActiveSessionQuery>)
                 .with_task_manager(Arc::clone(&task_manager)),
         );
         let sweeper_for_task = Arc::clone(&sweeper);
@@ -406,8 +413,7 @@ impl Daemon {
         info!("ArchiveSweeper spawned");
         // Spawn AnnounceSweeper for spawn silent-failure protection.
         let announce_sweeper =
-            closeclaw_session::run_health::AnnounceSweeper::new(Arc::clone(session_manager)
-                as Arc<dyn closeclaw_session::run_health::AnnounceSweepTarget>);
+            AnnounceSweeper::new(Arc::clone(session_manager) as Arc<dyn AnnounceSweepTarget>);
         let announce_sweeper_handle = tokio::spawn(async move {
             announce_sweeper.run(announce_sweeper_rx).await;
         });
@@ -415,15 +421,15 @@ impl Daemon {
         // Spawn periodic consistency check (low-priority, non-blocking).
         {
             let check_interval_secs = session_config_provider.consistency_check_interval_secs();
-            let check_interval = std::time::Duration::from_secs(check_interval_secs);
+            let check_interval = Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
         // Load memory config from ConfigManager (replaces hardcoded defaults).
         let memory_config = config_manager
-            .section(closeclaw_config::ConfigSection::Memory)
+            .section(ConfigSection::Memory)
             .and_then(|v| {
                 let content = serde_json::to_string(&v).ok()?;
-                closeclaw_config::providers::MemoryConfigData::from_json_str(&content).ok()
+                MemoryConfigData::from_json_str(&content).ok()
             })
             .unwrap_or_default();
         let db_path = memory_config
@@ -449,7 +455,7 @@ impl Daemon {
             data_dir.join(db_path),
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));
-        let mut dreaming_scheduler = crate::dreaming_scheduler::DreamingScheduler::new(
+        let mut dreaming_scheduler = DreamingScheduler::new(
             storage,
             dreaming_config_provider,
             dreaming_pipeline,
@@ -462,7 +468,7 @@ impl Daemon {
                 .dreaming
                 .schedule
                 .clone()
-                .unwrap_or_else(closeclaw_config::agents::default_dreaming_schedule),
+                .unwrap_or_else(default_dreaming_schedule),
         ))
         .with_mining_notify_rx(mining_notify_rx);
         let dreaming_handle = tokio::spawn(async move {
@@ -478,12 +484,12 @@ impl Daemon {
     }
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
     pub(crate) async fn init_phase_6_admin_rpc(
-        agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
+        agent_registry: &Arc<AgentRegistry>,
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         config_manager: &Arc<ConfigManager>,
         config_dir: &str,
-        admin_restart_tx: tokio::sync::mpsc::Sender<bool>,
-    ) -> (tokio::task::JoinHandle<()>, PathBuf) {
+        admin_restart_tx: mpsc::Sender<bool>,
+    ) -> (JoinHandle<()>, PathBuf) {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
             agent_registry: Arc::clone(agent_registry),
@@ -510,17 +516,13 @@ impl Daemon {
     /// turn-completion consumer (startup path's Step 1.11 wiring —
     /// single-point definition: the consumer's doc).
     pub(crate) async fn init_phase_6_chat_rpc(
-        gateway: &Arc<closeclaw_gateway::Gateway>,
+        gateway: &Arc<Gateway>,
         config_dir: &str,
-        output_rx: tokio::sync::mpsc::Receiver<(
-            String,
-            Vec<closeclaw_common::processor::ContentBlock>,
-        )>,
-    ) -> crate::chat_rpc::ChatRpcInit {
-        let sock_path = crate::chat_rpc::chat_socket_path(Path::new(config_dir));
-        let (chat_handle, rpc_plugin) =
-            crate::chat_rpc::spawn_chat_rpc_server(gateway, &sock_path).await;
-        crate::chat_rpc::spawn_turn_completion_consumer(output_rx, rpc_plugin);
+        output_rx: mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    ) -> ChatRpcInit {
+        let sock_path = chat_socket_path(Path::new(config_dir));
+        let (chat_handle, rpc_plugin) = spawn_chat_rpc_server(gateway, &sock_path).await;
+        spawn_turn_completion_consumer(output_rx, rpc_plugin);
         (chat_handle, sock_path)
     }
 }
