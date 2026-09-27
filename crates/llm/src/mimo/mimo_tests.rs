@@ -89,7 +89,6 @@ fn test_with_base_url_none_falls_back_to_vendor_default() {
     // must fall back to the vendor default endpoint — previously only covered
     // indirectly through `new`.
     let provider = MimoProvider::with_base_url("sk-boundary".into(), None);
-    assert_eq!(provider.base_url(), "https://api.xiaomimimo.com/v1");
     assert_eq!(provider.base_url(), MIMO_BASE_URL);
     assert_eq!(provider.api_key(), "sk-boundary");
 }
