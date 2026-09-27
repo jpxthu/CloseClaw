@@ -75,25 +75,22 @@ fn test_new_sets_default_base_url_and_api_key() {
 }
 
 #[test]
-fn test_from_env_returns_none_when_var_unset() {
-    // In CI/test env MIMO_API_KEY is not set, so from_env() should return None.
-    // We cannot modify env vars (forbidden by CONTRIBUTING.md), so we rely on the env being unset.
-    let result = MimoProvider::from_env();
-    // If by chance the var is set in the environment, skip this assertion.
-    if std::env::var("MIMO_API_KEY").is_err() {
-        assert!(
-            result.is_none(),
-            "from_env should return None when MIMO_API_KEY is unset"
-        );
-    }
-}
-
-#[test]
 fn test_with_base_url_sets_custom_url() {
     let provider =
         MimoProvider::with_base_url("sk-custom".into(), Some("https://custom.example.com/v1"));
     assert_eq!(provider.base_url(), "https://custom.example.com/v1");
     assert_eq!(provider.api_key(), "sk-custom");
+}
+
+#[test]
+fn test_with_base_url_none_falls_back_to_vendor_default() {
+    // Production boundary: call_chain.rs::build_vendor_provider passes `None`
+    // when no custom base_url is configured (absent or empty), so with_base_url
+    // must fall back to the vendor default endpoint — previously only covered
+    // indirectly through `new`.
+    let provider = MimoProvider::with_base_url("sk-boundary".into(), None);
+    assert_eq!(provider.base_url(), MIMO_BASE_URL);
+    assert_eq!(provider.api_key(), "sk-boundary");
 }
 
 // ---------------------------------------------------------------------------

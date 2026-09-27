@@ -65,17 +65,6 @@ impl MimoProvider {
         Self::with_base_url(api_key, None)
     }
 
-    /// Create a `MimoProvider` from the `MIMO_API_KEY` environment variable.
-    ///
-    /// Returns `None` if the variable is not set or empty.
-    pub fn from_env() -> Option<Self> {
-        let key = std::env::var("MIMO_API_KEY").ok()?;
-        if key.is_empty() {
-            return None;
-        }
-        Some(Self::new(key))
-    }
-
     /// Create a `MimoProvider` with a custom base URL (`None` → vendor default).
     pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {
