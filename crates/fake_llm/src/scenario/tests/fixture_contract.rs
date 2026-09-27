@@ -469,6 +469,17 @@ fn test_openai_cache_fixture_matches() {
     assert_eq!(f.object, "chat.completion");
     assert_eq!(f.model, "fake-model");
     assert!(f.content.starts_with("HTTP keep-alive"));
+    // 拆分等价（issue #3294）：拼接结果 == 拆分前原字面量内容，逐字节一致
+    assert_eq!(
+        f.content,
+        "HTTP keep-alive allows a single TCP connection to be reused for multiple \
+         HTTP request/response cycles instead of opening a new connection per \
+         request. The client sends `Connection: keep-alive` (or omits \
+         `Connection: close` on HTTP/1.1, where keep-alive is the default), \
+         and the server holds the socket open after sending the response. \
+         Subsequent requests reuse the same socket, avoiding the cost of TCP \
+         handshake, slow-start, and TLS negotiation (for HTTPS)."
+    );
     assert_eq!(f.finish_reason, "stop");
     assert_eq!(f.usage_prompt, 38);
     assert_eq!(f.usage_completion, 72);
@@ -815,6 +826,21 @@ fn test_anthropic_cache_fixture_matches() {
         .as_deref()
         .unwrap()
         .starts_with("HTTP/1.1"));
+    // 拆分等价（issue #3294）：拼接结果 == 拆分前原字面量内容，逐字节一致
+    assert_eq!(
+        f.content[1].text.as_deref().unwrap(),
+        "HTTP/1.1 uses a request-per-connection model (or keep-alive with \
+         head-of-line blocking), while HTTP/2 multiplexes many request/response \
+         streams over a single TCP connection using binary framing.\n\n\
+         Key differences:\n\
+         - HTTP/2 sends interleaved binary frames for multiple streams on one \
+         connection.\n\
+         - HTTP/1.1 requires serial responses, leading to head-of-line blocking.\n\
+         - HTTP/2 supports stream priorities and per-stream flow control.\n\n\
+         In short, HTTP/2 multiplexing eliminates the need to open many TCP \
+         connections and avoids the head-of-line blocking that hurts HTTP/1.1 \
+         performance."
+    );
 
     assert_eq!(f.stop_reason, "end_turn");
     assert_eq!(f.usage_input, 22);
