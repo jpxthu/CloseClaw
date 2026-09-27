@@ -52,7 +52,7 @@ fn specific(name: &str, condition: MatchCondition) -> ScenarioDeclaration {
 }
 
 #[test]
-fn request_params_stream_true_matches() {
+fn test_request_params_stream_true_matches() {
     let scenarios = vec![specific(
         "streaming",
         MatchCondition {
@@ -73,7 +73,7 @@ fn request_params_stream_true_matches() {
 }
 
 #[test]
-fn request_params_stream_true_no_match_when_false() {
+fn test_request_params_stream_true_no_match_when_false() {
     let scenarios = vec![specific(
         "streaming",
         MatchCondition {
@@ -94,7 +94,7 @@ fn request_params_stream_true_no_match_when_false() {
 }
 
 #[test]
-fn request_params_stream_false_matches() {
+fn test_request_params_stream_false_matches() {
     let scenarios = vec![specific(
         "no-stream",
         MatchCondition {
@@ -115,7 +115,7 @@ fn request_params_stream_false_matches() {
 }
 
 #[test]
-fn request_params_max_tokens_exact_match() {
+fn test_request_params_max_tokens_exact_match() {
     let scenarios = vec![specific(
         "max-tok",
         MatchCondition {
@@ -136,7 +136,7 @@ fn request_params_max_tokens_exact_match() {
 }
 
 #[test]
-fn request_params_max_tokens_no_match_when_different() {
+fn test_request_params_max_tokens_no_match_when_different() {
     let scenarios = vec![specific(
         "max-tok",
         MatchCondition {
@@ -157,7 +157,7 @@ fn request_params_max_tokens_no_match_when_different() {
 }
 
 #[test]
-fn request_params_max_tokens_none_in_condition_matches_any() {
+fn test_request_params_max_tokens_none_in_condition_matches_any() {
     let scenarios = vec![specific(
         "max-tok",
         MatchCondition {
@@ -180,7 +180,7 @@ fn request_params_max_tokens_none_in_condition_matches_any() {
 }
 
 #[test]
-fn request_params_temperature_exact_match() {
+fn test_request_params_temperature_exact_match() {
     let scenarios = vec![specific(
         "temp",
         MatchCondition {
@@ -201,7 +201,7 @@ fn request_params_temperature_exact_match() {
 }
 
 #[test]
-fn request_params_temperature_no_match_when_different() {
+fn test_request_params_temperature_no_match_when_different() {
     let scenarios = vec![specific(
         "temp",
         MatchCondition {
@@ -222,7 +222,7 @@ fn request_params_temperature_no_match_when_different() {
 }
 
 #[test]
-fn request_params_temperature_none_in_condition_matches_any() {
+fn test_request_params_temperature_none_in_condition_matches_any() {
     let scenarios = vec![specific(
         "temp",
         MatchCondition {
@@ -245,7 +245,7 @@ fn request_params_temperature_none_in_condition_matches_any() {
 }
 
 #[test]
-fn request_params_multi_param_all_must_match() {
+fn test_request_params_multi_param_all_must_match() {
     let scenarios = vec![specific(
         "multi",
         MatchCondition {
@@ -292,7 +292,7 @@ fn request_params_multi_param_all_must_match() {
 }
 
 #[test]
-fn request_params_none_does_not_affect_other_conditions() {
+fn test_request_params_none_does_not_affect_other_conditions() {
     let scenarios = vec![specific(
         "model-only",
         MatchCondition {
@@ -326,7 +326,7 @@ fn request_params_none_does_not_affect_other_conditions() {
 }
 
 #[test]
-fn request_params_with_model_id_and_message_and_tool() {
+fn test_request_params_with_model_id_and_message_and_tool() {
     let scenarios = vec![specific(
         "combined",
         MatchCondition {
@@ -409,7 +409,7 @@ fn request_params_with_model_id_and_message_and_tool() {
 }
 
 #[test]
-fn request_params_unknown_key_ignored() {
+fn test_request_params_unknown_key_ignored() {
     let scenarios = vec![specific(
         "unknown",
         MatchCondition {
@@ -433,7 +433,7 @@ fn request_params_unknown_key_ignored() {
 }
 
 #[test]
-fn request_params_empty_map_matches_all() {
+fn test_request_params_empty_map_matches_all() {
     let scenarios = vec![specific(
         "empty-params",
         MatchCondition {
@@ -455,7 +455,7 @@ fn request_params_empty_map_matches_all() {
 }
 
 #[test]
-fn request_params_partial_multi_param_failure() {
+fn test_request_params_partial_multi_param_failure() {
     let scenarios = vec![specific(
         "partial",
         MatchCondition {

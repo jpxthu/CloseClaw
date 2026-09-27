@@ -67,7 +67,7 @@ fn feat(model: &str, msg: &str, protocol: ProtocolKind) -> crate::types::Request
 // ===================================================================
 
 #[test]
-fn all_fields_missing_matches_everything() {
+fn test_all_fields_missing_matches_everything() {
     let a = conditional(
         "a",
         MatchCondition {
@@ -93,7 +93,7 @@ fn all_fields_missing_matches_everything() {
 }
 
 #[test]
-fn all_fields_missing_one_empty_params() {
+fn test_all_fields_missing_one_empty_params() {
     let a = conditional(
         "a",
         MatchCondition {
@@ -117,7 +117,7 @@ fn all_fields_missing_one_empty_params() {
 // ===================================================================
 
 #[test]
-fn model_id_equal_conflicts() {
+fn test_model_id_equal_conflicts() {
     let scenarios = vec![
         conditional(
             "a",
@@ -138,7 +138,7 @@ fn model_id_equal_conflicts() {
 }
 
 #[test]
-fn model_id_unequal_no_conflict() {
+fn test_model_id_unequal_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -159,7 +159,7 @@ fn model_id_unequal_no_conflict() {
 }
 
 #[test]
-fn model_id_one_missing_compatible() {
+fn test_model_id_one_missing_compatible() {
     let scenarios = vec![
         conditional(
             "a",
@@ -185,7 +185,7 @@ fn model_id_one_missing_compatible() {
 // ===================================================================
 
 #[test]
-fn msg_equal_conflicts() {
+fn test_msg_equal_conflicts() {
     let scenarios = vec![
         conditional(
             "a",
@@ -206,7 +206,7 @@ fn msg_equal_conflicts() {
 }
 
 #[test]
-fn msg_substring_conflicts() {
+fn test_msg_substring_conflicts() {
     // "calc" is substring of "calculate"
     let scenarios = vec![
         conditional(
@@ -228,7 +228,7 @@ fn msg_substring_conflicts() {
 }
 
 #[test]
-fn msg_substring_reversed_conflicts() {
+fn test_msg_substring_reversed_conflicts() {
     // "calculate" contains "calc" — same direction reversed
     let scenarios = vec![
         conditional(
@@ -250,7 +250,7 @@ fn msg_substring_reversed_conflicts() {
 }
 
 #[test]
-fn msg_disjoint_no_conflict() {
+fn test_msg_disjoint_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -271,7 +271,7 @@ fn msg_disjoint_no_conflict() {
 }
 
 #[test]
-fn msg_one_missing_compatible() {
+fn test_msg_one_missing_compatible() {
     let scenarios = vec![
         conditional(
             "a",
@@ -296,7 +296,7 @@ fn msg_one_missing_compatible() {
 // ===================================================================
 
 #[test]
-fn tool_equal_conflicts() {
+fn test_tool_equal_conflicts() {
     let scenarios = vec![
         conditional(
             "a",
@@ -317,7 +317,7 @@ fn tool_equal_conflicts() {
 }
 
 #[test]
-fn tool_unequal_no_conflict() {
+fn test_tool_unequal_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -338,7 +338,7 @@ fn tool_unequal_no_conflict() {
 }
 
 #[test]
-fn tool_one_missing_compatible() {
+fn test_tool_one_missing_compatible() {
     let scenarios = vec![
         conditional(
             "a",
@@ -363,7 +363,7 @@ fn tool_one_missing_compatible() {
 // ===================================================================
 
 #[test]
-fn params_value_equal_conflicts() {
+fn test_params_value_equal_conflicts() {
     let scenarios = vec![
         conditional(
             "a",
@@ -392,7 +392,7 @@ fn params_value_equal_conflicts() {
 }
 
 #[test]
-fn params_value_unequal_no_conflict() {
+fn test_params_value_unequal_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -421,7 +421,7 @@ fn params_value_unequal_no_conflict() {
 }
 
 #[test]
-fn params_one_key_missing_conflicts() {
+fn test_params_one_key_missing_conflicts() {
     // A requires stream=true, B requires max_tokens=1024.
     // A request with stream=true AND max_tokens=1024 matches both.
     let scenarios = vec![
@@ -452,7 +452,7 @@ fn params_one_key_missing_conflicts() {
 }
 
 #[test]
-fn params_one_side_has_no_params_compatible() {
+fn test_params_one_side_has_no_params_compatible() {
     // B has no request_params constraint at all → compatible.
     let scenarios = vec![
         conditional(
@@ -478,7 +478,7 @@ fn params_one_side_has_no_params_compatible() {
 }
 
 #[test]
-fn params_temperature_f32_precision_equal_conflicts() {
+fn test_params_temperature_f32_precision_equal_conflicts() {
     // 0.1 + 0.2 != 0.3 in f64, but f32(0.1+0.2) == f32(0.3)
     let scenarios = vec![
         conditional(
@@ -509,7 +509,7 @@ fn params_temperature_f32_precision_equal_conflicts() {
 }
 
 #[test]
-fn params_temperature_f32_precision_different_no_conflict() {
+fn test_params_temperature_f32_precision_different_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -538,7 +538,7 @@ fn params_temperature_f32_precision_different_no_conflict() {
 }
 
 #[test]
-fn params_bool_vs_string_different_no_conflict() {
+fn test_params_bool_vs_string_different_no_conflict() {
     let scenarios = vec![
         conditional(
             "a",
@@ -571,7 +571,7 @@ fn params_bool_vs_string_different_no_conflict() {
 // ===================================================================
 
 #[test]
-fn two_fallbacks_conflict() {
+fn test_two_fallbacks_conflict() {
     let scenarios = vec![fallback("a"), fallback("b")];
     let conflicts = detect_conflicts(&scenarios);
     assert_eq!(conflicts.len(), 1);
@@ -579,7 +579,7 @@ fn two_fallbacks_conflict() {
 }
 
 #[test]
-fn fallback_and_conditional_no_conflict() {
+fn test_fallback_and_conditional_no_conflict() {
     // Fallback is the zero-match兜底 and coexists legally with
     // conditional scenarios.
     let scenarios = vec![
@@ -602,7 +602,7 @@ fn fallback_and_conditional_no_conflict() {
 // ===================================================================
 
 #[test]
-fn same_model_conditional_conflict_at_detection_level() {
+fn test_same_model_conditional_conflict_at_detection_level() {
     // Both have model_id="gpt-4o" with same message_contains → conflict.
     let scenarios = vec![
         conditional(
@@ -626,7 +626,7 @@ fn same_model_conditional_conflict_at_detection_level() {
 }
 
 #[test]
-fn same_model_different_message_no_conflict_at_detection() {
+fn test_same_model_different_message_no_conflict_at_detection() {
     // model_id equal but message_contains disjoint → conditions mutually
     // exclusive at the field level → no conflict.
     let scenarios = vec![
@@ -655,7 +655,7 @@ fn same_model_different_message_no_conflict_at_detection() {
 // ===================================================================
 
 #[test]
-fn from_dir_conflicting_scenarios_fails_at_startup() {
+fn test_from_dir_conflicting_scenarios_fails_at_startup() {
     let tmp = tempfile::TempDir::new().unwrap();
     let conflicting_json = serde_json::json!({
         "scenarios": [
@@ -694,7 +694,7 @@ fn from_dir_conflicting_scenarios_fails_at_startup() {
 }
 
 #[test]
-fn from_dir_fallback_and_conditional_succeeds() {
+fn test_from_dir_fallback_and_conditional_succeeds() {
     // Fallback + conditional is legal — fallback is the zero-match兜底.
     let tmp = tempfile::TempDir::new().unwrap();
     let json = serde_json::json!({
@@ -724,7 +724,7 @@ fn from_dir_fallback_and_conditional_succeeds() {
 }
 
 #[test]
-fn from_dir_no_conflict_succeeds() {
+fn test_from_dir_no_conflict_succeeds() {
     let tmp = tempfile::TempDir::new().unwrap();
     let json = serde_json::json!({
         "scenarios": [
@@ -758,7 +758,7 @@ fn from_dir_no_conflict_succeeds() {
 // ===================================================================
 
 #[test]
-fn matcher_index_build_conflict_error_carry_names() {
+fn test_matcher_index_build_conflict_error_carry_names() {
     let scenarios = vec![
         conditional(
             "scene-x",
@@ -792,7 +792,7 @@ fn matcher_index_build_conflict_error_carry_names() {
 // ===================================================================
 
 #[test]
-fn three_way_one_conflict() {
+fn test_three_way_one_conflict() {
     let scenarios = vec![
         fallback("fb"),
         conditional(
@@ -821,7 +821,7 @@ fn three_way_one_conflict() {
 // ===================================================================
 
 #[test]
-fn conflict_report_display_contains_all_fields() {
+fn test_conflict_report_display_contains_all_fields() {
     let report = ConflictReport {
         scenario_a: "alpha".into(),
         scenario_b: "beta".into(),
@@ -838,7 +838,7 @@ fn conflict_report_display_contains_all_fields() {
 // ===================================================================
 
 #[test]
-fn dual_dimension_same_model_different_protocol_independent_hit() {
+fn test_dual_dimension_same_model_different_protocol_independent_hit() {
     let scenarios = vec![conditional(
         "openai-scene",
         MatchCondition {
@@ -858,7 +858,7 @@ fn dual_dimension_same_model_different_protocol_independent_hit() {
 }
 
 #[test]
-fn dual_dimension_any_model_bucket_isolated_by_protocol() {
+fn test_dual_dimension_any_model_bucket_isolated_by_protocol() {
     let scenarios = vec![fallback("fb")];
     let index = MatcherIndex::build(scenarios).unwrap();
 
@@ -874,12 +874,12 @@ fn dual_dimension_any_model_bucket_isolated_by_protocol() {
 // ===================================================================
 
 #[test]
-fn empty_scenarios_no_conflicts() {
+fn test_empty_scenarios_no_conflicts() {
     assert!(detect_conflicts(&[]).is_empty());
 }
 
 #[test]
-fn single_scenario_no_conflicts() {
+fn test_single_scenario_no_conflicts() {
     let scenarios = vec![conditional(
         "only",
         MatchCondition {
@@ -891,7 +891,7 @@ fn single_scenario_no_conflicts() {
 }
 
 #[test]
-fn single_fallback_no_conflicts() {
+fn test_single_fallback_no_conflicts() {
     let scenarios = vec![fallback("only")];
     assert!(detect_conflicts(&scenarios).is_empty());
 }

@@ -89,7 +89,7 @@ fn feat_proto(
 /// - gpt-4o request  → conditional (not fallback)
 /// - claude-3 request → fallback (zero conditional match)
 #[test]
-fn integration_fallback_coexist_data_flow() {
+fn test_integration_fallback_coexist_data_flow() {
     let scenarios = vec![
         specific(
             "conditional-gpt4",
@@ -116,7 +116,7 @@ fn integration_fallback_coexist_data_flow() {
 /// Multiple conditional scenarios with a fallback: each conditional
 /// routes to its own scenario, and unmatched requests fall back.
 #[test]
-fn integration_multi_conditional_with_fallback() {
+fn test_integration_multi_conditional_with_fallback() {
     let scenarios = vec![
         specific(
             "gpt4-scene",
@@ -153,7 +153,7 @@ fn integration_multi_conditional_with_fallback() {
 /// Cross-protocol: fallback + conditional coexist, each protocol
 /// independently falls back when its conditional doesn't match.
 #[test]
-fn integration_cross_protocol_fallback_data_flow() {
+fn test_integration_cross_protocol_fallback_data_flow() {
     let scenarios = vec![
         specific(
             "gpt4-scene",
@@ -197,7 +197,7 @@ fn integration_cross_protocol_fallback_data_flow() {
 /// Conditional with multiple fields (model + message_contains + tool):
 /// partial match is NOT enough — only exact conditional match or fallback.
 #[test]
-fn integration_conditional_multi_field_vs_fallback() {
+fn test_integration_conditional_multi_field_vs_fallback() {
     let scenarios = vec![
         specific(
             "multi-cond",
