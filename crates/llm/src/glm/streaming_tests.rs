@@ -7,7 +7,7 @@
 
 use tokio::sync::mpsc;
 
-use super::run_sse_stream;
+use super::streaming::run_sse_stream;
 use crate::types::RawSseChunk;
 
 /// Shared collector behind [`collect_forwarded_chunks`] and
