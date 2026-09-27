@@ -144,7 +144,8 @@ async fn test_load_fallback_channel_chat_id_to_platform_peer_id() {
         let db_path = tmp.path().join("sessions.sqlite");
         let conn = Connection::open(&db_path).unwrap();
         conn.execute(
-            "UPDATE sessions SET channel = 'feishu', chat_id = 'oc_old_chat', platform = NULL, peer_id = NULL, account_id = NULL WHERE id = ?1",
+            "UPDATE sessions SET channel = 'feishu', chat_id = 'oc_old_chat', \
+             platform = NULL, peer_id = NULL, account_id = NULL WHERE id = ?1",
             params!["fallback-1"],
         )
         .unwrap();
@@ -901,8 +902,12 @@ async fn test_list_idle_sessions_falls_back_to_last_message_at() {
         .list_idle_sessions_for_agent("agent-fb", "main_agent", 0)
         .await
         .unwrap();
-    assert_eq!(idle, vec!["luaa-fallback"],
-        "session with NULL last_user_activity_at should fallback to last_message_at and appear in results");
+    assert_eq!(
+        idle,
+        vec!["luaa-fallback"],
+        "session with NULL last_user_activity_at should fallback \
+         to last_message_at and appear in results"
+    );
 }
 
 /// Multi-field round-trip over the reassembled load path: parses non-empty

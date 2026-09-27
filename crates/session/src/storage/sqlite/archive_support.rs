@@ -3,7 +3,11 @@
 //! These helpers are used by SqliteStorage for archive/restore/purge/list
 //! operations. Kept separate to keep sqlite.rs under 500 lines.
 
-use crate::persistence::{PersistenceError, SessionCheckpoint};
+use crate::persistence::{
+    dreaming_status_from_db, dreaming_status_to_db, AgentRole, DreamingStatus, PendingMessage,
+    PersistenceError, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionCheckpoint,
+    SessionMode, SessionStatus,
+};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -271,75 +275,14 @@ fn query_session_row(
     }
 }
 
-/// Fields parsed from a metadata JSON blob.
-///
-/// `metadata` is `None` when the DB column was NULL (all defaults kept).
-struct ParsedMetadata {
-    mode_state: crate::persistence::ReasoningModeState,
-    reasoning_mode_raw: String,
-    user_appends: Vec<String>,
-    session_mode: crate::persistence::SessionMode,
-    outbound_pending: Vec<crate::persistence::PendingMessage>,
-}
-
-/// Stage ③ of `load_checkpoint_inner`: parse the snapshot metadata JSON
-/// (session_mode / mode / user_appends / outbound_pending).
-///
-/// `None` metadata (NULL column) keeps all defaults.
-fn parse_metadata(metadata: &Option<String>) -> Result<ParsedMetadata, PersistenceError> {
-    #[allow(unused_mut)]
-    let mut mode_state_val: crate::persistence::ReasoningModeState;
-    let mode_val: String;
-    let mut user_appends: Vec<String> = Vec::new();
-    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
-    let mut session_mode_val: crate::persistence::SessionMode =
-        crate::persistence::SessionMode::default();
-    if let Some(ref meta) = metadata {
-        let v: serde_json::Value =
-            serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
-        mode_state_val = v
-            .get("mode_state")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
-            .unwrap_or_default();
-        mode_val = v
-            .get("reasoning_mode")
-            .or_else(|| v.get("mode"))
-            .and_then(|x| x.as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "direct".to_string());
-        user_appends = v
-            .get("user_appends")
-            .or_else(|| v.get("system_appends"))
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-        if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
-            session_mode_val =
-                crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
-        }
-        outbound_pending = v
-            .get("outbound_pending")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-    } else {
-        mode_state_val = crate::persistence::ReasoningModeState::default();
-        mode_val = "direct".to_string();
-    }
-    Ok(ParsedMetadata {
-        mode_state: mode_state_val,
-        reasoning_mode_raw: mode_val,
-        user_appends,
-        session_mode: session_mode_val,
-        outbound_pending,
-    })
-}
-
 /// State resolved from the raw `sessions` row (stage ② output of
 /// `load_checkpoint_inner`): typed enums plus the transcript messages read
 /// from disk.
 struct ResolvedSessionState {
     depth: u32,
     mined: bool,
-    dreaming_status: crate::persistence::DreamingStatus,
-    status: crate::persistence::SessionStatus,
+    dreaming_status: DreamingStatus,
+    status: SessionStatus,
     transcript_messages_from_jsonl: Vec<crate::llm_session::SessionMessage>,
 }
 
@@ -363,21 +306,20 @@ fn resolve_session_state(
         .unwrap_or(false);
 
     // dreaming_status: handle missing or empty string
-    let dreaming_status = crate::persistence::dreaming_status_from_db(
-        dreaming_status_raw.as_deref().unwrap_or("completed"),
-    );
+    let dreaming_status =
+        dreaming_status_from_db(dreaming_status_raw.as_deref().unwrap_or("completed"));
 
     let status = match status_db {
-        "archived" => crate::persistence::SessionStatus::Archived,
-        "migrating" => crate::persistence::SessionStatus::Migrating,
-        _ => crate::persistence::SessionStatus::Active,
+        "archived" => SessionStatus::Archived,
+        "migrating" => SessionStatus::Migrating,
+        _ => SessionStatus::Active,
     };
 
     let transcript_path = match status {
-        crate::persistence::SessionStatus::Active => data_dir
+        SessionStatus::Active => data_dir
             .join("sessions")
             .join(format!("{session_id}.jsonl")),
-        crate::persistence::SessionStatus::Migrating => {
+        SessionStatus::Migrating => {
             // During migration, transcript could be in either location.
             // Prefer archived_sessions/ (file already moved) over sessions/
             // (file not yet moved).
@@ -392,7 +334,7 @@ fn resolve_session_state(
                     .join(format!("{session_id}.jsonl"))
             }
         }
-        crate::persistence::SessionStatus::Archived => data_dir
+        SessionStatus::Archived => data_dir
             .join("archived_sessions")
             .join(format!("{session_id}.jsonl")),
     };
@@ -409,6 +351,73 @@ fn resolve_session_state(
         dreaming_status,
         status,
         transcript_messages_from_jsonl,
+    })
+}
+
+/// Fields parsed from a metadata JSON blob.
+///
+/// `metadata` is `None` when the DB column was NULL (all defaults kept).
+struct ParsedMetadata {
+    mode_state: ReasoningModeState,
+    reasoning_mode_raw: String,
+    user_appends: Vec<String>,
+    session_mode: SessionMode,
+    outbound_pending: Vec<PendingMessage>,
+}
+
+/// Stage ③ of `load_checkpoint_inner`: parse the snapshot metadata JSON
+/// (session_mode / mode / user_appends / outbound_pending).
+///
+/// `None` metadata (NULL column) keeps all defaults.
+fn parse_metadata(metadata: &Option<String>) -> Result<ParsedMetadata, PersistenceError> {
+    let (mode_state_val, mode_val, user_appends, session_mode_val, outbound_pending) =
+        if let Some(ref meta) = metadata {
+            let v: serde_json::Value =
+                serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
+            let mode_state_val = v
+                .get("mode_state")
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
+                .unwrap_or_default();
+            let mode_val = v
+                .get("reasoning_mode")
+                .or_else(|| v.get("mode"))
+                .and_then(|x| x.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "direct".to_string());
+            let user_appends = v
+                .get("user_appends")
+                .or_else(|| v.get("system_appends"))
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+                .unwrap_or_default();
+            let session_mode_val = match v.get("session_mode").and_then(|x| x.as_str()) {
+                Some(mode_str) => SessionMode::from_str_opt(mode_str).unwrap_or_default(),
+                None => SessionMode::default(),
+            };
+            let outbound_pending = v
+                .get("outbound_pending")
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+                .unwrap_or_default();
+            (
+                mode_state_val,
+                mode_val,
+                user_appends,
+                session_mode_val,
+                outbound_pending,
+            )
+        } else {
+            (
+                ReasoningModeState::default(),
+                "direct".to_string(),
+                Vec::new(),
+                SessionMode::default(),
+                Vec::new(),
+            )
+        };
+    Ok(ParsedMetadata {
+        mode_state: mode_state_val,
+        reasoning_mode_raw: mode_val,
+        user_appends,
+        session_mode: session_mode_val,
+        outbound_pending,
     })
 }
 
@@ -505,7 +514,7 @@ fn build_checkpoint(
             Some(agent_id_str)
         },
         role: parse_agent_role(&role_str),
-        reasoning_level: crate::persistence::ReasoningLevel::default(),
+        reasoning_level: ReasoningLevel::default(),
         user_appends,
         account_id: account_id_new,
         thread_id,
@@ -539,20 +548,20 @@ fn build_checkpoint(
 }
 
 /// Map the raw reasoning-mode string to its enum (stage ④ helper).
-fn parse_reasoning_mode(mode_val: &str) -> crate::persistence::ReasoningMode {
+fn parse_reasoning_mode(mode_val: &str) -> ReasoningMode {
     match mode_val {
-        "plan" => crate::persistence::ReasoningMode::Plan,
-        "stream" => crate::persistence::ReasoningMode::Stream,
-        "hidden" => crate::persistence::ReasoningMode::Hidden,
-        _ => crate::persistence::ReasoningMode::Direct,
+        "plan" => ReasoningMode::Plan,
+        "stream" => ReasoningMode::Stream,
+        "hidden" => ReasoningMode::Hidden,
+        _ => ReasoningMode::Direct,
     }
 }
 
 /// Map the raw agent-role string to its enum (stage ④ helper).
-fn parse_agent_role(role_str: &str) -> Option<crate::persistence::AgentRole> {
+fn parse_agent_role(role_str: &str) -> Option<AgentRole> {
     match role_str {
-        "main_agent" => Some(crate::persistence::AgentRole::MainAgent),
-        "sub_agent" => Some(crate::persistence::AgentRole::SubAgent),
+        "main_agent" => Some(AgentRole::MainAgent),
+        "sub_agent" => Some(AgentRole::SubAgent),
         _ => None,
     }
 }
@@ -840,12 +849,12 @@ struct CheckpointData<'a> {
     last_user_activity_ts: Option<i64>,
 }
 
-fn reasoning_mode_to_str(mode: crate::persistence::ReasoningMode) -> &'static str {
+fn reasoning_mode_to_str(mode: ReasoningMode) -> &'static str {
     match mode {
-        crate::persistence::ReasoningMode::Direct => "direct",
-        crate::persistence::ReasoningMode::Plan => "plan",
-        crate::persistence::ReasoningMode::Stream => "stream",
-        crate::persistence::ReasoningMode::Hidden => "hidden",
+        ReasoningMode::Direct => "direct",
+        ReasoningMode::Plan => "plan",
+        ReasoningMode::Stream => "stream",
+        ReasoningMode::Hidden => "hidden",
     }
 }
 
@@ -854,15 +863,15 @@ fn serialize_checkpoint_data<'a>(
     checkpoint: &'a SessionCheckpoint,
 ) -> Result<CheckpointData<'a>, PersistenceError> {
     let status = match checkpoint.status {
-        crate::persistence::SessionStatus::Active => "active",
-        crate::persistence::SessionStatus::Migrating => "migrating",
-        crate::persistence::SessionStatus::Archived => "archived",
+        SessionStatus::Active => "active",
+        SessionStatus::Migrating => "migrating",
+        SessionStatus::Archived => "archived",
     };
     let role_str = checkpoint
         .role
         .map(|r| match r {
-            crate::persistence::AgentRole::MainAgent => "main_agent",
-            crate::persistence::AgentRole::SubAgent => "sub_agent",
+            AgentRole::MainAgent => "main_agent",
+            AgentRole::SubAgent => "sub_agent",
         })
         .unwrap_or("main_agent");
     let metadata_json = build_metadata_json(checkpoint)?;
@@ -870,8 +879,7 @@ fn serialize_checkpoint_data<'a>(
         .last_message_at
         .map(|dt| dt.timestamp())
         .unwrap_or(0);
-    let dreaming_status_str =
-        crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
+    let dreaming_status_str = dreaming_status_to_db(&checkpoint.dreaming_status);
     let mined_str = if checkpoint.mined { "1" } else { "0" };
     let plan_state_json = checkpoint
         .plan_state
