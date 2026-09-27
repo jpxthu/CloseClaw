@@ -29,10 +29,6 @@ impl GlmProvider {
         Self::with_base_url(api_key, None)
     }
 
-    pub fn from_env() -> Option<Self> {
-        Some(Self::new(std::env::var("GLM_API_KEY").ok()?))
-    }
-
     /// Create a provider with a custom base URL (`None` → vendor default).
     pub fn with_base_url(api_key: String, base_url: Option<&str>) -> Self {
         Self {

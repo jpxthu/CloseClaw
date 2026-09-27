@@ -15,7 +15,6 @@ pub mod fallback;
 #[cfg(test)]
 mod fallback_tests;
 pub mod glm;
-pub mod glm_stream;
 pub mod http_client;
 pub mod knowledge;
 pub mod llm_caller;
