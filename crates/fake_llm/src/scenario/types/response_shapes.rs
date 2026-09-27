@@ -244,7 +244,7 @@ mod tests {
     // -- StreamingResponse tests -------------------------------------------
 
     #[test]
-    fn streaming_full_fields() {
+    fn test_streaming_full_fields() {
         let json = r#"
         {
             "type": "streaming",
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_empty_object() {
+    fn test_streaming_empty_object() {
         let json = r#"{"type":"streaming"}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_with_unknown_fields() {
+    fn test_streaming_with_unknown_fields() {
         let json = r#"{"type":"streaming","segment_granularity":3,"bogus":true}"#;
         let shape: ResponseShape =
             serde_json::from_str(json).expect("should tolerate unknown fields");
@@ -298,7 +298,7 @@ mod tests {
     // -- ErrorResponse tests ------------------------------------------------
 
     #[test]
-    fn error_full_fields() {
+    fn test_error_full_fields() {
         let json = r#"{"type":"error","status":429,"message":"rate limited","retry_after":30}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn error_without_retry_after() {
+    fn test_error_without_retry_after() {
         let json = r#"{"type":"error","status":500,"message":"server error"}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
@@ -326,7 +326,7 @@ mod tests {
     }
 
     #[test]
-    fn error_unknown_fields_tolerated() {
+    fn test_error_unknown_fields_tolerated() {
         let json = r#"{"type":"error","status":401,"message":"unauthorized","extra":"ignored"}"#;
         let shape: ResponseShape =
             serde_json::from_str(json).expect("should tolerate unknown fields");
@@ -342,7 +342,7 @@ mod tests {
     // -- DelayResponse tests ------------------------------------------------
 
     #[test]
-    fn delay_full_fields() {
+    fn test_delay_full_fields() {
         let json =
             r#"{"type":"delay","delay_ms":500,"first_token_delay_ms":200,"segment_delay_ms":50}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_empty_object() {
+    fn test_delay_empty_object() {
         let json = r#"{"type":"delay"}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
@@ -371,7 +371,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_partial_fields() {
+    fn test_delay_partial_fields() {
         let json = r#"{"type":"delay","first_token_delay_ms":100}"#;
         let shape: ResponseShape = serde_json::from_str(json).expect("should deserialize");
         match shape {
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_unknown_fields_tolerated() {
+    fn test_delay_unknown_fields_tolerated() {
         let json = r#"{"type":"delay","delay_ms":100,"unknown_key":"value"}"#;
         let shape: ResponseShape =
             serde_json::from_str(json).expect("should tolerate unknown fields");
@@ -400,7 +400,7 @@ mod tests {
     // -- Composite with new shapes ------------------------------------------
 
     #[test]
-    fn composite_streaming_and_text() {
+    fn test_composite_streaming_and_text() {
         // Build programmatically (Composite serialization via internally
         // tagged representation requires careful format matching; the
         // scenario engine uses ResponseOrComposite, not raw JSON)
@@ -427,7 +427,7 @@ mod tests {
     // -- Serialize round-trip ------------------------------------------------
 
     #[test]
-    fn streaming_roundtrip() {
+    fn test_streaming_roundtrip() {
         let original = StreamingResponse {
             segment_granularity: Some(10),
             segment_delay_ms: Some(25),
@@ -446,7 +446,7 @@ mod tests {
     }
 
     #[test]
-    fn error_roundtrip() {
+    fn test_error_roundtrip() {
         let original = ErrorResponse {
             status: 429,
             message: "too many requests".to_string(),
@@ -466,7 +466,7 @@ mod tests {
     }
 
     #[test]
-    fn delay_roundtrip() {
+    fn test_delay_roundtrip() {
         let original = DelayResponse {
             delay_ms: Some(300),
             first_token_delay_ms: None,

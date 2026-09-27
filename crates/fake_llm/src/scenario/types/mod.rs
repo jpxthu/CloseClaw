@@ -302,7 +302,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn deserialize_scenario_file_minimal() {
+    fn test_deserialize_scenario_file_minimal() {
         let json = r#"{
             "scenarios": [
                 {
@@ -325,7 +325,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_scenario_file_with_match_condition() {
+    fn test_deserialize_scenario_file_with_match_condition() {
         let json = r#"{
             "scenarios": [
                 {
@@ -362,7 +362,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_variants() {
+    fn test_deserialize_response_shape_variants() {
         // Text variant
         let json = r#"{"type": "text", "content": "hello"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
@@ -405,7 +405,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_http_error() {
+    fn test_deserialize_http_error() {
         let json = r#"{"status": 429, "message": "rate limited"}"#;
         let err: HttpError = serde_json::from_str(json).unwrap();
         assert_eq!(err.status, 429);
@@ -414,7 +414,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_http_error_with_retry_after() {
+    fn test_deserialize_http_error_with_retry_after() {
         let json = r#"{"status": 429, "message": "rate limited", "retry_after": 60}"#;
         let err: HttpError = serde_json::from_str(json).unwrap();
         assert_eq!(err.status, 429);
@@ -423,14 +423,14 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_http_error_retry_after_default_none() {
+    fn test_deserialize_http_error_retry_after_default_none() {
         let json = r#"{"status": 500, "message": "error"}"#;
         let err: HttpError = serde_json::from_str(json).unwrap();
         assert!(err.retry_after.is_none());
     }
 
     #[test]
-    fn deserialize_turn_response_with_delay_and_error() {
+    fn test_deserialize_turn_response_with_delay_and_error() {
         let json = r#"{
             "response": {"type": "text", "content": "ok"},
             "delay": 500,
@@ -442,7 +442,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_match_condition_defaults() {
+    fn test_deserialize_match_condition_defaults() {
         let json = r#"{}"#;
         let cond: MatchCondition = serde_json::from_str(json).unwrap();
         assert!(cond.model_id.is_none());
@@ -452,7 +452,7 @@ mod tests {
     }
 
     #[test]
-    fn scenario_decision_default_has_empty_blocks() {
+    fn test_scenario_decision_default_has_empty_blocks() {
         let decision = ScenarioDecision::default();
         assert_eq!(decision.scenario, "default");
         assert!(decision.response_blocks.is_empty());
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_response_all_fields_optional() {
+    fn test_usage_response_all_fields_optional() {
         let json = r#"{"type": "usage"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -478,7 +478,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_response_cache_fields_missing_deserialize() {
+    fn test_usage_response_cache_fields_missing_deserialize() {
         let json = r#"{"type": "usage", "prompt_tokens": 10, "completion_tokens": 20, "cache_fields_missing": true}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -495,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_response_cache_fields_missing_default_false() {
+    fn test_usage_response_cache_fields_missing_default_false() {
         let json = r#"{"type": "usage", "prompt_tokens": 5}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -510,7 +510,7 @@ mod tests {
     }
 
     #[test]
-    fn text_response_with_cache_fields_missing_usage() {
+    fn test_text_response_with_cache_fields_missing_usage() {
         let json = r#"{"type": "text", "content": "hello", "usage": {"prompt_tokens": 10, "cache_fields_missing": true}}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -524,7 +524,7 @@ mod tests {
     }
 
     #[test]
-    fn response_block_roundtrip() {
+    fn test_response_block_roundtrip() {
         let block = ResponseBlock {
             block_type: "text".to_string(),
             content: Some("Hello".to_string()),
@@ -540,7 +540,7 @@ mod tests {
     }
 
     #[test]
-    fn response_block_with_tool_fields() {
+    fn test_response_block_with_tool_fields() {
         let block = ResponseBlock {
             block_type: "tool_call".to_string(),
             content: None,
@@ -556,7 +556,7 @@ mod tests {
     }
 
     #[test]
-    fn message_entry_roundtrip() {
+    fn test_message_entry_roundtrip() {
         let entry = MessageEntry {
             role: "user".to_string(),
             content: "Hello world".to_string(),
@@ -568,7 +568,7 @@ mod tests {
     }
 
     #[test]
-    fn scenario_file_roundtrip() {
+    fn test_scenario_file_roundtrip() {
         let file = ScenarioFile {
             scenarios: vec![ScenarioDeclaration {
                 name: "roundtrip-test".to_string(),
@@ -602,7 +602,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_match_condition_all_fields() {
+    fn test_deserialize_match_condition_all_fields() {
         let json = r#"{
             "model_id": "gpt-4o",
             "message_contains": "calculate",
@@ -620,7 +620,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_match_condition_tool_name_only() {
+    fn test_deserialize_match_condition_tool_name_only() {
         let json = r#"{"tool_name": "code_exec"}"#;
         let cond: MatchCondition = serde_json::from_str(json).unwrap();
         assert!(cond.model_id.is_none());
@@ -629,7 +629,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_reasoning_with_data() {
+    fn test_deserialize_response_shape_reasoning_with_data() {
         let json = r#"{"type": "reasoning", "content": "The answer is 42.", "reasoning": "Let me think..."}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -643,7 +643,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_reasoning_with_signature() {
+    fn test_deserialize_response_shape_reasoning_with_signature() {
         let json = r#"{"type": "reasoning", "content": "ok", "reasoning": "because", "signature": "sig123"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -655,7 +655,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_tool_call() {
+    fn test_deserialize_response_shape_tool_call() {
         let json = serde_json::json!({
             "type": "tool_call",
             "calls": [{"name": "get_weather", "arguments": "{}"}]
@@ -672,7 +672,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_tool_call_multiple() {
+    fn test_deserialize_response_shape_tool_call_multiple() {
         let json = serde_json::json!({
             "type": "tool_call",
             "calls": [
@@ -692,21 +692,21 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_response_shape_delay() {
+    fn test_deserialize_response_shape_delay() {
         let json = r#"{"type": "delay"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         assert!(matches!(shape, ResponseShape::Delay(_)));
     }
 
     #[test]
-    fn deserialize_response_shape_unknown_catchall() {
+    fn test_deserialize_response_shape_unknown_catchall() {
         let json = r#"{"type": "some_future_type"}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         assert!(matches!(shape, ResponseShape::Unknown));
     }
 
     #[test]
-    fn deserialize_http_error_various_status_codes() {
+    fn test_deserialize_http_error_various_status_codes() {
         for (code, msg) in [
             (401, "unauthorized"),
             (429, "rate limited"),
@@ -720,7 +720,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_response_partial_fields() {
+    fn test_usage_response_partial_fields() {
         let json = r#"{"type": "usage", "prompt_tokens": 5}"#;
         let shape: ResponseShape = serde_json::from_str(json).unwrap();
         match shape {
@@ -733,7 +733,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_match_condition_request_params() {
+    fn test_deserialize_match_condition_request_params() {
         let json = r#"{
             "model_id": "gpt-4o",
             "request_params": {
@@ -751,28 +751,28 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_match_condition_request_params_absent() {
+    fn test_deserialize_match_condition_request_params_absent() {
         let json = r#"{"model_id": "gpt-4o"}"#;
         let cond: MatchCondition = serde_json::from_str(json).unwrap();
         assert!(cond.request_params.is_none());
     }
 
     #[test]
-    fn deserialize_match_condition_request_params_empty() {
+    fn test_deserialize_match_condition_request_params_empty() {
         let json = r#"{"request_params": {}}"#;
         let cond: MatchCondition = serde_json::from_str(json).unwrap();
         assert!(cond.request_params.as_ref().unwrap().is_empty());
     }
 
     #[test]
-    fn scenario_file_empty_scenarios() {
+    fn test_scenario_file_empty_scenarios() {
         let json = r#"{"scenarios": []}"#;
         let file: ScenarioFile = serde_json::from_str(json).unwrap();
         assert!(file.scenarios.is_empty());
     }
 
     #[test]
-    fn turn_response_minimal_no_optional_fields() {
+    fn test_turn_response_minimal_no_optional_fields() {
         let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
         assert!(turn.delay.is_none());
@@ -781,7 +781,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_model_entry() {
+    fn test_deserialize_model_entry() {
         let json = r#"{"id": "gpt-4", "owned_by": "openai"}"#;
         let entry: ModelEntry = serde_json::from_str(json).unwrap();
         assert_eq!(entry.id, "gpt-4");
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_model_entry_default_owned_by() {
+    fn test_deserialize_model_entry_default_owned_by() {
         let json = r#"{"id": "test-model"}"#;
         let entry: ModelEntry = serde_json::from_str(json).unwrap();
         assert_eq!(entry.id, "test-model");
@@ -797,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_scenario_declaration_with_models() {
+    fn test_deserialize_scenario_declaration_with_models() {
         let json = r#"{
             "name": "models-scene",
             "turns": [{"response": {"type": "text", "content": "ok"}}],
@@ -815,7 +815,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_scenario_declaration_without_models() {
+    fn test_deserialize_scenario_declaration_without_models() {
         let json = r#"{
             "name": "no-models",
             "turns": [{"response": {"type": "text", "content": "ok"}}]
@@ -825,7 +825,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_turn_response_legacy_delay_only() {
+    fn test_deserialize_turn_response_legacy_delay_only() {
         // Backward compatibility: old format with only `delay` field
         let json = r#"{"response": {"type": "text", "content": "ok"}, "delay": 100}"#;
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
@@ -836,7 +836,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_turn_response_new_format() {
+    fn test_deserialize_turn_response_new_format() {
         // New format with all three delay fields + stream_interrupt_after
         let json = r#"{
             "response": {"type": "text", "content": "ok"},
@@ -853,7 +853,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_turn_response_no_delay_fields() {
+    fn test_deserialize_turn_response_no_delay_fields() {
         // No delay fields at all
         let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
@@ -864,7 +864,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_turn_response_stream_interrupt_zero() {
+    fn test_deserialize_turn_response_stream_interrupt_zero() {
         // Boundary: interrupt after 0 events (first event then disconnect)
         let json =
             r#"{"response": {"type": "text", "content": "ok"}, "stream_interrupt_after": 0}"#;
@@ -873,7 +873,7 @@ mod tests {
     }
 
     #[test]
-    fn deserialize_turn_response_stream_interrupt_absent() {
+    fn test_deserialize_turn_response_stream_interrupt_absent() {
         // stream_interrupt_after absent defaults to None
         let json = r#"{"response": {"type": "text", "content": "ok"}}"#;
         let turn: TurnResponse = serde_json::from_str(json).unwrap();
@@ -885,12 +885,12 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[test]
-    fn reasoning_intensity_default_is_medium() {
+    fn test_reasoning_intensity_default_is_medium() {
         assert_eq!(ReasoningIntensity::default(), ReasoningIntensity::Medium);
     }
 
     #[test]
-    fn reasoning_intensity_serialize_deserialize_low() {
+    fn test_reasoning_intensity_serialize_deserialize_low() {
         let json = serde_json::to_string(&ReasoningIntensity::Low).unwrap();
         assert_eq!(json, "\"low\"");
         let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
@@ -898,7 +898,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_intensity_serialize_deserialize_medium() {
+    fn test_reasoning_intensity_serialize_deserialize_medium() {
         let json = serde_json::to_string(&ReasoningIntensity::Medium).unwrap();
         assert_eq!(json, "\"medium\"");
         let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
@@ -906,7 +906,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_intensity_serialize_deserialize_high() {
+    fn test_reasoning_intensity_serialize_deserialize_high() {
         let json = serde_json::to_string(&ReasoningIntensity::High).unwrap();
         assert_eq!(json, "\"high\"");
         let parsed: ReasoningIntensity = serde_json::from_str(&json).unwrap();
@@ -914,13 +914,13 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_response_default_intensity_is_medium() {
+    fn test_reasoning_response_default_intensity_is_medium() {
         let resp = ReasoningResponse::default();
         assert_eq!(resp.intensity, ReasoningIntensity::Medium);
     }
 
     #[test]
-    fn reasoning_response_with_intensity_low() {
+    fn test_reasoning_response_with_intensity_low() {
         let json = r#"{
             "type": "reasoning",
             "content": "42",
@@ -938,7 +938,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_response_with_intensity_high() {
+    fn test_reasoning_response_with_intensity_high() {
         let json = r#"{
             "type": "reasoning",
             "content": "ok",
@@ -955,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_response_intensity_defaults_when_absent() {
+    fn test_reasoning_response_intensity_defaults_when_absent() {
         let json = r#"{
             "type": "reasoning",
             "content": "text",
@@ -971,14 +971,14 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_intensity_not_equal_cross_variant() {
+    fn test_reasoning_intensity_not_equal_cross_variant() {
         assert!(ReasoningIntensity::Low != ReasoningIntensity::Medium);
         assert!(ReasoningIntensity::Medium != ReasoningIntensity::High);
         assert!(ReasoningIntensity::Low != ReasoningIntensity::High);
     }
 
     #[test]
-    fn response_or_composite_deserialize_array_format() {
+    fn test_response_or_composite_deserialize_array_format() {
         let json = r#"{
             "response": [
                 {"type": "text", "content": "a"},
