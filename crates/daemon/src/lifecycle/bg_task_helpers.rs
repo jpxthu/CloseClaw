@@ -1,8 +1,8 @@
 //! Background task stop helpers — extracted from lifecycle.rs to stay
 //! under the 1000-line file limit.
 
-use super::Daemon;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
+use crate::Daemon;
 use tracing::{error, info, warn};
 
 use crate::lifecycle::TaskStopStatus;

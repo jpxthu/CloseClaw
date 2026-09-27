@@ -66,7 +66,7 @@ SECTIONS = [
     ("clippy::disallowed_methods", "6. 禁用方法 set_var/remove_var（load_env_file 场景除外）",
      "cargo clippy --workspace --all-targets（clippy.toml 由本脚本运行时临时生成，"
      "非仓库文件）：disallowed-methods=[std::env::set_var, std::env::remove_var]",
-     "唯一豁免点：crates/daemon/src/mod.rs 的 load_env_file()，按行级 load_env_file 标记文本豁免"
+     "唯一豁免点：crates/daemon/src/env_file.rs 的 load_env_file()，按行级 load_env_file 标记文本豁免"
      "（与 CI/pre-commit 同口径：命中行内含 load_env_file 标记即豁免）；其余改参数传递/tempfile"),
 ]
 
@@ -91,7 +91,7 @@ for line in open(clippy_json, errors="replace"):
 
 # §6 行级豁免：与 CI/pre-commit（scripts/check-env-var.sh）同口径——命中行内含 load_env_file
 # 标记即豁免。clippy 侧无法表达行级豁免，故在此后处理环节过滤；豁免点为
-# crates/daemon/src/mod.rs 的 load_env_file()（行级文本标记豁免，非 #[allow] 属性）。
+# crates/daemon/src/env_file.rs 的 load_env_file()（行级文本标记豁免，非 #[allow] 属性）。
 # 按 fname 缓存整行列表，消除同一文件的重复打开/重复扫描（纯 no-op 重构，取行口径不变）。
 _SOURCE_LINES = {}
 

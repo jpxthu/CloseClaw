@@ -23,13 +23,13 @@ const BANNED_REMOVE: &str = concat!("re", "move_var");
 /// 统一错误文案必须携带的正确引用：STANDARDS §7 章节。
 const REF_STANDARDS: &str = "docs/developer/STANDARDS.md §7";
 /// 统一错误文案必须携带的正确引用：唯一豁免点的真实路径。
-const REF_EXEMPT_PATH: &str = "crates/daemon/src/mod.rs";
+const REF_EXEMPT_PATH: &str = "crates/daemon/src/env_file.rs";
 /// 统一错误文案必须携带的正确引用：CONTRIBUTING 安全红线章节。
 const REF_CONTRIBUTING: &str = "CONTRIBUTING.md「测试 > 安全红线」";
 
 /// 过期文案回归基线：历史 hook 引用了 CONTRIBUTING.md 中不存在的「环境变量禁令」章节。
 const STALE_SECTION_REF: &str = "环境变量禁令";
-/// 过期文案回归基线：顶层 `daemon/mod.rs` 不存在（真实路径为 crates/daemon/src/mod.rs）。
+/// 过期文案回归基线：`daemon/mod.rs` 不存在（唯一豁免点真实路径为 crates/daemon/src/env_file.rs）。
 const STALE_EXEMPT_PATH: &str = "daemon/mod.rs";
 
 /// 夹具：一行真实的禁令写入调用文本（等价真实调用形态）。

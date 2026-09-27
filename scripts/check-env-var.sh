@@ -12,7 +12,7 @@
 # 退出码: 0=通过, 1=命中禁令, 2=用法错误 / 非 git 仓库
 #
 # 细则: docs/developer/STANDARDS.md §7（并行安全）、CONTRIBUTING.md「测试 > 安全红线」
-# 唯一豁免点: crates/daemon/src/mod.rs 的 load_env_file()
+# 唯一豁免点: crates/daemon/src/env_file.rs 的 load_env_file()
 set -euo pipefail
 
 # 判定程序（单一来源）：all / staged 两种模式共用 is_hit() 的匹配与豁免逻辑
@@ -104,7 +104,7 @@ print_failure() {
     echo "  - 测试中用依赖注入或临时文件路径代替 set_var"
     echo "  - 只读取环境变量请用 std::env::var（安全）"
     echo ""
-    echo "唯一例外：crates/daemon/src/mod.rs 的 load_env_file()（启动阶段加载 .env 文件），"
+    echo "唯一例外：crates/daemon/src/env_file.rs 的 load_env_file()（启动阶段加载 .env 文件），"
     echo "按行级文本标记豁免：命中行内含 load_env_file 标记即豁免。"
     echo ""
     echo "详见 docs/developer/STANDARDS.md §7（并行安全）与 CONTRIBUTING.md「测试 > 安全红线」。"

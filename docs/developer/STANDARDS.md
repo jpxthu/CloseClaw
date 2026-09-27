@@ -96,7 +96,7 @@ let provider = FakeProvider::builder()
 
 - 测试间**不共享可变状态**；不依赖前序测试副作用。
 - 涉及端口、文件锁、全局资源（进程全局 env、单例 registry、共享目录）的测试加 `#[serial_test::serial]`。
-- **禁止 `std::env::set_var` / `remove_var`**（修改进程全局环境在多线程/并行测试下数据竞争）。配置值通过参数/config struct 传递；测试需要隔离配置时用依赖注入或临时文件路径，不用 `set_var`；读环境用 `std::env::var`（只读）。全库唯一例外是 `daemon/mod.rs` 的 `load_env_file()`。违反会被 pre-commit hook 和 CI 拦截。
+- **禁止 `std::env::set_var` / `remove_var`**（修改进程全局环境在多线程/并行测试下数据竞争）。配置值通过参数/config struct 传递；测试需要隔离配置时用依赖注入或临时文件路径，不用 `set_var`；读环境用 `std::env::var`（只读）。全库唯一例外是 `daemon/src/env_file.rs` 的 `load_env_file()`。违反会被 pre-commit hook 和 CI 拦截。
 - 端口不硬编码，用 port 0 让系统分配。
 
 ## 8. 临时文件与 config（/tmp 约束）

@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::test_helpers::load_cm;
+use closeclaw_config::ConfigSection;
 use tempfile::TempDir;
 
 /// [`Daemon::init_llm_registry`] with a deterministic env: the api-key

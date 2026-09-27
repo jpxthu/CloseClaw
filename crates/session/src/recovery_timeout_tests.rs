@@ -254,7 +254,7 @@ mod tests {
     }
 
     /// Verify the daemon-side timeout pattern: match on timeout vs result.
-    /// This mirrors the exact match expression in `daemon/mod.rs`.
+    /// This mirrors the exact match expression in `daemon/src/phase_init.rs`.
     #[tokio::test]
     async fn test_daemon_timeout_pattern_slow_storage() {
         let storage = Arc::new(SlowStorage::new(std::time::Duration::from_secs(20)));
