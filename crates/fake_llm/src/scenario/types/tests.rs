@@ -178,7 +178,10 @@ fn test_usage_response_all_fields_optional() {
 
 #[test]
 fn test_usage_response_cache_fields_missing_deserialize() {
-    let json = r#"{"type": "usage", "prompt_tokens": 10, "completion_tokens": 20, "cache_fields_missing": true}"#;
+    let json = concat!(
+        r#"{"type": "usage", "prompt_tokens": 10, "completion_tokens": 20, "#,
+        r#""cache_fields_missing": true}"#
+    );
     let shape: ResponseShape = serde_json::from_str(json).unwrap();
     match shape {
         ResponseShape::Usage(u) => {
@@ -210,7 +213,10 @@ fn test_usage_response_cache_fields_missing_default_false() {
 
 #[test]
 fn test_text_response_with_cache_fields_missing_usage() {
-    let json = r#"{"type": "text", "content": "hello", "usage": {"prompt_tokens": 10, "cache_fields_missing": true}}"#;
+    let json = concat!(
+        r#"{"type": "text", "content": "hello", "usage": {"prompt_tokens": 10, "#,
+        r#""cache_fields_missing": true}}"#
+    );
     let shape: ResponseShape = serde_json::from_str(json).unwrap();
     match shape {
         ResponseShape::Text(t) => {
@@ -329,8 +335,10 @@ fn test_deserialize_match_condition_tool_name_only() {
 
 #[test]
 fn test_deserialize_response_shape_reasoning_with_data() {
-    let json =
-        r#"{"type": "reasoning", "content": "The answer is 42.", "reasoning": "Let me think..."}"#;
+    let json = concat!(
+        r#"{"type": "reasoning", "content": "The answer is 42.", "#,
+        r#""reasoning": "Let me think..."}"#
+    );
     let shape: ResponseShape = serde_json::from_str(json).unwrap();
     match shape {
         ResponseShape::Reasoning(r) => {
@@ -344,8 +352,10 @@ fn test_deserialize_response_shape_reasoning_with_data() {
 
 #[test]
 fn test_deserialize_response_shape_reasoning_with_signature() {
-    let json =
-        r#"{"type": "reasoning", "content": "ok", "reasoning": "because", "signature": "sig123"}"#;
+    let json = concat!(
+        r#"{"type": "reasoning", "content": "ok", "reasoning": "because", "#,
+        r#""signature": "sig123"}"#
+    );
     let shape: ResponseShape = serde_json::from_str(json).unwrap();
     match shape {
         ResponseShape::Reasoning(r) => {
