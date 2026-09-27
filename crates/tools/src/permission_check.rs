@@ -47,6 +47,7 @@ pub type PermDeps = (
 );
 
 /// Result of a command-level permission check.
+#[derive(Debug)]
 pub(crate) enum CommandPermissionResult {
     /// Command is permitted — execute normally.
     Permitted,
@@ -58,6 +59,39 @@ pub(crate) enum CommandPermissionResult {
     Denied(String),
 }
 
+/// Context for routing a `Denied` permission response through the
+/// approval flow.
+///
+/// Bundles the submission context shared by [`route_denial`] and
+/// [`route_command_denial`] so both take three arguments instead of
+/// seven.
+pub(crate) struct DenialRequest<'a> {
+    pub(crate) caller: &'a Caller,
+    pub(crate) body: &'a PermissionRequestBody,
+    pub(crate) risk_level: RiskLevel,
+    pub(crate) session_id: &'a str,
+    pub(crate) is_sub_agent: bool,
+}
+
+impl<'a> DenialRequest<'a> {
+    /// Bundle the submission context for one denied response.
+    pub(crate) fn new(
+        caller: &'a Caller,
+        body: &'a PermissionRequestBody,
+        risk_level: RiskLevel,
+        session_id: &'a str,
+        is_sub_agent: bool,
+    ) -> Self {
+        Self {
+            caller,
+            body,
+            risk_level,
+            session_id,
+            is_sub_agent,
+        }
+    }
+}
+
 /// Route a `Denied` response through the approval flow.
 ///
 /// On success returns `Ok(Some(ToolResult))` with approval-pending status.
@@ -65,13 +99,16 @@ pub(crate) enum CommandPermissionResult {
 /// returns `Err(PermissionDenied)`.
 async fn route_denial(
     response: &PR,
-    caller: &Caller,
-    body: &PermissionRequestBody,
-    risk_level: RiskLevel,
-    session_id: &str,
-    is_sub_agent: bool,
+    request: DenialRequest<'_>,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
+    let DenialRequest {
+        caller,
+        body,
+        risk_level,
+        session_id,
+        is_sub_agent,
+    } = request;
     let (reason, existing_request_id) = match response {
         PR::Denied {
             reason,
@@ -107,13 +144,16 @@ async fn route_denial(
 /// or `Denied` if the flow rejected it (caller should sandbox the command).
 async fn route_command_denial(
     response: &PR,
-    caller: &Caller,
-    body: &PermissionRequestBody,
-    risk_level: RiskLevel,
-    session_id: &str,
-    is_sub_agent: bool,
+    request: DenialRequest<'_>,
     approval_flow: &Arc<ApprovalMutex>,
 ) -> CommandPermissionResult {
+    let DenialRequest {
+        caller,
+        body,
+        risk_level,
+        session_id,
+        is_sub_agent,
+    } = request;
     let (reason, existing_request_id) = match response {
         PR::Denied {
             reason,
@@ -255,11 +295,7 @@ pub(crate) async fn check_tool_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -327,11 +363,7 @@ pub(crate) async fn check_file_op_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -397,11 +429,7 @@ pub(crate) async fn check_message_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -445,11 +473,7 @@ pub(crate) async fn check_config_write_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -501,11 +525,7 @@ pub async fn check_network_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -559,11 +579,7 @@ pub(crate) async fn check_command_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_command_denial(
                 &response,
-                &caller,
-                &body,
-                risk_level,
-                sid,
-                is_sub_agent,
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -590,3 +606,7 @@ pub(crate) async fn check_command_permission(
 #[cfg(test)]
 #[path = "permission_check_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "permission_check_route_tests.rs"]
+mod route_tests;
