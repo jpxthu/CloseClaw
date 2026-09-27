@@ -72,32 +72,32 @@ fn usage_with(
 // split_segments
 
 #[test]
-fn split_segments_zero_granularity_returns_whole() {
+fn test_split_segments_zero_granularity_returns_whole() {
     let result = split_segments("hello world", 0);
     assert_eq!(result, vec!["hello world"]);
 }
 #[test]
-fn split_segments_longer_than_content() {
+fn test_split_segments_longer_than_content() {
     let result = split_segments("hi", 100);
     assert_eq!(result, vec!["hi"]);
 }
 #[test]
-fn split_segments_exact_boundary() {
+fn test_split_segments_exact_boundary() {
     let result = split_segments("abcd", 2);
     assert_eq!(result, vec!["ab", "cd"]);
 }
 #[test]
-fn split_segments_with_remainder() {
+fn test_split_segments_with_remainder() {
     let result = split_segments("abcde", 2);
     assert_eq!(result, vec!["ab", "cd", "e"]);
 }
 #[test]
-fn split_segments_unicode() {
+fn test_split_segments_unicode() {
     let result = split_segments("你好世界", 2);
     assert_eq!(result, vec!["你好", "世界"]);
 }
 #[test]
-fn split_segments_empty_string() {
+fn test_split_segments_empty_string() {
     let result = split_segments("", 5);
     assert_eq!(result, vec![""]);
 }
@@ -105,7 +105,7 @@ fn split_segments_empty_string() {
 // OpenAI SSE
 
 #[test]
-fn openai_sse_text_only() {
+fn test_openai_sse_text_only() {
     let blocks = vec![text_block("Hello!")];
     let usage = default_usage();
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
@@ -120,7 +120,7 @@ fn openai_sse_text_only() {
 }
 
 #[test]
-fn openai_sse_with_usage() {
+fn test_openai_sse_with_usage() {
     let blocks = vec![text_block("Hi")];
     let usage = default_usage();
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
@@ -133,7 +133,7 @@ fn openai_sse_with_usage() {
 }
 
 #[test]
-fn openai_sse_reasoning_block() {
+fn test_openai_sse_reasoning_block() {
     let blocks = vec![reasoning_block("Let me think", "The answer is 42")];
     let usage = default_usage();
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
@@ -148,7 +148,7 @@ fn openai_sse_reasoning_block() {
 }
 
 #[test]
-fn openai_sse_tool_call_block() {
+fn test_openai_sse_tool_call_block() {
     let blocks = vec![tool_call_block("get_weather", r#"{"city":"BJ"}"#)];
     let usage = default_usage();
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 0);
@@ -168,7 +168,7 @@ fn openai_sse_tool_call_block() {
 }
 
 #[test]
-fn openai_sse_tool_call_segmented() {
+fn test_openai_sse_tool_call_segmented() {
     let blocks = vec![tool_call_block("search", "abcdef")];
     let usage = default_usage();
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, false, 3);
@@ -188,7 +188,7 @@ fn openai_sse_tool_call_segmented() {
 }
 
 #[test]
-fn openai_sse_mixed_text_and_tool() {
+fn test_openai_sse_mixed_text_and_tool() {
     let blocks = vec![
         text_block("Let me look that up"),
         tool_call_block("search", r#"{"q":"rust"}"#),
@@ -205,7 +205,7 @@ fn openai_sse_mixed_text_and_tool() {
 // Anthropic SSE
 
 #[test]
-fn anthropic_sse_text_only() {
+fn test_anthropic_sse_text_only() {
     let blocks = vec![text_block("Hello!")];
     let usage = default_usage();
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -222,7 +222,7 @@ fn anthropic_sse_text_only() {
 }
 
 #[test]
-fn anthropic_sse_reasoning_block() {
+fn test_anthropic_sse_reasoning_block() {
     let blocks = vec![reasoning_block("Thinking...", "Done.")];
     let usage = default_usage();
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -240,7 +240,7 @@ fn anthropic_sse_reasoning_block() {
 }
 
 #[test]
-fn anthropic_sse_reasoning_with_signature() {
+fn test_anthropic_sse_reasoning_with_signature() {
     let blocks = vec![reasoning_block_with_sig(
         "reasoning text",
         "answer",
@@ -259,7 +259,7 @@ fn anthropic_sse_reasoning_with_signature() {
 }
 
 #[test]
-fn anthropic_sse_tool_call_block() {
+fn test_anthropic_sse_tool_call_block() {
     let blocks = vec![tool_call_block("get_weather", r#"{"city":"BJ"}"#)];
     let usage = default_usage();
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -281,7 +281,7 @@ fn anthropic_sse_tool_call_block() {
 }
 
 #[test]
-fn anthropic_sse_tool_call_segmented() {
+fn test_anthropic_sse_tool_call_segmented() {
     let blocks = vec![tool_call_block("search", "abcdef")];
     let usage = default_usage();
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 3);
@@ -293,7 +293,7 @@ fn anthropic_sse_tool_call_segmented() {
 }
 
 #[test]
-fn anthropic_sse_multiple_blocks() {
+fn test_anthropic_sse_multiple_blocks() {
     let blocks = vec![
         reasoning_block("Thinking...", "Result"),
         text_block("Here is the answer"),
@@ -310,7 +310,7 @@ fn anthropic_sse_multiple_blocks() {
 // SseEvent structure
 
 #[test]
-fn sse_event_fields_and_clone() {
+fn test_sse_event_fields_and_clone() {
     let e1 = SseEvent {
         event_type: "msg".into(),
         data: "dat".into(),
@@ -323,7 +323,7 @@ fn sse_event_fields_and_clone() {
 
 // KV cache field serialization
 #[test]
-fn openai_finish_with_cache_hit_tokens() {
+fn test_openai_finish_with_cache_hit_tokens() {
     let blocks = vec![text_block("Hi")];
     let usage = usage_with(Some(100), Some(50), Some(50), None);
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
@@ -332,7 +332,7 @@ fn openai_finish_with_cache_hit_tokens() {
 }
 
 #[test]
-fn openai_finish_without_cache_hit_tokens() {
+fn test_openai_finish_without_cache_hit_tokens() {
     let blocks = vec![text_block("Hi")];
     let usage = usage_with(Some(100), Some(50), None, None);
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
@@ -341,7 +341,7 @@ fn openai_finish_without_cache_hit_tokens() {
 }
 
 #[test]
-fn openai_finish_cache_hit_zero_omitted() {
+fn test_openai_finish_cache_hit_zero_omitted() {
     let blocks = vec![text_block("Hi")];
     let usage = usage_with(Some(100), Some(50), Some(0), None);
     let events = generate_openai_sse(&blocks, "gpt-4", &usage, true, 0);
@@ -350,7 +350,7 @@ fn openai_finish_cache_hit_zero_omitted() {
 }
 
 #[test]
-fn anthropic_start_includes_cache_fields() {
+fn test_anthropic_start_includes_cache_fields() {
     let blocks = vec![text_block("Hello!")];
     let usage = usage_with(Some(200), Some(100), Some(150), Some(200));
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -360,7 +360,7 @@ fn anthropic_start_includes_cache_fields() {
 }
 
 #[test]
-fn anthropic_start_cache_fields_default_zero() {
+fn test_anthropic_start_cache_fields_default_zero() {
     let blocks = vec![text_block("Hello!")];
     let usage = usage_with(Some(200), Some(100), None, None);
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -370,7 +370,7 @@ fn anthropic_start_cache_fields_default_zero() {
 }
 
 #[test]
-fn anthropic_delta_includes_cache_read_tokens() {
+fn test_anthropic_delta_includes_cache_read_tokens() {
     let blocks = vec![text_block("Hello!")];
     let usage = usage_with(Some(200), Some(100), Some(150), None);
     let events = generate_anthropic_sse(&blocks, "claude-3", &usage, 0);
@@ -379,7 +379,7 @@ fn anthropic_delta_includes_cache_read_tokens() {
 }
 
 #[test]
-fn anthropic_start_cache_fields_missing_with_explicit_injection() {
+fn test_anthropic_start_cache_fields_missing_with_explicit_injection() {
     let blocks = vec![text_block("Hello!")];
     let mut usage = usage_with(Some(200), Some(100), Some(150), Some(200));
     usage.cache_fields_missing = true;
@@ -391,7 +391,7 @@ fn anthropic_start_cache_fields_missing_with_explicit_injection() {
 }
 
 #[test]
-fn anthropic_start_cache_fields_missing_no_explicit_omits_cache_tokens() {
+fn test_anthropic_start_cache_fields_missing_no_explicit_omits_cache_tokens() {
     let blocks = vec![text_block("Hello!")];
     let mut usage = usage_with(Some(200), Some(100), None, None);
     usage.cache_fields_missing = true;
@@ -409,7 +409,7 @@ fn anthropic_start_cache_fields_missing_no_explicit_omits_cache_tokens() {
 }
 
 #[test]
-fn anthropic_delta_cache_fields_missing_with_explicit_injection() {
+fn test_anthropic_delta_cache_fields_missing_with_explicit_injection() {
     let blocks = vec![text_block("Hello!")];
     let mut usage = usage_with(Some(200), Some(100), Some(150), None);
     usage.cache_fields_missing = true;
@@ -420,7 +420,7 @@ fn anthropic_delta_cache_fields_missing_with_explicit_injection() {
 }
 
 #[test]
-fn anthropic_delta_cache_fields_missing_no_explicit_omits_cache_tokens() {
+fn test_anthropic_delta_cache_fields_missing_no_explicit_omits_cache_tokens() {
     let blocks = vec![text_block("Hello!")];
     let mut usage = usage_with(Some(200), Some(100), None, None);
     usage.cache_fields_missing = true;
