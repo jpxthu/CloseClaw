@@ -494,8 +494,8 @@ async fn deliver_non_streaming_delay_no_error() {
 // SseEventStream — max_events edge cases
 // ------------------------------------------------------------------
 
-#[tokio::test]
-async fn sse_event_stream_max_events_zero() {
+#[test]
+fn test_sse_event_stream_max_events_zero() {
     let events = vec![
         SseEvent {
             event_type: "message".into(),
@@ -506,10 +506,19 @@ async fn sse_event_stream_max_events_zero() {
             data: "b".into(),
         },
     ];
-    let stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    let count = drain_count(stream);
-    assert_eq!(
-        count, 0,
-        "expected max_events=Some(0) to drain 0 events, got {count}"
+    let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    // Boundary + state transition: with max_events=Some(0) the very first poll
+    // must be Ready(None) — the truncation check in SseEventStream::poll_next
+    // short-circuits before the segment-delay / tokio::spawn path, so the stream
+    // terminates immediately and emits no first frame (0 events total); a Pending
+    // or an event on this first poll is a regression.
+    // Polled explicitly instead of via drain_count: the helper stops at both
+    // Pending and Ready(None), so it cannot tell a clean termination from a stall.
+    let first = Pin::new(&mut stream).poll_next(&mut cx);
+    assert!(
+        matches!(first, Poll::Ready(None)),
+        "expected first poll with max_events=Some(0) to be Ready(None), got {first:?}"
     );
 }
