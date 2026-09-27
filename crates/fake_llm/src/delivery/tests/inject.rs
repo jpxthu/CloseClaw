@@ -495,7 +495,7 @@ async fn deliver_non_streaming_delay_no_error() {
 // ------------------------------------------------------------------
 
 #[test]
-fn sse_event_stream_max_events_zero() {
+fn test_sse_event_stream_max_events_zero() {
     let events = vec![
         SseEvent {
             event_type: "message".into(),
@@ -510,17 +510,15 @@ fn sse_event_stream_max_events_zero() {
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
     // Boundary + state transition: with max_events=Some(0) the very first poll
-    // must be Ready(None) — terminate immediately, emit no first frame (0 events
-    // total), and never stall at Pending (a Pending would hang the SSE response).
+    // must be Ready(None) — the truncation check in SseEventStream::poll_next
+    // short-circuits before the segment-delay / tokio::spawn path, so the stream
+    // terminates immediately and emits no first frame (0 events total); a Pending
+    // or an event on this first poll is a regression.
     // Polled explicitly instead of via drain_count: the helper stops at both
     // Pending and Ready(None), so it cannot tell a clean termination from a stall.
-    match Pin::new(&mut stream).poll_next(&mut cx) {
-        Poll::Ready(None) => {}
-        Poll::Ready(Some(_)) => {
-            panic!("expected first poll with max_events=Some(0) to be Ready(None), got an event")
-        }
-        Poll::Pending => {
-            panic!("expected first poll with max_events=Some(0) to be Ready(None), got Pending")
-        }
-    }
+    let first = Pin::new(&mut stream).poll_next(&mut cx);
+    assert!(
+        matches!(first, Poll::Ready(None)),
+        "expected first poll with max_events=Some(0) to be Ready(None), got {first:?}"
+    );
 }
