@@ -1,0 +1,255 @@
+//! GLM parsing tests: error mapping, content extraction, and chat
+//! response parsing.
+
+use super::*;
+use crate::provider::ProviderError;
+use crate::types::RawContentBlock;
+
+// --- Fixture-based deserialization and content extraction tests ---
+
+// TODO: Rewrite with v2 fixtures (glm/{model}/openai/ and glm/{model}/anthropic/)
+// #[test]
+// fn test_glm_5_1_chat_extract_reasoning() { ... }
+// #[test]
+// fn test_glm_4_7_simple_chat_extract_reasoning() { ... }
+// #[test]
+// fn test_glm_4_5_air_chat_extract_reasoning() { ... }
+// #[test]
+// fn test_glm_5_1_multi_turn() { ... }
+
+// --- Error mapping tests ---
+
+// TODO: Rewrite with v2 error fixtures (glm/{model}/openai/error-*.json)
+// #[test]
+// fn test_glm_error_invalid_model() { ... }
+// #[test]
+// fn test_glm_error_empty_messages() { ... }
+
+#[test]
+fn test_glm_error_unknown_code() {
+    let err = GlmProvider::map_glm_error("9999", "some unknown error");
+    match err {
+        ProviderError::Legacy(msg) => {
+            assert!(msg.contains("9999"), "should contain 9999");
+        }
+        other => panic!("Expected Legacy error, got: {:?}", other),
+    }
+}
+
+// --- extract_content edge cases ---
+
+#[test]
+fn test_extract_content_prefers_non_empty_content() {
+    let msg = GlmMessage {
+        role: "assistant".to_string(),
+        content: "Hello, World!".to_string(),
+        reasoning_content: Some("I am thinking...".to_string()),
+    };
+    let extracted = GlmProvider::extract_content(&msg);
+    assert_eq!(extracted, "Hello, World!");
+}
+
+#[test]
+fn test_extract_content_falls_back_to_reasoning() {
+    let msg = GlmMessage {
+        role: "assistant".to_string(),
+        content: "   ".to_string(),
+        reasoning_content: Some("Thinking process...".to_string()),
+    };
+    let extracted = GlmProvider::extract_content(&msg);
+    assert_eq!(extracted, "Thinking process...");
+}
+
+#[test]
+fn test_extract_content_whitespace_only_reasoning() {
+    let msg = GlmMessage {
+        role: "assistant".to_string(),
+        content: "".to_string(),
+        reasoning_content: Some("   ".to_string()),
+    };
+    let extracted = GlmProvider::extract_content(&msg);
+    assert_eq!(extracted, "");
+}
+
+#[test]
+fn test_extract_content_both_empty() {
+    let msg = GlmMessage {
+        role: "assistant".to_string(),
+        content: "".to_string(),
+        reasoning_content: None,
+    };
+    let extracted = GlmProvider::extract_content(&msg);
+    assert_eq!(extracted, "");
+}
+
+// --- parse_chat_response tests ---
+
+/// Build a GlmResponse with one choice, optional content, and
+/// optional reasoning_content.
+fn make_glm_response(content: &str, reasoning: Option<&str>) -> GlmResponse {
+    GlmResponse {
+        choices: Some(vec![GlmChoice {
+            message: GlmMessage {
+                role: "assistant".to_string(),
+                content: content.to_string(),
+                reasoning_content: reasoning.map(String::from),
+            },
+        }]),
+        usage: Some(GlmUsage {
+            prompt_tokens: 10,
+            completion_tokens: 20,
+            total_tokens: 30,
+            completion_tokens_details: None,
+            prompt_tokens_details: None,
+        }),
+        model: "glm-5.1".to_string(),
+        error: None,
+    }
+}
+
+/// 1. Normal path: content + reasoning both present and long enough
+///    → Text(content) + Thinking(reasoning)
+#[test]
+fn test_parse_chat_response_content_and_reasoning() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response(
+        "Final answer",
+        Some("Let me think step by step..."),
+    ));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Final answer".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Thinking {
+            thinking: "Let me think step by step...".to_string(),
+            signature: None,
+        }
+    );
+}
+
+/// 2. Degrade path: content empty + reasoning non-empty
+///    → Text(reasoning) only, no Thinking block
+#[test]
+fn test_parse_chat_response_content_empty_reasoning_degraded() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response(
+        "",
+        Some("Hidden reasoning that becomes visible"),
+    ));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hidden reasoning that becomes visible".to_string())
+    );
+}
+
+/// 3. Short reasoning demoted: reasoning_content is 1 char (below
+///    MIN_REASONING_LENGTH=2) → demoted to Text block.
+#[test]
+fn test_parse_chat_response_short_reasoning_demoted() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some(".")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text(".".to_string())
+    );
+}
+
+/// Boundary: reasoning length 0 (empty string after trim is filtered
+/// out by the Option filter, so it behaves like None — text only).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_0() {
+    // reasoning_content set to empty string — trimmed & filtered → None
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+}
+
+/// Boundary: reasoning length 1 → below MIN_REASONING_LENGTH (2),
+/// demoted to Text.
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_1() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("x")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("x".to_string())
+    );
+}
+
+/// Boundary: reasoning length 2 == MIN_REASONING_LENGTH → still demoted
+/// (the check is `> MIN_REASONING_LENGTH` for Thinking).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_2() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("ab")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Text("ab".to_string())
+    );
+}
+
+/// Boundary: reasoning length 3 > MIN_REASONING_LENGTH (2) → Thinking
+/// block (not demoted).
+#[test]
+fn test_parse_chat_response_short_reasoning_boundary_3() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Hello", Some("abc")));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 2);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Hello".to_string())
+    );
+    assert_eq!(
+        resp.content_blocks[1],
+        RawContentBlock::Thinking {
+            thinking: "abc".to_string(),
+            signature: None,
+        }
+    );
+}
+
+/// 4. Plain text: content non-empty, no reasoning_content
+///    → Text(content) only
+#[test]
+fn test_parse_chat_response_text_only() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("Just text", None));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(
+        resp.content_blocks[0],
+        RawContentBlock::Text("Just text".to_string())
+    );
+}
+
+/// 5. Empty response: content empty, no reasoning_content
+///    → empty Text block (fallback)
+#[test]
+fn test_parse_chat_response_empty_response() {
+    let resp = GlmProvider::parse_chat_response(make_glm_response("", None));
+    let resp = resp.expect("should succeed");
+    assert_eq!(resp.content_blocks.len(), 1);
+    assert_eq!(resp.content_blocks[0], RawContentBlock::Text(String::new()));
+}
