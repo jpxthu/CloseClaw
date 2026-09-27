@@ -52,8 +52,11 @@ fn test_parse_sse_line_whitespace_prefix() {
 #[test]
 fn test_parse_sse_line_delta_with_reasoning_content() {
     // DELTA payload: chunk with assistant role and reasoning_content
-    let line = "data: {\"id\":\"abc\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\
-                \"assistant\",\"reasoning_content\":\"thinking...\"}}]}";
+    let line = concat!(
+        r#"data: {"id":"abc","choices":[{"index":0,"#,
+        r#""delta":{"role":"assistant","#,
+        r#""reasoning_content":"thinking..."}}]}"#,
+    );
     let data = parse_sse_line(line).expect("should parse");
     assert!(data.contains("reasoning_content"));
     assert!(data.contains("thinking..."));

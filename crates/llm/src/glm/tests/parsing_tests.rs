@@ -253,3 +253,9 @@ fn test_parse_chat_response_empty_response() {
     assert_eq!(resp.content_blocks.len(), 1);
     assert_eq!(resp.content_blocks[0], RawContentBlock::Text(String::new()));
 }
+
+// --- Token details deserialization ---
+
+// TODO: Rewrite with v2 fixture (glm/glm-5.2/openai/glm-thinking.json, etc.)
+// #[test]
+// fn test_glm_5_1_reasoning_tokens_details() { ... }
