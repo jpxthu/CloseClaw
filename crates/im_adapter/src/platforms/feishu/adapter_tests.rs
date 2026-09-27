@@ -5,10 +5,12 @@ use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::plugin::IMPlugin;
+use crate::IMAdapter;
 use closeclaw_common::MessageType;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use serial_test::serial;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a test MediaStore rooted in a temp directory.

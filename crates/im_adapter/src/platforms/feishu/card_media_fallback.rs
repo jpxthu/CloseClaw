@@ -5,6 +5,7 @@
 //! them separately via text message API and `dispatch_send_media`.
 
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::RenderedOutput;
 use tracing::warn;
 
 use super::renderer::extract_card_plain_text;
@@ -59,7 +60,7 @@ pub(super) async fn dispatch_send_media(
 pub(super) async fn send_media_from_card(
     adapter: &super::FeishuAdapter,
     peer_id: &str,
-    output: &super::RenderedOutput,
+    output: &RenderedOutput,
 ) {
     let elements = match output
         .payload
@@ -114,7 +115,7 @@ pub(super) async fn send_media_from_card(
 pub(super) async fn send_interactive_fallback(
     adapter: &super::FeishuAdapter,
     peer_id: &str,
-    output: &super::RenderedOutput,
+    output: &RenderedOutput,
     reply_ref: Option<&super::send_helpers::ReplyTarget>,
 ) {
     let plain_text = extract_card_plain_text(&output.payload);

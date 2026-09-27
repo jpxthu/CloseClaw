@@ -6,6 +6,7 @@
 use super::*;
 use crate::media_store::MediaStore;
 use closeclaw_common::{MediaType, MessageType};
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a test MediaStore rooted in a temp directory.

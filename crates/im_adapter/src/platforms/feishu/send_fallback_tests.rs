@@ -10,6 +10,8 @@
 
 use super::*;
 use crate::plugin::IMPlugin;
+use crate::IMAdapter;
+use closeclaw_common::{AdapterError as CommonAdapterError, RenderedOutput};
 use serial_test::serial;
 use std::io::Write;
 use std::sync::Arc;

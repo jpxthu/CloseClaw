@@ -6,7 +6,8 @@
 //! - Identity mapping: accounts.json loaded correctly, resolve returns
 //!   expected account_id, missing file falls back to sender_id
 
-use super::{load_identity_resolver, load_platforms_config};
+use super::config::load_platforms_config;
+use super::identity::load_identity_resolver;
 use std::fs;
 use tempfile::TempDir;
 
