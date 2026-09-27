@@ -13,11 +13,11 @@ use crate::types::RawSseChunk;
 /// Serve `body` as an SSE response on a loopback mock server, run
 /// `run_sse_stream` to completion, and return every chunk it forwarded.
 ///
-/// A spawned collector drains the channel while the handler runs, so the
-/// bounded capacity never limits the event count. The handler drops the
-/// sender when it returns (body end or `[DONE]`), which closes the channel
-/// and ends the collector — completion is signaled by channel close, no
-/// sleeping involved.
+/// The handler drops the sender when it returns (body end or `[DONE]`),
+/// which closes the channel, so the sequential drain below ends at channel
+/// close — no collector task, no sleeping involved. Test bodies carry a
+/// handful of events, well under the bounded capacity, so the awaited
+/// sends never block.
 async fn collect_forwarded_chunks(body: &str) -> Vec<RawSseChunk> {
     let mut server = mockito::Server::new_async().await;
     let mock = server
@@ -33,16 +33,47 @@ async fn collect_forwarded_chunks(body: &str) -> Vec<RawSseChunk> {
         .expect("loopback mock SSE response should be fetched");
 
     let (tx, mut rx) = mpsc::channel(64);
-    let collector = tokio::spawn(async move {
-        let mut chunks = Vec::new();
-        while let Some(chunk) = rx.recv().await {
-            chunks.push(chunk);
-        }
-        chunks
-    });
-
     run_sse_stream(response, tx).await;
-    let chunks = collector.await.expect("collector task should finish");
+
+    let mut chunks = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        chunks.push(chunk);
+    }
+
+    mock.assert_async().await;
+    chunks
+}
+
+/// Like [`collect_forwarded_chunks`], but serve the response as a chunked
+/// body written from `parts`: each element becomes one HTTP chunk, which
+/// hyper delivers as its own frame, so the handler observes each part in a
+/// separate `stream.next()` step regardless of TCP segmentation.
+async fn collect_forwarded_chunks_chunked(parts: &'static [&'static str]) -> Vec<RawSseChunk> {
+    let mut server = mockito::Server::new_async().await;
+    let mock = server
+        .mock("GET", "/sse")
+        .with_status(200)
+        .with_header("content-type", "text/event-stream")
+        .with_chunked_body(move |w| {
+            for part in parts {
+                w.write_all(part.as_bytes())?;
+            }
+            Ok(())
+        })
+        .create_async()
+        .await;
+
+    let response = reqwest::get(format!("{}/sse", server.url()))
+        .await
+        .expect("loopback mock SSE response should be fetched");
+
+    let (tx, mut rx) = mpsc::channel(64);
+    run_sse_stream(response, tx).await;
+
+    let mut chunks = Vec::new();
+    while let Some(chunk) = rx.recv().await {
+        chunks.push(chunk);
+    }
 
     mock.assert_async().await;
     chunks
@@ -93,6 +124,24 @@ async fn test_glm_sse_done_terminates_stream() {
     );
 }
 
+/// `[DONE]` returns from inside the main parse path's line loop: later
+/// `data: ` lines in the *same* event block share its `\n\n` terminator,
+/// yet must never be forwarded once the marker line is seen.
+#[tokio::test]
+async fn test_glm_sse_done_skips_later_lines_in_same_block() {
+    let chunks = collect_forwarded_chunks(concat!(
+        "data: {\"seq\": 1}\n\n",
+        "data: [DONE]\ndata: {\"seq\": 2}\n\n",
+    ))
+    .await;
+
+    assert_eq!(
+        data_of(&chunks),
+        vec!["{\"seq\": 1}"],
+        "data lines after [DONE] inside the same event block must be skipped"
+    );
+}
+
 /// Multiple complete events in the buffer are split on the `\n\n` separator
 /// and forwarded as separate chunks, in arrival order.
 #[tokio::test]
@@ -138,6 +187,25 @@ async fn test_glm_sse_flushes_trailing_buffer_without_terminator() {
     );
 }
 
+/// `[DONE]` in the trailing residual buffer takes the flush path's early
+/// return: the marker line has no `\n\n` terminator behind it, so it is
+/// only reachable through the residual-buffer branch, which must return
+/// before the line following it is forwarded.
+#[tokio::test]
+async fn test_glm_sse_done_in_trailing_buffer_returns_early() {
+    let chunks = collect_forwarded_chunks(concat!(
+        "data: {\"seq\": 1}\n\n",
+        "data: [DONE]\ndata: {\"seq\": 2}",
+    ))
+    .await;
+
+    assert_eq!(
+        data_of(&chunks),
+        vec!["{\"seq\": 1}"],
+        "the residual-buffer [DONE] branch must return before forwarding later lines"
+    );
+}
+
 /// Non-data lines and empty blocks are ignored: comment lines (`:`),
 /// `event:` fields, `data:` without the space prefix, and stray blank
 /// separators never produce chunks — only proper `data: ` lines do.
@@ -159,3 +227,31 @@ async fn test_glm_sse_ignores_non_data_and_empty_lines() {
         "comment/event/no-space lines and empty blocks must be skipped"
     );
 }
+
+/// The `\n\n` separator can straddle two network chunks: the first HTTP
+/// chunk ends with a lone `\n`, so the first event stays buffered until the
+/// next `stream.next()` step supplies the rest. Both events must still be
+/// forwarded in order — buffer carry-over across read iterations.
+#[tokio::test]
+async fn test_glm_sse_separator_split_across_network_chunks() {
+    let chunks =
+        collect_forwarded_chunks_chunked(&["data: {\"seq\": 1}\n", "\ndata: {\"seq\": 2}\n\n"])
+            .await;
+
+    assert_eq!(
+        data_of(&chunks),
+        vec!["{\"seq\": 1}", "{\"seq\": 2}"],
+        "an event split across network chunks must be carried until complete"
+    );
+}
+
+// The stream read-error branch (`Err(_) => break` in `streaming.rs`, then
+// the residual-buffer flush) is intentionally left uncovered: injecting the
+// error through `with_chunked_body` races against hyper's server-side
+// flush. The body-error frame can be consumed before the buffered data
+// frame reaches the socket, so the client sometimes receives only the
+// response head and then a read error with an empty buffer (observed ~5
+// failures per 100 runs). Any assertion over that path would depend on
+// scheduling, which is forbidden as flaky; a deterministic injection point
+// would require constructing the `reqwest::Response` body directly instead
+// of going through the loopback mock.
