@@ -67,6 +67,9 @@ mod trace_id_tests;
 mod try_resolve_media_path_tests;
 pub(crate) mod xml_content;
 
+pub(crate) mod config;
+mod identity;
+
 use self::cardkit_streaming::CardkitStreamingRenderer;
 use self::outbound_media::{prepare_outbound_local_media, upload_file, upload_image};
 use crate::error::AdapterError;
@@ -82,16 +85,16 @@ use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
 };
-use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::CredentialsProvider;
 use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel, TraceContext};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tracing::{debug, info, warn};
 
 use super::PlatformEntry;
+use config::{load_media_config, load_platforms_config};
+use identity::convert_to_common_error;
 
 pub use adapter::FeishuAdapter;
 use renderer::build_card;
@@ -119,90 +122,8 @@ inventory::submit!(PlatformEntry {
     },
 });
 
-/// Root platforms configuration loaded from `platforms.json`.
-///
-/// Each key is a platform name and `enabled` controls whether
-/// the platform plugin is registered at startup.
-#[derive(Debug, Clone, Deserialize, Default)]
-#[serde(default)]
-pub(crate) struct PlatformsConfig {
-    platforms: HashMap<String, PlatformEnabledEntry>,
-}
-
-/// A single platform entry in `platforms.json`.
-#[derive(Debug, Clone, Deserialize, Default)]
-pub(crate) struct PlatformEnabledEntry {
-    #[serde(default)]
-    enabled: bool,
-}
-
-impl PlatformsConfig {
-    /// Check whether a platform is explicitly enabled.
-    fn is_enabled(&self, platform: &str) -> bool {
-        self.platforms.get(platform).is_some_and(|e| e.enabled)
-    }
-}
-
-/// Load `{config_dir}/config/platforms.json`.
-///
-/// Returns an empty config when the file is missing or unparseable.
-pub(crate) fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
-    let path = std::path::Path::new(config_dir)
-        .join("config")
-        .join("platforms.json");
-    match std::fs::read_to_string(&path) {
-        Ok(json) => match serde_json::from_str::<PlatformsConfig>(&json) {
-            Ok(cfg) => cfg,
-            Err(e) => {
-                warn!(
-                    error = %e,
-                    path = %path.display(),
-                    "failed to parse platforms.json — all platforms disabled"
-                );
-                PlatformsConfig::default()
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            info!("platforms.json not found — all platforms disabled");
-            PlatformsConfig::default()
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                path = %path.display(),
-                "failed to read platforms.json — all platforms disabled"
-            );
-            PlatformsConfig::default()
-        }
-    }
-}
-
-/// Load `{config_dir}/config/media.json`.
-///
-/// Returns default config when the file is missing or unparseable.
-pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConfigData {
-    let path = std::path::Path::new(config_dir)
-        .join("config")
-        .join("media.json");
-    match closeclaw_config::MediaConfigData::from_file(&path) {
-        Ok(cfg) => {
-            info!(
-                storage_dir = %cfg.storage_dir,
-                "media config loaded from {}",
-                path.display()
-            );
-            cfg
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                path = %path.display(),
-                "failed to load media.json — using defaults"
-            );
-            closeclaw_config::MediaConfigData::default()
-        }
-    }
-}
+// Platforms/media config loading and identity mapping live in the
+// [`config`] and [`identity`] sub-modules.
 
 /// Register the Feishu plugin with the Gateway.
 ///
@@ -251,7 +172,7 @@ pub async fn register(
 
         // Load identity mapping from config file (best-effort).
         let identity_resolver: Option<Arc<dyn IdentityResolver>> =
-            load_identity_resolver(config_dir);
+            identity::load_identity_resolver(config_dir);
 
         let mut plugin = FeishuPlugin::with_identity_resolver(adapter, identity_resolver);
 
@@ -292,68 +213,8 @@ pub async fn register(
     }
 }
 
-/// Try to load identity mappings from `{config_dir}/config/accounts.json`.
-///
-/// Returns `Some(Arc<ConfigIdentityResolver>)` when the file exists and
-/// contains a valid JSON object with an `accounts` array, or `None` on
-/// any error / missing file.
-pub(crate) fn load_identity_resolver(config_dir: &str) -> Option<Arc<dyn IdentityResolver>> {
-    use closeclaw_config::AccountsConfigData;
-
-    let path = std::path::Path::new(config_dir)
-        .join("config")
-        .join("accounts.json");
-    match std::fs::read_to_string(&path) {
-        Ok(json) => match AccountsConfigData::from_json_str(&json) {
-            Ok(accounts_data) => {
-                let resolver = ConfigIdentityResolver::new(accounts_data.accounts);
-                if resolver.is_empty() {
-                    info!("accounts.json loaded but empty — no mappings configured");
-                    None
-                } else {
-                    info!(
-                        count = resolver.len(),
-                        "identity mapping loaded from {}",
-                        path.display()
-                    );
-                    Some(Arc::new(resolver))
-                }
-            }
-            Err(e) => {
-                tracing::warn!(
-                    error = %e,
-                    path = %path.display(),
-                    "failed to parse accounts.json — skipping identity mapping"
-                );
-                None
-            }
-        },
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
-            info!("accounts.json not found — identity mapping disabled");
-            None
-        }
-        Err(e) => {
-            tracing::warn!(
-                error = %e,
-                path = %path.display(),
-                "failed to read accounts.json — skipping identity mapping"
-            );
-            None
-        }
-    }
-}
-
-/// Convert im_adapter error to common error.
-fn convert_to_common_error(e: AdapterError) -> CommonAdapterError {
-    match e {
-        AdapterError::InvalidPayload(s) => CommonAdapterError::InvalidPayload(s),
-        AdapterError::AuthFailed => CommonAdapterError::AuthFailed,
-        AdapterError::SendFailed(s) => CommonAdapterError::SendFailed(s),
-        AdapterError::InvalidSignature => CommonAdapterError::InvalidSignature,
-        AdapterError::IoError(e) => CommonAdapterError::IoError(e),
-        AdapterError::UnsupportedOperation => CommonAdapterError::UnsupportedOperation,
-    }
-}
+// Identity mapping loader and im_adapter → common error conversion
+// live in the [`identity`] sub-module.
 
 /// Unified IM plugin for Feishu.
 pub struct FeishuPlugin {
