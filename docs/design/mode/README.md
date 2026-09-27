@@ -12,8 +12,8 @@
 | 模式 | 说明 |
 |------|------|
 | 默认模式 | 无模式标记时的行为状态——Agent 按完整配置运行，全工具集可用，无额外行为约束 |
-| Plan Mode | Agent 只做规划不做执行——工具集受限为只读（仅 plan 文件可写）。User 可反复要求 Agent 修改 plan。Plan Mode 没有审批栅栏——User 说"执行"时才退出 |
-| Auto Mode | Agent 连续自主执行 plan 步骤，不等 User 逐步确认，但危险操作仍需 User 审批。可直接进入，不需要先经过 Plan Mode |
+| Plan Mode | Agent 只做规划不做执行——工具集受限为只读（仅 plan 文件可写）。User 可反复要求 Agent 修改 plan。Plan Mode 没有审批栅栏——退出由 User 决定：触发执行时退出并进入 Auto Mode，`/mode normal` 则直接退回默认模式 |
+| Auto Mode | Agent 连续自主执行 plan 步骤，不等 User 逐步确认，但危险操作仍需 Owner 审批。可直接进入，不需要先经过 Plan Mode |
 
 ### 模式切换规则
 
@@ -91,6 +91,7 @@
 |------|---------|
 | Slash Command | `/plan`、`/mode`、`/execute`、`/plans` 命令入口 |
 | User | 自然语言触发执行 |
+| Config | 提供 Mode 配置项（plan 命名格式、审计日志上限、plan 归档天数等），mode 读取后生效（详见 [config](../config/README.md)） |
 
 ### 下游
 
@@ -109,3 +110,21 @@
 | LLM Provider | 不直接调用 |
 | Processor Chain / Renderer | 无关 |
 | IM Adapter | 无关 |
+
+### 共享类型
+
+模式相关的跨模块数据结构定义在 [common 模块](../common/README.md)：
+
+- [PlanState](../common/shared-types.md#planstate)：规划阶段的会话状态结构。mode 模块创建、阶段推进时更新、退出 Plan Mode 时销毁；Session 随 checkpoint 持久化并在恢复时重建
+
+### 代码映射
+
+mode 模块没有独立的 crate，其设计定义对应的代码分散托管于以下 crate：
+
+- **execution crate**：plan 执行引擎（由 mode 模块拆出的独立 crate，对应本模块 [execution.md](execution.md)）
+- **slash crate**：模式相关斜杠指令的入口解析与 Handler（`/plan`、`/mode`、`/execute`、`/plans`）
+- **session crate**：会话模式字段的存储与延迟生效（切换语义见 [session-lifecycle.md](../session/session-lifecycle.md) 模式切换节）
+- **common crate**：跨模块共享的模式相关类型（见上方「共享类型」）
+- **tools crate**：mode 执行触发工具的注册接入（工具权威定义见 [execution.md](execution.md)）
+
+以上为 mode 模块设计定义与代码 crate 的对应登记；crate 结构与设计文档的对应规则见 [STANDARDS.md「crate 结构跟随文档」](../STANDARDS.md)。

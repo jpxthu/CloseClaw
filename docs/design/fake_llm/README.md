@@ -72,7 +72,9 @@ CloseClaw 二进制发起 LLM 请求（OpenAI 或 Anthropic 协议）
 
 Fake LLM Server 是测试基础设施，与 CloseClaw 的关系是**黑盒替换**：不引用任何 CloseClaw 代码，通过配置 CloseClaw 的模型端点（models.json 的 base_url）指向本地地址接入，被测对象是编译后的真实二进制。协议正确性锚定 [llm/protocol-mapping](../llm/protocol-mapping.md)（协议→统一块映射）与 [llm/model-discovery](../llm/model-discovery.md)（模型发现行为）。
 
-- **上游**：无代码上游（CloseClaw 二进制是它的 HTTP 客户端，非模块依赖）
-- **下游**：无（测试断言由测试代码消费其响应与日志）
+- **上游**：CloseClaw 二进制（黑盒 HTTP 客户端，经配置指向本服务——非模块依赖，不引用任何 CloseClaw 代码）
+- **下游**：测试代码（消费其响应与日志进行断言——非模块依赖）
 - **无关**：`tests/fixtures/llm/` 的供应商 fixture 体系（采集真实供应商响应，验证供应商特有行为；Fake LLM Server 实现协议标准，两者互补不重叠，见 [fixtures](fixtures.md) 的分工）
-- **被测行为的权威定义**：跨轮用量统计、KV cache 命中率与命中率下降告警 → [session/llm-session-enhancements](../session/llm-session-enhancements.md)；用量字段提取与协议归一化、缓存策略 → [llm](../llm/README.md)。fake_llm 只制造输入，不定义被测行为的对错标准
+- **共享类型**：无——Fake LLM Server 以黑盒方式接入（不引用任何 CloseClaw 代码），与各模块之间不传递任何共享数据结构
+
+被测行为的对错标准不在本模块定义：跨轮用量统计、KV cache 命中率与命中率下降告警的权威定义见 [session/llm-session-enhancements](../session/llm-session-enhancements.md)；用量字段提取与协议归一化、缓存策略见 [llm](../llm/README.md)。fake_llm 只制造输入，不定义被测行为的对错标准。

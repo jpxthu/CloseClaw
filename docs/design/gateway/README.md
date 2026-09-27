@@ -134,17 +134,18 @@ Gateway 在以下场景调用 Permission 模块：
 
 Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不经过权限检查。工具调用的权限检查由 tools 模块触发，Gateway 不参与。
 
-### 模块关系
+## 模块关系
 
-### 上游（输入来源）
+### 上游
 
 | 模块 | 关系 |
 |------|------|
 | IM Adapter | 入站消息通过插件进入 Gateway 入站处理 |
 | Session | LLM 响应以 ContentBlock[] 形式传入 Gateway 出站发送；系统通知经 Gateway 通用系统通知接口发送 |
 | Config | Gateway 读取机器人与 Agent 的绑定关系（机器人→Agent 绑定由 [config accounts.json](../config/README.md) 承载），据此确定普通消息路由到的 Agent；绑定属重启生效类，变更经配置模块确认后触发网关重启生效 |
+| Daemon | 统一协调 Gateway 的优雅关闭（ShutdownHandle drain 计数与排空）与配置触发的重启；Gateway 是被管理组件之一（详见 [daemon README](../daemon/README.md)）|
 
-### 下游（Gateway 调用谁）
+### 下游
 
 | 模块 | 关系 |
 |------|------|
@@ -154,6 +155,13 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 | IM Adapter | 选择对应平台插件完成出站渲染与发送 |
 | Permission | 斜杠指令高危操作执行前校验 |
 | 审批工作流（Permission 模块） | `/approve-once`、`/approve-whitelist`、`/deny` 指令的审批流转管理（审批请求入队、Owner 通知、回调处理），详见 [审批工作流](../permission/approval-workflow.md) |
+
+### 无关
+
+- **Bootstrap**（无调用关系）：Gateway 不参与 Bootstrap 加载
+- **System Prompt**（仅注入不构建）：Gateway 不构建 system prompt 内容，但 SessionManager 持有 SystemPromptBuilder / DynamicPromptBuilder 并注入 session（DI 接线，见 [common core-traits](../common/core-traits.md)）
+- **LLM Provider**（不发起请求）：Gateway 不直接调用 LLM。Gateway 提供 LlmCaller 抽象的具体实现（[FallbackLlmCaller](../common/core-traits.md#llmcaller)，桥接统一客户端），但真实 Provider 请求由 LLM 模块完成。
+- **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用
 
 ### 共享类型
 
@@ -168,10 +176,3 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - RenderedOutput：IM Adapter 渲染产出，Gateway 中间件消费（只读不修改），最终由 IM Adapter 发送接口投递
 
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
-
-### 无关
-
-- **Bootstrap**（无调用关系）：Gateway 不参与 Bootstrap 加载
-- **System Prompt**（仅注入不构建）：Gateway 不构建 system prompt 内容，但 SessionManager 持有 SystemPromptBuilder / DynamicPromptBuilder 并注入 session（DI 接线，见 [common core-traits](../common/core-traits.md)）
-- **LLM Provider**（不发起请求）：Gateway 不直接调用 LLM。Gateway 提供 LlmCaller 抽象的具体实现（[FallbackLlmCaller](../common/core-traits.md#llmcaller)，桥接统一客户端），但真实 Provider 请求由 LLM 模块完成。
-- **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用
