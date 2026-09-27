@@ -548,6 +548,7 @@ fn parse_anthropic_values(
 
 /// Stage: message_start header fields plus input usage, both sides.
 /// `expected_input_tokens` distinguishes the case: text = 11, tool-use = 39.
+#[track_caller]
 fn assert_anthropic_message_start(
     gen_values: &[serde_json::Value],
     fix_values: &[serde_json::Value],
