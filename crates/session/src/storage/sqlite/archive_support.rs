@@ -332,43 +332,28 @@ fn parse_metadata(metadata: &Option<String>) -> Result<ParsedMetadata, Persisten
     })
 }
 
-/// Load a SessionCheckpoint from an open DB connection.
-pub fn load_checkpoint_inner(
-    conn: &Connection,
+/// State resolved from the raw `sessions` row (stage ② output of
+/// `load_checkpoint_inner`): typed enums plus the transcript messages read
+/// from disk.
+struct ResolvedSessionState {
+    depth: u32,
+    mined: bool,
+    dreaming_status: crate::persistence::DreamingStatus,
+    status: crate::persistence::SessionStatus,
+    transcript_messages_from_jsonl: Vec<crate::llm_session::SessionMessage>,
+}
+
+/// Stage ② of `load_checkpoint_inner`: resolve raw fields into types/enums
+/// (depth / mined / dreaming_status / status) and read the transcript file
+/// according to the resolved status.
+fn resolve_session_state(
     data_dir: &Path,
     session_id: &str,
-) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-    // --- Stage ①: row query + raw column destructure ---
-    let Some(row) = query_session_row(conn, session_id)? else {
-        return Ok(None);
-    };
-    let (
-        agent_id_str,
-        role_str,
-        channel,
-        chat_id,
-        status_db,
-        _title,
-        last_msg_ts,
-        created_ts,
-        _archived_ts,
-        msg_count,
-        metadata,
-        thread_id,
-        sender_id,
-        platform_new,
-        peer_id_new,
-        account_id_new,
-        parent_session_id,
-        depth_str,
-        mined_raw,
-        dreaming_status_raw,
-        plan_state_raw,
-        mined_at_raw,
-        last_user_activity_at_raw,
-    ) = row;
-
-    // --- Stage ②: raw fields → types/enums ---
+    status_db: &str,
+    depth_str: Option<String>,
+    mined_raw: &Option<String>,
+    dreaming_status_raw: &Option<String>,
+) -> Result<ResolvedSessionState, PersistenceError> {
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
 
     // mined: handle both INTEGER (0/1) and TEXT ("0"/"1") representations
@@ -382,7 +367,7 @@ pub fn load_checkpoint_inner(
         dreaming_status_raw.as_deref().unwrap_or("completed"),
     );
 
-    let status = match status_db.as_str() {
+    let status = match status_db {
         "archived" => crate::persistence::SessionStatus::Archived,
         "migrating" => crate::persistence::SessionStatus::Migrating,
         _ => crate::persistence::SessionStatus::Active,
@@ -418,8 +403,47 @@ pub fn load_checkpoint_inner(
         return Err(PersistenceError::NotFound(session_id.to_string()));
     };
 
-    // --- Stage ③: snapshot metadata JSON parsing ---
-    let parsed_meta = parse_metadata(&metadata)?;
+    Ok(ResolvedSessionState {
+        depth,
+        mined,
+        dreaming_status,
+        status,
+        transcript_messages_from_jsonl,
+    })
+}
+
+/// Assemble the final `SessionCheckpoint` (stage ④ of
+/// `load_checkpoint_inner`) from the resolved row state, the parsed snapshot
+/// metadata and the remaining raw fields.
+#[allow(clippy::too_many_arguments)]
+fn build_checkpoint(
+    session_id: &str,
+    resolved: ResolvedSessionState,
+    parsed_meta: ParsedMetadata,
+    agent_id_str: String,
+    role_str: String,
+    channel: String,
+    chat_id: String,
+    thread_id: Option<String>,
+    sender_id: Option<String>,
+    platform_new: Option<String>,
+    peer_id_new: Option<String>,
+    account_id_new: Option<String>,
+    parent_session_id: Option<String>,
+    plan_state_raw: Option<String>,
+    mined_at_raw: Option<i64>,
+    last_user_activity_at_raw: Option<i64>,
+    last_msg_ts: i64,
+    created_ts: i64,
+    msg_count: i64,
+) -> SessionCheckpoint {
+    let ResolvedSessionState {
+        depth,
+        mined,
+        dreaming_status,
+        status,
+        transcript_messages_from_jsonl,
+    } = resolved;
     let ParsedMetadata {
         mode_state: mode_state_val,
         reasoning_mode_raw: mode_val,
@@ -434,11 +458,10 @@ pub fn load_checkpoint_inner(
         None
     };
 
-    // --- Stage ④: checkpoint assembly ---
     let last_message_id: Option<String> = None;
     let transcript_messages: Vec<crate::llm_session::SessionMessage> =
         transcript_messages_from_jsonl;
-    Ok(Some(SessionCheckpoint {
+    SessionCheckpoint {
         session_id: session_id.to_string(),
         last_message_id,
         mode_state: mode_state_val,
@@ -515,7 +538,78 @@ pub fn load_checkpoint_inner(
         workflow_run: None,
         recovery_workflow_messages: Vec::new(),
         system_injection_appends: Vec::new(),
-    }))
+    }
+}
+
+/// Load a SessionCheckpoint from an open DB connection.
+pub fn load_checkpoint_inner(
+    conn: &Connection,
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+    // --- Stage ①: row query + raw column destructure ---
+    let Some(row) = query_session_row(conn, session_id)? else {
+        return Ok(None);
+    };
+    let (
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        status_db,
+        _title,
+        last_msg_ts,
+        created_ts,
+        _archived_ts,
+        msg_count,
+        metadata,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        depth_str,
+        mined_raw,
+        dreaming_status_raw,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+    ) = row;
+
+    // --- Stage ②: raw fields → types/enums + transcript read ---
+    let resolved = resolve_session_state(
+        data_dir,
+        session_id,
+        &status_db,
+        depth_str,
+        &mined_raw,
+        &dreaming_status_raw,
+    )?;
+
+    // --- Stage ③④: snapshot metadata JSON parsing + checkpoint assembly ---
+    let parsed_meta = parse_metadata(&metadata)?;
+    Ok(Some(build_checkpoint(
+        session_id,
+        resolved,
+        parsed_meta,
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+        last_msg_ts,
+        created_ts,
+        msg_count,
+    )))
 }
 
 /// Read transcript (pending_messages) from a .jsonl file.
