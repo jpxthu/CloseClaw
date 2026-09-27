@@ -522,7 +522,11 @@ impl Gateway {
     }
 
     /// Build a [`Message`] for checkpoint persistence from outbound fields.
-    fn make_outbound_msg(
+    ///
+    /// `pub(crate)` so the aggregate-struct unit tests can assert the
+    /// `CheckpointMeta` → `Message` field mapping directly (same crate-level
+    /// visibility as the other outbound helpers).
+    pub(crate) fn make_outbound_msg(
         channel: &str,
         to: String,
         id: String,
