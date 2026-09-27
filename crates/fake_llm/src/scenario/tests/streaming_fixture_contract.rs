@@ -57,7 +57,7 @@ fn parse_sse_text(text: &str) -> Vec<(String, String)> {
 }
 
 /// Build a RequestFeatures from a streaming meta JSON value.
-fn request_features_from_meta(meta: &serde_json::Value, is_anthropic: bool) -> RequestFeatures {
+fn request_features_from_meta(meta: &serde_json::Value, protocol: ProtocolKind) -> RequestFeatures {
     let req = meta.get("request").expect("meta must have request");
     let messages_raw = req
         .get("messages")
@@ -99,7 +99,11 @@ fn request_features_from_meta(meta: &serde_json::Value, is_anthropic: bool) -> R
         .get("max_tokens_sent")
         .and_then(|v| v.as_u64())
         .map(|v| v as u32)
-        .or(if is_anthropic { Some(1024) } else { None });
+        .or(if protocol == ProtocolKind::Anthropic {
+            Some(1024)
+        } else {
+            None
+        });
 
     let model = meta
         .get("model")
@@ -114,11 +118,7 @@ fn request_features_from_meta(meta: &serde_json::Value, is_anthropic: bool) -> R
         temperature: None,
         messages,
         tools,
-        protocol: if is_anthropic {
-            ProtocolKind::Anthropic
-        } else {
-            ProtocolKind::OpenAi
-        },
+        protocol,
     }
 }
 
@@ -160,7 +160,7 @@ fn setup_streaming_case(
     let txt_content = load_streaming_fixture(&root.join(txt_rel)).unwrap();
     let scenario = make_streaming_scenario(&meta, shape);
     let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
-    let features = request_features_from_meta(&meta, protocol == ProtocolKind::Anthropic);
+    let features = request_features_from_meta(&meta, protocol);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
         _ => panic!("expected Decision"),
@@ -182,15 +182,16 @@ fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> UsageResponse {
 }
 
 /// Generate OpenAI SSE events for a decision: carry its usage (empty
-/// fallback) with `include_usage` from the fixtures' meta `stream_options`,
-/// at the given segment granularity.
+/// fallback) at the given segment granularity. `include_usage` is passed
+/// fixed `true`, consistent with `stream_options.include_usage=true` in both
+/// OpenAI fixture metas; this helper does not read the meta.
 fn generate_openai_events(decision: &ScenarioDecision, granularity: usize) -> Vec<SseEvent> {
     let usage_resp = decision.usage.clone().unwrap_or_default();
     generate_openai_sse(
         &decision.response_blocks,
         &decision.model,
         &usage_resp,
-        true, // include_usage from meta stream_options
+        true, // fixed true, matches both fixture metas (helper reads no meta)
         granularity,
     )
 }
