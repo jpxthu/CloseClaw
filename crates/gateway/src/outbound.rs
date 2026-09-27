@@ -305,13 +305,17 @@ impl Gateway {
         if ctx.channel == "feishu" {
             let send_duration_ms = send_start.elapsed().as_millis() as u64;
             crate::outbound_helpers::emit_feishu_send_event(
-                self,
-                ctx.trace_id.as_deref().unwrap_or(""),
-                ctx.session_key.as_deref(),
+                crate::outbound_helpers::SendDebugCtx {
+                    gateway: self,
+                    trace_id: ctx.trace_id.as_deref(),
+                    session_key: ctx.session_key.as_deref(),
+                    parent: None,
+                    source_module: "feishu",
+                    event_type: "feishu.api.send",
+                },
                 ctx.channel,
                 &ctx.chat_id,
                 send_duration_ms,
-                None,
             );
         }
         if let Err(e) = send_result {
@@ -345,13 +349,16 @@ impl Gateway {
         crate::outbound_helpers::persist_outbound_checkpoint(self, ctx.session_id, &msg, true)
             .await;
         crate::outbound_helpers::emit_send_completed_log(
-            self,
-            ctx.session_id,
+            crate::outbound_helpers::SendDebugCtx {
+                gateway: self,
+                trace_id: ctx.trace_id.as_deref(),
+                session_key: ctx.session_key.as_deref(),
+                parent: None,
+                source_module: "gateway",
+                event_type: "send.completed",
+            },
             ctx.channel,
             &ctx.chat_id,
-            ctx.trace_id.as_deref(),
-            ctx.session_key.as_deref(),
-            None,
         );
         Ok(SendOutcome::Sent)
     }
