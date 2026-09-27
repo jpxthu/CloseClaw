@@ -491,66 +491,53 @@ fn test_openai_streaming_tool_use_fixture_matches_semantics() {
 }
 
 // ---------------------------------------------------------------------------
-// Anthropic streaming fixture tests
+// Anthropic streaming assertion helpers (one per assertion stage)
 // ---------------------------------------------------------------------------
 
-/// UNPRODUCED_FIELDS (Anthropic streaming):
-/// - `id` in message_start: fixture has `msg_01_stream_fake_model_e5f6a7b8c9d0e1f2`;
-///   code generates `msg_fake_{model}` — shape-locked
-/// - `usage.service_tier`: fixture has "standard"; code omits
-/// - `usage.cache_creation_input_tokens` / `cache_read_input_tokens`:
-///   fixture has 0/0; code produces `{input_tokens, output_tokens}` only
-/// - `stop_sequence`: fixture has null; code omits
-#[test]
-fn test_anthropic_streaming_text_fixture_matches_semantics() {
-    let root = fixture_root();
-    let meta_path = root.join("anthropic/anthropic-streaming-meta.json");
-    let meta = load_streaming_meta(&meta_path).unwrap();
-    let txt_path = root.join("anthropic/anthropic-streaming.txt");
-    let txt_content = load_streaming_fixture(&txt_path).unwrap();
+/// Locate the first event whose `type` field equals `event_type`.
+///
+/// `from_fixture` selects the original `.expect(...)` wording:
+/// `"should have {type}"` for generated events and
+/// `"fixture should have {type}"` for fixture events.
+fn find_by_type<'a>(
+    values: &'a [serde_json::Value],
+    event_type: &str,
+    from_fixture: bool,
+) -> &'a serde_json::Value {
+    values
+        .iter()
+        .find(|v| v["type"].as_str() == Some(event_type))
+        .unwrap_or_else(|| {
+            let prefix = if from_fixture {
+                "fixture should have "
+            } else {
+                "should have "
+            };
+            panic!("{prefix}{event_type}")
+        })
+}
 
-    // Build scenario with text block
-    let shape = ResponseShape::Text(TextResponse {
-        content: "Hello there friend.".to_string(),
-        usage: Some(UsageResponse {
-            prompt_tokens: Some(11),
-            completion_tokens: Some(4),
-            reasoning_tokens: None,
-            cache_hit_tokens: None,
-            cache_write_tokens: None,
-            cache_fields_missing: false,
-        }),
-    });
-    let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
-    let features = request_features_from_meta(&meta, true);
-    let decision = match engine.decide(&features) {
-        crate::DecisionOutcome::Decision(d) => d,
-        _ => panic!("expected Decision"),
-    };
-
-    // Generate SSE events
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 0);
-
-    // Parse fixture
-    let fixture_events = parse_sse_text(&txt_content);
-
-    // --- Event type sequence ---
-    assert_eq!(events.len(), 7, "should have 7 events");
-
-    // Parse all generated events
+/// Parse every generated SSE payload and every fixture payload into JSON.
+fn parse_anthropic_values(
+    events: &[SseEvent],
+    fixture_events: &[(String, String)],
+) -> (Vec<serde_json::Value>, Vec<serde_json::Value>) {
     let gen_values: Vec<serde_json::Value> = events
         .iter()
         .map(|e| serde_json::from_str(&e.data).unwrap())
         .collect();
-
-    // Parse all fixture events
     let fix_values: Vec<serde_json::Value> = fixture_events
         .iter()
         .map(|(_, data)| serde_json::from_str(data).unwrap())
         .collect();
+    (gen_values, fix_values)
+}
 
+/// Stage: message_start header fields plus input usage, both sides.
+fn assert_anthropic_text_message_start(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: message_start ---
     assert_eq!(gen_values[0]["type"], "message");
     assert_eq!(gen_values[0]["role"], "assistant");
@@ -568,34 +555,37 @@ fn test_anthropic_streaming_text_fixture_matches_semantics() {
     // --- Semantic: input usage in message_start ---
     assert_eq!(gen_values[0]["usage"]["input_tokens"], 11);
     assert_eq!(fix_values[0]["message"]["usage"]["input_tokens"], 11);
+}
 
+/// Stage: content_block_start (text) located by `type`, both sides.
+fn assert_anthropic_text_block_start(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: content_block_start (match by type, not index) ---
-    let gen_block_start = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_start"))
-        .expect("should have content_block_start");
+    let gen_block_start = find_by_type(gen_values, "content_block_start", false);
     assert_eq!(gen_block_start["index"], 0);
     assert_eq!(gen_block_start["content_block"]["type"], "text");
 
-    let fix_block_start = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_start"))
-        .expect("fixture should have content_block_start");
+    let fix_block_start = find_by_type(fix_values, "content_block_start", true);
     assert_eq!(fix_block_start["index"], 0);
     assert_eq!(fix_block_start["content_block"]["type"], "text");
+}
 
+/// Stage: ping event present on both sides (match by type, not index).
+fn assert_anthropic_ping(gen_values: &[serde_json::Value], fix_values: &[serde_json::Value]) {
     // --- Semantic: ping (match by type, not index) ---
-    let gen_ping = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("ping"))
-        .expect("should have ping");
-    let fix_ping = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("ping"))
-        .expect("fixture should have ping");
+    let gen_ping = find_by_type(gen_values, "ping", false);
+    let fix_ping = find_by_type(fix_values, "ping", true);
     assert_eq!(gen_ping["type"], "ping");
     assert_eq!(fix_ping["type"], "ping");
+}
 
+/// Stage: accumulated text deltas plus per-side text_delta event counts.
+fn assert_anthropic_text_deltas(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: text deltas (fixture has word-boundary splits) ---
     // The code produces a single text_delta with full content.
     // The fixture splits at word boundaries: "Hello", " there", " friend", "."
@@ -641,113 +631,13 @@ fn test_anthropic_streaming_text_fixture_matches_semantics() {
         4,
         "fixture should have 4 text_delta events"
     );
-
-    // --- Semantic: content_block_stop (match by type, not index) ---
-    let gen_block_stop = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_stop"))
-        .expect("should have content_block_stop");
-    assert_eq!(gen_block_stop["index"], 0);
-
-    let fix_block_stop = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_stop"))
-        .expect("fixture should have content_block_stop");
-    assert_eq!(fix_block_stop["index"], 0);
-
-    // --- Semantic: message_delta with stop_reason (match by type) ---
-    let gen_msg_delta = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_delta"))
-        .expect("should have message_delta");
-    assert_eq!(gen_msg_delta["delta"]["stop_reason"], "end_turn");
-    assert_eq!(gen_msg_delta["usage"]["output_tokens"], 4);
-
-    let fix_msg_delta = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_delta"))
-        .expect("fixture should have message_delta");
-    assert_eq!(fix_msg_delta["delta"]["stop_reason"], "end_turn");
-    assert_eq!(fix_msg_delta["usage"]["output_tokens"], 4);
-
-    // --- Semantic: message_stop (match by type) ---
-    let gen_msg_stop = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_stop"))
-        .expect("should have message_stop");
-    let fix_msg_stop = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_stop"))
-        .expect("fixture should have message_stop");
-    assert_eq!(gen_msg_stop["type"], "message_stop");
-    assert_eq!(fix_msg_stop["type"], "message_stop");
-
-    // --- Shape-locked: id format ---
-    let id = gen_values[0]["id"].as_str().unwrap_or("");
-    assert!(!id.is_empty(), "message id should be non-empty");
 }
 
-// ---------------------------------------------------------------------------
-// Anthropic tool-use streaming fixture tests
-// ---------------------------------------------------------------------------
-
-/// UNPRODUCED_FIELDS (Anthropic tool-use streaming):
-/// - `id` in content_block_start: fixture has `toolu_fake_01_RB518jPIPEP2M9orwlNX7643`;
-///   code generates `toolu_{model}_{idx}` — shape-locked
-/// - `content_block_start.content_block.input`: fixture has `{}`;
-///   code omits this field
-/// - `usage.service_tier`: fixture has "standard"; code omits
-/// - `usage.cache_creation_input_tokens` / `cache_read_input_tokens`:
-///   fixture has 0/0; code omits
-/// - `stop_sequence`: fixture has null; code omits
-#[test]
-fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
-    let root = fixture_root();
-    let meta_path = root.join("anthropic/anthropic-tool-use-streaming-meta.json");
-    let meta = load_streaming_meta(&meta_path).unwrap();
-    let txt_path = root.join("anthropic/anthropic-tool-use-streaming.txt");
-    let txt_content = load_streaming_fixture(&txt_path).unwrap();
-
-    // Build scenario with tool_call block
-    let shape = ResponseShape::ToolCall(ToolCallResponse {
-        calls: vec![ToolCallEntry {
-            name: "get_weather".to_string(),
-            arguments: r#"{"location": "San Francisco"}"#.to_string(),
-        }],
-        usage: Some(UsageResponse {
-            prompt_tokens: Some(39),
-            completion_tokens: Some(45),
-            reasoning_tokens: None,
-            cache_hit_tokens: None,
-            cache_write_tokens: None,
-            cache_fields_missing: false,
-        }),
-    });
-    let scenario = make_streaming_scenario(&meta, shape);
-    let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
-    let features = request_features_from_meta(&meta, true);
-    let decision = match engine.decide(&features) {
-        crate::DecisionOutcome::Decision(d) => d,
-        _ => panic!("expected Decision"),
-    };
-
-    // Generate SSE events — granularity=1 for character-level input_json_delta
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 1);
-
-    // Parse fixture
-    let fixture_events = parse_sse_text(&txt_content);
-
-    // Parse all events
-    let gen_values: Vec<serde_json::Value> = events
-        .iter()
-        .map(|e| serde_json::from_str(&e.data).unwrap())
-        .collect();
-    let fix_values: Vec<serde_json::Value> = fixture_events
-        .iter()
-        .map(|(_, data)| serde_json::from_str(data).unwrap())
-        .collect();
-
+/// Stage: message_start header fields plus input usage (tool-use case).
+fn assert_anthropic_tool_message_start(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: message_start ---
     assert_eq!(gen_values[0]["type"], "message");
     assert_eq!(gen_values[0]["role"], "assistant");
@@ -759,7 +649,13 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     assert_eq!(fix_values[0]["type"], "message_start");
     assert_eq!(fix_values[0]["message"]["role"], "assistant");
     assert_eq!(fix_values[0]["message"]["usage"]["input_tokens"], 39);
+}
 
+/// Stage: content_block_start (tool_use) by index, including shape-locked id.
+fn assert_anthropic_tool_block_start(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: content_block_start (tool_use) ---
     assert_eq!(gen_values[1]["type"], "content_block_start");
     assert_eq!(gen_values[1]["index"], 0);
@@ -772,7 +668,13 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     assert_eq!(fix_values[1]["type"], "content_block_start");
     assert_eq!(fix_values[1]["content_block"]["type"], "tool_use");
     assert_eq!(fix_values[1]["content_block"]["name"], "get_weather");
+}
 
+/// Stage: accumulated input_json_delta payload plus non-empty counts.
+fn assert_anthropic_tool_json_deltas(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
     // --- Semantic: input_json_delta chunks ---
     // Fixture splits by character:
     // {, ", l, o, c, a, t, i, o, n, ", :,  , ", S, a, n,  , F, r, a, n, c, i, s, c, o, ", }
@@ -811,44 +713,146 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
         !fix_json_deltas.is_empty(),
         "fixture should have input_json_delta events"
     );
+}
 
-    // --- Semantic: content_block_stop ---
-    let gen_block_stop = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_stop"))
-        .expect("should have content_block_stop");
+/// Stage: content_block_stop index on both sides (match by type, not index).
+fn assert_anthropic_content_block_stop(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
+    // --- Semantic: content_block_stop (match by type, not index) ---
+    let gen_block_stop = find_by_type(gen_values, "content_block_stop", false);
     assert_eq!(gen_block_stop["index"], 0);
 
-    let fix_block_stop = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("content_block_stop"))
-        .expect("fixture should have content_block_stop");
+    let fix_block_stop = find_by_type(fix_values, "content_block_stop", true);
     assert_eq!(fix_block_stop["index"], 0);
+}
 
-    // --- Semantic: message_delta with tool_use stop_reason ---
-    let gen_msg_delta = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_delta"))
-        .expect("should have message_delta");
-    assert_eq!(gen_msg_delta["delta"]["stop_reason"], "tool_use");
-    assert_eq!(gen_msg_delta["usage"]["output_tokens"], 45);
+/// Stage: message_delta stop_reason and output usage on both sides.
+fn assert_anthropic_message_delta(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+    stop_reason: &str,
+    output_tokens: u32,
+) {
+    // --- Semantic: message_delta with stop_reason (match by type) ---
+    let gen_msg_delta = find_by_type(gen_values, "message_delta", false);
+    assert_eq!(gen_msg_delta["delta"]["stop_reason"], stop_reason);
+    assert_eq!(gen_msg_delta["usage"]["output_tokens"], output_tokens);
 
-    let fix_msg_delta = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_delta"))
-        .expect("fixture should have message_delta");
-    assert_eq!(fix_msg_delta["delta"]["stop_reason"], "tool_use");
-    assert_eq!(fix_msg_delta["usage"]["output_tokens"], 45);
+    let fix_msg_delta = find_by_type(fix_values, "message_delta", true);
+    assert_eq!(fix_msg_delta["delta"]["stop_reason"], stop_reason);
+    assert_eq!(fix_msg_delta["usage"]["output_tokens"], output_tokens);
+}
 
-    // --- Semantic: message_stop ---
-    let gen_msg_stop = gen_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_stop"))
-        .expect("should have message_stop");
-    let fix_msg_stop = fix_values
-        .iter()
-        .find(|v| v["type"].as_str() == Some("message_stop"))
-        .expect("fixture should have message_stop");
+/// Stage: message_stop sentinel on both sides (match by type, not index).
+fn assert_anthropic_message_stop(
+    gen_values: &[serde_json::Value],
+    fix_values: &[serde_json::Value],
+) {
+    // --- Semantic: message_stop (match by type) ---
+    let gen_msg_stop = find_by_type(gen_values, "message_stop", false);
+    let fix_msg_stop = find_by_type(fix_values, "message_stop", true);
     assert_eq!(gen_msg_stop["type"], "message_stop");
     assert_eq!(fix_msg_stop["type"], "message_stop");
+}
+
+/// Shape-locked: non-empty message id on the generated message_start.
+fn assert_anthropic_message_id(gen_values: &[serde_json::Value]) {
+    // --- Shape-locked: id format ---
+    let id = gen_values[0]["id"].as_str().unwrap_or("");
+    assert!(!id.is_empty(), "message id should be non-empty");
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic streaming fixture tests
+// ---------------------------------------------------------------------------
+
+/// UNPRODUCED_FIELDS (Anthropic streaming):
+/// - `id` in message_start: fixture has `msg_01_stream_fake_model_e5f6a7b8c9d0e1f2`;
+///   code generates `msg_fake_{model}` — shape-locked
+/// - `usage.service_tier`: fixture has "standard"; code omits
+/// - `usage.cache_creation_input_tokens` / `cache_read_input_tokens`:
+///   fixture has 0/0; code produces `{input_tokens, output_tokens}` only
+/// - `stop_sequence`: fixture has null; code omits
+#[test]
+fn test_anthropic_streaming_text_fixture_matches_semantics() {
+    // Build scenario with text block
+    let shape = ResponseShape::Text(TextResponse {
+        content: "Hello there friend.".to_string(),
+        usage: Some(usage_response(11, 4)),
+    });
+    let (decision, fixture_events) = setup_streaming_case(
+        "anthropic/anthropic-streaming-meta.json",
+        "anthropic/anthropic-streaming.txt",
+        shape,
+        true,
+    );
+
+    // Generate SSE events with granularity=0 (single delta per block)
+    let usage_resp = decision.usage.clone().unwrap_or_default();
+    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 0);
+    let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
+
+    // --- Event type sequence ---
+    assert_eq!(events.len(), 7, "should have 7 events");
+    // --- Semantic: message_start + input usage / content_block_start / ping ---
+    assert_anthropic_text_message_start(&gen_values, &fix_values);
+    assert_anthropic_text_block_start(&gen_values, &fix_values);
+    assert_anthropic_ping(&gen_values, &fix_values);
+    // --- Semantic: text deltas (accumulated + counts) ---
+    assert_anthropic_text_deltas(&gen_values, &fix_values);
+    // --- Semantic: content_block_stop / message_delta / message_stop ---
+    assert_anthropic_content_block_stop(&gen_values, &fix_values);
+    assert_anthropic_message_delta(&gen_values, &fix_values, "end_turn", 4);
+    assert_anthropic_message_stop(&gen_values, &fix_values);
+    // --- Shape-locked: id format ---
+    assert_anthropic_message_id(&gen_values);
+}
+
+// ---------------------------------------------------------------------------
+// Anthropic tool-use streaming fixture tests
+// ---------------------------------------------------------------------------
+
+/// UNPRODUCED_FIELDS (Anthropic tool-use streaming):
+/// - `id` in content_block_start: fixture has `toolu_fake_01_RB518jPIPEP2M9orwlNX7643`;
+///   code generates `toolu_{model}_{idx}` — shape-locked
+/// - `content_block_start.content_block.input`: fixture has `{}`;
+///   code omits this field
+/// - `usage.service_tier`: fixture has "standard"; code omits
+/// - `usage.cache_creation_input_tokens` / `cache_read_input_tokens`:
+///   fixture has 0/0; code omits
+/// - `stop_sequence`: fixture has null; code omits
+#[test]
+fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
+    // Build scenario with tool_call block
+    let shape = ResponseShape::ToolCall(ToolCallResponse {
+        calls: vec![ToolCallEntry {
+            name: "get_weather".to_string(),
+            arguments: r#"{"location": "San Francisco"}"#.to_string(),
+        }],
+        usage: Some(usage_response(39, 45)),
+    });
+    let (decision, fixture_events) = setup_streaming_case(
+        "anthropic/anthropic-tool-use-streaming-meta.json",
+        "anthropic/anthropic-tool-use-streaming.txt",
+        shape,
+        true,
+    );
+
+    // Generate SSE events — granularity=1 for character-level input_json_delta
+    let usage_resp = decision.usage.clone().unwrap_or_default();
+    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 1);
+    let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
+
+    // --- Semantic: message_start + input usage ---
+    assert_anthropic_tool_message_start(&gen_values, &fix_values);
+    // --- Semantic: content_block_start (tool_use) + shape-locked id ---
+    assert_anthropic_tool_block_start(&gen_values, &fix_values);
+    // --- Semantic: input_json_delta (accumulated + counts) ---
+    assert_anthropic_tool_json_deltas(&gen_values, &fix_values);
+    // --- Semantic: content_block_stop / message_delta / message_stop ---
+    assert_anthropic_content_block_stop(&gen_values, &fix_values);
+    assert_anthropic_message_delta(&gen_values, &fix_values, "tool_use", 45);
+    assert_anthropic_message_stop(&gen_values, &fix_values);
 }
