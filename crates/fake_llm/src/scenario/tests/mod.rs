@@ -32,7 +32,7 @@ fn features(model: &str, msg: &str) -> RequestFeatures {
 }
 
 #[test]
-fn decide_no_match_no_fallback_returns_error() {
+fn test_decide_no_match_no_fallback_returns_error() {
     let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let feat = features("gpt-4", "hello");
     let outcome = engine.decide(&feat);
@@ -46,7 +46,7 @@ fn decide_no_match_no_fallback_returns_error() {
 }
 
 #[test]
-fn decide_matches_scenario_and_returns_turn() {
+fn test_decide_matches_scenario_and_returns_turn() {
     let scenario = ScenarioDeclaration {
         name: "basic".to_string(),
         match_: None,
@@ -98,7 +98,7 @@ fn decide_matches_scenario_and_returns_turn() {
 }
 
 #[test]
-fn decide_error_injection() {
+fn test_decide_error_injection() {
     let scenario = ScenarioDeclaration {
         name: "error-scene".to_string(),
         match_: None,
@@ -133,7 +133,7 @@ fn decide_error_injection() {
 }
 
 #[test]
-fn decide_captures_usage() {
+fn test_decide_captures_usage() {
     let scenario = ScenarioDeclaration {
         name: "usage-scene".to_string(),
         match_: None,
@@ -168,7 +168,7 @@ fn decide_captures_usage() {
 }
 
 #[test]
-fn decide_captures_delay() {
+fn test_decide_captures_delay() {
     let scenario = ScenarioDeclaration {
         name: "delay-scene".to_string(),
         match_: None,
@@ -245,7 +245,7 @@ fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFe
 }
 
 #[test]
-fn decide_end_to_end_from_dir() {
+fn test_decide_end_to_end_from_dir() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -265,7 +265,7 @@ fn decide_end_to_end_from_dir() {
 }
 
 #[test]
-fn decide_fixture_fallback_basic() {
+fn test_decide_fixture_fallback_basic() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -285,7 +285,7 @@ fn decide_fixture_fallback_basic() {
 }
 
 #[test]
-fn decide_fixture_error_injection_rate_limit() {
+fn test_decide_fixture_error_injection_rate_limit() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -337,7 +337,7 @@ fn decide_fixture_error_injection_rate_limit() {
 }
 
 #[test]
-fn decide_fixture_error_injection_server_error() {
+fn test_decide_fixture_error_injection_server_error() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -365,7 +365,7 @@ fn decide_fixture_error_injection_server_error() {
 }
 
 #[test]
-fn decide_fixture_multi_turn_turn1() {
+fn test_decide_fixture_multi_turn_turn1() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -385,7 +385,7 @@ fn decide_fixture_multi_turn_turn1() {
 }
 
 #[test]
-fn decide_fixture_multi_turn_turn2() {
+fn test_decide_fixture_multi_turn_turn2() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -415,7 +415,7 @@ fn decide_fixture_multi_turn_turn2() {
 }
 
 #[test]
-fn decide_fixture_multi_turn_turn3() {
+fn test_decide_fixture_multi_turn_turn3() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -456,7 +456,7 @@ fn decide_fixture_multi_turn_turn3() {
 }
 
 #[test]
-fn decide_fixture_usage_response() {
+fn test_decide_fixture_usage_response() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -475,7 +475,7 @@ fn decide_fixture_usage_response() {
 }
 
 #[test]
-fn decide_fixture_cache_fields_missing() {
+fn test_decide_fixture_cache_fields_missing() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -509,7 +509,7 @@ fn decide_fixture_cache_fields_missing() {
 }
 
 #[test]
-fn decide_unknown_model_returns_error_when_no_fallback() {
+fn test_decide_unknown_model_returns_error_when_no_fallback() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
@@ -530,7 +530,7 @@ fn decide_unknown_model_returns_error_when_no_fallback() {
 // decide_for_models tests
 // ------------------------------------------------------------------
 #[test]
-fn decide_for_models_returns_scenario_declared_models() {
+fn test_decide_for_models_returns_scenario_declared_models() {
     let scenario = ScenarioDeclaration {
         name: "models-scene".to_string(),
         match_: None,
@@ -559,7 +559,7 @@ fn decide_for_models_returns_scenario_declared_models() {
     }
 }
 #[test]
-fn decide_for_models_placeholder_when_no_models_declared() {
+fn test_decide_for_models_placeholder_when_no_models_declared() {
     let scenario = ScenarioDeclaration {
         name: "no-models".to_string(),
         match_: None,
@@ -571,13 +571,13 @@ fn decide_for_models_placeholder_when_no_models_declared() {
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
 #[test]
-fn decide_for_models_placeholder_when_no_scenarios() {
+fn test_decide_for_models_placeholder_when_no_scenarios() {
     let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let decision = engine.decide_for_models();
     assert!(matches!(decision, ModelsDecision::Placeholder));
 }
 #[test]
-fn decide_for_models_error_injection() {
+fn test_decide_for_models_error_injection() {
     let scenario = ScenarioDeclaration {
         name: "models-error".to_string(),
         match_: None,
@@ -613,7 +613,7 @@ fn decide_for_models_error_injection() {
     }
 }
 #[test]
-fn decide_for_models_returns_models_when_no_error() {
+fn test_decide_for_models_returns_models_when_no_error() {
     let scenario = ScenarioDeclaration {
         name: "models-ok".to_string(),
         match_: None,
@@ -646,7 +646,7 @@ fn decide_for_models_returns_models_when_no_error() {
     }
 }
 #[test]
-fn decide_for_models_with_model_id_constraint() {
+fn test_decide_for_models_with_model_id_constraint() {
     let scenario = ScenarioDeclaration {
         name: "gpt4-models".to_string(),
         match_: Some(types::MatchCondition {
@@ -670,7 +670,7 @@ fn decide_for_models_with_model_id_constraint() {
     }
 }
 #[test]
-fn decide_for_models_carrying_delay() {
+fn test_decide_for_models_carrying_delay() {
     let scenario = ScenarioDeclaration {
         name: "delayed-models".to_string(),
         match_: None,
@@ -704,7 +704,7 @@ fn decide_for_models_carrying_delay() {
 /// Two scenarios with different models share the same message prefix
 /// but should have independent session cursors and KV cache state.
 #[test]
-fn per_scenario_isolation_cursors_and_cache() {
+fn test_per_scenario_isolation_cursors_and_cache() {
     let prefix = vec![MessageEntry {
         role: "user".to_string(),
         content: "hello".to_string(),
@@ -787,7 +787,7 @@ fn per_scenario_isolation_cursors_and_cache() {
 /// When cache_fields_missing=true but cache_hit_tokens is explicitly set,
 /// the explicit value is returned (100), field missing declaration is ignored.
 #[test]
-fn cache_fields_missing_with_explicit_injection_priority() {
+fn test_cache_fields_missing_with_explicit_injection_priority() {
     let scenario = ScenarioDeclaration {
         name: "cache-missing-explicit".to_string(),
         match_: None,
@@ -830,7 +830,7 @@ fn cache_fields_missing_with_explicit_injection_priority() {
 /// Target 3 variant: explicit injection for both hit and write with
 /// cache_fields_missing=true — both explicit values survive.
 #[test]
-fn cache_fields_missing_with_explicit_both_fields() {
+fn test_cache_fields_missing_with_explicit_both_fields() {
     let scenario = ScenarioDeclaration {
         name: "cache-missing-explicit-both".to_string(),
         match_: None,
@@ -903,7 +903,7 @@ fn build_and_merge_usage(
 /// Target 4: State machine continuity — after cache_fields_missing=true,
 /// switching back to auto-sim still computes correct cache values.
 #[test]
-fn state_machine_continuity_after_cache_fields_missing() {
+fn test_state_machine_continuity_after_cache_fields_missing() {
     let mut sim = crate::kv_cache::KvCacheSimulator::new();
     let prefix1: &[(&str, &str)] = &[
         ("system", "sys"),
@@ -933,7 +933,7 @@ fn state_machine_continuity_after_cache_fields_missing() {
 /// Target 4 variant: cache_fields_missing=true then switch to auto-sim
 /// with a different prefix — break with write tokens.
 #[test]
-fn state_machine_continuity_break_after_cache_fields_missing() {
+fn test_state_machine_continuity_break_after_cache_fields_missing() {
     let mut sim = crate::kv_cache::KvCacheSimulator::new();
     let prefix_a: &[(&str, &str)] = &[
         ("system", "sys"),

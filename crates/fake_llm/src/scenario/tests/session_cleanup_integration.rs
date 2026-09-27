@@ -10,7 +10,7 @@ use crate::types::ProtocolKind;
 /// should be removed. We inject an expired session via
 /// `cleanup_expired_at` and verify cleanup removes it.
 #[test]
-fn cleanup_triggers_after_interval_and_removes_expired() {
+fn test_cleanup_triggers_after_interval_and_removes_expired() {
     // Create a scenario with many turns so we can call decide()
     // 100+ times without hitting turn overflow.
     let mut turns: Vec<TurnResponse> = Vec::new();
@@ -82,7 +82,7 @@ fn cleanup_triggers_after_interval_and_removes_expired() {
 /// integration — sessions advance correctly across the cleanup
 /// boundary.
 #[test]
-fn normal_flow_unaffected_by_cleanup() {
+fn test_normal_flow_unaffected_by_cleanup() {
     let mut turns: Vec<TurnResponse> = Vec::new();
     for i in 0..300 {
         turns.push(text_turn(&format!("reply-{}", i)));

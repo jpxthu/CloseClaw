@@ -98,7 +98,7 @@ fn feat_multi(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
 // ===================================================================
 
 #[test]
-fn fallback_zero_hit_returns_turn0() {
+fn test_fallback_zero_hit_returns_turn0() {
     let fallback = ScenarioDeclaration {
         name: "fb".to_string(),
         match_: None,
@@ -119,7 +119,7 @@ fn fallback_zero_hit_returns_turn0() {
 }
 
 #[test]
-fn fallback_multi_turn_cursor_advances() {
+fn test_fallback_multi_turn_cursor_advances() {
     let fallback = ScenarioDeclaration {
         name: "fb".to_string(),
         match_: None,
@@ -169,7 +169,7 @@ fn fallback_multi_turn_cursor_advances() {
 }
 
 #[test]
-fn fallback_turn_overflow_returns_error() {
+fn test_fallback_turn_overflow_returns_error() {
     let fallback = ScenarioDeclaration {
         name: "fb".to_string(),
         match_: None,
@@ -200,7 +200,7 @@ fn fallback_turn_overflow_returns_error() {
 // ===================================================================
 
 #[test]
-fn no_fallback_zero_hit_returns_500() {
+fn test_no_fallback_zero_hit_returns_500() {
     let scenario = ScenarioDeclaration {
         name: "specific".to_string(),
         match_: Some(MatchCondition {
@@ -224,7 +224,7 @@ fn no_fallback_zero_hit_returns_500() {
 }
 
 #[test]
-fn empty_engine_zero_hit_returns_500() {
+fn test_empty_engine_zero_hit_returns_500() {
     let mut engine = ScenarioEngine::new(vec![]).unwrap();
     let outcome = engine.decide(&feat("any", "hi"));
     match outcome {
@@ -241,7 +241,7 @@ fn empty_engine_zero_hit_returns_500() {
 // ===================================================================
 
 #[test]
-fn usage_only_shape_produces_empty_blocks() {
+fn test_usage_only_shape_produces_empty_blocks() {
     let scenario = ScenarioDeclaration {
         name: "usage-only".to_string(),
         match_: None,
@@ -265,7 +265,7 @@ fn usage_only_shape_produces_empty_blocks() {
 }
 
 #[test]
-fn unknown_shape_produces_empty_text_block() {
+fn test_unknown_shape_produces_empty_text_block() {
     let scenario = ScenarioDeclaration {
         name: "unknown-shape".to_string(),
         match_: None,
@@ -290,7 +290,7 @@ fn unknown_shape_produces_empty_text_block() {
 // ===================================================================
 
 #[test]
-fn no_placeholder_text_in_usage_only_response() {
+fn test_no_placeholder_text_in_usage_only_response() {
     let scenario = ScenarioDeclaration {
         name: "usage-scene".to_string(),
         match_: None,
@@ -317,7 +317,7 @@ fn no_placeholder_text_in_usage_only_response() {
 }
 
 #[test]
-fn no_placeholder_text_in_unknown_shape_response() {
+fn test_no_placeholder_text_in_unknown_shape_response() {
     let scenario = ScenarioDeclaration {
         name: "unknown-scene".to_string(),
         match_: None,
@@ -347,7 +347,7 @@ fn no_placeholder_text_in_unknown_shape_response() {
 // ===================================================================
 
 #[test]
-fn fallback_matches_openai_protocol() {
+fn test_fallback_matches_openai_protocol() {
     let fallback = ScenarioDeclaration {
         name: "fb".to_string(),
         match_: None,
@@ -369,7 +369,7 @@ fn fallback_matches_openai_protocol() {
 }
 
 #[test]
-fn fallback_matches_anthropic_protocol() {
+fn test_fallback_matches_anthropic_protocol() {
     let fallback = ScenarioDeclaration {
         name: "fb".to_string(),
         match_: None,
@@ -391,7 +391,7 @@ fn fallback_matches_anthropic_protocol() {
 }
 
 #[test]
-fn model_specific_scenario_does_not_leak_cross_protocol() {
+fn test_model_specific_scenario_does_not_leak_cross_protocol() {
     // Scenario only for gpt-4o. Anthropic request with same model name should
     // still match (the scenario has no protocol constraint in declaration,
     // so it's indexed under both protocols). But a different model should not.
@@ -442,7 +442,7 @@ fn model_specific_scenario_does_not_leak_cross_protocol() {
 /// Two conditional scenarios with different models have independent
 /// session cursors — one matching model's cursor doesn't affect the other.
 #[test]
-fn specific_scenario_cursors_are_independent() {
+fn test_specific_scenario_cursors_are_independent() {
     let scene_a = ScenarioDeclaration {
         name: "scene-a".to_string(),
         match_: Some(MatchCondition {

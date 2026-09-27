@@ -25,7 +25,7 @@ fn reasoning_turn(content: &str, reasoning: &str, intensity: ReasoningIntensity)
 
 /// Low intensity produces shorter reasoning text than Medium.
 #[test]
-fn reasoning_intensity_low_produces_shorter_text() {
+fn test_reasoning_intensity_low_produces_shorter_text() {
     let scenario = ScenarioDeclaration {
         name: "intensity-low".to_string(),
         match_: None,
@@ -58,7 +58,7 @@ fn reasoning_intensity_low_produces_shorter_text() {
 
 /// Medium intensity produces moderate-length reasoning text.
 #[test]
-fn reasoning_intensity_medium_produces_moderate_text() {
+fn test_reasoning_intensity_medium_produces_moderate_text() {
     let scenario = ScenarioDeclaration {
         name: "intensity-medium".to_string(),
         match_: None,
@@ -88,7 +88,7 @@ fn reasoning_intensity_medium_produces_moderate_text() {
 
 /// High intensity produces lengthy reasoning text.
 #[test]
-fn reasoning_intensity_high_produces_long_text() {
+fn test_reasoning_intensity_high_produces_long_text() {
     let scenario = ScenarioDeclaration {
         name: "intensity-high".to_string(),
         match_: None,
@@ -119,7 +119,7 @@ fn reasoning_intensity_high_produces_long_text() {
 /// Three intensities produce strictly different text lengths:
 /// Low < Medium < High.
 #[test]
-fn reasoning_intensity_ordering_low_lt_medium_lt_high() {
+fn test_reasoning_intensity_ordering_low_lt_medium_lt_high() {
     fn intensity_len(intensity: ReasoningIntensity) -> usize {
         let scenario = ScenarioDeclaration {
             name: "len-test".to_string(),
@@ -155,7 +155,7 @@ fn reasoning_intensity_ordering_low_lt_medium_lt_high() {
 
 /// Empty reasoning text stays empty regardless of intensity.
 #[test]
-fn reasoning_intensity_empty_reasoning_stays_empty() {
+fn test_reasoning_intensity_empty_reasoning_stays_empty() {
     let scenario = ScenarioDeclaration {
         name: "empty-reasoning".to_string(),
         match_: None,
@@ -176,7 +176,7 @@ fn reasoning_intensity_empty_reasoning_stays_empty() {
 
 /// Default intensity (Medium) is used when intensity field is absent.
 #[test]
-fn reasoning_intensity_default_medium_from_json() {
+fn test_reasoning_intensity_default_medium_from_json() {
     let json = r#"{
         "response": {
             "type": "reasoning",
