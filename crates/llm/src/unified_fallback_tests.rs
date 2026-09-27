@@ -463,7 +463,8 @@ async fn test_response_to_stream_roundtrip() {
     }
     // Text "hello world" = 11 chars → 11 BlockDelta events
     // Thinking = 1 BlockDelta event
-    // Total: 1 BlockStart + 11 BlockDelta + 1 BlockEnd + 1 BlockStart + 1 BlockDelta + 1 BlockEnd + 1 MessageEnd = 17
+    // Total: 1 BlockStart + 11 BlockDelta + 1 BlockEnd + 1 BlockStart
+    // + 1 BlockDelta + 1 BlockEnd + 1 MessageEnd = 17
     assert_eq!(events.len(), 17);
     assert!(matches!(
         events[0],

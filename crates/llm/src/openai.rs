@@ -281,7 +281,13 @@ mod tests {
         };
 
         let response = provider
-            .send(request, serde_json::json!({"model": "gpt-4", "messages": [{"role": "user", "content": "hi"}]}))
+            .send(
+                request,
+                serde_json::json!({
+                    "model": "gpt-4",
+                    "messages": [{"role": "user", "content": "hi"}]
+                }),
+            )
             .await
             .unwrap();
         mock.assert_async().await;

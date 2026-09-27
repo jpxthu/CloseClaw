@@ -88,7 +88,8 @@ impl UnifiedChatClient {
         }
     }
 
-    /// Convenience constructor that uses [`NoopCacheAdapter`](crate::cache_adapter::NoopCacheAdapter)
+    /// Convenience constructor that uses
+    /// [`NoopCacheAdapter`](crate::cache_adapter::NoopCacheAdapter)
     /// for backward compatibility.
     pub fn with_noop_cache_adapter(
         provider: Arc<dyn Provider>,
@@ -169,7 +170,8 @@ impl UnifiedChatClient {
     /// 3. **Provider.send_streaming** — returns a raw SSE channel.
     /// 4. **ChatProtocol.parse_sse_stream** — parses SSE chunks into events.
     /// 5. **Interpreter.interpret_stream_event** — normalises each event.
-    /// 6. **PluginPipeline.on_stream_event** — each plugin may forward, modify, or suppress each event.
+    /// 6. **PluginPipeline.on_stream_event** — each plugin may forward, modify,
+    /// or suppress each event.
     ///
     /// # Errors
     ///
