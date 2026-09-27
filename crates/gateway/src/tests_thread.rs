@@ -1,7 +1,7 @@
 // ── send_outbound / route_message / streaming thread_id tests ────────────
 
 use crate::im_adapter::streaming::StreamingRenderer;
-use crate::{Gateway, OutboundMeta, SessionManager};
+use crate::{Gateway, OutboundMeta, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
@@ -244,9 +244,15 @@ async fn test_send_outbound_forwards_thread_id() {
     let (gw, _sm, plugin) = setup_with_thread_id(Some("omt_from_ckpt")).await;
     let msg = make_message("agent-1", "hello");
     let sid = _sm.find_or_create("mock", &msg, None).await.unwrap();
-    gw.send_outbound(&sid, "mock", "hello world", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "mock",
+        "hello world",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
     assert_eq!(
         plugin.captured().as_deref(),
         Some("omt_from_ckpt"),
@@ -259,9 +265,15 @@ async fn test_send_outbound_no_thread_id() {
     let (gw, _sm, plugin) = setup_with_thread_id(None).await;
     let msg = make_message("agent-1", "hello");
     let sid = _sm.find_or_create("mock", &msg, None).await.unwrap();
-    gw.send_outbound(&sid, "mock", "hello world", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "mock",
+        "hello world",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
     assert!(
         plugin.captured().is_none(),
         "plugin.send should receive None when checkpoint \

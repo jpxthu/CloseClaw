@@ -5,6 +5,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+use crate::outbound::SendOutboundIds;
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -779,7 +780,13 @@ pub(crate) async fn deliver_batch_result(
         return;
     };
     if let Err(e) = gw
-        .send_outbound(session_id, &channel, text, blocks.to_vec(), None, None)
+        .send_outbound(
+            session_id,
+            &channel,
+            text,
+            blocks.to_vec(),
+            SendOutboundIds::default(),
+        )
         .await
     {
         tracing::warn!(session_id, channel, error = %e, "batch outbound delivery failed");

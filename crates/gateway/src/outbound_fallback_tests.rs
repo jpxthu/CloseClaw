@@ -4,7 +4,7 @@
 //! - No target plugin registered → `fallback_to_plain_text` (log only)
 //! - Plugin exists but render/send fails → `send_as_plain_text` (retry as plain text)
 
-use crate::{Gateway, GatewayConfig, GatewayError, Session, SessionManager};
+use crate::{Gateway, GatewayConfig, GatewayError, SendOutboundIds, Session, SessionManager};
 use closeclaw_common::im_plugin::{AdapterError, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_session::persistence::ReasoningLevel;
@@ -210,7 +210,7 @@ async fn make_gw(
 async fn test_send_outbound_no_plugin_returns_ok() {
     let gw = make_gw("s1", "mock", None).await;
     let result = gw
-        .send_outbound("s1", "mock", "hello", vec![], None, None)
+        .send_outbound("s1", "mock", "hello", vec![], SendOutboundIds::default())
         .await;
     assert!(
         result.is_ok(),
@@ -256,7 +256,7 @@ async fn test_send_outbound_send_fails_fallback_plain_text() {
     )
     .await;
     let result = gw
-        .send_outbound("s4", "mock", "hello", vec![], None, None)
+        .send_outbound("s4", "mock", "hello", vec![], SendOutboundIds::default())
         .await;
     // send fails → dispatch_and_persist catches the error, sends a failure
     // notification via send_outbound_simplified (which also fails silently),
@@ -310,7 +310,7 @@ async fn test_send_outbound_double_failure_returns_error() {
     )
     .await;
     let result = gw
-        .send_outbound("s7", "mock", "hello", vec![], None, None)
+        .send_outbound("s7", "mock", "hello", vec![], SendOutboundIds::default())
         .await;
     // Both plugin.send and notification send fail, but dispatch_and_persist
     // catches all errors and returns Ok(()).
@@ -362,7 +362,13 @@ async fn test_no_plugin_exercises_fallback_path() {
     let gw = make_gw("s10", "mock", None).await;
     // send_outbound requires session_id → chat_id resolution.
     let result = gw
-        .send_outbound("s10", "mock", "fallback test", vec![], None, None)
+        .send_outbound(
+            "s10",
+            "mock",
+            "fallback test",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(
         result.is_ok(),
@@ -397,7 +403,13 @@ async fn test_send_outbound_plugin_works_normally() {
     )
     .await;
     let result = gw
-        .send_outbound("s12", "mock", "hello world", vec![], None, None)
+        .send_outbound(
+            "s12",
+            "mock",
+            "hello world",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(
         result.is_ok(),
@@ -454,7 +466,7 @@ async fn test_send_outbound_simplified_plugin_works_normally() {
 async fn test_send_outbound_no_plugin_empty_channel() {
     let gw = make_gw("s15", "", None).await;
     let result = gw
-        .send_outbound("s15", "", "hello", vec![], None, None)
+        .send_outbound("s15", "", "hello", vec![], SendOutboundIds::default())
         .await;
     assert!(result.is_ok(), "empty channel no-plugin should return Ok");
 }
@@ -463,7 +475,7 @@ async fn test_send_outbound_no_plugin_empty_channel() {
 async fn test_send_outbound_no_plugin_empty_raw_output() {
     let gw = make_gw("s16", "mock", None).await;
     let result = gw
-        .send_outbound("s16", "mock", "", vec![], None, None)
+        .send_outbound("s16", "mock", "", vec![], SendOutboundIds::default())
         .await;
     assert!(
         result.is_ok(),
@@ -513,7 +525,13 @@ async fn test_send_outbound_simplified_empty_raw_output() {
 async fn test_send_outbound_missing_session_returns_error() {
     let gw = make_gw("s_valid", "mock", None).await;
     let result = gw
-        .send_outbound("nonexistent_session", "mock", "hello", vec![], None, None)
+        .send_outbound(
+            "nonexistent_session",
+            "mock",
+            "hello",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(
         matches!(result, Err(GatewayError::MissingSessionId)),

@@ -128,7 +128,7 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::persistence::PersistenceService;
 use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
-pub use outbound::OutboundMeta;
+pub use outbound::{OutboundMeta, SendOutboundIds};
 pub(crate) use rebuild_stash::RebuildStash;
 pub use session_handler::{HandleResult, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};

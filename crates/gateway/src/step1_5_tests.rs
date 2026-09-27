@@ -8,7 +8,7 @@
 //! 3. Slash permission check timing: Handler → Permission → execute()
 //! 4. Restore notification routed through Gateway outbound chain
 
-use crate::{GatewayConfig, Message, SessionManager};
+use crate::{GatewayConfig, Message, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::processor::ProcessError;
@@ -284,9 +284,15 @@ async fn test_verbosity_filter_before_processor_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-off", "mock", "raw output", blocks, None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        "sess-verb-off",
+        "mock",
+        "raw output",
+        blocks,
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     let received = received_blocks.lock().expect("lock");
     assert_eq!(
@@ -324,9 +330,15 @@ async fn test_verbosity_normal_strips_thinking_before_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-normal", "mock", "raw", blocks, None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        "sess-verb-normal",
+        "mock",
+        "raw",
+        blocks,
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     let received = received_blocks.lock().expect("lock");
     assert_eq!(
@@ -357,9 +369,15 @@ async fn test_verbosity_full_all_blocks_before_chain() {
         },
     ];
 
-    gw.send_outbound("sess-verb-full", "mock", "raw", blocks, None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        "sess-verb-full",
+        "mock",
+        "raw",
+        blocks,
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     let received = received_blocks.lock().expect("lock");
     assert_eq!(

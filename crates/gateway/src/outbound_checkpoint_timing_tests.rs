@@ -4,7 +4,7 @@
 //! operation *before* `plugin.send`, and clears it *after* successful
 //! delivery (ack). On failure the pending op remains for recovery retry.
 
-use crate::{GatewayConfig, SessionManager};
+use crate::{GatewayConfig, SendOutboundIds, SessionManager};
 use closeclaw_common::im_plugin::{
     AdapterError, NormalizedMessage, RenderedOutput, StreamingOutput,
 };
@@ -263,7 +263,13 @@ async fn test_writeahead_before_send_and_ackclear_after() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "hello world", vec![], None, None)
+            .send_outbound(
+                &sid,
+                "mock",
+                "hello world",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
@@ -386,7 +392,13 @@ async fn test_interactive_message_writeahead_and_ackclear() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "hello interactive", vec![], None, None)
+            .send_outbound(
+                &sid,
+                "mock",
+                "hello interactive",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
@@ -491,7 +503,13 @@ async fn test_checkpoint_persists_platform_dsl_result_content_blocks() {
     let sid_for_spawn = sid.clone();
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid_for_spawn, "mock", "test content", vec![], None, None)
+            .send_outbound(
+                &sid_for_spawn,
+                "mock",
+                "test content",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
@@ -695,7 +713,13 @@ async fn test_send_failure_op_remains_for_retry() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "will fail", vec![], None, None)
+            .send_outbound(
+                &sid,
+                "mock",
+                "will fail",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
@@ -755,7 +779,7 @@ async fn test_crash_simulation_op_survives() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "crash me", vec![], None, None)
+            .send_outbound(&sid, "mock", "crash me", vec![], SendOutboundIds::default())
             .await
     });
 

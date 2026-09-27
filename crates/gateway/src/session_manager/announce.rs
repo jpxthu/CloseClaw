@@ -394,7 +394,7 @@ impl SessionManager {
 
             // 7c. Send via gateway.
             match gw
-                .send_outbound(session_id, &channel, &content, vec![], None, None)
+                .send_outbound(session_id, &channel, &content, vec![], Default::default())
                 .await
             {
                 Ok(crate::outbound::SendOutcome::Sent) => {
@@ -896,7 +896,7 @@ impl SessionManager {
                     // Send response to user via Gateway outbound pipeline.
                     if let (Some(ref gw), Some(ref ch)) = (&gw, &channel) {
                         if let Err(e) = gw
-                            .send_outbound(session_id, ch, &text, vec![], None, None)
+                            .send_outbound(session_id, ch, &text, vec![], Default::default())
                             .await
                         {
                             warn!(

@@ -8,6 +8,7 @@ use closeclaw_common::im_plugin::{
     AdapterError, IMPlugin, MessageType, NormalizedMessage, RenderedOutput,
 };
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_gateway::outbound::SendOutboundIds;
 use closeclaw_gateway::{Gateway, GatewayConfig, GatewayError, Message, SessionManager};
 use closeclaw_im_adapter::AdapterError as LocalAdapterError;
 use closeclaw_im_adapter::IMAdapter;
@@ -202,9 +203,15 @@ async fn test_send_outbound_no_registry_bypass() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     assert!(*plugin.send_called.lock().unwrap());
     assert_eq!(
@@ -238,9 +245,15 @@ async fn test_send_outbound_text_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     assert!(*plugin.send_called.lock().unwrap());
     assert_eq!(
@@ -274,9 +287,15 @@ async fn test_send_outbound_interactive_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     assert!(*plugin.send_called.lock().unwrap());
     assert_eq!(
@@ -310,9 +329,15 @@ async fn test_send_outbound_suppress() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     // Suppress short-circuits before render() and send() are called.
     assert!(!*plugin.send_called.lock().unwrap());
@@ -327,7 +352,13 @@ async fn test_send_outbound_unknown_session() {
     gw.register_plugin(plugin.clone()).await;
 
     let result = gw
-        .send_outbound("nonexistent-session", "tracking", "raw", vec![], None, None)
+        .send_outbound(
+            "nonexistent-session",
+            "tracking",
+            "raw",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(matches!(result, Err(GatewayError::MissingSessionId)));
     assert!(!*plugin.send_called.lock().unwrap());
@@ -340,7 +371,7 @@ async fn test_send_outbound_unknown_channel_fallback() {
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
     let result = gw
-        .send_outbound(&sid, "unknown", "raw", vec![], None, None)
+        .send_outbound(&sid, "unknown", "raw", vec![], SendOutboundIds::default())
         .await;
     assert!(
         result.is_ok(),

@@ -107,6 +107,33 @@ pub enum SendOutcome {
     Notified,
 }
 
+/// Owned debug-log identity pair passed to [`Gateway::send_outbound`].
+///
+/// Groups the inbound trace metadata (`trace_id` / `session_key`) used for
+/// debug-log event correlation, keeping the method's parameter list within
+/// the project's 6-parameter hard limit (same pattern as [`OutboundMeta`],
+/// but owned: the values are moved into the dispatch context below).
+///
+/// `Default` yields `None` for both fields — the value used by nearly all
+/// call sites.
+#[derive(Debug, Clone, Default)]
+pub struct SendOutboundIds {
+    /// Inbound trace ID for debug-log event correlation.
+    pub trace_id: Option<String>,
+    /// Inbound session key for debug-log event correlation.
+    pub session_key: Option<String>,
+}
+
+impl SendOutboundIds {
+    /// Build the identity pair with both fields set.
+    pub fn new(trace_id: Option<String>, session_key: Option<String>) -> Self {
+        Self {
+            trace_id,
+            session_key,
+        }
+    }
+}
+
 /// Per-call context for dispatching a rendered output and persisting its
 /// checkpoint. Bundled into a struct to keep the helper's parameter list short.
 struct DispatchCtx<'a> {
@@ -148,9 +175,12 @@ impl Gateway {
         channel: &str,
         raw_output: &str,
         content_blocks: Vec<ContentBlock>,
-        trace_id: Option<String>,
-        session_key: Option<String>,
+        ids: SendOutboundIds,
     ) -> Result<SendOutcome, GatewayError> {
+        let SendOutboundIds {
+            trace_id,
+            session_key,
+        } = ids;
         // 1. Resolve chat_id and plugin.
         let chat_id = self
             .session_manager

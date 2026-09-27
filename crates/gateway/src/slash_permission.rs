@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::persistence::PendingMessage;
 
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
+use crate::outbound::SendOutboundIds;
 
 /// Parse a slash command from raw content.
 ///
@@ -298,7 +299,13 @@ impl Gateway {
             })
             .unwrap_or_default();
         if let Err(e) = self
-            .send_outbound(session_id, channel, &raw_output, blocks, None, None)
+            .send_outbound(
+                session_id,
+                channel,
+                &raw_output,
+                blocks,
+                SendOutboundIds::default(),
+            )
             .await
         {
             tracing::debug!(

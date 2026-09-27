@@ -11,7 +11,7 @@ use futures::stream;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use crate::{GatewayConfig, OutboundMeta, SessionManager};
+use crate::{GatewayConfig, OutboundMeta, SendOutboundIds, SessionManager};
 
 use super::outbound_tests::{default_usage, streaming_config, ThinkingIndicatorMock};
 
@@ -195,7 +195,13 @@ async fn test_non_streaming_no_receiving() {
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let result = gw
-        .send_outbound(session_id, "mock", "hello", vec![], None, None)
+        .send_outbound(
+            session_id,
+            "mock",
+            "hello",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(result.is_ok(), "send_outbound should succeed");
 

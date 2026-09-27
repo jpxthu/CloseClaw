@@ -9,6 +9,7 @@ use closeclaw::processor_chain::{
 };
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_gateway::outbound::SendOutboundIds;
 use closeclaw_gateway::{Gateway, GatewayError, SessionManager};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -176,9 +177,15 @@ async fn test_plugin_text_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     // render() was called with the processor's output content
     let render = plugin.render_called.lock().unwrap().clone();
@@ -216,9 +223,15 @@ async fn test_plugin_interactive_path() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     assert!(*plugin.send_called.lock().unwrap());
 }
@@ -253,9 +266,15 @@ async fn test_plugin_dsl_result_passed_to_render() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     let render = plugin.render_called.lock().unwrap().clone();
     let (_, ref dsl) = render.as_ref().expect("render should have been called");
@@ -289,9 +308,15 @@ async fn test_plugin_suppress_skips_send() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "raw output", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "raw output",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     // Suppress → neither render nor send should be called
     assert!(plugin.render_called.lock().unwrap().is_none());
@@ -312,9 +337,15 @@ async fn test_no_registry_bypass_uses_plugin() {
     let msg = make_outbound_message("agent-1", "hello");
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
-    gw.send_outbound(&sid, "tracking", "bypass raw", vec![], None, None)
-        .await
-        .unwrap();
+    gw.send_outbound(
+        &sid,
+        "tracking",
+        "bypass raw",
+        vec![],
+        SendOutboundIds::default(),
+    )
+    .await
+    .unwrap();
 
     // Even without a processor registry, the plugin should be used
     assert!(plugin.render_called.lock().unwrap().is_some());
@@ -329,7 +360,7 @@ async fn test_unknown_channel_falls_back_to_plain_text() {
     let sid = sm.find_or_create("tracking", &msg, None).await.unwrap();
 
     let result = gw
-        .send_outbound(&sid, "unknown", "raw", vec![], None, None)
+        .send_outbound(&sid, "unknown", "raw", vec![], SendOutboundIds::default())
         .await;
     assert!(
         result.is_ok(),
@@ -350,7 +381,13 @@ async fn test_unknown_session_returns_error() {
     gw.register_plugin(plugin).await;
 
     let result = gw
-        .send_outbound("nonexistent-session", "tracking", "raw", vec![], None, None)
+        .send_outbound(
+            "nonexistent-session",
+            "tracking",
+            "raw",
+            vec![],
+            SendOutboundIds::default(),
+        )
         .await;
     assert!(matches!(result, Err(GatewayError::MissingSessionId)));
 }

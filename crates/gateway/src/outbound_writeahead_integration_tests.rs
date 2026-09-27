@@ -19,6 +19,7 @@
 
 #[path = "outbound_writeahead_test_utils.rs"]
 mod utils;
+use crate::outbound::SendOutboundIds;
 use crate::session_manager::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::IMPlugin;
 use closeclaw_session::persistence::{PendingOperationType, PersistenceService, SessionCheckpoint};
@@ -46,7 +47,13 @@ async fn test_normal_path_writeahead_send_ackclear_no_op() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "hello world", vec![], None, None)
+            .send_outbound(
+                &sid,
+                "mock",
+                "hello world",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
@@ -132,7 +139,13 @@ async fn test_writeahead_failure_message_not_sent() {
     let gw_clone = Arc::clone(&gw_arc);
     let handle = tokio::spawn(async move {
         gw_clone
-            .send_outbound(&sid, "mock", "should not be sent", vec![], None, None)
+            .send_outbound(
+                &sid,
+                "mock",
+                "should not be sent",
+                vec![],
+                SendOutboundIds::default(),
+            )
             .await
     });
 
