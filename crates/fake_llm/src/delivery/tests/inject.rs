@@ -494,8 +494,8 @@ async fn deliver_non_streaming_delay_no_error() {
 // SseEventStream — max_events edge cases
 // ------------------------------------------------------------------
 
-#[tokio::test]
-async fn sse_event_stream_max_events_zero() {
+#[test]
+fn sse_event_stream_max_events_zero() {
     let events = vec![
         SseEvent {
             event_type: "message".into(),
