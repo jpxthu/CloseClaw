@@ -192,12 +192,42 @@ pub fn do_restore(
     load_checkpoint_inner(&conn, data_dir, session_id)
 }
 
-/// Load a SessionCheckpoint from an open DB connection.
-pub fn load_checkpoint_inner(
+/// Raw column values of one `sessions` row, in SELECT column order.
+///
+/// Kept as a tuple so the row query and the destructure stay a pure
+/// mechanical move of the original inline closure and pattern.
+type SessionRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    i64,
+    Option<i64>,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+);
+
+/// Stage ① of `load_checkpoint_inner`: run the row query and read all raw
+/// columns. Returns `None` when the session row does not exist.
+fn query_session_row(
     conn: &Connection,
-    data_dir: &Path,
     session_id: &str,
-) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+) -> Result<Option<SessionRow>, PersistenceError> {
     let mut stmt = conn
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
@@ -208,7 +238,7 @@ pub fn load_checkpoint_inner(
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
-    let row = match stmt.query_row(params![session_id], |row| {
+    match stmt.query_row(params![session_id], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -235,11 +265,83 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<i64>>(22)?,
         ))
     }) {
-        Ok(r) => r,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-        Err(e) => return Err(PersistenceError::Sqlite(e.to_string())),
-    };
+        Ok(r) => Ok(Some(r)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(PersistenceError::Sqlite(e.to_string())),
+    }
+}
 
+/// Fields parsed from a metadata JSON blob.
+///
+/// `metadata` is `None` when the DB column was NULL (all defaults kept).
+struct ParsedMetadata {
+    mode_state: crate::persistence::ReasoningModeState,
+    reasoning_mode_raw: String,
+    user_appends: Vec<String>,
+    session_mode: crate::persistence::SessionMode,
+    outbound_pending: Vec<crate::persistence::PendingMessage>,
+}
+
+/// Stage ③ of `load_checkpoint_inner`: parse the snapshot metadata JSON
+/// (session_mode / mode / user_appends / outbound_pending).
+///
+/// `None` metadata (NULL column) keeps all defaults.
+fn parse_metadata(metadata: &Option<String>) -> Result<ParsedMetadata, PersistenceError> {
+    #[allow(unused_mut)]
+    let mut mode_state_val: crate::persistence::ReasoningModeState;
+    let mode_val: String;
+    let mut user_appends: Vec<String> = Vec::new();
+    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
+    let mut session_mode_val: crate::persistence::SessionMode =
+        crate::persistence::SessionMode::default();
+    if let Some(ref meta) = metadata {
+        let v: serde_json::Value =
+            serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
+        mode_state_val = v
+            .get("mode_state")
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
+            .unwrap_or_default();
+        mode_val = v
+            .get("reasoning_mode")
+            .or_else(|| v.get("mode"))
+            .and_then(|x| x.as_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| "direct".to_string());
+        user_appends = v
+            .get("user_appends")
+            .or_else(|| v.get("system_appends"))
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+            .unwrap_or_default();
+        if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
+            session_mode_val =
+                crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
+        }
+        outbound_pending = v
+            .get("outbound_pending")
+            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+            .unwrap_or_default();
+    } else {
+        mode_state_val = crate::persistence::ReasoningModeState::default();
+        mode_val = "direct".to_string();
+    }
+    Ok(ParsedMetadata {
+        mode_state: mode_state_val,
+        reasoning_mode_raw: mode_val,
+        user_appends,
+        session_mode: session_mode_val,
+        outbound_pending,
+    })
+}
+
+/// Load a SessionCheckpoint from an open DB connection.
+pub fn load_checkpoint_inner(
+    conn: &Connection,
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+    // --- Stage ①: row query + raw column destructure ---
+    let Some(row) = query_session_row(conn, session_id)? else {
+        return Ok(None);
+    };
     let (
         agent_id_str,
         role_str,
@@ -266,6 +368,7 @@ pub fn load_checkpoint_inner(
         last_user_activity_at_raw,
     ) = row;
 
+    // --- Stage ②: raw fields → types/enums ---
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
 
     // mined: handle both INTEGER (0/1) and TEXT ("0"/"1") representations
@@ -315,45 +418,15 @@ pub fn load_checkpoint_inner(
         return Err(PersistenceError::NotFound(session_id.to_string()));
     };
 
-    let last_message_id: Option<String> = None;
-    #[allow(unused_mut)]
-    let mut mode_state_val: crate::persistence::ReasoningModeState;
-    let mode_val: String;
-    let mut user_appends: Vec<String> = Vec::new();
-    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
-    let transcript_messages: Vec<crate::llm_session::SessionMessage> =
-        transcript_messages_from_jsonl;
-    let mut session_mode_val: crate::persistence::SessionMode =
-        crate::persistence::SessionMode::default();
-    if let Some(ref meta) = metadata {
-        let v: serde_json::Value =
-            serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
-        mode_state_val = v
-            .get("mode_state")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
-            .unwrap_or_default();
-        mode_val = v
-            .get("reasoning_mode")
-            .or_else(|| v.get("mode"))
-            .and_then(|x| x.as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "direct".to_string());
-        user_appends = v
-            .get("user_appends")
-            .or_else(|| v.get("system_appends"))
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-        if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
-            session_mode_val =
-                crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
-        }
-        outbound_pending = v
-            .get("outbound_pending")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-    } else {
-        mode_state_val = crate::persistence::ReasoningModeState::default();
-        mode_val = "direct".to_string();
-    }
+    // --- Stage ③: snapshot metadata JSON parsing ---
+    let parsed_meta = parse_metadata(&metadata)?;
+    let ParsedMetadata {
+        mode_state: mode_state_val,
+        reasoning_mode_raw: mode_val,
+        user_appends,
+        session_mode: session_mode_val,
+        outbound_pending,
+    } = parsed_meta;
 
     let last_message_at = if last_msg_ts > 0 {
         Some(DateTime::from_timestamp(last_msg_ts, 0).unwrap_or_else(Utc::now))
@@ -361,6 +434,10 @@ pub fn load_checkpoint_inner(
         None
     };
 
+    // --- Stage ④: checkpoint assembly ---
+    let last_message_id: Option<String> = None;
+    let transcript_messages: Vec<crate::llm_session::SessionMessage> =
+        transcript_messages_from_jsonl;
     Ok(Some(SessionCheckpoint {
         session_id: session_id.to_string(),
         last_message_id,
