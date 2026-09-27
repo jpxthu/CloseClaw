@@ -83,6 +83,20 @@ fn test_model_spec_deserialize_duplicate_primary_errors() {
     );
 }
 
+// ⑤ visit_map: duplicate `fallback` key is rejected
+#[test]
+fn test_model_spec_deserialize_duplicate_fallback_errors() {
+    let err = serde_json::from_str::<ModelSpec>(
+        r#"{"primary":"a/b","fallback":["x/y"],"fallback":["z/w"]}"#,
+    )
+    .unwrap_err()
+    .to_string();
+    assert!(
+        err.contains("duplicate field `fallback`"),
+        "unexpected: {err}"
+    );
+}
+
 // ⑤ visit_map: unknown fields are ignored (IgnoredAny)
 #[test]
 fn test_model_spec_deserialize_unknown_fields_ignored() {

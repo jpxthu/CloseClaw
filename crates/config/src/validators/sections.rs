@@ -1,4 +1,5 @@
-//! JSON-shape helpers shared by the section validators.
+//! Validators for the credentials, gateway, plugins, system, agents, media,
+//! and skills config sections.
 
 use std::collections::HashSet;
 

@@ -16,8 +16,9 @@ mod sections;
 mod session;
 mod tools;
 
-// Section validators stay crate-internal; the public API surface is
-// `for_section` plus the *_with_refs validators, matching master.
+// Public API surface: `for_section`, the *_with_refs validators, and the
+// accounts/credentials validators stay `pub`; the 8 section validators below
+// stay crate-internal (`pub(crate)`), matching master.
 pub use accounts::validate_accounts;
 pub(crate) use channels::validate_channels;
 pub use channels::validate_channels_with_refs;
