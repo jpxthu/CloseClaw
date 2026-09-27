@@ -325,7 +325,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn index_exact_model_match() {
+    fn test_index_exact_model_match() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[test]
-    fn index_model_mismatch_returns_none() {
+    fn test_index_model_mismatch_returns_none() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -353,7 +353,7 @@ mod tests {
     }
 
     #[test]
-    fn index_message_contains_match() {
+    fn test_index_message_contains_match() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn index_message_contains_no_match() {
+    fn test_index_message_contains_no_match() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[test]
-    fn index_tool_name_match() {
+    fn test_index_tool_name_match() {
         let scenarios = vec![specific(
             "web_search",
             MatchCondition {
@@ -395,7 +395,7 @@ mod tests {
     }
 
     #[test]
-    fn index_tool_name_no_match() {
+    fn test_index_tool_name_no_match() {
         let scenarios = vec![specific(
             "web_search",
             MatchCondition {
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn index_combined_conditions_all_must_match() {
+    fn test_index_combined_conditions_all_must_match() {
         let scenarios = vec![specific(
             "specific",
             MatchCondition {
@@ -436,7 +436,7 @@ mod tests {
     }
 
     #[test]
-    fn index_fallback_matches_any() {
+    fn test_index_fallback_matches_any() {
         let scenarios = vec![fallback("fallback")];
         let index = MatcherIndex::build(scenarios).unwrap();
         let result = index.match_request(&feat("any-model", vec!["anything"], vec![]));
@@ -444,7 +444,7 @@ mod tests {
     }
 
     #[test]
-    fn index_fallback_and_specific_coexist() {
+    fn test_index_fallback_and_specific_coexist() {
         // Fallback + conditional with model_id = legal (fallback is the
         // zero-match兜底, checked only after conditionals fail).
         let scenarios = vec![
@@ -469,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn index_multiple_specific_same_model_is_conflict() {
+    fn test_index_multiple_specific_same_model_is_conflict() {
         // Two scenarios with same model_id = conflict at build time.
         let scenarios = vec![
             specific(
@@ -494,7 +494,7 @@ mod tests {
     }
 
     #[test]
-    fn index_no_match_returns_none() {
+    fn test_index_no_match_returns_none() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -509,14 +509,14 @@ mod tests {
     }
 
     #[test]
-    fn index_empty_returns_none() {
+    fn test_index_empty_returns_none() {
         let index = MatcherIndex::build(vec![]).unwrap();
         let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
         assert!(result.is_none());
     }
 
     #[test]
-    fn index_message_contains_checks_all_messages() {
+    fn test_index_message_contains_checks_all_messages() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -534,7 +534,7 @@ mod tests {
     }
 
     #[test]
-    fn index_multiple_models_indexed_separately() {
+    fn test_index_multiple_models_indexed_separately() {
         let scenarios = vec![
             specific(
                 "gpt4-scene",
@@ -568,7 +568,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn cross_protocol_same_model_routing() {
+    fn test_cross_protocol_same_model_routing() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -596,7 +596,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_fallback_matches_both_protocols() {
+    fn test_cross_protocol_fallback_matches_both_protocols() {
         let scenarios = vec![fallback("fallback")];
         let index = MatcherIndex::build(scenarios).unwrap();
 
@@ -618,7 +618,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_model_specific_and_fallback_coexist() {
+    fn test_cross_protocol_model_specific_and_fallback_coexist() {
         // Model-specific + fallback = legal (fallback is the zero-match兜底).
         let scenarios = vec![
             specific(
@@ -652,7 +652,7 @@ mod tests {
     }
 
     #[test]
-    fn cross_protocol_no_leakage_between_models() {
+    fn test_cross_protocol_no_leakage_between_models() {
         let scenarios = vec![specific(
             "claude-scene",
             MatchCondition {
@@ -684,7 +684,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn convenience_match_scenario_works() {
+    fn test_convenience_match_scenario_works() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -697,7 +697,7 @@ mod tests {
     }
 
     #[test]
-    fn convenience_match_scenario_no_match() {
+    fn test_convenience_match_scenario_no_match() {
         let scenarios = vec![specific(
             "gpt4",
             MatchCondition {
@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[test]
-    fn convenience_match_scenario_fallback() {
+    fn test_convenience_match_scenario_fallback() {
         let scenarios = vec![fallback("fallback")];
         let result = match_scenario(&feat("any", vec!["hi"], vec![]), &scenarios).unwrap();
         assert_eq!(result.unwrap().name, "fallback");
@@ -721,7 +721,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn index_empty_messages_with_message_contains_no_match() {
+    fn test_index_empty_messages_with_message_contains_no_match() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -735,7 +735,7 @@ mod tests {
     }
 
     #[test]
-    fn index_tool_name_only_condition() {
+    fn test_index_tool_name_only_condition() {
         let scenarios = vec![specific(
             "code",
             MatchCondition {
@@ -753,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn index_two_scenarios_different_models_no_conflict() {
+    fn test_index_two_scenarios_different_models_no_conflict() {
         let scenarios = vec![
             specific(
                 "gpt4",
@@ -797,7 +797,7 @@ mod tests {
     }
 
     #[test]
-    fn index_partial_condition_match_fails() {
+    fn test_index_partial_condition_match_fails() {
         let scenarios = vec![specific(
             "search",
             MatchCondition {
@@ -818,7 +818,7 @@ mod tests {
     }
 
     #[test]
-    fn index_message_contains_substring_matching() {
+    fn test_index_message_contains_substring_matching() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -839,7 +839,7 @@ mod tests {
     }
 
     #[test]
-    fn index_multiple_fallback_scenarios_different_models() {
+    fn test_index_multiple_fallback_scenarios_different_models() {
         let scenarios = vec![
             ScenarioDeclaration {
                 name: "gpt-fallback".to_string(),
@@ -884,7 +884,7 @@ mod tests {
     }
 
     #[test]
-    fn index_no_match_condition_matches_all_models() {
+    fn test_index_no_match_condition_matches_all_models() {
         let scenarios = vec![ScenarioDeclaration {
             name: "catch-all".to_string(),
             match_: None,
@@ -915,7 +915,7 @@ mod tests {
     }
 
     #[test]
-    fn index_message_in_second_message_matches() {
+    fn test_index_message_in_second_message_matches() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {
@@ -933,7 +933,7 @@ mod tests {
     }
 
     #[test]
-    fn index_message_in_last_message_matches() {
+    fn test_index_message_in_last_message_matches() {
         let scenarios = vec![specific(
             "math",
             MatchCondition {

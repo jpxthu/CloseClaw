@@ -103,7 +103,7 @@ fn assert_delay_fields(
 /// text+streaming combo: content blocks come from text, delivery params
 /// come from streaming shape.
 #[test]
-fn streaming_text_combo_populates_delivery_params() {
+fn test_streaming_text_combo_populates_delivery_params() {
     let scenario = ScenarioDeclaration {
         name: "combo".to_string(),
         match_: None,
@@ -144,7 +144,7 @@ fn streaming_text_combo_populates_delivery_params() {
 
 /// Delay shape alone fills all three delay fields.
 #[test]
-fn delay_shape_alone_fills_all_delay_fields() {
+fn test_delay_shape_alone_fills_all_delay_fields() {
     let scenario = ScenarioDeclaration {
         name: "delay-alone".to_string(),
         match_: None,
@@ -179,7 +179,7 @@ fn delay_shape_alone_fills_all_delay_fields() {
 
 /// Error shape → DecisionOutcome::Error with correct fields.
 #[test]
-fn error_shape_returns_error_outcome() {
+fn test_error_shape_returns_error_outcome() {
     let scenario = ScenarioDeclaration {
         name: "err-shape".to_string(),
         match_: None,
@@ -216,7 +216,7 @@ fn error_shape_returns_error_outcome() {
 
 /// TurnResponse.delay=100 + Delay shape delay_ms=200 → decision delay=100.
 #[test]
-fn turn_response_delay_overrides_shape_delay() {
+fn test_turn_response_delay_overrides_shape_delay() {
     let scenario = ScenarioDeclaration {
         name: "priority".to_string(),
         match_: None,
@@ -247,7 +247,7 @@ fn turn_response_delay_overrides_shape_delay() {
 
 /// When TurnResponse has no delay fields, shape values fill them.
 #[test]
-fn shape_values_fill_when_turn_response_none() {
+fn test_shape_values_fill_when_turn_response_none() {
     let scenario = ScenarioDeclaration {
         name: "no-turn-delay".to_string(),
         match_: None,
@@ -285,7 +285,7 @@ fn shape_values_fill_when_turn_response_none() {
 /// Streaming empty object `{}` → deserializes and decision has all-None
 /// delivery fields.
 #[test]
-fn streaming_empty_object_yields_none_fields() {
+fn test_streaming_empty_object_yields_none_fields() {
     let scenario = ScenarioDeclaration {
         name: "stream-empty".to_string(),
         match_: None,
@@ -312,7 +312,7 @@ fn streaming_empty_object_yields_none_fields() {
 
 /// Delay empty object `{}` → deserializes and decision has all-None fields.
 #[test]
-fn delay_empty_object_yields_none_fields() {
+fn test_delay_empty_object_yields_none_fields() {
     let scenario = ScenarioDeclaration {
         name: "delay-empty".to_string(),
         match_: None,
@@ -340,7 +340,7 @@ fn delay_empty_object_yields_none_fields() {
 
 /// segment_granularity=0 is preserved (means "single segment" in sse.rs).
 #[test]
-fn segment_granularity_zero_passthrough() {
+fn test_segment_granularity_zero_passthrough() {
     let scenario = ScenarioDeclaration {
         name: "gran-zero".to_string(),
         match_: None,
@@ -370,7 +370,7 @@ fn segment_granularity_zero_passthrough() {
 
 /// Multiple shapes declare the same delay field → first one wins.
 #[test]
-fn multiple_shapes_same_delay_first_wins() {
+fn test_multiple_shapes_same_delay_first_wins() {
     let scenario = ScenarioDeclaration {
         name: "multi-delay".to_string(),
         match_: None,
@@ -414,7 +414,7 @@ fn multiple_shapes_same_delay_first_wins() {
 /// Turn 1 has delay shape, turn 2 has text → per-turn declarations are
 /// independent and do not leak across turns.
 #[test]
-fn multi_turn_delay_isolation() {
+fn test_multi_turn_delay_isolation() {
     let scenario = ScenarioDeclaration {
         name: "turn-delay-iso".to_string(),
         match_: None,
@@ -468,7 +468,7 @@ fn multi_turn_delay_isolation() {
 
 /// Error shape in turn 2 → turn 1 is normal, turn 2 returns Error.
 #[test]
-fn multi_turn_error_in_second_turn() {
+fn test_multi_turn_error_in_second_turn() {
     let scenario = ScenarioDeclaration {
         name: "err-turn2".to_string(),
         match_: None,
@@ -511,7 +511,7 @@ fn multi_turn_error_in_second_turn() {
 
 /// TurnResponse.error and Error shape both present → TurnResponse.error wins.
 #[test]
-fn turn_response_error_overrides_shape_error() {
+fn test_turn_response_error_overrides_shape_error() {
     let scenario = ScenarioDeclaration {
         name: "err-override".to_string(),
         match_: None,
@@ -548,7 +548,7 @@ fn turn_response_error_overrides_shape_error() {
 /// Composite error+text → Error shape triggers early return, no content
 /// blocks produced.
 #[test]
-fn composite_error_text_early_return_no_blocks() {
+fn test_composite_error_text_early_return_no_blocks() {
     let scenario = ScenarioDeclaration {
         name: "composite-err".to_string(),
         match_: None,
@@ -596,7 +596,7 @@ fn composite_error_text_early_return_no_blocks() {
 
 /// Streaming shape carries usage → decision usage is populated from it.
 #[test]
-fn streaming_shape_usage_populates_decision() {
+fn test_streaming_shape_usage_populates_decision() {
     let scenario = ScenarioDeclaration {
         name: "streaming-usage".to_string(),
         match_: None,
@@ -633,7 +633,7 @@ fn streaming_shape_usage_populates_decision() {
 
 /// Streaming shape without usage does not interfere with Text shape usage.
 #[test]
-fn streaming_no_usage_does_not_affect_text_usage() {
+fn test_streaming_no_usage_does_not_affect_text_usage() {
     let scenario = ScenarioDeclaration {
         name: "streaming-no-usage".to_string(),
         match_: None,
@@ -675,7 +675,7 @@ fn streaming_no_usage_does_not_affect_text_usage() {
 
 /// Streaming shape usage takes priority when it appears before Text shape usage.
 #[test]
-fn streaming_usage_first_wins_over_text_usage() {
+fn test_streaming_usage_first_wins_over_text_usage() {
     let scenario = ScenarioDeclaration {
         name: "streaming-usage-first".to_string(),
         match_: None,

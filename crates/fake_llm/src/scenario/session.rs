@@ -172,7 +172,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn single_turn_returns_zero() {
+    fn test_single_turn_returns_zero() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
         let turn = tracker.advance_turn(&messages, "test");
@@ -184,7 +184,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn same_prefix_different_scenarios_isolated() {
+    fn test_same_prefix_different_scenarios_isolated() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["shared prefix".to_string()];
         let m2 = vec!["shared prefix".to_string(), "continuation".to_string()];
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn same_prefix_different_scenarios_cursors_independent() {
+    fn test_same_prefix_different_scenarios_cursors_independent() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["prefix".to_string()];
         let m2 = vec!["prefix".to_string(), "msg2".to_string()];
@@ -215,7 +215,7 @@ mod tests {
     }
 
     #[test]
-    fn separate_scenarios_do_not_share_state() {
+    fn test_separate_scenarios_do_not_share_state() {
         let mut tracker = SessionTracker::new();
 
         // Build up state in scenario X
@@ -241,7 +241,7 @@ mod tests {
     }
 
     #[test]
-    fn same_messages_return_same_turn() {
+    fn test_same_messages_return_same_turn() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
         let t1 = tracker.advance_turn(&messages, "test");
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn multi_turn_advances_correctly() {
+    fn test_multi_turn_advances_correctly() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["user msg 1".to_string()];
         let m2 = vec![
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn three_turns_advance_correctly() {
+    fn test_three_turns_advance_correctly() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["a".to_string()];
         let m2 = vec!["a".to_string(), "b".to_string()];
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn new_session_resets_turn() {
+    fn test_new_session_resets_turn() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["session 1 msg".to_string()];
         let m2 = vec!["session 1 msg".to_string(), "reply".to_string()];
@@ -297,7 +297,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "exceeded declared turns")]
-    fn exceeding_turns_panics() {
+    fn test_exceeding_turns_panics() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
         tracker.advance_turn(&messages, "test");
@@ -308,7 +308,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_independent_sessions() {
+    fn test_multiple_independent_sessions() {
         let mut tracker = SessionTracker::new();
 
         // Session A
@@ -324,7 +324,7 @@ mod tests {
     }
 
     #[test]
-    fn duplicate_request_does_not_advance() {
+    fn test_duplicate_request_does_not_advance() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
 
@@ -334,7 +334,7 @@ mod tests {
     }
 
     #[test]
-    fn history_not_prefix_of_existing_creates_new_session() {
+    fn test_history_not_prefix_of_existing_creates_new_session() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["a".to_string(), "b".to_string()];
         let m2 = vec!["x".to_string(), "y".to_string(), "z".to_string()];
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn shorter_history_after_longer_creates_new_session() {
+    fn test_shorter_history_after_longer_creates_new_session() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["a".to_string(), "b".to_string(), "c".to_string()];
         let m2 = vec!["a".to_string(), "b".to_string()];
@@ -356,7 +356,7 @@ mod tests {
     }
 
     #[test]
-    fn same_prefix_different_suffix_creates_separate_sessions() {
+    fn test_same_prefix_different_suffix_creates_separate_sessions() {
         let mut tracker = SessionTracker::new();
         let m1 = vec!["shared prefix".to_string()];
         let m2a = vec!["shared prefix".to_string(), "branch A".to_string()];
@@ -370,7 +370,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_history_works() {
+    fn test_empty_history_works() {
         let mut tracker = SessionTracker::new();
         let messages: Vec<String> = vec![];
         assert_eq!(tracker.advance_turn(&messages, "s"), 0);
@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn scenario_name_appears_in_panic_message() {
+    fn test_scenario_name_appears_in_panic_message() {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             panic!(
                 "scenario file error: ambiguous session match for scenario 'my-scenario' \
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn is_prefix_logic() {
+    fn test_is_prefix_logic() {
         assert!(SessionTracker::is_prefix(
             &["a".to_string()],
             &["a".to_string(), "b".to_string()]
@@ -422,7 +422,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn long_conversation_five_turns() {
+    fn test_long_conversation_five_turns() {
         let mut tracker = SessionTracker::new();
         for i in 0..5 {
             let msgs: Vec<String> = (0..=i).map(|j| format!("msg-{}", j)).collect();
@@ -432,7 +432,7 @@ mod tests {
     }
 
     #[test]
-    fn two_sessions_interleaved() {
+    fn test_two_sessions_interleaved() {
         let mut tracker = SessionTracker::new();
         // Session A turn 0
         assert_eq!(tracker.advance_turn(&["a0".to_string()], "s"), 0);
@@ -456,7 +456,7 @@ mod tests {
     }
 
     #[test]
-    fn new_session_after_partial_prefix() {
+    fn test_new_session_after_partial_prefix() {
         let mut tracker = SessionTracker::new();
         // Build session with history ["shared", "branch-a"]
         assert_eq!(tracker.advance_turn(&["shared".to_string()], "s"), 0);
@@ -473,7 +473,7 @@ mod tests {
     }
 
     #[test]
-    fn many_sessions_independent() {
+    fn test_many_sessions_independent() {
         let mut tracker = SessionTracker::new();
         let session_prefixes = vec!["alpha", "beta", "gamma", "delta", "epsilon"];
         // Create 5 independent sessions
@@ -489,7 +489,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_history_key_deterministic() {
+    fn test_compute_history_key_deterministic() {
         let msgs1 = vec!["a".to_string(), "b".to_string()];
         let msgs2 = vec!["a".to_string(), "b".to_string()];
         let k1 = SessionTracker::compute_history_key(&msgs1);
@@ -498,7 +498,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_history_key_different_for_different_messages() {
+    fn test_compute_history_key_different_for_different_messages() {
         let msgs1 = vec!["a".to_string()];
         let msgs2 = vec!["b".to_string()];
         let k1 = SessionTracker::compute_history_key(&msgs1);
@@ -511,7 +511,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn cleanup_removes_expired_session() {
+    fn test_cleanup_removes_expired_session() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
 
@@ -526,7 +526,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_preserves_active_session() {
+    fn test_cleanup_preserves_active_session() {
         let mut tracker = SessionTracker::new();
         let messages = vec!["hello".to_string()];
 
@@ -542,7 +542,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_independent_across_scenarios() {
+    fn test_cleanup_independent_across_scenarios() {
         let mut tracker = SessionTracker::new();
 
         // Create sessions in both scenarios at the same instant.
@@ -569,7 +569,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_only_removes_expired_not_fresh() {
+    fn test_cleanup_only_removes_expired_not_fresh() {
         let mut tracker = SessionTracker::new();
         let created = Instant::now();
         tracker.advance_turn(&["m".to_string()], "s");
@@ -583,7 +583,7 @@ mod tests {
     }
 
     #[test]
-    fn active_session_count_tracks_scenarios() {
+    fn test_active_session_count_tracks_scenarios() {
         let mut tracker = SessionTracker::new();
         assert_eq!(tracker.active_session_count(), 0);
 

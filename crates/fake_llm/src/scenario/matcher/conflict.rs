@@ -217,7 +217,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn two_fallbacks_conflict() {
+    fn test_two_fallbacks_conflict() {
         let scenarios = vec![fallback("a"), fallback("b")];
         let conflicts = detect_conflicts(&scenarios);
         assert_eq!(conflicts.len(), 1);
@@ -225,7 +225,7 @@ mod tests {
     }
 
     #[test]
-    fn fallback_and_conditional_no_conflict() {
+    fn test_fallback_and_conditional_no_conflict() {
         // Fallback is the zero-match兜底 and coexists legally with
         // conditional scenarios.
         let scenarios = vec![
@@ -247,7 +247,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn same_model_id_conflicts() {
+    fn test_same_model_id_conflicts() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -269,7 +269,7 @@ mod tests {
     }
 
     #[test]
-    fn different_model_id_no_conflict() {
+    fn test_different_model_id_no_conflict() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -291,7 +291,7 @@ mod tests {
     }
 
     #[test]
-    fn one_model_id_missing_conflict() {
+    fn test_one_model_id_missing_conflict() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -322,7 +322,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn same_message_contains_conflicts() {
+    fn test_same_message_contains_conflicts() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn substring_message_contains_conflicts() {
+    fn test_substring_message_contains_conflicts() {
         // "calculate" is a substring of "calculate 2" — compatible
         let scenarios = vec![
             conditional(
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn disjoint_message_contains_no_conflict() {
+    fn test_disjoint_message_contains_no_conflict() {
         // "foo" is not a substring of "bar" and vice versa
         let scenarios = vec![
             conditional(
@@ -394,7 +394,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn same_tool_name_conflicts() {
+    fn test_same_tool_name_conflicts() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -416,7 +416,7 @@ mod tests {
     }
 
     #[test]
-    fn different_tool_name_no_conflict() {
+    fn test_different_tool_name_no_conflict() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -442,7 +442,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn same_request_params_conflicts() {
+    fn test_same_request_params_conflicts() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -472,7 +472,7 @@ mod tests {
     }
 
     #[test]
-    fn different_request_params_value_no_conflict() {
+    fn test_different_request_params_value_no_conflict() {
         // Different temperature values: mutually exclusive, no conflict.
         let scenarios = vec![
             conditional(
@@ -503,7 +503,7 @@ mod tests {
     }
 
     #[test]
-    fn one_key_missing_in_request_params_conflict() {
+    fn test_one_key_missing_in_request_params_conflict() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -535,7 +535,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_request_params_one_key_same_one_different_no_conflict() {
+    fn test_mixed_request_params_one_key_same_one_different_no_conflict() {
         // stream matches in both, but temperature differs: mutually
         // exclusive due to temperature, no conflict.
         let scenarios = vec![
@@ -577,7 +577,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn completely_different_conditions_no_conflict() {
+    fn test_completely_different_conditions_no_conflict() {
         let scenarios = vec![
             conditional(
                 "a",
@@ -601,13 +601,13 @@ mod tests {
     }
 
     #[test]
-    fn no_conflicts_empty_list() {
+    fn test_no_conflicts_empty_list() {
         let conflicts = detect_conflicts(&[]);
         assert!(conflicts.is_empty());
     }
 
     #[test]
-    fn no_conflicts_single_scenario() {
+    fn test_no_conflicts_single_scenario() {
         let scenarios = vec![conditional(
             "only",
             MatchCondition {
@@ -624,7 +624,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn cross_protocol_same_model_not_a_conflict_in_detection() {
+    fn test_cross_protocol_same_model_not_a_conflict_in_detection() {
         // Conflict detection operates on ScenarioDeclaration which has no
         // protocol field — protocol isolation is enforced by the index
         // bucketing in MatcherIndex. Two scenarios with the same model_id
@@ -663,7 +663,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn multiple_conflicts_detected() {
+    fn test_multiple_conflicts_detected() {
         let scenarios = vec![
             fallback("fb"),
             conditional(
@@ -693,7 +693,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn conflict_report_display() {
+    fn test_conflict_report_display() {
         let report = ConflictReport {
             scenario_a: "a".to_string(),
             scenario_b: "b".to_string(),
@@ -710,7 +710,7 @@ mod tests {
     // ---------------------------------------------------------------
 
     #[test]
-    fn request_params_only_one_has_params_conflict() {
+    fn test_request_params_only_one_has_params_conflict() {
         let scenarios = vec![
             conditional(
                 "a",

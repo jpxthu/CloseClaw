@@ -387,7 +387,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn extract_features_basic() {
+    fn test_extract_features_basic() {
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
             messages: vec![],
@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_features_streaming() {
+    fn test_extract_features_streaming() {
         let req = ChatCompletionRequest {
             model: "gpt-4".to_string(),
             messages: vec![],
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_models_structure() {
+    fn test_placeholder_models_structure() {
         let resp = build_models_response();
         assert_eq!(resp.object, "list");
         assert_eq!(resp.data.len(), 3);
@@ -440,7 +440,7 @@ mod tests {
     }
 
     #[test]
-    fn placeholder_models_json_shape() {
+    fn test_placeholder_models_json_shape() {
         let resp = build_models_response();
         let json = serde_json::to_value(&resp).unwrap();
         assert_eq!(json["object"], "list");
@@ -450,7 +450,7 @@ mod tests {
     }
 
     #[test]
-    fn response_with_reasoning_content() {
+    fn test_response_with_reasoning_content() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -499,7 +499,7 @@ mod tests {
     }
 
     #[test]
-    fn response_with_tool_calls() {
+    fn test_response_with_tool_calls() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -550,7 +550,7 @@ mod tests {
     }
 
     #[test]
-    fn response_with_reasoning_only_no_content() {
+    fn test_response_with_reasoning_only_no_content() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -588,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_with_cache_hit_tokens() {
+    fn test_usage_with_cache_hit_tokens() {
         use crate::scenario::types::{ResponseBlock, UsageResponse};
 
         let decision = ScenarioDecision {
@@ -625,7 +625,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_without_cache_hit_tokens() {
+    fn test_usage_without_cache_hit_tokens() {
         use crate::scenario::types::{ResponseBlock, UsageResponse};
 
         let decision = ScenarioDecision {
@@ -662,7 +662,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_with_cache_hit_zero() {
+    fn test_usage_with_cache_hit_zero() {
         use crate::scenario::types::{ResponseBlock, UsageResponse};
 
         let decision = ScenarioDecision {
@@ -700,7 +700,7 @@ mod tests {
     }
 
     #[test]
-    fn response_multiple_tool_calls() {
+    fn test_response_multiple_tool_calls() {
         use crate::scenario::types::ResponseBlock;
 
         let decision = ScenarioDecision {
@@ -749,7 +749,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_with_include_usage_true() {
+    fn test_stream_options_with_include_usage_true() {
         let json_str = r#"{
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "hi"}],
@@ -763,7 +763,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_with_include_usage_false() {
+    fn test_stream_options_with_include_usage_false() {
         let json_str = r#"{
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "hi"}],
@@ -777,7 +777,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_absent() {
+    fn test_stream_options_absent() {
         let json_str = r#"{
             "model": "gpt-4",
             "messages": [{"role": "user", "content": "hi"}],
@@ -789,7 +789,7 @@ mod tests {
     }
 
     #[test]
-    fn stream_options_backward_compatible_no_field() {
+    fn test_stream_options_backward_compatible_no_field() {
         // Old request format without stream_options should still parse
         let json_str = r#"{
             "model": "gpt-3.5-turbo",
@@ -803,7 +803,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_features_with_stream_options() {
+    fn test_extract_features_with_stream_options() {
         // Verify that the stream_options field is accessible on the request
         // and can be used to determine include_usage for DeliveryConfig.
         let req = ChatCompletionRequest {

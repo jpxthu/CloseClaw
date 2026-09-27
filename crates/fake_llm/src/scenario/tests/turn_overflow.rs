@@ -4,7 +4,7 @@ use super::*;
 use crate::types::ProtocolKind;
 
 #[test]
-fn decide_returns_error_on_turn_overflow() {
+fn test_decide_returns_error_on_turn_overflow() {
     let scenario = ScenarioDeclaration {
         name: "single-turn".to_string(),
         match_: None,
@@ -51,7 +51,7 @@ fn decide_returns_error_on_turn_overflow() {
 }
 
 #[test]
-fn decide_error_includes_scenario_name_and_turn_info() {
+fn test_decide_error_includes_scenario_name_and_turn_info() {
     let scenario = ScenarioDeclaration {
         name: "named-scenario".to_string(),
         match_: None,
@@ -102,7 +102,7 @@ fn decide_error_includes_scenario_name_and_turn_info() {
 }
 
 #[test]
-fn decide_for_models_returns_error_on_turn_overflow() {
+fn test_decide_for_models_returns_error_on_turn_overflow() {
     let scenario = ScenarioDeclaration {
         name: "models-single".to_string(),
         match_: None,

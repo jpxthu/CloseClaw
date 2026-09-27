@@ -289,21 +289,21 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn apply_delay_none_is_immediate() {
+    async fn test_apply_delay_none_is_immediate() {
         let start = std::time::Instant::now();
         apply_delay(None).await;
         assert!(start.elapsed().as_millis() < 50);
     }
 
     #[tokio::test]
-    async fn apply_delay_zero_is_immediate() {
+    async fn test_apply_delay_zero_is_immediate() {
         let start = std::time::Instant::now();
         apply_delay(Some(0)).await;
         assert!(start.elapsed().as_millis() < 50);
     }
 
     #[tokio::test]
-    async fn apply_delay_executes_sleep() {
+    async fn test_apply_delay_executes_sleep() {
         let start = std::time::Instant::now();
         apply_delay(Some(100)).await;
         let elapsed = start.elapsed().as_millis();
@@ -315,7 +315,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn delivery_result_http_error_into_axum_error() {
+    fn test_delivery_result_http_error_into_axum_error() {
         let result = DeliveryResult::HttpError {
             status: 429,
             message: "rate limited".to_string(),
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn delivery_result_http_error_no_retry_after() {
+    fn test_delivery_result_http_error_no_retry_after() {
         let result = DeliveryResult::HttpError {
             status: 500,
             message: "server error".to_string(),
@@ -350,7 +350,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_streaming_openai() {
+    async fn test_deliver_streaming_openai() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -381,7 +381,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_streaming_anthropic() {
+    async fn test_deliver_streaming_anthropic() {
         let decision = crate::types::ScenarioDecision {
             model: "claude-3".to_string(),
             scenario: "test".to_string(),
@@ -416,7 +416,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_non_streaming_openai() {
+    async fn test_deliver_non_streaming_openai() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -446,7 +446,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_non_streaming_anthropic() {
+    async fn test_deliver_non_streaming_anthropic() {
         let decision = crate::types::ScenarioDecision {
             model: "claude-3".to_string(),
             scenario: "test".to_string(),
@@ -480,7 +480,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_error_injection() {
+    async fn test_deliver_error_injection() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -520,7 +520,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_with_delay() {
+    async fn test_deliver_with_delay() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -554,7 +554,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_error_with_retry_after() {
+    async fn test_deliver_error_with_retry_after() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -593,7 +593,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_error_without_retry_after() {
+    async fn test_deliver_error_without_retry_after() {
         let decision = crate::types::ScenarioDecision {
             model: "gpt-4".to_string(),
             scenario: "test".to_string(),
@@ -630,7 +630,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_models_placeholder() {
+    async fn test_deliver_models_placeholder() {
         let decision = ModelsDeliveryDecision {
             models: None,
             http_error: None,
@@ -651,7 +651,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_models_with_entries() {
+    async fn test_deliver_models_with_entries() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![
                 crate::scenario::types::ModelEntry {
@@ -684,7 +684,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_models_auth_failure() {
+    async fn test_deliver_models_auth_failure() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -710,7 +710,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_models_rate_limited_with_retry_after() {
+    async fn test_deliver_models_rate_limited_with_retry_after() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -736,7 +736,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_models_server_error() {
+    async fn test_deliver_models_server_error() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -763,7 +763,7 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[tokio::test]
-    async fn deliver_models_with_delay() {
+    async fn test_deliver_models_with_delay() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![crate::scenario::types::ModelEntry {
                 id: "gpt-4".to_string(),
@@ -785,7 +785,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_models_delay_then_error() {
+    async fn test_deliver_models_delay_then_error() {
         // Error injection overrides models: delay is applied first,
         // then error is returned.
         let decision = ModelsDeliveryDecision {
@@ -810,7 +810,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn deliver_models_no_delay_no_error() {
+    async fn test_deliver_models_no_delay_no_error() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![crate::scenario::types::ModelEntry {
                 id: "m1".to_string(),

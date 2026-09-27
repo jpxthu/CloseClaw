@@ -6,7 +6,7 @@ use super::*;
 use crate::types::ProtocolKind;
 
 #[test]
-fn build_response_blocks_reasoning_shape() {
+fn test_build_response_blocks_reasoning_shape() {
     let shape = ResponseShape::Reasoning(ReasoningResponse {
         content: "The answer is 42.".to_string(),
         reasoning: "Let me think step by step...".to_string(),
@@ -35,7 +35,7 @@ fn build_response_blocks_reasoning_shape() {
 }
 
 #[test]
-fn build_response_blocks_reasoning_without_signature() {
+fn test_build_response_blocks_reasoning_without_signature() {
     let shape = ResponseShape::Reasoning(ReasoningResponse {
         content: "Result".to_string(),
         reasoning: "hmm".to_string(),
@@ -56,7 +56,7 @@ fn build_response_blocks_reasoning_without_signature() {
 }
 
 #[test]
-fn build_response_blocks_tool_call_single() {
+fn test_build_response_blocks_tool_call_single() {
     let shape = ResponseShape::ToolCall(ToolCallResponse {
         calls: vec![ToolCallEntry {
             name: "get_weather".to_string(),
@@ -78,7 +78,7 @@ fn build_response_blocks_tool_call_single() {
 }
 
 #[test]
-fn build_response_blocks_tool_call_multiple() {
+fn test_build_response_blocks_tool_call_multiple() {
     let shape = ResponseShape::ToolCall(ToolCallResponse {
         calls: vec![
             ToolCallEntry {
@@ -102,7 +102,7 @@ fn build_response_blocks_tool_call_multiple() {
 }
 
 #[test]
-fn build_response_blocks_text_shape() {
+fn test_build_response_blocks_text_shape() {
     let shape = ResponseShape::Text(TextResponse {
         content: "Hello world".to_string(),
         usage: None,
@@ -114,7 +114,7 @@ fn build_response_blocks_text_shape() {
 }
 
 #[test]
-fn build_response_blocks_usage_shape_produces_no_blocks() {
+fn test_build_response_blocks_usage_shape_produces_no_blocks() {
     let shape = ResponseShape::Usage(UsageResponse::default());
     let blocks = ScenarioEngine::build_response_blocks(&[shape]);
     // Usage-only shapes produce no response blocks — only usage data.
@@ -122,7 +122,7 @@ fn build_response_blocks_usage_shape_produces_no_blocks() {
 }
 
 #[test]
-fn decide_reasoning_scenario_produces_correct_blocks() {
+fn test_decide_reasoning_scenario_produces_correct_blocks() {
     let scenario = ScenarioDeclaration {
         name: "reasoning-scene".to_string(),
         match_: None,
@@ -167,7 +167,7 @@ fn decide_reasoning_scenario_produces_correct_blocks() {
 }
 
 #[test]
-fn decide_tool_call_scenario_produces_correct_blocks() {
+fn test_decide_tool_call_scenario_produces_correct_blocks() {
     let scenario = ScenarioDeclaration {
         name: "tool-call-scene".to_string(),
         match_: None,
@@ -207,7 +207,7 @@ fn decide_tool_call_scenario_produces_correct_blocks() {
 }
 
 #[test]
-fn decide_mixed_reasoning_and_tool_call_blocks() {
+fn test_decide_mixed_reasoning_and_tool_call_blocks() {
     let scenario2 = ScenarioDeclaration {
         name: "mixed-scene".to_string(),
         match_: None,
@@ -295,7 +295,7 @@ fn decide_mixed_reasoning_and_tool_call_blocks() {
 // ------------------------------------------------------------------
 
 #[test]
-fn build_response_blocks_composite_flattens() {
+fn test_build_response_blocks_composite_flattens() {
     let shape = ResponseShape::Composite(vec![
         ResponseShape::Text(TextResponse {
             content: "hello".to_string(),
@@ -318,7 +318,7 @@ fn build_response_blocks_composite_flattens() {
 }
 
 #[test]
-fn build_response_blocks_nested_composite() {
+fn test_build_response_blocks_nested_composite() {
     let shape = ResponseShape::Composite(vec![
         ResponseShape::Composite(vec![ResponseShape::Text(TextResponse {
             content: "a".to_string(),
@@ -339,7 +339,7 @@ fn build_response_blocks_nested_composite() {
 }
 
 #[test]
-fn build_response_blocks_mixed_reasoning_and_tool_call() {
+fn test_build_response_blocks_mixed_reasoning_and_tool_call() {
     let shape = ResponseShape::Composite(vec![
         ResponseShape::Reasoning(ReasoningResponse {
             content: "The answer.".to_string(),
@@ -366,7 +366,7 @@ fn build_response_blocks_mixed_reasoning_and_tool_call() {
 }
 
 #[test]
-fn extract_usage_from_composite_shapes() {
+fn test_extract_usage_from_composite_shapes() {
     let text = ResponseShape::Text(TextResponse {
         content: "hello".to_string(),
         usage: None,
@@ -385,7 +385,7 @@ fn extract_usage_from_composite_shapes() {
 }
 
 #[test]
-fn extract_usage_first_shape_wins() {
+fn test_extract_usage_first_shape_wins() {
     let text = ResponseShape::Text(TextResponse {
         content: "hello".to_string(),
         usage: Some(UsageResponse {
@@ -409,7 +409,7 @@ fn extract_usage_first_shape_wins() {
 }
 
 #[test]
-fn decide_composite_turn_produces_all_blocks() {
+fn test_decide_composite_turn_produces_all_blocks() {
     let scenario = ScenarioDeclaration {
         name: "composite-scene".to_string(),
         match_: None,
@@ -456,7 +456,7 @@ fn decide_composite_turn_produces_all_blocks() {
 }
 
 #[test]
-fn decide_composite_turn_with_usage() {
+fn test_decide_composite_turn_with_usage() {
     let scenario = ScenarioDeclaration {
         name: "composite-usage".to_string(),
         match_: None,

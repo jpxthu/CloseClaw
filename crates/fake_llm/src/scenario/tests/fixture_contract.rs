@@ -273,7 +273,7 @@ struct ContentInfo {
 /// fields. The consumer (CloseClaw llm crate) tests mapping of these
 /// fixture fields in Step 1.4.
 #[test]
-fn openai_simple_fixture_matches() {
+fn test_openai_simple_fixture_matches() {
     let path = fixture_root().join("openai/simple.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -324,7 +324,7 @@ fn openai_simple_fixture_matches() {
 ///   fixture has 21; code omits this field (Usage struct has no
 ///   reasoning_tokens_details)
 #[test]
-fn openai_reasoning_fixture_matches() {
+fn test_openai_reasoning_fixture_matches() {
     let path = fixture_root().join("openai/reasoning.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -376,7 +376,7 @@ fn openai_reasoning_fixture_matches() {
 /// - tool_calls[].id: fixture has "call_fake_001"; code generates
 ///   "call_{idx}" — shape-locked, compare prefix + type only
 #[test]
-fn openai_tool_use_fixture_matches() {
+fn test_openai_tool_use_fixture_matches() {
     let path = fixture_root().join("openai/tool-use.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -429,7 +429,7 @@ fn openai_tool_use_fixture_matches() {
 ///   code produces Usage { prompt_tokens: 38, completion_tokens: 72,
 ///   total_tokens: 110 } without details sub-structure
 #[test]
-fn openai_cache_fixture_matches() {
+fn test_openai_cache_fixture_matches() {
     let path = fixture_root().join("openai/cache.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -469,7 +469,7 @@ fn openai_cache_fixture_matches() {
 /// The endpoint layer formats the error body (OpenAI/Anthropic format).
 /// This test verifies the decision-level error structure.
 #[test]
-fn openai_error_auth_fixture_matches() {
+fn test_openai_error_auth_fixture_matches() {
     let path = fixture_root().join("openai/error-auth.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 401, "Unauthorized", None);
@@ -485,7 +485,7 @@ fn openai_error_auth_fixture_matches() {
 }
 
 #[test]
-fn openai_error_rate_limit_fixture_matches() {
+fn test_openai_error_rate_limit_fixture_matches() {
     let path = fixture_root().join("openai/error-rate-limit.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 429, "Too Many Requests", None);
@@ -501,7 +501,7 @@ fn openai_error_rate_limit_fixture_matches() {
 }
 
 #[test]
-fn openai_error_server_fixture_matches() {
+fn test_openai_error_server_fixture_matches() {
     let path = fixture_root().join("openai/error-server.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 500, "Internal Server Error", None);
@@ -528,7 +528,7 @@ fn openai_error_server_fixture_matches() {
 /// - `usage.service_tier`: fixture has "standard"; code omits entirely
 /// - `stop_sequence`: fixture has null; code omits entirely
 #[test]
-fn anthropic_simple_fixture_matches() {
+fn test_anthropic_simple_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-simple.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -614,7 +614,7 @@ fn tool_use_blocks() -> Vec<ResponseBlock> {
 }
 
 #[test]
-fn anthropic_thinking_fixture_matches() {
+fn test_anthropic_thinking_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-thinking.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -675,7 +675,7 @@ fn anthropic_thinking_fixture_matches() {
 ///   "toolu_{idx}" — shape-locked, compare prefix only
 /// - `usage.cache_*`, `service_tier`, `stop_sequence`: same as above
 #[test]
-fn anthropic_tool_use_fixture_matches() {
+fn test_anthropic_tool_use_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-tool-use.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let resp = build_message_response_from_decision(&crate::types::ScenarioDecision {
@@ -725,7 +725,7 @@ fn anthropic_tool_use_fixture_matches() {
 /// - `usage.service_tier`: fixture has "standard"; code omits
 /// - `stop_sequence`: fixture has null; code omits
 #[test]
-fn anthropic_cache_fixture_matches() {
+fn test_anthropic_cache_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-cache.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let usage = Some(UsageResponse {
@@ -791,7 +791,7 @@ fn anthropic_cache_fixture_matches() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn anthropic_error_fixture_matches() {
+fn test_anthropic_error_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-error.json");
     let fixture = load_protocol_fixture(&path).unwrap();
     let scenario = make_error_fallback(&fixture.scenario, 400, "Bad Request", None);

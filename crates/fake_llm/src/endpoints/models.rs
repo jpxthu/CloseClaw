@@ -66,7 +66,7 @@ mod tests {
     use crate::scenario::types::{HttpError, ModelEntry};
 
     #[tokio::test]
-    async fn handler_placeholder_returns_models_list() {
+    async fn test_handler_placeholder_returns_models_list() {
         let decision = ModelsDeliveryDecision {
             models: None,
             http_error: None,
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_auth_failure_returns_401() {
+    async fn test_handler_auth_failure_returns_401() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -104,7 +104,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_rate_limited_returns_429_with_retry_after() {
+    async fn test_handler_rate_limited_returns_429_with_retry_after() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -129,7 +129,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_server_error_returns_500() {
+    async fn test_handler_server_error_returns_500() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![]),
             http_error: Some(HttpError {
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_models_with_delay() {
+    async fn test_handler_models_with_delay() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![ModelEntry {
                 id: "gpt-4".to_string(),
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn handler_models_with_entries() {
+    async fn test_handler_models_with_entries() {
         let decision = ModelsDeliveryDecision {
             models: Some(vec![
                 ModelEntry {

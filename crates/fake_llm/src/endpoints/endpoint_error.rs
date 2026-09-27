@@ -60,7 +60,7 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn internal_produces_500_empty_headers_and_body() {
+    async fn test_internal_produces_500_empty_headers_and_body() {
         let err = EndpointError::internal("boom");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -77,7 +77,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_valid_status_with_retry_after() {
+    async fn test_http_valid_status_with_retry_after() {
         let err = EndpointError::http(429, Some(30), "rate limited");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::from_u16(429).unwrap());
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_invalid_status_falls_back_to_500() {
+    async fn test_http_invalid_status_falls_back_to_500() {
         let err = EndpointError::http(9999, None, "bad");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::INTERNAL_SERVER_ERROR);
@@ -105,7 +105,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_no_retry_after_header_when_none() {
+    async fn test_http_no_retry_after_header_when_none() {
         let err = EndpointError::http(403, None, "forbidden");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::from_u16(403).unwrap());
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_retry_after_zero_still_present() {
+    async fn test_http_retry_after_zero_still_present() {
         let err = EndpointError::http(429, Some(0), "too fast");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::from_u16(429).unwrap());
@@ -137,7 +137,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_retry_after_max_u64_valid() {
+    async fn test_http_retry_after_max_u64_valid() {
         let err = EndpointError::http(503, Some(u64::MAX), "overloaded");
         let resp = err.into_response();
         assert_eq!(resp.status(), StatusCode::from_u16(503).unwrap());
@@ -155,7 +155,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn http_invalid_status_preserves_retry_after() {
+    async fn test_http_invalid_status_preserves_retry_after() {
         let err = EndpointError::http(9999, Some(42), "bad but retryable");
         let resp = err.into_response();
         assert_eq!(
@@ -176,7 +176,7 @@ mod tests {
     }
 
     #[test]
-    fn endpoint_error_debug_format() {
+    fn test_endpoint_error_debug_format() {
         let err = EndpointError::internal("test");
         let dbg = format!("{err:?}");
         assert!(dbg.contains("EndpointError"));

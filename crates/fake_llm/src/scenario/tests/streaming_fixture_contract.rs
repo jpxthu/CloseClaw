@@ -161,7 +161,7 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
 /// `id` field is `fake-{model}` (not `chatcmpl-{scenario}`) — this is
 /// the code's current behavior. We assert format only (non-empty string).
 #[test]
-fn openai_streaming_text_fixture_matches_semantics() {
+fn test_openai_streaming_text_fixture_matches_semantics() {
     let root = fixture_root();
     let meta_path = root.join("openai/streaming-meta.json");
     let meta = load_streaming_meta(&meta_path).unwrap();
@@ -329,7 +329,7 @@ fn openai_streaming_text_fixture_matches_semantics() {
 /// - `usage.completion_tokens_details.reasoning_tokens`: fixture has 0;
 ///   code omits details sub-structure
 #[test]
-fn openai_streaming_tool_use_fixture_matches_semantics() {
+fn test_openai_streaming_tool_use_fixture_matches_semantics() {
     let root = fixture_root();
     let meta_path = root.join("openai/tool-use-streaming-meta.json");
     let meta = load_streaming_meta(&meta_path).unwrap();
@@ -497,7 +497,7 @@ fn openai_streaming_tool_use_fixture_matches_semantics() {
 ///   fixture has 0/0; code produces `{input_tokens, output_tokens}` only
 /// - `stop_sequence`: fixture has null; code omits
 #[test]
-fn anthropic_streaming_text_fixture_matches_semantics() {
+fn test_anthropic_streaming_text_fixture_matches_semantics() {
     let root = fixture_root();
     let meta_path = root.join("anthropic/anthropic-streaming-meta.json");
     let meta = load_streaming_meta(&meta_path).unwrap();
@@ -696,7 +696,7 @@ fn anthropic_streaming_text_fixture_matches_semantics() {
 ///   fixture has 0/0; code omits
 /// - `stop_sequence`: fixture has null; code omits
 #[test]
-fn anthropic_streaming_tool_use_fixture_matches_semantics() {
+fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     let root = fixture_root();
     let meta_path = root.join("anthropic/anthropic-tool-use-streaming-meta.json");
     let meta = load_streaming_meta(&meta_path).unwrap();

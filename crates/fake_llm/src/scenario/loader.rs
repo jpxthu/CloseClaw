@@ -59,7 +59,7 @@ mod tests {
     }
 
     #[test]
-    fn load_single_file_ok() {
+    fn test_load_single_file_ok() {
         let tmp = TempDir::new().unwrap();
         let json = r#"{
             "scenarios": [
@@ -84,7 +84,7 @@ mod tests {
     }
 
     #[test]
-    fn load_file_not_found() {
+    fn test_load_file_not_found() {
         let result = load_scenario_file(Path::new("/nonexistent/path/file.json"));
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -92,7 +92,7 @@ mod tests {
     }
 
     #[test]
-    fn load_file_invalid_json() {
+    fn test_load_file_invalid_json() {
         let tmp = TempDir::new().unwrap();
         make_temp_scenario(tmp.path(), "bad.json", "{not valid json");
 
@@ -103,7 +103,7 @@ mod tests {
     }
 
     #[test]
-    fn load_directory_ok() {
+    fn test_load_directory_ok() {
         let tmp = TempDir::new().unwrap();
 
         let json1 = r#"{"scenarios": [{"name": "a", "turns": [{"response": {"type": "text", "content": "A"}}]}]}"#;
@@ -116,7 +116,7 @@ mod tests {
     }
 
     #[test]
-    fn load_directory_skips_non_json() {
+    fn test_load_directory_skips_non_json() {
         let tmp = TempDir::new().unwrap();
         let json = r#"{"scenarios": [{"name": "ok", "turns": [{"response": {"type": "text", "content": "ok"}}]}]}"#;
         make_temp_scenario(tmp.path(), "good.json", json);
@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn load_directory_not_found() {
+    fn test_load_directory_not_found() {
         let result = load_scenario_dir(Path::new("/nonexistent/dir"));
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -136,7 +136,7 @@ mod tests {
     }
 
     #[test]
-    fn load_directory_propagates_parse_error() {
+    fn test_load_directory_propagates_parse_error() {
         let tmp = TempDir::new().unwrap();
         make_temp_scenario(tmp.path(), "bad.json", "{invalid");
 
@@ -164,7 +164,7 @@ mod tests {
     }
 
     #[test]
-    fn load_fixture_basic_text_ok() {
+    fn test_load_fixture_basic_text_ok() {
         let dir = fixture_scenarios_dir();
         let path = dir.join("basic-text.json");
         let file = load_scenario_file(&path).unwrap();
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[test]
-    fn load_fixture_error_injection_ok() {
+    fn test_load_fixture_error_injection_ok() {
         let dir = fixture_scenarios_dir();
         let path = dir.join("error-injection.json");
         let file = load_scenario_file(&path).unwrap();
@@ -199,7 +199,7 @@ mod tests {
     }
 
     #[test]
-    fn load_fixture_multi_turn_ok() {
+    fn test_load_fixture_multi_turn_ok() {
         let dir = fixture_scenarios_dir();
         let path = dir.join("multi-turn.json");
         let file = load_scenario_file(&path).unwrap();
@@ -209,7 +209,7 @@ mod tests {
     }
 
     #[test]
-    fn load_fixture_usage_response_ok() {
+    fn test_load_fixture_usage_response_ok() {
         let dir = fixture_scenarios_dir();
         let path = dir.join("usage-response.json");
         let file = load_scenario_file(&path).unwrap();
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn load_fixture_cache_fields_missing_ok() {
+    fn test_load_fixture_cache_fields_missing_ok() {
         let dir = fixture_scenarios_dir();
         let path = dir.join("cache-fields-missing.json");
         let file = load_scenario_file(&path).unwrap();
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn load_scenarios_dir_all_fixtures() {
+    fn test_load_scenarios_dir_all_fixtures() {
         let dir = fixture_scenarios_dir();
         let files = load_scenario_dir(&dir).unwrap();
         // Should load all 11 fixture files without errors.
@@ -251,7 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn load_scenarios_dir_no_conflicts() {
+    fn test_load_scenarios_dir_no_conflicts() {
         let dir = fixture_scenarios_dir();
         let files = load_scenario_dir(&dir).unwrap();
         let all_scenarios: Vec<_> = files.into_iter().flat_map(|f| f.scenarios).collect();

@@ -127,7 +127,7 @@ fn test_drain_count_stops_at_pending_without_consuming_later_items() {
 // ------------------------------------------------------------------
 
 #[tokio::test]
-async fn deliver_streaming_first_token_delay() {
+async fn test_deliver_streaming_first_token_delay() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -154,7 +154,7 @@ async fn deliver_streaming_first_token_delay() {
 }
 
 #[tokio::test]
-async fn deliver_streaming_segment_delay() {
+async fn test_deliver_streaming_segment_delay() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -185,7 +185,7 @@ async fn deliver_streaming_segment_delay() {
 }
 
 #[tokio::test]
-async fn deliver_streaming_combined_delays() {
+async fn test_deliver_streaming_combined_delays() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -223,7 +223,7 @@ async fn deliver_streaming_combined_delays() {
 // ------------------------------------------------------------------
 
 #[tokio::test]
-async fn deliver_streaming_interrupt_mid() {
+async fn test_deliver_streaming_interrupt_mid() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -252,7 +252,7 @@ async fn deliver_streaming_interrupt_mid() {
 }
 
 #[tokio::test]
-async fn deliver_streaming_interrupt_zero() {
+async fn test_deliver_streaming_interrupt_zero() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -281,7 +281,7 @@ async fn deliver_streaming_interrupt_zero() {
 }
 
 #[tokio::test]
-async fn deliver_streaming_interrupt_consumable() {
+async fn test_deliver_streaming_interrupt_consumable() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -325,7 +325,7 @@ async fn deliver_streaming_interrupt_consumable() {
 // ------------------------------------------------------------------
 
 #[tokio::test]
-async fn deliver_anthropic_streaming_full_sequence() {
+async fn test_deliver_anthropic_streaming_full_sequence() {
     let decision = crate::types::ScenarioDecision {
         model: "claude-3".to_string(),
         scenario: "test".to_string(),
@@ -378,7 +378,7 @@ async fn deliver_anthropic_streaming_full_sequence() {
 // ------------------------------------------------------------------
 
 #[tokio::test]
-async fn deliver_non_streaming_delay_then_error() {
+async fn test_deliver_non_streaming_delay_then_error() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -420,7 +420,7 @@ async fn deliver_non_streaming_delay_then_error() {
 }
 
 #[tokio::test]
-async fn deliver_non_streaming_delay_then_error_500() {
+async fn test_deliver_non_streaming_delay_then_error_500() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -459,7 +459,7 @@ async fn deliver_non_streaming_delay_then_error_500() {
 }
 
 #[tokio::test]
-async fn deliver_non_streaming_delay_no_error() {
+async fn test_deliver_non_streaming_delay_no_error() {
     let decision = crate::types::ScenarioDecision {
         model: "gpt-4".to_string(),
         scenario: "test".to_string(),
@@ -509,13 +509,10 @@ fn test_sse_event_stream_max_events_zero() {
     let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
     let waker = futures::task::noop_waker();
     let mut cx = Context::from_waker(&waker);
-    // Boundary + state transition: with max_events=Some(0) the very first poll
-    // must be Ready(None) — the truncation check in SseEventStream::poll_next
-    // short-circuits before the segment-delay / tokio::spawn path, so the stream
-    // terminates immediately and emits no first frame (0 events total); a Pending
-    // or an event on this first poll is a regression.
-    // Polled explicitly instead of via drain_count: the helper stops at both
-    // Pending and Ready(None), so it cannot tell a clean termination from a stall.
+    // Boundary: with max_events=Some(0), SseEventStream::poll_next must short-circuit before the
+    // segment-delay / spawn path, so the stream terminates immediately: first poll is Ready(None),
+    // 0 events (an event or Pending is a regression). Polled directly, not via drain_count, which
+    // stops on both Ready(None) and Pending, so it cannot tell a stall from a clean termination.
     let first = Pin::new(&mut stream).poll_next(&mut cx);
     assert!(
         matches!(first, Poll::Ready(None)),
