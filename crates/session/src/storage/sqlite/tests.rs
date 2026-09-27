@@ -144,7 +144,8 @@ async fn test_load_fallback_channel_chat_id_to_platform_peer_id() {
         let db_path = tmp.path().join("sessions.sqlite");
         let conn = Connection::open(&db_path).unwrap();
         conn.execute(
-            "UPDATE sessions SET channel = 'feishu', chat_id = 'oc_old_chat', platform = NULL, peer_id = NULL, account_id = NULL WHERE id = ?1",
+            "UPDATE sessions SET channel = 'feishu', chat_id = 'oc_old_chat', \
+             platform = NULL, peer_id = NULL, account_id = NULL WHERE id = ?1",
             params!["fallback-1"],
         )
         .unwrap();
@@ -901,6 +902,54 @@ async fn test_list_idle_sessions_falls_back_to_last_message_at() {
         .list_idle_sessions_for_agent("agent-fb", "main_agent", 0)
         .await
         .unwrap();
-    assert_eq!(idle, vec!["luaa-fallback"],
-        "session with NULL last_user_activity_at should fallback to last_message_at and appear in results");
+    assert_eq!(
+        idle,
+        vec!["luaa-fallback"],
+        "session with NULL last_user_activity_at should fallback \
+         to last_message_at and appear in results"
+    );
+}
+
+/// Multi-field round-trip over the reassembled load path: parses non-empty
+/// `outbound_pending` + `mode_state` from metadata (parse_metadata stage ③)
+/// and reassembles dreaming_status / thread_id / sender_id /
+/// last_message_at / message_count / depth into the checkpoint
+/// (build_checkpoint stage ④).
+#[tokio::test]
+async fn test_load_checkpoint_multi_field_roundtrip() {
+    let tmp = tempfile::tempdir().unwrap();
+    let storage = SqliteStorage::new(tmp.path()).unwrap();
+
+    let mut cp = create_test_checkpoint("multi-field-rt");
+    cp.dreaming_status = DreamingStatus::InRem;
+    cp.thread_id = Some("thr-123".to_string());
+    cp.sender_id = Some("user-abc".to_string());
+    cp.message_count = 7;
+    cp.depth = 3;
+    let last_msg = chrono::DateTime::from_timestamp(1600000000, 0).unwrap();
+    cp.last_message_at = Some(last_msg);
+    cp.outbound_pending
+        .push(closeclaw_common::PendingMessage::new(
+            "out-1".to_string(),
+            "queued message".to_string(),
+        ));
+    storage.save_checkpoint(&cp).await.unwrap();
+
+    let loaded = storage
+        .load_checkpoint("multi-field-rt")
+        .await
+        .unwrap()
+        .expect("checkpoint should exist");
+    assert_eq!(loaded.dreaming_status, DreamingStatus::InRem);
+    assert_eq!(loaded.thread_id.as_deref(), Some("thr-123"));
+    assert_eq!(loaded.sender_id.as_deref(), Some("user-abc"));
+    assert_eq!(loaded.message_count, 7);
+    assert_eq!(loaded.depth, 3);
+    assert_eq!(loaded.last_message_at, Some(last_msg));
+    assert_eq!(loaded.outbound_pending.len(), 1);
+    assert_eq!(loaded.outbound_pending[0].message_id, "out-1");
+    assert_eq!(loaded.outbound_pending[0].content, "queued message");
+    // mode_state parsed from metadata JSON (non-default in fixture)
+    assert_eq!(loaded.mode_state.current_step, 1);
+    assert_eq!(loaded.mode_state.total_steps, 3);
 }

@@ -3,7 +3,11 @@
 //! These helpers are used by SqliteStorage for archive/restore/purge/list
 //! operations. Kept separate to keep sqlite.rs under 500 lines.
 
-use crate::persistence::{PersistenceError, SessionCheckpoint};
+use crate::persistence::{
+    dreaming_status_from_db, dreaming_status_to_db, AgentRole, DreamingStatus, PendingMessage,
+    PersistenceError, ReasoningLevel, ReasoningMode, ReasoningModeState, SessionCheckpoint,
+    SessionMode, SessionStatus,
+};
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use std::path::Path;
@@ -192,12 +196,42 @@ pub fn do_restore(
     load_checkpoint_inner(&conn, data_dir, session_id)
 }
 
-/// Load a SessionCheckpoint from an open DB connection.
-pub fn load_checkpoint_inner(
+/// Raw column values of one `sessions` row, in SELECT column order.
+///
+/// Kept as a tuple so the row query and the destructure stay a pure
+/// mechanical move of the original inline closure and pattern.
+type SessionRow = (
+    String,
+    String,
+    String,
+    String,
+    String,
+    Option<String>,
+    i64,
+    i64,
+    Option<i64>,
+    i64,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<String>,
+    Option<i64>,
+    Option<i64>,
+);
+
+/// Stage ① of `load_checkpoint_inner`: run the row query and read all raw
+/// columns. Returns `None` when the session row does not exist.
+fn query_session_row(
     conn: &Connection,
-    data_dir: &Path,
     session_id: &str,
-) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+) -> Result<Option<SessionRow>, PersistenceError> {
     let mut stmt = conn
         .prepare(
             "SELECT agent_id, role, channel, chat_id, status, title,
@@ -208,7 +242,7 @@ pub fn load_checkpoint_inner(
         )
         .map_err(|e| PersistenceError::Sqlite(e.to_string()))?;
 
-    let row = match stmt.query_row(params![session_id], |row| {
+    match stmt.query_row(params![session_id], |row| {
         Ok((
             row.get::<_, String>(0)?,
             row.get::<_, String>(1)?,
@@ -235,37 +269,34 @@ pub fn load_checkpoint_inner(
             row.get::<_, Option<i64>>(22)?,
         ))
     }) {
-        Ok(r) => r,
-        Err(rusqlite::Error::QueryReturnedNoRows) => return Ok(None),
-        Err(e) => return Err(PersistenceError::Sqlite(e.to_string())),
-    };
+        Ok(r) => Ok(Some(r)),
+        Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
+        Err(e) => Err(PersistenceError::Sqlite(e.to_string())),
+    }
+}
 
-    let (
-        agent_id_str,
-        role_str,
-        channel,
-        chat_id,
-        status_db,
-        _title,
-        last_msg_ts,
-        created_ts,
-        _archived_ts,
-        msg_count,
-        metadata,
-        thread_id,
-        sender_id,
-        platform_new,
-        peer_id_new,
-        account_id_new,
-        parent_session_id,
-        depth_str,
-        mined_raw,
-        dreaming_status_raw,
-        plan_state_raw,
-        mined_at_raw,
-        last_user_activity_at_raw,
-    ) = row;
+/// State resolved from the raw `sessions` row (stage ② output of
+/// `load_checkpoint_inner`): typed enums plus the transcript messages read
+/// from disk.
+struct ResolvedSessionState {
+    depth: u32,
+    mined: bool,
+    dreaming_status: DreamingStatus,
+    status: SessionStatus,
+    transcript_messages_from_jsonl: Vec<crate::llm_session::SessionMessage>,
+}
 
+/// Stage ② of `load_checkpoint_inner`: resolve raw fields into types/enums
+/// (depth / mined / dreaming_status / status) and read the transcript file
+/// according to the resolved status.
+fn resolve_session_state(
+    data_dir: &Path,
+    session_id: &str,
+    status_db: &str,
+    depth_str: Option<String>,
+    mined_raw: &Option<String>,
+    dreaming_status_raw: &Option<String>,
+) -> Result<ResolvedSessionState, PersistenceError> {
     let depth: u32 = depth_str.and_then(|s| s.parse().ok()).unwrap_or(0);
 
     // mined: handle both INTEGER (0/1) and TEXT ("0"/"1") representations
@@ -275,21 +306,20 @@ pub fn load_checkpoint_inner(
         .unwrap_or(false);
 
     // dreaming_status: handle missing or empty string
-    let dreaming_status = crate::persistence::dreaming_status_from_db(
-        dreaming_status_raw.as_deref().unwrap_or("completed"),
-    );
+    let dreaming_status =
+        dreaming_status_from_db(dreaming_status_raw.as_deref().unwrap_or("completed"));
 
-    let status = match status_db.as_str() {
-        "archived" => crate::persistence::SessionStatus::Archived,
-        "migrating" => crate::persistence::SessionStatus::Migrating,
-        _ => crate::persistence::SessionStatus::Active,
+    let status = match status_db {
+        "archived" => SessionStatus::Archived,
+        "migrating" => SessionStatus::Migrating,
+        _ => SessionStatus::Active,
     };
 
     let transcript_path = match status {
-        crate::persistence::SessionStatus::Active => data_dir
+        SessionStatus::Active => data_dir
             .join("sessions")
             .join(format!("{session_id}.jsonl")),
-        crate::persistence::SessionStatus::Migrating => {
+        SessionStatus::Migrating => {
             // During migration, transcript could be in either location.
             // Prefer archived_sessions/ (file already moved) over sessions/
             // (file not yet moved).
@@ -304,7 +334,7 @@ pub fn load_checkpoint_inner(
                     .join(format!("{session_id}.jsonl"))
             }
         }
-        crate::persistence::SessionStatus::Archived => data_dir
+        SessionStatus::Archived => data_dir
             .join("archived_sessions")
             .join(format!("{session_id}.jsonl")),
     };
@@ -315,45 +345,145 @@ pub fn load_checkpoint_inner(
         return Err(PersistenceError::NotFound(session_id.to_string()));
     };
 
-    let last_message_id: Option<String> = None;
-    #[allow(unused_mut)]
-    let mut mode_state_val: crate::persistence::ReasoningModeState;
-    let mode_val: String;
-    let mut user_appends: Vec<String> = Vec::new();
-    let mut outbound_pending: Vec<crate::persistence::PendingMessage> = Vec::new();
-    let transcript_messages: Vec<crate::llm_session::SessionMessage> =
-        transcript_messages_from_jsonl;
-    let mut session_mode_val: crate::persistence::SessionMode =
-        crate::persistence::SessionMode::default();
-    if let Some(ref meta) = metadata {
-        let v: serde_json::Value =
-            serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
-        mode_state_val = v
-            .get("mode_state")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
-            .unwrap_or_default();
-        mode_val = v
-            .get("reasoning_mode")
-            .or_else(|| v.get("mode"))
-            .and_then(|x| x.as_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| "direct".to_string());
-        user_appends = v
-            .get("user_appends")
-            .or_else(|| v.get("system_appends"))
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-        if let Some(mode_str) = v.get("session_mode").and_then(|x| x.as_str()) {
-            session_mode_val =
-                crate::persistence::SessionMode::from_str_opt(mode_str).unwrap_or_default();
-        }
-        outbound_pending = v
-            .get("outbound_pending")
-            .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
-            .unwrap_or_default();
-    } else {
-        mode_state_val = crate::persistence::ReasoningModeState::default();
-        mode_val = "direct".to_string();
-    }
+    Ok(ResolvedSessionState {
+        depth,
+        mined,
+        dreaming_status,
+        status,
+        transcript_messages_from_jsonl,
+    })
+}
+
+/// Fields parsed from a metadata JSON blob.
+///
+/// `metadata` is `None` when the DB column was NULL (all defaults kept).
+struct ParsedMetadata {
+    mode_state: ReasoningModeState,
+    reasoning_mode_raw: String,
+    user_appends: Vec<String>,
+    session_mode: SessionMode,
+    outbound_pending: Vec<PendingMessage>,
+}
+
+/// Stage ③ of `load_checkpoint_inner`: parse the snapshot metadata JSON
+/// (session_mode / mode / user_appends / outbound_pending).
+///
+/// `None` metadata (NULL column) keeps all defaults.
+fn parse_metadata(metadata: &Option<String>) -> Result<ParsedMetadata, PersistenceError> {
+    let (mode_state_val, mode_val, user_appends, session_mode_val, outbound_pending) =
+        if let Some(ref meta) = metadata {
+            let v: serde_json::Value =
+                serde_json::from_str(meta).map_err(PersistenceError::Serialization)?;
+            let mode_state_val = v
+                .get("mode_state")
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("{}")).ok())
+                .unwrap_or_default();
+            let mode_val = v
+                .get("reasoning_mode")
+                .or_else(|| v.get("mode"))
+                .and_then(|x| x.as_str().map(|s| s.to_string()))
+                .unwrap_or_else(|| "direct".to_string());
+            let user_appends = v
+                .get("user_appends")
+                .or_else(|| v.get("system_appends"))
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+                .unwrap_or_default();
+            let session_mode_val = match v.get("session_mode").and_then(|x| x.as_str()) {
+                Some(mode_str) => SessionMode::from_str_opt(mode_str).unwrap_or_default(),
+                None => SessionMode::default(),
+            };
+            let outbound_pending = v
+                .get("outbound_pending")
+                .and_then(|x| serde_json::from_str(x.as_str().unwrap_or("[]")).ok())
+                .unwrap_or_default();
+            (
+                mode_state_val,
+                mode_val,
+                user_appends,
+                session_mode_val,
+                outbound_pending,
+            )
+        } else {
+            (
+                ReasoningModeState::default(),
+                "direct".to_string(),
+                Vec::new(),
+                SessionMode::default(),
+                Vec::new(),
+            )
+        };
+    Ok(ParsedMetadata {
+        mode_state: mode_state_val,
+        reasoning_mode_raw: mode_val,
+        user_appends,
+        session_mode: session_mode_val,
+        outbound_pending,
+    })
+}
+
+/// Remaining raw (unparsed) row fields consumed by stage ④, bundled so
+/// `build_checkpoint` stays within the argument-count budget. Field order
+/// mirrors the original parameter list of the pre-refactor signature.
+struct CheckpointAssembly {
+    agent_id_str: String,
+    role_str: String,
+    channel: String,
+    chat_id: String,
+    thread_id: Option<String>,
+    sender_id: Option<String>,
+    platform_new: Option<String>,
+    peer_id_new: Option<String>,
+    account_id_new: Option<String>,
+    parent_session_id: Option<String>,
+    plan_state_raw: Option<String>,
+    mined_at_raw: Option<i64>,
+    last_user_activity_at_raw: Option<i64>,
+    last_msg_ts: i64,
+    created_ts: i64,
+    msg_count: i64,
+}
+
+/// Assemble the final `SessionCheckpoint` (stage ④ of
+/// `load_checkpoint_inner`) from the resolved row state, the parsed snapshot
+/// metadata and the remaining raw fields.
+fn build_checkpoint(
+    session_id: &str,
+    assembly: CheckpointAssembly,
+    resolved: ResolvedSessionState,
+    parsed_meta: ParsedMetadata,
+) -> SessionCheckpoint {
+    let CheckpointAssembly {
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+        last_msg_ts,
+        created_ts,
+        msg_count,
+    } = assembly;
+    let ResolvedSessionState {
+        depth,
+        mined,
+        dreaming_status,
+        status,
+        transcript_messages_from_jsonl,
+    } = resolved;
+    let ParsedMetadata {
+        mode_state: mode_state_val,
+        reasoning_mode_raw: mode_val,
+        user_appends,
+        session_mode: session_mode_val,
+        outbound_pending,
+    } = parsed_meta;
 
     let last_message_at = if last_msg_ts > 0 {
         Some(DateTime::from_timestamp(last_msg_ts, 0).unwrap_or_else(Utc::now))
@@ -361,54 +491,30 @@ pub fn load_checkpoint_inner(
         None
     };
 
-    Ok(Some(SessionCheckpoint {
+    let last_message_id: Option<String> = None;
+    let transcript_messages: Vec<crate::llm_session::SessionMessage> =
+        transcript_messages_from_jsonl;
+    SessionCheckpoint {
         session_id: session_id.to_string(),
         last_message_id,
         mode_state: mode_state_val,
         outbound_pending,
-        reasoning_mode: match mode_val.as_str() {
-            "plan" => crate::persistence::ReasoningMode::Plan,
-            "stream" => crate::persistence::ReasoningMode::Stream,
-            "hidden" => crate::persistence::ReasoningMode::Hidden,
-            _ => crate::persistence::ReasoningMode::Direct,
-        },
+        reasoning_mode: parse_reasoning_mode(&mode_val),
         created_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
         updated_at: DateTime::from_timestamp(created_ts, 0).unwrap_or_else(Utc::now),
         ttl_seconds: 604800,
         status,
         last_message_at,
         message_count: msg_count as u64,
-        platform: {
-            let has_new = platform_new.as_deref().is_some_and(|s| !s.is_empty());
-            if has_new {
-                platform_new
-            } else if channel.is_empty() {
-                None
-            } else {
-                Some(channel)
-            }
-        },
-        peer_id: {
-            let has_new = peer_id_new.as_deref().is_some_and(|s| !s.is_empty());
-            if has_new {
-                peer_id_new
-            } else if chat_id.is_empty() {
-                None
-            } else {
-                Some(chat_id)
-            }
-        },
+        platform: resolve_platform(platform_new, channel),
+        peer_id: resolve_peer_id(peer_id_new, chat_id),
         agent_id: if agent_id_str.is_empty() {
             None
         } else {
             Some(agent_id_str)
         },
-        role: match role_str.as_str() {
-            "main_agent" => Some(crate::persistence::AgentRole::MainAgent),
-            "sub_agent" => Some(crate::persistence::AgentRole::SubAgent),
-            _ => None,
-        },
-        reasoning_level: crate::persistence::ReasoningLevel::default(),
+        role: parse_agent_role(&role_str),
+        reasoning_level: ReasoningLevel::default(),
         user_appends,
         account_id: account_id_new,
         thread_id,
@@ -438,7 +544,126 @@ pub fn load_checkpoint_inner(
         workflow_run: None,
         recovery_workflow_messages: Vec::new(),
         system_injection_appends: Vec::new(),
-    }))
+    }
+}
+
+/// Map the raw reasoning-mode string to its enum (stage ④ helper).
+fn parse_reasoning_mode(mode_val: &str) -> ReasoningMode {
+    match mode_val {
+        "plan" => ReasoningMode::Plan,
+        "stream" => ReasoningMode::Stream,
+        "hidden" => ReasoningMode::Hidden,
+        _ => ReasoningMode::Direct,
+    }
+}
+
+/// Map the raw agent-role string to its enum (stage ④ helper).
+fn parse_agent_role(role_str: &str) -> Option<AgentRole> {
+    match role_str {
+        "main_agent" => Some(AgentRole::MainAgent),
+        "sub_agent" => Some(AgentRole::SubAgent),
+        _ => None,
+    }
+}
+
+/// Prefer the new platform value when non-empty, else fall back to the
+/// legacy channel column (stage ④ helper).
+fn resolve_platform(platform_new: Option<String>, channel: String) -> Option<String> {
+    let has_new = platform_new.as_deref().is_some_and(|s| !s.is_empty());
+    if has_new {
+        platform_new
+    } else if channel.is_empty() {
+        None
+    } else {
+        Some(channel)
+    }
+}
+
+/// Prefer the new peer id when non-empty, else fall back to the legacy
+/// chat_id column (stage ④ helper).
+fn resolve_peer_id(peer_id_new: Option<String>, chat_id: String) -> Option<String> {
+    let has_new = peer_id_new.as_deref().is_some_and(|s| !s.is_empty());
+    if has_new {
+        peer_id_new
+    } else if chat_id.is_empty() {
+        None
+    } else {
+        Some(chat_id)
+    }
+}
+
+/// Load a SessionCheckpoint from an open DB connection.
+pub fn load_checkpoint_inner(
+    conn: &Connection,
+    data_dir: &Path,
+    session_id: &str,
+) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+    // --- Stage ①: row query + raw column destructure ---
+    let Some(row) = query_session_row(conn, session_id)? else {
+        return Ok(None);
+    };
+    let (
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        status_db,
+        _title,
+        last_msg_ts,
+        created_ts,
+        _archived_ts,
+        msg_count,
+        metadata,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        depth_str,
+        mined_raw,
+        dreaming_status_raw,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+    ) = row;
+
+    // --- Stage ②: raw fields → types/enums + transcript read ---
+    let resolved = resolve_session_state(
+        data_dir,
+        session_id,
+        &status_db,
+        depth_str,
+        &mined_raw,
+        &dreaming_status_raw,
+    )?;
+
+    // --- Stage ③④: snapshot metadata JSON parsing + checkpoint assembly ---
+    let parsed_meta = parse_metadata(&metadata)?;
+    let assembly = CheckpointAssembly {
+        agent_id_str,
+        role_str,
+        channel,
+        chat_id,
+        thread_id,
+        sender_id,
+        platform_new,
+        peer_id_new,
+        account_id_new,
+        parent_session_id,
+        plan_state_raw,
+        mined_at_raw,
+        last_user_activity_at_raw,
+        last_msg_ts,
+        created_ts,
+        msg_count,
+    };
+    Ok(Some(build_checkpoint(
+        session_id,
+        assembly,
+        resolved,
+        parsed_meta,
+    )))
 }
 
 /// Read transcript (pending_messages) from a .jsonl file.
@@ -624,12 +849,12 @@ struct CheckpointData<'a> {
     last_user_activity_ts: Option<i64>,
 }
 
-fn reasoning_mode_to_str(mode: crate::persistence::ReasoningMode) -> &'static str {
+fn reasoning_mode_to_str(mode: ReasoningMode) -> &'static str {
     match mode {
-        crate::persistence::ReasoningMode::Direct => "direct",
-        crate::persistence::ReasoningMode::Plan => "plan",
-        crate::persistence::ReasoningMode::Stream => "stream",
-        crate::persistence::ReasoningMode::Hidden => "hidden",
+        ReasoningMode::Direct => "direct",
+        ReasoningMode::Plan => "plan",
+        ReasoningMode::Stream => "stream",
+        ReasoningMode::Hidden => "hidden",
     }
 }
 
@@ -638,15 +863,15 @@ fn serialize_checkpoint_data<'a>(
     checkpoint: &'a SessionCheckpoint,
 ) -> Result<CheckpointData<'a>, PersistenceError> {
     let status = match checkpoint.status {
-        crate::persistence::SessionStatus::Active => "active",
-        crate::persistence::SessionStatus::Migrating => "migrating",
-        crate::persistence::SessionStatus::Archived => "archived",
+        SessionStatus::Active => "active",
+        SessionStatus::Migrating => "migrating",
+        SessionStatus::Archived => "archived",
     };
     let role_str = checkpoint
         .role
         .map(|r| match r {
-            crate::persistence::AgentRole::MainAgent => "main_agent",
-            crate::persistence::AgentRole::SubAgent => "sub_agent",
+            AgentRole::MainAgent => "main_agent",
+            AgentRole::SubAgent => "sub_agent",
         })
         .unwrap_or("main_agent");
     let metadata_json = build_metadata_json(checkpoint)?;
@@ -654,8 +879,7 @@ fn serialize_checkpoint_data<'a>(
         .last_message_at
         .map(|dt| dt.timestamp())
         .unwrap_or(0);
-    let dreaming_status_str =
-        crate::persistence::dreaming_status_to_db(&checkpoint.dreaming_status);
+    let dreaming_status_str = dreaming_status_to_db(&checkpoint.dreaming_status);
     let mined_str = if checkpoint.mined { "1" } else { "0" };
     let plan_state_json = checkpoint
         .plan_state
