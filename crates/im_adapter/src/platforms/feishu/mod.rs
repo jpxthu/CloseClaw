@@ -9,6 +9,7 @@ mod adapter_file_tests;
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
+mod card_media;
 pub(crate) mod card_media_fallback;
 #[cfg(test)]
 mod card_media_tests;
