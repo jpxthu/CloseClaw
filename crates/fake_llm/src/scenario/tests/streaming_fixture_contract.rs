@@ -147,20 +147,20 @@ fn make_streaming_scenario(meta: &serde_json::Value, shape: ResponseShape) -> Sc
 /// `shape`, run it through the engine, and parse the fixture text.
 ///
 /// Returns the engine decision (input for SSE generation) plus the parsed
-/// fixture events. `is_anthropic` selects the protocol features, mirroring
+/// fixture events. `protocol` selects the protocol features, mirroring
 /// [`request_features_from_meta`].
 fn setup_streaming_case(
     meta_rel: &str,
     txt_rel: &str,
     shape: ResponseShape,
-    is_anthropic: bool,
+    protocol: ProtocolKind,
 ) -> (ScenarioDecision, Vec<(String, String)>) {
     let root = fixture_root();
     let meta = load_streaming_meta(&root.join(meta_rel)).unwrap();
     let txt_content = load_streaming_fixture(&root.join(txt_rel)).unwrap();
     let scenario = make_streaming_scenario(&meta, shape);
     let mut engine = super::super::super::ScenarioEngine::new(vec![scenario]).unwrap();
-    let features = request_features_from_meta(&meta, is_anthropic);
+    let features = request_features_from_meta(&meta, protocol == ProtocolKind::Anthropic);
     let decision = match engine.decide(&features) {
         crate::DecisionOutcome::Decision(d) => d,
         _ => panic!("expected Decision"),
@@ -179,6 +179,32 @@ fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> UsageResponse {
         cache_write_tokens: None,
         cache_fields_missing: false,
     }
+}
+
+/// Generate OpenAI SSE events for a decision: carry its usage (empty
+/// fallback) with `include_usage` from the fixtures' meta `stream_options`,
+/// at the given segment granularity.
+fn generate_openai_events(decision: &ScenarioDecision, granularity: usize) -> Vec<SseEvent> {
+    let usage_resp = decision.usage.clone().unwrap_or_default();
+    generate_openai_sse(
+        &decision.response_blocks,
+        &decision.model,
+        &usage_resp,
+        true, // include_usage from meta stream_options
+        granularity,
+    )
+}
+
+/// Generate Anthropic SSE events for a decision: carry its usage (empty
+/// fallback) at the given segment granularity.
+fn generate_anthropic_events(decision: &ScenarioDecision, granularity: usize) -> Vec<SseEvent> {
+    let usage_resp = decision.usage.clone().unwrap_or_default();
+    generate_anthropic_sse(
+        &decision.response_blocks,
+        &decision.model,
+        &usage_resp,
+        granularity,
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -410,18 +436,11 @@ fn test_openai_streaming_text_fixture_matches_semantics() {
         "openai/streaming-meta.json",
         "openai/streaming.txt",
         shape,
-        false,
+        ProtocolKind::OpenAi,
     );
 
     // Generate SSE events with granularity=0 (single delta per block)
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_openai_sse(
-        &decision.response_blocks,
-        &decision.model,
-        &usage_resp,
-        true, // include_usage from meta stream_options
-        0,
-    );
+    let events = generate_openai_events(&decision, 0);
 
     // --- Event type sequence ---
     assert_openai_event_types(&events, &fixture_events);
@@ -465,18 +484,11 @@ fn test_openai_streaming_tool_use_fixture_matches_semantics() {
         "openai/tool-use-streaming-meta.json",
         "openai/tool-use-streaming.txt",
         shape,
-        false,
+        ProtocolKind::OpenAi,
     );
 
     // Generate SSE events — granularity=1 to match fixture's character-level chunking
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_openai_sse(
-        &decision.response_blocks,
-        &decision.model,
-        &usage_resp,
-        true,
-        1,
-    );
+    let events = generate_openai_events(&decision, 1);
 
     // --- Semantic: role chunk ---
     assert_openai_assistant_role(&events);
@@ -496,19 +508,19 @@ fn test_openai_streaming_tool_use_fixture_matches_semantics() {
 
 /// Locate the first event whose `type` field equals `event_type`.
 ///
-/// `from_fixture` selects the original `.expect(...)` wording:
-/// `"should have {type}"` for generated events and
-/// `"fixture should have {type}"` for fixture events.
+/// `is_from_fixture` selects the failure text:
+/// `"fixture should have {type}"` when searching fixture events, and
+/// `"should have {type}"` when searching generated events.
 fn find_by_type<'a>(
     values: &'a [serde_json::Value],
     event_type: &str,
-    from_fixture: bool,
+    is_from_fixture: bool,
 ) -> &'a serde_json::Value {
     values
         .iter()
         .find(|v| v["type"].as_str() == Some(event_type))
         .unwrap_or_else(|| {
-            let prefix = if from_fixture {
+            let prefix = if is_from_fixture {
                 "fixture should have "
             } else {
                 "should have "
@@ -546,7 +558,10 @@ fn assert_anthropic_text_message_start(
         gen_values[0]["content"].as_array().unwrap().is_empty(),
         "initial content should be empty"
     );
-    assert!(gen_values[0]["stop_reason"].is_null());
+    assert!(
+        gen_values[0]["stop_reason"].is_null(),
+        "message_start stop_reason should be null"
+    );
 
     assert_eq!(fix_values[0]["type"], "message_start");
     assert_eq!(fix_values[0]["message"]["role"], "assistant");
@@ -642,8 +657,14 @@ fn assert_anthropic_tool_message_start(
     assert_eq!(gen_values[0]["type"], "message");
     assert_eq!(gen_values[0]["role"], "assistant");
     assert_eq!(gen_values[0]["model"], "fake-model");
-    assert!(gen_values[0]["content"].as_array().unwrap().is_empty());
-    assert!(gen_values[0]["stop_reason"].is_null());
+    assert!(
+        gen_values[0]["content"].as_array().unwrap().is_empty(),
+        "initial content should be empty"
+    );
+    assert!(
+        gen_values[0]["stop_reason"].is_null(),
+        "message_start stop_reason should be null"
+    );
     assert_eq!(gen_values[0]["usage"]["input_tokens"], 39);
 
     assert_eq!(fix_values[0]["type"], "message_start");
@@ -786,12 +807,11 @@ fn test_anthropic_streaming_text_fixture_matches_semantics() {
         "anthropic/anthropic-streaming-meta.json",
         "anthropic/anthropic-streaming.txt",
         shape,
-        true,
+        ProtocolKind::Anthropic,
     );
 
     // Generate SSE events with granularity=0 (single delta per block)
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 0);
+    let events = generate_anthropic_events(&decision, 0);
     let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
 
     // --- Event type sequence ---
@@ -837,12 +857,11 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
         "anthropic/anthropic-tool-use-streaming-meta.json",
         "anthropic/anthropic-tool-use-streaming.txt",
         shape,
-        true,
+        ProtocolKind::Anthropic,
     );
 
     // Generate SSE events — granularity=1 for character-level input_json_delta
-    let usage_resp = decision.usage.clone().unwrap_or_default();
-    let events = generate_anthropic_sse(&decision.response_blocks, &decision.model, &usage_resp, 1);
+    let events = generate_anthropic_events(&decision, 1);
     let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
 
     // --- Semantic: message_start + input usage ---
