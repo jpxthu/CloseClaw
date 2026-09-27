@@ -39,10 +39,13 @@ fn make_af_capturing() -> (Arc<ApprovalMutex>, Arc<StdMutex<Vec<ApprovalNotifica
 /// Build a `Denied` response, optionally carrying an existing approval
 /// request id (simulating a denial already submitted by the engine).
 fn denied_response(approval_request_id: Option<String>) -> PR {
+    // Production `check_*` copies this risk level into the `DenialRequest`,
+    // so the accept-path tests pass `High` when building the request and
+    // assert it propagates into the owner notification.
     PR::Denied {
         reason: "no matching allow rule".to_string(),
         rule: "test-rule".to_string(),
-        risk_level: RiskLevel::Low,
+        risk_level: RiskLevel::High,
         approval_request_id,
     }
 }
@@ -53,13 +56,7 @@ fn make_denial_request<'a>(
     body: &'a PermissionRequestBody,
     session_id: &'a str,
 ) -> DenialRequest<'a> {
-    DenialRequest {
-        caller,
-        body,
-        risk_level: RiskLevel::Low,
-        session_id,
-        is_sub_agent: false,
-    }
+    DenialRequest::new(caller, body, RiskLevel::Low, session_id, false)
 }
 
 /// Normal path: `Denied` + flow accepts → `Ok(Some(result))` whose `data`
@@ -80,7 +77,7 @@ async fn test_route_denial_flow_accept_returns_approval_pending() {
 
     let result = route_denial(
         &response,
-        make_denial_request(&caller, &body, "sess-1"),
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-1", false),
         &flow,
     )
     .await
@@ -98,6 +95,59 @@ async fn test_route_denial_flow_accept_returns_approval_pending() {
         "data is the approval-pending payload for the submitted request"
     );
     assert_eq!(notes[0].caller.user_id, "ou_owner");
+    assert_eq!(
+        notes[0].risk_level,
+        RiskLevel::High,
+        "risk_level from the response must propagate to the owner notification"
+    );
+}
+
+/// Sub-agent path: `is_sub_agent: true` → `submit_denial` silently rejects,
+/// so the routing helpers surface a hard denial without notifying anyone.
+#[tokio::test]
+async fn test_route_denial_sub_agent_is_silently_denied() {
+    let (flow, notifications) = make_af_capturing();
+    let caller = Caller {
+        user_id: "ou_owner".to_string(),
+        agent: "agent-sub".to_string(),
+    };
+    let body = PermissionRequestBody::FileOp {
+        agent: "agent-sub".to_string(),
+        path: "/tmp/test.txt".to_string(),
+        op: "write".to_string(),
+    };
+    let response = denied_response(None);
+    let request = DenialRequest::new(&caller, &body, RiskLevel::High, "sess-sub", true);
+
+    let result = route_denial(&response, request, &flow).await;
+    match result {
+        Err(ToolCallError::PermissionDenied(reason)) => {
+            assert_eq!(reason, "no matching allow rule");
+        }
+        other => panic!("expected PermissionDenied, got {:?}", other),
+    }
+    assert!(
+        notifications.lock().unwrap().is_empty(),
+        "sub-agent denials must be silent: no owner notification"
+    );
+
+    // Same contract at the command level: hard denial, no notification.
+    let result = route_command_denial(
+        &response,
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-sub", true),
+        &flow,
+    )
+    .await;
+    match result {
+        CommandPermissionResult::Denied(reason) => {
+            assert_eq!(reason, "no matching allow rule");
+        }
+        other => panic!("expected Denied, got {:?}", other),
+    }
+    assert!(
+        notifications.lock().unwrap().is_empty(),
+        "sub-agent denials must be silent: no owner notification"
+    );
 }
 
 /// Short-circuit path: `Denied` already carrying an approval_request_id →
@@ -198,7 +248,7 @@ async fn test_route_command_denial_flow_accept_returns_pending() {
 
     let result = route_command_denial(
         &response,
-        make_denial_request(&caller, &body, "sess-2"),
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-2", false),
         &flow,
     )
     .await;
@@ -213,6 +263,11 @@ async fn test_route_command_denial_flow_accept_returns_pending() {
         result.data,
         approval_utils::build_approval_pending(notes[0].request_id.clone()),
         "data is the approval-pending payload for the submitted request"
+    );
+    assert_eq!(
+        notes[0].risk_level,
+        RiskLevel::High,
+        "risk_level from the denial must propagate to the owner notification"
     );
 }
 

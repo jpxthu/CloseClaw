@@ -58,7 +58,7 @@ fn make_cm() -> Arc<ConfigManager> {
 }
 
 /// Standard approval flow — enqueues denials (approval-pending path).
-pub(crate) fn make_af() -> Arc<ApprovalMutex> {
+fn make_af() -> Arc<ApprovalMutex> {
     Arc::new(TokioMutex::new(ApprovalFlow::new(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),

@@ -73,6 +73,25 @@ pub(crate) struct DenialRequest<'a> {
     pub(crate) is_sub_agent: bool,
 }
 
+impl<'a> DenialRequest<'a> {
+    /// Bundle the submission context for one denied response.
+    pub(crate) fn new(
+        caller: &'a Caller,
+        body: &'a PermissionRequestBody,
+        risk_level: RiskLevel,
+        session_id: &'a str,
+        is_sub_agent: bool,
+    ) -> Self {
+        Self {
+            caller,
+            body,
+            risk_level,
+            session_id,
+            is_sub_agent,
+        }
+    }
+}
+
 /// Route a `Denied` response through the approval flow.
 ///
 /// On success returns `Ok(Some(ToolResult))` with approval-pending status.
@@ -276,13 +295,7 @@ pub(crate) async fn check_tool_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -350,13 +363,7 @@ pub(crate) async fn check_file_op_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -422,13 +429,7 @@ pub(crate) async fn check_message_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -472,13 +473,7 @@ pub(crate) async fn check_config_write_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -530,13 +525,7 @@ pub async fn check_network_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
@@ -590,13 +579,7 @@ pub(crate) async fn check_command_permission(
             let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
             route_command_denial(
                 &response,
-                DenialRequest {
-                    caller: &caller,
-                    body: &body,
-                    risk_level,
-                    session_id: sid,
-                    is_sub_agent,
-                },
+                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
                 approval_flow,
             )
             .await
