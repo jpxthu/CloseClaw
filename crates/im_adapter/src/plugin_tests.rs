@@ -581,6 +581,9 @@ mod tests {
 
         // Signature check via call: compiles and runs with unchanged args.
         register_platform_plugins(&gw, config_dir, None, None).await;
+
+        // Empty config dir → no platform enabled → no plugin registered.
+        assert!(gw.get_all_plugins().await.is_empty());
     }
 
     /// `FeishuPlugin`/`FeishuAdapter`/`build_text` keep their historical

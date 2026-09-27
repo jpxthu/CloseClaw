@@ -1,7 +1,4 @@
-//! Feishu (Lark) IM Plugin
-//!
-//! Unified IM plugin for Feishu messaging platform, wrapping
-//! [`FeishuAdapter`] (HTTP I/O) behind a single [`IMPlugin`] implementation.
+//! Feishu (Lark) platform module: submodule declarations and re-exports.
 
 mod adapter;
 #[cfg(test)]
@@ -19,6 +16,7 @@ pub(crate) mod cardkit_streaming;
 pub mod cleaner;
 #[cfg(test)]
 mod cleaner_tests;
+pub(crate) mod config;
 #[cfg(test)]
 mod credential_isolation_tests;
 #[cfg(test)]
@@ -31,6 +29,7 @@ mod events_tests;
 mod feishu_adapter_tests;
 #[cfg(test)]
 mod feishu_tests;
+mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
 #[cfg(test)]
@@ -68,9 +67,6 @@ mod trace_id_tests;
 mod try_resolve_media_path_tests;
 pub(crate) mod xml_content;
 
-pub(crate) mod config;
-mod identity;
-
 pub use adapter::FeishuAdapter;
 pub use plugin::{register, FeishuPlugin};
 pub use renderer::build_text;
@@ -81,9 +77,6 @@ pub use renderer::should_use_card_for_blocks;
 pub(crate) use adapter::{
     truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
 };
-#[cfg(test)]
-#[allow(unused_imports)]
-pub(crate) use closeclaw_gateway::Message;
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
 #[cfg(test)]
