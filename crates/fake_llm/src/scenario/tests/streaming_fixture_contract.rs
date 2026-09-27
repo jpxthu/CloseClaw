@@ -547,9 +547,12 @@ fn parse_anthropic_values(
 }
 
 /// Stage: message_start header fields plus input usage, both sides.
-fn assert_anthropic_text_message_start(
+/// `expected_input_tokens` distinguishes the case: text = 11, tool-use = 39.
+#[track_caller]
+fn assert_anthropic_message_start(
     gen_values: &[serde_json::Value],
     fix_values: &[serde_json::Value],
+    expected_input_tokens: u32,
 ) {
     // --- Semantic: message_start ---
     assert_eq!(gen_values[0]["type"], "message");
@@ -569,8 +572,14 @@ fn assert_anthropic_text_message_start(
     assert_eq!(fix_values[0]["message"]["model"], "fake-model");
 
     // --- Semantic: input usage in message_start ---
-    assert_eq!(gen_values[0]["usage"]["input_tokens"], 11);
-    assert_eq!(fix_values[0]["message"]["usage"]["input_tokens"], 11);
+    assert_eq!(
+        gen_values[0]["usage"]["input_tokens"], expected_input_tokens,
+        "gen message_start input_tokens should be {expected_input_tokens}"
+    );
+    assert_eq!(
+        fix_values[0]["message"]["usage"]["input_tokens"], expected_input_tokens,
+        "fixture message_start input_tokens should be {expected_input_tokens}"
+    );
 }
 
 /// Stage: content_block_start (text) located by `type`, both sides.
@@ -647,30 +656,6 @@ fn assert_anthropic_text_deltas(
         4,
         "fixture should have 4 text_delta events"
     );
-}
-
-/// Stage: message_start header fields plus input usage (tool-use case).
-fn assert_anthropic_tool_message_start(
-    gen_values: &[serde_json::Value],
-    fix_values: &[serde_json::Value],
-) {
-    // --- Semantic: message_start ---
-    assert_eq!(gen_values[0]["type"], "message");
-    assert_eq!(gen_values[0]["role"], "assistant");
-    assert_eq!(gen_values[0]["model"], "fake-model");
-    assert!(
-        gen_values[0]["content"].as_array().unwrap().is_empty(),
-        "initial content should be empty"
-    );
-    assert!(
-        gen_values[0]["stop_reason"].is_null(),
-        "message_start stop_reason should be null"
-    );
-    assert_eq!(gen_values[0]["usage"]["input_tokens"], 39);
-
-    assert_eq!(fix_values[0]["type"], "message_start");
-    assert_eq!(fix_values[0]["message"]["role"], "assistant");
-    assert_eq!(fix_values[0]["message"]["usage"]["input_tokens"], 39);
 }
 
 /// Stage: content_block_start (tool_use) by index, including shape-locked id.
@@ -818,7 +803,7 @@ fn test_anthropic_streaming_text_fixture_matches_semantics() {
     // --- Event type sequence ---
     assert_eq!(events.len(), 7, "should have 7 events");
     // --- Semantic: message_start + input usage / content_block_start / ping ---
-    assert_anthropic_text_message_start(&gen_values, &fix_values);
+    assert_anthropic_message_start(&gen_values, &fix_values, 11);
     assert_anthropic_text_block_start(&gen_values, &fix_values);
     assert_anthropic_ping(&gen_values, &fix_values);
     // --- Semantic: text deltas (accumulated + counts) ---
@@ -865,8 +850,17 @@ fn test_anthropic_streaming_tool_use_fixture_matches_semantics() {
     let events = generate_anthropic_events(&decision, 1);
     let (gen_values, fix_values) = parse_anthropic_values(&events, &fixture_events);
 
+    // --- Event type sequence (generated side only, same as text case) ---
+    // granularity=1 splits the 29-char tool arguments into 29 input_json_delta.
+    assert_eq!(
+        events.len(),
+        35,
+        "granularity=1 should yield 35 events: message_start + content_block_start \
+         + ping + 29 input_json_delta + content_block_stop + message_delta + message_stop"
+    );
+
     // --- Semantic: message_start + input usage ---
-    assert_anthropic_tool_message_start(&gen_values, &fix_values);
+    assert_anthropic_message_start(&gen_values, &fix_values, 39);
     // --- Semantic: content_block_start (tool_use) + shape-locked id ---
     assert_anthropic_tool_block_start(&gen_values, &fix_values);
     // --- Semantic: input_json_delta (accumulated + counts) ---
