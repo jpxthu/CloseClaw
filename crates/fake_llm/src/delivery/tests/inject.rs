@@ -506,10 +506,21 @@ fn sse_event_stream_max_events_zero() {
             data: "b".into(),
         },
     ];
-    let stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
-    let count = drain_count(stream);
-    assert_eq!(
-        count, 0,
-        "expected max_events=Some(0) to drain 0 events, got {count}"
-    );
+    let mut stream = crate::delivery::sse::SseEventStream::new(events).with_max_events(Some(0));
+    let waker = futures::task::noop_waker();
+    let mut cx = Context::from_waker(&waker);
+    // Boundary + state transition: with max_events=Some(0) the very first poll
+    // must be Ready(None) — terminate immediately, emit no first frame (0 events
+    // total), and never stall at Pending (a Pending would hang the SSE response).
+    // Polled explicitly instead of via drain_count: the helper stops at both
+    // Pending and Ready(None), so it cannot tell a clean termination from a stall.
+    match Pin::new(&mut stream).poll_next(&mut cx) {
+        Poll::Ready(None) => {}
+        Poll::Ready(Some(_)) => {
+            panic!("expected first poll with max_events=Some(0) to be Ready(None), got an event")
+        }
+        Poll::Pending => {
+            panic!("expected first poll with max_events=Some(0) to be Ready(None), got Pending")
+        }
+    }
 }
