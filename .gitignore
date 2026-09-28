@@ -52,5 +52,6 @@ plan/
 run_ddt_check.sh
 
 # Runtime state (not source)
+.opencode/
 configs/sessions.db
 sweep.timestamp
