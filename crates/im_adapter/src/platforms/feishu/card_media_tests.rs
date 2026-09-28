@@ -38,16 +38,25 @@ fn create_failing_mock_cli(tmp: &TempDir) -> String {
     script_path.to_str().unwrap().to_string()
 }
 
-/// Create a mock lark-cli that returns a successful file upload response.
-fn create_success_mock_cli(tmp: &TempDir, file_key: &str) -> String {
+/// Create a mock lark-cli that returns a successful upload response.
+///
+/// `script_name` keeps the generated scripts distinct (file vs image uploads)
+/// and `response_field` names the key returned under `data` (`file_key` for
+/// file/audio uploads, `image_key` for image uploads).
+fn create_success_upload_mock_cli(
+    tmp: &TempDir,
+    script_name: &str,
+    response_field: &str,
+    key: &str,
+) -> String {
     use std::io::Write;
-    let script_path = tmp.path().join("success_cli.sh");
+    let script_path = tmp.path().join(script_name);
     let mut f = std::fs::File::create(&script_path).unwrap();
     writeln!(f, "#!/bin/bash").unwrap();
     writeln!(
         f,
-        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"file_key\":\"{}\"}}}}'",
-        file_key
+        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{}\":\"{}\"}}}}'",
+        response_field, key
     )
     .unwrap();
     #[cfg(unix)]
@@ -338,26 +347,6 @@ async fn test_process_card_media_file_upload_failure_keeps_token() {
 // process_card_img — img tag handling (skip / upload failure / success)
 // ===========================================================================
 
-/// Create a mock lark-cli that returns a successful image upload response.
-fn create_success_image_mock_cli(tmp: &TempDir, image_key: &str) -> String {
-    use std::io::Write;
-    let script_path = tmp.path().join("success_img_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"image_key\":\"{}\"}}}}'",
-        image_key
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
 /// Img element without img_key: skipped gracefully, no panic, payload untouched.
 #[tokio::test]
 async fn test_process_card_media_img_no_img_key_skipped() {
@@ -438,7 +427,7 @@ async fn test_process_card_media_img_upload_failure_keeps_key() {
 async fn test_process_card_media_img_upload_success_replaces_key() {
     let tmp = TempDir::new().unwrap();
     let expected_key = "v3_img_ghi789";
-    let cli = create_success_image_mock_cli(&tmp, expected_key);
+    let cli = create_success_upload_mock_cli(&tmp, "success_img_cli.sh", "image_key", expected_key);
     let test_file = tmp.path().join("test_img_ok.png");
     std::fs::write(&test_file, b"fake png content").unwrap();
 
@@ -479,7 +468,7 @@ async fn test_process_card_media_img_upload_success_replaces_key() {
 async fn test_process_card_media_audio_success() {
     let tmp = TempDir::new().unwrap();
     let expected_key = "v3_file_abc123_audio";
-    let cli = create_success_mock_cli(&tmp, expected_key);
+    let cli = create_success_upload_mock_cli(&tmp, "success_cli.sh", "file_key", expected_key);
 
     // Create a real file within the tmp dir (media store root) so path validation passes.
     let test_file = tmp.path().join("test_audio.mp3");
@@ -518,7 +507,7 @@ async fn test_process_card_media_audio_success() {
 async fn test_process_card_media_file_success() {
     let tmp = TempDir::new().unwrap();
     let expected_key = "v3_file_def456_file";
-    let cli = create_success_mock_cli(&tmp, expected_key);
+    let cli = create_success_upload_mock_cli(&tmp, "success_cli.sh", "file_key", expected_key);
 
     // Create a real file within the tmp dir (media store root) so path validation passes.
     let test_file = tmp.path().join("test_document.pdf");

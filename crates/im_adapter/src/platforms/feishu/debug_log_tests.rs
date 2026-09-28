@@ -559,6 +559,7 @@ async fn test_render_without_trace_id_skips_event() {
 
     // Skip branch spawns no task at all; give any stray task a short window
     // to run, then assert nothing reached the JSONL file.
+    // G1 豁免：负向断言 settle window（确认无写入，非等待异步事件到达）。
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
     let lines = read_jsonl_lines(temp_dir.path());
     assert!(

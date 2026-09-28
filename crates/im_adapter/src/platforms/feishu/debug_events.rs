@@ -27,7 +27,8 @@ impl FeishuPlugin {
     ///
     /// Centralizes the repeated pattern: check debug_log, acquire trace_id,
     /// build event, spawn async send. Callers only supply `event_type` and
-    /// `payload`. Skips silently when debug_log is None or trace_id is empty.
+    /// `payload`. No-op silently when debug_log is None; when trace_id is
+    /// missing or empty, logs a warn and skips — no event is written either way.
     pub(super) fn emit_debug_event(&self, event_type: &str, payload: serde_json::Value) {
         let debug_log = match self.debug_log {
             Some(ref dl) => dl.clone(),
