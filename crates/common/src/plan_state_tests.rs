@@ -56,12 +56,12 @@ fn test_plan_phase_serde_snake_case() {
 fn test_plan_state_serde_roundtrip() {
     let state = PlanState {
         phase: PlanPhase::Design,
-        plan_file_path: "/tmp/plan.md".into(),
+        plan_file_path: "/virtual/plan.md".into(),
     };
     let json = serde_json::to_string(&state).unwrap();
     let deserialized: PlanState = serde_json::from_str(&json).unwrap();
     assert_eq!(deserialized.phase, PlanPhase::Design);
-    assert_eq!(deserialized.plan_file_path, "/tmp/plan.md");
+    assert_eq!(deserialized.plan_file_path, "/virtual/plan.md");
 }
 
 #[test]
@@ -104,20 +104,20 @@ fn test_step_status_serde_roundtrip() {
 fn test_plan_state_serde_backward_compat_with_extra_fields() {
     // Old serialized data may contain execution_steps, current_step, etc.
     // serde should ignore unknown fields gracefully.
-    let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md", "execution_steps": [], "current_step": 0}"#;
+    let json = r#"{"phase": "research", "plan_file_path": "/virtual/plan.md", "execution_steps": [], "current_step": 0}"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    assert_eq!(state.plan_file_path, "/virtual/plan.md");
 }
 
 #[test]
 fn test_plan_state_serde_backward_compat_old_checkpoint() {
     // Old checkpoints may contain explicit_path and step_selection fields.
     // These should be silently ignored during deserialization.
-    let json = r#"{"phase": "research", "plan_file_path": "/tmp/plan.md", "explicit_path": "standard", "step_selection": [0, 1]}"#;
+    let json = r#"{"phase": "research", "plan_file_path": "/virtual/plan.md", "explicit_path": "standard", "step_selection": [0, 1]}"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
-    assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    assert_eq!(state.plan_file_path, "/virtual/plan.md");
 }
 
 // --- PlanState 2-field closure verification ---
@@ -129,7 +129,7 @@ fn test_plan_state_serialization_has_exactly_two_fields() {
     // current_step, pending_steps).
     let state = PlanState {
         phase: PlanPhase::Design,
-        plan_file_path: "/tmp/p.md".into(),
+        plan_file_path: "/virtual/p.md".into(),
     };
     let json = serde_json::to_value(&state).unwrap();
     let obj = json
@@ -184,7 +184,7 @@ fn test_plan_state_serde_backward_compat_all_old_fields() {
     let json = r#"{
         "phase": "design",
         "pending_steps": ["a", "b"],
-        "plan_file_path": "/tmp/plan.md",
+        "plan_file_path": "/virtual/plan.md",
         "explicit_path": "interview",
         "step_selection": [0, 2, 4],
         "execution_steps": [{"step_index": 0, "status": "completed"}],
@@ -192,7 +192,7 @@ fn test_plan_state_serde_backward_compat_all_old_fields() {
     }"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Design);
-    assert_eq!(state.plan_file_path, "/tmp/plan.md");
+    assert_eq!(state.plan_file_path, "/virtual/plan.md");
 }
 
 #[test]
