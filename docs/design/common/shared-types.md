@@ -391,7 +391,7 @@ compaction（对话历史压缩）操作的产出与错误。CompactionResult �
 
 会话行为相关的跨模块枚举。
 
-- **ReasoningLevel**：推理/思考强度档位——low / medium / high / max，默认 high；off 表示关闭推理输出（供应商不支持关闭时降至最低可用档位）。作为 [InternalRequest](#internalrequest--internalmessage--systemblock--tooldefinition) 字段随 LLM 请求传递，各协议映射为供应商原生参数；`/reasoning` 指令经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 设置，由网关层解析生效档位——当所选模型不支持请求档位时自动降级到该模型支持的最高档位（需求见 [llm §F4](../../requirements/llm.md)）。
+- **ReasoningLevel**：推理深度档位——low / medium / high / max，默认 high；off 表示关闭推理输出（供应商不支持关闭时降至最低可用档位）。作为 [InternalRequest](#internalrequest--internalmessage--systemblock--tooldefinition) 字段随 LLM 请求传递，各协议映射为供应商原生参数；`/reasoning` 指令经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 设置，由网关层解析生效档位——当所选模型不支持请求档位时自动降级到该模型支持的最高档位（需求见 [llm §F4](../../requirements/llm.md)）。
 - **AgentRole**：Agent 身份枚举——MainAgent（主 Agent）/ SubAgent（分身 Agent），标识 Agent 层级（与 [FragmentContext](#fragmentcontext) 的 SessionRole（主/子 Session）相关但不同层：前者描述 Agent 身份，后者描述 Session 角色）。
 - **SessionMode**：会话运行模式——Normal / Plan / Auto，控制工具可见性、权限边界与 system prompt 指令；由 `/mode` 设置，作为 [SessionModeQuery](core-traits.md#sessionmodequery) 的返回类型跨模块查询（语义见 [mode 模块](../mode/README.md)）。
 
@@ -476,6 +476,63 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 [MediaStoreAccess](core-traits.md#mediastoreaccess)（common DI trait）的错误类型——NoPath（引用无本地路径）/ FileNotFound / Io / Other。
 
+### 消息/内容辅助类型
+
+- **ContentBlockType**：ContentBlock 的块类型分类枚举（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），用作 [StreamEvent](#streamevent) 的 `block_type` 与流式渲染的分类。
+- **MessageType**：入站消息类型枚举（text / image / file / audio / post），为 [NormalizedMessage](#normalizedmessage) 字段。
+- **MediaType**：媒体类型枚举（image / file / audio），为 [MediaRef](#normalizedmessage) 字段。
+- **ProcessError**：Processor Chain 入站/出站处理的错误类型。
+- **AdapterError**：IM Adapter 操作的错误类型，为 [IMPlugin](core-traits.md#implugin) 契约的错误载荷。
+
+### 会话/注入辅助类型
+
+- **SessionRole**：会话角色枚举（Main 主 Agent Session / Sub 子 Session），为 [FragmentContext](#fragmentcontext) 字段。
+- **SectionType**：[PromptFragment](#promptfragment) 的片段类型枚举（bootstrap 文件 / 工具列表 / skill 清单 / 长期记忆）。
+- **BootstrapMode**：身份加载模式枚举（Minimal 精简 / Full 完整），取自 agent 配置的 `bootstrapMode`，为 [FragmentContext](#fragmentcontext) 字段。
+- **PlanPhase**：[PlanState](#planstate) 的阶段枚举（Research / Design / Review / FinalPlan）。
+- **RequestContext**：当前入站消息的元数据（发送者、渠道、时间戳、聊天名），由 Gateway 在每次 LLM 调用前写入 session，供动态层构建使用；置于 common 以避免 session→gateway 反向依赖。
+- **InjectionParams**：system prompt 注入链的参数契约。设计文档要求的必选输入为 agent_id、ToolRegistry 引用、Session 角色、身份加载模式四项；另含既有参数 session_id、overrides、activated_skills。由 SessionManager → session → System Prompt Builder 传递。
+- **TurnCounter**：会话轮次计数器（工具结果计入轮次）。
+- **PendingMessage**：待处理消息（未最终确认、等待注入对话的消息），为 [SessionLookup](core-traits.md#sessionlookup) / [SlashSessionQuery](core-traits.md#slashsessionquery) 「向统一消息队列推送」的载荷。
+
+### Slash 执行辅助类型
+
+- **SlashContext**：斜杠指令执行上下文——`command` / `sender_id` / `session_id` / `channel`，为 [SlashHandler](core-traits.md#slashhandler) 的入参。
+- **SystemAppendAction**：`/system` 追加动作——Add（追加指令）/ Clear（清空追加），为 [SlashResult](#slashresult) 变体载荷。
+- **ReplyAction**：[SlashResultExecutor](core-traits.md#slashresultexecutor) 产出、Gateway 分派的回复动作——Reply（内容块回复）/ TriggerCompact（触发压缩）/ Nothing。
+
+### LLM/流式/中间件辅助类型
+
+- **LLMError**：LLM 操作的错误类型，为 [LlmCaller](core-traits.md#llmcaller) 的错误载荷（[StreamEvent](#streamevent) 的 Error 事件载荷为错误消息文本）。
+- **ErrorKind**：LLM 错误的分类（用于重试策略判定）。
+- **StreamDone**：流式完成通知载荷（model + usage），为 [StreamingSink](core-traits.md#streamingsink) 的完成通知参数。
+- **MiddlewareContext** / **MiddlewareError**：[OutboundMiddleware](core-traits.md#outboundmiddleware) 契约的上下文与错误载荷。
+
+### 工具契约载荷族
+
+围绕 [Tool](core-traits.md#tool-trait)、[ToolRegistry](core-traits.md#toolregistry)、[ToolRegistrar](core-traits.md#toolregistrar)、[ToolRegistryQuery](core-traits.md#toolregistryquery)、[ToolSession](core-traits.md#toolsession)、[ToolExecutor](core-traits.md#toolexecutor) 的载荷类型：
+
+- **ToolFlags**：工具运行时标记（是否只读 / 破坏性 / 昂贵 / 默认延迟加载 / 并发安全）。
+- **ToolDescriptor**：工具摘要信息（name / group / summary / detail / input_schema / flags），用于 system prompt 生成。
+- **ToolBox**：桥接 `Tool` 与类型擦除注册的包装（`Arc<dyn Tool>`）。
+- **RegistryError**：工具注册表操作错误（区别于 ToolRegistrarError）。
+- **ToolRegistrarError**：Registrar 级注册错误（冲突报告、内部失败）。
+- **ToolContext**：工具调用时的运行时上下文（含 session、workdir、session_mode、media_store 等句柄）。
+- **ToolResult**：工具调用链路的结果结构（data / new_messages / context_modifier）。与 [ContentBlock](#contentblock) 的 ToolResult **变体**（出站内容块）同名但不同物。
+- **ToolMessage**：注入 agent 上下文的消息。
+- **ContextModifier**：工具结果中携带的、用于在工具执行后修改会话上下文的动作（[ToolResult](#工具契约载荷族) 字段）。
+- **ToolCallError**：工具执行错误。
+- **PromptGenerationContext** / **WorkdirContext**：`generate_prompt` / workdir 上下文构建的输入。
+- **ReadRange** / **ToolProgress**：文件读取范围与工具进度快照，为 [ToolSession](core-traits.md#toolsession) 契约载荷。
+- **PendingToolCall** / **ToolCallDispatcher**：多工具并行调度的调用描述与调度器（gateway 与 tools 共用）；**DispatchGroup** 为调度分组枚举。其执行抽象 ToolExecutor 为 DI trait，见 [core-traits](core-traits.md#toolexecutor)。
+- **FileMutexMap**：同文件并发写的按路径互斥映射（gateway 与 tools 共用）；**TryAcquireResult** 为其非阻塞获取结果。
+
+### 其他契约辅助类型
+
+- **PromptOverrides** / **ModeTransition** / **DynamicPromptContext**：[SystemPromptBuilder](core-traits.md#systempromptbuilder) 与 [DynamicPromptBuilder](core-traits.md#dynamicpromptbuilder) 契约的覆盖项、模式切换信号与动态构建上下文。
+- **AgentToolsConfig**：Agent 工具白/黑名单配置，为 [AgentToolsConfigQuery](core-traits.md#agenttoolsconfigquery) 的返回类型。
+- **ConditionalSkillMatch**：条件技能匹配结果，为 [SkillListingProvider](core-traits.md#skilllistingprovider) 的载荷。
+
 ## 数据流
 
 NormalizedMessage 的全系统流动路径：
@@ -513,8 +570,6 @@ ContentBlock[] 进入出站处理链路
   ↓
 ProcessedMessage { content_blocks, metadata[dsl_result] }
   ↓
-[Gateway 出站日志] — 记录完整 ProcessedMessage
-  ↓
 [IM Adapter 渲染] — 按块类型选择渲染策略，输出平台原生格式：
     - 批量模式：一次性渲染全部 ContentBlock[]
     - 流式模式：消费 [StreamEvent](#streamevent) 增量事件，Text 块逐行缓冲输出，非文本类块等 BlockEnd 全块就绪后一次渲染
@@ -522,6 +577,8 @@ ProcessedMessage { content_blocks, metadata[dsl_result] }
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件。中间件为 Gateway 内部的拦截链，具体中间件类型和注册机制由 Gateway 管理，不在 shared-types 范围
   ↓
 IM Adapter 发送到目标平台
+  ↓
+[Gateway 出站日志] — 发送成功后记录完整 ProcessedMessage 的出站历史
 ```
 
 来源说明：卡片交互事件经 [CardActionEvent](#cardactionevent) 的 tool_result 通道注入对话后触发的模型回复，仍以 UnifiedResponse 形态进入上述同一条出站路径——卡片交互场景的出站闭环复用本图，不另设通路。
@@ -582,7 +639,7 @@ ProcessedMessage {
   metadata: { dsl_result: "<DslParseResult JSON>" }
 }
   ↓
-Gateway 出站日志 → IM Adapter 渲染（消费 content_blocks + metadata[dsl_result]）→ 发送
+IM Adapter 渲染（消费 content_blocks + metadata[dsl_result]）→ 发送；发送成功后 Gateway 写出站历史
 ```
 
 ProcessedMessage 的生命周期：Processor Chain 产出 → Gateway 消费后即完成使命，不进入 Session 持久化。
@@ -792,6 +849,17 @@ Gateway 调用 MediaStoreAccess 解析 MediaRef
 成功 → 绝对路径 / 失败 → MediaStoreError
 ```
 
+### 会话/工具/斜杠/LLM 等辅助契约类型
+
+这些辅助类型不构成独立的跨模块流动，而作为其宿主契约的载荷随调用传递：
+
+- **会话/注入辅助**（SessionRole / SectionType / BootstrapMode / PlanPhase / RequestContext / InjectionParams / TurnCounter / PendingMessage）：随 session 构建、system prompt 注入、消息排队等流程传递。
+- **工具契约载荷族**：随 Tool / ToolRegistry / ToolRegistrar / ToolSession / ToolExecutor 的注册与调用传递。
+- **Slash 执行辅助**（SlashContext / SystemAppendAction / ReplyAction）：随斜杠指令分派与 SideEffectContext 执行传递。
+- **LLM/流式/中间件辅助**（LLMError / ErrorKind / StreamDone / MiddlewareContext / MiddlewareError）：随 LlmCaller / StreamingSink / OutboundMiddleware 调用传递。
+- **system prompt 辅助**（PromptOverrides / ModeTransition / DynamicPromptContext）：随 SystemPromptBuilder / DynamicPromptBuilder 调用传递。
+- **其他**（AgentToolsConfig / ConditionalSkillMatch）：随 AgentToolsConfigQuery / SkillListingProvider 调用传递。
+
 ## 模块关系
 
 ### NormalizedMessage
@@ -954,3 +1022,8 @@ Gateway 调用 MediaStoreAccess 解析 MediaRef
 - **生产者**：MediaStoreAccess 实现方（im_adapter 的 MediaStore）
 - **消费者**：MediaStoreAccess 消费方（gateway 等）
 - **无关**：Processor Chain、LLM Provider
+
+### 会话/工具/斜杠/LLM 等辅助契约类型
+
+- **生产者/消费者**：随各自宿主契约的实现方与消费方（见 [core-traits](core-traits.md) 模块关系）；本身无独立流动。
+- **无关**：LLM Provider、IM Adapter 入站链（MessageType/MediaType/AdapterError 归属 IM 契约，ContentBlockType/ProcessError 归属 Processor 契约）

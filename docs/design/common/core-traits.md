@@ -75,6 +75,18 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 工具注册编排和 Tool trait 的实现规范详见 [tools 模块](../tools/README.md)。
 
+### 工具执行
+
+#### ToolExecutor
+
+**用途**：工具执行抽象接口。tools、gateway 各提供实现，多工具调度器（ToolCallDispatcher）消费——执行单个待调度的工具调用，使调度器可脱离真实 I/O 单测。多工具调度与分组规则详见 [tools multi-tool-calls](../tools/multi-tool-calls.md)。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 执行 | 执行单个 [PendingToolCall](shared-types.md#工具契约载荷族)，返回 [ToolResult](shared-types.md#工具契约载荷族) 或错误 |
+
 ### 系统提示词构建
 
 #### PromptFragmentProvider
@@ -238,7 +250,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 新会话 | 为指定渠道创建新会话，返回新 session_id |
 | 压缩 | 触发上下文压缩（可携带自定义指令） |
 | 系统提示词 | 应用 append/clear 动作，返回相关计数 |
-| 模式/推理/详细度 | 设置会话模式、推理深度档位（[ReasoningLevel](shared-types.md#reasoninglevel--agentrole--sessionmode)）、信息展示等级（[VerbosityLevel](shared-types.md#verbositylevel)） |
+| 模式/推理深度/信息展示等级 | 设置会话模式、推理深度档位（[ReasoningLevel](shared-types.md#reasoninglevel--agentrole--sessionmode)）、信息展示等级（[VerbosityLevel](shared-types.md#verbositylevel)） |
 | shell 执行 | 以指定 agent 执行命令，权限由 Gateway 层先行校验 |
 
 #### SlashResultExecutor
@@ -250,6 +262,19 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 执行 | 接收 SideEffectContext，按 SlashResult 变体分发到对应副作用并回发 ReplyAction |
+
+### 计划执行确认
+
+#### PlanConfirmationHandler
+
+**用途**：计划执行确认/取消接口。tools 的 PlanExecConfirmFlow 实现，Gateway 消费——驱动计划执行启动确认的确认或取消分支，避免 Gateway 直接依赖 tools crate。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 确认 | 确认待处理的计划执行，返回是否处理成功 |
+| 取消 | 取消待处理的计划执行，返回是否取消成功 |
 
 ### 权限评估与审批
 
@@ -491,13 +516,13 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess）
   - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer、MediaStoreAccess；消费 IdentityResolver）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、PlanConfirmationHandler）
   - **cli**（实现 IMPlugin）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（消费 SessionLookup、SessionModeQuery）
