@@ -123,11 +123,17 @@ async fn test_send_streaming_success() {
 
     // Build SSE response body with multiple chunks and [DONE]
     let sse_body = "\
-data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"doubao-1.5-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
+data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"doubao-1.5-pro\",\"choices\":\
+[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
 
-data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"doubao-1.5-pro\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
+data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"doubao-1.5-pro\",\"choices\":\
+[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
 
-data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"doubao-1.5-pro\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
+data: {\"id\":\"volc-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"doubao-1.5-pro\",\"choices\":\
+[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
 
 data: [DONE]
 

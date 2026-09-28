@@ -3,7 +3,9 @@
 //! MiniMax Anthropic SSE stream format:
 //! ```text
 //! event: message_start
-//! data: {"type":"message_start","message":{"id":"...","type":"message","role":"assistant","content":[],"model":"...","stop_reason":null,"usage":{"input_tokens":10,"output_tokens":0}}}
+//! data: {"type":"message_start","message":{"id":"...","type":"message",
+//!   "role":"assistant","content":[],"model":"...","stop_reason":null,
+//!   "usage":{"input_tokens":10,"output_tokens":0}}}
 //!
 //! event: content_block_start
 //! data: {"type":"content_block_start","index":0,"content_block":{"type":"text","text":""}}
@@ -15,7 +17,8 @@
 //! data: {"type":"content_block_stop","index":0}
 //!
 //! event: message_delta
-//! data: {"type":"message_delta","delta":{"stop_reason":"end_turn","stop_sequence":null},"usage":{"output_tokens":15}}
+//! data: {"type":"message_delta","delta":{"stop_reason":"end_turn",
+//!   "stop_sequence":null},"usage":{"output_tokens":15}}
 //!
 //! event: message_stop
 //! data: {"type":"message_stop"}

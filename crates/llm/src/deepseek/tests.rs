@@ -362,11 +362,17 @@ async fn test_send_streaming_success() {
 
     // Build SSE response body with multiple chunks and [DONE]
     let sse_body = "\
-data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"deepseek-v4-flash\",\"choices\":\
+[{\"index\":0,\"delta\":{\"content\":\"Hello\"},\"finish_reason\":null}]}
 
-data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"deepseek-v4-flash\",\"choices\":\
+[{\"index\":0,\"delta\":{\"content\":\" world\"},\"finish_reason\":null}]}
 
-data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\"model\":\"deepseek-v4-flash\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
+data: {\"id\":\"ds-sse-001\",\"object\":\"chat.completion.chunk\",\
+\"model\":\"deepseek-v4-flash\",\"choices\":\
+[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}
 
 data: [DONE]
 
@@ -590,13 +596,16 @@ async fn test_send_streaming_anthropic_protocol() {
     // Anthropic SSE format: events separated by \n\n
     let sse_body = concat!(
         "event: message_start\n",
-        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"role\":\"assistant\"}}\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\
+        \"role\":\"assistant\"}}\n",
         "\n",
         "event: content_block_delta\n",
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\
+        \"text\":\"Hello\"}}\n",
         "\n",
         "event: content_block_delta\n",
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\" world\"}}\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\
+        \"text\":\" world\"}}\n",
         "\n",
         "event: message_delta\n",
         "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\"}}\n",
