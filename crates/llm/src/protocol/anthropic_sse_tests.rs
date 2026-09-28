@@ -5,7 +5,8 @@ use super::{
     AnthropicProtocol, ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream,
     InternalMessage, StreamEvent,
 };
-use crate::types::{InternalRequest, RawSseChunk};
+use crate::protocol::test_support::make_sse_chunk_with_event;
+use crate::types::InternalRequest;
 use closeclaw_session::persistence::ReasoningLevel;
 use futures::StreamExt;
 
@@ -31,13 +32,6 @@ fn make_request() -> InternalRequest {
     }
 }
 
-fn make_sse_chunk(event_type: &str, data: &str) -> RawSseChunk {
-    RawSseChunk {
-        event_type: event_type.to_string(),
-        data: data.to_string(),
-    }
-}
-
 // ── parse_sse_stream tests ───────────────────────────────────────────────
 #[tokio::test]
 async fn test_sse_text_stream() {
@@ -45,28 +39,28 @@ async fn test_sse_text_stream() {
     let machine = proto.create_sse_machine();
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "message_start",
             r#"{"message":{"usage":{"input_tokens":10,"output_tokens":0}}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_start",
             r#"{"index":0,"content_block":{"type":"text"}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             r#"{"index":0,"delta":{"type":"text_delta","text":"Hello"}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             r#"{"index":0,"delta":{"type":"text_delta","text":" world"}}"#,
         ),
-        make_sse_chunk("content_block_stop", r#"{"index":0}"#),
-        make_sse_chunk(
+        make_sse_chunk_with_event("content_block_stop", r#"{"index":0}"#),
+        make_sse_chunk_with_event(
             "message_delta",
             r#"{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":2}}"#,
         ),
-        make_sse_chunk("message_stop", "{}"),
+        make_sse_chunk_with_event("message_stop", "{}"),
     ]));
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
@@ -130,24 +124,24 @@ async fn test_sse_thinking_stream() {
     let machine = proto.create_sse_machine();
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "message_start",
             r#"{"message":{"usage":{"input_tokens":5,"output_tokens":0}}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_start",
             r#"{"index":0,"content_block":{"type":"thinking"}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             r#"{"index":0,"delta":{"type":"thinking_delta","thinking":"Let me think..."}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             r#"{"index":0,"delta":{"type":"signature_delta","signature":"sig_abc"}}"#,
         ),
-        make_sse_chunk("content_block_stop", r#"{"index":0}"#),
-        make_sse_chunk("message_stop", "{}"),
+        make_sse_chunk_with_event("content_block_stop", r#"{"index":0}"#),
+        make_sse_chunk_with_event("message_stop", "{}"),
     ]));
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
@@ -211,26 +205,26 @@ async fn test_sse_tool_use_stream() {
     let machine = proto.create_sse_machine();
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "message_start",
             r#"{"message":{"usage":{"input_tokens":10,"output_tokens":0}}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_start",
             "{\"index\":0,\"content_block\":{\"type\":\"tool_use\",\
             \"id\":\"toolu_01\",\"name\":\"get_weather\"}}",
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"{\"loc"}}"#,
         ),
-        make_sse_chunk(
+        make_sse_chunk_with_event(
             "content_block_delta",
             "{\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\
             \"ation\\\":\\\"Beijing\\\"}\"}}",
         ),
-        make_sse_chunk("content_block_stop", r#"{"index":0}"#),
-        make_sse_chunk("message_stop", "{}"),
+        make_sse_chunk_with_event("content_block_stop", r#"{"index":0}"#),
+        make_sse_chunk_with_event("message_stop", "{}"),
     ]));
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
@@ -307,10 +301,11 @@ async fn test_sse_error_event() {
     let proto = AnthropicProtocol::new();
     let machine = proto.create_sse_machine();
 
-    let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![make_sse_chunk(
-        "error",
-        r#"{"error":{"type":"api_error","message":"Rate limit exceeded"}}"#,
-    )]));
+    let incoming: IncomingSseStream =
+        Box::pin(futures::stream::iter(vec![make_sse_chunk_with_event(
+            "error",
+            r#"{"error":{"type":"api_error","message":"Rate limit exceeded"}}"#,
+        )]));
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;
 
@@ -331,8 +326,8 @@ async fn test_sse_ping_ignored() {
     let machine = proto.create_sse_machine();
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
-        make_sse_chunk("ping", "{}"),
-        make_sse_chunk("message_stop", "{}"),
+        make_sse_chunk_with_event("ping", "{}"),
+        make_sse_chunk_with_event("message_stop", "{}"),
     ]));
 
     let mut stream = proto.parse_sse_stream(incoming, machine).await;

@@ -2,15 +2,9 @@
 use super::{
     ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream, OpenAiProtocol, StreamEvent,
 };
-use crate::types::{RawContentBlock, RawSseChunk};
+use crate::protocol::test_support::make_sse_chunk;
+use crate::types::RawContentBlock;
 use futures::StreamExt;
-
-fn make_sse_chunk(data: &str) -> RawSseChunk {
-    RawSseChunk {
-        event_type: "message".to_string(),
-        data: data.to_string(),
-    }
-}
 
 #[tokio::test]
 async fn test_parse_sse_tool_calls_basic() {

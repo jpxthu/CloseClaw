@@ -1,15 +1,8 @@
 //! Unit tests for OpenAI SSE tool_calls parsing.
 use super::{ChatProtocol, IncomingSseStream, OpenAiProtocol};
-use crate::types::{ContentBlockType, ContentDelta, RawSseChunk, StreamEvent};
+use crate::protocol::test_support::make_sse_chunk;
+use crate::types::{ContentBlockType, ContentDelta, StreamEvent};
 use futures::StreamExt;
-
-/// Helper to create SSE chunk matching test pattern
-fn make_sse_chunk(data: &str) -> RawSseChunk {
-    RawSseChunk {
-        event_type: "message".to_string(),
-        data: data.to_string(),
-    }
-}
 
 /// Test basic single tool call SSE parsing
 #[tokio::test]
