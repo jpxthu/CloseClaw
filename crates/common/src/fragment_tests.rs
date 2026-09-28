@@ -37,10 +37,10 @@ fn test_fragment_context_bootstrap_mode() {
 #[test]
 fn test_fragment_context_workdir() {
     let ctx = FragmentContext {
-        bootstrap_dir: String::from("/tmp/workspace"),
+        bootstrap_dir: String::from("/virtual/workspace"),
         ..FragmentContext::test_default()
     };
-    assert_eq!(ctx.bootstrap_dir, String::from("/tmp/workspace"));
+    assert_eq!(ctx.bootstrap_dir, String::from("/virtual/workspace"));
 }
 
 #[test]
