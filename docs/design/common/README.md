@@ -2,19 +2,19 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/common.md](../requirements/common.md)
+- 关联需求文档：[requirements/common.md](../../requirements/common.md)
 
 common 是跨模块共享概念的唯一定义地。包含两类内容：跨模块传递的纯数据结构（共享类型）和依赖注入接口（核心 trait）。各业务模块文档通过引用指向此处，不在自身文档中重复定义。
 
 ## 架构
 
-common 不是业务模块——它不含可执行逻辑，只定义数据结构和接口契约。所有业务模块通过 common 中的共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。
+common 不是业务模块——它以跨模块共享的数据结构与接口契约为核心，不含业务逻辑。所有业务模块通过 common 中的共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。
 
 ```
 common/
-├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState）
+├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState、CompactionResult/CompactionError、InternalRequest/InternalMessage/SystemBlock/ToolDefinition、CommunicationConfig/CommunicationCheckResult/CommunicationError、ReasoningLevel/AgentRole/SessionMode、RiskLevel/PermissionEvalResponse/CallerInfo/PermissionDenied/SpawnPermissionError）
 ├── core-traits.md         ← 核心 trait 的接口定义（跨模块 DI trait 全集，按领域分组）
-├── data-flow.md           ← 共享类型主链路（入站/出站消息流）方向级流动总览
+├── data-flow.md           ← 共享类型主链路（入站/出站/跨方向）方向级流动总览
 ```
 
 ## 数据流
@@ -24,9 +24,9 @@ common 本身不参与运行时数据流。它定义的数据结构在业务模�
 ## 模块关系
 
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
-- **下游**：所有业务模块（通过引用 common 中定义的类型和 trait 进行交互）
-- **无关**：无（common 与所有模块都有关联，不存在无关关系）
-- **子文件**：[shared-types](shared-types.md)（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型主链路方向级流动总览，字段级流转见 shared-types 各类型数据流节）。shared-types.md 为权威清单：条目以上述清单为准，更新时两处清单须同步
+- **下游**：所有消费 common 中类型或 trait 的模块（通过引用 common 中定义的类型和 trait 进行交互）
+- **无关**：platform、debug_log、fake_llm——不依赖 common，与 common 无共享类型或 trait 的调用/数据流关系
+- **子文件**：[shared-types](shared-types.md)（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState、CompactionResult/CompactionError、InternalRequest/InternalMessage/SystemBlock/ToolDefinition、CommunicationConfig/CommunicationCheckResult/CommunicationError、ReasoningLevel/AgentRole/SessionMode、RiskLevel/PermissionEvalResponse/CallerInfo/PermissionDenied/SpawnPermissionError）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型主链路方向级流动总览，字段级流转见 shared-types 各类型数据流节）。shared-types.md 为权威清单：条目以上述清单为准，更新时各处清单须同步
 
 ### 代码映射
 

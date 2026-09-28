@@ -103,7 +103,7 @@ Image/Audio/File 三个变体结构相同，字段定义：
 **变体处理规则**：
 
 - **Text 是唯一可能包含 DSL 指令的变体**。DslParser 仅遍历 Text 块逐行扫描 DSL，解析后从 Text 块中移除 DSL 行。其余 6 种变体由 DslParser 透传
-- **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse/ToolResult 块等待全块就绪后一次交付渲染；Image/Audio/File 不以流式事件形式出现，在非流式路径中交由平台格式渲染器处理
+- **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse 块等待全块就绪后一次交付渲染；Image/Audio/File 不以流式事件形式出现，在非流式路径中交由平台格式渲染器处理
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
 
@@ -151,7 +151,7 @@ StreamEvent 共 5 种事件：
 
 #### ContentDelta
 
-ContentDelta 是单个 ContentBlock 内部的增量载荷，BlockDelta 事件的载体。9 种变体与所归属的块类型一一对应：
+ContentDelta 是单个 ContentBlock 内部的增量载荷，BlockDelta 事件的载体。共 9 种变体，每个变体归属唯一的块类型（一个块类型可对应多个增量变体，如 ToolUse 对应 3 个）：
 
 | 变体 | 字段 | 归属块类型 |
 |------|------|-----------|
@@ -346,7 +346,7 @@ StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `text_messages` | list(string) | 本批输出的文本内容：行边界达成的完整文本行，或触发强制输出（缓冲超阈值/超时）时的行内片段。缓冲与阈值规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md) |
-| `render_blocks` | ContentBlock[] | 本批内累积完整的非文本块（Thinking/ToolUse/ToolResult），等待全块就绪的渲染策略在此交付 |
+| `render_blocks` | ContentBlock[] | 本批内累积完整的非文本块（Thinking/ToolUse），等待全块就绪的渲染策略在此交付 |
 
 StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式发送完成，不进入 Session 或日志持久化。行缓冲和分批规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md)。
 
@@ -380,6 +380,76 @@ PlanState 描述当前规划所处阶段：
 | `plan_file_path` | string | plan 文件路径，规划阶段 Agent 写入与读取的唯一目标 |
 
 **边界**：PlanState 仅承载会话恢复和 compaction 隔离保护所需的最小状态。执行步骤的完成状态（未开始/进行中/已完成/失败/已跳过）由 Agent 写在 plan 文件中管理，系统不介入进度判断——PlanState 不包含执行步骤状态机（执行步骤状态定义见 [mode 执行引擎](../mode/execution.md)）。
+
+### CompactionResult / CompactionError
+
+compaction（对话历史压缩）操作的产出与错误。CompactionResult 描述一次压缩的结果——是否执行、压缩前后 token/字符数、承载摘要的边界消息、是否自动触发，以及供 Gateway 回发的可读描述；CompactionError 是压缩失败的错误（LLM 调用失败、会话未找到、摘要解析失败、无消息可压缩、所需 handler 不可用）。两者经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 的压缩方法在 session（产出）与 Gateway（消费）之间传递，故收录 common。
+
+**边界**：本题只承载跨 trait 边界的压缩产出与错误。压缩的触发条件、保留区、熔断与摘要格式等行为语义，以及压缩相关配置（阈值、保留区比例、熔断次数、摘要模型，按 Agent 配置）均归 session 模块，设计定义见 [session compact-process](../session/compact-process.md) 与 [session lifecycle](../session/session-lifecycle.md)。
+
+### ReasoningLevel / AgentRole / SessionMode
+
+会话行为相关的跨模块枚举。
+
+- **ReasoningLevel**：推理/思考强度档位——low / medium / high / max，默认 high；off 表示关闭推理输出（供应商不支持关闭时降至最低可用档位）。作为 [InternalRequest](#internalrequest--internalmessage--systemblock--tooldefinition) 字段随 LLM 请求传递，各协议映射为供应商原生参数；`/reasoning` 指令经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 设置，由网关层解析生效档位——当所选模型不支持请求档位时自动降级到该模型支持的最高档位（需求见 [llm §F4](../../requirements/llm.md)）。
+- **AgentRole**：Agent 身份枚举——MainAgent（主 Agent）/ SubAgent（分身 Agent），标识 Agent 层级（与 [FragmentContext](#fragmentcontext) 的 SessionRole（主/子 Session）相关但不同层：前者描述 Agent 身份，后者描述 Session 角色）。
+- **SessionMode**：会话运行模式——Normal / Plan / Auto，控制工具可见性、权限边界与 system prompt 指令；由 `/mode` 设置，作为 [SessionModeQuery](core-traits.md#sessionmodequery) 的返回类型跨模块查询（语义见 [mode 模块](../mode/README.md)）。
+
+### InternalRequest / InternalMessage / SystemBlock / ToolDefinition
+
+系统内部协议无关的 LLM 请求结构族。[LlmCaller](core-traits.md#llmcaller) 的一次调用以 InternalRequest 表达，各 Provider 协议层将其映射为供应商原生请求格式（映射规则见 [llm protocol-mapping](../llm/protocol-mapping.md)）。它承载消息序列、采样参数、两段式 system prompt（静态可缓存段 + 动态段）与工具定义，是 LLM 调用契约的载荷。
+
+**InternalRequest 字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `model` | string | 本次请求使用的模型标识 |
+| `messages` | list(InternalMessage) | 有序对话消息序列 |
+| `temperature` | float | 采样温度，默认 0 |
+| `max_tokens` | int? | 生成上限，可选 |
+| `stream` | bool | 是否流式，默认否 |
+| `system_static` / `system_dynamic` | string? | system prompt 静态（可缓存）段与动态段，两段契约见 [system_prompt kv-cache](../system_prompt/kv-cache.md) |
+| `system_blocks` | list(SystemBlock)? | 缓存适配器产出的结构化 system 块，可选 |
+| `tools` | list(ToolDefinition)? | 随请求传入的工具 schema 定义，可选 |
+| `session_id` | string? | 供应商级缓存键使用的会话标识 |
+| `extra_body` | map(string→any) | 供应商特定附加参数，可选 |
+| `reasoning_level` | [ReasoningLevel](#reasoninglevel--agentrole--sessionmode) | 推理深度档位，各协议映射为原生参数（默认 high） |
+| `turn_count` | int? | 会话内轮次计数，用于 API 元数据 |
+
+**InternalMessage**：请求中的单条消息——`role`（角色）、`content`（文本）、`content_blocks`（多模态内容块，存在时优先于 content）、`tool_call_id`（工具结果消息标识）。
+
+**SystemBlock**：缓存适配器产出的结构化 system 块——`text`（文本）、`cache`（是否标记可缓存）。
+
+**ToolDefinition**：随 API `tools` 参数传入的工具定义——`name`、`description`、`input_schema`（JSON Schema）、`cache`（schema 是否标记可缓存）。
+
+**边界**：本族是 LLM 调用契约的载荷，不进入消息出站链路的共享类型流；LLM 输出经 [UnifiedResponse](#unifiedresponse--unifiedusage) 返回。
+
+### CommunicationConfig / CommunicationCheckResult / CommunicationError
+
+Agent 间通信的允许列表与其校验结果。CommunicationConfig 是某个 Agent 的通信白名单——出向（允许发给哪些 Agent）与入向（允许接收哪些 Agent 的消息）两组 ID 列表，支持 `*` 通配；默认白名单仅含父 Agent（故默认仅直接父子 Session 互通，扩展需额外配置）。该配置在 spawn 子 Session 时生成（父子会话路由表；根 Session 无通信配置），在消息路由时由 Session 模块消费。消息送达需同时满足路由配置与权限允许两个条件（见 [agent §F14](../../requirements/agent.md)）。CommunicationCheckResult 是通信检查结果（允许 / 源不在目标入向 / 目标不在源出向）；CommunicationError 是通信被拒或会话/配置缺失的错误。
+
+**CommunicationConfig 字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `outbound` | list(string) | 本 Agent 允许发送消息的目标 Agent ID 列表，`*` 表示不限 |
+| `inbound` | list(string) | 本 Agent 允许接收消息的来源 Agent ID 列表，`*` 表示不限 |
+
+**CommunicationCheckResult 取值**：Allowed（允许）、SourceNotInTargetInbound（来源不在目标入向白名单）、TargetNotInSourceOutbound（目标不在来源出向白名单）。
+
+**CommunicationError 变体**：Denied（因白名单限制被拒，携带原因）、SessionNotFound（会话未找到）、NoCommunicationConfig（会话无通信配置）。
+
+### RiskLevel / PermissionEvalResponse / CallerInfo / PermissionDenied / SpawnPermissionError
+
+权限评估与审批 trait 的载荷族，随 [PermissionEvaluator](core-traits.md#permissionevaluator)、[ApprovalSubmission](core-traits.md#approvalsubmission)、[PermissionChecker](core-traits.md#permissionchecker) 在 common 与消费/实现方之间传递。
+
+- **RiskLevel**：权限请求的风险级别枚举——Low / Medium / High / Critical。
+- **PermissionEvalResponse**：Agent 间权限评估结果——Allowed，或 Denied（`reason` 原因 + `risk_level` 风险级别）。
+- **CallerInfo**：审批提交的调用方信息——`user_id`、`agent`、`is_sub_agent`（子 Agent 的拒绝静默丢弃、不入审批队列）。
+- **PermissionDenied**：权限校验被拒的错误——携带 `reason` 原因。
+- **SpawnPermissionError**：子 Agent spawn 权限校验被拒的错误——携带 `agent_id` 与 `reason`。
+
+**边界**：本族仅承载权限评估/审批的输入输出语义；权限规则判定逻辑归 permission 模块（见 [permission 模块](../permission/README.md)）。
 
 ## 数据流
 
@@ -619,13 +689,53 @@ Session 恢复时从 checkpoint 重建 PlanState
 Plan Mode 结束时销毁 PlanState
 ```
 
+### CompactionResult / CompactionError
+
+```
+session 模块执行压缩 → 经 SlashEffectExecutor.execute_compact → Result<CompactionResult, CompactionError>
+  ↓
+Gateway 按结果回发压缩摘要或错误提示
+```
+
+### InternalRequest / InternalMessage / SystemBlock / ToolDefinition
+
+```
+Session 构造 InternalRequest（messages + system 两段 + tools + reasoning_level）
+  ↓
+LlmCaller 抽象接口 → LLM 协议层映射为供应商原生请求
+  ↓
+（流式）StreamEvent 流 /（非流式）UnifiedResponse
+```
+
+### CommunicationConfig / CommunicationCheckResult / CommunicationError
+
+```
+agent 配置层产出 CommunicationConfig（按 Agent）
+  ↓
+session spawn 流程取子/父 Agent 的 CommunicationConfig 做通信权限校验
+  ↓
+CommunicationCheckResult（允许）/ CommunicationError（拒绝或缺失）
+```
+
+### RiskLevel / PermissionEvalResponse / CallerInfo / PermissionDenied / SpawnPermissionError
+
+```
+消费方（session tools / gateway）发起权限校验或评估请求
+  ↓
+经 common 权限 trait（PermissionEvaluator / PermissionChecker / ApprovalSubmission）
+  ↓
+返回对应载荷（PermissionEvalResponse / PermissionDenied / SpawnPermissionError）
+  ↓
+被拒且需审批 → 经 ApprovalSubmission 提交，携带 CallerInfo + RiskLevel
+```
+
 ## 模块关系
 
 ### NormalizedMessage
 
 - **生产者**：IM Adapter 各平台插件（入站解析）——包括飞书、Discord、Telegram 等 IM 平台的 Adapter，以及 CLI 模块的 TerminalAdapter
 - **消费者**：Processor Chain 入站（读取 NormalizedMessage 做内容标准化和 session_key 计算，产出 [ProcessedMessage](#processedmessage)）
-- **无关**：LLM Provider（不接触 NormalizedMessage，只消费 ContentBlock[]）、Session（通过 Gateway 间接消费路由字段，不直接接触 NormalizedMessage）、Slash Command（斜杠指令不涉及 NormalizedMessage 结构）
+- **无关**：LLM Provider（不接触 NormalizedMessage，只消费 ContentBlock[]）、Session（通过 Gateway 间接消费路由字段，不直接接触 NormalizedMessage）、Slash Command（斜杠指令消息本身经入站链归一化为 NormalizedMessage，但 SlashDispatcher 消费的是处理后的消息文本，不直接消费 NormalizedMessage 结构）
 
 ### ContentBlock
 
@@ -694,7 +804,9 @@ Plan Mode 结束时销毁 PlanState
 - **生产者**：SlashDispatcher（各 Handler 返回 SlashResult 变体）
 - **消费者**：Gateway（构造 SideEffectContext 并触发 SlashResult 执行，回复内容进入出站 Processor Chain）
 - **间接消费者**：Permission 模块（Exec 变体执行前校验）、CLI（通过 Gateway 间接消费斜杠指令回复）
-- **无关**：LLM Provider（不参与斜杠指令，不接触 SlashResult）、Processor Chain 入站（斜杠指令不进入站 Processor Chain）、Session（SlashResult 通过 SideEffectContext 操作 Session，但 Session 不直接消费 SlashResult 结构）
+- **无关**：LLM Provider（不参与斜杠指令，不接触 SlashResult）、Session（SlashResult 通过 SideEffectContext 操作 Session，但 Session 不直接消费 SlashResult 结构）
+
+**与入站链的关系**：斜杠指令消息与其他入站消息走同一条入站通路——经 IM Adapter 归一化为 [NormalizedMessage](#normalizedmessage)、Processor Chain 入站计算 session_key 并清洗内容，再由 Gateway 按 `/` 前缀路由到 SlashDispatcher。SlashResult 本身由指令 Handler 产出，不由入站链产生。
 
 ### FragmentContext
 
@@ -725,3 +837,33 @@ Plan Mode 结束时销毁 PlanState
 - **生产者**：mode 模块（Plan Mode 进入时创建）
 - **消费者**：Session（持久化和 compaction 保护）；mode 模块（恢复时重建、阶段切换时更新）
 - **无关**：LLM Provider（PlanState 不直接传给 LLM，通过 system prompt 的 plan 上下文间接生效）、IM Adapter（消息路由不感知 PlanState）
+
+### CompactionResult / CompactionError
+
+- **生产者**：session 模块（经 SlashEffectExecutor）→ **消费者**：Gateway（回发结果/错误）
+- **无关**：LLM Provider、IM Adapter；压缩配置（阈值/保留区/熔断/摘要模型）语义归 session 模块，本文档不定义
+
+### ReasoningLevel / AgentRole / SessionMode
+
+- **ReasoningLevel 生产者**：slash 模块（`/reasoning` 指令经 SlashEffectExecutor 设置）、config 的 `llm.reasoning_level` 全局默认档位；**消费者**：session / LLM 协议层（映射为原生参数）
+- **AgentRole**：随 Agent 配置 / 会话创建确定；**消费者**：session、gateway（会话角色门控）
+- **SessionMode 生产者**：slash 模块（`/mode`）、mode 模块；**消费者**：session、permission、gateway、system_prompt（经 SessionModeQuery 与共享类型）
+- **无关**：IM Adapter、Processor Chain
+
+### InternalRequest / InternalMessage / SystemBlock / ToolDefinition
+
+- **生产者**：Session（构造请求）、LLM Client 的缓存适配器（产出 system_blocks 与工具缓存标记）
+- **消费者**：LLM 协议层（映射为供应商原生请求）
+- **无关**：消息出站链路的共享类型（本族是 LLM 调用载荷，不进入出站 Processor Chain）
+
+### CommunicationConfig / CommunicationCheckResult / CommunicationError
+
+- **生产者**：agent 配置层（CommunicationConfig）
+- **消费者**：session 的 spawn 流程（通信权限校验）
+- **无关**：LLM Provider、IM Adapter、Processor Chain
+
+### RiskLevel / PermissionEvalResponse / CallerInfo / PermissionDenied / SpawnPermissionError
+
+- **生产者**：各权限 trait 实现方（permission / gateway / daemon 包装）
+- **消费者**：各权限 trait 消费方（session tools / gateway）
+- **无关**：LLM Provider、IM Adapter、Processor Chain
