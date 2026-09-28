@@ -530,7 +530,7 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
 
 #[cfg(test)]
 #[path = "openai_tests.rs"]
-mod openai_tests; // extracted to stay under 500-line limit
+mod openai_tests; // extracted to stay under 1000-line limit
 
 #[cfg(test)]
 #[path = "openai_parse_response_tests.rs"]
