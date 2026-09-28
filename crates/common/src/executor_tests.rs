@@ -153,7 +153,7 @@ async fn test_set_mode_with_plan_file_path_writes_new_plan_state() {
 
     SlashResult::SetMode {
         mode: "plan".into(),
-        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/my-plan.md")),
+        plan_file_path: Some(std::path::PathBuf::from("/virtual/plans/my-plan.md")),
         initial_input: None,
         reply_message: None,
     }
@@ -162,7 +162,7 @@ async fn test_set_mode_with_plan_file_path_writes_new_plan_state() {
 
     let stored = plan_handle.lock().unwrap().clone();
     let ps = stored.expect("plan_state should be set");
-    assert_eq!(ps.plan_file_path, "/tmp/plans/my-plan.md");
+    assert_eq!(ps.plan_file_path, "/virtual/plans/my-plan.md");
     assert_eq!(ps.phase, crate::PlanPhase::Research);
 }
 
@@ -181,7 +181,7 @@ async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
 
     SlashResult::SetMode {
         mode: "plan".into(),
-        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/updated.md")),
+        plan_file_path: Some(std::path::PathBuf::from("/virtual/plans/updated.md")),
         initial_input: None,
         reply_message: None,
     }
@@ -193,7 +193,7 @@ async fn test_set_mode_with_plan_file_path_updates_existing_plan_state() {
         .unwrap()
         .clone()
         .expect("plan_state should be set");
-    assert_eq!(ps.plan_file_path, "/tmp/plans/updated.md");
+    assert_eq!(ps.plan_file_path, "/virtual/plans/updated.md");
     // Existing phase must be preserved.
     assert_eq!(ps.phase, crate::PlanPhase::Design);
 }
@@ -549,7 +549,7 @@ async fn test_plan_mode_to_normal_clears_plan_state() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Design,
-        plan_file_path: "/tmp/plan.md".into(),
+        plan_file_path: "/virtual/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
     let clear_handle = mock_sl.clear_called_handle();
@@ -580,7 +580,7 @@ async fn test_plan_mode_to_auto_clears_plan_state() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Review,
-        plan_file_path: "/tmp/plan.md".into(),
+        plan_file_path: "/virtual/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
     let clear_handle = mock_sl.clear_called_handle();
@@ -659,7 +659,7 @@ async fn test_plan_state_create_destroy_recreate_cycle() {
         let ctx = make_ctx(Arc::clone(&mock), "s-cycle", "feishu", Arc::clone(&sl_ref));
         SlashResult::SetMode {
             mode: "plan".into(),
-            plan_file_path: Some(std::path::PathBuf::from("/tmp/plan.md")),
+            plan_file_path: Some(std::path::PathBuf::from("/virtual/plan.md")),
             initial_input: None,
             reply_message: None,
         }
@@ -668,7 +668,7 @@ async fn test_plan_state_create_destroy_recreate_cycle() {
     }
     {
         let ps = plan_handle.lock().unwrap().clone().expect("should exist");
-        assert_eq!(ps.plan_file_path, "/tmp/plan.md");
+        assert_eq!(ps.plan_file_path, "/virtual/plan.md");
     }
 
     // 2. Exit Plan Mode → Normal — PlanState destroyed.
@@ -693,7 +693,7 @@ async fn test_plan_state_create_destroy_recreate_cycle() {
         let ctx = make_ctx(Arc::clone(&mock), "s-cycle", "feishu", Arc::clone(&sl_ref));
         SlashResult::SetMode {
             mode: "plan".into(),
-            plan_file_path: Some(std::path::PathBuf::from("/tmp/plan-v2.md")),
+            plan_file_path: Some(std::path::PathBuf::from("/virtual/plan-v2.md")),
             initial_input: None,
             reply_message: None,
         }
@@ -702,7 +702,7 @@ async fn test_plan_state_create_destroy_recreate_cycle() {
     }
     {
         let ps = plan_handle.lock().unwrap().clone().expect("should exist");
-        assert_eq!(ps.plan_file_path, "/tmp/plan-v2.md");
+        assert_eq!(ps.plan_file_path, "/virtual/plan-v2.md");
         assert_eq!(ps.phase, crate::PlanPhase::Research);
     }
 }
@@ -717,7 +717,7 @@ async fn test_plan_file_path_cleared_in_non_plan_mode() {
     let mock = Arc::new(MockSlashEffectExecutor::new());
     let plan = crate::PlanState {
         phase: crate::PlanPhase::Research,
-        plan_file_path: "/tmp/plan.md".into(),
+        plan_file_path: "/virtual/plan.md".into(),
     };
     let (mock_sl, plan_handle) = MockSessionLookup::with_plan_state(plan);
     let sl_ref: Arc<dyn SessionLookup> = Arc::new(mock_sl);
@@ -758,7 +758,7 @@ async fn test_set_mode_auto_with_plan_file_path_does_not_persist_plan_state() {
 
     SlashResult::SetMode {
         mode: "auto".into(),
-        plan_file_path: Some(std::path::PathBuf::from("/tmp/plans/auto-plan.md")),
+        plan_file_path: Some(std::path::PathBuf::from("/virtual/plans/auto-plan.md")),
         initial_input: None,
         reply_message: None,
     }
