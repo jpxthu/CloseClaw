@@ -104,7 +104,12 @@ fn test_step_status_serde_roundtrip() {
 fn test_plan_state_serde_backward_compat_with_extra_fields() {
     // Old serialized data may contain execution_steps, current_step, etc.
     // serde should ignore unknown fields gracefully.
-    let json = r#"{"phase": "research", "plan_file_path": "/virtual/plan.md", "execution_steps": [], "current_step": 0}"#;
+    let json = r#"{
+        "phase": "research",
+        "plan_file_path": "/virtual/plan.md",
+        "execution_steps": [],
+        "current_step": 0
+    }"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
     assert_eq!(state.plan_file_path, "/virtual/plan.md");
@@ -114,7 +119,12 @@ fn test_plan_state_serde_backward_compat_with_extra_fields() {
 fn test_plan_state_serde_backward_compat_old_checkpoint() {
     // Old checkpoints may contain explicit_path and step_selection fields.
     // These should be silently ignored during deserialization.
-    let json = r#"{"phase": "research", "plan_file_path": "/virtual/plan.md", "explicit_path": "standard", "step_selection": [0, 1]}"#;
+    let json = r#"{
+        "phase": "research",
+        "plan_file_path": "/virtual/plan.md",
+        "explicit_path": "standard",
+        "step_selection": [0, 1]
+    }"#;
     let state: PlanState = serde_json::from_str(json).unwrap();
     assert_eq!(state.phase, PlanPhase::Research);
     assert_eq!(state.plan_file_path, "/virtual/plan.md");
