@@ -266,7 +266,7 @@ fn test_tool_context_fields() {
 #[test]
 fn test_tool_context_with_workdir() {
     let workdir = WorkdirContext {
-        path: "/tmp/test".into(),
+        path: "/virtual/test".into(),
         has_git: false,
         branch: None,
         recent_changes: 0,
@@ -282,7 +282,7 @@ fn test_tool_context_with_workdir() {
         media_store: None,
     };
     let wd = ctx.workdir.as_ref().unwrap();
-    assert_eq!(wd.path, "/tmp/test");
+    assert_eq!(wd.path, "/virtual/test");
     assert!(!wd.has_git);
     assert!(wd.branch.is_none());
     assert_eq!(wd.recent_changes, 0);
