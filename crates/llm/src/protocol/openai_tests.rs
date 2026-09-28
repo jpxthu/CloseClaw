@@ -1,4 +1,4 @@
-//! Tests for OpenAI protocol - extracted to stay under 500-line limit.
+//! Tests for OpenAI protocol — extracted to stay under 500-line limit.
 use super::{
     ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream, OpenAiProtocol, StreamEvent,
 };
