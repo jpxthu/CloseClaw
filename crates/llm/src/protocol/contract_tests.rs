@@ -101,8 +101,12 @@ fn openai_reasoning() {
     assert!(
         matches!(
             &resp.content_blocks[1],
-            RawContentBlock::Thinking { thinking, signature: None }
-            if thinking == "The user asks for 17 * 23. Compute: 17 * 20 = 340, 17 * 3 = 51, sum = 391."
+            RawContentBlock::Thinking {
+                thinking,
+                signature: None,
+            }
+            if thinking
+                == "The user asks for 17 * 23. Compute: 17 * 20 = 340, 17 * 3 = 51, sum = 391."
         ),
         "expected Thinking block, got {:?}",
         resp.content_blocks[1]
@@ -172,7 +176,10 @@ fn openai_cache() {
     // content → Text block
     assert_eq!(resp.content_blocks.len(), 1);
     assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s.contains("HTTP keep-alive")),
+        matches!(
+            &resp.content_blocks[0],
+            RawContentBlock::Text(s) if s.contains("HTTP keep-alive")
+        ),
         "expected Text block with keep-alive content, got {:?}",
         resp.content_blocks[0]
     );
@@ -289,9 +296,16 @@ fn anthropic_thinking() {
     assert!(
         matches!(
             &resp.content_blocks[0],
-            RawContentBlock::Thinking { thinking, signature: Some(sig) }
-            if thinking == "We need to compute 17 * 23. Using the distributive property: (10 + 7) * (20 + 3) = 10*20 + 10*3 + 7*20 + 7*3 = 200 + 30 + 140 + 21 = 391."
-               && sig == "sig_thinking_b2c3d4e5f6a7b8c9"
+            RawContentBlock::Thinking {
+                thinking,
+                signature: Some(sig),
+            }
+            if thinking
+                == concat!(
+                    "We need to compute 17 * 23. Using the distributive property:",
+                    " (10 + 7) * (20 + 3) = 10*20 + 10*3 + 7*20 + 7*3 = 200 + 30 + 140 + 21 = 391."
+                )
+                && sig == "sig_thinking_b2c3d4e5f6a7b8c9"
         ),
         "expected Thinking block with signature, got {:?}",
         resp.content_blocks[0]

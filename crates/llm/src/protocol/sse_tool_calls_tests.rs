@@ -19,10 +19,13 @@ async fn test_single_tool_call_basic() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_abc","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_abc\
+            \",\"type\":\"function\",\"function\":{\"name\
+            \":\"get_weather\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"location\""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
+            rguments\":\"{\\\"location\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":\"Beijing\""}}]}}]}"#,
@@ -42,21 +45,40 @@ async fn test_single_tool_call_basic() {
             ..
         }
     ));
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. } if id == "call_abc")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name }, .. } if name == "get_weather")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == r#"{"location""#)
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == ":\"Beijing\"")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == "}")
-    );
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. }
+        if id == "call_abc"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name }, .. }
+        if name == "get_weather"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == r#"{"location""#
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == ":\"Beijing\""
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == "}"
+    ));
     assert!(matches!(
         stream.next().await.unwrap().unwrap(),
         StreamEvent::BlockEnd {
@@ -79,7 +101,8 @@ async fn test_tool_calls_arguments_chunking() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_xyz","type":"function","function":{"name":"search","arguments":""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_xyz\
+            \",\"type\":\"function\",\"function\":{\"name\":\"search\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{"}}]}}]}"#,
@@ -108,12 +131,16 @@ async fn test_tool_calls_arguments_chunking() {
             ..
         }
     ));
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. } if id == "call_xyz")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name }, .. } if name == "search")
-    );
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseId { id }, .. }
+        if id == "call_xyz"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { delta: ContentDelta::ToolUseName { name }, .. }
+        if name == "search"
+    ));
 
     let mut chunks = Vec::new();
     loop {
@@ -148,22 +175,28 @@ async fn test_multiple_tool_calls() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_1","type":"function","function":{"name":"get_weather","arguments":""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"f\
+            unction\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"id":"call_2","type":"function","function":{"name":"get_time","arguments":""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_2\"\
+            ,\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"city\""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
+            rguments\":\"{\\\"city\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"tz\""}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
+            rguments\":\"{\\\"tz\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"city\":\"Shanghai\"}"}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
+            rguments\":\"{\\\"city\\\":\\\"Shanghai\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
-            r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{\"tz\":\"UTC\"}"}}]}}]}"#,
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
+            rguments\":\"{\\\"tz\\\":\\\"UTC\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"}"}}]}}]}"#,
@@ -185,12 +218,16 @@ async fn test_multiple_tool_calls() {
             ..
         }
     ));
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 0, delta: ContentDelta::ToolUseId { id }, .. } if id == "call_1")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 0, delta: ContentDelta::ToolUseName { name }, .. } if name == "get_weather")
-    );
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { index: 0, delta: ContentDelta::ToolUseId { id }, .. }
+        if id == "call_1"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { index: 0, delta: ContentDelta::ToolUseName { name }, .. }
+        if name == "get_weather"
+    ));
 
     // Tool call 2 events (index 1)
     assert!(matches!(
@@ -201,32 +238,73 @@ async fn test_multiple_tool_calls() {
             ..
         }
     ));
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseId { id }, .. } if id == "call_2")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseName { name }, .. } if name == "get_time")
-    );
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseId { id }, .. }
+        if id == "call_2"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseName { name }, .. }
+        if name == "get_time"
+    ));
 
-    // All continuation chunks assigned to last active block (index 1 - current implementation behavior)
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == "{\"city\"")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == "{\"tz\"")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == r#"{"city":"Shanghai"}"#)
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == r#"{"tz":"UTC"}"#)
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == "}")
-    );
-    assert!(
-        matches!(stream.next().await.unwrap().unwrap(), StreamEvent::BlockDelta { index: 1, delta: ContentDelta::ToolUseInputChunk { input }, .. } if input == "}")
-    );
+    // All continuation chunks assigned to last active block
+    // (index 1 - current implementation behavior)
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == "{\"city\""
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == "{\"tz\""
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == r#"{"city":"Shanghai"}"#
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == r#"{"tz":"UTC"}"#
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == "}"
+    ));
+    assert!(matches!(
+        stream.next().await.unwrap().unwrap(),
+        StreamEvent::BlockDelta {
+            index: 1,
+            delta: ContentDelta::ToolUseInputChunk { input },
+            ..
+        }
+        if input == "}"
+    ));
 
     // Block end for last active block and message end
     assert!(matches!(

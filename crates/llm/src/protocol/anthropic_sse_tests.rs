@@ -81,14 +81,22 @@ async fn test_sse_text_stream() {
     ));
 
     let evt = stream.next().await.unwrap().unwrap();
-    assert!(
-        matches!(evt, StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text } } if text == "Hello")
-    );
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text { text },
+        } if text == "Hello"
+    ));
 
     let evt = stream.next().await.unwrap().unwrap();
-    assert!(
-        matches!(evt, StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text } } if text == " world")
-    );
+    assert!(matches!(
+        evt,
+        StreamEvent::BlockDelta {
+            index: 0,
+            delta: ContentDelta::Text { text },
+        } if text == " world"
+    ));
 
     let evt = stream.next().await.unwrap().unwrap();
     assert!(matches!(
@@ -209,7 +217,8 @@ async fn test_sse_tool_use_stream() {
         ),
         make_sse_chunk(
             "content_block_start",
-            r#"{"index":0,"content_block":{"type":"tool_use","id":"toolu_01","name":"get_weather"}}"#,
+            "{\"index\":0,\"content_block\":{\"type\":\"tool_use\",\
+\"id\":\"toolu_01\",\"name\":\"get_weather\"}}",
         ),
         make_sse_chunk(
             "content_block_delta",
@@ -217,7 +226,8 @@ async fn test_sse_tool_use_stream() {
         ),
         make_sse_chunk(
             "content_block_delta",
-            r#"{"index":0,"delta":{"type":"input_json_delta","partial_json":"ation\":\"Beijing\"}"}}"#,
+            "{\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\
+\"ation\\\":\\\"Beijing\\\"}\"}}",
         ),
         make_sse_chunk("content_block_stop", r#"{"index":0}"#),
         make_sse_chunk("message_stop", "{}"),

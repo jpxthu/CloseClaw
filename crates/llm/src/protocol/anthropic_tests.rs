@@ -175,7 +175,10 @@ fn test_parse_response_thinking_block_with_signature() {
     assert_eq!(resp.content_blocks.len(), 2);
     assert!(matches!(
         resp.content_blocks[0],
-        RawContentBlock::Thinking { thinking: ref s, signature: Some(ref sig) } if s == "Let me think..." && sig == "sig_abc123"
+        RawContentBlock::Thinking {
+            thinking: ref s,
+            signature: Some(ref sig),
+        } if s == "Let me think..." && sig == "sig_abc123"
     ));
     assert!(matches!(
         resp.content_blocks[1],
@@ -398,9 +401,10 @@ fn test_parse_anthropic_provider_raw_json_response() {
 
     let resp = proto.parse_response(raw_json).unwrap();
     assert_eq!(resp.content_blocks.len(), 1);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Text(s) if s == "Hello! How can I help you?")
-    );
+    assert!(matches!(
+        &resp.content_blocks[0],
+        RawContentBlock::Text(s) if s == "Hello! How can I help you?"
+    ));
     assert_eq!(resp.usage.prompt_tokens, 10);
     assert_eq!(resp.usage.completion_tokens, 15);
     assert_eq!(resp.finish_reason, Some("end_turn".to_string()));
@@ -420,9 +424,10 @@ fn test_parse_anthropic_provider_with_thinking() {
     });
     let resp = proto.parse_response(raw_json).unwrap();
     assert_eq!(resp.content_blocks.len(), 2);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking, .. } if thinking == "Let me consider...")
-    );
+    assert!(matches!(
+        &resp.content_blocks[0],
+        RawContentBlock::Thinking { thinking, .. } if thinking == "Let me consider..."
+    ));
     assert!(
         matches!(&resp.content_blocks[1], RawContentBlock::Text(s) if s == "The answer is 42.")
     );
@@ -442,10 +447,14 @@ fn test_parse_anthropic_provider_thinking_with_signature() {
     });
     let resp = proto.parse_response(raw_json).unwrap();
     assert_eq!(resp.content_blocks.len(), 2);
-    assert!(
-        matches!(&resp.content_blocks[0], RawContentBlock::Thinking { thinking, signature: Some(sig) }
-        if thinking == "reasoning..." && sig == "sig_xyz")
-    );
+    assert!(matches!(
+        &resp.content_blocks[0],
+        RawContentBlock::Thinking {
+            thinking,
+            signature: Some(sig),
+        }
+        if thinking == "reasoning..." && sig == "sig_xyz"
+    ));
 }
 
 /// Verify that Anthropic response with tool_use block is correctly parsed.
@@ -682,7 +691,8 @@ fn test_build_request_tools_section_cache_control() {
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
     let full_static = format!(
-        "Role: You are a helpful assistant.\n\n## Tools\n\n- web_search: search the web\n- read: read files"
+        "Role: You are a helpful assistant.\n\n## Tools\n\n- web_search: search the web\
+- read: read files"
     );
     request.system_blocks = Some(vec![SystemBlock {
         text: full_static,
