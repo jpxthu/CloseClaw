@@ -9,6 +9,7 @@ mod adapter_file_tests;
 mod adapter_sticker_tests;
 #[cfg(test)]
 mod adapter_tests;
+mod card_media;
 pub(crate) mod card_media_fallback;
 #[cfg(test)]
 mod card_media_tests;
@@ -19,6 +20,7 @@ mod cleaner_tests;
 pub(crate) mod config;
 #[cfg(test)]
 mod credential_isolation_tests;
+mod debug_events;
 #[cfg(test)]
 mod debug_log_tests;
 mod event_dedup;
@@ -32,6 +34,7 @@ mod feishu_tests;
 mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
+mod inbound;
 #[cfg(test)]
 mod media_filter_tests;
 #[cfg(test)]
@@ -44,9 +47,11 @@ mod post_expand;
 pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
+mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]
 mod renderer_decision_tests;
+mod send_dispatch;
 #[cfg(test)]
 mod send_fallback_tests;
 mod send_helpers;

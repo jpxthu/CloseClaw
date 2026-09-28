@@ -537,3 +537,34 @@ async fn test_send_failure_records_event() {
     assert_eq!(parsed["event_type"], "outbound.send");
     assert_eq!(parsed["payload"]["success"], false);
 }
+
+// ===========================================================================
+// emit_debug_event boundaries
+// ===========================================================================
+
+/// emit_debug_event with debug_log set but no trace_id in last_metadata:
+/// the skip branch must not spawn a writer — no JSONL event is written.
+#[tokio::test]
+async fn test_render_without_trace_id_skips_event() {
+    let temp_dir = TempDir::new().unwrap();
+    let debug_log = make_debug_log(&temp_dir).await;
+    let adapter = Arc::new(make_test_adapter());
+    // Deliberately no set_test_trace_id: trace context is missing here.
+    let mut plugin = FeishuPlugin::new(adapter);
+    plugin.set_debug_log(Arc::new(debug_log));
+
+    // Multiline text triggers card rendering path → emit_debug_event is called.
+    let blocks = vec![ContentBlock::Text("line1\nline2".into())];
+    let _ = plugin.render(&blocks, None);
+
+    // Skip branch spawns no task at all; give any stray task a short window
+    // to run, then assert nothing reached the JSONL file.
+    // G1 豁免：负向断言 settle window（确认无写入，非等待异步事件到达）。
+    tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+    let lines = read_jsonl_lines(temp_dir.path());
+    assert!(
+        lines.is_empty(),
+        "event without trace_id must be skipped, but got JSONL: {:?}",
+        lines
+    );
+}
