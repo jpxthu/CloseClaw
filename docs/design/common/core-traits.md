@@ -37,7 +37,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 注册工具 | 以工具名为键注册工具定义（名称、分组、摘要、行为描述、输入模式、运行时标记）。工具名冲突时拒绝注册 |
-| 索引构建 | 按分组聚合已注册工具，生成一级索引字符串。常用工具展示名称和行为描述，延迟加载工具仅展示名称和危险度标记 |
+| 索引构建 | 按分组聚合已注册工具，生成一级索引字符串。常用工具展示名称、危险度标记和行为描述，延迟加载工具仅展示名称和危险度标记 |
 | 工具查询 | 按工具名返回完整详情；按分组名返回该组下所有工具名 |
 | 冻结 | 标记注册完成，拒绝后续注册调用。冻结后仅允许查询操作 |
 
@@ -224,7 +224,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 新会话 | 为指定渠道创建新会话，返回新 session_id |
 | 压缩 | 触发上下文压缩（可携带自定义指令） |
 | 系统提示词 | 应用 append/clear 动作，返回相关计数 |
-| 模式/推理/详细度 | 设置会话模式、推理强度、输出详细度 |
+| 模式/推理/详细度 | 设置会话模式、推理深度档位（[ReasoningLevel](shared-types.md#reasoninglevel--agentrole--sessionmode)）、信息展示等级（[VerbosityLevel](shared-types.md#verbositylevel)） |
 | shell 执行 | 以指定 agent 执行命令，权限由 Gateway 层先行校验 |
 
 #### SlashResultExecutor
@@ -247,7 +247,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 评估 | 评估 from→to 的 agent 间消息，返回 Allowed 或 Denied（原因 + 风险级别） |
+| 评估 | 评估 from→to 的 agent 间消息，返回 [PermissionEvalResponse](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)（Allowed 或 Denied，含原因 + [RiskLevel](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)） |
 
 #### PermissionChecker
 
@@ -257,7 +257,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| spawn 校验 | 校验 child_agent_id 是否允许在 parent_session_id 下 spawn，返回 Ok 或 Denied（原因） |
+| spawn 校验 | 校验 child_agent_id 是否允许在 parent_session_id 下 spawn，返回 Ok 或 [SpawnPermissionError::Denied](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)（含原因） |
 
 #### ApprovalSubmission
 
@@ -267,7 +267,9 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 提交审批 | 提交拒绝的 agent 间请求，返回 request_id；被拒（子 agent 或重复）返回 None |
+| 提交审批 | 提交拒绝的 agent 间请求（携带 [CallerInfo](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) + [RiskLevel](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)），返回 request_id；被拒（子 agent 或重复）返回 None |
+
+> **共享句柄别名**：上述 trait 以 `Arc<dyn Trait>` 形式跨模块传递时以类型别名暴露——SharedPermissionEvaluator、SharedApprovalSubmission（带互斥包装）。别名与对应 trait 同属 common。
 
 ### 会话查询与生命周期
 
@@ -331,8 +333,8 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 非流式调用 | 接收 InternalRequest 返回 UnifiedResponse |
-| 流式调用 | 返回 StreamEvent 流（逐项携带成功事件或 LLMError） |
+| 非流式调用 | 接收 [InternalRequest](shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition) 返回 [UnifiedResponse](shared-types.md#unifiedresponse--unifiedusage) |
+| 流式调用 | 返回 [StreamEvent](shared-types.md#streamevent) 流（逐项携带成功事件或 LLMError） |
 | 默认请求头 | 返回 provider 默认请求头，用于 prompt 指纹检测缓存断裂；敏感头（Authorization、api-key 等）值替换为占位符 |
 
 #### StreamingSink
@@ -474,14 +476,14 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
-  - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；System Prompt Builder 收集所有 Provider 并触发生成）
+  - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider；System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery）
-  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession；消费 PermissionChecker、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
+  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer；消费 IdentityResolver）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder）
   - **cli**（实现 IMPlugin）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（消费 SessionLookup、SessionModeQuery）
@@ -489,4 +491,4 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
   - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费 LlmCaller、MetricsEmitter）
   - **config**（实现 IdentityResolver）
   - **llm**（消费 ShutdownSignal）
-- **无关**：无（common 的 trait 与各业务模块均存在实现或消费关系，不存在无关模块）
+- **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费；workflow、mode 不实现也不消费本文档收录的 core-trait，但经 shared-types 中的共享类型（PlanState 等）与 common 建立数据流关联，故不计为「无关联」的无关模块。

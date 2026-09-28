@@ -6,9 +6,9 @@
 
 ## 架构
 
-共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、卡片事件等）不参与此方向流，完整的共享类型清单见 [shared-types](shared-types.md)。
+共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、卡片事件、compaction 结果、LLM 请求结构族、Agent 通信权限、权限评估与审批载荷等）不参与此方向流，其类型内流动路径见 [shared-types](shared-types.md) 各类型数据流节，完整的共享类型清单见 [shared-types](shared-types.md)。
 
-- **入站类型**：从外部消息进入系统，经处理后进入 LLM 对话
+- **入站类型**：从外部消息进入系统，经处理后进入 LLM 对话（或经 Gateway 路由到斜杠指令流程）
 - **出站类型**：LLM 或斜杠指令产出，经处理后发送到外部
 - **跨方向类型**：生命周期跨越多个模块或方向，不纯粹属于入站或出站
 
@@ -49,22 +49,27 @@ ContentBlock[]
   ↓
 ProcessedMessage { content_blocks, metadata: { dsl_result } }
   ↓
+[Gateway 出站日志] — 发送成功后记录完整 ProcessedMessage 的出站历史
+  ↓
 [IM Adapter 渲染]
   批量模式：一次性渲染全部 ContentBlock[]
-  流式模式：消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染，规则见 [shared-types ContentBlock §流式渲染差异化](shared-types.md)
+  流式模式：消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染，规则见 [shared-types ContentBlock §流式渲染差异化](shared-types.md#contentblock)
   ↓
 [中间件插入点] — Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件
   ↓
 IM Adapter 发送
 ```
 
-出站方向涉及五种共享类型：
+出站方向涉及的共享类型：
 
 - **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。批量交付形态。
 - **[StreamEvent](shared-types.md#streamevent)**：ContentBlock 的流式形态——5 种增量事件（BlockStart/BlockDelta/BlockEnd/MessageEnd/Error）。LLM 模块归一化产出 → Session 转发 → Processor Chain 增量阶段逐事件处理 → IM Adapter 流式渲染器增量消费。流式交付形态。
-- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult--dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser、终于 Renderer 渲染。
+- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult--dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser，终于 Renderer 渲染（批量模式）或出站历史写入（流式模式，仅日志不渲染）。
 - **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → Gateway 出站日志 → IM Adapter 渲染。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
-- **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。Exec 变体在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
+- **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。高危指令（Exec、Git 写操作）在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
+- **[UnifiedResponse / UnifiedUsage](shared-types.md#unifiedresponse--unifiedusage)**：非流式 LLM 调用的统一响应，其 ContentBlock[] 即上图的出站起点；usage 由 [RunningStats](shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds) 累加。
+- **[RenderedOutput](shared-types.md#renderedoutput)**：IMPlugin 渲染产出的平台原生消息结构 → [Gateway 中间件] → IMPlugin 发送。渲染与发送之间的中间件插入点为批量模式；流式模式下中间件为渲染前的一次性预检（pre-flight）。
+- **[StreamingOutput](shared-types.md#streamingoutput)**：流式渲染单批产出（完整文本行 + 本批完成的非文本块），流式发送链路中由平台组装为 RenderedOutput 后发送。
 
 ### 跨方向类型
 
@@ -75,5 +80,5 @@ IM Adapter 发送
 - **入站上游**：IM Adapter（产出 NormalizedMessage）
 - **入站下游**：Gateway（消费 ProcessedMessage 做路由决策）
 - **出站上游**：Session（LLM 产出 ContentBlock[]，流式场景转发出 StreamEvent）、SlashDispatcher（产出 SlashResult）
-- **出站下游**：IM Adapter（消费 ProcessedMessage 渲染并发送）
+- **出站下游**：Gateway（消费 ProcessedMessage 写作出站日志并调度渲染）、IM Adapter（消费 ProcessedMessage 渲染并发送）
 - **无关**：LLM Provider（不接触 ProcessedMessage，只产出 ContentBlock[]）、Session 生命周期管理（通过 Gateway 间接消费）

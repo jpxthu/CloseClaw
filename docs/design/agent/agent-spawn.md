@@ -49,6 +49,8 @@ mode="session"：子 session 保持存活，等待父 session 后续 steer
 
 ### 通信配置（CommunicationConfig）
 
+结构定义见 [common/shared-types](../common/shared-types.md#communicationconfig--communicationcheckresult--communicationerror)。
+
 Spawn 子 agent 时生成通信路由表，定义子 agent 的消息可达范围——可以向哪些 agent（以 agent ID 标识）发送消息、接收哪些 agent 的消息。
 
 > **与权限的关系**：跨 agent 通信的操作权限（能否通信）由 Permission Engine 的"跨 Agent 通信"维度评估。CommunicationConfig 只负责消息路由——决定消息能否送达——不参与权限判定。当权限放行但路由未配置时，消息不可达；当路由允许但权限拒绝时，消息不发送。

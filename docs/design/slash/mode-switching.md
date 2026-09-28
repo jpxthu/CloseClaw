@@ -42,4 +42,4 @@
 
 - **上游**：Gateway（入站消息处理，`/` 前缀拦截，经 SlashDispatcher 分派给 ModeSwitchHandler）
 - **下游**：Session 模块（记录/读取模式状态）；system prompt builder（读取模式决定 prompt 内容）
-- **无关**：LLM 对话流程（切换本身不触发 LLM 调用）、ReasoningLevel（`/reasoning` 控制推理强度，模式控制 Agent 行为，两轴独立）、Verbosity（`/verbose` 控制信息展示等级，模式控制 Agent 行为，两轴独立）
+- **无关**：LLM 对话流程（切换本身不触发 LLM 调用）、ReasoningLevel（推理强度，结构见 [common/shared-types](../common/shared-types.md#reasoninglevel--agentrole--sessionmode)；`/reasoning` 控制推理强度，模式控制 Agent 行为，两轴独立）、Verbosity（`/verbose` 控制信息展示等级，模式控制 Agent 行为，两轴独立）

@@ -60,7 +60,7 @@ Session 创建 / 恢复 / Compaction
 3. ConversationSession 即时构建动态层（ChannelContext + WorkingDirectory + ModeInstruction + GitStatus，GitStatus 默认关闭）
 4. ConversationSession 从运行时字段读取追加条目
 5. 拼接：静态层 + `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` + 动态层 + 追加区
-6. 以边界标记为切分点，分离静态区和动态区为独立字段，传入 InternalRequest
+6. 以边界标记为切分点，分离静态区和动态区为独立字段，传入 [InternalRequest](../common/shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition)
 7. cache adapter 接收已分离的字段，注入缓存控制参数
 8. 发送 LLM 请求
 
