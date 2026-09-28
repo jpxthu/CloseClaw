@@ -19,16 +19,16 @@ async fn test_parse_sse_tool_calls_basic() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_abc\",\"type\":\"\
-            function\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_abc\",\"type\":\"function\",\
+            \"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"func\
-            tion\":{\"arguments\":\"{\\\"location\\\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"location\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"funct\
-            ion\":{\"arguments\":\": \\\"Beijing\\\"}\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\": \\\"Beijing\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"}"}}]}}]}"#,
@@ -120,8 +120,8 @@ async fn test_parse_sse_text_then_tool_calls() {
         make_sse_chunk(r#"{"choices":[{"delta":{"content":"Thinking..."}}]}"#),
         make_sse_chunk(r#"{"choices":[{"delta":{"content":" here's a tool call."}}]}"#),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"funct\
-            ion\",\"function\":{\"name\":\"search\",\"arguments\":\"\\\"query\\\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\
+            \"function\":{\"name\":\"search\",\"arguments\":\"\\\"query\\\"\"}}]}}]}",
         ),
         make_sse_chunk(r#"{"choices":[{"finish_reason":"tool_calls"}]}"#),
     ]));
@@ -231,8 +231,8 @@ async fn test_sse_stream_usage_scenarios() {
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(r#"{"choices":[{"delta":{"content":"Hello"}}]}"#),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"content\":\" the\
-            re!\"},\"finish_reason\":\"stop\"}],\"usage\":{\
+            "{\"choices\":[{\"delta\":{\"content\":\" there!\"},\
+            \"finish_reason\":\"stop\"}],\"usage\":{\
             \"prompt_tokens\":10,\"completion_tokens\":5,\"total_tokens\":15}}",
         ),
     ]));
@@ -305,12 +305,12 @@ async fn test_sse_stream_tool_calls_with_usage() {
     let machine = proto.create_sse_machine();
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_x\",\"type\":\"\
-            function\",\"function\":{\"name\":\"search\",\"arguments\":\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_x\",\"type\":\"function\",\
+            \"function\":{\"name\":\"search\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\
-            \":{\"arguments\":\"{\\\"q\\\": \\\"rust\\\"}\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"q\\\": \\\"rust\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
             "{\"choices\":[{\"finish_reason\":\"tool_calls\"}],\"usage\":{\

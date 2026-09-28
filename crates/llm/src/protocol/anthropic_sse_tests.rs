@@ -218,7 +218,7 @@ async fn test_sse_tool_use_stream() {
         make_sse_chunk(
             "content_block_start",
             "{\"index\":0,\"content_block\":{\"type\":\"tool_use\",\
-\"id\":\"toolu_01\",\"name\":\"get_weather\"}}",
+            \"id\":\"toolu_01\",\"name\":\"get_weather\"}}",
         ),
         make_sse_chunk(
             "content_block_delta",
@@ -227,7 +227,7 @@ async fn test_sse_tool_use_stream() {
         make_sse_chunk(
             "content_block_delta",
             "{\"index\":0,\"delta\":{\"type\":\"input_json_delta\",\"partial_json\":\
-\"ation\\\":\\\"Beijing\\\"}\"}}",
+            \"ation\\\":\\\"Beijing\\\"}\"}}",
         ),
         make_sse_chunk("content_block_stop", r#"{"index":0}"#),
         make_sse_chunk("message_stop", "{}"),

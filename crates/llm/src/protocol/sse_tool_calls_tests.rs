@@ -19,13 +19,13 @@ async fn test_single_tool_call_basic() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_abc\
-            \",\"type\":\"function\",\"function\":{\"name\
-            \":\"get_weather\",\"arguments\":\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_abc\",\
+            \"type\":\"function\",\"function\":{\"name\":\"get_weather\",\
+            \"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
-            rguments\":\"{\\\"location\\\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"location\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":":\"Beijing\""}}]}}]}"#,
@@ -101,8 +101,8 @@ async fn test_tool_calls_arguments_chunking() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_xyz\
-            \",\"type\":\"function\",\"function\":{\"name\":\"search\",\"arguments\":\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_xyz\",\
+            \"type\":\"function\",\"function\":{\"name\":\"search\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"{"}}]}}]}"#,
@@ -175,28 +175,28 @@ async fn test_multiple_tool_calls() {
 
     let incoming: IncomingSseStream = Box::pin(futures::stream::iter(vec![
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"f\
-            unction\",\"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_1\",\"type\":\"function\",\
+            \"function\":{\"name\":\"get_weather\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
             "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"id\":\"call_2\"\
             ,\"type\":\"function\",\"function\":{\"name\":\"get_time\",\"arguments\":\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
-            rguments\":\"{\\\"city\\\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"city\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
-            rguments\":\"{\\\"tz\\\"\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"tz\\\"\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
-            rguments\":\"{\\\"city\\\":\\\"Shanghai\\\"}\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"city\\\":\\\"Shanghai\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
-            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\"a\
-            rguments\":\"{\\\"tz\\\":\\\"UTC\\\"}\"}}]}}]}",
+            "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"function\":{\
+            \"arguments\":\"{\\\"tz\\\":\\\"UTC\\\"}\"}}]}}]}",
         ),
         make_sse_chunk(
             r#"{"choices":[{"delta":{"tool_calls":[{"function":{"arguments":"}"}}]}}]}"#,
