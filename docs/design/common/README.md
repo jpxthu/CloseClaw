@@ -3,30 +3,29 @@
 ## 概述
 
 - 关联需求文档：[requirements/common.md](../../requirements/common.md)
-
-common 是跨模块共享概念的唯一定义地。包含两类内容：跨模块传递的纯数据结构（共享类型）和依赖注入接口（核心 trait）。各业务模块文档通过引用指向此处，不在自身文档中重复定义。
+- 一句话：common 是跨模块共享概念的唯一定义地，包含跨模块传递的纯数据结构（共享类型）与依赖注入接口（核心 trait）；各模块文档通过引用指向此处，不在自身文档中重复定义。
 
 ## 架构
 
-common 不是业务模块——它以跨模块共享的数据结构与接口契约为核心，不含业务逻辑。所有业务模块通过 common 中的共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。
+common 不是业务模块——它以跨模块共享的数据结构与接口契约为核心，不含业务逻辑。消费 common 的模块通过其共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。
 
 ```
 common/
-├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState、CompactionResult/CompactionError、InternalRequest/InternalMessage/SystemBlock/ToolDefinition、CommunicationConfig/CommunicationCheckResult/CommunicationError、ReasoningLevel/AgentRole/SessionMode、RiskLevel/PermissionEvalResponse/CallerInfo/PermissionDenied/SpawnPermissionError）
+├── shared-types.md        ← 跨模块传递的纯数据结构的完整定义（共享类型权威清单）
 ├── core-traits.md         ← 核心 trait 的接口定义（跨模块 DI trait 全集，按领域分组）
 ├── data-flow.md           ← 共享类型主链路（入站/出站/跨方向）方向级流动总览
 ```
 
 ## 数据流
 
-common 本身不参与运行时数据流。它定义的数据结构在业务模块间传递，trait 接口在依赖注入时绑定实现。共享类型的主要入站/出站流动路径总览见 [data-flow](data-flow.md)，详细流动路径（字段级、判断分支、渲染差异）见 [shared-types](shared-types.md)。
+common 本身不参与运行时数据流。它定义的数据结构在业务模块间传递，trait 接口在依赖注入时绑定实现。共享类型的主要入站/出站/跨方向流动路径总览见 [data-flow](data-flow.md)，详细流动路径（字段级、判断分支、渲染差异）见 [shared-types](shared-types.md)。
 
 ## 模块关系
 
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：所有消费 common 中类型或 trait 的模块（通过引用 common 中定义的类型和 trait 进行交互）
-- **无关**：platform、debug_log、fake_llm——不依赖 common，与 common 无共享类型或 trait 的调用/数据流关系
-- **子文件**：[shared-types](shared-types.md)（NormalizedMessage/MediaRef、ContentBlock、DslParseResult/DslInstruction、StreamEvent/ContentDelta、ProcessedMessage、UnifiedResponse/UnifiedUsage、RunningStats/CacheBreakInfo/CacheBreakThresholds、SlashResult/SideEffectContext、UserRegistration/UserCreationRequest/InitialPermissionSet、CardActionEvent、FragmentContext/PromptFragment、RenderedOutput/StreamingOutput、VerbosityLevel、PlanState、CompactionResult/CompactionError、InternalRequest/InternalMessage/SystemBlock/ToolDefinition、CommunicationConfig/CommunicationCheckResult/CommunicationError、ReasoningLevel/AgentRole/SessionMode、RiskLevel/PermissionEvalResponse/CallerInfo/PermissionDenied/SpawnPermissionError）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型主链路方向级流动总览，字段级流转见 shared-types 各类型数据流节）。shared-types.md 为权威清单：条目以上述清单为准，更新时各处清单须同步
+- **无关**：无。platform、debug_log、fake_llm 不依赖 common（不作为下游），也无与「跨模块共享定义」名称/功能易混的关系
+- **子文件**：[shared-types](shared-types.md)（共享类型的完整定义与数据流）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型主链路方向级流动总览）。共享类型的权威清单见 `shared-types.md` 的 `## 架构` 节
 
 ### 代码映射
 

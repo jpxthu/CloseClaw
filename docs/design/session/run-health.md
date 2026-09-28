@@ -54,7 +54,7 @@ Hook 是可选的轻量 LLM 质量门禁，按 agent 配置选择性启用：
 - **挂载点**：session turn 结束、硬规则通过后
 - **执行方式**：低温度、固定 prompt、1 turn 上限、0 工具
 - **隔离**：不进入 transcript，不影响主对话的 system prompt
-- **配置粒度**：agent 级别。agent 配置中定义启用的 hook 类型列表
+- **配置粒度**：agent 级别。agent 配置中定义启用的 hook 类型列表（配置结构见 [common/shared-types](../common/shared-types.md#hookconfig--hookparams--hooktype)）
 
 | Hook 类型 | 检测目标 | 触发条件 |
 |----------|---------|---------|

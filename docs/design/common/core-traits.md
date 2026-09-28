@@ -169,6 +169,20 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 **入站身份映射**：IMPlugin 在入站解析时负责填充 [NormalizedMessage](shared-types.md#normalizedmessage) 的全部字段，包括经身份映射（platform + 接收方机器人应用 + sender_id → account_id，见 [IdentityResolver](#identityresolver)）获取 account_id。映射规则和账户配置详见 [config 模块](../config/README.md)。
 
+### 媒体访问
+
+#### MediaStoreAccess
+
+**用途**：媒体存储访问接口。im_adapter 的 MediaStore 实现，gateway、tools 等消费——按 [MediaRef](shared-types.md#normalizedmessage) 解析到本地绝对路径，避免直接依赖 im_adapter 的具体 MediaStore 类型。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 解析 | 给定 MediaRef 返回其本地绝对路径，失败返回 [MediaStoreError](shared-types.md#mediastoreerror) |
+
+媒体落盘与消费机制见 [im_adapter media-store](../im_adapter/media-store.md)。
+
 ### 斜杠指令分派与执行
 
 #### SlashRouter
@@ -214,7 +228,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SlashEffectExecutor
 
-**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置模式/推理/详细度、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。
+**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置模式/推理深度/信息展示等级、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。
 
 **接口契约**：
 
@@ -437,7 +451,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### ShutdownSignal
 
-**用途**：关停信号抽象接口。daemon 的 ShutdownHandle 实现（daemon 启动时创建），llm 模块消费——查询关停状态、忙计数、graceful→forceful 升级、drain 快照，避免 llm 直接依赖 daemon 模块。
+**用途**：关停信号抽象接口。daemon 的 ShutdownHandle 实现（daemon 启动时创建；gateway 侧为转发包装），llm、session 等消费——查询关停状态（[ShutdownState](shared-types.md#shutdownstate--shutdownmode--drainstatus)）、忙计数、graceful→forceful 升级（[ShutdownMode](shared-types.md#shutdownstate--shutdownmode--drainstatus)）、drain 快照（[DrainStatus](shared-types.md#shutdownstate--shutdownmode--drainstatus)），使消费方无需直接依赖 daemon 模块。
 
 **接口契约**：
 
@@ -446,7 +460,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 关停查询 | 是否已发起关停、是否已升级 forceful |
 | 忙计数 | 忙计数增减与查询（可携带描述跟踪） |
 | 升级 | graceful 原子升级为 forceful |
-| drain 快照 | 返回结构化 drain 状态（状态 + 忙计数 + 待处理项描述） |
+| drain 快照 | 返回结构化 drain 状态（状态 + 忙计数 + 是否正在 drain + 待处理项描述） |
 
 ## 数据流
 
@@ -477,13 +491,13 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess）
   - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
-  - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer；消费 IdentityResolver）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder）
+  - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingRenderer、MediaStoreAccess；消费 IdentityResolver）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess）
   - **cli**（实现 IMPlugin）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（消费 SessionLookup、SessionModeQuery）

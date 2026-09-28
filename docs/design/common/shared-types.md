@@ -451,6 +451,31 @@ Agent 间通信的允许列表与其校验结果。CommunicationConfig 是某个
 
 **边界**：本族仅承载权限评估/审批的输入输出语义；权限规则判定逻辑归 permission 模块（见 [permission 模块](../permission/README.md)）。
 
+### HookConfig / HookParams / HookType
+
+Session hook 审查的配置族（按 Agent 配置）。HookConfig 是单个 hook 的配置——`hook_type`（类型）、`enabled`（是否启用）、`params`（可调参数）；HookType 是 hook 类型枚举——PlanCheck（只计划未执行）、LoopCheck（重复工具调用循环）、ProgressCheck（无可验证进展）；HookParams 是 hook 可调阈值——`loop_check_repetition_threshold`（判定循环的连续相似调用数）、`progress_check_min_tool_calls`（参与审查的最小工具调用数）。由 agent 配置定义、session 的 Hook 审查器（HookReviewer）消费。hook 审查行为见 [session run-health](../session/run-health.md)。
+
+### ShutdownState / ShutdownMode / DrainStatus
+
+[ShutdownSignal](core-traits.md#shutdownsignal)（common DI trait）契约的载荷族。ShutdownState 是关停状态机——Running / ShuttingDown / Draining / Stopped / ForcefulShuttingDown；ShutdownMode 区分 Graceful（等待在途操作完成）与 Forceful（立即终止）；DrainStatus 是结构化 drain 快照（当前状态 + 忙计数 + 是否正在 drain + 待处理项描述）。由 daemon 的 ShutdownHandle 实现（daemon 启动时创建；gateway 侧为转发包装），llm、session 等经 ShutdownSignal 消费。关停流程见 [daemon 模块](../daemon/README.md)。
+
+### LlmState / ToolExecState / ChildSessionState / ChildCompletionStatus / SessionActivityDimensions / SessionExecStatus
+
+Session 的四维执行状态族（session↔gateway 契约）。ConversationSession 的运行状态由四个独立维度组合判定，整体状态供 Gateway 做消息分派决策（Busy 时排队，Idle/Waiting 时立即分发）。
+
+- **LlmState**：LLM 交互状态——Idle / Requesting / Receiving。
+- **ToolExecState**：工具执行状态——Pending / RunningForeground（阻塞会话）/ RunningBackground（不阻塞）/ Completed / Failed / Terminated / TimedOut。
+- **ChildSessionState**：子 Session 状态——Running / Completed / Terminated / Errored。
+- **ChildCompletionStatus**：子 Session 完成状态（announce 时对 ChildSessionState 的快照）——Completed / Errored / Terminated。
+- **SessionActivityDimensions**：四维活跃快照（`llm_active` / `foreground_tool_active` / `background_tool_active` / `child_active`）。
+- **SessionExecStatus**：整体执行状态——Idle / Waiting / Busy。Idle 与 Busy 由四维标志派生；Waiting 是同为四维全 false 的特殊态，仅由 `sessions_yield` 主动让出 turn 产生。
+
+状态模型与流转规则见 [session session-execution](../session/session-execution.md)。
+
+### MediaStoreError
+
+[MediaStoreAccess](core-traits.md#mediastoreaccess)（common DI trait）的错误类型——NoPath（引用无本地路径）/ FileNotFound / Io / Other。
+
 ## 数据流
 
 NormalizedMessage 的全系统流动路径：
@@ -729,6 +754,44 @@ CommunicationCheckResult（允许）/ CommunicationError（拒绝或缺失）
 被拒且需审批 → 经 ApprovalSubmission 提交，携带 CallerInfo + RiskLevel
 ```
 
+### HookConfig / HookParams / HookType
+
+```
+agent 配置定义 hook 列表（config.json）
+  ↓
+session 的 Hook 审查器（HookReviewer）按 HookType 并行调用、按 HookParams 阈值判定
+  ↓
+任一 hook 标记异常 → session 判 unhealthy
+```
+
+### ShutdownState / ShutdownMode / DrainStatus
+
+```
+daemon 的 ShutdownHandle 维护 ShutdownState（含 graceful→forceful 升级）
+  ↓
+ShutdownSignal 消费方（llm 等）查询状态/忙计数/drain 快照（DrainStatus）
+```
+
+### LlmState / ToolExecState / ChildSessionState / ChildCompletionStatus / SessionActivityDimensions / SessionExecStatus
+
+```
+LLM / 工具 / 子 Session 维度状态变化
+  ↓
+Session 汇总为四维快照 SessionActivityDimensions
+  ↓
+派生整体状态 SessionExecStatus（Idle / Waiting / Busy）
+  ↓
+Gateway 据此做消息分派决策（Busy 排队、Idle/Waiting 立即分发）
+```
+
+### MediaStoreError
+
+```
+Gateway 调用 MediaStoreAccess 解析 MediaRef
+  ↓
+成功 → 绝对路径 / 失败 → MediaStoreError
+```
+
 ## 模块关系
 
 ### NormalizedMessage
@@ -867,3 +930,27 @@ CommunicationCheckResult（允许）/ CommunicationError（拒绝或缺失）
 - **生产者**：各权限 trait 实现方（permission / gateway / daemon 包装）
 - **消费者**：各权限 trait 消费方（session tools / gateway）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
+
+### HookConfig / HookParams / HookType
+
+- **生产者**：agent 配置（config.json）
+- **消费者**：session 的 Hook 审查器（HookReviewer，run-health 质量门禁）
+- **无关**：LLM Provider（hook 调用隔离于主对话）、IM Adapter
+
+### ShutdownState / ShutdownMode / DrainStatus
+
+- **生产者/维护方**：daemon 的 ShutdownHandle
+- **消费者**：llm 等经 ShutdownSignal 查询关停状态与 drain 快照
+- **无关**：IM Adapter、Processor Chain、permission
+
+### LlmState / ToolExecState / ChildSessionState / ChildCompletionStatus / SessionActivityDimensions / SessionExecStatus
+
+- **生产者**：session（维护四维状态并派生 SessionExecStatus；ChildCompletionStatus 在子 Session announce 时产出）
+- **消费者**：gateway（消息分派决策）、session 自身（分派/归档判定）；workflow（验收闸门看四维全 false）
+- **无关**：LLM Provider、IM Adapter 入站链
+
+### MediaStoreError
+
+- **生产者**：MediaStoreAccess 实现方（im_adapter 的 MediaStore）
+- **消费者**：MediaStoreAccess 消费方（gateway 等）
+- **无关**：Processor Chain、LLM Provider

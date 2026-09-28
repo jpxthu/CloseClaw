@@ -8,7 +8,7 @@ Session 执行状态跟踪 session 运行时的所有活跃操作：LLM 交互�
 
 ### 四维执行状态
 
-Session 的执行状态由四个独立维度组成。每个维度为布尔标志（true = 有活跃操作，false = 空闲），对外暴露供归档判定和消息分派消费。
+Session 的执行状态由四个独立维度组成（状态类型的共享定义见 [common/shared-types](../common/shared-types.md#llmstate--toolexecstate--childsessionstate--childcompletionstatus--sessionactivitydimensions--sessionexecstatus)）。每个维度为布尔标志（true = 有活跃操作，false = 空闲），对外暴露供归档判定和消息分派消费。
 
 ```
 ConversationSession
