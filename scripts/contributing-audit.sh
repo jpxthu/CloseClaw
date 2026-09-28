@@ -14,7 +14,7 @@ cd "$ROOT"
 COMMIT="$(git rev-parse --short HEAD)"
 OUT="$(mktemp /tmp/contributing-audit.XXXXXX.md)"
 
-# ── 硬限制类：clippy lint 全量 + 本脚本自带解析子项，JSON 输出后分组 ──
+# ── 硬限制类：clippy lint 全量（JSON 分组）+ 本脚本自带解析子项 ──
 CONF_DIR="$(mktemp -d /tmp/clippy-conf.XXXXXX)"
 trap 'rm -rf "$CONF_DIR"' EXIT
 cat > "$CONF_DIR/clippy.toml" <<'EOF'
@@ -60,7 +60,8 @@ SECTIONS = [
     ("clippy::excessive_nesting", "3. 块嵌套 > 3 层（clippy::excessive_nesting, threshold=3）",
      "cargo clippy --workspace --all-targets（clippy.toml: excessive-nesting-threshold=3"
      "，由本脚本运行时临时生成）",
-     "`#[allow(clippy::excessive_nesting)]`；注意口径=所有块（含 loop/block），比 CONTRIBUTING 的 match/if 口径严；根治=提前返回/guard clause/抽函数",
+     "`#[allow(clippy::excessive_nesting)]`；注意口径=所有块（含 loop/block），比 CONTRIBUTING 的 match/if 口径严；"
+     "根治=提前返回/guard clause/抽函数",
      "clippy"),
     ("clippy::undocumented_unsafe_blocks", "4. unsafe 块缺 // SAFETY: 注释",
      "cargo clippy --force-warn clippy::undocumented_unsafe_blocks",
