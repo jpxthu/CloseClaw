@@ -51,6 +51,8 @@ mod client_test;
 pub mod debug_log;
 pub mod interpreter;
 #[cfg(test)]
+mod interpreter_mimo_tests;
+#[cfg(test)]
 mod interpreter_test;
 #[cfg(test)]
 mod llm_tests;

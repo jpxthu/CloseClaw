@@ -280,7 +280,11 @@ impl FallbackClient {
                 .is_in_cooldown(&entry.provider, &entry.model)
                 .await
             {
-                tracing::debug!(provider = %entry.provider, model = %entry.model, "model in cooldown, skipping");
+                tracing::debug!(
+                    provider = %entry.provider,
+                    model = %entry.model,
+                    "model in cooldown, skipping"
+                );
                 model_idx += 1;
                 continue;
             }
@@ -306,7 +310,11 @@ impl FallbackClient {
                 Err(err) => {
                     let kind = err.kind();
                     tracing::warn!(
-                        provider = %entry.provider, model = %entry.model, error = %err, kind = ?kind, "LLM call failed"
+                        provider = %entry.provider,
+                        model = %entry.model,
+                        error = %err,
+                        kind = ?kind,
+                        "LLM call failed"
                     );
                     self.cooldown
                         .record_failure(&entry.provider, &entry.model, kind)
@@ -337,7 +345,11 @@ impl FallbackClient {
                 .is_in_cooldown(&entry.provider, &entry.model)
                 .await
             {
-                tracing::debug!(provider = %entry.provider, model = %entry.model, "model in cooldown, skipping");
+                tracing::debug!(
+                    provider = %entry.provider,
+                    model = %entry.model,
+                    "model in cooldown, skipping"
+                );
                 model_idx += 1;
                 continue;
             }
@@ -363,7 +375,11 @@ impl FallbackClient {
                 Err(err) => {
                     let kind = err.kind();
                     tracing::warn!(
-                        provider = %entry.provider, model = %entry.model, error = %err, kind = ?kind, "LLM unified call failed"
+                        provider = %entry.provider,
+                        model = %entry.model,
+                        error = %err,
+                        kind = ?kind,
+                        "LLM unified call failed"
                     );
                     self.cooldown
                         .record_failure(&entry.provider, &entry.model, kind)
@@ -601,7 +617,11 @@ impl FallbackClient {
                         }
                         let delay =
                             backoff_delay(attempt, TRANSIENT_BASE_DELAY, TRANSIENT_MAX_DELAY);
-                        tracing::debug!(attempt = %attempt, delay_secs = %delay.as_secs(), "retrying after backoff");
+                        tracing::debug!(
+                            attempt = %attempt,
+                            delay_secs = %delay.as_secs(),
+                            "retrying after backoff"
+                        );
                         sleep(delay).await;
                         continue;
                     }

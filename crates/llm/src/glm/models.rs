@@ -17,25 +17,33 @@ fn build_model_info(m: GlmModel) -> ModelInfo {
     let model_id = m.id.clone();
     let kb = crate::ProviderModelKnowledge::new();
     let params = kb.find("glm", &model_id);
-    let (context_window, max_tokens, default_temperature, reasoning, reasoning_levels, input_types) =
-        match params {
-            Some(p) => (
-                p.context_window,
-                p.max_tokens,
-                Some(p.default_temperature),
-                p.reasoning,
-                p.reasoning_levels,
-                p.input_types,
-            ),
-            None => (
-                128_000,
-                8_192,
-                Some(0.7),
-                false,
-                crate::ReasoningLevels::None,
-                vec![InputType::Text],
-            ),
-        };
+    // 6 元组解构模式拆行后 stable rustfmt 会折回 101 字符单行，故跳过格式化
+    #[rustfmt::skip]
+    let (
+        context_window,
+        max_tokens,
+        default_temperature,
+        reasoning,
+        reasoning_levels,
+        input_types,
+    ) = match params {
+        Some(p) => (
+            p.context_window,
+            p.max_tokens,
+            Some(p.default_temperature),
+            p.reasoning,
+            p.reasoning_levels,
+            p.input_types,
+        ),
+        None => (
+            128_000,
+            8_192,
+            Some(0.7),
+            false,
+            crate::ReasoningLevels::None,
+            vec![InputType::Text],
+        ),
+    };
     let name = format!(
         "GLM {}",
         model_id

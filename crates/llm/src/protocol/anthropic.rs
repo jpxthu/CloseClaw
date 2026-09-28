@@ -491,7 +491,13 @@ fn parse_sse(incoming: IncomingSseStream) -> OutgoingEventStream {
                 Ok(v) => v,
                 Err(_) => continue,
             };
-            for event in dispatch_sse_event(&chunk.event_type, &parsed, &mut block_type_map, &mut usage, &mut stop_reason) {
+            for event in dispatch_sse_event(
+                &chunk.event_type,
+                &parsed,
+                &mut block_type_map,
+                &mut usage,
+                &mut stop_reason,
+            ) {
                 yield event;
             }
         }

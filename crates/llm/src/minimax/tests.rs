@@ -225,7 +225,8 @@ async fn test_provider_send_reasoning_content_mock() {
     m.assert_async().await;
     assert!(result.is_ok());
     let resp = result.unwrap();
-    let resp = parse_provider_json_anthropic(resp); // Should have Thinking block from thinking content
+    let resp = parse_provider_json_anthropic(resp);
+    // Should have Thinking block from thinking content
     assert!(resp
         .content_blocks
         .iter()
@@ -261,19 +262,24 @@ async fn test_provider_send_streaming_success_mock() {
     let mut server = mockito::Server::new_async().await;
     let sse_body = concat!(
         "event: message_start\n",
-        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\
+        \"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\
+        \"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
         "\n",
         "event: content_block_start\n",
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"text\",\
+        \"text\":\"\"}}\n",
         "\n",
         "event: content_block_delta\n",
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello\"}}\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\
+        \"text\":\"Hello\"}}\n",
         "\n",
         "event: content_block_stop\n",
         "data: {\"type\":\"content_block_stop\",\"index\":0}\n",
         "\n",
         "event: message_delta\n",
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\
+        \"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
         "\n",
         "event: message_stop\n",
         "data: {\"type\":\"message_stop\"}\n",
@@ -313,7 +319,8 @@ async fn test_provider_send_streaming_success_mock() {
     // content_block_stop, message_delta, message_stop = 6 events
     assert!(
         chunks.len() >= 4,
-        "should have at least 4 data chunks (message_start, content_block_start, content_block_delta, content_block_stop)"
+        "should have at least 4 data chunks \
+        (message_start, content_block_start, content_block_delta, content_block_stop)"
     );
     // Verify we got Anthropic-format events
     let event_types: Vec<&str> = chunks.iter().map(|c| c.event_type.as_str()).collect();
@@ -325,19 +332,24 @@ async fn test_provider_send_streaming_reasoning_mock() {
     let mut server = mockito::Server::new_async().await;
     let sse_body = concat!(
         "event: message_start\n",
-        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
+        "data: {\"type\":\"message_start\",\"message\":{\"id\":\"msg-1\",\"type\":\"message\",\
+        \"role\":\"assistant\",\"content\":[],\"model\":\"MiniMax-M2.7\",\
+        \"stop_reason\":null,\"usage\":{\"input_tokens\":5,\"output_tokens\":0}}}\n",
         "\n",
         "event: content_block_start\n",
-        "data: {\"type\":\"content_block_start\",\"index\":0,\"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n",
+        "data: {\"type\":\"content_block_start\",\"index\":0,\
+        \"content_block\":{\"type\":\"thinking\",\"thinking\":\"\"}}\n",
         "\n",
         "event: content_block_delta\n",
-        "data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"thinking...\"}}\n",
+        "data: {\"type\":\"content_block_delta\",\"index\":0,\
+        \"delta\":{\"type\":\"thinking_delta\",\"thinking\":\"thinking...\"}}\n",
         "\n",
         "event: content_block_stop\n",
         "data: {\"type\":\"content_block_stop\",\"index\":0}\n",
         "\n",
         "event: message_delta\n",
-        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
+        "data: {\"type\":\"message_delta\",\"delta\":{\"stop_reason\":\"end_turn\",\
+        \"stop_sequence\":null},\"usage\":{\"output_tokens\":5}}\n",
         "\n",
         "event: message_stop\n",
         "data: {\"type\":\"message_stop\"}\n",

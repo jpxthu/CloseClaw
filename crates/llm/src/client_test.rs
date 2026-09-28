@@ -167,9 +167,19 @@ impl ChatProtocol for StubProtocol {
             let mut stream = incoming;
             while let Some(_chunk) = stream.next().await {
                 yield StreamEvent::BlockStart { index: 0, block_type: ContentBlockType::Text };
-                yield StreamEvent::BlockDelta { index: 0, delta: ContentDelta::Text { text: "hello".into() } };
+                yield StreamEvent::BlockDelta {
+                    index: 0,
+                    delta: ContentDelta::Text { text: "hello".into() },
+                };
                 yield StreamEvent::MessageEnd {
-                    usage: Some(UnifiedUsage { prompt_tokens: 1, completion_tokens: 1, total_tokens: Some(2), reasoning_tokens: None, cache_read_tokens: None, cache_write_tokens: None }),
+                    usage: Some(UnifiedUsage {
+                        prompt_tokens: 1,
+                        completion_tokens: 1,
+                        total_tokens: Some(2),
+                        reasoning_tokens: None,
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                    }),
                     finish_reason: Some("stop".into()),
                 };
             }

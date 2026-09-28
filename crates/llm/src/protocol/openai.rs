@@ -399,19 +399,53 @@ impl ChatProtocol for OpenAiProtocol {
                             next_block_index += 1;
                             block_index = Some(idx);
                             active_block_type = Some(ContentBlockType::ToolUse);
-                            yield StreamEvent::BlockStart { index: idx, block_type: ContentBlockType::ToolUse };
-                            yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseId { id: tc_id.to_string() } };
+                            yield StreamEvent::BlockStart {
+                                index: idx,
+                                block_type: ContentBlockType::ToolUse,
+                            };
+                            yield StreamEvent::BlockDelta {
+                                index: idx,
+                                delta: ContentDelta::ToolUseId { id: tc_id.to_string() },
+                            };
 
-                            if let Some(name) = tc.get("function").and_then(|f| f.get("name")).and_then(|v| v.as_str()).filter(|n| !n.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseName { name: name.to_string() } };
+                            if let Some(name) = tc
+                                .get("function")
+                                .and_then(|f| f.get("name"))
+                                .and_then(|v| v.as_str())
+                                .filter(|n| !n.is_empty())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index: idx,
+                                    delta: ContentDelta::ToolUseName { name: name.to_string() },
+                                };
                             }
-                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: idx, delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            if let Some(args) = tc
+                                .get("function")
+                                .and_then(|f| f.get("arguments"))
+                                .and_then(|v| v.as_str())
+                                .filter(|a| !a.is_empty())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index: idx,
+                                    delta: ContentDelta::ToolUseInputChunk {
+                                        input: args.to_string(),
+                                    },
+                                };
                             }
                         } else if active_block_type == Some(ContentBlockType::ToolUse) {
                             // Continuation: arguments chunk
-                            if let Some(args) = tc.get("function").and_then(|f| f.get("arguments")).and_then(|v| v.as_str()).filter(|a| !a.is_empty()) {
-                                yield StreamEvent::BlockDelta { index: block_index.unwrap(), delta: ContentDelta::ToolUseInputChunk { input: args.to_string() } };
+                            if let Some(args) = tc
+                                .get("function")
+                                .and_then(|f| f.get("arguments"))
+                                .and_then(|v| v.as_str())
+                                .filter(|a| !a.is_empty())
+                            {
+                                yield StreamEvent::BlockDelta {
+                                    index: block_index.unwrap(),
+                                    delta: ContentDelta::ToolUseInputChunk {
+                                        input: args.to_string(),
+                                    },
+                                };
                             }
                         }
                     }
@@ -422,11 +456,17 @@ impl ChatProtocol for OpenAiProtocol {
                 // finish_reason = "tool_calls" ends the tool block
                 if finish_reason == Some("tool_calls") {
                     if let Some(idx) = block_index {
-                        yield StreamEvent::BlockEnd { index: idx, block_type: ContentBlockType::ToolUse };
+                        yield StreamEvent::BlockEnd {
+                            index: idx,
+                            block_type: ContentBlockType::ToolUse,
+                        };
                         block_index = None;
                         active_block_type = None;
                     }
-                    yield StreamEvent::MessageEnd { usage: usage.clone().map(Into::into), finish_reason: Some("tool_calls".to_string()) };
+                    yield StreamEvent::MessageEnd {
+                        usage: usage.clone().map(Into::into),
+                        finish_reason: Some("tool_calls".to_string()),
+                    };
                     message_end_yielded = true;
                     break;
                 }
@@ -437,7 +477,10 @@ impl ChatProtocol for OpenAiProtocol {
                     let cur_type = active_block_type.unwrap_or(ContentBlockType::Text);
                     yield StreamEvent::BlockEnd { index: idx, block_type: cur_type };
                 }
-                yield StreamEvent::MessageEnd { usage: usage.map(Into::into), finish_reason: Some("stop".to_string()) };
+                yield StreamEvent::MessageEnd {
+                    usage: usage.map(Into::into),
+                    finish_reason: Some("stop".to_string()),
+                };
             }
         })
     }
@@ -488,6 +531,10 @@ fn parse_usage(body: &serde_json::Value) -> RawUsage {
 #[cfg(test)]
 #[path = "openai_tests.rs"]
 mod openai_tests; // extracted to stay under 500-line limit
+
+#[cfg(test)]
+#[path = "openai_parse_response_tests.rs"]
+mod openai_parse_response_tests; // parse_response/build_request/build_message tests
 
 #[cfg(test)]
 #[path = "openai_content_blocks_tests.rs"]
