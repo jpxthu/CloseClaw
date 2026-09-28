@@ -14,7 +14,7 @@ cd "$ROOT"
 COMMIT="$(git rev-parse --short HEAD)"
 OUT="$(mktemp /tmp/contributing-audit.XXXXXX.md)"
 
-# ── clippy 硬限制类：一次跑全部 lint，JSON 输出后分组 ──────────────
+# ── 硬限制类：clippy lint 全量 + 本脚本自带解析子项，JSON 输出后分组 ──
 CONF_DIR="$(mktemp -d /tmp/clippy-conf.XXXXXX)"
 trap 'rm -rf "$CONF_DIR"' EXIT
 cat > "$CONF_DIR/clippy.toml" <<'EOF'
@@ -44,34 +44,43 @@ import json, sys, collections, os, re
 clippy_json, out, commit = sys.argv[1], sys.argv[2], sys.argv[3]
 ROOT = os.getcwd()
 
+# (code, 标题, 检查方式, 豁免方式, 数据源 provider)。provider 显式声明数据源，
+# 不再由 code 前缀隐式推断（避免未来新增 script:: 小节误取 impl 块数据）。
 SECTIONS = [
     ("clippy::too_many_lines", "1. 函数体 > 100 行（clippy::too_many_lines, threshold=100）",
      "cargo clippy --workspace --all-targets（clippy.toml: too-many-lines-threshold=100"
      "，由本脚本运行时临时生成）",
-     "函数级 `#[allow(clippy::too_many_lines)]` + 理由注释；根治=按阶段拆子函数/抽 match 分支方法"),
+     "函数级 `#[allow(clippy::too_many_lines)]` + 理由注释；根治=按阶段拆子函数/抽 match 分支方法",
+     "clippy"),
     ("clippy::too_many_arguments", "2. 函数参数 > 6（clippy::too_many_arguments, threshold=6）",
      "cargo clippy --workspace --all-targets（clippy.toml: too-many-arguments-threshold=6"
      "，由本脚本运行时临时生成）",
-     "`#[allow(clippy::too_many_arguments)]` + 理由；根治=参数聚合 struct / builder / Option 组合并"),
+     "`#[allow(clippy::too_many_arguments)]` + 理由；根治=参数聚合 struct / builder / Option 组合并",
+     "clippy"),
     ("clippy::excessive_nesting", "3. 块嵌套 > 3 层（clippy::excessive_nesting, threshold=3）",
      "cargo clippy --workspace --all-targets（clippy.toml: excessive-nesting-threshold=3"
      "，由本脚本运行时临时生成）",
-     "`#[allow(clippy::excessive_nesting)]`；注意口径=所有块（含 loop/block），比 CONTRIBUTING 的 match/if 口径严；根治=提前返回/guard clause/抽函数"),
+     "`#[allow(clippy::excessive_nesting)]`；注意口径=所有块（含 loop/block），比 CONTRIBUTING 的 match/if 口径严；根治=提前返回/guard clause/抽函数",
+     "clippy"),
     ("clippy::undocumented_unsafe_blocks", "4. unsafe 块缺 // SAFETY: 注释",
      "cargo clippy --force-warn clippy::undocumented_unsafe_blocks",
-     "块前补 `// SAFETY: <不变量说明>`（Rustonomicon 引用如适用）"),
+     "块前补 `// SAFETY: <不变量说明>`（Rustonomicon 引用如适用）",
+     "clippy"),
     ("clippy::missing_safety_doc", "5. unsafe fn 缺 /// # Safety 文档",
      "cargo clippy --force-warn clippy::missing_safety_doc",
-     "doc 注释补 `# Safety` 段"),
+     "doc 注释补 `# Safety` 段",
+     "clippy"),
     ("clippy::disallowed_methods", "6. 禁用方法 set_var/remove_var（load_env_file 场景除外）",
      "cargo clippy --workspace --all-targets（clippy.toml 由本脚本运行时临时生成，"
      "非仓库文件）：disallowed-methods=[std::env::set_var, std::env::remove_var]",
      "唯一豁免点：crates/daemon/src/env_file.rs 的 load_env_file()，按行级 load_env_file 标记文本豁免"
-     "（与 CI/pre-commit 同口径：命中行内含 load_env_file 标记即豁免）；其余改参数传递/tempfile"),
+     "（与 CI/pre-commit 同口径：命中行内含 load_env_file 标记即豁免）；其余改参数传递/tempfile",
+     "clippy"),
     ("script::impl_block_lines", "7. impl 块行数 > 100（本脚本解析，数据源非 clippy）",
      "python heredoc strip 注释/字符串后花括号配对统计 impl 块首尾行跨度"
      "（inherent 与 trait impl 均计入；文件集合与 B 节一致：src/crates/tests 下 *.rs）",
-     "无 lint 豁免，存量如实报告；根治=impl 块按职责拆分到独立文件（feishu plugin.rs 先例）"),
+     "无 lint 豁免，存量如实报告；根治=impl 块按职责拆分到独立文件（feishu plugin.rs 先例）",
+     "impl_blocks"),
 ]
 
 groups = collections.defaultdict(list)
@@ -178,7 +187,9 @@ def strip_rs(text):
             i += 1
             while i < n and text[i] != '"':
                 if text[i] == "\\" and i + 1 < n:
-                    out.append("  ")
+                    # 转义符与其后字符各置一空格；但 `\`+换行（续行）的换行必须保留，
+                    # 否则 strip 后行数少于原文，impl 块起始行/跨度整体漂移。
+                    out.append(" \n" if text[i + 1] == "\n" else "  ")
                     i += 2
                     continue
                 out.append("\n" if text[i] == "\n" else " ")
@@ -230,9 +241,10 @@ def impl_spans(fname):
             raw = fh.read()
     except OSError:
         return []
-    if not IMPL_CAND_RE.search(raw):
-        return []
     text = strip_rs(raw)
+    # 预检在 strip 后文本上做：与下方 finditer 同一数据源，判定即所用。
+    if not IMPL_CAND_RE.search(text):
+        return []
     res = []
     for m in IMPL_CAND_RE.finditer(text):
         impl_at = m.start() + m.group(0).rfind("impl")
@@ -280,16 +292,24 @@ def collect_impl_violations():
 
 impl_violations = collect_impl_violations()
 
+# 数据源 provider 显式映射：section 第 5 元素 → 取数函数；未知 provider 直接报错，
+# 不再按 code 前缀隐式兜底（防止新增 script:: 小节误取 impl 块违规）。
+PROVIDERS = {
+    "clippy": lambda _code: sorted(set(groups.get(_code, []))),
+    "impl_blocks": lambda _code: impl_violations,
+}
+
 with open(out, "w", encoding="utf-8") as f:
     f.write(f"# CONTRIBUTING 违规扫描报告（除单测时长）\n\n> commit: {commit} ｜ 生成: contributing-audit.sh ｜ 耗时项为 clippy 全量\n")
     f.write("> 用法：从各节选条目修复，完成后重跑本脚本验证条目消失。\n\n")
-    f.write("## A. clippy 硬限制类\n\n")
+    f.write("## A. 硬限制类（clippy lint + 本脚本自带解析子项）\n\n")
     total_a = 0
-    for code, title, how, exempt in SECTIONS:
-        if code.startswith("script::"):
-            items = impl_violations  # 非 clippy 数据源，本脚本自带解析
-        else:
-            items = sorted(set(groups.get(code, [])))
+    for code, title, how, exempt, provider_name in SECTIONS:
+        provider = PROVIDERS.get(provider_name)
+        if provider is None:
+            raise SystemExit(
+                f"未知数据源 provider: {provider_name!r}（section: {code}）")
+        items = provider(code)
         total_a += len(items)
         f.write(f"### {title}\n\n- 检查方式：{how}\n- 豁免方式：{exempt}\n- 违规 {len(items)} 条：\n")
         if not items:
