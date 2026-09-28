@@ -103,6 +103,32 @@ docs/design/
 - 业务模块之间避免直接依赖，跨模块交互通过 common 中定义的 trait 完成
 - 若文档中发现两个业务模块相互依赖对方的类型定义，必须将共享类型提取到 common 文档中
 
+### 依赖方向允许边表
+
+「模块关系中的依赖方向」的约束落到 crate 层，即形成**依赖方向允许边表**，判定标准可脚本化。
+
+**判定**：以 crate 为单位，其 workspace 内部依赖（依赖目标为本 workspace 成员 crate——根 crate `closeclaw` 或 `crates/` 下各 crate）必须落在下表对应行的允许集合内；表外任何内部依赖均为越界边，必须消除。本表只约束常规依赖声明（`dependencies`）；测试 / 构建期依赖（`dev-dependencies` / `build-dependencies`）不在此列（不影响发布产物的模块边界）。本表描述**目标态**。
+
+| 层 | crate（目录名） | 允许依赖的 workspace crate |
+|----|-------|--------------------------|
+| 基础层 | `common`、`platform`、`debug_log` | 无 |
+| 领域层 | `agent`、`config`、`im_adapter`、`llm`、`memory`、`permission`、`processor_chain`、`session`、`skills`、`slash`、`system_prompt`、`tools`、`workflow`、`execution`、`tasks` | `common`、`platform`、`debug_log` |
+| 领域层（跨域桥接） | `gateway` | `common`、`platform`、`debug_log`、`session`、`llm`、`permission`、`config` |
+| 组合根 | `daemon`、根 crate `closeclaw` | 全部 workspace crate |
+| 入口客户端 | `cli` | `common`、`platform`、`debug_log`、`gateway`、`config`、`permission`、`llm`、`agent` |
+| 测试基础设施 | `fake_llm` | 无（不引用任何 CloseClaw crate） |
+
+判读：
+
+- 模块关系中的「上游 / 下游」描述数据流与调用关系（含经 common trait 完成的调用），**不等于 crate 依赖**；crate 依赖以本表为准。
+- 基础层（`common` 跨模块接口层、`platform` OS 抽象、`debug_log` 日志基础设施）不承载业务逻辑，任何其他层可依赖。
+- 领域 crate（业务模块，含模块拆出的 `execution`、`tasks`）之间不直接互依，跨模块交互经 `common` 的 trait / 共享类型完成（依赖倒置，由组合根装配）。
+- **`gateway` 的跨域桥接例外**：其文档登记为 `LlmCaller`、`SessionLookup`、`SlashSessionQuery`、`SlashEffectExecutor`、`PermissionChecker` 等 common trait 的具体提供方（桥接 session ↔ llm 的循环依赖、包装 PermissionEngine、读取配置绑定），故允许直接依赖 `session`、`llm`、`permission`、`config`；其余仅依赖基础层。
+- 组合根运行时装配组件、注入依赖，可依赖全部 crate；其组件间调用不转化为组件所在 crate 的直接依赖（见 [daemon README](daemon/README.md) 组件依赖表）。依赖图（常规依赖）必须无环。
+- `cli` 为客户端入口，除基础层外其允许的领域依赖见上表（取自 cli 模块各子文档「模块关系」登记的下游模块）；它经管理协议（socket）与 daemon 交互，不依赖 `daemon` crate。
+- `fake_llm` 为黑盒测试基础设施，不引用任何 CloseClaw crate；产品领域 crate 不把它列入常规依赖，仅组合根（测试装配）使用。
+- 未列入本表的 crate 默认适用领域层规则（仅基础层）。
+
 ### common 模块文档
 
 `docs/design/common/` 是跨模块共享概念的唯一权威定义地：
@@ -131,6 +157,16 @@ docs/design/common/
 
 此标准同时约束代码层：文档中在 common 定义的类型和 trait，代码中位于 common crate；文档中在领域模块定义的，代码中位于对应领域 crate。无例外。
 
+### common 准入清单（比对口径）
+
+「common 文档内容准入标准」与「crate 结构跟随文档」已要求 common 文档与 common crate 双向对应；本节给出可脚本比对的**清单口径**：
+
+- **范围**：common 准入清单取自 [shared-types](common/shared-types.md) 与 [core-traits](common/core-traits.md) 全文中的类型 / trait 条目（`shared-types.md` 声明整篇文档为共享类型的权威清单）。
+- **条目承载**：作为类型 / trait 名出现的**标题**（各级）与**粗体条目**（列表项 `- **名称**：…` 或行首 `**名称**：…`）；分类分组标题、过程描述、字段 / 语义标签等含说明文字的粗体不构成条目。
+- **比对键**：条目中的标识符；` / ` 或空白分隔者分别计入；类别修饰词（如 `trait`）不计；同名去重。
+- **比对范围**：common crate 的 `pub` 类型（struct / enum / type 别名）与 `pub` trait 与清单一一对照（含 common 子 crate，若有）；机械包装别名（`Arc<…>` 形式的 `Shared…` 别名）、函数、常量、模块、测试相关模块内的项、再导出声明不参与比对。
+- **缺失即偏差**：清单缺名（common 有 `pub` 项而清单无条目）或清单多名（清单有条目而 common 无 `pub` 项）均为偏差，按「crate 结构跟随文档」的归属判定处置。
+
 ### crate 结构跟随文档
 
 `docs/design/<模块>/` 与 crate 的映射为一对一或一对多（模块拆多 crate 时），不允许多对一——两个设计文档模块的定义不应混入同一个 crate。
@@ -140,6 +176,20 @@ docs/design/common/
 若代码中 common crate 存在未在设计文档中定义的类型或 trait：先按「common 文档内容准入标准」判定归属——
 - 满足准入条件（被 2+ 模块消费的共享类型 / 被 2+ 模块实现或消费的 DI trait）：属文档缺口，应补进 common 文档，代码留在 common crate；
 - 不满足准入条件（仅被单一模块定义和消费的类型/trait）：代码放错了，应移至对应领域模块的 crate。
+
+### 禁止二次出口
+
+`common` 是共享概念的**唯一**访问路径。除 `common` 自身外，任何 crate 不得把 `common` 的项经自己的**公共路径**再暴露——否则会出现第二接口层，消费方可绕过 `common` 直接耦合到某个 crate。本节仅约束 `common`（基础层 `platform` / `debug_log` 不在此列）。
+
+**判定**（针对 `common` 之外的每个 crate，逐个判定其**直接**再暴露 common 项的行为；不追溯经其它 crate 的传递链）：
+
+- **构成二次出口（禁止）**：使 `common` 的某个 `pub` 项（类型 / trait / 函数 / 常量 / 模块 / 宏）可从该 crate 的公共路径（`<crate>::…`，即自 crate 根经全部 `pub` 项链可达）访问到的声明——包括再导出语句（`pub use`，含通配 `*` 与 `as` 别名、`pub extern crate`），以及把 common 项命名为本 crate 类型别名的声明（`pub type <名称> = <common 项>`）。
+- **不属于二次出口（允许）**：
+  - 不可公共抵达的再导出——位于私有模块（非 `pub` 声明，含 `pub(crate) mod`）内、且未被任何公共路径再导出的 common 项再导出；
+  - 私有 / `pub(crate)` 方式的 `use`（不对外暴露）；
+  - 再导出**本 crate 自身定义**的项（`crate::…` / `self::…` 来源，且最终定义地确为本 crate）；
+  - **使用** common 类型而非为其新增公共名称——公开 API 的签名、公开字段以 common 类型为材料（如 `pub struct Z(pub T)`）属正常使用。
+- **不因「被公开 API 使用」而豁免**：某 crate 的公开 API 若在签名中使用 `common` 类型，属正常使用，消费方直接经 `common` 引用该类型；但不得据此把 common 项再导出或另立公共别名。
 
 ## 红线
 
