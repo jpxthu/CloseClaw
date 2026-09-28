@@ -12,7 +12,8 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 COMMIT="$(git rev-parse --short HEAD)"
-OUT="$(mktemp /tmp/contributing-audit.XXXXXX.md)"
+OUT="${AUDIT_OUT:-$(mktemp /tmp/contributing-audit.XXXXXX.md)}"
+mkdir -p "$(dirname "$OUT")"
 
 # ── 硬限制类：clippy lint 全量（JSON 分组）+ 本脚本自带解析子项 ──
 CONF_DIR="$(mktemp -d /tmp/clippy-conf.XXXXXX)"
