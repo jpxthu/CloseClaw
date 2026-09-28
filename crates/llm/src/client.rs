@@ -171,7 +171,7 @@ impl UnifiedChatClient {
     /// 4. **ChatProtocol.parse_sse_stream** — parses SSE chunks into events.
     /// 5. **Interpreter.interpret_stream_event** — normalises each event.
     /// 6. **PluginPipeline.on_stream_event** — each plugin may forward, modify,
-    /// or suppress each event.
+    ///    or suppress each event.
     ///
     /// # Errors
     ///
