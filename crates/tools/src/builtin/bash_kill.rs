@@ -13,7 +13,9 @@
 //!
 //! Contents:
 //! - Constants: [`MAX_OUTPUT_CHARS`], [`MAX_PERSISTED_BYTES`],
-//!   [`PREVIEW_BYTES`], [`PERSIST_DIR`]
+//!   [`PREVIEW_BYTES`]
+//! - [`persist_dir`] — runtime-resolved directory for persisted
+//!   output files (follows `std::env::temp_dir()`)
 //! - [`OutputProcessed`] — result of [`process_output`]
 //! - [`BashKillHandle`] / [`BackgroundKillHandle`] — `KillHandle`
 //!   adapters for foreground child processes and background tasks
@@ -53,9 +55,12 @@ pub(crate) const MAX_PERSISTED_BYTES: usize = 64 * 1024 * 1024;
 /// decide whether to read the full file.
 pub(crate) const PREVIEW_BYTES: usize = 2_000;
 
-/// Directory for persisted output files. Created on demand by
-/// [`persist_output`].
-pub(crate) const PERSIST_DIR: &str = "/tmp/openclaw";
+/// Directory for persisted output files, resolved at runtime via
+/// `std::env::temp_dir()` (follows `$TMPDIR`; no hardcoded path).
+/// Created on demand by [`persist_output`].
+fn persist_dir() -> std::path::PathBuf {
+    std::env::temp_dir().join("openclaw")
+}
 
 // ── OutputProcessed ──────────────────────────────────────────────────────
 
@@ -230,7 +235,7 @@ pub(crate) fn process_output(raw: &str) -> OutputProcessed {
 
 // ── persist_output ──────────────────────────────────────────────────────
 
-/// Persist full output to a unique file under [`PERSIST_DIR`].
+/// Persist full output to a unique file under [`persist_dir`].
 ///
 /// File name: `bash_output_{unix_ms}_{pid}_{counter}.txt`. The counter
 /// is a process-wide atomic so concurrent callers do not collide.
@@ -238,15 +243,16 @@ pub(crate) fn process_output(raw: &str) -> OutputProcessed {
 /// to the byte boundary by [`safe_truncate`].
 pub(crate) fn persist_output(raw: &str) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    std::fs::create_dir_all(PERSIST_DIR)
-        .map_err(|e| format!("failed to create {}: {}", PERSIST_DIR, e))?;
+    let dir = persist_dir();
+    let dir_str = dir.to_string_lossy();
+    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create {}: {}", dir_str, e))?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
     let pid = std::process::id();
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = format!("{}/bash_output_{}_{}_{}.txt", PERSIST_DIR, ts, pid, seq);
+    let path = format!("{}/bash_output_{}_{}_{}.txt", dir_str, ts, pid, seq);
     let content = safe_truncate(raw, MAX_PERSISTED_BYTES);
     std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {}", path, e))?;
     Ok(path)
