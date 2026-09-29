@@ -244,18 +244,19 @@ pub(crate) fn process_output(raw: &str) -> OutputProcessed {
 pub(crate) fn persist_output(raw: &str) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let dir = persist_dir();
-    let dir_str = dir.to_string_lossy();
-    std::fs::create_dir_all(&dir).map_err(|e| format!("failed to create {}: {}", dir_str, e))?;
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("failed to create {}: {}", dir.display(), e))?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_millis();
     let pid = std::process::id();
     let seq = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = format!("{}/bash_output_{}_{}_{}.txt", dir_str, ts, pid, seq);
+    let path = dir.join(format!("bash_output_{ts}_{pid}_{seq}.txt"));
     let content = safe_truncate(raw, MAX_PERSISTED_BYTES);
-    std::fs::write(&path, content).map_err(|e| format!("failed to write {}: {}", path, e))?;
-    Ok(path)
+    std::fs::write(&path, content)
+        .map_err(|e| format!("failed to write {}: {}", path.display(), e))?;
+    Ok(path.display().to_string())
 }
 
 // ── spawn_progress_monitor ───────────────────────────────────────────────

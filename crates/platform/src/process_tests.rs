@@ -269,14 +269,13 @@ fn spawn_detached_sleep_pid() -> u32 {
     let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
     let pid_path = pid_file.path().to_path_buf();
     let helper = detach_helper_path();
-    let expect_msg = format!("failed to spawn {}", helper.display());
     // Run helper in background (non-blocking) so it doesn't hang on pipe.
     std::process::Command::new(&helper)
         .arg(pid_path.to_str().unwrap())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect(&expect_msg);
+        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", helper.display()));
     // Wait for the PID file to be written by the grandchild.
     for _ in 0..50 {
         if let Ok(content) = std::fs::read_to_string(&pid_path) {
