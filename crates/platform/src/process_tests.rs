@@ -254,6 +254,11 @@ fn spawn_sleep_child() -> std::process::Child {
         .expect("failed to spawn sleep child")
 }
 
+#[cfg(unix)]
+fn detach_helper_path() -> std::path::PathBuf {
+    std::env::temp_dir().join("detach_helper")
+}
+
 /// Helper: spawn a detached sleep process reparented to init.
 ///
 /// Uses a double-fork helper binary so the grandchild (sleep) is
@@ -263,13 +268,14 @@ fn spawn_sleep_child() -> std::process::Child {
 fn spawn_detached_sleep_pid() -> u32 {
     let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
     let pid_path = pid_file.path().to_path_buf();
+    let helper = detach_helper_path();
     // Run helper in background (non-blocking) so it doesn't hang on pipe.
-    std::process::Command::new("/tmp/detach_helper")
+    std::process::Command::new(&helper)
         .arg(pid_path.to_str().unwrap())
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .expect("failed to spawn /tmp/detach_helper");
+        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", helper.display()));
     // Wait for the PID file to be written by the grandchild.
     for _ in 0..50 {
         if let Ok(content) = std::fs::read_to_string(&pid_path) {
@@ -456,8 +462,9 @@ fn test_wait_for_exit_nonexistent_pid() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal() {
-    if !std::path::Path::new("/tmp/detach_helper").exists() {
-        eprintln!("skipping: /tmp/detach_helper not found");
+    let helper = detach_helper_path();
+    if !helper.exists() {
+        eprintln!("skipping: {} not found", helper.display());
         return;
     }
     let tmp = TempDir::new().unwrap();
@@ -746,8 +753,9 @@ fn test_stop_daemon_exit_race() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal_polling_wait() {
-    if !std::path::Path::new("/tmp/detach_helper").exists() {
-        eprintln!("skipping: /tmp/detach_helper not found");
+    let helper = detach_helper_path();
+    if !helper.exists() {
+        eprintln!("skipping: {} not found", helper.display());
         return;
     }
     let tmp = TempDir::new().unwrap();

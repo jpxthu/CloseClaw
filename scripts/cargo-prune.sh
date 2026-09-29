@@ -7,7 +7,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="$HOME/code/closeclaw"
+PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 DEPS_DIR="$PROJECT_ROOT/target/debug/deps"
 DISK_AVAIL_KB=$(df -k / | awk 'NR==2 {print $4}')
 DISK_AVAIL_GB=$((DISK_AVAIL_KB / 1024 / 1024))

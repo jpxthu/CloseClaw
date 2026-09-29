@@ -732,12 +732,12 @@ mod tests {
 
     /// When outbound_path is not under cwd, lark-cli receives an absolute path.
     ///
-    /// Places media store under /tmp (outside project cwd), so the outbound path
-    /// cannot be stripped to a cwd-relative path.
+    /// Places media store under the system temp dir (outside project cwd), so the
+    /// outbound path cannot be stripped to a cwd-relative path.
     #[serial]
     #[tokio::test]
     async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
-        let external_dir = TempDir::new_in("/tmp").unwrap();
+        let external_dir = TempDir::new().unwrap();
         let media_dir = external_dir.path().join("media");
         let media_store = crate::media_store::MediaStore::new(media_dir.to_str().unwrap()).unwrap();
         let src = media_dir.join("photo.png");

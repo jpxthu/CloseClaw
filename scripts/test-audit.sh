@@ -12,6 +12,11 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_DIR="$PROJECT_ROOT/src"
 TEST_DIR="$PROJECT_ROOT/tests"
+# 系统临时目录：$TMPDIR，未设置回退 /tmp（循环剥除全部尾斜杠归一化，供 runtime 白名单前缀与静态字面量检测使用）
+TEMP_ROOT="${TMPDIR:-/tmp}"
+while [[ "$TEMP_ROOT" == */ ]]; do
+  TEMP_ROOT="${TEMP_ROOT%/}"
+done
 
 RUNTIME=0
 TARGET_FILTER=""
@@ -58,7 +63,7 @@ if [[ $RUNTIME -eq 1 ]]; then
     exit 2
   fi
 
-  TRACE_LOG="/tmp/test-audit-trace-$$.log"
+  TRACE_LOG="$(mktemp)"
 
   # 构建 nextest 命令
   CARGO_ARGS=(nextest run --lib)
@@ -78,10 +83,10 @@ if [[ $RUNTIME -eq 1 ]]; then
 
   # ── 后处理 trace log ──────────────────────────────────
   if [[ -f "$TRACE_LOG" ]]; then
-    # 检查 1: openat(..., O_CREAT) 路径不在 /tmp/ 且不在 target/ → 告警
+    # 检查 1: openat(..., O_CREAT) 路径不在 temp 目录(TEMP_ROOT) 且不在 target/ → 告警
     while IFS= read -r line; do
       path=$(echo "$line" | sed -n 's/.*openat([^,]*, "\([^"]*\)".*/\1/p')
-      if [[ -n "$path" ]] && [[ ! "$path" == /tmp/* ]] && [[ ! "$path" == */target/* ]]; then
+      if [[ -n "$path" ]] && [[ ! "$path" == "$TEMP_ROOT"/* ]] && [[ ! "$path" == */target/* ]]; then
         echo "[strace] ${path}: runtime 违规: 文件写入(非 temp 目录)"
         VIOLATIONS=$((VIOLATIONS + 1))
       fi
@@ -106,10 +111,10 @@ if [[ $RUNTIME -eq 1 ]]; then
       fi
     done < <(grep "connect(" "$TRACE_LOG" 2>/dev/null || true)
 
-    # 检查 3: mkdir/unlink/rmdir 路径不在 temp 目录 → 告警
+    # 检查 3: mkdir/unlink/rmdir 路径不在 temp 目录(TEMP_ROOT) → 告警
     while IFS= read -r line; do
       path=$(echo "$line" | sed -n 's/.*\(mkdir\|unlink\|rmdir\)("\([^"]*\)").*/\2/p')
-      if [[ -n "$path" ]] && [[ ! "$path" == /tmp/* ]] && [[ ! "$path" == */target/* ]]; then
+      if [[ -n "$path" ]] && [[ ! "$path" == "$TEMP_ROOT"/* ]] && [[ ! "$path" == */target/* ]]; then
         echo "[strace] ${path}: runtime 违规: 非 temp 目录操作"
         VIOLATIONS=$((VIOLATIONS + 1))
       fi
@@ -132,7 +137,7 @@ fi
 # ══════════════════════════════════════════════════════════
 
 # ── 扫描规则 ──────────────────────────────────────────────
-# 用单独数组存储 label 和 pattern，避免分隔符冲突
+# 用单独数组存储 label、pattern 和 grep 模式（E=扩展正则 / F=字面量），避免分隔符冲突
 
 LABELS=(
   "环境变量泄漏"
@@ -148,16 +153,34 @@ PATTERNS=(
   'TcpStream|TcpListener|UdpSocket'
 )
 
+MODES=(
+  E
+  E
+  E
+  E
+)
+
+# ── TEMP_ROOT 字面量补充规则 ──────────────────────────────
+# 当前 TEMP_ROOT 的硬编码字面量同样计为「硬编码路径」违规；
+# TEMP_ROOT 以 /tmp 开头时已由 '"/tmp'（PATTERNS[2]，-E 子串匹配）覆盖，跳过避免双计数；
+# 用 grep -F 精确匹配，TEMP_ROOT 含正则元字符时不受影响
+if [[ "$TEMP_ROOT" != /tmp* ]]; then
+  LABELS+=("${LABELS[2]}")
+  PATTERNS+=("\"$TEMP_ROOT")
+  MODES+=(F)
+fi
+
 # ── 执行扫描 ──────────────────────────────────────────────
+# 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
+FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+if [[ -n "$TARGET_FILTER" ]]; then
+  FIND_ARGS+=(-path "*${TARGET_FILTER}*")
+fi
+
 for i in "${!LABELS[@]}"; do
   label="${LABELS[$i]}"
   pattern="${PATTERNS[$i]}"
-
-  # 构建 find 命令参数
-  FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
-  if [[ -n "$TARGET_FILTER" ]]; then
-    FIND_ARGS+=(-path "*${TARGET_FILTER}*")
-  fi
+  mode="${MODES[$i]}"
 
   # grep 扫描
   while IFS= read -r file; do
@@ -165,7 +188,7 @@ for i in "${!LABELS[@]}"; do
       line="${match%%:*}"
       echo "${file}:${line}: ${label}"
       VIOLATIONS=$((VIOLATIONS + 1))
-    done < <(grep -nE "$pattern" "$file" 2>/dev/null || true)
+    done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
   done < <(find "${FIND_ARGS[@]}" 2>/dev/null)
 done
 
