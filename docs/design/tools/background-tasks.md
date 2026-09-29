@@ -71,7 +71,7 @@ agent 以前台模式调用 BashTool 时，有两种方式触发自动后台化�
 
 ### 输出管理
 
-后台命令的输出写入磁盘文件，而非内存累积。agent 可通过文件读取工具按需查看输出内容。输出文件按 session 隔离存放于系统临时目录。
+后台命令的输出写入磁盘文件，而非内存累积。agent 可通过文件读取工具按需查看输出内容。输出文件按 session 隔离存放于系统临时目录（解析规则见 [platform/temp-directory.md](../platform/temp-directory.md)）。
 
 输出文件的生命周期与 session 绑定：
 - 任务执行中：输出持续写入
