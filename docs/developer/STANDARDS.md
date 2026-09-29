@@ -99,12 +99,12 @@ let provider = FakeProvider::builder()
 - **禁止 `std::env::set_var` / `remove_var`**（修改进程全局环境在多线程/并行测试下数据竞争）。配置值通过参数/config struct 传递；测试需要隔离配置时用依赖注入或临时文件路径，不用 `set_var`；读环境用 `std::env::var`（只读）。全库唯一例外是 `daemon/src/env_file.rs` 的 `load_env_file()`。违反会被 pre-commit hook 和 CI 拦截。
 - 端口不硬编码，用 port 0 让系统分配。
 
-## 8. 临时文件与 config（/tmp 约束）
+## 8. 临时文件与 config（系统临时目录约束）
 
-- 测试使用的 **config 与生成的临时文件必须落在 /tmp**，用 `tempfile::TempDir` 管理，不硬编码路径：
+- 测试使用的 **config 与生成的临时文件必须落在系统临时目录**，用 `tempfile::TempDir` 管理，不硬编码具体路径。系统临时目录按平台解析（macOS/Linux/WSL2 取 `$TMPDIR`，Linux 未设置时回退 `/tmp`），解析规则见 [platform/temp-directory.md](../design/platform/temp-directory.md)；`tempfile::TempDir` 经 `std::env::temp_dir()` 自动适配：
 
 ```rust
-let dir = tempfile::TempDir::new()?;      // 落在系统 /tmp，Drop 自动清理
+let dir = tempfile::TempDir::new()?;      // 落在系统临时目录，Drop 自动清理
 ```
 
 - 测试后**无残留**进程、端口、临时文件（TempDir 自动清理；spawn 的子进程显式 kill/await）。

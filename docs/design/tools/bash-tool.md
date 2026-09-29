@@ -52,7 +52,7 @@ Bash 工具的描述不包含当前会话的工作目录状态与 Git 状态—�
 
 当命令输出超过内存累积阈值时，完整输出写入磁盘文件，且不以原始文本形式返回给 agent，而是：
 
-1. 完整输出写入该 Session 的输出文件——按 Session 隔离存放于系统临时目录，与后台任务输出同一存放位置和生命周期（见 [background-tasks.md](background-tasks.md) 输出管理）
+1. 完整输出写入该 Session 的输出文件——按 Session 隔离存放于系统临时目录（解析规则见 [platform/temp-directory.md](../platform/temp-directory.md)），与后台任务输出同一存放位置和生命周期（见 [background-tasks.md](background-tasks.md) 输出管理）
 2. agent 收到一个持久化引用，包含文件路径、原始大小、输出开头预览
 3. agent 需要完整输出时，通过文件读取工具按需加载
 

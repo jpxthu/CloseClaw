@@ -188,7 +188,7 @@ Layer 5: daemon（composition root，允许全量依赖）
 |------|------|
 | 禁止真实 LLM 调用、外部网络访问，全部 mock | §5 |
 | 禁止 `std::env::set_var` / `remove_var`（唯一例外 `daemon` 的 `load_env_file`） | §7 |
-| 测试 config 与临时文件必须落在 /tmp（`tempfile::TempDir`），不可硬编码路径 | §8 |
+| 测试 config 与临时文件必须落在系统临时目录（`tempfile::TempDir`），不可硬编码路径 | §8 |
 | 端口不硬编码，用 port 0 系统分配 | §7 |
 | 测试间不共享可变状态；端口/文件锁/全局资源加 `#[serial_test::serial]` | §7 |
 | 单测 30s 硬上限；CI 单用例 >5s 必须修复 | §6 |
@@ -258,8 +258,10 @@ git push -u origin <prefix>/<name>
 ### PR 与 Merge
 
 ```bash
-# 准备 PR body（写入文件，PR body = squash merge 后的 commit body）
-cat > /tmp/pr-body.md <<'EOF'
+# 准备 PR body（写入系统临时目录，PR body = squash merge 后的 commit body）
+# 系统临时目录：macOS/Linux/WSL2 取 $TMPDIR（Linux 未设置时回退 /tmp）
+body_file="$(mktemp "${TMPDIR:-/tmp}/pr-body-XXXXXX")"
+cat > "$body_file" <<'EOF'
 PR 概述（做了什么、为什么）
 
 Source: <source>
@@ -267,10 +269,13 @@ Type: <type>
 EOF
 
 # 创建 PR
-gh pr create --title "<type>: [<module>] 简述" --body-file /tmp/pr-body.md
+gh pr create --title "<type>: [<module>] 简述" --body-file "$body_file"
 
 # 合并（review 通过后），视情况决定是否更改 PR title 和 body
-gh pr merge --squash --delete-branch --body-file /tmp/pr-body.md
+gh pr merge --squash --delete-branch --body-file "$body_file"
+
+# 清理临时文件
+rm -f "$body_file"
 
 # 更新本地
 git checkout master && git pull

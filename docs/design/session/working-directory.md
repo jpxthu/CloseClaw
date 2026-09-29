@@ -36,9 +36,9 @@ Session 创建
   → workdir = {config_dir}/workspaces/{agent_id}/{user_id}/
   → system prompt 动态层首次注入默认路径
 
-用户发 /cd /tmp
-  → WorkdirHandler 校验 /tmp 存在
-  → session.set_workdir("/tmp")
+用户发 /cd /home/user/project
+  → WorkdirHandler 校验 /home/user/project 存在
+  → session.set_workdir("/home/user/project")
   → 下次 API 请求时 system prompt 动态层注入新路径
 
 用户发 /pwd

@@ -356,7 +356,7 @@ from:
 - Modifying existing files
 - Deleting files
 - Moving or copying files
-- Creating temporary files anywhere, including /tmp
+- Creating temporary files anywhere, including the system temp directory
 - Using redirect operators or heredocs to write to files
 - Running ANY commands that change system state
 
@@ -397,7 +397,7 @@ This is a READ-ONLY planning task. You are STRICTLY PROHIBITED from:
 - Modifying existing files
 - Deleting files
 - Moving or copying files
-- Creating temporary files anywhere, including /tmp
+- Creating temporary files anywhere, including the system temp directory
 - Using redirect operators or heredocs to write to files
 - Running ANY commands that change system state
 
