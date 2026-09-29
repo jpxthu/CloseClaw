@@ -12,6 +12,9 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC_DIR="$PROJECT_ROOT/src"
 TEST_DIR="$PROJECT_ROOT/tests"
+# 系统临时目录：$TMPDIR，未设置回退 /tmp（去尾斜杠归一化，供 runtime 白名单前缀与静态字面量检测使用）
+TEMP_ROOT="${TMPDIR:-/tmp}"
+TEMP_ROOT="${TEMP_ROOT%/}"
 
 RUNTIME=0
 TARGET_FILTER=""
@@ -78,10 +81,10 @@ if [[ $RUNTIME -eq 1 ]]; then
 
   # ── 后处理 trace log ──────────────────────────────────
   if [[ -f "$TRACE_LOG" ]]; then
-    # 检查 1: openat(..., O_CREAT) 路径不在 /tmp/ 且不在 target/ → 告警
+    # 检查 1: openat(..., O_CREAT) 路径不在 temp 目录(TEMP_ROOT) 且不在 target/ → 告警
     while IFS= read -r line; do
       path=$(echo "$line" | sed -n 's/.*openat([^,]*, "\([^"]*\)".*/\1/p')
-      if [[ -n "$path" ]] && [[ ! "$path" == /tmp/* ]] && [[ ! "$path" == */target/* ]]; then
+      if [[ -n "$path" ]] && [[ ! "$path" == "$TEMP_ROOT"/* ]] && [[ ! "$path" == */target/* ]]; then
         echo "[strace] ${path}: runtime 违规: 文件写入(非 temp 目录)"
         VIOLATIONS=$((VIOLATIONS + 1))
       fi
@@ -106,10 +109,10 @@ if [[ $RUNTIME -eq 1 ]]; then
       fi
     done < <(grep "connect(" "$TRACE_LOG" 2>/dev/null || true)
 
-    # 检查 3: mkdir/unlink/rmdir 路径不在 temp 目录 → 告警
+    # 检查 3: mkdir/unlink/rmdir 路径不在 temp 目录(TEMP_ROOT) → 告警
     while IFS= read -r line; do
       path=$(echo "$line" | sed -n 's/.*\(mkdir\|unlink\|rmdir\)("\([^"]*\)").*/\2/p')
-      if [[ -n "$path" ]] && [[ ! "$path" == /tmp/* ]] && [[ ! "$path" == */target/* ]]; then
+      if [[ -n "$path" ]] && [[ ! "$path" == "$TEMP_ROOT"/* ]] && [[ ! "$path" == */target/* ]]; then
         echo "[strace] ${path}: runtime 违规: 非 temp 目录操作"
         VIOLATIONS=$((VIOLATIONS + 1))
       fi
@@ -168,6 +171,24 @@ for i in "${!LABELS[@]}"; do
     done < <(grep -nE "$pattern" "$file" 2>/dev/null || true)
   done < <(find "${FIND_ARGS[@]}" 2>/dev/null)
 done
+
+# ── TEMP_ROOT 字面量硬编码检查 ────────────────────────────
+# 当前 TEMP_ROOT 的硬编码字面量同样计为「硬编码路径」违规；
+# TEMP_ROOT=/tmp 时已由 PATTERNS[2]（'"/tmp'）覆盖，不重复扫描；
+# 用 grep -F 精确匹配，TEMP_ROOT 含正则元字符时不受影响
+if [[ "$TEMP_ROOT" != "/tmp" ]]; then
+  FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+  if [[ -n "$TARGET_FILTER" ]]; then
+    FIND_ARGS+=(-path "*${TARGET_FILTER}*")
+  fi
+  while IFS= read -r file; do
+    while IFS= read -r match; do
+      line="${match%%:*}"
+      echo "${file}:${line}: ${LABELS[2]}"
+      VIOLATIONS=$((VIOLATIONS + 1))
+    done < <(grep -nF "\"$TEMP_ROOT" "$file" 2>/dev/null || true)
+  done < <(find "${FIND_ARGS[@]}" 2>/dev/null)
+fi
 
 # ── 结果 ──────────────────────────────────────────────────
 if [[ $VIOLATIONS -gt 0 ]]; then
