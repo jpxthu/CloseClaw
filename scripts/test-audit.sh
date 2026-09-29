@@ -58,7 +58,7 @@ if [[ $RUNTIME -eq 1 ]]; then
     exit 2
   fi
 
-  TRACE_LOG="/tmp/test-audit-trace-$$.log"
+  TRACE_LOG="$(mktemp)"
 
   # 构建 nextest 命令
   CARGO_ARGS=(nextest run --lib)

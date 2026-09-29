@@ -107,7 +107,7 @@ do_slow() (
     set -u
     command -v python3 >/dev/null 2>&1 || { echo "[FAIL] 解析 JSON 需要 python3，请先安装"; return 1; }
     local json_out
-    json_out=$(mktemp /tmp/periodic-slow.XXXXXX.json)
+    json_out=$(mktemp "${TMPDIR:-/tmp}/periodic-slow.XXXXXX.json")
     trap 'rm -f "$json_out"' EXIT
     local rc=0
     # --no-fail-fast：耗时清单是核心交付物，存在失败用例时继续收集全量数据
@@ -178,7 +178,7 @@ do_flaky() (
     set -u
     command -v python3 >/dev/null 2>&1 || { echo "[FAIL] 解析 JSON 需要 python3，请先安装"; return 1; }
     local json_out
-    json_out=$(mktemp /tmp/periodic-flaky.XXXXXX.json)
+    json_out=$(mktemp "${TMPDIR:-/tmp}/periodic-flaky.XXXXXX.json")
     trap 'rm -f "$json_out"' EXIT
     local rc=0
     # --no-fail-fast：FLAKY 清单是核心交付物，存在失败用例时继续收集全量数据

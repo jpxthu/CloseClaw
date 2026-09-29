@@ -12,10 +12,10 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 COMMIT="$(git rev-parse --short HEAD)"
-OUT="$(mktemp /tmp/contributing-audit.XXXXXX.md)"
+OUT="$(mktemp "${TMPDIR:-/tmp}/contributing-audit.XXXXXX.md")"
 
 # ── 硬限制类：clippy lint 全量（JSON 分组）+ 本脚本自带解析子项 ──
-CONF_DIR="$(mktemp -d /tmp/clippy-conf.XXXXXX)"
+CONF_DIR="$(mktemp -d "${TMPDIR:-/tmp}/clippy-conf.XXXXXX")"
 trap 'rm -rf "$CONF_DIR"' EXIT
 cat > "$CONF_DIR/clippy.toml" <<'EOF'
 too-many-lines-threshold = 100
@@ -27,7 +27,7 @@ disallowed-methods = [
 ]
 EOF
 
-CLIPPY_JSON="$(mktemp /tmp/clippy-json.XXXXXX)"
+CLIPPY_JSON="$(mktemp "${TMPDIR:-/tmp}/clippy-json.XXXXXX")"
 CLIPPY_CONF_DIR="$CONF_DIR" cargo clippy --workspace --all-targets --message-format=json -- \
   -A clippy::all -A warnings \
   --force-warn clippy::too_many_lines \
