@@ -124,7 +124,7 @@ impl Default for BackgroundTaskManager {
     fn default() -> Self {
         Self {
             tasks: Arc::new(Mutex::new(HashMap::new())),
-            temp_dir: PathBuf::from("/tmp"),
+            temp_dir: std::env::temp_dir(),
             notifications: Arc::new(Mutex::new(Vec::new())),
             max_execution_secs: 1800,
             debug_log: None,
@@ -133,9 +133,10 @@ impl Default for BackgroundTaskManager {
 }
 
 impl BackgroundTaskManager {
-    /// Create a new manager using the default temp root (`/tmp`).
+    /// Create a new manager using the system temp directory
+    /// (`std::env::temp_dir()`) as the default temp root.
     pub fn new() -> Self {
-        Self::with_temp_dir("/tmp")
+        Self::with_temp_dir(std::env::temp_dir())
     }
 
     /// Create a new manager with an explicit temp root directory.

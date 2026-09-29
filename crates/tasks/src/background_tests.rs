@@ -838,11 +838,12 @@ async fn test_max_execution_time_limit_does_not_kill_quick_task() {
     );
 }
 
-/// Default manager uses 1800 s (30 min) limit.
+/// Default manager uses 1800 s (30 min) limit and the system temp directory.
 #[test]
 fn test_default_max_execution_secs() {
     let mgr = BackgroundTaskManager::new();
     assert_eq!(mgr.max_execution_secs, 1800);
+    assert_eq!(mgr.temp_dir, std::env::temp_dir());
 }
 
 // =========================================================================
