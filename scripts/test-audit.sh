@@ -171,16 +171,16 @@ if [[ "$TEMP_ROOT" != /tmp* ]]; then
 fi
 
 # ── 执行扫描 ──────────────────────────────────────────────
+# 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
+FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+if [[ -n "$TARGET_FILTER" ]]; then
+  FIND_ARGS+=(-path "*${TARGET_FILTER}*")
+fi
+
 for i in "${!LABELS[@]}"; do
   label="${LABELS[$i]}"
   pattern="${PATTERNS[$i]}"
   mode="${MODES[$i]}"
-
-  # 构建 find 命令参数
-  FIND_ARGS=("$SRC_DIR" "$TEST_DIR" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
-  if [[ -n "$TARGET_FILTER" ]]; then
-    FIND_ARGS+=(-path "*${TARGET_FILTER}*")
-  fi
 
   # grep 扫描
   while IFS= read -r file; do

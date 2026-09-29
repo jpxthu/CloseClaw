@@ -181,11 +181,10 @@ fn test_persist_output_writes_file() {
     let path = persist_output("test persist data").unwrap();
     assert!(std::path::Path::new(&path).exists());
     let expected_root = std::env::temp_dir().join("openclaw");
-    let path_buf = std::path::PathBuf::from(&path);
     assert!(
-        path_buf.starts_with(&expected_root),
+        std::path::Path::new(&path).starts_with(&expected_root),
         "persisted path {:?} should be under {:?}",
-        path_buf,
+        path,
         expected_root
     );
     let content = std::fs::read_to_string(&path).unwrap();
