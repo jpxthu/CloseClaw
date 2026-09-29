@@ -187,6 +187,7 @@ Layer 5: daemon（composition root，允许全量依赖）
 | 红线 | 细则 |
 |------|------|
 | 禁止真实 LLM 调用、外部网络访问，全部 mock | §5 |
+| 开发工具相关设定（IDE、Agent、编译 Jobs 等本地环境配置）禁止进入代码库，应走各自工具的忽略规则（如 `.gitignore`）或平台层配置 | 本节 |
 | 禁止 `std::env::set_var` / `remove_var`（唯一例外 `daemon` 的 `load_env_file`） | §7 |
 | 测试 config 与临时文件必须落在 /tmp（`tempfile::TempDir`），不可硬编码路径 | §8 |
 | 端口不硬编码，用 port 0 系统分配 | §7 |
