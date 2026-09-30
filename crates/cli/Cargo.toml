@@ -19,7 +19,6 @@ closeclaw-permission = { path = "../permission" }
 closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
-closeclaw-processor-chain = { path = "../processor_chain" }
 closeclaw-session = { path = "../session" }
 closeclaw-platform = { path = "../platform" }
 clap = { version = "4.4", features = ["derive"] }
@@ -34,6 +33,7 @@ dirs = "5"
 unicode-width = "0.2"
 
 [dev-dependencies]
-tempfile = "3.10"
 closeclaw-skills = { path = "../skills" }
+closeclaw-processor-chain = { path = "../processor_chain" }
+tempfile = "3.10"
 serial_test = "*"
