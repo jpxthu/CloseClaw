@@ -147,11 +147,20 @@ impl CheckResult {
 
 /// 在 `dir` 中以任意参数运行检查脚本（脚本取本仓库真实路径，`dir` 为 CWD）。
 fn run_script(dir: &Path, args: &[&str]) -> CheckResult {
+    run_script_with_env(dir, args, |_| {})
+}
+
+/// 变体：启动前允许对子进程 `Command` 做额外 env 调整（如 `GIT_CEILING_DIRECTORIES`
+/// 注入），其余行为与 [`run_script`] 完全一致；不影响其它用例。
+fn run_script_with_env<F>(dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
+where
+    F: FnOnce(&mut Command),
+{
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/check-env-var.sh");
-    let out: Output = Command::new("bash")
-        .arg(script)
-        .args(args)
-        .current_dir(dir)
+    let mut cmd = Command::new("bash");
+    cmd.arg(script).args(args).current_dir(dir);
+    adjust_env(&mut cmd);
+    let out: Output = cmd
         .output()
         .expect("failed to spawn bash scripts/check-env-var.sh");
     CheckResult {
@@ -472,11 +481,26 @@ fn test_invalid_args_exit_2() {
 }
 
 /// 契约 ①：非 git 目录（仓库守卫）→ exit 2，且报出守卫文案而非静默通过。
+///
+/// 夹具目录可能落在 git 工作树内（如 TMPDIR 指向仓库内路径）：git 向上搜索会
+/// 发现仓库根的 .git，「非 git 目录」前提失效。注入 `GIT_CEILING_DIRECTORIES`
+/// 指向夹具父目录，使 git 的向上搜索在该处停止（TMPDIR 位于 git 工作树内/外
+/// 行为一致）；同时清除可能继承的 GIT_DIR / GIT_WORK_TREE，排除子进程 env 干扰。
 #[test]
 fn test_non_git_dir_exits_2() {
-    let dir = tempfile::TempDir::new().expect("create temp dir under /tmp");
+    let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
 
-    let res = run_script(dir.path(), &["all"]);
+    let res = run_script_with_env(dir.path(), &["all"], |cmd| {
+        let ceiling: std::ffi::OsString = dir
+            .path()
+            .parent()
+            .unwrap_or_else(|| Path::new("/"))
+            .to_path_buf()
+            .into_os_string();
+        cmd.env("GIT_CEILING_DIRECTORIES", ceiling);
+        cmd.env_remove("GIT_DIR");
+        cmd.env_remove("GIT_WORK_TREE");
+    });
     assert_exit(&res, 2, "non-git directory must exit 2");
     let out = res.output();
     assert!(
