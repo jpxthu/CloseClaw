@@ -254,38 +254,65 @@ fn spawn_sleep_child() -> std::process::Child {
         .expect("failed to spawn sleep child")
 }
 
-#[cfg(unix)]
-fn detach_helper_path() -> std::path::PathBuf {
-    std::env::temp_dir().join("detach_helper")
-}
-
 /// Helper: spawn a detached sleep process reparented to init.
 ///
-/// Uses a double-fork helper binary so the grandchild (sleep) is
-/// reparented to init. When killed, init reaps it — no zombie.
-/// Returns the PID of the actual sleep process.
+/// Re-enters this test binary via `current_exe` with an env-gated child
+/// branch (`test_spawn_detached_sleep_pid_child`): the child process
+/// spawns sleep, records its PID in the pidfile, then exits without
+/// waiting, so the sleep process is reparented to init. When killed,
+/// init reaps it — no zombie. Returns the PID of the actual sleep process.
 #[cfg(unix)]
 fn spawn_detached_sleep_pid() -> u32 {
     let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
     let pid_path = pid_file.path().to_path_buf();
-    let helper = detach_helper_path();
-    // Run helper in background (non-blocking) so it doesn't hang on pipe.
-    std::process::Command::new(&helper)
-        .arg(pid_path.to_str().unwrap())
+    let test_binary = std::env::current_exe().expect("current exe");
+    let mut child = std::process::Command::new(&test_binary)
+        .env("DETACHED_SLEEP_PIDFILE", &pid_path)
+        .arg("--exact")
+        .arg("process_tests::test_spawn_detached_sleep_pid_child")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
-        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", helper.display()));
-    // Wait for the PID file to be written by the grandchild.
-    for _ in 0..50 {
+        .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", test_binary.display()));
+    // Wait for the PID file to be written by the grandchild. The child is a
+    // full libtest harness (not a tiny helper binary), so its startup cost is
+    // much higher — allow >=5s before giving up, or slow environments would
+    // leave a flaky window.
+    for _ in 0..250 {
         if let Ok(content) = std::fs::read_to_string(&pid_path) {
             if let Ok(pid) = content.trim().parse::<u32>() {
+                // The child binary exits right after writing the pidfile;
+                // reaping it also guarantees the sleep process has been
+                // reparented to init before stop_daemon signals it.
+                child.wait().expect("failed to wait on child binary");
                 return pid;
             }
         }
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
+    child.kill().ok();
+    child.wait().ok();
     panic!("detached sleep PID not found in {pid_path:?}");
+}
+
+/// Subprocess child: spawns sleep, writes its PID to the pidfile given
+/// via `DETACHED_SLEEP_PIDFILE`, then exits without waiting so the sleep
+/// process is reparented to init (detach semantics — init reaps it).
+#[cfg(unix)]
+#[test]
+fn test_spawn_detached_sleep_pid_child() {
+    let pid_path = match std::env::var("DETACHED_SLEEP_PIDFILE") {
+        Ok(path) => path,
+        Err(_) => {
+            eprintln!("skipped: run via parent test subprocess");
+            return;
+        }
+    };
+    let child = spawn_sleep_child();
+    std::fs::write(pid_path, child.id().to_string()).expect("failed to write pid file");
+    // Detach: the handle is dropped without waiting; when this child
+    // process exits, the sleep process is reparented to init.
+    drop(child);
 }
 
 #[cfg(unix)]
@@ -462,11 +489,6 @@ fn test_wait_for_exit_nonexistent_pid() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal() {
-    let helper = detach_helper_path();
-    if !helper.exists() {
-        eprintln!("skipping: {} not found", helper.display());
-        return;
-    }
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();
@@ -753,11 +775,6 @@ fn test_stop_daemon_exit_race() {
 #[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal_polling_wait() {
-    let helper = detach_helper_path();
-    if !helper.exists() {
-        eprintln!("skipping: {} not found", helper.display());
-        return;
-    }
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
     let pid = spawn_detached_sleep_pid();

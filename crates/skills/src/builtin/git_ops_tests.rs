@@ -235,6 +235,18 @@ async fn test_execute_diff_staged() {
 #[tokio::test]
 async fn test_execute_invalid_git_repo() {
     let dir = tempfile::tempdir().unwrap();
+    // Construct an invalid git repo explicitly: write a `.git` gitfile missing
+    // the `gitdir: ` header. A bare TempDir may land inside a git work tree
+    // (e.g. TMPDIR pointing into a repo), where git's upward search finds the
+    // repo-root .git and makes `status` unexpectedly succeed; the invalid
+    // gitfile makes `git status` fail deterministically inside this directory
+    // (fatal: invalid gitfile format), independent of the TMPDIR location and
+    // consistent with the test name semantics.
+    std::fs::write(
+        dir.path().join(".git"),
+        "invalid gitfile: no gitdir header\n",
+    )
+    .unwrap();
     let skill = GitOpsSkill::new();
     let err = skill
         .execute(Some(serde_json::json!({

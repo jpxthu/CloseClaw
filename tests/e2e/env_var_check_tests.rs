@@ -2,8 +2,8 @@
 //!
 //! 只驱动脚本层的 `all` / `staged` 两种模式，不拉起完整 pre-commit hook
 //! （hook 的行数上限、`cargo fmt`、角色规则不在本测试范围）。每个用例在独立
-//! 的临时 git 仓库（`tempfile::TempDir`，落 /tmp、Drop 自动清理）中执行，
-//! 用例间无共享状态；全程无网络、无真实 LLM。
+//! 的临时 git 仓库（`tempfile::TempDir`，落系统临时目录（跟随 $TMPDIR）、
+//! Drop 自动清理）中执行，用例间无共享状态；全程无网络、无真实 LLM。
 //!
 //! 归档依据（docs/developer/STANDARDS.md）：§1 spawn 独立脚本进程 → e2e 档；
 //! §2/§3 `tests/e2e/` 单 binary + 复数 `_tests.rs` 命名；§8 临时文件走 TempDir。
@@ -55,7 +55,7 @@ fn comment_mention() -> String {
     format!("// prose mention of {} as documentation", BANNED_SET)
 }
 
-/// 隔离的临时 git 仓库：`TempDir` 落 /tmp，Drop 时自动清理。
+/// 隔离的临时 git 仓库：`TempDir` 落系统临时目录（跟随 $TMPDIR），Drop 时自动清理。
 struct TempRepo {
     dir: tempfile::TempDir,
 }
@@ -147,11 +147,20 @@ impl CheckResult {
 
 /// 在 `dir` 中以任意参数运行检查脚本（脚本取本仓库真实路径，`dir` 为 CWD）。
 fn run_script(dir: &Path, args: &[&str]) -> CheckResult {
+    run_script_with_env(dir, args, |_| {})
+}
+
+/// 变体：启动前允许对子进程 `Command` 做额外 env 调整（如 `GIT_CEILING_DIRECTORIES`
+/// 注入），其余行为与 [`run_script`] 完全一致；不影响其它用例。
+fn run_script_with_env<F>(dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
+where
+    F: FnOnce(&mut Command),
+{
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/check-env-var.sh");
-    let out: Output = Command::new("bash")
-        .arg(script)
-        .args(args)
-        .current_dir(dir)
+    let mut cmd = Command::new("bash");
+    cmd.arg(script).args(args).current_dir(dir);
+    adjust_env(&mut cmd);
+    let out: Output = cmd
         .output()
         .expect("failed to spawn bash scripts/check-env-var.sh");
     CheckResult {
@@ -472,11 +481,25 @@ fn test_invalid_args_exit_2() {
 }
 
 /// 契约 ①：非 git 目录（仓库守卫）→ exit 2，且报出守卫文案而非静默通过。
+///
+/// 夹具目录可能落在 git 工作树内（如 TMPDIR 指向仓库内路径）：git 向上搜索会
+/// 发现仓库根的 .git，「非 git 目录」前提失效。注入 `GIT_CEILING_DIRECTORIES`
+/// 指向夹具父目录，使 git 的向上搜索在该处停止（TMPDIR 位于 git 工作树内/外
+/// 行为一致）；同时清除可能继承的 GIT_DIR / GIT_WORK_TREE，排除子进程 env 干扰。
 #[test]
 fn test_non_git_dir_exits_2() {
-    let dir = tempfile::TempDir::new().expect("create temp dir under /tmp");
+    let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
 
-    let res = run_script(dir.path(), &["all"]);
+    let res = run_script_with_env(dir.path(), &["all"], |cmd| {
+        // git 向上搜索按物理路径比对，且 ceiling 不解析 symlink（macOS $TMPDIR
+        // 形如 /var/... → /private/var/...），故注入 canonicalize 后的父目录；
+        // canonicalize 失败时回退字面父目录。
+        let parent = dir.path().parent().unwrap_or_else(|| Path::new("/"));
+        let ceiling = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+        cmd.env("GIT_CEILING_DIRECTORIES", ceiling);
+        cmd.env_remove("GIT_DIR");
+        cmd.env_remove("GIT_WORK_TREE");
+    });
     assert_exit(&res, 2, "non-git directory must exit 2");
     let out = res.output();
     assert!(

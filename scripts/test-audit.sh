@@ -93,10 +93,10 @@ if [[ $RUNTIME -eq 1 ]]; then
     done < <(grep -n "O_CREAT" "$TRACE_LOG" 2>/dev/null || true)
 
     # 检查 2: connect( 目标非 127.0.0.1 / ::1 → 告警
-    local sed_inet4='s/.*connect([^,]*, {sa_family=AF_INET'\
+    sed_inet4='s/.*connect([^,]*, {sa_family=AF_INET'\
 '[^,]*, sin_port=htons(\([0-9]*\)), sin_addr=inet_addr'\
 '("\([^"]*\)")).*/\2:\1/p'
-    local sed_inet6='s/.*connect([^,]*, {sa_family=AF_INET6'\
+    sed_inet6='s/.*connect([^,]*, {sa_family=AF_INET6'\
 '[^}]*, inet_pton(AF_INET6, "\([^"]*\)").*/\1/p'
     while IFS= read -r line; do
       # 提取 connect 的 sockaddr 地址

@@ -180,7 +180,7 @@ fn test_process_output_long_string_truncates() {
 fn test_persist_output_writes_file() {
     let path = persist_output("test persist data").unwrap();
     assert!(std::path::Path::new(&path).exists());
-    let expected_root = std::env::temp_dir().join("openclaw");
+    let expected_root = std::env::temp_dir().join("closeclaw");
     assert!(
         std::path::Path::new(&path).starts_with(&expected_root),
         "persisted path {:?} should be under {:?}",
