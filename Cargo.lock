@@ -1093,9 +1093,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",
- "closeclaw-execution",
  "closeclaw-gateway",
- "closeclaw-llm",
  "closeclaw-permission",
  "closeclaw-session",
  "closeclaw-skills",
@@ -1127,7 +1125,6 @@ name = "closeclaw-workflow"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "closeclaw-common",
  "serde",
  "serde_json",
  "serde_yaml",
