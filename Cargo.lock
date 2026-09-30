@@ -1000,10 +1000,8 @@ name = "closeclaw-skills"
 version = "0.1.0"
 dependencies = [
  "async-trait",
- "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-permission",
- "closeclaw-session",
  "closeclaw-workflow",
  "filetime",
  "futures",
@@ -1028,7 +1026,6 @@ dependencies = [
  "closeclaw-config",
  "closeclaw-debug-log",
  "closeclaw-gateway",
- "closeclaw-llm",
  "closeclaw-permission",
  "closeclaw-session",
  "closeclaw-skills",
@@ -1051,7 +1048,6 @@ dependencies = [
  "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
- "closeclaw-execution",
  "closeclaw-gateway",
  "closeclaw-llm",
  "closeclaw-memory",
