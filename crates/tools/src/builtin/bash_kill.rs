@@ -56,10 +56,12 @@ pub(crate) const MAX_PERSISTED_BYTES: usize = 64 * 1024 * 1024;
 pub(crate) const PREVIEW_BYTES: usize = 2_000;
 
 /// Directory for persisted output files, resolved at runtime via
-/// `std::env::temp_dir()` (follows `$TMPDIR`; no hardcoded path).
-/// Created on demand by [`persist_output`].
+/// `std::env::temp_dir()` (follows `$TMPDIR`; no hardcoded path),
+/// under the `closeclaw/` subdirectory (aligned with the
+/// `closeclaw/background` naming in `closeclaw_tasks`). Created on
+/// demand by [`persist_output`].
 fn persist_dir() -> std::path::PathBuf {
-    std::env::temp_dir().join("openclaw")
+    std::env::temp_dir().join("closeclaw")
 }
 
 // ── OutputProcessed ──────────────────────────────────────────────────────
