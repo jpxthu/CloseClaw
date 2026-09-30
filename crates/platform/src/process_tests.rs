@@ -274,8 +274,11 @@ fn spawn_detached_sleep_pid() -> u32 {
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", test_binary.display()));
-    // Wait for the PID file to be written by the grandchild.
-    for _ in 0..50 {
+    // Wait for the PID file to be written by the grandchild. The child is a
+    // full libtest harness (not a tiny helper binary), so its startup cost is
+    // much higher — allow >=5s before giving up, or slow environments would
+    // leave a flaky window.
+    for _ in 0..250 {
         if let Ok(content) = std::fs::read_to_string(&pid_path) {
             if let Ok(pid) = content.trim().parse::<u32>() {
                 // The child binary exits right after writing the pidfile;

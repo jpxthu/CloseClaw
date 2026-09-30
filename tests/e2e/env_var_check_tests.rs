@@ -2,8 +2,8 @@
 //!
 //! 只驱动脚本层的 `all` / `staged` 两种模式，不拉起完整 pre-commit hook
 //! （hook 的行数上限、`cargo fmt`、角色规则不在本测试范围）。每个用例在独立
-//! 的临时 git 仓库（`tempfile::TempDir`，落 /tmp、Drop 自动清理）中执行，
-//! 用例间无共享状态；全程无网络、无真实 LLM。
+//! 的临时 git 仓库（`tempfile::TempDir`，落系统临时目录（跟随 $TMPDIR）、
+//! Drop 自动清理）中执行，用例间无共享状态；全程无网络、无真实 LLM。
 //!
 //! 归档依据（docs/developer/STANDARDS.md）：§1 spawn 独立脚本进程 → e2e 档；
 //! §2/§3 `tests/e2e/` 单 binary + 复数 `_tests.rs` 命名；§8 临时文件走 TempDir。
@@ -55,7 +55,7 @@ fn comment_mention() -> String {
     format!("// prose mention of {} as documentation", BANNED_SET)
 }
 
-/// 隔离的临时 git 仓库：`TempDir` 落 /tmp，Drop 时自动清理。
+/// 隔离的临时 git 仓库：`TempDir` 落系统临时目录（跟随 $TMPDIR），Drop 时自动清理。
 struct TempRepo {
     dir: tempfile::TempDir,
 }
@@ -491,12 +491,11 @@ fn test_non_git_dir_exits_2() {
     let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
 
     let res = run_script_with_env(dir.path(), &["all"], |cmd| {
-        let ceiling: std::ffi::OsString = dir
-            .path()
-            .parent()
-            .unwrap_or_else(|| Path::new("/"))
-            .to_path_buf()
-            .into_os_string();
+        // git 向上搜索按物理路径比对，且 ceiling 不解析 symlink（macOS $TMPDIR
+        // 形如 /var/... → /private/var/...），故注入 canonicalize 后的父目录；
+        // canonicalize 失败时回退字面父目录。
+        let parent = dir.path().parent().unwrap_or_else(|| Path::new("/"));
+        let ceiling = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
         cmd.env("GIT_CEILING_DIRECTORIES", ceiling);
         cmd.env_remove("GIT_DIR");
         cmd.env_remove("GIT_WORK_TREE");

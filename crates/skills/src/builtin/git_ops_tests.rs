@@ -235,10 +235,13 @@ async fn test_execute_diff_staged() {
 #[tokio::test]
 async fn test_execute_invalid_git_repo() {
     let dir = tempfile::tempdir().unwrap();
-    // 显式构造非法 git repo：写入缺少 `gitdir: ` 头的非法 `.git` gitfile。裸 TempDir
-    // 可能落在 git 工作树内（如 TMPDIR 指向仓库内路径），git 向上搜索发现仓库根 .git
-    // 会让 status 意外成功；非法 gitfile 使 `git status` 在该目录内确定性非零退出
-    // （fatal: invalid gitfile format），与 TMPDIR 位置无关，与用例名语义一致。
+    // Construct an invalid git repo explicitly: write a `.git` gitfile missing
+    // the `gitdir: ` header. A bare TempDir may land inside a git work tree
+    // (e.g. TMPDIR pointing into a repo), where git's upward search finds the
+    // repo-root .git and makes `status` unexpectedly succeed; the invalid
+    // gitfile makes `git status` fail deterministically inside this directory
+    // (fatal: invalid gitfile format), independent of the TMPDIR location and
+    // consistent with the test name semantics.
     std::fs::write(
         dir.path().join(".git"),
         "invalid gitfile: no gitdir header\n",
