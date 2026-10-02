@@ -66,6 +66,8 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
 - **下游**：
   - Session 模块 — 模式切换、会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置

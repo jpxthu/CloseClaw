@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/memory.md](../requirements/memory.md)
+- 关联需求文档：[requirements/memory.md](../../requirements/memory.md)
 - 一句话：为 agent 提供跨 session 的长期记忆——挖掘 event 与 lesson、通过 entity 关联构建记忆网络、在后续对话中适时注入
 
 Memory 模块为 agent 提供长期记忆能力——从 session 中挖掘 event 和 lesson，通过 entity 关联构建跨 session 的记忆网络，在后续对话中适时注入，让 agent 跨 session 保持对用户偏好、历史决策和行为边界的学习。
@@ -87,6 +87,8 @@ dreaming 产出 MEMORY.md（可执行的行为规则）和 Dream Diary（可选�
 - event 删除后，不再被任何 event_entities 关联的实体（0 引用）一并删除
 
 ## 模块关系
+
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：
   - session 模块：产出会话 transcript，触发 memory-miner；spawn active-searcher 子 session

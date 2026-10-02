@@ -213,6 +213,8 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 ### 上游
 
 - **Gateway**：用户消息入口，调用 SessionManager 获取/创建 session。

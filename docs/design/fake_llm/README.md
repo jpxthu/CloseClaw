@@ -70,6 +70,8 @@ CloseClaw 二进制发起 LLM 请求（OpenAI 或 Anthropic 协议）
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 Fake LLM Server 是测试基础设施，与 CloseClaw 的关系是**黑盒替换**：不引用任何 CloseClaw 代码，通过配置 CloseClaw 的模型端点（models.json 的 base_url）指向本地地址接入，被测对象是编译后的真实二进制。协议正确性锚定 [llm/protocol-mapping](../llm/protocol-mapping.md)（协议→统一块映射）与 [llm/model-discovery](../llm/model-discovery.md)（模型发现行为）。
 
 - **上游**：CloseClaw 二进制（黑盒 HTTP 客户端，经配置指向本服务——非模块依赖，不引用任何 CloseClaw 代码）

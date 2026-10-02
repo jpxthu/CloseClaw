@@ -64,6 +64,8 @@ Agent 决策调用某个技能 → 通过 SkillTool 发起调用 → 从注册�
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：Agent 运行时（Agent-in-Session 决策调用技能）、Agent 配置（提供 agent-id）、agent 模块（经 [AgentSkillsQuery](../common/core-traits.md) 提供技能可见范围白名单）、文件系统（提供 SKILL.md 数据源）
 - **下游**：System Prompt 模块（消费技能清单渲染结果，注入 SkillsSection）、[CLI admin](../cli/admin.md)（skill list 查询已加载技能列表）
 - **无关**：processor_chain（skill 不参与消息出站处理）、renderer（skill 不参与平台渲染）、权限引擎（工具权限校验属于 Gateway/权限引擎层职责，skills 作为纯数据提供方不反向查询权限状态；技能可见范围的白名单过滤由上游 AgentSkillsQuery 完成）

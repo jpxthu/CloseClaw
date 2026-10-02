@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/cli.md](../requirements/cli.md)
+- 关联需求文档：[requirements/cli.md](../../requirements/cli.md)
 - 核心职责：CLI 是 CloseClaw 的命令行接口模块。它包含两层：通过终端进行对话交互的 CLI Chat（terminal 消息渠道的 IMPlugin 实现）和对 daemon 的直接管理操作（CLI Admin）。
 
 ## 架构
@@ -63,6 +63,8 @@ CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差
 3. 两类命令的结果均落到 stdout（状态提示）、文件写入或进程管理副作用
 
 ## 模块关系
+
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：操作系统终端（stdin / 命令参数）、用户、Gateway（Chat 层出站方向通过 IMPlugin trait 调用 TerminalPlugin 发送渲染结果）
 - **下游**：Gateway（Chat 层产 NormalizedMessage 入站路由，消费 ContentBlock[] 出站）、daemon（run/stop 启停；agent/skill 命令经管理 RPC 查询与操作 daemon 状态）、Config 模块（config 命令写配置）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导调用模型发现）

@@ -33,6 +33,8 @@ Platform 按操作系统能力维度划分为五个独立的抽象接口，每�
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：CLI 模块（Chat 层的终端能力检测；Admin 层的进程管理与文件路径处理）、Daemon（启动关闭时的进程与信号处理、配置目录初始化）、config 模块（经配置目录接口定位配置目录并布局其下子目录，见 [配置目录](config-directory.md)）、tools 模块（后台任务输出与超长命令输出经临时目录接口落盘，见 [临时目录](temp-directory.md)）
 - **下游**：操作系统 API（进程与信号、文件系统、环境变量、终端尺寸）（platform 调用）；此外，配置数据经 config 模块供 CLI（Admin config 命令）、Gateway、IM Adapter 间接消费（三者不直接调用 platform 接口，见 [配置目录](config-directory.md)）
 - **无关**：无模块级无关关系——platform 作为底层操作系统抽象被上层模块普遍消费，不存在模块级「无调用且无数据流关联」的模块；个别接口对特定调用方的无关界定以子文档为准（如 [文件路径处理](file-path.md)、[终端能力检测](terminal.md)、[临时目录](temp-directory.md)）

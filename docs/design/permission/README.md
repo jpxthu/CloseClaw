@@ -195,6 +195,8 @@ Gateway 入站路由
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：tools 模块（Agent 工具调用时传入 caller + 操作）、Gateway（用户斜杠指令拦截后传入）
 - **下游**：审批系统（Deny 需审批时产出审批请求）、Agent Session（Allow/Deny 结果回调）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（消费：SessionLookup、SessionModeQuery）

@@ -98,6 +98,8 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 ### 上游（调用 Agent 模块或 Agent 消费其产出数据）
 
 | 模块 | 调用关系 |
