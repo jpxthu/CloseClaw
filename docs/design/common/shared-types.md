@@ -350,6 +350,27 @@ StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投�
 
 StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式发送完成，不进入 Session 或日志持久化。行缓冲和分批规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md)。
 
+### ContentSegment / 内容段落解析
+
+ContentSegment 是平台无关的内容段数据结构，把 ContentBlock::Text 的 markdown 文本按行切分为内容段，供各适配器逐段渲染（仅 Text 变体进入本原语）。共 3 种变体：
+
+| 变体 | 语义 |
+|------|------|
+| Markdown | 普通 markdown 文本行（空行作为独立内容段保留） |
+| Hr | 分隔线段落 |
+| CodeBlock | 围栏代码块，作为整体单元 |
+
+CodeBlock 承载代码块内容，字段定义：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `language` | string | 代码块语言标注，无标注时为空 |
+| `code` | string | 代码块内容（不含围栏行） |
+
+内容段由配套的内容段解析产出：无 IO 副作用，按行切分文本——围栏代码块收集为单个 CodeBlock，未闭合围栏按普通 markdown 文本行处理，分隔线识别为 Hr，其余为 Markdown；解析面向单个 ContentBlock::Text 的整块文本。流式增量路径由 [core-traits StreamingRenderer](core-traits.md#streamingrenderer) 的事件流承接，不经本原语。
+
+**归属**：位于 common（`common/src/content_segment.rs`），被 im_adapter（飞书平台渲染路径）与 cli（TerminalRenderer）2+ 模块消费、平台无关、无单一领域归属，满足 [STANDARDS.md 共享类型准入](../STANDARDS.md)。平台无关共享渲染原语位于 common（流式渲染原语见 [core-traits StreamingRenderer](core-traits.md#streamingrenderer)），各适配器持有并委托调用，平台专属 emit（飞书卡片富文本组装、终端 ANSI 渲染）留各适配器自身；消费方经 common 直接引用，不另立二次出口（见 [STANDARDS.md 禁止二次出口](../STANDARDS.md)）。
+
 ### VerbosityLevel
 
 VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对 ContentBlock 的过滤策略。由 `/verbose` 指令设置，Session 存储，出站 Processor Chain 的第一道过滤（VerbosityFilter，priority 5）消费。
@@ -795,6 +816,20 @@ IMPlugin.send(rendered_output, peer_id, reply_ref) → 平台发送 API
 
 RenderedOutput 的生命周期：IMPlugin 渲染产出 → Gateway 中间件 → IMPlugin 发送后销毁。
 
+### ContentSegment / 内容段落解析
+
+ContentSegment 的解析与消费嵌入在批量渲染路径中，由各适配器在渲染 ContentBlock::Text 时触发：
+
+```
+ContentBlock::Text 变体文本（其他 ContentBlock 变体不经本原语）
+  ↓
+内容段解析 → ContentSegment[]（Markdown / Hr / CodeBlock）
+  ↓
+各适配器按变体 emit 平台格式 — 飞书卡片富文本组装 / 终端 ANSI 文本
+```
+
+ContentSegment 的生命周期：common 解析产出 → 各适配器消费并按内容段渲染 → 随 RenderedOutput 产出后销毁，不进入 Session 或日志持久化。
+
 ### VerbosityLevel
 
 VerbosityLevel 的读写路径：
@@ -1077,6 +1112,12 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **生产者**：IM Adapter 流式渲染组件（每次批量处理事件、刷新或超时检查后产出一批）
 - **消费者**：平台插件的流式发送逻辑（将本批文本行与内容块组装为 RenderedOutput 后经发送能力投递）、gateway（调度流式出站管线时传递该结构）
 - **无关**：Session 持久化（中间产物，不进 checkpoint）、批量渲染路径
+
+### ContentSegment / 内容段落解析
+
+- **生产者**：common 自身（配套纯解析函数把文本切分为内容段序列）
+- **消费者**：im_adapter（飞书平台渲染路径——按内容段类型组装卡片元素）、cli（TerminalRenderer——按内容段类型输出 ANSI 文本）
+- **无关**：LLM Provider（不接触渲染原语）、Processor Chain 出站（渲染原语在出站链之后）、StreamingRenderer 系流式渲染原语（与本原语分属批/流两条渲染路径，代码块边界识别各自独立）、Session 持久化（中间产物，不进 checkpoint）
 
 ### UserRegistration / UserCreationRequest / InitialPermissionSet
 
