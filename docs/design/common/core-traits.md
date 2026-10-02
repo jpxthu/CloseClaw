@@ -177,7 +177,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AgentRegistryQuery
 
-**用途**：agent 注册中心的合并查询接口。agent 的 AgentRegistry 实现，gateway、daemon 消费——以单一 trait 对象同时满足 agent 配置、workspace、bootstrap 模式查询与既有 [AgentSkillsQuery](#agentskillsquery)、[AgentToolsConfigQuery](#agenttoolsconfigquery) 的技能/工具白名单查询，避免消费方直接依赖 agent crate。为 [AgentLookup](#agentlookup)、[AgentSkillsQuery](#agentskillsquery)、[AgentToolsConfigQuery](#agenttoolsconfigquery) 的 supertrait。
+**用途**：agent 注册中心的合并查询接口。agent 的 AgentRegistry 实现，gateway、daemon 消费——以单一 trait 对象同时满足 agent 配置与模型规格（[ModelSpec](shared-types.md#modelspec)）、workspace、bootstrap 模式查询与既有 [AgentSkillsQuery](#agentskillsquery)、[AgentToolsConfigQuery](#agenttoolsconfigquery) 的技能/工具白名单查询，避免消费方直接依赖 agent crate。为 [AgentLookup](#agentlookup)、[AgentSkillsQuery](#agentskillsquery)、[AgentToolsConfigQuery](#agenttoolsconfigquery) 的 supertrait。
 
 **接口契约**：
 
@@ -193,7 +193,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 模型规格 | 按 agent_id 返回该 agent 配置的模型规格，未配置返回 None |
+| 模型规格 | 按 agent_id 返回该 agent 配置的 [ModelSpec](shared-types.md#modelspec)，未配置返回 None |
 | 存在性 | 按 agent_id 判断 agent 是否在注册中心 |
 | bootstrap 模式 | 按 agent_id 返回其 [BootstrapMode](shared-types.md#会话注入辅助类型)，未配置返回 None |
 | workspace | 按 agent_id 返回其 per-agent workspace 路径，未配置返回 None |
@@ -206,7 +206,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 配置查询 | 按 agent_id 返回 [AgentConfigInfo](shared-types.md#agentconfiginfo)（子 Agent 模型规格、超时告警时长、告警间隔比例），agent 不存在返回 None |
+| 配置查询 | 按 agent_id 返回 [AgentConfigInfo](shared-types.md#agentconfiginfo)（子 Agent 模型规格（[ModelSpec](shared-types.md#modelspec)）、超时告警时长、告警间隔比例），agent 不存在返回 None |
 
 ### 消息平台插件
 
@@ -363,13 +363,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AuditLogger
 
-**用途**：审计日志记录接口。permission 的 FileAuditLogger 实现，permission 权限引擎与 daemon 消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置），使审计写入与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../requirements/mode.md)；审计条目的查看由具体文件日志实现承担，不在本 trait 契约内。
+**用途**：审计日志记录接口。permission 的文件审计日志实现，permission 权限引擎与 daemon 消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置），使审计写入与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../requirements/mode.md)；审计条目的查看由具体文件日志实现承担，不在本 trait 契约内。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 记录 | 写入一条 [AuditLogEntry](shared-types.md#auditlogentry--auditdisposition--auditlogfilter)（含处置 [AuditDisposition](shared-types.md#auditlogentry--auditdisposition--auditlogfilter)） |
+| 记录 | 写入一条 [AuditLogEntry](shared-types.md#auditlogentry--auditdisposition)（含处置 [AuditDisposition](shared-types.md#auditlogentry--auditdisposition)） |
 
 ### 会话查询与生命周期
 
@@ -399,13 +399,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SpawnValidator
 
-**用途**：子会话生成校验接口。session 的 SpawnController 实现，daemon（组合根装配注入）、session 的子会话工具（sessions_spawn）消费——校验子会话生成的前置条件与权限，使工具侧无需直接依赖 SpawnController 具体类型。前置校验与权限校验两步分离，各自独立。
+**用途**：子会话生成校验接口。session 的 SpawnController 实现，tools（子会话管理工具）、daemon（组合根装配注入）消费——校验子会话生成的前置条件与权限，使工具侧无需直接依赖 SpawnController 具体类型。前置校验与权限校验两步分离，各自独立。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、agent 解析与 allowlist，返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 的解析配置 + 子会话可用的最大生成深度、执行超时、超时告警等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
+| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 agent 解析与 allowlist，返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
 | 权限校验 | 前置校验通过后执行，校验子 agent 是否可在父会话下生成（权限判定语义见 [permission 模块](../permission/README.md)），返回 Ok 或 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的权限变体（权限被拒） |
 
 两步统一返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)：前置校验失败为其各前置变体，权限被拒为 `Permission` 变体。权限校验步经 [PermissionChecker](#permissionchecker) 的权限引擎边界完成（载荷复用既有的 [SpawnPermissionError](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）：SpawnValidator 是子会话生成的高层门面，PermissionChecker 是权限引擎边界的窄接口。
@@ -590,7 +590,7 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator）
   - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）

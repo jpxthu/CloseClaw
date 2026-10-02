@@ -491,7 +491,7 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 **TaskState**——后台任务生命周期状态：Running（携带 `is_backgrounded`，标记是否经自动/手动后台化产生；运行中任务参与卡住检测）、Completed（携带 `exit_code`）、Failed（携带非零 `exit_code`）、Killed（被外部终止）。非 Running 即为终态。
 
-**RunningTaskInfo**——运行中任务摘要，`list_running_tasks` 返回的元素：`task_id`（任务标识）、`command`（原始命令）、`elapsed_secs`（已运行秒数）。供消费方向下一轮对话注入运行中任务摘要。
+**RunningTaskInfo**——运行中任务摘要，在途任务列表的元素：`task_id`（任务标识）、`command`（原始命令）、`elapsed_secs`（已运行秒数）。供消费方向下一轮对话注入运行中任务摘要。
 
 **NotificationPriority**——后台任务通知的投递优先级（终态通知与卡住告警共用）：Later（择机稍后注入）/ Next（下一轮对话立即注入）/ Now（最高，先于用户输入立即注入）。排序 Now > Next > Later。
 
@@ -507,29 +507,31 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 | `summary` | string | 人类可读摘要 |
 | `suggestion` | string? | 基于任务结果/告警的可选建议 |
 
-由 `drain_notifications` 清空并返回，进入会话统一消息队列按优先级注入（见 [session 消息注入](../session/session-execution.md)）。
+由任务管理接口清空并返回，进入会话统一消息队列按优先级注入（见 [session 消息注入](../session/session-execution.md)）。
 
 **BackgroundTaskError**——后台任务操作错误：SpawnFailed（启动失败）、NotFound（任务不存在）、NotRunning（任务非运行态）、Io（IO 错误）。
 
 ### SpawnValidationResult / SpawnError
 
-[SpawnValidator](core-traits.md#spawnvalidator)（common DI trait）契约的载荷族，随子会话生成校验在 session（实现方 + 消费方）与 daemon（装配）之间传递。
+[SpawnValidator](core-traits.md#spawnvalidator)（common DI trait）契约的载荷族，随子会话生成校验在 session（实现方 + 消费方）、tools 与 daemon（消费方）之间传递。
 
-**SpawnValidationResult**——一次成功的前置校验产出（SpawnValidator::validate_spawn 的返回值）：
+**SpawnValidationResult**——一次成功的前置校验产出：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `config` | 目标 agent 的解析配置（见 [config 模块](../config/README.md)） | 供消费方创建子会话使用 |
+| `agent_id` | string | 目标 agent 标识 |
 | `effective_max_spawn_depth` | int | 子会话可用的最大生成深度 |
-| `spawn_timeout` | int? | 子 Agent 执行时长上限（秒），按 spawn 参数 → 目标 agent 配置 → 全局默认的优先级链解析 |
-| `timeout_warning_secs` | int? | 超时告警时长（秒），同上优先级链解析 |
+| `spawn_timeout` | int? | 子 Agent 执行时长上限（秒），按目标 agent 配置回退全局默认解析（spawn 显式参数由消费方覆盖） |
+| `timeout_warning_secs` | int? | 超时告警时长（秒），同上 |
 | `timeout_notify_interval_ratio` | float? | 循环告警间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
+
+目标 agent 的完整配置档案不进入本共享结构（含模型），仅其派生参数（上方字段）进入；创建子会话所需的完整目标配置由提供方（session）内部获取。`agent_id` 为目标 agent 标识——输入可空时由前置校验解析，无法解析则返回 [SpawnError](#spawnvalidationresult--spawnerror)。本结构的超时/告警字段为 spawn 生效值，与 [AgentConfigInfo](#agentconfiginfo) 的同源配置字段（agent 配置原始值）对应。
 
 **SpawnError**——子会话生成校验的错误（SpawnValidator 两步的统一错误载体）：DepthExceeded（超出生成深度上限）、MaxChildrenReached（达到最大并发子会话数）、AgentNotAllowed（目标 agent 不在 allowlist）、AgentIdRequired（配置要求 agentId 但未提供）、ConfigNotFound（目标 agent 配置缺失）、Permission（权限被拒，载荷复用 [SpawnPermissionError](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）。
 
-### AuditLogEntry / AuditDisposition / AuditLogFilter
+### AuditLogEntry / AuditDisposition
 
-[AuditLogger](core-traits.md#auditlogger)（common DI trait）契约的载荷族，随权限审计写入与查询在 permission（实现方 + 消费方）与 daemon、tools（消费方）之间传递。
+[AuditLogger](core-traits.md#auditlogger)（common DI trait）契约的载荷族，随权限审计写入在 permission（实现方 + 消费方）与 daemon、tools（消费方）之间传递。
 
 **AuditLogEntry**——单条审计日志：
 
@@ -546,17 +548,24 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 **AuditDisposition**——审计处置枚举：Approved（被批准）、Rejected（被拒绝）。
 
-**AuditLogFilter**——审计条目查询过滤条件（各字段均可选，为空表示不过滤）：`agent_id`、`disposition`、`since`（timestamp ≥ 此值）、`until`（timestamp ≤ 此值）。审计条目的查询由具体文件日志实现（FileAuditLogger）承载，供审计查看工具消费。
-
 ### AgentConfigInfo
 
-[AgentConfigLookup](core-traits.md#agentconfiglookup)（common DI trait）的返回类型——按 agent_id 查得的该 agent 配置子集（子 Agent 生成与子会话超时告警相关的最小集合，非完整 ResolvedAgentConfig）。
+[AgentConfigLookup](core-traits.md#agentconfiglookup)（common DI trait）的返回类型——按 agent_id 查得的该 agent 配置子集（子 Agent 生成与子会话超时告警相关的最小集合，非完整 agent 配置档案）。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `subagents_model` | 模型规格（见 [config 模块](../config/README.md)）? | 该 agent 配置的子 Agent 模型覆盖，未配置为空 |
+| `subagents_model` | [ModelSpec](#modelspec)? | 该 agent 配置的子 Agent 模型覆盖，未配置为空 |
 | `timeout_warning` | int? | 子 Agent 执行时长告警阈值（秒），空表示回退全局默认 |
 | `timeout_notify_interval_ratio` | float? | 循环告警间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
+
+### ModelSpec
+
+agent 模型规格——主模型 + 回退模型列表。纯值数据，无单一领域归属，被 agent、cli 等 2+ 模块消费（作为 agent 配置的模型字段、[AgentLookup](core-traits.md#agentlookup) 的模型查询返回类型、以及 [AgentConfigInfo](#agentconfiginfo) 的子 Agent 模型覆盖字段）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `primary` | string | 主模型标识，始终最先尝试 |
+| `fallback` | list(string) | 回退模型标识列表，主模型不可用时按序尝试（实际回退选择逻辑在 LLM 层） |
 
 ### 消息/内容辅助类型
 
@@ -952,9 +961,9 @@ Session 销毁 → TaskManager 回收该 session 全部终态任务的输出文�
 ### SpawnValidationResult / SpawnError
 
 ```
-子会话工具（sessions_spawn）向 SpawnValidator 发起前置校验（父 session_id + 目标 agent_id）
+子会话管理工具（tools）向 SpawnValidator 发起前置校验（父 session_id + 目标 agent_id）
   ↓
-通过前置校验（深度 / 并发 / allowlist / agent 解析）→ SpawnValidationResult（目标 agent 配置 + 派生参数）
+通过前置校验（深度 / 并发 / allowlist / agent 解析）→ SpawnValidationResult（目标 agent 标识 + 派生参数）
   │  失败 → SpawnError（前置错误）
   ↓
 SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完成权限判定
@@ -963,7 +972,7 @@ SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完
   │  权限被拒 → SpawnError 的权限变体（复用 SpawnPermissionError）
 ```
 
-### AuditLogEntry / AuditDisposition / AuditLogFilter
+### AuditLogEntry / AuditDisposition
 
 ```
 权限引擎（或审批流）对危险操作作出批准/拒绝处置
@@ -972,7 +981,7 @@ SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完
   ↓
 AuditLogger 记录 → permission 的文件日志实现追加落盘
   ↓
-审计查看工具按 AuditLogFilter 查询、返回匹配条目
+审计查看工具查询、返回匹配条目
 ```
 
 ### AgentConfigInfo
@@ -981,6 +990,18 @@ AuditLogger 记录 → permission 的文件日志实现追加落盘
 子会话工具（sessions_spawn / sessions_yield）需要所属 agent 的最小配置
   ↓
 AgentConfigLookup 按 agent_id 查询 → AgentConfigInfo（子 Agent 模型规格 + 超时告警参数）
+```
+
+### ModelSpec
+
+```
+agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
+  ↓
+随 agent 配置聚合传递：
+  ├── AgentLookup / AgentRegistryQuery 按 agent_id 返回该模型规格（system_prompt、gateway、daemon 等消费）
+  └── 经 AgentConfigInfo.subagents_model 提供子 Agent 模型覆盖（消费方：子会话管理工具等）
+  ↓
+消费方读取主模型与回退列表
 ```
 
 ### 会话/工具/斜杠/LLM 等辅助契约类型
@@ -1166,13 +1187,13 @@ AgentConfigLookup 按 agent_id 查询 → AgentConfigInfo（子 Agent 模型规�
 ### SpawnValidationResult / SpawnError
 
 - **生产者**：session（SpawnController 前置校验产出 SpawnValidationResult / SpawnError）
-- **消费者**：session 的子会话工具（sessions_spawn，据此创建子会话并处理错误）、daemon（装配注入）
+- **消费者**：session 的子会话管理工具（据此创建子会话并处理错误）、daemon（消费/装配）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
-### AuditLogEntry / AuditDisposition / AuditLogFilter
+### AuditLogEntry / AuditDisposition
 
 - **生产者**：permission（权限引擎/审批流构造 AuditLogEntry）
-- **消费者**：permission（文件日志实现落盘）、tools（审计查看工具按 AuditLogFilter 查询条目）、daemon（装配注入）
+- **消费者**：permission（文件日志实现落盘）、tools（审计查看工具查询条目）、daemon（装配注入）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
 ### AgentConfigInfo
@@ -1180,6 +1201,12 @@ AgentConfigLookup 按 agent_id 查询 → AgentConfigInfo（子 Agent 模型规�
 - **生产者**：agent（AgentRegistry 实现 AgentConfigLookup 产出）
 - **消费者**：session 的子会话工具（sessions_spawn / sessions_yield）、daemon（装配注入）
 - **无关**：LLM Provider、IM Adapter
+
+### ModelSpec
+
+- **生产者**：config（agent 配置解析产出）
+- **消费者**：system_prompt、gateway、daemon（经 AgentLookup / AgentRegistryQuery 查询模型规格）、cli（agent info 管理协议）、以及经 [AgentConfigInfo](#agentconfiginfo) 读取子 Agent 模型覆盖（子会话管理工具）
+- **无关**：IM Adapter、Processor Chain、LLM Provider（回退链由 daemon 装配，不经 common 传递）
 
 ### 会话/工具/斜杠/LLM 等辅助契约类型
 
