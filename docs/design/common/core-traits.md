@@ -363,13 +363,14 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AuditLogger
 
-**用途**：审计日志记录接口。permission 的文件审计日志实现，permission 权限引擎与 daemon 消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置），使审计写入与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../requirements/mode.md)；审计条目的查看由具体文件日志实现承担，不在本 trait 契约内。
+**用途**：审计日志记录与查询接口。permission 的文件审计日志实现，permission 权限引擎、daemon 与 tools（审计查看工具）消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置）、按条件查询审计条目，使审计读写与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../requirements/mode.md)；审计日志的查看统一走本 trait 的查询能力，落盘与查询的实现由 permission 的文件日志承担。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 记录 | 写入一条 [AuditLogEntry](shared-types.md#auditlogentry--auditdisposition)（含处置 [AuditDisposition](shared-types.md#auditlogentry--auditdisposition)） |
+| 记录 | 写入一条 [AuditLogEntry](shared-types.md#auditlogentry--auditdisposition--auditlogfilter)（含处置 [AuditDisposition](shared-types.md#auditlogentry--auditdisposition--auditlogfilter)） |
+| 查询 | 按 [AuditLogFilter](shared-types.md#auditlogentry--auditdisposition--auditlogfilter) 过滤返回匹配的 [AuditLogEntry](shared-types.md#auditlogentry--auditdisposition--auditlogfilter) 列表（按时间倒序） |
 
 ### 会话查询与生命周期
 
@@ -590,7 +591,7 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator、AuditLogger）
   - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）

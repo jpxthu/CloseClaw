@@ -529,9 +529,9 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 **SpawnError**——子会话生成校验的错误（SpawnValidator 两步的统一错误载体）：DepthExceeded（超出生成深度上限）、MaxChildrenReached（达到最大并发子会话数）、AgentNotAllowed（目标 agent 不在 allowlist）、AgentIdRequired（配置要求 agentId 但未提供）、ConfigNotFound（目标 agent 配置缺失）、Permission（权限被拒，载荷复用 [SpawnPermissionError](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）。
 
-### AuditLogEntry / AuditDisposition
+### AuditLogEntry / AuditDisposition / AuditLogFilter
 
-[AuditLogger](core-traits.md#auditlogger)（common DI trait）契约的载荷族，随权限审计写入在 permission（实现方 + 消费方）与 daemon、tools（消费方）之间传递。
+[AuditLogger](core-traits.md#auditlogger)（common DI trait）契约的载荷族，随权限审计的写入与查询在 permission（实现方 + 消费方）与 daemon、tools（消费方）之间传递。
 
 **AuditLogEntry**——单条审计日志：
 
@@ -539,7 +539,7 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 |------|------|------|
 | `timestamp` | string | 事件时间（ISO 8601） |
 | `agent_id` | string | 涉及操作的 agent |
-| `tool_name` | string | 工具/请求类型名（如 file / exec / network） |
+| `tool_name` | string | 请求类型名（操作维度，如 file / exec / network；非 ToolRegistry 工具名） |
 | `operation` | string | 操作描述（如 `write <path>`、命令文本） |
 | `reason` | string | 处置的人类可读原因 |
 | `risk_level` | [RiskLevel](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) | 操作风险级别 |
@@ -547,6 +547,17 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 | `disposition` | AuditDisposition | 最终处置（批准/拒绝） |
 
 **AuditDisposition**——审计处置枚举：Approved（被批准）、Rejected（被拒绝）。
+
+**AuditLogFilter**——审计条目查询过滤条件（各字段均可选，为空表示不过滤）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `agent_id` | string? | 仅返回该 agent 的条目 |
+| `disposition` | AuditDisposition? | 仅返回该处置（批准/拒绝）的条目 |
+| `since` | string? | 仅返回 timestamp ≥ 此值（ISO 8601）的条目 |
+| `until` | string? | 仅返回 timestamp ≤ 此值（ISO 8601）的条目 |
+
+由审计查看工具（tools）经 [AuditLogger](core-traits.md#auditlogger) 的查询能力消费。
 
 ### AgentConfigInfo
 
@@ -972,7 +983,7 @@ SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完
   │  权限被拒 → SpawnError 的权限变体（复用 SpawnPermissionError）
 ```
 
-### AuditLogEntry / AuditDisposition
+### AuditLogEntry / AuditDisposition / AuditLogFilter
 
 ```
 权限引擎（或审批流）对危险操作作出批准/拒绝处置
@@ -981,7 +992,7 @@ SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完
   ↓
 AuditLogger 记录 → permission 的文件日志实现追加落盘
   ↓
-审计查看工具查询、返回匹配条目
+审计查看工具按 AuditLogFilter 查询、返回匹配条目
 ```
 
 ### AgentConfigInfo
@@ -1190,10 +1201,10 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **消费者**：session 的子会话管理工具（据此创建子会话并处理错误）、daemon（消费/装配）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
-### AuditLogEntry / AuditDisposition
+### AuditLogEntry / AuditDisposition / AuditLogFilter
 
 - **生产者**：permission（权限引擎/审批流构造 AuditLogEntry）
-- **消费者**：permission（文件日志实现落盘）、tools（审计查看工具查询条目）、daemon（装配注入）
+- **消费者**：permission（文件日志实现落盘与查询）、tools（审计查看工具按 AuditLogFilter 查询条目）、daemon（装配注入）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
 ### AgentConfigInfo
