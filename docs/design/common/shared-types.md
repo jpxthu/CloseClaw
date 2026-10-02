@@ -476,6 +476,88 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 [MediaStoreAccess](core-traits.md#mediastoreaccess)（common DI trait）的错误类型——NoPath（引用无本地路径）/ FileNotFound / Io / Other。
 
+### BackgroundTask / TaskState / RunningTaskInfo / CompletionNotification / NotificationPriority / BackgroundTaskError
+
+[TaskManager](core-traits.md#taskmanager)（common DI trait）契约的载荷族，随后台命令任务的生成、监控与任务通知在 tasks（实现方）与 tools、gateway（消费方）、daemon（装配方）之间传递。BackgroundTask、RunningTaskInfo、CompletionNotification 是同一后台任务在生命周期不同时刻的只读视图。后台任务的完整生命周期（生成、超时转后台、卡住告警、终态通知注入、输出文件回收）见 [tools/background-tasks](../tools/background-tasks.md)，通知注入规则见 [session 消息注入](../session/session-execution.md)。
+
+**BackgroundTask**——一个后台任务句柄，TaskManager 的生成/接管/查询方法返回：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | 任务唯一标识 |
+| `command` | string | 原始 shell 命令 |
+| `state` | TaskState | 当前生命周期状态 |
+| `output_path` | string | 该任务输出文件的本地路径 |
+
+**TaskState**——后台任务生命周期状态：Running（携带 `is_backgrounded`，标记是否经自动/手动后台化产生；运行中任务参与卡住检测）、Completed（携带 `exit_code`）、Failed（携带非零 `exit_code`）、Killed（被外部终止）。非 Running 即为终态。
+
+**RunningTaskInfo**——运行中任务摘要，`list_running_tasks` 返回的元素：`task_id`（任务标识）、`command`（原始命令）、`elapsed_secs`（已运行秒数）。供消费方向下一轮对话注入运行中任务摘要。
+
+**NotificationPriority**——后台任务通知的投递优先级（终态通知与卡住告警共用）：Later（择机稍后注入）/ Next（下一轮对话立即注入）/ Now（最高，先于用户输入立即注入）。排序 Now > Next > Later。
+
+**CompletionNotification**——待投递的后台任务通知（终态完成/失败/被终止，或运行中检测到卡住告警）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `task_id` | string | 涉及的任务标识 |
+| `command` | string | 原始命令 |
+| `state` | TaskState | 通知产生时任务的状态（终态，或卡住告警时的运行中状态） |
+| `output_path` | string | 输出文件本地路径 |
+| `priority` | NotificationPriority | 投递优先级 |
+| `summary` | string | 人类可读摘要 |
+| `suggestion` | string? | 基于任务结果/告警的可选建议 |
+
+由 `drain_notifications` 清空并返回，进入会话统一消息队列按优先级注入（见 [session 消息注入](../session/session-execution.md)）。
+
+**BackgroundTaskError**——后台任务操作错误：SpawnFailed（启动失败）、NotFound（任务不存在）、NotRunning（任务非运行态）、Io（IO 错误）。
+
+### SpawnValidationResult / SpawnError
+
+[SpawnValidator](core-traits.md#spawnvalidator)（common DI trait）契约的载荷族，随子会话生成校验在 session（实现方 + 消费方）与 daemon（装配）之间传递。
+
+**SpawnValidationResult**——一次成功的前置校验产出（SpawnValidator::validate_spawn 的返回值）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `config` | 目标 agent 的解析配置（见 [config 模块](../config/README.md)） | 供消费方创建子会话使用 |
+| `effective_max_spawn_depth` | int | 子会话可用的最大生成深度 |
+| `spawn_timeout` | int? | 子 Agent 执行时长上限（秒），按 spawn 参数 → 目标 agent 配置 → 全局默认的优先级链解析 |
+| `timeout_warning_secs` | int? | 超时告警时长（秒），同上优先级链解析 |
+| `timeout_notify_interval_ratio` | float? | 循环告警间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
+
+**SpawnError**——子会话生成校验的错误（SpawnValidator 两步的统一错误载体）：DepthExceeded（超出生成深度上限）、MaxChildrenReached（达到最大并发子会话数）、AgentNotAllowed（目标 agent 不在 allowlist）、AgentIdRequired（配置要求 agentId 但未提供）、ConfigNotFound（目标 agent 配置缺失）、Permission（权限被拒，载荷复用 [SpawnPermissionError](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）。
+
+### AuditLogEntry / AuditDisposition / AuditLogFilter
+
+[AuditLogger](core-traits.md#auditlogger)（common DI trait）契约的载荷族，随权限审计写入与查询在 permission（实现方 + 消费方）与 daemon、tools（消费方）之间传递。
+
+**AuditLogEntry**——单条审计日志：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `timestamp` | string | 事件时间（ISO 8601） |
+| `agent_id` | string | 涉及操作的 agent |
+| `tool_name` | string | 工具/请求类型名（如 file / exec / network） |
+| `operation` | string | 操作描述（如 `write <path>`、命令文本） |
+| `reason` | string | 处置的人类可读原因 |
+| `risk_level` | [RiskLevel](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) | 操作风险级别 |
+| `session_mode` | [SessionMode](#reasoninglevel--agentrole--sessionmode)? | 事件发生时的会话模式，可选 |
+| `disposition` | AuditDisposition | 最终处置（批准/拒绝） |
+
+**AuditDisposition**——审计处置枚举：Approved（被批准）、Rejected（被拒绝）。
+
+**AuditLogFilter**——审计条目查询过滤条件（各字段均可选，为空表示不过滤）：`agent_id`、`disposition`、`since`（timestamp ≥ 此值）、`until`（timestamp ≤ 此值）。审计条目的查询由具体文件日志实现（FileAuditLogger）承载，供审计查看工具消费。
+
+### AgentConfigInfo
+
+[AgentConfigLookup](core-traits.md#agentconfiglookup)（common DI trait）的返回类型——按 agent_id 查得的该 agent 配置子集（子 Agent 生成与子会话超时告警相关的最小集合，非完整 ResolvedAgentConfig）。
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `subagents_model` | 模型规格（见 [config 模块](../config/README.md)）? | 该 agent 配置的子 Agent 模型覆盖，未配置为空 |
+| `timeout_warning` | int? | 子 Agent 执行时长告警阈值（秒），空表示回退全局默认 |
+| `timeout_notify_interval_ratio` | float? | 循环告警间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
+
 ### 消息/内容辅助类型
 
 - **ContentBlockType**：ContentBlock 的块类型分类枚举（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），用作 [StreamEvent](#streamevent) 的 `block_type` 与流式渲染的分类。
@@ -849,6 +931,58 @@ Gateway 调用 MediaStoreAccess 解析 MediaRef
 成功 → 绝对路径 / 失败 → MediaStoreError
 ```
 
+### BackgroundTask / TaskState / RunningTaskInfo / CompletionNotification / NotificationPriority / BackgroundTaskError
+
+```
+Agent 经 bash 工具显式后台化，或命令超时自动转后台
+  ↓
+TaskManager 生成 / 接管后台任务 → BackgroundTask（Running）
+  ↓
+任务运行（输出写入 output_path）；下一轮对话开始时取在途任务摘要（RunningTaskInfo）注入
+  ↓
+运行中检测到卡住（交互式提示）→ 生成任务通知（state=Running，priority=Next，带建议）
+  │
+任务到达终态（Completed / Failed / Killed）→ 生成任务通知（带 NotificationPriority）
+  ↓
+TaskManager 取出待处理通知 → 会话统一消息队列按优先级注入（见 session 消息注入）
+  ↓
+Session 销毁 → TaskManager 回收该 session 全部终态任务的输出文件与句柄
+```
+
+### SpawnValidationResult / SpawnError
+
+```
+子会话工具（sessions_spawn）向 SpawnValidator 发起前置校验（父 session_id + 目标 agent_id）
+  ↓
+通过前置校验（深度 / 并发 / allowlist / agent 解析）→ SpawnValidationResult（目标 agent 配置 + 派生参数）
+  │  失败 → SpawnError（前置错误）
+  ↓
+SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完成权限判定
+  ↓
+权限通过 → 子会话工具据此创建子会话
+  │  权限被拒 → SpawnError 的权限变体（复用 SpawnPermissionError）
+```
+
+### AuditLogEntry / AuditDisposition / AuditLogFilter
+
+```
+权限引擎（或审批流）对危险操作作出批准/拒绝处置
+  ↓
+构造 AuditLogEntry（操作内容 + RiskLevel + 处置 + 会话模式）
+  ↓
+AuditLogger 记录 → permission 的文件日志实现追加落盘
+  ↓
+审计查看工具按 AuditLogFilter 查询、返回匹配条目
+```
+
+### AgentConfigInfo
+
+```
+子会话工具（sessions_spawn / sessions_yield）需要所属 agent 的最小配置
+  ↓
+AgentConfigLookup 按 agent_id 查询 → AgentConfigInfo（子 Agent 模型规格 + 超时告警参数）
+```
+
 ### 会话/工具/斜杠/LLM 等辅助契约类型
 
 这些辅助类型不构成独立的跨模块流动，而作为其宿主契约的载荷随调用传递：
@@ -1022,6 +1156,30 @@ Gateway 调用 MediaStoreAccess 解析 MediaRef
 - **生产者**：MediaStoreAccess 实现方（im_adapter 的 MediaStore）
 - **消费者**：MediaStoreAccess 消费方（gateway 等）
 - **无关**：Processor Chain、LLM Provider
+
+### BackgroundTask / TaskState / RunningTaskInfo / CompletionNotification / NotificationPriority / BackgroundTaskError
+
+- **生产者**：tasks（TaskManager 实现 BackgroundTaskManager；生成/接管任务时产出 BackgroundTask，卡住告警/任务终态时产出 CompletionNotification）
+- **消费者**：tools、gateway（经 [TaskManager](core-traits.md#taskmanager) 生成/查询/终止任务、取出任务通知）、daemon（装配注入）；任务通知经会话统一消息队列注入
+- **无关**：LLM Provider、IM Adapter
+
+### SpawnValidationResult / SpawnError
+
+- **生产者**：session（SpawnController 前置校验产出 SpawnValidationResult / SpawnError）
+- **消费者**：session 的子会话工具（sessions_spawn，据此创建子会话并处理错误）、daemon（装配注入）
+- **无关**：LLM Provider、IM Adapter、Processor Chain
+
+### AuditLogEntry / AuditDisposition / AuditLogFilter
+
+- **生产者**：permission（权限引擎/审批流构造 AuditLogEntry）
+- **消费者**：permission（文件日志实现落盘）、tools（审计查看工具按 AuditLogFilter 查询条目）、daemon（装配注入）
+- **无关**：LLM Provider、IM Adapter、Processor Chain
+
+### AgentConfigInfo
+
+- **生产者**：agent（AgentRegistry 实现 AgentConfigLookup 产出）
+- **消费者**：session 的子会话工具（sessions_spawn / sessions_yield）、daemon（装配注入）
+- **无关**：LLM Provider、IM Adapter
 
 ### 会话/工具/斜杠/LLM 等辅助契约类型
 
