@@ -74,4 +74,7 @@ Agent 未完成验证时可继续执行。Engine 待下次验收判定条件满�
 
 ### 共享类型
 
-无——WorkflowRun 为 workflow 模块内部状态，经类型擦除机制交由 Session 随 checkpoint 持久化（见 [session-integration.md](session-integration.md)），不作为跨模块共享类型在 [common](../common/README.md) 中定义。
+无——`WorkflowRun` 为 workflow 模块的领域内部状态，不作为 common 共享类型定义。其跨模块可见性经类型擦除机制承载：
+
+- **跨模块流转**：`WorkflowRun` 以类型擦除形态经 [common 的 SlashSessionQuery](../common/core-traits.md#slashsessionquery) 跨模块流转（该接口由 gateway 提供实现、slash 消费）——common 不依赖 workflow 领域类型。类型擦除使 workflow 领域状态无需作为 common 共享类型定义即可供消费方访问。
+- **持久化**：`WorkflowRun` 随 Session checkpoint 持久化（恢复流程详见 [session-integration.md](session-integration.md)）。
