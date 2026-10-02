@@ -152,7 +152,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费：ToolSession、AgentToolsConfigQuery）
+- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle；消费：ToolSession、AgentToolsConfigQuery、TaskManager）
 
 ### 代码映射
 

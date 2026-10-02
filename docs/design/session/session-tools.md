@@ -19,7 +19,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 
 ### sessions_spawn
 
-创建子 session 执行子任务。一次 spawn = 创建 child session，子 session 使用目标 agent 的配置档案运行。spawn 由 Session 模块协调控制——读取父 agent 配置中的 subagents 参数执行前置检查，并创建和管理子 session。完整的 spawn 控制流程和策略（depth 追踪、Fork 模式、Announce 回传）见 Agent 模块的 [agent-spawn.md](../agent/agent-spawn.md)。
+创建子 session 执行子任务。一次 spawn = 创建 child session，子 session 使用目标 agent 的配置档案运行。spawn 由 Session 模块协调控制——读取父 agent 配置中的 subagents 参数执行前置检查，并创建和管理子 session；前置检查与权限检查两步经 [SpawnValidator](../common/core-traits.md#spawnvalidator) 完成（成功产出 [SpawnValidationResult](../common/shared-types.md#spawnvalidationresult--spawnerror)，失败返回 [SpawnError](../common/shared-types.md#spawnvalidationresult--spawnerror)）。完整的 spawn 控制流程和策略（depth 追踪、Fork 模式、Announce 回传）见 Agent 模块的 [agent-spawn.md](../agent/agent-spawn.md)。
 
 参数：
 

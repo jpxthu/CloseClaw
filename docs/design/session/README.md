@@ -236,14 +236,14 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 - **PersistenceService**：CheckpointManager 通过此 trait 调用具体存储后端。
 - **Permission 模块**：工具调用时，tools 模块解析操作上下文后调用 Permission 引擎完成权限检查（详见 session-tools.md）。
 - **Config 模块**：sweeper 和 compaction 读取 SessionConfigProvider 获取会话配置参数（idle 超时、compact 阈值等）。
-- **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 配置做前置检查。
+- **Agent 模块**：session 创建时读取 Agent 配置档案，分发 model/workspace/tools/skills/subagents 等字段。sessions_spawn 等工具执行时读取 subagents 配置做前置检查（子 Agent 生成与超时告警相关的最小配置经 [AgentConfigLookup](../common/core-traits.md#agentconfiglookup) 查询）。
 - **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站交付记录由 Gateway 持久化到 session checkpoint 的 `outbound_pending` 字段——记录每条出站消息（含 Verbosity 过滤后内容与 dsl_result，及发送标记 sent），其中未发送成功的条目（sent=false）用于崩溃/停止后重投递（需求 [session F7](../../requirements/session.md)）；与 Session 对话历史（messages[]，LLM 上下文，含完整 Thinking 块）用途不同、并行不悖，也区别于 transcript 层的 `pending_messages` 字段。详见 [Gateway 出站流程](../gateway/outbound-flow.md)。非直接调用，属数据流下游依赖。
 - **IM Adapter（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度和 Processor Chain 处理后，由 IM Adapter 完成出站渲染和发送（含流式推送）。Session 不直接调用 IM Adapter，数据流经 Gateway 中介传递。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 Session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery、ToolSession；消费：PermissionChecker、KillHandle、SkillListingProvider、StreamingSink、LlmCaller）
+- [common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费：PermissionChecker、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、AgentConfigLookup）
 
 ### 无关
 
