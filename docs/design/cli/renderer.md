@@ -6,7 +6,7 @@ TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlo
 
 ## 架构
 
-TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独立路径，不经过本组件——由 IM Adapter 模块的通用流式渲染组件驱动，TerminalPlugin 组合持有该组件并在流式模式中委托调用，逐行产生增量输出（详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)）。批量渲染的顺序路径见 §数据流，渲染机制分两部分：终端能力检测（确定渲染模式与宽度约束）与块类型渲染策略（见 §块类型渲染规则）。
+TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独立路径，不经过本组件——由 common 的流式渲染原语驱动（[common StreamingRenderer](../common/core-traits.md#streamingrenderer)），TerminalPlugin 组合持有该原语并在流式模式中委托调用，逐行产生增量输出（详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)）。批量渲染的顺序路径见 §数据流，渲染机制分两部分：终端能力检测（确定渲染模式与宽度约束）与块类型渲染策略（见 §块类型渲染规则）。
 
 ### 终端能力检测
 
@@ -25,7 +25,7 @@ TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独�
 
 **Text 块 — 代码块**
 
-ANSI 模式下按语言标注注入颜色码（关键字、字符串、注释等；纯文本模式无颜色码），语言标注从 markdown 代码块标记中提取并转为独立的语言标注行（取代原反引号标记行的语言后缀），代码内容逐行附加行号——两种渲染模式、无论语言是否支持高亮均统一插入，反引号边界行两种模式下均保留。不支持的语言回退无高亮纯文本输出。代码块高亮策略详见 [IM Adapter 代码块渲染](../im_adapter/code-render.md)。
+ANSI 模式下按语言标注注入颜色码（关键字、字符串、注释等；纯文本模式无颜色码），语言标注从 markdown 代码块标记中提取并转为独立的语言标注行（取代原反引号标记行的语言后缀），代码内容逐行附加行号——两种渲染模式、无论语言是否支持高亮均统一插入，反引号边界行两种模式下均保留。不支持的语言回退无高亮纯文本输出。代码块的识别与内容段划分由 common 内容段原语提供（[common ContentSegment](../common/shared-types.md#contentsegment--内容段落解析)）；颜色码注入、行号插入与语言标注行样式为 cli 终端自身的平台 emit。代码块渲染策略详见 [IM Adapter 代码块渲染](../im_adapter/code-render.md)。
 
 **Thinking 块**
 
@@ -57,12 +57,12 @@ Image、Audio、File 等终端不支持的块类型，渲染为带文件名的�
 
 空输入约定：ContentBlock[] 为空且无 DSL 提示行时，返回空 payload 的 RenderedOutput，不产生输出内容（TerminalPlugin 跳过写入，不调用 send）；ContentBlock[] 为空但存在 DSL 提示行时，正常输出提示行段落（正文为空）。
 
-> **流式路径**：流式模式不走本组件的批量渲染逻辑，由 IM Adapter 流式渲染组件驱动（见 §架构），完整路径见 [CLI Chat §数据流](chat.md)。
+> **流式路径**：流式模式不走本组件的批量渲染逻辑，由 common 流式渲染原语驱动（见 §架构），完整路径见 [CLI Chat §数据流](chat.md)。
 
 ## 模块关系
 
 - **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染）、platform（提供终端能力检测结果——ANSI 能力标记 + 可用宽度，渲染模式与截断判断的输入）
 - **下游**：TerminalPlugin（消费 TerminalRenderer 产出的 RenderedOutput，通过 send 写入 stdout）——渲染是纯数据转换，除此之外不调用其他模块
-- **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式模式中取用流式渲染组件逐行产生增量输出
-- **与 IM Adapter 的关系**：TerminalRenderer 是 IM Adapter 框架下 terminal 渠道的渲染实现，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。流式渲染使用 IM Adapter 模块的流式渲染组件作为共享渲染器
-- **无关**：IM Adapter 各平台渲染实现（飞书、Discord 等）——渲染策略和目标格式不同，无共享逻辑
+- **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式模式中取用 common 流式渲染原语逐行产生增量输出
+- **与 IM Adapter 的关系**：TerminalRenderer 是 IM Adapter 框架下 terminal 渠道的渲染实现，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。平台无关共享渲染原语（流式渲染器、内容段）位于 common；cli 作为适配器持有并委托，TerminalRenderer 的平台专属 emit（ANSI 行号注入、纯文本回退）由 cli 自身实现
+- **无关**：IM Adapter 各平台渲染实现（飞书、Discord 等）——渲染策略与目标格式不同，两者之间无直接调用或数据流（共享原语位于 common，不属彼此）
