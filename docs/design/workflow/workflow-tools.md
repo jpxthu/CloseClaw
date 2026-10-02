@@ -25,7 +25,7 @@ Workflow Tools 是 Agent 与 Engine 之间的结构化通信接口。Agent 通�
 
 ### 工具注册
 
-Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——不受 Agent permission 配置限制。斜杠指令在 SlashDispatcher 初始化时注册 /workflow 路由。
+Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——不受 Agent 权限配置限制。斜杠指令在 SlashDispatcher 初始化时注册 /workflow 路由。
 
 ## 数据流
 
@@ -35,17 +35,17 @@ Workflow 工具在 ToolRegistry 初始化时注册，属于系统级工具——
 2. Engine 按优先级查找定义文件（Agent 专属目录下的 workflows/ 目录 → 全局 workflows/ 目录 → 系统内置），三级均未命中则返回错误
 3. Engine 解析 YAML frontmatter
 4. Engine 初始化 WorkflowRun：current_step 置 0，phase 置 executing
-5. Engine 向 system prompt 注入 workflow context，待注入完毕后注入 Step 0 goal 消息（role: workflow）
+5. Engine 向 system prompt 注入 workflow context，待注入完毕后注入 Step 0 步骤目标消息（role: workflow）
 6. 返回 tool result 确认
 
 ### workflow_verify
 
 1. phase 从 executing 到 verifying 的转换由 Engine 自动管理：满足验收判定条件时（四维活跃维度均否）Engine 注入验收清单
 2. Agent 收到验收清单后自查，完成则调用 workflow_verify()（无参数）
-3. Engine 检查当前 phase：不是 verifying 则返回错误；是 verifying 则 phase 转为 jumping，注入 jump 消息
+3. Engine 检查当前 phase：不是 verifying 则返回错误；是 verifying 则 phase 转为 jumping，注入跳转问题
 4. 返回 tool result（被抹除）
 
-verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 verify 字段，Engine 不校验条目真伪。
+workflow_verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 verify 字段，Engine 不校验条目真伪。
 
 ### workflow_jump
 
@@ -54,24 +54,24 @@ verify 只是"我做完了"的信号。验收清单来源于 Step 定义中的 v
 3. Engine 取当前步骤定义的 transitions，按顺序匹配条件。全部不匹配则执行 default
 4. Engine 执行匹配到的 action（goto/reexecute/complete）
 5. Engine 更新 WorkflowRun 状态
-6. Engine 注入下一步 goal 或结束
+6. Engine 注入下一步的步骤目标消息或结束
 7. 返回 tool result（被抹除）
 
-答案格式由 jump 问题的 type 决定：
+答案格式由跳转问题的 type 决定：
 
 - boolean：YAML 原生布尔值 true / false
 - enum：对应的选项字母（A/B/C/D...），非选项内部值
 
-jump 问题来自当前步骤定义中的 jump 字段，option_labels 用于将选项内部值渲染为 ABCD 标签。Engine 收到字母答案后按 options 顺序映射回内部值，再与 transitions 的 expected_value 比对。
+跳转问题来自当前步骤定义中的 jump 字段，option_labels 用于将选项内部值渲染为 ABCD 标签。Engine 收到字母答案后按 options 顺序映射回内部值，再与 transitions 的 expected_value 比对。
 
 ### workflow_blocked
 
 1. Agent 调用 workflow_blocked({reason})
-2. Engine 检查当前 step 的 allow_blocked：为 false 则返回错误，Agent 继续 verify 循环
+2. Engine 检查当前 step 的 allow_blocked：为 false 则返回错误，Agent 继续验收循环
 3. Engine 将 phase 设为 blocked，通过 Gateway 向 Owner 发送通知（含 reason）
 4. 返回 tool result（被抹除）
-5. Owner 回复：Engine 通过 Gateway 感知 Owner 消息 → 解除阻塞 → 保留当前步骤目标消息 → pending_verify 归零 → 清理残留 verify 消息 → 注入 verify 消息
-6. Agent 按正常 verify → jump 流程继续
+5. Owner 回复：Engine 通过 Gateway 感知 Owner 消息 → 解除阻塞（解除动作见 execution-engine.md「阻塞处理」）
+6. Agent 按正常验收 → 跳转流程继续
 
 ### 斜杠指令
 
