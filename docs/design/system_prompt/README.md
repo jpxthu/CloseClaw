@@ -73,10 +73,12 @@ Session 创建 / 恢复 / Compaction
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 ### 上游
 
 - **SessionManager**：在 Session 创建和恢复时触发 system prompt 构建。
-- **Agent 模块**：提供 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，System Prompt 据此加载身份人格文件（agent 配置数据源详见 [agent 模块](../agent/README.md)）。
+- **Agent 模块**：提供 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，System Prompt 据此加载身份人格文件（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup) 按 agent_id 查询，agent 配置数据源详见 [agent 模块](../agent/README.md)）。
 - **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
 - **Skills 模块**：提供技能清单数据（从 SkillRegistry 获取技能元数据），由 system_prompt 模块的 SkillsFragmentProvider 消费并渲染为 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
 - **Mode 模块**：提供当前 Session 模式的指令内容（Plan Mode 双路径工作流指令 / Auto Mode 连续执行指令），注入动态层 ModeInstruction Section。
@@ -89,7 +91,7 @@ Session 创建 / 恢复 / Compaction
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder）
+- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费：ToolRegistryQuery、SkillListingProvider、AgentLookup）
 
 ### 无关
 

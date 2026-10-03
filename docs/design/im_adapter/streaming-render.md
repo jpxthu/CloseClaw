@@ -2,7 +2,7 @@
 
 ## 概述
 
-流式渲染是 IM Adapter 模块的通用渲染子功能，负责在 LLM 流式输出时逐事件渲染增量内容。流式输入是统一流式事件 [StreamEvent](../common/shared-types.md#streamevent)（ContentBlock 的流式形态），用户无需等待完整响应即可看到输出内容。流式输出一律为富格式消息（生成完成前无法判定是否为纯文本，见 [README 平台渲染选择](README.md#平台渲染选择)），且消息格式一经发出不再改变。该能力以通用组件形式提供——各平台插件组合持有流式渲染器实例，在渲染时委托调用，平台可按需覆盖实现差异化渲染逻辑。
+流式渲染是 IM Adapter 模块的渲染子功能，负责在 LLM 流式输出时逐事件渲染增量内容，使用户无需等待完整响应即可看到已生成内容。流式输入是统一流式事件 [StreamEvent](../common/shared-types.md#streamevent)（ContentBlock 的流式形态）。流式输出一律为富格式消息（生成完成前无法判定是否为纯文本，见 [README 平台渲染选择](README.md#平台渲染选择)），且消息格式一经发出不再改变。
 
 ## 架构
 
@@ -14,14 +14,14 @@
 - 类型路由：按块类型选择渲染路径
 - 增量输出：完整输出单元立即通过 IMPlugin 发送
 
-流式渲染器逐事件消费 StreamEvent（增量载荷结构 [ContentDelta](../common/shared-types.md#contentdelta)，本批产出结构见 [common StreamingOutput](../common/shared-types.md#streamingoutput)）——BlockDelta 到达即驱动 Text 块逐缓冲行输出（块未结束即可输出）；Thinking/Tool 块等待对应 BlockEnd 全块就绪后一次交付平台格式渲染器。交互式 UI 元素（按钮、选择器等）通过工具调用结果由 Gateway 直接处理，不属于流式渲染器职责范围。
+流式渲染器逐事件消费 StreamEvent（增量载荷结构 [ContentDelta](../common/shared-types.md#contentdelta)，本批产出结构见 [common StreamingOutput](../common/shared-types.md#streamingoutput)）——BlockDelta 到达即驱动 Text 块逐缓冲行输出（块未结束即可输出）；Thinking/ToolUse 块等待对应 BlockEnd 全块就绪后一次交付平台格式渲染器。交互式 UI 元素（按钮、选择器等）通过工具调用结果由 Gateway 直接处理，不属于流式渲染器职责范围。
 
 **行缓冲规则**：
 
 - 以句末标点（`。！？.!?\n`）为行边界，达到边界立即输出当前行
 - 代码块以完整块为单位输出（代码块结束后一次性发送），不逐行输出代码块内容，以保证语法高亮正确渲染；代码块内容不参与 100 字符阈值和 200ms 超时的强制输出
 - 缓冲区超过固定阈值（约 100 字符）时强制输出并清空缓冲区；缓冲内容超过 200ms 未触发输出事件时强制输出。首行输出需在首个 Text 块到达后 200ms 内完成——若缓冲内容在 200ms 内未达输出条件，强制输出当前缓冲内容
-- Thinking/Tool 块不参与流式行缓冲，累积完整内容后一次交付平台格式渲染器；Image/Audio/File 不以流式事件形式出现（LLM 流式不产出媒体块），非流式路径中直接交由平台格式渲染器处理
+- Thinking/ToolUse 块不参与流式行缓冲，累积完整内容后一次交付平台格式渲染器；Image/Audio/File 不以流式事件形式出现（LLM 流式不产出媒体块），非流式路径中直接交由平台格式渲染器处理
 - 代码/文本模式状态：检测 ``` 边界标记切换，用于决定输出单元的切分规则——文本模式按句末标点切分并受阈值/超时约束，代码模式累计至代码块结束（闭合 ```）再整块输出
 
 ## 数据流
@@ -31,7 +31,7 @@
 3. Gateway 交付 StreamEvent 给 IMPlugin 流式渲染器
 4. 流式渲染器逐事件消费，按事件类型处理：
    - Text 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 到达即追加文本到行缓冲区 → 检测代码块边界标记（```）切换代码/文本模式 → 文本模式检测句末标点或换行、代码模式累计至代码块结束（闭合 ```）后整块输出。完整输出单元立即渲染输出，不完整则继续缓冲，缓冲区超过阈值（约 100 字符）或 200ms 超时则强制输出——不等待 BlockEnd（代码块内容不受阈值/超时约束，随整块结束输出）
-   - Thinking/Tool 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 累积内容，BlockEnd 到达即全块就绪，一次交付平台格式渲染器（如飞书的折叠推理区、工具操作卡片）
+   - Thinking/ToolUse 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 累积内容，BlockEnd 到达即全块就绪，一次交付平台格式渲染器（如飞书的折叠推理区、工具操作卡片）
    - Image/Audio/File 块 → 不以流式事件形式出现（LLM 流式不产出媒体块），非流式路径中直接交由平台格式渲染器处理（图片内容的上下文/引用区分见 [im_adapter media-store](media-store.md)）
    - Error → 不产生增量输出，流错误的统一降级处理由 Gateway 负责（详见 [Gateway 出站流程](../gateway/outbound-flow.md)）
 5. MessageEnd → 刷新所有缓冲 → 输出剩余内容 → 清空块状态和行缓冲上下文
@@ -43,6 +43,6 @@
 
 - **上游**：Gateway（交付经 Processor Chain 处理后的 [StreamEvent](../common/shared-types.md#streamevent) 事件流给 IMPlugin，IMPlugin 内部触发流式渲染）
 - **下游**：IMPlugin（接收增量渲染输出并通过 Adapter 发送到 IM 平台）
-- **内部组件**：流式渲染器是 IM Adapter 的通用组件，由各平台插件组合持有并委托调用。平台可覆盖实现差异化渲染逻辑
+- **与 common 原语的关系**：平台无关的流式渲染原语（[common StreamingRenderer](../common/core-traits.md#streamingrenderer)，trait 定义 + 默认实现 + 行缓冲）位于 [common](../common/README.md)；im_adapter 与 cli 各适配器持有并委托调用，平台专属 emit（飞书卡片富文本组装、终端 ANSI 渲染）由各适配器自身实现。消费方经 common 直接引用；除 common 外任何 crate 不得把 common 项经自身公共路径再导出（见 [STANDARDS.md 禁止二次出口](../STANDARDS.md)）
 - **与 Processor Chain 的关系**：Gateway 按交付模式协调链执行。流式出站走增量阶段——StreamEvent 事件流经 VerbosityFilter 过滤、DslParser 透传后进入流式渲染。完整链处理（DslParser 解析 DSL 指令 + 出站日志）在流式渲染完成后由 Gateway 在收尾阶段调度。批量模式一次性执行完整链后渲染，详见 [Gateway 文档](../gateway/README.md)
-- **所属**：IM Adapter 模块的通用子功能
+- **所属**：IM Adapter 模块的渲染子功能（持有并委托 common 流式渲染原语）

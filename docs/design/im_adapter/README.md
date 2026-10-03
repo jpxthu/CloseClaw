@@ -12,7 +12,7 @@
 IM Adapter 模块不包含业务逻辑，由三类组件组成：
 
 - **插件接口层**：IMPlugin trait 是统一插件契约，完整接口定义见 [common/core-traits](../common/core-traits.md#implugin)。每个消息平台实现此 trait，提供入站解析、渲染、发送、生命周期四组方法。terminal 平台的实现位于 [CLI 模块](../cli/README.md)，不在此目录。
-- **通用渲染能力**：代码块语法高亮和流式增量渲染是跨平台通用机制，以 IM Adapter 内的通用组件形式提供。各平台插件组合持有对应组件并在渲染时委托调用，按需覆盖平台差异化部分。
+- **通用渲染能力**：代码块渲染与流式增量渲染的平台无关原语（内容段解析、流式渲染）是跨平台共享的，位于 [common](../common/README.md)——流式渲染原语（trait 定义 + 默认实现 + 行缓冲）见 [common/core-traits](../common/core-traits.md#streamingrenderer)，内容段数据结构与内容段解析见 [common/shared-types](../common/shared-types.md#contentsegment--内容段落解析)。各平台适配器（im_adapter 与 cli）组合持有这些原语并在渲染时委托调用；平台专属 emit（飞书卡片富文本组装、终端 ANSI 渲染）由各适配器自身实现。
 - **平台插件**：每个消息平台的数据和渲染实现。IM 平台（飞书、Discord 等）的插件放在 `platforms/` 子目录下。terminal 平台的实现位于 CLI 模块。
 
 模块运行时注册表由 Gateway 维护：
@@ -69,8 +69,8 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 
 | 文档 | 内容 |
 |------|------|
-| [代码块渲染](code-render.md) | 代码块语法高亮，按平台选择渲染策略 |
-| [流式渲染](streaming-render.md) | 流式增量输出，行缓冲 + 块类型路由 |
+| [代码块渲染](code-render.md) | 代码块渲染：委托 common 内容段原语，按平台选择渲染策略 |
+| [流式渲染](streaming-render.md) | 流式增量输出：委托 common 流式渲染原语，行缓冲 + 块类型路由 |
 | [媒体存储](media-store.md) | 媒体落盘、上下文形态、出站读取约束与生命周期 |
 | [飞书插件](platforms/feishu.md) | 飞书平台完整插件实现（基于 lark-cli） |
 
@@ -114,9 +114,11 @@ peer_id 和 reply_ref 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、StreamingRenderer、MediaStoreAccess；消费：IdentityResolver）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、MediaStoreAccess；消费：IdentityResolver、StreamingRenderer）、[common/shared-types](../common/shared-types.md)（消费：ContentSegment）
 - **无关**：Session（IMPlugin 不直接参与 session 生命周期管理；peer_id/reply_ref 经 Session 上下文存储后由 Gateway 在出站时取出传入）、LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）
 
 ### 平台接口真实性验证

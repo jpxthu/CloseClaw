@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/processor_chain.md](../requirements/processor_chain.md)
+- 关联需求文档：[requirements/processor_chain.md](../../requirements/processor_chain.md)
 - 核心职责：管理入站消息的内容标准化/session_key 计算和出站消息的内容过滤、DSL 解析和日志记录。入站方向对 IM Adapter 归一化后的 NormalizedMessage 做内容清洗和 session_key 计算，出站方向按 priority 顺序执行 Verbosity 过滤、DSL 解析和出站日志。流式出站同样经 Processor 链——增量内容以 [StreamEvent](../common/shared-types.md#streamevent) 事件流传递，VerbosityFilter 按块边界逐事件过滤，DslParser 零开销透传（完整解析推迟到收尾阶段）。
 
 核心职责：
@@ -90,6 +90,8 @@ IM Adapter 发送
 Renderer 接收 ContentBlock[] 和 DSL 解析结果，按块类型选择渲染策略，一次性输出平台原生格式。
 
 ## 模块关系
+
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：Gateway（调度链执行）、Session（LLM 对话产出的 ContentBlock[]，属出站数据流上游）、IM Adapter（入站方向：产出 NormalizedMessage 供链消费）
 - **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费链输出并渲染为平台格式，发送渲染后的消息）

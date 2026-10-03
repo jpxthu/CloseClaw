@@ -131,6 +131,8 @@ Config 模块启动时依次执行以下步骤：
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、Agent（提供 Agent 配置文件，Config 启动时扫描加载并合并为 ResolvedAgentConfig）、platform（提供配置目录，作为各配置子目录布局的基准）
 - **下游**：无直接调用（配置模块不主动调用其他业务模块 API，仅经 platform 获取配置目录并读写文件系统、提供查询接口）。ConfigReloadManager 通过事件通道以 publish/subscribe 模式向订阅模块推送变更通知——是否订阅、订阅后如何重载，由各模块自行决定，不构成调用关系；重启生效类变更确认后触发 daemon 择机重启网关（见 [hot-reload](hot-reload.md)「重启类变更确认与触发」，属事件触发、非 API 调用）。**间接消费方**：session（通过 SessionConfigProvider 查询会话配置参数）、Gateway（读取机器人→Agent 绑定）、IM Adapter（入站身份映射时查询 accounts.json）、权限模块（延迟加载 Agent 配置目录下的 permissions.json 文件，热适应由权限模块内部机制实现，不经 config 变更通知）、skills（通过 SkillsConfigProvider 读取 extraDirs 外部复用技能目录，详见 [skills 模块](../skills/README.md)）、memory（通过 MemoryConfigProvider 读取记忆模块全局配置，详见 [memory/config](../memory/config.md)）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：IdentityResolver）

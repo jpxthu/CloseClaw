@@ -205,4 +205,5 @@ session 销毁（仅由按时间清理触发，见 [session/session-lifecycle.md
 
 - **上游**：BashTool（触发后台执行、自动后台化）、Session 模块（停止时触发进程清理、销毁时触发进程终止与输出回收）
 - **下游**：文件系统（输出持久化、session 销毁时回收输出文件）、消息队列（通知注入）、调试日志框架（任务启动与到达终态的关键事件记录）、agent 会话（通知被 agent 在下一轮对话中看到）
+- **共享类型 / 核心 trait**：后台任务的生成/接管/终止/查询与通知取出经 [common TaskManager](../common/core-traits.md#taskmanager) 抽象；任务与通知的数据结构（[BackgroundTask / TaskState / RunningTaskInfo / CompletionNotification / NotificationPriority / BackgroundTaskError](../common/shared-types.md#backgroundtask--taskstate--runningtaskinfo--completionnotification--notificationpriority--backgroundtaskerror)）定义在 [shared-types](../common/shared-types.md#backgroundtask--taskstate--runningtaskinfo--completionnotification--notificationpriority--backgroundtaskerror)。
 - **无关**：权限引擎（权限检查在 BashTool 层完成，后台系统不重复检查）、processor_chain（通知注入走消息队列，不走出站处理链）
