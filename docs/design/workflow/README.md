@@ -37,8 +37,8 @@ Workflow Engine 由四个子功能组成：
 每个步骤经过三个阶段（详见 execution-engine.md）：
 
 1. **executing 阶段**：Engine 注入步骤目标消息（role: workflow），Agent 连续工具调用完成步骤内容。Engine 在 Agent 执行期间不干预。
-2. **verifying 阶段**：满足验收判定条件时（四维活跃维度均否，判断见 execution-engine.md「验收时机」），Engine 注入验收清单。Agent 自查——未完成则继续执行，Engine 等下次验收判定条件满足时先移除上一条验收清单再重新注入；完成则调用 workflow_verify，Engine 抹除本轮验收清单交互记录（注入消息 + tool_call + tool_result），进入 jumping。
-3. **jumping 阶段**：Engine 注入跳转问题，Agent 回答后 Engine 匹配 transitions 决定下一步（goto/reexecute/complete），抹除本轮跳转问题交互记录（注入消息 + tool_call + tool_result），更新状态，注入新步骤的步骤目标消息或结束。
+2. **verifying 阶段**：满足验收判定条件时（四维活跃维度均否，判断见 execution-engine.md「验收时机」），Engine 注入验收清单。Agent 自查——未完成则继续执行，Engine 等下次验收判定条件满足时先移除上一条验收清单再重新注入；完成则调用 workflow_verify，进入 jumping（本轮验收交互记录暂留，待跳转决策完成后统一抹除）。
+3. **jumping 阶段**：Engine 注入跳转问题，Agent 回答后 Engine 匹配 transitions 决定下一步（goto/reexecute/complete），随即抹除本轮验收清单与跳转问题的交互记录（各自的注入消息 + tool_call + tool_result），更新状态，注入新步骤的步骤目标消息或结束。
 
 ### 暂停与恢复
 

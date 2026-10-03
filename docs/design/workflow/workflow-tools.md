@@ -19,7 +19,7 @@ Workflow Tools 是 Agent 与 Engine 之间的结构化通信接口。Agent 通�
 
 ### 触发机制
 
-斜杠指令：用户输入 /workflow <name>，由 SlashDispatcher 在 Gateway 层拦截，转发给 Engine 加载定义并初始化 WorkflowRun。执行完毕后通过 Gateway 向用户返回确认消息。
+斜杠指令：Owner 输入 /workflow <name>，由 SlashDispatcher 在 Gateway 层拦截，转发给 Engine 加载定义并初始化 WorkflowRun。执行完毕后通过 Gateway 向用户返回确认消息。
 
 工具调用：Agent 在对话中途调用 workflow_start({name})，当前 session 转入 workflow 模式。适用场景：用户要求执行特定 workflow，Agent 自主判断并调用工具。
 
@@ -68,14 +68,14 @@ workflow_verify 只是"我做完了"的信号。验收清单来源于 Step 定�
 
 1. Agent 调用 workflow_blocked({reason})
 2. Engine 检查当前 step 的 allow_blocked：为 false 则返回错误，Agent 继续验收循环
-3. Engine 将 phase 设为 blocked，通过 Gateway 向 Owner 发送通知（含 reason）
+3. Engine 将 phase 设为 blocked，通过 Gateway 即时向 Owner 发送通知（含 reason）
 4. 返回 tool result（被抹除）
 5. Owner 回复：Engine 通过 Gateway 感知 Owner 消息 → 解除阻塞（解除动作见 execution-engine.md「阻塞处理」）
 6. Agent 按正常验收 → 跳转流程继续
 
 ### 斜杠指令
 
-1. 用户输入 /workflow <name>
+1. Owner 输入 /workflow <name>
 2. SlashDispatcher 匹配 /workflow 路由，提取 name 参数
 3. 转发给 Engine
 4. Engine 执行与 workflow_start 相同的初始化流程

@@ -76,12 +76,13 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 
 ### 平台渲染选择
 
-各消息平台插件根据内容特征自动选择输出格式：
+各消息平台插件根据内容特征自动选择输出格式，格式选择由系统自动完成，用户与 Agent 无需手动指定：
 
-- 纯文本、无格式标记、无 DSL → text 消息
-- 含 markdown 格式（标题/粗体/斜体/代码块/列表/引用/链接/分割线）或换行或 DSL → 富格式消息
-- 含 Thinking/ToolUse/ToolResult 块 → 富格式消息
+- 纯文本、无格式标记、无换行、无 Thinking/ToolUse/ToolResult 块、无 DSL → text 消息
+- 含 markdown 格式（标题/粗体/斜体/代码块/列表/引用/链接/分割线）、换行、Thinking/ToolUse/ToolResult 块、或 DSL → 富格式消息
 - 含 Image/Audio/File 块 → 富格式消息
+
+**流式与批量的格式分流**：流式输出一律使用富格式消息——流式内容在生成完成前无法判定是否为纯文本，不适用 text 分支；轻量文本消息仅用于内容在发送前已完整生成、且判定为纯文本的批量消息。消息格式一经发出即锁定，不因后续生成的内容而改变。
 
 例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）；流式模式下 DSL 交互指令不产生渲染输出（仅日志记录与出站历史写入），交互指令仅在批量模式渲染（见[流式渲染](streaming-render.md)）。
 

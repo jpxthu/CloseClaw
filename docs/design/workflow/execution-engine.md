@@ -61,13 +61,13 @@ Agent 动作：自查
 - 未完成 → 继续执行。Engine 等下次验收判定条件满足，注入新验收清单前先移除上一条验收清单，计数加一
 - 完成 → workflow_verify()
 - 无法继续且 allow_blocked → workflow_blocked()
-消息抹除：Agent 调用 workflow_verify 或 workflow_blocked 后，Engine 抹除验收清单注入消息 + tool_call + tool_result 三条消息
+消息抹除：Agent 调用 workflow_blocked 后即抹除本轮验收清单交互记录（注入消息 + tool_call + tool_result）；Agent 调用 workflow_verify 进入跳转时不立即抹除，待跳转决策完成后与跳转问题交互记录一并抹除（见「跳转」阶段）
 
 **跳转**（jumping phase）
 触发：Agent 调用 workflow_verify
 注入：跳转问题（ABCD 选项 + 调用提示，role: workflow）
 Agent 动作：workflow_jump({answers})
-消息抹除：Engine 抹除跳转问题注入消息 + tool_call + tool_result 三条消息
+消息抹除：跳转决策完成后，Engine 一并抹除本轮验收清单与跳转问题的交互记录（两者的注入消息 + tool_call + tool_result）
 
 ### 验收时机（Session 活跃维度）
 
@@ -88,7 +88,7 @@ Engine 判定当前步骤执行是否可进入 verifying：在 Agent 当前 turn
 1. Engine 注入验收清单（role: workflow）。如当前步骤 allow_blocked，末尾附加 blocked 提示
 2. Agent 自查：
    - 继续干活 → Engine 等下次验收判定条件满足，注入新验收清单前先移除上一条验收清单，pending_verify 加一
-   - 完成 → workflow_verify() → Engine 抹除三条消息（注入消息 + tool_call + tool_result）→ 进入跳转阶段
+   - 完成 → workflow_verify() → 进入跳转阶段（本轮验收交互记录暂留，待跳转决策完成后统一抹除）
    - 无法继续且 allow_blocked → workflow_blocked() → Engine 抹除三条消息 → 进入阻塞阶段
 
 ### 跳转阶段
@@ -96,7 +96,7 @@ Engine 判定当前步骤执行是否可进入 verifying：在 Agent 当前 turn
 1. Engine 注入跳转问题（role: workflow）。选项来自当前步骤定义中的 jump 配置，与 transitions 的 when 条件对应
 2. Agent 调用 workflow_jump({answers})
 3. Engine 按 transitions 顺序匹配条件，执行对应 action（goto/reexecute/complete）
-4. Engine 抹除三条消息（跳转问题注入消息 + tool_call + tool_result），更新 WorkflowRun 状态
+4. Engine 一并抹除本轮验收清单与跳转问题的交互记录（两者的注入消息 + tool_call + tool_result），更新 WorkflowRun 状态
 5. 注入下一步的步骤目标消息或结束
 
 ### 跳转评估
@@ -111,11 +111,9 @@ complete：Workflow 结束。目标 phase 为 complete。
 
 ### 验收重试
 
-Engine 每次注入验收清单后 pending_verify 计数加一。Agent 调用 workflow_verify 后计数归零。
+Engine 每次注入验收清单后 pending_verify 计数加一。计数达到上限（默认 3，可在 workflow 定义中配置，每个 workflow 一个上限值）→ phase 转为 blocked 并通知 Owner；Owner 解除阻塞后计数归零（重置验收重试次数），转入 blocked 前残留的旧验收清单在 Owner 解除时一并清理。
 
-计数达到上限（默认 3，可在 workflow 定义中配置，每个 workflow 一个上限值）→ phase 转为 blocked。转入 blocked 时，pending_verify 数值保留不动，Owner 解除阻塞后归零。转入 blocked 前残留的旧验收清单在 Owner 解除时一并清理。
-
-pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、Owner 解除 blocked。
+进入新步骤时计数归零：goto 到新步骤、reexecute 重入步骤，以及 Agent 调用 workflow_verify 使当前步骤验收通过。
 
 没有超时机制。Agent 只要还在执行步骤内容，不管多久 Engine 都等——步骤长度由任务复杂度决定，Engine 不设时间上限。
 
@@ -125,8 +123,8 @@ pending_verify 在以下情况下归零：Agent 调用 workflow_verify、goto �
 
 **转入 blocked**
 
-- **Agent 主动阻塞**（当前步骤 allow_blocked 为 true）：Agent 在 verifying 阶段调用 workflow_blocked({reason}) → Engine 将 phase 设为 blocked，通过 Gateway 通知 Owner
-- **验收重试耗尽**：pending_verify 计数达到上限 → Engine 将 phase 设为 blocked，通过 Gateway 通知 Owner
+- **Agent 主动阻塞**（当前步骤 allow_blocked 为 true）：Agent 在 verifying 阶段调用 workflow_blocked({reason}) → Engine 将 phase 设为 blocked，通过 Gateway 即时通知 Owner（含暂停原因）
+- **验收重试耗尽**：pending_verify 计数达到上限 → Engine 将 phase 设为 blocked，通过 Gateway 即时通知 Owner（含暂停原因）
 
 **Owner 解除阻塞**（解除动作定义处）
 
