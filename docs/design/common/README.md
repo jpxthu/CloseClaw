@@ -22,6 +22,8 @@ common 本身不参与运行时数据流。它定义的数据结构在业务模�
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：所有消费 common 中类型或 trait 的模块（通过引用 common 中定义的类型和 trait 进行交互）
 - **无关**：无。platform、debug_log、fake_llm 不依赖 common（不作为下游），也无与「跨模块共享定义」名称/功能易混的关系

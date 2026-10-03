@@ -98,6 +98,8 @@ LLM 模块通过独立的模型发现（ModelDiscovery）服务提供模型发�
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 LLM 模块以 LLM Client（UnifiedChatClient）为统一入口，对外暴露对话调用能力。模型发现通过独立的旁路子系统（model-discovery）消费 Provider 能力，不走 LLM Client 主链路。
 
 - **上游**：Session 层（经 LlmCaller 抽象发起对话请求、消费统一响应——LlmCaller 由 Daemon 接线、桥接本模块的 UnifiedChatClient，见 [daemon/README.md](../daemon/README.md)）、system_prompt 模块（为缓存适配器提供静态区和动态区内容）、CLI 配置命令（触发 Provider 配置向导）

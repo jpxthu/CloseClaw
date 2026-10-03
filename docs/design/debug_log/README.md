@@ -2,7 +2,7 @@
 
 ## 概述
 
-- 关联需求文档：[requirements/debug_log.md](../requirements/debug_log.md)
+- 关联需求文档：[requirements/debug_log.md](../../requirements/debug_log.md)
 - 核心职责：为系统内部行为提供统一的调试日志基础设施——包含追踪标识传播、分级过滤、JSONL 文件写入和日轮转。各模块通过框架记录日志事件，运维 Agent 以追踪标识串联事件链路定位问题根因。
 
 ## 架构
@@ -79,6 +79,8 @@ trace_id 在入站事件到达即产生，贯穿整条消息链路。日志事�
 不经过入站消息链路的系统内部事件（如定时任务触发、后台任务检查）由触发模块自行生成独立 trace_id——从系统时间戳与模块标识组合产生。此类事件无 session_key（session_key 字段为空）。
 
 ## 模块关系
+
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：所有需要记录调试日志的业务模块（Gateway、Processor Chain、Session、LLM、IM Adapter、Tools、Slash、Permission 等）。各模块调用框架接口产出日志事件。trace_id 由 IM Adapter 在入站事件到达时生成并随消息传递；非消息事件由触发模块自行生成
 - **下游**：文件系统（日志文件写入）。运维 Agent 读取日志文件以 trace_id 串联事件链路定位根因，链路中因写入失败而缺失的节点自然不出现

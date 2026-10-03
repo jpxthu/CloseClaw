@@ -113,6 +113,8 @@ peer_id 和 reply_ref 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Config（accounts.json：入站解析时查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、MediaStoreAccess；消费：IdentityResolver、StreamingRenderer）、[common/shared-types](../common/shared-types.md)（消费：ContentSegment）

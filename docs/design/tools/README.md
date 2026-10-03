@@ -126,6 +126,8 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 ## 模块关系
 
+> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+
 ### 上游
 
 | 模块 | 调用关系 |
