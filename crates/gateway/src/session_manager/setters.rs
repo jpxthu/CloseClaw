@@ -106,7 +106,7 @@ impl SessionManager {
     /// Set the agent registry for resolved config lookups.
     pub async fn set_agent_registry(
         &self,
-        agent_registry: Arc<dyn closeclaw_agent::AgentRegistryQuery>,
+        agent_registry: Arc<dyn closeclaw_common::AgentRegistryQuery>,
     ) {
         *self.agent_registry.write().await = Some(agent_registry);
     }

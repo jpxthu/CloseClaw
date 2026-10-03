@@ -1,10 +1,10 @@
 //! Agent lookup traits for decoupling gateway and tools from agent registry.
 //!
 //! Provides interfaces for querying agent configuration without
-//! requiring a direct dependency on the concrete `AgentRegistry`.
+//! requiring a direct dependency on the agent registry module.
 
+use crate::{AgentSkillsQuery, AgentToolsConfigQuery, BootstrapMode, ModelSpec};
 use async_trait::async_trait;
-use closeclaw_common::{BootstrapMode, ModelSpec};
 use std::path::PathBuf;
 
 /// Minimal agent config info needed by tools.
@@ -28,7 +28,7 @@ pub struct AgentConfigInfo {
 
 /// Trait for looking up agent configuration.
 ///
-/// Implemented by `AgentRegistry` in the main crate; used by the tools
+/// Implemented by `AgentRegistry` in the agent crate; used by the tools
 /// crate's `SessionsSpawnTool` to look up parent agent config.
 #[async_trait]
 pub trait AgentConfigLookup: Send + Sync {
@@ -40,7 +40,7 @@ pub trait AgentConfigLookup: Send + Sync {
 
 /// Trait for looking up agent configuration and registry data.
 ///
-/// Implemented by `AgentRegistry` in the main crate; used by the gateway
+/// Implemented by `AgentRegistry` in the agent crate; used by the gateway
 /// crate to avoid a direct dependency on the agent module.
 #[async_trait]
 pub trait AgentLookup: Send + Sync {
@@ -71,7 +71,4 @@ pub trait AgentLookup: Send + Sync {
 /// Inherits [`AgentLookup`], [`AgentSkillsQuery`], and
 /// [`AgentToolsConfigQuery`] so that a single `Arc<dyn AgentRegistryQuery>`
 /// can satisfy all downstream query needs without multiple trait objects.
-pub trait AgentRegistryQuery:
-    AgentLookup + closeclaw_common::AgentSkillsQuery + closeclaw_common::AgentToolsConfigQuery
-{
-}
+pub trait AgentRegistryQuery: AgentLookup + AgentSkillsQuery + AgentToolsConfigQuery {}

@@ -69,7 +69,7 @@ pub(super) struct MockAgentRegistryQuery {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
+impl closeclaw_common::AgentLookup for MockAgentRegistryQuery {
     async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
         None
     }
@@ -101,7 +101,7 @@ impl closeclaw_common::AgentToolsConfigQuery for MockAgentRegistryQuery {
     }
 }
 
-impl closeclaw_agent::AgentRegistryQuery for MockAgentRegistryQuery {}
+impl closeclaw_common::AgentRegistryQuery for MockAgentRegistryQuery {}
 
 /// Build a `ResolvedAgentConfig` for tests. Identical to the one in
 /// `spawn_tests` / `announce_tests` — kept local to avoid a

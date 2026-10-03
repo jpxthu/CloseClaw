@@ -6,7 +6,7 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
-use closeclaw_agent::AgentConfigLookup;
+use closeclaw_common::AgentConfigLookup;
 use closeclaw_common::Tool;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_tasks::NotificationPriority;
@@ -21,7 +21,7 @@ impl AgentConfigLookup for MockAgentConfigLookup {
     async fn lookup_agent_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentConfigInfo> {
+    ) -> Option<closeclaw_common::AgentConfigInfo> {
         None
     }
 }

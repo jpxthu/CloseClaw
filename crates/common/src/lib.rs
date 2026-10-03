@@ -1,3 +1,4 @@
+pub mod agent_lookup;
 pub mod agent_query;
 pub mod bootstrap;
 pub mod communication;
@@ -83,6 +84,7 @@ pub mod trace_id;
 pub mod turn;
 pub mod verbosity;
 
+pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;

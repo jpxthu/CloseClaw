@@ -115,11 +115,11 @@ impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
 struct MockAgentConfigLookup;
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentConfigLookup for MockAgentConfigLookup {
+impl closeclaw_common::AgentConfigLookup for MockAgentConfigLookup {
     async fn lookup_agent_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentConfigInfo> {
+    ) -> Option<closeclaw_common::AgentConfigInfo> {
         None
     }
 }

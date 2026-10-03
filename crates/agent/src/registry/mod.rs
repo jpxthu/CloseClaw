@@ -75,7 +75,7 @@ pub fn create_registry() -> SharedAgentRegistry {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl crate::lookup::AgentLookup for AgentRegistry {
+impl closeclaw_common::AgentLookup for AgentRegistry {
     async fn get_agent_model(&self, agent_id: &str) -> Option<ModelSpec> {
         self.get(agent_id).and_then(|cfg| cfg.model.clone())
     }
@@ -136,17 +136,20 @@ impl closeclaw_common::AgentToolsConfigQuery for AgentRegistry {
 // AgentRegistryQuery — combined supertrait
 // ═══════════════════════════════════════════════════════════════════════════
 
-impl crate::lookup::AgentRegistryQuery for AgentRegistry {}
+impl closeclaw_common::AgentRegistryQuery for AgentRegistry {}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // AgentConfigLookup — bridge to closeclaw_common trait
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[async_trait::async_trait]
-impl crate::lookup::AgentConfigLookup for AgentRegistry {
-    async fn lookup_agent_config(&self, agent_id: &str) -> Option<crate::lookup::AgentConfigInfo> {
+impl closeclaw_common::AgentConfigLookup for AgentRegistry {
+    async fn lookup_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_common::AgentConfigInfo> {
         self.get(agent_id)
-            .map(|cfg| crate::lookup::AgentConfigInfo {
+            .map(|cfg| closeclaw_common::AgentConfigInfo {
                 subagents_model: cfg.subagents.model.clone(),
                 timeout_warning: cfg.subagents.timeout_warning,
                 timeout_notify_interval_ratio: cfg.subagents.timeout_notify_interval_ratio,

@@ -4,8 +4,8 @@
 use crate::config_watcher;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
-use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
+use closeclaw_common::AgentConfigLookup;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -146,7 +146,7 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
         .await;
     ctx.session_manager
         .set_agent_registry(
-            Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_agent::AgentRegistryQuery>
+            Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentRegistryQuery>
         )
         .await;
 }

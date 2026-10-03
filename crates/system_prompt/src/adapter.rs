@@ -6,10 +6,10 @@
 //! Implements Step 1.1 of the SystemPromptBuilder production plan.
 
 use async_trait::async_trait;
-use closeclaw_agent::lookup::AgentLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::injection_params::InjectionParams;
 use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_common::AgentLookup;
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;

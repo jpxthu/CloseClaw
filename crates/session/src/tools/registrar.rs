@@ -9,10 +9,10 @@ use async_trait::async_trait;
 use std::sync::Arc;
 
 use crate::spawn_validation::SpawnValidator;
-use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::permission_types::{SharedApprovalSubmission, SharedPermissionEvaluator};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistry};
 use closeclaw_common::tool_trait::Tool;
+use closeclaw_common::AgentConfigLookup;
 
 use super::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
 

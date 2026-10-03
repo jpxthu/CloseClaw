@@ -1,8 +1,8 @@
 //! sessions_yield tool — signals the session to enter Waiting state.
 
 use super::SessionManagerOps;
-use closeclaw_agent::AgentConfigLookup;
 use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::AgentConfigLookup;
 
 use async_trait::async_trait;
 use serde_json::{json, Value};
