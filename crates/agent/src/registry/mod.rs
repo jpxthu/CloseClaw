@@ -4,8 +4,7 @@
 //! populated once at startup (or reloaded at runtime) and exposes read-only
 //! queries. All runtime state (processes, lifecycle) lives elsewhere.
 
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::ModelSpec;
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_config::agents::ResolvedAgentConfig;
 use dashmap::DashMap;
 use std::path::PathBuf;

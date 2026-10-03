@@ -10,9 +10,9 @@ use std::sync::Arc;
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
-use closeclaw_common::{BootstrapMode, PermissionChecker, SpawnPermissionError};
+use closeclaw_common::{BootstrapMode, ModelSpec, PermissionChecker, SpawnPermissionError};
 use closeclaw_config::agents::{
-    ActionPermission, AgentPermissions, ConfigSource, MemoryConfig, ModelSpec, PermissionLimits,
+    ActionPermission, AgentPermissions, ConfigSource, MemoryConfig, PermissionLimits,
     ResolvedAgentConfig, SubagentsConfig,
 };
 use closeclaw_config::ConfigManager;

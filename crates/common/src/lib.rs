@@ -31,6 +31,9 @@ pub mod llm_types;
 pub mod media_store;
 pub mod metrics;
 pub mod middleware;
+pub mod model_spec;
+#[cfg(test)]
+pub mod model_spec_tests;
 pub mod path_utils;
 pub mod permission_check;
 pub mod permission_op;
@@ -102,6 +105,7 @@ pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinitio
 pub use media_store::{MediaStoreAccess, MediaStoreError};
 pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
+pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
 pub use permission_check::{
     ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,

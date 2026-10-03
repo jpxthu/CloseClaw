@@ -31,9 +31,9 @@
 
 use std::path::PathBuf;
 
-use crate::agents::config_types::{AgentConfig, MemoryConfig, ModelSpec, SubagentsConfig};
+use crate::agents::config_types::{AgentConfig, MemoryConfig, SubagentsConfig};
 use crate::ConfigError;
-use closeclaw_common::{BootstrapMode, HookConfig};
+use closeclaw_common::{BootstrapMode, HookConfig, ModelSpec};
 
 /// Configuration source level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

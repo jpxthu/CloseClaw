@@ -1,6 +1,4 @@
 //! ModelSpec serialization behavior tests.
-//!
-//! Split from `tests.rs` to keep both files below the 1000-line limit.
 
 use super::*;
 

@@ -556,10 +556,7 @@ struct MockAgentRegistryQuery;
 
 #[async_trait::async_trait]
 impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
-    async fn get_agent_model(
-        &self,
-        _agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ModelSpec> {
+    async fn get_agent_model(&self, _agent_id: &str) -> Option<closeclaw_common::ModelSpec> {
         None
     }
     async fn agent_exists(&self, _agent_id: &str) -> bool {
@@ -729,7 +726,7 @@ fn make_test_config_manager() -> Arc<closeclaw_config::manager::ConfigManager> {
                 id: "agent-b".into(),
                 name: "agent-b".into(),
                 parent_id: None,
-                model: Some(closeclaw_config::agents::ModelSpec::single("test-model")),
+                model: Some(closeclaw_common::ModelSpec::single("test-model")),
                 workspace: None,
                 agent_dir: None,
                 bootstrap_mode: BootstrapMode::Full,

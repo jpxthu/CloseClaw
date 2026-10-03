@@ -8,8 +8,8 @@ use crate::config::MemoryConfig;
 use crate::config::SubagentsConfig;
 use crate::lookup::{AgentLookup, AgentRegistryQuery};
 use crate::registry::AgentRegistry;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{ConfigSource, ModelSpec, ResolvedAgentConfig};
+use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 

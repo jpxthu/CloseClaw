@@ -4,8 +4,7 @@
 //! requiring a direct dependency on the concrete `AgentRegistry`.
 
 use async_trait::async_trait;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::ModelSpec;
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use std::path::PathBuf;
 
 /// Minimal agent config info needed by tools.

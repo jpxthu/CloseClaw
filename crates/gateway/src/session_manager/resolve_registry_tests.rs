@@ -9,8 +9,7 @@
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::Message;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::ModelSpec;
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::path::PathBuf;
 use std::sync::Arc;

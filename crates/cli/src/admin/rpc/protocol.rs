@@ -8,8 +8,8 @@
 //! [4-byte big-endian length (u32)][JSON frame bytes]
 //! ```
 
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{MemoryConfig, ModelSpec, SubagentsConfig};
+use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_config::agents::{MemoryConfig, SubagentsConfig};
 use serde::{Deserialize, Serialize};
 
 /// Information about a registered agent (summary for list).
@@ -233,7 +233,7 @@ mod tests {
             id: "agent1".to_string(),
             name: "Agent One".to_string(),
             parent_id: None,
-            model: Some(closeclaw_config::agents::ModelSpec::single("gpt-4")),
+            model: Some(closeclaw_common::ModelSpec::single("gpt-4")),
             workspace: None,
             agent_dir: None,
             bootstrap_mode: closeclaw_common::BootstrapMode::Full,

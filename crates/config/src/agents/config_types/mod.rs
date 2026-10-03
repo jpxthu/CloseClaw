@@ -6,17 +6,11 @@
 
 mod core;
 mod memory_types;
-mod model_spec;
 mod permissions;
 
 pub use core::*;
 pub use memory_types::*;
-pub use model_spec::*;
 pub use permissions::*;
 
 #[cfg(test)]
 mod tests;
-
-#[cfg(test)]
-#[path = "model_spec_tests.rs"]
-mod model_spec_tests;

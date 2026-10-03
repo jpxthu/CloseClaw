@@ -1,7 +1,8 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_config::agents::{AgentConfig, ConfigSource, ModelSpec, ResolvedAgentConfig};
+use closeclaw_common::ModelSpec;
+use closeclaw_config::agents::{AgentConfig, ConfigSource, ResolvedAgentConfig};
 use closeclaw_skills::DiskSkillRegistry;
 
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
