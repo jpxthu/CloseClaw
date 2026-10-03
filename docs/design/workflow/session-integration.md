@@ -50,8 +50,8 @@ Workflow 控制消息（role: workflow）与普通对话消息独立管理：
 
 - goal 消息：保留，不参与压缩
 - recovered 消息：保留，不参与压缩，退出时随 goal 消息一并清理
-- verify 消息：处理后删除（含对应的 tool_call 和 tool_result）
-- jump 消息：处理后删除（含对应的 tool_call 和 tool_result）
+- verify 消息：跳转决策完成后删除（含对应的 tool_call 和 tool_result）；Agent 主动阻塞时随阻塞立即删除
+- jump 消息：跳转决策完成后删除（含对应的 tool_call 和 tool_result）
 
 ## 数据流
 
@@ -72,9 +72,9 @@ workflow 一旦开始即不可回退为普通 Session——只能由 Engine 判�
 每次 checkpoint 写入时附带 WorkflowRun 的完整字段：
 workflow_id、definition_version、current_step、phase、step_history、pending_verify、paused_reason。
 
-### 从归档恢复
+### 系统重启与归档恢复
 
-Session 归档恢复时，Engine 重建会话后检测未完成 workflow，并按持久化的运行状态分派。运行状态 = 运行中（phase ∈ executing/verifying/jumping）或暂停中（phase = blocked）。
+系统重启或 Session 归档恢复时，Engine 重建会话后检测未完成 workflow，并按持久化的运行状态分派。运行状态 = 运行中（phase ∈ executing/verifying/jumping）或暂停中（phase = blocked）。
 
 **运行中恢复**
 
