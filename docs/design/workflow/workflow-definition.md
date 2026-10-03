@@ -24,7 +24,7 @@ Agent 专属目录为该 Agent 独有、对其全部 User 共享。workflow 定�
 Workflow
   ├── id、name、description
   ├── allow_blocked        // 是否允许 Agent 调用 workflow_blocked（可选，默认 false）
-  ├── verify_retry_limit   // 验证重试上限（可选，默认 3）
+  ├── verify_retry_limit   // 验收重试上限（可选，默认 3）
   └── steps: Step[]        // 步骤序列
 
 Step
@@ -55,14 +55,14 @@ Transition
 
 ### 配置项
 
-allow_blocked（默认 false）：控制 Agent 是否可以在 verify 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在 verify 消息末尾附加 blocked 提示；为 false 时 Agent 调用 workflow_blocked 直接返回错误。
+allow_blocked（默认 false）：控制 Agent 是否可以在 verifying 阶段调用 workflow_blocked 主动请求阻塞。可在 workflow 级别设置默认值，step 级别覆盖。为 true 时，Engine 在验收清单末尾附加 blocked 提示；为 false 时 Agent 调用 workflow_blocked 直接返回错误。
 
-verify_retry_limit（默认 3）：验证重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调 verify 则待下次验收判定条件满足时由 Engine 重新注入，计数继续累加。计数达到上限 → phase 转为 blocked 并通知 Owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 Owner 解除 blocked 后计数归零（详见 execution-engine.md）。
+verify_retry_limit（默认 3）：验收重试上限。Engine 每次注入验收清单后 pending_verify 计数加一。Agent 继续执行未调用 workflow_verify 则待下次验收判定条件满足时由 Engine 重新注入，计数继续累加。计数达到上限 → phase 转为 blocked 并通知 Owner。Agent 调用 workflow_verify、goto 到新步骤、reexecute 重入步骤、或 Owner 解除 blocked 后计数归零（详见 execution-engine.md）。
 
 ### 跳转动作
 
 goto：前进到指定步骤，目标 phase 为 executing。
-reexecute：重入指定步骤，goal 注入时附加重新执行提示，目标 phase 为 executing。
+reexecute：重入指定步骤，步骤目标消息注入时附加重新执行提示，目标 phase 为 executing。
 complete：Workflow 结束，目标 phase 为 complete。
 
 ## 数据流
@@ -81,9 +81,9 @@ Engine 按优先级查找定义文件：
 
 进入 workflow 模式后，Engine 不注入完整定义。Agent 通过以下方式获取步骤信息：
 
-- goal 消息：注入当前步骤的目标描述
-- verify 消息：注入验收清单
-- jump 消息：注入跳转问题（含 option_labels 渲染的 ABCD 选项）
+- 步骤目标消息：注入当前步骤的目标描述
+- 验收清单：注入当前步骤的验收条目
+- 跳转问题：注入当前步骤的跳转问题（含 option_labels 渲染的 ABCD 选项）
 
 SKILL.md 正文中的原则和注意事项不自动注入——Agent 如需参考，应主动读取文件。Agent 通过 workflow_verify、workflow_jump 等工具将响应回传 Engine。
 
@@ -94,7 +94,7 @@ create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过
 - 步骤编号合法性：步骤 id 从 0 开始、连续递增，无重复、无遗漏
 - 跳转规则合法性：无重复条件、必有兜底分支（default，且为最后一条）、goto/reexecute 目标步骤必须存在；enum/boolean expected_value 取值合法
 - 步骤内容完整性：每个步骤的 name、goal 非空
-- 验收清单完整性：每个步骤提供非空 verify 清单
+- 验收清单完整性：每个步骤提供非空验收清单
 - 枚举选项规范性：enum 类型必填非空无重复的 options，数量不超过 26（选项字母渲染上限）；option_labels（若提供）与 options 一一对应
 
 校验在定义被 Engine 加载时也会再执行一次（防御性）。
@@ -108,7 +108,7 @@ create-workflow skill 内置校验脚本，产出 workflow 定义时必须通过
 ### 下游
 
 - **Execution Engine**（同模块）：消费 Workflow 结构体，按 step 定义驱动执行。
-- **Workflow Tools**（同模块）：jump 问题的 option_labels 用于渲染工具调用提示。
+- **Workflow Tools**（同模块）：跳转问题的 option_labels 用于渲染工具调用提示。
 
 ### 无关
 
