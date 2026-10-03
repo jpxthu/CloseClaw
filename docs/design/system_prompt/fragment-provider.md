@@ -54,7 +54,7 @@ Builder 在请求片段前检查缓存键命中。缓存失效策略详见 [stat
 ## 数据流
 
 1. SessionManager 触发构建
-2. Builder 根据 SessionManager 传入的 agent_id 查询 agent 配置，获取 bootstrap_dir 与其 `bootstrapMode`；并接收 SessionManager 传入的 Session 角色（主/子）作为 session_role，构建 FragmentContext（agent_id + session_role + bootstrap_mode + bootstrap_dir）
+2. Builder 根据 SessionManager 传入的 agent_id 查询 agent 配置（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup)），获取 bootstrap_dir 与其 `bootstrapMode`；并接收 SessionManager 传入的 Session 角色（主/子）作为 session_role，构建 FragmentContext（agent_id + session_role + bootstrap_mode + bootstrap_dir）
 3. 按优先级遍历注册的 Provider：
    - **BootstrapFragmentProvider**：检查缓存命中（基于 bootstrap 文件修改时间）→ Bootstrap Loader 读文件 → 聚合多文件为单 Fragment → 产出 Fragment（无 workspace 目录时返回空）
    - **ToolsFragmentProvider**：ToolRegistry 生成分组索引 → 产出 Fragment
