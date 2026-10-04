@@ -97,13 +97,13 @@ fn test_bootstrap_context_exceeds_size_limit() {
 
 #[test]
 fn test_bootstrap_protection_reinject() {
-    let temp_dir = std::env::temp_dir();
+    let temp_dir = tempfile::TempDir::new().unwrap();
     let protection = BootstrapProtection::new()
-        .with_workspace(temp_dir.clone())
+        .with_workspace(temp_dir.path().to_path_buf())
         .with_bootstrap_files(vec!["AGENTS.md".to_string()]);
 
     // Create a test bootstrap file
-    let test_file = temp_dir.join("AGENTS.md");
+    let test_file = temp_dir.path().join("AGENTS.md");
     std::fs::write(&test_file, "# AGENTS\n\nTest content.").unwrap();
 
     let mut ctx = BootstrapContext::default();
@@ -115,9 +115,6 @@ fn test_bootstrap_protection_reinject() {
     assert!(reinject_text.contains("# AGENTS"));
     assert!(reinject_text.contains(BOOTSTRAP_REGION_END));
     assert!(ctx.regions[0].is_reinject);
-
-    // Cleanup
-    std::fs::remove_file(test_file).ok();
 }
 
 #[test]

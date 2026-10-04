@@ -57,10 +57,6 @@ fn test_config() -> GatewayConfig {
     }
 }
 
-fn workdir() -> std::path::PathBuf {
-    std::env::temp_dir().join("closeclaw-reasoning-chain-tests")
-}
-
 /// Capture-only LLM caller: records the last request per entry point and
 /// returns a canned response / minimal valid stream. No network involved.
 #[derive(Default)]
@@ -159,6 +155,8 @@ struct WiredFixture {
     caller: Arc<CapturingCaller>,
     /// Strong reference keeping the Weak gateway_ref in `sm` resolvable.
     _gateway: Arc<Gateway>,
+    /// Keeps the session workdir alive for the fixture's lifetime.
+    _workdir: tempfile::TempDir,
 }
 
 async fn make_wired_sm(
@@ -173,7 +171,12 @@ async fn make_wired_sm(
         ReasoningLevel::default(),
     ));
     let caller = Arc::new(CapturingCaller::default());
-    let mut cs = ConversationSession::new(SESSION_ID.to_string(), model.to_string(), workdir());
+    let workdir_tmp = tempfile::TempDir::new().unwrap();
+    let mut cs = ConversationSession::new(
+        SESSION_ID.to_string(),
+        model.to_string(),
+        workdir_tmp.path().to_path_buf(),
+    );
     cs.set_reasoning_level(requested);
     cs.set_llm_caller(caller.clone());
     sm.conversation_sessions.write().await.insert(
@@ -221,6 +224,7 @@ async fn make_wired_sm(
         sm,
         caller,
         _gateway: gateway,
+        _workdir: workdir_tmp,
     }
 }
 
@@ -514,7 +518,12 @@ async fn test_boundary_no_knowledge_does_not_write_back() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut cs = ConversationSession::new(SESSION_ID.to_string(), "glm-5.1".to_string(), workdir());
+    let workdir_tmp = tempfile::TempDir::new().unwrap();
+    let mut cs = ConversationSession::new(
+        SESSION_ID.to_string(),
+        "glm-5.1".to_string(),
+        workdir_tmp.path().to_path_buf(),
+    );
     cs.set_reasoning_level(ReasoningLevel::High);
     sm.conversation_sessions.write().await.insert(
         SESSION_ID.to_string(),

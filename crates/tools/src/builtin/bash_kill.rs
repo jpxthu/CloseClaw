@@ -244,9 +244,17 @@ pub(crate) fn process_output(raw: &str) -> OutputProcessed {
 /// Output larger than [`MAX_PERSISTED_BYTES`] is silently truncated
 /// to the byte boundary by [`safe_truncate`].
 pub(crate) fn persist_output(raw: &str) -> Result<String, String> {
+    persist_output_in(raw, &persist_dir())
+}
+
+/// Same as [`persist_output`] but writes under an injected directory.
+///
+/// Test seam: tests pass a `TempDir` so no fixed-name residue is left
+/// under the shared system temp directory; production callers go
+/// through [`persist_output`] and keep the default [`persist_dir`].
+pub(crate) fn persist_output_in(raw: &str, dir: &std::path::Path) -> Result<String, String> {
     static COUNTER: AtomicU64 = AtomicU64::new(0);
-    let dir = persist_dir();
-    std::fs::create_dir_all(&dir)
+    std::fs::create_dir_all(dir)
         .map_err(|e| format!("failed to create {}: {}", dir.display(), e))?;
     let ts = SystemTime::now()
         .duration_since(UNIX_EPOCH)
