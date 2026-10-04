@@ -157,6 +157,8 @@ struct WiredFixture {
     _gateway: Arc<Gateway>,
     /// Keeps the session workdir alive for the fixture's lifetime.
     _workdir: tempfile::TempDir,
+    /// Keeps the cooldown persist dir alive for the fixture's lifetime.
+    _cooldown_dir: tempfile::TempDir,
 }
 
 async fn make_wired_sm(
@@ -194,13 +196,16 @@ async fn make_wired_sm(
         PluginPipeline::new(),
         Arc::new(closeclaw_llm::cache_adapter::NoopCacheAdapter),
     ));
+    let cooldown_tmp = tempfile::TempDir::new().unwrap();
     let fallback_client = Arc::new(UnifiedFallbackClient::new(
         vec![ChainEntry {
             provider_id: "stub".into(),
             model_id: "stub".into(),
             client,
         }],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_tmp.path().join("llm_cooldowns.json"),
+        )),
     ));
     let active_searcher = Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(
@@ -225,6 +230,7 @@ async fn make_wired_sm(
         caller,
         _gateway: gateway,
         _workdir: workdir_tmp,
+        _cooldown_dir: cooldown_tmp,
     }
 }
 

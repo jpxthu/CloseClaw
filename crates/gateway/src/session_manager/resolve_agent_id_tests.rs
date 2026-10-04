@@ -33,21 +33,27 @@ fn test_message() -> Message {
     }
 }
 
-fn build_handler(sm: Arc<SessionManager>) -> SessionMessageHandler {
+fn build_handler(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
             as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(
-        sm,
-        ufc,
-        fallback_llm_caller,
-        closeclaw_session::compaction::CompactConfig::default(),
+    (
+        SessionMessageHandler::new_no_output(
+            sm,
+            ufc,
+            fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
+        ),
+        cooldown_dir,
     )
 }
 
@@ -195,7 +201,7 @@ async fn test_queuing_notification_text_from_session() {
         None,
         ReasoningLevel::default(),
     ));
-    let handler = build_handler(Arc::clone(&sm));
+    let (handler, _cooldown_dir) = build_handler(Arc::clone(&sm));
 
     // Create a session and set it to busy
     let msg = test_message();

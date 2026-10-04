@@ -31,29 +31,38 @@ fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
+fn make_fallback_client(cooldown_dir: &tempfile::TempDir) -> Arc<UnifiedFallbackClient> {
     Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ))
 }
 
-fn make_searcher_caller() -> Arc<ActiveSearcherLlmCaller> {
+fn make_searcher_caller(cooldown_dir: &tempfile::TempDir) -> Arc<ActiveSearcherLlmCaller> {
     Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
-            UnifiedFallbackClient::new(vec![], Arc::new(CooldownManager::new())),
+            UnifiedFallbackClient::new(
+                vec![],
+                Arc::new(CooldownManager::with_path(
+                    cooldown_dir.path().join("searcher_llm_cooldowns.json"),
+                )),
+            ),
         ))) as Arc<dyn closeclaw_common::LlmCaller>,
         model: "test-model".to_string(),
     })
 }
 
-fn make_handler(sm: &Arc<SessionManager>) -> SessionMessageHandler {
-    SessionMessageHandler::new_no_output(
+fn make_handler(sm: &Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = SessionMessageHandler::new_no_output(
         Arc::clone(sm),
-        make_fallback_client(),
-        make_searcher_caller(),
+        make_fallback_client(&cooldown_dir),
+        make_searcher_caller(&cooldown_dir),
         CompactConfig::default(),
-    )
+    );
+    (handler, cooldown_dir)
 }
 
 fn child_info(child_id: &str, parent_id: &str) -> ChildSessionInfo {
@@ -97,7 +106,7 @@ async fn test_spawn_tree_get_parent_unknown_session() {
 #[tokio::test]
 async fn test_child_session_user_skips_searcher() {
     let sm = make_sm();
-    let handler = make_handler(&sm);
+    let (handler, _cooldown_dir) = make_handler(&sm);
 
     // Register a parent-child relationship.
     sm.children
@@ -132,10 +141,11 @@ async fn test_child_session_assistant_skips_searcher() {
         .register_child("parent-sid", child_info("child-sid", "parent-sid"));
 
     let before = sm.searcher_sessions.len();
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
 
     let deps = SearcherTriggerDeps {
         session_manager: Arc::clone(&sm),
-        fallback_llm_caller: make_searcher_caller(),
+        fallback_llm_caller: make_searcher_caller(&cooldown_dir),
         memory_db_path: None,
         agent_model: None,
         memory_config: None,
@@ -156,7 +166,7 @@ async fn test_child_session_assistant_skips_searcher() {
 #[tokio::test]
 async fn test_normal_session_user_proceeds() {
     let sm = make_sm();
-    let handler = make_handler(&sm);
+    let (handler, _cooldown_dir) = make_handler(&sm);
 
     // Normal session: not registered in SpawnTree.
     assert!(sm.children.read().await.get_parent("normal-sid").is_none());
@@ -187,10 +197,11 @@ async fn test_normal_session_assistant_proceeds() {
     assert!(sm.children.read().await.get_parent("normal-sid").is_none());
 
     let before = sm.searcher_sessions.len();
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
 
     let deps = SearcherTriggerDeps {
         session_manager: Arc::clone(&sm),
-        fallback_llm_caller: make_searcher_caller(),
+        fallback_llm_caller: make_searcher_caller(&cooldown_dir),
         memory_db_path: None,
         agent_model: None,
         memory_config: None,

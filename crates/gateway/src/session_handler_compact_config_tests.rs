@@ -34,17 +34,24 @@ fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
+fn make_fallback_client(cooldown_dir: &tempfile::TempDir) -> Arc<UnifiedFallbackClient> {
     Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ))
 }
 
-fn make_active_searcher_caller() -> Arc<ActiveSearcherLlmCaller> {
+fn make_active_searcher_caller(cooldown_dir: &tempfile::TempDir) -> Arc<ActiveSearcherLlmCaller> {
     Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
-            UnifiedFallbackClient::new(vec![], Arc::new(CooldownManager::new())),
+            UnifiedFallbackClient::new(
+                vec![],
+                Arc::new(CooldownManager::with_path(
+                    cooldown_dir.path().join("searcher_llm_cooldowns.json"),
+                )),
+            ),
         ))) as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     })
@@ -57,26 +64,33 @@ fn handler_with_channel(
 ) -> (
     SessionMessageHandler,
     tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    tempfile::TempDir,
 ) {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let handler = SessionMessageHandler::new(
         Arc::clone(sm),
-        make_fallback_client(),
+        make_fallback_client(&cooldown_dir),
         tx,
-        make_active_searcher_caller(),
+        make_active_searcher_caller(&cooldown_dir),
         config,
     );
-    (handler, rx)
+    (handler, rx, cooldown_dir)
 }
 
 /// Create a handler with custom config and no output channel.
-fn handler_no_output(sm: &Arc<SessionManager>, config: CompactConfig) -> SessionMessageHandler {
-    SessionMessageHandler::new_no_output(
+fn handler_no_output(
+    sm: &Arc<SessionManager>,
+    config: CompactConfig,
+) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = SessionMessageHandler::new_no_output(
         Arc::clone(sm),
-        make_fallback_client(),
-        make_active_searcher_caller(),
+        make_fallback_client(&cooldown_dir),
+        make_active_searcher_caller(&cooldown_dir),
         config,
-    )
+    );
+    (handler, cooldown_dir)
 }
 
 /// Assert the compaction service config matches expected values.
@@ -133,7 +147,7 @@ async fn test_handler_uses_custom_compact_config() {
         max_consecutive_failures: 5,
         max_history_messages: Some(200),
     };
-    let (handler, _rx) = handler_with_channel(&sm, custom.clone());
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm, custom.clone());
     assert_compaction_config(&handler, 0.5, 0.08, 0.15, 5).await;
     // Verify max_history_messages propagates through config().
     let svc = handler.compaction_service.lock().await;
@@ -150,7 +164,7 @@ async fn test_handler_uses_custom_compact_config() {
 async fn test_handler_uses_default_compact_config() {
     let sm = make_sm();
     let default = CompactConfig::default();
-    let (handler, _rx) = handler_with_channel(&sm, default);
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm, default);
     assert_compaction_config(
         &handler, 0.25, // chars_per_token
         0.05, // auto_compact_threshold_pct
@@ -171,7 +185,7 @@ async fn test_handler_no_output_uses_custom_compact_config() {
         max_consecutive_failures: 10,
         max_history_messages: None,
     };
-    let handler = handler_no_output(&sm, custom);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, custom);
     assert_compaction_config(&handler, 0.4, 0.03, 0.07, 10).await;
 }
 
@@ -189,7 +203,7 @@ async fn test_handler_no_output_uses_custom_compact_config() {
 #[tokio::test]
 async fn test_manual_compact_success_resets_circuit_break_notified_flag() {
     let sm = make_sm();
-    let (handler, _rx) = handler_with_channel(&sm, CompactConfig::default());
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm, CompactConfig::default());
 
     // Simulate: circuit breaker has accumulated failures and was notified.
     {
@@ -228,7 +242,7 @@ async fn test_manual_compact_success_resets_circuit_break_notified_flag() {
 #[tokio::test]
 async fn test_circuit_breaker_reset_allows_re_notification() {
     let sm = make_sm();
-    let (handler, _rx) = handler_with_channel(&sm, CompactConfig::default());
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm, CompactConfig::default());
 
     // Trip the breaker and set notification flag.
     {

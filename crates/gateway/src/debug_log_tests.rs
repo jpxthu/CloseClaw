@@ -171,10 +171,13 @@ async fn read_events_from_dir(dir: &std::path::Path) -> Vec<closeclaw_debug_log:
 
 /// Create a SessionMessageHandler for route.decision tests.
 /// Sets the LLM caller on SessionManager so sessions can be created.
-async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
+async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let llm_caller: Arc<dyn closeclaw_common::LlmCaller> =
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
@@ -184,11 +187,14 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
             as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(
-        sm,
-        ufc,
-        fallback_llm_caller,
-        closeclaw_session::compaction::CompactConfig::default(),
+    (
+        SessionMessageHandler::new_no_output(
+            sm,
+            ufc,
+            fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
+        ),
+        cooldown_dir,
     )
 }
 
@@ -417,7 +423,7 @@ async fn test_session_resolved_event_emitted() {
 async fn test_route_decision_slash_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
     let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
     let (session_key, _) = create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
@@ -451,7 +457,7 @@ async fn test_route_decision_slash_event_emitted() {
 async fn test_route_decision_normal_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
     let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
     let (session_key, _) = create_session_and_timestamp(&sm, sender_id, peer_id, "feishu").await;
@@ -478,7 +484,7 @@ async fn test_route_decision_normal_event_emitted() {
 async fn test_no_trace_id_no_session_resolved_or_route_decision() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
     let (gw, sm, sender_id, peer_id) = setup_gw_with_debug(&temp_dir).await;
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
     // No trace_id in metadata — use make_processed but without trace_id.
@@ -528,7 +534,7 @@ async fn test_no_debug_log_no_session_resolved_or_route_decision() {
     ));
     // No debug_log set — stays None.
     let gw = crate::Gateway::new(config, Arc::clone(&sm));
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
     let sender_id = "ou_sender";

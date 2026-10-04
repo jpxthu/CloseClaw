@@ -19,10 +19,13 @@ use closeclaw_tasks::{
 /// Create a `SessionMessageHandler` with a mock LLM caller injected
 /// into the `SessionManager`. Must be called BEFORE `find_or_create`
 /// so the `ConversationSession` gets the caller at creation time.
-async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
+async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
@@ -32,11 +35,14 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
             as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(
-        sm,
-        ufc,
-        fallback_llm_caller,
-        closeclaw_session::compaction::CompactConfig::default(),
+    (
+        SessionMessageHandler::new_no_output(
+            sm,
+            ufc,
+            fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
+        ),
+        cooldown_dir,
     )
 }
 
@@ -62,7 +68,7 @@ fn make_sm() -> Arc<SessionManager> {
 async fn test_idle_message_returns_llm_started() {
     let sm = make_sm();
     // Inject LLM caller BEFORE creating sessions
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let result = handler.handle_message(&sid, "hello".to_string()).await;
     assert!(matches!(result, HandleResult::LlmStarted));
@@ -79,7 +85,7 @@ async fn test_busy_message_returns_queued() {
         cs.write().await.set_llm_state(LlmState::Requesting);
     }
 
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let result = handler.handle_message(&sid, "hello".to_string()).await;
     assert!(matches!(result, HandleResult::MessageQueued(_)));
 
@@ -94,7 +100,7 @@ async fn test_busy_message_returns_queued() {
 #[tokio::test]
 async fn test_no_pending_no_recursion() {
     let sm = make_sm();
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // With empty fallback chain, call will fail — but we just verify it doesn't panic
@@ -111,7 +117,7 @@ async fn test_no_pending_no_recursion() {
 #[tokio::test]
 async fn test_llm_failure_resets_busy() {
     let sm = make_sm();
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Start a call — busy becomes true
@@ -137,7 +143,7 @@ async fn test_llm_failure_resets_busy() {
 #[tokio::test]
 async fn test_pending_consumed_after_llm_done() {
     let sm = make_sm();
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // First message starts LLM call, busy = true
@@ -162,7 +168,7 @@ async fn test_pending_consumed_after_llm_done() {
 #[tokio::test]
 async fn test_multiple_pending_fifo_order() {
     let sm = make_sm();
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Start first LLM call
@@ -356,7 +362,7 @@ async fn test_drain_notifications_injects_system_message() {
 
     // handler_with_sm sets up LLM caller on SessionManager — needed
     // so the ConversationSession can invoke LLM when needed.
-    let _handler = handler_with_sm(sm.clone()).await;
+    let (_handler, _cooldown_dir) = handler_with_sm(sm.clone()).await;
     // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
@@ -399,7 +405,7 @@ async fn test_drain_notifications_no_task_manager() {
     let sid = setup_session_with_conv(&sm, "no-tm-test").await;
     // Do NOT set task_manager — it should be None by default.
 
-    let _handler = handler_with_sm(sm.clone()).await;
+    let (_handler, _cooldown_dir) = handler_with_sm(sm.clone()).await;
     // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
@@ -417,7 +423,7 @@ async fn test_drain_notifications_empty() {
     let tm: Arc<dyn TaskManager> = Arc::new(MockTaskManager::empty());
     sm.set_task_manager(tm).await;
 
-    let _handler = handler_with_sm(sm.clone()).await;
+    let (_handler, _cooldown_dir) = handler_with_sm(sm.clone()).await;
     // Step 1.3: unified drain — all priorities in a single pass.
     SessionMessageHandler::drain_announces_rest(&sm, &sid, None).await;
 
@@ -766,11 +772,15 @@ fn handler_with_channel(
 ) -> (
     SessionMessageHandler,
     tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    tempfile::TempDir,
 ) {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let handler = SessionMessageHandler::new(
         Arc::clone(sm),
@@ -783,7 +793,7 @@ fn handler_with_channel(
         }),
         closeclaw_session::compaction::CompactConfig::default(),
     );
-    (handler, rx)
+    (handler, rx, cooldown_dir)
 }
 
 /// Warning state must send notification on first trigger.
@@ -792,7 +802,7 @@ async fn test_warning_dedup_sends_first_time() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_warning(&sm, &sid).await;
-    let (handler, mut rx) = handler_with_channel(&sm);
+    let (handler, mut rx, _cooldown_dir) = handler_with_channel(&sm);
 
     handler.check_and_run_auto_compact(&sid).await;
 
@@ -813,7 +823,7 @@ async fn test_warning_dedup_no_second_message() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_warning(&sm, &sid).await;
-    let (handler, mut rx) = handler_with_channel(&sm);
+    let (handler, mut rx, _cooldown_dir) = handler_with_channel(&sm);
 
     // First Warning → sends notification
     handler.check_and_run_auto_compact(&sid).await;
@@ -833,7 +843,7 @@ async fn test_warning_dedup_resets_after_normal() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_warning(&sm, &sid).await;
-    let (handler, mut rx) = handler_with_channel(&sm);
+    let (handler, mut rx, _cooldown_dir) = handler_with_channel(&sm);
 
     // Warning → sends notification, sets has_warned = true
     handler.check_and_run_auto_compact(&sid).await;
@@ -884,7 +894,7 @@ async fn test_warning_dedup_resets_after_normal() {
 #[tokio::test]
 async fn test_user_message_persisted_before_compact_check() {
     let sm = make_sm();
-    let handler = handler_with_sm(Arc::clone(&sm)).await;
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     handler

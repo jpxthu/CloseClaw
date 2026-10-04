@@ -10,21 +10,27 @@ use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
 
-fn handler_with_sm(sm: Arc<SessionManager>) -> SessionMessageHandler {
+fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
             as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     });
-    SessionMessageHandler::new_no_output(
-        sm,
-        ufc,
-        fallback_llm_caller,
-        closeclaw_session::compaction::CompactConfig::default(),
+    (
+        SessionMessageHandler::new_no_output(
+            sm,
+            ufc,
+            fallback_llm_caller,
+            closeclaw_session::compaction::CompactConfig::default(),
+        ),
+        cooldown_dir,
     )
 }
 
@@ -182,7 +188,7 @@ async fn test_handle_message_backward_compat() {
         ReasoningLevel::default(),
     ));
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let handler = handler_with_sm(Arc::clone(&sm));
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm));
 
     // Original handle_message (no meta) should still return LlmStarted
     let result = handler.handle_message(&sid, "test input".to_string()).await;

@@ -577,7 +577,9 @@ fn test_cache_adapter_mapping_matches_design_doc() {
 
 /// Setup: build a UnifiedFallbackClient whose chain entries mirror the
 /// lifecycle.rs assembly logic (stub provider + per-provider cache adapter).
-fn make_chain_assembly_fallback() -> closeclaw_llm::unified_fallback::UnifiedFallbackClient {
+fn make_chain_assembly_fallback(
+    cooldown_dir: &std::path::Path,
+) -> closeclaw_llm::unified_fallback::UnifiedFallbackClient {
     use closeclaw_llm::cache_adapter::for_provider;
     use closeclaw_llm::interpreter::InterpreterRegistry;
     use closeclaw_llm::plugin::PluginPipeline;
@@ -611,7 +613,9 @@ fn make_chain_assembly_fallback() -> closeclaw_llm::unified_fallback::UnifiedFal
         });
     }
 
-    let cooldown = Arc::new(CooldownManager::new());
+    let cooldown = Arc::new(CooldownManager::with_path(
+        cooldown_dir.join("llm_cooldowns.json"),
+    ));
     UnifiedFallbackClient::new(chain_entries, cooldown)
 }
 
@@ -665,7 +669,8 @@ fn assert_chain_debug_adapters(chain: &[closeclaw_llm::unified_fallback::ChainEn
 #[test]
 fn test_llm_chain_assembly_correct_adapters() {
     // Setup: assemble the chain mirroring lifecycle.rs assembly logic.
-    let fallback = make_chain_assembly_fallback();
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let fallback = make_chain_assembly_fallback(cooldown_dir.path());
 
     // Verify chain entries and each client's cache adapter (via Debug).
     assert_chain_entry_ids(fallback.chain());
@@ -699,7 +704,10 @@ fn test_fallback_llm_caller_chain_accessible() {
         model_id: "claude-3".to_string(),
         client,
     };
-    let cooldown = Arc::new(CooldownManager::new());
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let cooldown = Arc::new(CooldownManager::with_path(
+        cooldown_dir.path().join("llm_cooldowns.json"),
+    ));
     let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
     let caller = FallbackLlmCaller(Arc::clone(&fallback));
 
@@ -906,9 +914,12 @@ fn session_handler_model_knowledge_returns_some() {
         model_id: "stub".into(),
         client,
     };
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let fallback_client = Arc::new(UnifiedFallbackClient::new(
         vec![entry],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let caller = Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(FallbackLlmCaller(fallback_client.clone())),

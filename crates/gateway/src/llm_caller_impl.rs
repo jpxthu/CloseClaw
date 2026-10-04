@@ -116,7 +116,10 @@ mod tests {
             model_id: "stub-model".to_string(),
             client,
         };
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
         let caller = FallbackLlmCaller(fallback);
 
@@ -151,7 +154,10 @@ mod tests {
             model_id: "stub-model".to_string(),
             client,
         };
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
         let caller = FallbackLlmCaller(fallback);
 
@@ -260,7 +266,10 @@ mod tests {
             client: ok_client,
         };
 
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let fallback = Arc::new(UnifiedFallbackClient::new(
             vec![entry_fail, entry_ok],
             cooldown,
@@ -286,7 +295,10 @@ mod tests {
         use closeclaw_llm::retry::CooldownManager;
         use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let client = Arc::new(UnifiedFallbackClient::new(vec![], cooldown));
         let caller = FallbackLlmCaller(client);
 
@@ -321,7 +333,10 @@ mod tests {
             model_id: "stub-model".to_string(),
             client,
         };
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
         let caller = FallbackLlmCaller(fallback);
 
@@ -429,7 +444,10 @@ mod tests {
             model_id: "fail-model".to_string(),
             client,
         };
-        let cooldown = Arc::new(CooldownManager::new());
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
         let fallback = Arc::new(UnifiedFallbackClient::new(vec![entry], cooldown));
         let caller = FallbackLlmCaller(fallback);
 
