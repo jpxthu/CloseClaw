@@ -10,7 +10,12 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
     assert!(subdir.is_dir(), "subdir should exist: {subdir:?}");
 }
 
+// The panic path under test comes from `debug_assert!` in `ensure_dir`,
+// which is compiled out in release builds — this counter-example is only
+// meaningful for the debug profile, so it is compiled (and run) solely
+// when `debug_assertions` is on.
 #[test]
+#[cfg(debug_assertions)]
 #[should_panic(expected = "ensure_dir")]
 fn test_ensure_dir_panics_for_path_outside_tempdir() {
     let outside = std::env::temp_dir()
