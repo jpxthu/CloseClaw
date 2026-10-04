@@ -1,4 +1,6 @@
 pub mod agent_lookup;
+#[cfg(test)]
+pub mod agent_lookup_tests;
 pub mod agent_query;
 pub mod bootstrap;
 pub mod communication;

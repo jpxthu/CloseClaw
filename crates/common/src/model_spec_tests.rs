@@ -106,3 +106,55 @@ fn test_model_spec_deserialize_unknown_fields_ignored() {
         serde_json::from_str(r#"{"primary":"a/b","unknown":{"nested":1}}"#).unwrap();
     assert_eq!(with_object_extra, ModelSpec::single("a/b"));
 }
+
+// ④ error path: malformed JSON (truncated / not JSON at all)
+#[test]
+fn test_model_spec_deserialize_malformed_json_errors() {
+    for input in ["", r#"{"primary":"a/b""#, "not json", "{", r#"["a/b""#] {
+        let err = serde_json::from_str::<ModelSpec>(input)
+            .expect_err("malformed input must fail")
+            .to_string();
+        assert!(!err.is_empty(), "input {input}: empty error");
+    }
+}
+
+// ④ error path: `fallback` field has wrong value type in object form
+#[test]
+fn test_model_spec_deserialize_fallback_wrong_type_errors() {
+    let err = serde_json::from_str::<ModelSpec>(r#"{"primary":"a/b","fallback":"x/y"}"#)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("invalid type"), "unexpected: {err}");
+    let err = serde_json::from_str::<ModelSpec>(r#"{"primary":"a/b","fallback":[42]}"#)
+        .unwrap_err()
+        .to_string();
+    assert!(err.contains("invalid type"), "unexpected: {err}");
+}
+
+// ⑥ constructor boundary: with_fallback with empty list == single (serializes as string form)
+#[test]
+fn test_model_spec_with_fallback_empty_list_equals_single() {
+    let spec = ModelSpec::with_fallback("provider/model", Vec::new());
+    assert_eq!(spec, ModelSpec::single("provider/model"));
+    let json = serde_json::to_string(&spec).unwrap();
+    assert_eq!(json, r#""provider/model""#);
+    assert_eq!(serde_json::from_str::<ModelSpec>(&json).unwrap(), spec);
+}
+
+// ⑥ constructor boundary: with_fallback keeps multiple fallbacks in order through roundtrip
+#[test]
+fn test_model_spec_with_fallback_multiple_preserves_order() {
+    let spec = ModelSpec::with_fallback(
+        "provider/model",
+        vec!["a/a".into(), "b/b".into(), "c/c".into()],
+    );
+    let json = serde_json::to_string(&spec).unwrap();
+    assert_eq!(
+        json,
+        r#"{"primary":"provider/model","fallback":["a/a","b/b","c/c"]}"#
+    );
+    let back = serde_json::from_str::<ModelSpec>(&json).unwrap();
+    assert_eq!(back, spec);
+    assert_eq!(back.fallback, vec!["a/a", "b/b", "c/c"]);
+    assert_eq!(back.to_string(), "provider/model");
+}
