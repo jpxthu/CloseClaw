@@ -4,7 +4,7 @@
 
 use crate::fallback::{FallbackClient, ModelEntry};
 use crate::provider::Provider;
-use crate::retry::CooldownManager;
+use crate::test_support::isolated_cooldown;
 use crate::types::ProtocolId;
 use crate::{ChatRequest, LLMError};
 use std::sync::Arc;
@@ -175,10 +175,7 @@ pub(crate) fn isolated_client(
     registry: Arc<crate::LLMRegistry>,
     chain: Vec<ModelEntry>,
 ) -> (tempfile::TempDir, FallbackClient) {
-    let dir = tempfile::TempDir::new().expect("create temp dir");
-    let cooldown = Arc::new(CooldownManager::with_path(
-        dir.path().join("llm_cooldowns.json"),
-    ));
+    let (dir, cooldown) = isolated_cooldown();
     (
         dir,
         FallbackClient::new_with_cooldown(registry, chain, cooldown),
@@ -190,10 +187,7 @@ fn isolated_client_from_strings(
     registry: Arc<crate::LLMRegistry>,
     chain: Vec<String>,
 ) -> (tempfile::TempDir, FallbackClient) {
-    let dir = tempfile::TempDir::new().expect("create temp dir");
-    let cooldown = Arc::new(CooldownManager::with_path(
-        dir.path().join("llm_cooldowns.json"),
-    ));
+    let (dir, cooldown) = isolated_cooldown();
     (
         dir,
         FallbackClient::from_strings_with_cooldown(registry, chain, cooldown),

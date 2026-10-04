@@ -68,13 +68,7 @@ impl FallbackClient {
     ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load_sync();
-        Self {
-            registry,
-            fallback_chain,
-            cooldown,
-            call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
-            protocol,
-        }
+        Self::build(registry, fallback_chain, cooldown, protocol)
     }
 
     /// Construct a `FallbackClient` with an explicit cooldown manager (test-only).
@@ -84,13 +78,12 @@ impl FallbackClient {
         fallback_chain: Vec<ModelEntry>,
         cooldown: Arc<CooldownManager>,
     ) -> Self {
-        Self {
+        Self::build(
             registry,
             fallback_chain,
             cooldown,
-            call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
-            protocol: Arc::new(crate::protocol::OpenAiProtocol::default()),
-        }
+            Arc::new(crate::protocol::OpenAiProtocol::default()),
+        )
     }
 
     /// Async constructor: creates the client and loads persisted cooldowns.
@@ -114,6 +107,16 @@ impl FallbackClient {
     ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load().await;
+        Self::build(registry, fallback_chain, cooldown, protocol)
+    }
+
+    /// Assemble a client from its parts (shared constructor backend).
+    fn build(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        cooldown: Arc<CooldownManager>,
+        protocol: Arc<dyn ChatProtocol>,
+    ) -> Self {
         Self {
             registry,
             fallback_chain,

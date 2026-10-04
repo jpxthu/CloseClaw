@@ -14,6 +14,7 @@
 #![cfg(feature = "fake-llm")]
 
 use std::future::Future;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -39,10 +40,20 @@ use closeclaw_session::persistence::ReasoningLevel;
 /// given `FakeProvider` through the full unified-fallback stack
 /// (`FallbackLlmCaller` → `UnifiedFallbackClient` → `UnifiedChatClient`).
 ///
+/// `cooldown_dir` is a TempDir-backed directory for cooldown persistence,
+/// isolating tests from the real `~/.closeclaw`. The caller must keep the
+/// `TempDir` alive for as long as the handler is used.
+///
 /// This must be called BEFORE `find_or_create` so that `resolve` injects the
 /// caller into every newly-created `ConversationSession`.
-async fn build_handler(sm: Arc<SessionManager>, provider: FakeProvider) -> SessionMessageHandler {
-    let cooldown = Arc::new(CooldownManager::new());
+async fn build_handler(
+    sm: Arc<SessionManager>,
+    provider: FakeProvider,
+    cooldown_dir: &Path,
+) -> SessionMessageHandler {
+    let cooldown = Arc::new(CooldownManager::with_path(
+        cooldown_dir.join("llm_cooldowns.json"),
+    ));
 
     let client = Arc::new(UnifiedChatClient::with_noop_cache_adapter(
         Arc::new(provider),
@@ -164,7 +175,8 @@ async fn test_idle_message_returns_llm_started() {
         .build();
     let provider_ref = provider.clone();
 
-    let handler = build_handler(sm.clone(), provider).await;
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = build_handler(sm.clone(), provider, cooldown_dir.path()).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     let result = handler.handle_message(&sid, "first".to_string()).await;
@@ -191,7 +203,8 @@ async fn test_busy_message_returns_queued() {
         .then_ok("response", "fake-model")
         .build();
 
-    let handler = build_handler(sm.clone(), provider).await;
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = build_handler(sm.clone(), provider, cooldown_dir.path()).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Manually set busy (like SessionMessageHandler does)
@@ -230,7 +243,8 @@ async fn test_fake_provider_call_count_while_busy() {
         .build();
     let provider_ref = provider.clone();
 
-    let handler = build_handler(sm.clone(), provider).await;
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = build_handler(sm.clone(), provider, cooldown_dir.path()).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // First message — starts LLM call, busy = true
@@ -288,7 +302,8 @@ async fn test_pending_fifo_after_delay() {
         .build();
     let provider_ref = provider.clone();
 
-    let handler = build_handler(sm.clone(), provider).await;
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = build_handler(sm.clone(), provider, cooldown_dir.path()).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Manually mark the session busy so the following messages queue
@@ -397,7 +412,8 @@ async fn test_idle_after_delay_drain() {
         .or_else("fallback")
         .build();
 
-    let handler = build_handler(sm.clone(), provider).await;
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = build_handler(sm.clone(), provider, cooldown_dir.path()).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
 
     // Start first call
