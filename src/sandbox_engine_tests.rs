@@ -7,23 +7,38 @@
 //! These tests do NOT start any real subprocess; they only verify the
 //! decision logic. The process environment is never modified.
 
+use std::path::PathBuf;
+
 use super::detect_engine_mode_inner;
+
+/// Socket-path fixture under the system temp directory (follows `$TMPDIR`,
+/// STANDARDS §8). `detect_engine_mode_inner` is a pure function — the path
+/// is never touched on disk — but hardcoded `/tmp` literals are banned by
+/// `scripts/test-audit.sh`.
+fn test_ipc_path() -> String {
+    std::env::temp_dir()
+        .join("closeclaw-sandbox-engine-test.sock")
+        .to_string_lossy()
+        .into_owned()
+}
 
 // --- Normal path: engine mode activated ---
 
 #[test]
 fn test_engine_mode_active_with_valid_ipc_path() {
-    let result = detect_engine_mode_inner(Some("1"), Some("/tmp/test.sock"));
+    let ipc = test_ipc_path();
+    let result = detect_engine_mode_inner(Some("1"), Some(ipc.as_str()));
     let inner = result.expect("should return Some for engine mode");
     let (ipc_path, _rules) = inner.expect("should be Ok with valid path");
-    assert_eq!(ipc_path, std::path::PathBuf::from("/tmp/test.sock"));
+    assert_eq!(ipc_path, PathBuf::from(&ipc));
 }
 
 // --- Boundary: SANDBOX_ENGINE not set ---
 
 #[test]
 fn test_no_engine_flag_returns_none() {
-    let result = detect_engine_mode_inner(None, Some("/tmp/test.sock"));
+    let ipc = test_ipc_path();
+    let result = detect_engine_mode_inner(None, Some(ipc.as_str()));
     assert!(
         result.is_none(),
         "None engine flag should yield None (normal CLI)"
@@ -32,7 +47,8 @@ fn test_no_engine_flag_returns_none() {
 
 #[test]
 fn test_engine_flag_empty_string_returns_none() {
-    let result = detect_engine_mode_inner(Some(""), Some("/tmp/test.sock"));
+    let ipc = test_ipc_path();
+    let result = detect_engine_mode_inner(Some(""), Some(ipc.as_str()));
     assert!(
         result.is_none(),
         "Empty engine flag should yield None (normal CLI)"
@@ -41,7 +57,8 @@ fn test_engine_flag_empty_string_returns_none() {
 
 #[test]
 fn test_engine_flag_not_one_returns_none() {
-    let result = detect_engine_mode_inner(Some("0"), Some("/tmp/test.sock"));
+    let ipc = test_ipc_path();
+    let result = detect_engine_mode_inner(Some("0"), Some(ipc.as_str()));
     assert!(
         result.is_none(),
         "Engine flag '0' should yield None (normal CLI)"
@@ -91,7 +108,8 @@ fn test_both_unset_returns_none() {
 
 #[test]
 fn test_engine_mode_returns_default_ruleset() {
-    let result = detect_engine_mode_inner(Some("1"), Some("/tmp/test.sock"));
+    let ipc = test_ipc_path();
+    let result = detect_engine_mode_inner(Some("1"), Some(ipc.as_str()));
     let (_ipc_path, rules) = result.expect("should return Some").expect("should be Ok");
     // Default RuleSet should have no explicit rules
     assert!(

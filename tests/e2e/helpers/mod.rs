@@ -27,6 +27,7 @@ use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 
+use closeclaw_common::test_helpers::ensure_dir;
 use tokio::process::{Child, Command};
 
 /// Default timeout for waiting on the daemon admin socket.
@@ -97,7 +98,7 @@ pub async fn wait_for_daemon_ready_with_timeout(config_dir: &Path, timeout: Dura
 /// to prevent residual processes on panic paths.
 pub fn spawn_daemon(config_root: &Path) -> Child {
     // Ensure .closeclaw dir exists under temp HOME so PID file can be written
-    std::fs::create_dir_all(config_root.join(".closeclaw")).expect("create .closeclaw dir");
+    ensure_dir(&config_root.join(".closeclaw")).expect("create .closeclaw dir");
 
     Command::new(closeclaw_binary())
         .args(["run", "--config-dir"])

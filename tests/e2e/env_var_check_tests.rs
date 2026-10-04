@@ -15,6 +15,8 @@
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 
+use closeclaw_common::test_helpers::ensure_dir;
+
 /// 禁令 token 片段（`se` + `t_var`）：拆开声明，避免本测试源码自身被行级文本判定命中。
 const BANNED_SET: &str = concat!("se", "t_var");
 /// 禁令 token 片段（`re` + `move_var`）：同上，避免源码自身命中。
@@ -76,7 +78,7 @@ impl TempRepo {
     fn write(&self, rel: &str, content: &str) {
         let path = self.path().join(rel);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).expect("create fixture parent dir");
+            ensure_dir(parent).expect("create fixture parent dir");
         }
         std::fs::write(&path, content).expect("write fixture file");
     }

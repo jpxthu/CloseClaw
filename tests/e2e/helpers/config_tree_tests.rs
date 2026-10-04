@@ -3,6 +3,7 @@
 use std::path::Path;
 
 use super::config_tree::write_test_config_tree;
+use closeclaw_common::test_helpers::ensure_dir;
 
 /// The exact `agents.json` payload the helper must write (byte-for-byte).
 const EXPECTED_AGENTS_JSON: &str = r#"{"version":"1.0.0","agents":[]}"#;
@@ -64,7 +65,7 @@ fn test_write_test_config_tree_on_fresh_root() {
 fn test_write_test_config_tree_overwrites_existing_config_dir() {
     let root = tempfile::TempDir::new().expect("create temp dir under /tmp");
     let config_dir = root.path().join("config");
-    std::fs::create_dir_all(&config_dir).expect("pre-create config dir");
+    ensure_dir(&config_dir).expect("pre-create config dir");
     std::fs::write(config_dir.join("agents.json"), "stale agents payload")
         .expect("pre-seed stale agents.json");
 

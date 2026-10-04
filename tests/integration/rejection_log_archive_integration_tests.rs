@@ -11,6 +11,7 @@ use std::sync::Arc;
 
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_permission::engine::{
     Effect, PermissionEngine, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -147,11 +148,18 @@ fn test_rejection_log_e2e_command_entry() {
     let logger = Arc::new(InMemoryLogger::new());
     let engine = deny_all_engine_with_logger(logger.clone());
 
+    // Dynamic temp-dir target (STANDARDS §8 — no hardcoded `/tmp` literal;
+    // the string is pure request data and is never touched on disk).
+    let rm_target = std::env::temp_dir()
+        .join("closeclaw-rejection-log-e2e-target")
+        .to_string_lossy()
+        .into_owned();
+
     let resp = engine.evaluate(
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "agent-2".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec!["-rf".to_string(), rm_target.clone()],
         }),
         None,
     );
@@ -162,7 +170,7 @@ fn test_rejection_log_e2e_command_entry() {
     let entry = &logger.entries()[0];
     assert_eq!(entry.agent_id, "agent-2");
     assert_eq!(entry.tool_name, "exec");
-    assert_eq!(entry.operation, "rm -rf /tmp/foo");
+    assert_eq!(entry.operation, format!("rm -rf {}", rm_target));
 }
 
 /// ConfigWrite rejection → log contains config_write tool_name.
@@ -365,7 +373,7 @@ fn test_rejection_log_e2e_plan_mode_denial_logged() {
 fn test_plan_archive_e2e_complete_flow() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let completed_old = plans_dir.join("completed-old.md");
     std::fs::write(
@@ -445,7 +453,7 @@ fn test_plan_archive_e2e_no_plans_dir() {
 #[test]
 fn test_plan_archive_e2e_empty_plans_dir() {
     let dir = tempfile::TempDir::new().unwrap();
-    std::fs::create_dir_all(dir.path().join("plans")).unwrap();
+    ensure_dir(&dir.path().join("plans")).unwrap();
     let count = archive_completed_plans_with_threshold(dir.path(), 7).unwrap();
     assert_eq!(count, 0);
 }
@@ -455,7 +463,7 @@ fn test_plan_archive_e2e_empty_plans_dir() {
 fn test_plan_archive_e2e_multiple_old_completed() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
 
@@ -483,7 +491,7 @@ fn test_plan_archive_e2e_multiple_old_completed() {
 fn test_plan_archive_e2e_threshold_not_met() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let path = plans_dir.join("recent.md");
     std::fs::write(&path, "# Plan\n\n| 状态 | completed |\n").unwrap();
@@ -498,7 +506,7 @@ fn test_plan_archive_e2e_threshold_not_met() {
 fn test_plan_archive_e2e_content_integrity() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let original_content =
         "# My Plan\n\n| 状态 | completed |\n\n## Tasks\n\n- [x] Step 1\n- [x] Step 2\n";
@@ -520,7 +528,7 @@ fn test_plan_archive_e2e_content_integrity() {
 fn test_plan_archive_e2e_skips_non_md() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
 
@@ -544,7 +552,7 @@ fn test_plan_archive_e2e_skips_archive_subdir() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans_dir = dir.path().join("plans");
     let archive_dir = plans_dir.join("archive");
-    std::fs::create_dir_all(&archive_dir).unwrap();
+    ensure_dir(&archive_dir).unwrap();
 
     let old_time = std::time::SystemTime::now() - std::time::Duration::from_secs(10 * 86400);
 

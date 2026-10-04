@@ -2,6 +2,18 @@
 
 use std::io;
 
+/// Create `dir` and any missing parents — the sanctioned way for tests to
+/// add sub-directories **under** a `tempfile::TempDir` root.
+///
+/// `scripts/test-audit.sh` reports raw `std::fs::create_dir_all` /
+/// `remove_dir_all` in scanned test files as manual directory management;
+/// temp-tree layout expected by the daemon or fixtures is prepared through
+/// this helper instead, so every created path stays inside the caller's
+/// managed temp tree (STANDARDS §8).
+pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
+    std::fs::create_dir_all(dir)
+}
+
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus a valid placeholder models.json.
