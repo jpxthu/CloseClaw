@@ -535,7 +535,6 @@ async fn test_config_validate_media_valid() {
 // Step 1.4 — Config directory interface behavioral dimension tests
 // ═══════════════════════════════════════════════════════════════════════════
 
-use super::common::config_root;
 use super::config::{handle_config_with, read_config_files};
 use super::rule::handle_rule_with;
 use crate::admin::rpc::client::admin_socket_path;
@@ -544,34 +543,46 @@ use std::path::{Path, PathBuf};
 
 // ── config_root() delegation ──────────────────────────────────────────────
 
-/// config_root() must return the same path as the platform interface.
-/// Verifies the thin wrapper delegates correctly.
+/// config_root() is a thin pass-through wrapper over the platform
+/// `root_dir()` (see super::common) and has no home-injection seam — calling
+/// it directly would create the real `~/.closeclaw`. The delegation contract
+/// is therefore verified through the platform-side injectable inner under a
+/// TempDir home: `<home>` must resolve (and be created) as `<home>/.closeclaw`.
 #[test]
 fn test_config_root_delegates_to_platform() {
-    let wrapper_result = config_root();
-    let platform_result = closeclaw_platform::config::root_dir();
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path().to_str().unwrap().to_string();
 
+    let injected = closeclaw_platform::config::root_dir_inner(&home)
+        .expect("root_dir_inner under a TempDir home should succeed");
     assert_eq!(
-        wrapper_result.is_ok(),
-        platform_result.is_ok(),
-        "config_root() and platform root_dir() should have same ok/error status"
+        injected,
+        tmp.path().join(".closeclaw"),
+        "platform root resolution must map <home> to <home>/.closeclaw"
     );
-    if let (Ok(wrapper), Ok(platform)) = (wrapper_result, platform_result) {
-        assert_eq!(
-            wrapper, platform,
-            "config_root() should return the same path as platform root_dir()"
-        );
-    }
+    assert!(
+        injected.is_dir(),
+        "platform root resolution must create the directory"
+    );
 }
 
-/// config_root() returns anyhow::Result, not panicking.
-/// When HOME is set (test environment), the wrapper succeeds.
+/// config_root() returns anyhow::Result, not panicking. Verified via the
+/// injectable platform inner under a TempDir home — calling config_root()
+/// itself would create the real `~/.closeclaw`.
 #[test]
 fn test_config_root_returns_result_not_panic() {
-    let result = config_root();
+    let tmp = TempDir::new().unwrap();
+    let home = tmp.path().to_str().unwrap().to_string();
+
+    let result = closeclaw_platform::config::root_dir_inner(&home);
     assert!(
         result.is_ok() || result.is_err(),
-        "config_root() must return a Result, not panic"
+        "config root resolution must return a Result, not panic"
+    );
+    assert!(
+        result.is_ok(),
+        "root resolution under a TempDir home should succeed: {:?}",
+        result
     );
 }
 
