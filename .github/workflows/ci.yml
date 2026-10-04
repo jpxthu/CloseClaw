@@ -53,6 +53,13 @@ jobs:
           # 细则见 docs/developer/STANDARDS.md §7
           bash scripts/check-env-var.sh all
 
+      - name: Check test audit
+        run: |
+          set -e
+          # 测试合规静态扫描：禁止硬编码路径 / 手动目录管理 / 环境变量泄漏；与 pre-commit hook 共享
+          # 细则见 docs/developer/STANDARDS.md §8
+          bash scripts/test-audit.sh
+
       - name: Strict warning check
         run: cargo check
 

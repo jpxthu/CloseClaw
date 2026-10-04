@@ -61,6 +61,19 @@ impl CooldownManager {
         }
     }
 
+    /// Construct a `CooldownManager` with an explicit persist path.
+    ///
+    /// Test-only injection seam (hence `#[doc(hidden)]`): lets tests isolate
+    /// persistence from the real home directory. `new()` remains the default
+    /// constructor for production and its behavior is unchanged.
+    #[doc(hidden)]
+    pub fn with_path(persist_path: std::path::PathBuf) -> Self {
+        Self {
+            cooldowns: RwLock::new(HashMap::new()),
+            persist_path,
+        }
+    }
+
     /// Returns true if the given provider/model is in cooldown
     pub async fn is_in_cooldown(&self, provider: &str, model: &str) -> bool {
         let cooldowns = self.cooldowns.read().await;
@@ -250,10 +263,11 @@ pub fn backoff_delay(attempt: u32, base: Duration, max: Duration) -> Duration {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::isolated_cooldown;
 
     #[tokio::test]
     async fn test_cooldown_record_failure_transient() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "MiniMax-M2.7", ErrorKind::Transient)
             .await;
@@ -265,7 +279,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_no_cooldown_for_invalid_request() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "MiniMax-M2.7", ErrorKind::InvalidRequest)
             .await;
@@ -276,7 +290,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_success_clears() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "MiniMax-M2.7", ErrorKind::Transient)
             .await;
@@ -320,7 +334,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_reason_transient() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "m1", ErrorKind::Transient)
             .await;
@@ -333,7 +347,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_reason_auth() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("openai", "gpt-4", ErrorKind::Auth)
             .await;
@@ -346,7 +360,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_reason_billing() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "m1", ErrorKind::Billing)
             .await;
@@ -358,7 +372,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_reason_unknown() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("deepseek", "ds-chat", ErrorKind::Unknown)
             .await;
@@ -370,7 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_no_cooldown_for_invalid_request_reason() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("openai", "gpt-4", ErrorKind::InvalidRequest)
             .await;
@@ -380,7 +394,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cooldown_consecutive_failures_increment_attempts() {
-        let manager = CooldownManager::new();
+        let (_dir, manager) = isolated_cooldown();
         manager
             .record_failure("minimax", "m1", ErrorKind::Transient)
             .await;

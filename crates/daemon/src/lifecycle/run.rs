@@ -7,8 +7,21 @@ use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::{Daemon, Phase5Deps};
 use closeclaw_permission::engine::audit_log::AuditLogger;
 use closeclaw_platform::process;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tracing::{debug, error, info, warn};
+
+/// Resolves the effective PID file path for a daemon start: the injected
+/// override when present, otherwise the fixed `~/.closeclaw/daemon.pid`
+/// resolution via [`process::pid_file_path`]. Pure path computation —
+/// no I/O. Mirrors the `SpawnOptions::pid_file_path` injection semantics;
+/// the `None` branch must stay exactly the production resolution.
+pub(crate) fn resolve_pid_file_path(pid_file_override: Option<&Path>) -> anyhow::Result<PathBuf> {
+    match pid_file_override {
+        Some(injected) => Ok(injected.to_path_buf()),
+        None => process::pid_file_path(),
+    }
+}
 
 impl Daemon {
     /// Start the daemon with the given config directory.
@@ -16,16 +29,37 @@ impl Daemon {
         let audit_logger = Self::create_audit_logger(config_dir);
         Self::start_with_engine(config_dir, audit_logger).await
     }
+    /// Start the daemon with an injected PID file path (test seam).
+    ///
+    /// Mirrors `SpawnOptions::pid_file_path` semantics: `None` resolves the
+    /// fixed `~/.closeclaw/daemon.pid` via `process::pid_file_path()` —
+    /// identical to [`Daemon::start`]; `Some(path)` writes the PID file to
+    /// `path` instead so tests can isolate filesystem side effects in a
+    /// temporary directory. Production callers use [`Daemon::start`].
+    pub async fn start_with_pid_file_path(
+        config_dir: &str,
+        pid_file_path: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
+        let audit_logger = Self::create_audit_logger(config_dir);
+        Self::start_with_engine_and_pid_file(config_dir, audit_logger, pid_file_path).await
+    }
     /// Start the daemon with an optional audit logger.
     /// If `None`, the engine runs without audit logging.
     pub async fn start_with_engine(
         config_dir: &str,
         audit_logger: Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<Self> {
+        Self::start_with_engine_and_pid_file(config_dir, audit_logger, None).await
+    }
+    async fn start_with_engine_and_pid_file(
+        config_dir: &str,
+        audit_logger: Option<Arc<dyn AuditLogger>>,
+        pid_file_override: Option<PathBuf>,
+    ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
         // PID self-registration (design doc § PID 自注册).
-        let pid_file_path = process::pid_file_path()?;
+        let pid_file_path = resolve_pid_file_path(pid_file_override.as_deref())?;
         if let Err(e) = process::write_pid_file(&pid_file_path, std::process::id()) {
             warn!(
                 error = %e,

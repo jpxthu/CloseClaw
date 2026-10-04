@@ -67,6 +67,8 @@ pub mod system_prompt;
 #[cfg(test)]
 pub mod system_prompt_tests;
 pub mod test_helpers;
+#[cfg(test)]
+pub mod test_helpers_tests;
 pub mod tool_registry;
 pub mod tool_session;
 #[cfg(test)]

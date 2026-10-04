@@ -318,12 +318,24 @@ impl ConfigManager {
 
     /// Create a `ConfigManager` using the platform default config directory.
     ///
-    /// Calls `closeclaw_platform::config::root_dir()` to resolve `~/.closeclaw`,
-    /// appends `config/`, and delegates to [`Self::new`].
+    /// Resolves `~/.closeclaw` via `closeclaw_platform::config::root_dir()`
+    /// and delegates to [`Self::default_root_at`].
     pub fn with_default_root_dir() -> io::Result<Self> {
         let root = closeclaw_platform::config::root_dir().map_err(io::Error::other)?;
-        let config_dir = root.join("config");
-        Self::new(config_dir)
+        Self::default_root_at(root)
+    }
+
+    /// Shared default-root tail: append `config/` to a resolved root.
+    fn default_root_at(root: PathBuf) -> io::Result<Self> {
+        Self::new(root.join("config"))
+    }
+
+    /// Test-only seam: [`Self::with_default_root_dir`] composition under an
+    /// injected TempDir `home`, so tests never touch the real `~/.closeclaw`.
+    #[cfg(test)]
+    fn with_default_root_dir_home(home: &str) -> io::Result<Self> {
+        let root = closeclaw_platform::config::root_dir_inner(home).map_err(io::Error::other)?;
+        Self::default_root_at(root)
     }
 
     /// Get a reference to the shared backup manager.

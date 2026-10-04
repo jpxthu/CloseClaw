@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::retry::CooldownManager;
+use crate::test_support::isolated_cooldown;
 use crate::types::InternalRequest;
 use crate::unified_fallback::{response_to_stream, ChainEntry, UnifiedFallbackClient};
 use crate::ErrorKind;
@@ -66,7 +66,7 @@ fn make_request(model: &str) -> InternalRequest {
 
 #[tokio::test]
 async fn test_single_entry_success() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let entry = mock_entry("stub", "stub-model");
     let client = UnifiedFallbackClient::new(vec![entry], cooldown);
     let request = make_request("stub-model");
@@ -76,7 +76,7 @@ async fn test_single_entry_success() {
 
 #[tokio::test]
 async fn test_primary_returns_first_entry() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let entry1 = mock_entry("a", "model-a");
     let entry2 = mock_entry("b", "model-b");
     let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
@@ -85,7 +85,7 @@ async fn test_primary_returns_first_entry() {
 
 #[tokio::test]
 async fn test_chat_walks_chain_on_failure() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     // First entry uses StubProvider (succeeds), second entry also uses StubProvider.
     // This tests that the chain iteration logic works correctly.
     let entry1 = mock_entry("provider-a", "model-a");
@@ -182,7 +182,7 @@ fn failing_entry(provider_id: &str, model_id: &str, msg: &str) -> ChainEntry {
 
 #[tokio::test]
 async fn test_all_entries_fail_returns_chain_exhausted_error() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let entry1 = failing_entry("p1", "m1", "error from provider 1");
     let entry2 = failing_entry("p2", "m2", "error from provider 2");
     let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
@@ -201,7 +201,7 @@ async fn test_all_entries_fail_returns_chain_exhausted_error() {
 
 #[tokio::test]
 async fn test_cooldown_skip_first_entry() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     // Put first entry into cooldown
     cooldown
         .record_failure("p-cooldown", "m-cooldown", ErrorKind::Transient)
@@ -228,7 +228,7 @@ async fn test_cooldown_skip_first_entry() {
 
 #[tokio::test]
 async fn test_empty_chain_chat_returns_error() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let client = UnifiedFallbackClient::new(vec![], cooldown);
     let request = make_request("m");
     let result = client.chat(request).await;
@@ -244,7 +244,7 @@ async fn test_empty_chain_chat_returns_error() {
 #[test]
 #[should_panic(expected = "chain must not be empty")]
 fn test_empty_chain_primary_panics() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let client = UnifiedFallbackClient::new(vec![], cooldown);
     let _ = client.primary();
 }
@@ -337,7 +337,7 @@ fn streaming_fail_entry(provider_id: &str, model_id: &str, msg: &str) -> ChainEn
 
 #[tokio::test]
 async fn test_fallback_degraded_stream() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let entry = streaming_fail_entry("p1", "m1", "streaming not supported");
     let client = UnifiedFallbackClient::new(vec![entry], cooldown);
     let request = make_request("m1");
@@ -365,7 +365,7 @@ async fn test_fallback_streaming_chain_traversal() {
     use crate::protocol::OpenAiProtocol;
     use crate::stub::StubProvider;
 
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
 
     let entry_fail = streaming_fail_entry("p-fail", "m-fail", "no streaming");
 
@@ -400,7 +400,7 @@ async fn test_fallback_streaming_chain_traversal() {
 
 #[tokio::test]
 async fn test_fallback_streaming_all_fail_degrades() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     let entry1 = streaming_fail_entry("p1", "m1", "fail 1");
     let entry2 = streaming_fail_entry("p2", "m2", "fail 2");
     let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
@@ -421,7 +421,7 @@ async fn test_fallback_streaming_all_fail_degrades() {
 
 #[tokio::test]
 async fn test_fallback_streaming_cooldown_skip() {
-    let cooldown = Arc::new(CooldownManager::new());
+    let (_dir, cooldown) = isolated_cooldown();
     cooldown
         .record_failure("p-cd", "m-cd", ErrorKind::Transient)
         .await;

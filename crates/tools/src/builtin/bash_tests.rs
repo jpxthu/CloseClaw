@@ -5,7 +5,7 @@
 //! private items in the parent module.
 
 use super::*;
-use crate::builtin::bash_kill::{persist_output, process_output, MAX_OUTPUT_CHARS};
+use crate::builtin::bash_kill::{persist_output_in, process_output, MAX_OUTPUT_CHARS};
 use closeclaw_permission::approval_flow::HeartbeatApprovalMode;
 use serde_json::json;
 use tempfile::TempDir;
@@ -178,23 +178,22 @@ fn test_process_output_long_string_truncates() {
 
 #[test]
 fn test_persist_output_writes_file() {
-    let path = persist_output("test persist data").unwrap();
-    assert!(std::path::Path::new(&path).exists());
-    let expected_root = std::env::temp_dir().join("closeclaw");
+    let tmp = TempDir::new().unwrap();
+    let path = persist_output_in("test persist data", tmp.path()).unwrap();
     assert!(
-        std::path::Path::new(&path).starts_with(&expected_root),
+        std::path::Path::new(&path).starts_with(tmp.path()),
         "persisted path {:?} should be under {:?}",
         path,
-        expected_root
+        tmp.path()
     );
     let content = std::fs::read_to_string(&path).unwrap();
     assert_eq!(content, "test persist data");
-    let _ = std::fs::remove_file(&path);
 }
 
 #[test]
 fn test_persist_output_cleans_up() {
-    let path = persist_output("cleanup test").unwrap();
+    let tmp = TempDir::new().unwrap();
+    let path = persist_output_in("cleanup test", tmp.path()).unwrap();
     assert!(std::path::Path::new(&path).exists());
     std::fs::remove_file(&path).unwrap();
     assert!(!std::path::Path::new(&path).exists());

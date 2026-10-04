@@ -43,6 +43,7 @@
 use std::path::Path;
 use std::time::Duration;
 
+use closeclaw_common::test_helpers::ensure_dir;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
 use tokio::process::Child;
@@ -359,7 +360,7 @@ async fn e2e_agent_workspace() {
     // workdir `{workspace}/workspaces/master/{uid}` + fixture path
     // `../../../bootstrap_marker.txt` (see the case doc above).
     let workspace_dir = config_root.join("agent_workspace");
-    std::fs::create_dir_all(&workspace_dir).expect("create workspace dir");
+    ensure_dir(&workspace_dir).expect("create workspace dir");
     std::fs::write(workspace_dir.join("bootstrap_marker.txt"), WORKSPACE_MARKER)
         .expect("write workspace marker file");
 

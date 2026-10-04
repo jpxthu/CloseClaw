@@ -68,13 +68,22 @@ impl FallbackClient {
     ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load_sync();
-        Self {
+        Self::build(registry, fallback_chain, cooldown, protocol)
+    }
+
+    /// Construct a `FallbackClient` with an explicit cooldown manager (test-only).
+    #[cfg(test)]
+    pub(crate) fn new_with_cooldown(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        cooldown: Arc<CooldownManager>,
+    ) -> Self {
+        Self::build(
             registry,
             fallback_chain,
             cooldown,
-            call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
-            protocol,
-        }
+            Arc::new(crate::protocol::OpenAiProtocol::default()),
+        )
     }
 
     /// Async constructor: creates the client and loads persisted cooldowns.
@@ -98,6 +107,16 @@ impl FallbackClient {
     ) -> Self {
         let cooldown = Arc::new(CooldownManager::new());
         cooldown.load().await;
+        Self::build(registry, fallback_chain, cooldown, protocol)
+    }
+
+    /// Assemble a client from its parts (shared constructor backend).
+    fn build(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        cooldown: Arc<CooldownManager>,
+        protocol: Arc<dyn ChatProtocol>,
+    ) -> Self {
         Self {
             registry,
             fallback_chain,
@@ -122,17 +141,17 @@ impl FallbackClient {
         chain: Vec<String>,
         protocol: Arc<dyn ChatProtocol>,
     ) -> Self {
-        let fallback_chain: Vec<ModelEntry> = chain
-            .into_iter()
-            .filter_map(|s| {
-                let (provider, model) = s.split_once('/')?;
-                Some(ModelEntry {
-                    provider: provider.to_string(),
-                    model: model.to_string(),
-                })
-            })
-            .collect();
-        Self::new_with_protocol(registry, fallback_chain, protocol)
+        Self::new_with_protocol(registry, parse_model_entries(chain), protocol)
+    }
+
+    /// Create from config-style strings with an explicit cooldown manager (test-only).
+    #[cfg(test)]
+    pub(crate) fn from_strings_with_cooldown(
+        registry: Arc<crate::LLMRegistry>,
+        chain: Vec<String>,
+        cooldown: Arc<CooldownManager>,
+    ) -> Self {
+        Self::new_with_cooldown(registry, parse_model_entries(chain), cooldown)
     }
 
     /// Set call timeout
@@ -141,6 +160,20 @@ impl FallbackClient {
         self.call_timeout = Duration::from_secs(secs);
         self
     }
+}
+
+/// Parse config-style "provider/model" strings into [`ModelEntry`]s, skipping invalid entries.
+fn parse_model_entries(chain: Vec<String>) -> Vec<ModelEntry> {
+    chain
+        .into_iter()
+        .filter_map(|s| {
+            let (provider, model) = s.split_once('/')?;
+            Some(ModelEntry {
+                provider: provider.to_string(),
+                model: model.to_string(),
+            })
+        })
+        .collect()
 }
 
 // --- Request/response conversion helpers ---

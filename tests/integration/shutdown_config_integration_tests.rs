@@ -10,6 +10,7 @@
 //! sequence is only 3 steps — write `system.json` → `ConfigManager::new` →
 //! `reload_section(System)` — so it is inlined in [`system_fixture`].
 
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::{ConfigManager, ConfigSection};
 use std::path::PathBuf;
@@ -36,7 +37,7 @@ struct SystemFixture {
 fn system_fixture(system_json: serde_json::Value, reload_expect: &str) -> SystemFixture {
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let config_dir: PathBuf = tmp.path().join("config");
-    std::fs::create_dir_all(&config_dir).expect("create config dir");
+    ensure_dir(&config_dir).expect("create config dir");
 
     // Inlined `load_system_config_manager`: write system.json →
     // ConfigManager::new → reload_section(System).

@@ -58,11 +58,15 @@ fn handler_with_channel(
 ) -> (
     SessionMessageHandler,
     tokio::sync::mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    tempfile::TempDir,
 ) {
     let (tx, rx) = tokio::sync::mpsc::channel(10);
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let handler = SessionMessageHandler::new(
         Arc::clone(sm),
@@ -75,7 +79,7 @@ fn handler_with_channel(
         }),
         closeclaw_session::compaction::CompactConfig::default(),
     );
-    (handler, rx)
+    (handler, rx, cooldown_dir)
 }
 
 /// Populate a session so `check_and_run_auto_compact` enters
@@ -188,7 +192,7 @@ async fn test_circuit_breaker_notification_first_trip() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_auto_compact(&sm, &sid).await;
-    let (handler, _rx) = handler_with_channel(&sm);
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm);
 
     // Trip the breaker (3 failures)
     trip_circuit_breaker(&handler).await;
@@ -214,7 +218,7 @@ async fn test_circuit_breaker_notification_no_duplicate() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_auto_compact(&sm, &sid).await;
-    let (handler, _rx) = handler_with_channel(&sm);
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm);
 
     trip_circuit_breaker(&handler).await;
 
@@ -243,7 +247,7 @@ async fn test_circuit_breaker_notification_reset_after_success() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     populate_session_for_auto_compact(&sm, &sid).await;
-    let (handler, _rx) = handler_with_channel(&sm);
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm);
 
     // Trip the breaker
     trip_circuit_breaker(&handler).await;
@@ -307,7 +311,7 @@ async fn test_streaming_path_persists_user_message_before_compact() {
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockStreamingPlugin);
     gw.register_plugin(plugin.clone()).await;
 
-    let (handler, _rx) = handler_with_channel(&sm);
+    let (handler, _rx, _cooldown_dir) = handler_with_channel(&sm);
     handler
         .handle_message_with_gateway(
             &sid,

@@ -36,30 +36,42 @@ fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_fallback_client() -> Arc<UnifiedFallbackClient> {
+fn make_fallback_client(cooldown_dir: &tempfile::TempDir) -> Arc<UnifiedFallbackClient> {
     Arc::new(UnifiedFallbackClient::new(
         vec![],
-        Arc::new(CooldownManager::new()),
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ))
 }
 
-fn make_active_searcher_caller() -> Arc<ActiveSearcherLlmCaller> {
+fn make_active_searcher_caller(cooldown_dir: &tempfile::TempDir) -> Arc<ActiveSearcherLlmCaller> {
     Arc::new(ActiveSearcherLlmCaller {
         caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
-            UnifiedFallbackClient::new(vec![], Arc::new(CooldownManager::new())),
+            UnifiedFallbackClient::new(
+                vec![],
+                Arc::new(CooldownManager::with_path(
+                    cooldown_dir.path().join("searcher_llm_cooldowns.json"),
+                )),
+            ),
         ))) as Arc<dyn closeclaw_common::LlmCaller>,
         model: String::new(),
     })
 }
 
 /// Create a handler with no output channel and the given compact config.
-fn handler_no_output(sm: &Arc<SessionManager>, config: CompactConfig) -> SessionMessageHandler {
-    SessionMessageHandler::new_no_output(
+fn handler_no_output(
+    sm: &Arc<SessionManager>,
+    config: CompactConfig,
+) -> (SessionMessageHandler, tempfile::TempDir) {
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+    let handler = SessionMessageHandler::new_no_output(
         Arc::clone(sm),
-        make_fallback_client(),
-        make_active_searcher_caller(),
+        make_fallback_client(&cooldown_dir),
+        make_active_searcher_caller(&cooldown_dir),
         config,
-    )
+    );
+    (handler, cooldown_dir)
 }
 
 /// Insert a ConversationSession with `n` pre-populated messages.
@@ -94,7 +106,7 @@ async fn test_auto_compact_nonexistent_session_returns_silently() {
         max_history_messages: Some(10),
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     // Should not panic.
     handler.check_and_run_auto_compact("nonexistent").await;
 }
@@ -109,7 +121,7 @@ async fn test_auto_compact_none_max_skips_truncation() {
         max_history_messages: None,
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     handler.check_and_run_auto_compact("s-none").await;
     // Messages should remain unchanged.
     let cs = sm.get_conversation_session("s-none").await.unwrap();
@@ -133,7 +145,7 @@ async fn test_auto_compact_truncates_persistent_history() {
         chars_per_token: 0.25,
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     handler.check_and_run_auto_compact("s-trunc").await;
     // Persistent history should be truncated to 5 messages.
     let cs = sm.get_conversation_session("s-trunc").await.unwrap();
@@ -155,7 +167,7 @@ async fn test_auto_compact_no_truncation_when_below_limit() {
         chars_per_token: 0.25,
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     handler.check_and_run_auto_compact("s-below").await;
     let cs = sm.get_conversation_session("s-below").await.unwrap();
     let cs_read = cs.read().await;
@@ -176,7 +188,7 @@ async fn test_auto_compact_no_truncation_when_at_limit() {
         chars_per_token: 0.25,
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     handler.check_and_run_auto_compact("s-exact").await;
     let cs = sm.get_conversation_session("s-exact").await.unwrap();
     let cs_read = cs.read().await;
@@ -198,7 +210,7 @@ async fn test_auto_compact_single_source_of_truth() {
         chars_per_token: 0.25,
         ..Default::default()
     };
-    let handler = handler_no_output(&sm, config);
+    let (handler, _cooldown_dir) = handler_no_output(&sm, config);
     handler.check_and_run_auto_compact("s-sot").await;
 
     // Read persistent history.

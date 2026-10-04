@@ -18,6 +18,8 @@
 
 use std::path::Path;
 
+use closeclaw_common::test_helpers::ensure_dir;
+
 /// Writes the minimal config tree a daemon needs to start up under
 /// `<config_root>/config/`.
 ///
@@ -32,7 +34,7 @@ use std::path::Path;
 /// alive for the duration of the test. IO errors propagate via `?`.
 pub fn write_test_config_tree(config_root: &Path) -> std::io::Result<()> {
     let agents_dir = config_root.join("config");
-    std::fs::create_dir_all(&agents_dir)?;
+    ensure_dir(&agents_dir)?;
     std::fs::write(
         agents_dir.join("agents.json"),
         r#"{"version":"1.0.0","agents":[]}"#,

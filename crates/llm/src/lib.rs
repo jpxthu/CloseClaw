@@ -13,6 +13,8 @@ pub mod cache_adapter;
 pub mod call_chain;
 pub mod fallback;
 #[cfg(test)]
+mod fallback_streaming_tests;
+#[cfg(test)]
 mod fallback_tests;
 pub mod glm;
 pub mod http_client;
@@ -34,6 +36,8 @@ pub mod stats;
 pub mod stream_utils;
 pub mod streaming;
 pub mod stub;
+#[cfg(test)]
+pub(crate) mod test_support;
 pub mod turn;
 pub mod types;
 #[cfg(test)]

@@ -6,6 +6,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use closeclaw_common::test_helpers::ensure_dir;
 use tempfile::TempDir;
 
 use closeclaw_memory::dreaming::DreamingPipeline;
@@ -226,7 +227,7 @@ fn setup_with_config(
     let memory_md_path = data_dir.join("memory/MEMORY.md");
 
     // Ensure parent dirs exist.
-    std::fs::create_dir_all(db_path.parent().unwrap()).unwrap();
+    ensure_dir(db_path.parent().unwrap()).unwrap();
 
     let miner = MemoryMiner::new(
         miner_config,

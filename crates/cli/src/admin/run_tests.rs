@@ -77,13 +77,17 @@ impl DaemonRunner for MockDaemonRunner {
 
 /// handle_run_foreground must invoke DaemonRunner::start_and_run exactly once
 /// and must NOT spawn a subprocess.
+///
+/// Uses an isolated TempDir PID path to avoid touching the global
+/// `~/.closeclaw/daemon.pid`.
 #[tokio::test]
 async fn test_handle_run_foreground_calls_daemon_runner() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_str().unwrap().to_string();
+    let pid_file = isolated_pid_file(&tmp);
     let mock = MockDaemonRunner::success();
 
-    let result = handle_run_foreground(&config_dir, false, &mock, None).await;
+    let result = handle_run_foreground(&config_dir, false, &mock, Some(&pid_file)).await;
     assert!(
         result.is_ok(),
         "handle_run_foreground should succeed: {result:?}"
@@ -99,10 +103,14 @@ async fn test_handle_run_foreground_calls_daemon_runner() {
 /// When foreground=false, handle_run (via its injectable internal variant
 /// handle_run_with_socket_timeout) spawns a subprocess and must NOT call
 /// DaemonRunner::start_and_run.
+///
+/// Uses an isolated TempDir PID path to avoid touching the global
+/// `~/.closeclaw/daemon.pid`.
 #[tokio::test]
 async fn test_handle_run_background_does_not_call_daemon_runner() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_str().unwrap().to_string();
+    let pid_file = isolated_pid_file(&tmp);
     let mock = MockDaemonRunner::success();
 
     // foreground=false → subprocess spawn path. In the test environment the
@@ -114,7 +122,7 @@ async fn test_handle_run_background_does_not_call_daemon_runner() {
         false,
         false,
         &mock,
-        None,
+        Some(&pid_file),
         TEST_SOCKET_WAIT_TIMEOUT_MS,
     )
     .await;
@@ -134,13 +142,17 @@ async fn test_handle_run_background_does_not_call_daemon_runner() {
 
 /// When DaemonRunner::start_and_run returns an error, handle_run_foreground
 /// must propagate that error to the caller.
+///
+/// Uses an isolated TempDir PID path to avoid touching the global
+/// `~/.closeclaw/daemon.pid`.
 #[tokio::test]
 async fn test_handle_run_foreground_propagates_daemon_runner_error() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().to_str().unwrap().to_string();
+    let pid_file = isolated_pid_file(&tmp);
     let mock = MockDaemonRunner::failing("simulated daemon crash");
 
-    let result = handle_run_foreground(&config_dir, false, &mock, None).await;
+    let result = handle_run_foreground(&config_dir, false, &mock, Some(&pid_file)).await;
     assert!(result.is_err(), "should propagate the error");
     let err_msg = result.unwrap_err().to_string();
     assert!(
@@ -459,18 +471,38 @@ fn test_prepare_run_tilde_expands_to_absolute_home() {
 }
 
 /// Empty string falls back to root_dir() default (same as no --config-dir).
+///
+/// `prepare_run("")` resolves config_dir via `config_root()` → platform
+/// `root_dir()`, which creates the resolved directory on disk — with the
+/// inherited HOME that would be the real `~/.closeclaw`. Pid-file injection
+/// alone cannot isolate that side effect, so the resolution is exercised in
+/// a helper child with HOME redirected to a TempDir (child-process env
+/// injection; no process-global env mutation, CONTRIBUTING.md §7). The pid
+/// path then also resolves under the fake home, fully isolating the call.
 #[test]
 fn test_prepare_run_empty_string_uses_root_dir_default() {
-    let (config_dir_empty, _) = prepare_run("", None).unwrap();
-    let (config_dir_default, _) = prepare_run("", None).unwrap();
+    let tmp = TempDir::new().unwrap();
+    let fake_home = tmp.path().to_str().unwrap().to_string();
+
+    let first = run_helper("", &[("HOME", &fake_home)]);
+    let second = run_helper("", &[("HOME", &fake_home)]);
     // Both calls should produce the same root_dir() result.
     assert_eq!(
-        config_dir_empty, config_dir_default,
+        first.trim(),
+        second.trim(),
         "empty string should consistently use root_dir() default"
     );
+
+    let resolved = PathBuf::from(first.trim());
     assert!(
-        config_dir_empty.is_absolute(),
-        "root_dir() should return an absolute path"
+        resolved.is_absolute(),
+        "root_dir() should return an absolute path, got: {}",
+        resolved.display()
+    );
+    assert_eq!(
+        resolved,
+        tmp.path().join(".closeclaw"),
+        "empty config_dir should resolve to <home>/.closeclaw under the injected HOME"
     );
 }
 

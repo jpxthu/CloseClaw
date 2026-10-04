@@ -1,9 +1,22 @@
 //! Daemon unit tests.
 
 use super::*;
+use crate::lifecycle::resolve_pid_file_path;
 use crate::test_helpers::write_mandatory_configs;
 use closeclaw_common::test_helpers::write_mandatory_without_models;
 use closeclaw_session::persistence::PersistenceService;
+use std::path::PathBuf;
+
+/// Create an isolated PID file path under the given TempDir root:
+/// `{root}/.closeclaw/daemon.pid` with the parent directory pre-created,
+/// matching the production directory layout (same pattern as the cli
+/// crate's `isolated_pid_file`). Keeps daemon PID-file side effects
+/// inside the TempDir instead of the real `~/.closeclaw`.
+fn isolated_pid_file(root: &std::path::Path) -> PathBuf {
+    let pid_dir = root.join(".closeclaw");
+    std::fs::create_dir_all(&pid_dir).expect("failed to create .closeclaw dir");
+    pid_dir.join("daemon.pid")
+}
 
 /// Create only `config/agents.json` (without mandatory config files)
 /// in the given directory.
@@ -64,7 +77,11 @@ async fn test_daemon_start_fails_without_mandatory_config() {
     // Create only agents.json — mandatory sections (channels.json etc.) are absent
     write_agents_json(temp_dir.path()).unwrap();
 
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let result = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     assert!(
         result.is_err(),
         "daemon should fail when mandatory config files are missing"
@@ -86,7 +103,11 @@ async fn test_daemon_start_fails_with_empty_config_dir() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     // Empty directory — no config files, no agents.json
 
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let result = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     assert!(result.is_err(), "daemon should fail with empty config dir");
     let err_msg = match result {
         Err(e) => e.to_string(),
@@ -106,7 +127,11 @@ async fn test_daemon_start_succeeds_with_all_mandatory_configs() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     setup_agents_json(temp_dir.path()).expect("setup agents.json");
 
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let result = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     assert!(
         result.is_ok(),
         "daemon should start with all mandatory configs: {:?}",
@@ -127,9 +152,12 @@ async fn test_daemon_start_succeeds_without_models_json() {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     setup_agents_json_without_models(temp_dir.path()).expect("configs without models.json");
 
-    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
-        .await
-        .expect("daemon must start with models.json missing");
+    let daemon = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await
+    .expect("daemon must start with models.json missing");
     assert!(
         daemon.llm_registry.list().await.is_empty(),
         "no provider registered without models.json"
@@ -212,10 +240,11 @@ async fn assert_start_refused_with_models(content: &str) {
     setup_agents_json_without_models(root).expect("configs without models.json");
     std::fs::write(root.join("config").join("models.json"), content).unwrap();
 
-    let err = Daemon::start(root.to_str().unwrap())
-        .await
-        .err()
-        .expect("rejected models.json without backup must refuse startup");
+    let err =
+        Daemon::start_with_pid_file_path(root.to_str().unwrap(), Some(isolated_pid_file(root)))
+            .await
+            .err()
+            .expect("rejected models.json without backup must refuse startup");
     let msg = err.to_string();
     assert!(
         msg.contains("models.json"),
@@ -242,9 +271,10 @@ async fn assert_start_recovers_via_backup(content: &str) {
     .expect("update must back up the current models.json");
     std::fs::write(config_dir.join("models.json"), content).unwrap();
 
-    let daemon = Daemon::start(root.to_str().unwrap())
-        .await
-        .expect("daemon must start via backup rollback");
+    let daemon =
+        Daemon::start_with_pid_file_path(root.to_str().unwrap(), Some(isolated_pid_file(root)))
+            .await
+            .expect("daemon must start via backup rollback");
     assert!(
         daemon.llm_registry.list().await.is_empty(),
         "restored placeholder defines no provider"
@@ -268,7 +298,11 @@ async fn test_daemon_start_with_sqlite_storage() {
     setup_agents_json(temp_dir.path()).expect("setup agents.json");
 
     // Start daemon
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let result = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     if result.is_err() {
         panic!(
             "daemon should start successfully: {:?}",
@@ -293,8 +327,15 @@ async fn test_daemon_start_with_sqlite_storage() {
 
 #[tokio::test]
 async fn test_daemon_start_storage_failure() {
+    // Isolated TempDir for the PID file — the storage failure below must
+    // be the only failure; PID side effects stay out of the real home.
+    let temp_dir = tempfile::tempdir().expect("tempdir");
     // Use a path that cannot be created (not writable)
-    let result = Daemon::start("/sys/cannot_create_storage_here").await;
+    let result = Daemon::start_with_pid_file_path(
+        "/sys/cannot_create_storage_here",
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     assert!(
         result.is_err(),
         "daemon should fail to start when SqliteStorage cannot be initialized"
@@ -325,7 +366,11 @@ async fn test_daemon_start_missing_session_config() {
     );
 
     // Daemon should start with a WARN (not error/panic)
-    let result = Daemon::start(temp_dir.path().to_str().unwrap()).await;
+    let result = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await;
     if result.is_err() {
         panic!(
             "daemon should start even without session_config.json: {:?}",
@@ -344,9 +389,12 @@ async fn test_sweeper_shutdown_on_daemon_stop() {
     setup_agents_json(temp_dir.path()).expect("setup agents.json");
 
     // Start daemon
-    let daemon = Daemon::start(temp_dir.path().to_str().unwrap())
-        .await
-        .expect("daemon should start");
+    let daemon = Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await
+    .expect("daemon should start");
 
     // Verify sweeper shutdown channel is open
     let is_closed_before = daemon.sweeper_shutdown_tx.is_closed();
@@ -369,4 +417,63 @@ async fn test_sweeper_shutdown_on_daemon_stop() {
     // Drop the daemon (simulating end of life)
     drop(daemon);
     drop(temp_dir);
+}
+
+// =====================================================================
+// Step 1.14 — PID file injection seam: default behavior unchanged
+// (pure path assertions, no real-home side effects)
+// =====================================================================
+
+/// Test: with no injection (the `None`/default path), the PID file
+/// resolution must be exactly the fixed `pid_file_path()` computation —
+/// pure path assertion, no I/O.
+#[test]
+fn test_daemon_pid_resolution_default_is_fixed_path() {
+    let resolved = resolve_pid_file_path(None).expect("default resolution must not fail");
+    let fixed = closeclaw_platform::process::pid_file_path().expect("platform pid path");
+    assert_eq!(
+        resolved, fixed,
+        "default (no injection) must resolve to the fixed pid_file_path()"
+    );
+}
+
+/// Test: an injected PID path must be honored verbatim — pure path
+/// assertion, no I/O.
+#[test]
+fn test_daemon_pid_resolution_injected_is_verbatim() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    let injected = isolated_pid_file(temp_dir.path());
+    let resolved =
+        resolve_pid_file_path(Some(&injected)).expect("injected resolution must not fail");
+    assert_eq!(
+        resolved, injected,
+        "injected path must be used as-is, not re-resolved"
+    );
+}
+
+/// Test: starting via the injection seam writes the PID file (with the
+/// current process id) inside the injected TempDir path, and the daemon
+/// struct records exactly the injected path — no real-home touch.
+#[tokio::test]
+async fn test_daemon_start_writes_pid_file_at_injected_path() {
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json(temp_dir.path()).expect("setup agents.json");
+    let pid_file = isolated_pid_file(temp_dir.path());
+
+    let daemon =
+        Daemon::start_with_pid_file_path(temp_dir.path().to_str().unwrap(), Some(pid_file.clone()))
+            .await
+            .expect("daemon should start with injected pid path");
+
+    assert_eq!(
+        daemon.pid_file_path, pid_file,
+        "daemon must record the injected pid path"
+    );
+    let content = std::fs::read_to_string(&pid_file)
+        .expect("pid file must be written at the injected temp path");
+    assert_eq!(
+        content.trim(),
+        std::process::id().to_string(),
+        "pid file must contain the current process id"
+    );
 }

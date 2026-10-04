@@ -13,6 +13,8 @@
 
 use std::path::Path;
 
+use closeclaw_common::test_helpers::ensure_dir;
+
 /// `gateway.json` content (`gateway::GatewayConfig` snake_case form).
 ///
 /// `load_gateway_config` parses the file as `GatewayConfig` (`name`
@@ -111,7 +113,7 @@ pub fn write_config_tree(root: &Path, opts: ConfigTreeOpts) {
 /// plugins, system, accounts, credentials) under `<root>/config`.
 fn write_mandatory_configs(root: &Path, opts: &ConfigTreeOpts) {
     let config_dir = root.join("config");
-    std::fs::create_dir_all(config_dir.join("credentials")).expect("create config dirs");
+    ensure_dir(&config_dir.join("credentials")).expect("create config dirs");
 
     std::fs::write(
         config_dir.join("agents.json"),
@@ -176,7 +178,7 @@ fn models_json(opts: &ConfigTreeOpts) -> serde_json::Value {
 /// authoritative agent-config construction point.
 pub fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
     let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    ensure_dir(&agent_dir).expect("create agent dir");
     let mut config = serde_json::json!({
         "id": "master",
         "name": "Master",
@@ -213,7 +215,7 @@ pub fn write_agent_config_with_tools(
     disallowed: &[&str],
 ) {
     let agent_dir = config_root.join("agents").join("master");
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir");
+    ensure_dir(&agent_dir).expect("create agent dir");
     let tools: Vec<serde_json::Value> = tools.iter().map(|t| serde_json::json!(t)).collect();
     let disallowed: Vec<serde_json::Value> =
         disallowed.iter().map(|t| serde_json::json!(t)).collect();
@@ -264,7 +266,7 @@ fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
 /// data and stays with the caller, not in this shared scaffold.
 pub fn write_agent_permissions(root: &Path, agent_id: &str, rule_set_json: &str) {
     let agent_dir = root.join("agents").join(agent_id);
-    std::fs::create_dir_all(&agent_dir).expect("create agent dir for permissions");
+    ensure_dir(&agent_dir).expect("create agent dir for permissions");
     std::fs::write(agent_dir.join("permissions.json"), rule_set_json)
         .expect("write agent permissions.json");
 }

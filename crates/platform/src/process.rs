@@ -21,6 +21,14 @@ pub struct SpawnOptions {
     /// If `true`, stdin/stdout/stderr are redirected to `/dev/null`.
     /// Defaults to `true`.
     pub detach_stdio: bool,
+    /// Optional override for the daemon PID file location.
+    ///
+    /// When `None` (the default), the PID file is written to the fixed
+    /// path `~/.closeclaw/daemon.pid` via [`pid_file_path`]. When set,
+    /// the PID file is written to this path instead — intended for
+    /// tests to isolate filesystem side effects in a temporary
+    /// directory; production callers leave it `None`.
+    pub pid_file_path: Option<PathBuf>,
 }
 
 impl Default for SpawnOptions {
@@ -29,6 +37,7 @@ impl Default for SpawnOptions {
             working_dir: None,
             env_vars: Vec::new(),
             detach_stdio: true,
+            pid_file_path: None,
         }
     }
 }
@@ -250,8 +259,10 @@ pub fn send_signal(pid: u32, signal: SignalKind) -> anyhow::Result<()> {
 /// Spawns a daemon process, writes its PID file, and returns a child handle.
 ///
 /// The daemon is started by executing the given command with the provided
-/// arguments. After successful spawn, the child PID is written to the
-/// fixed PID file path (`~/.closeclaw/daemon.pid`) using [`write_pid_file`].
+/// arguments. After successful spawn, the child PID is written to the PID
+/// file path: [`SpawnOptions::pid_file_path`] when injected, otherwise the
+/// fixed path `~/.closeclaw/daemon.pid` (via [`pid_file_path`]), using
+/// [`write_pid_file`].
 ///
 /// # Arguments
 ///
@@ -288,7 +299,10 @@ pub fn spawn_daemon(
     let child = cmd.spawn()?;
     let pid = child.id();
 
-    let path = pid_file_path()?;
+    let path = match &options.pid_file_path {
+        Some(injected) => injected.clone(),
+        None => pid_file_path()?,
+    };
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

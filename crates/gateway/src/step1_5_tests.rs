@@ -420,9 +420,12 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         None,
         ReasoningLevel::default(),
     ));
+    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
         vec![],
-        Arc::new(closeclaw_llm::retry::CooldownManager::new()),
+        Arc::new(closeclaw_llm::retry::CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
     ));
     let llm_caller: std::sync::Arc<dyn closeclaw_common::LlmCaller> =
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));

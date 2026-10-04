@@ -42,9 +42,9 @@ pub(crate) fn config_dir_path(home: &str) -> PathBuf {
 
 /// Returns the root directory under `home`, creating it on disk.
 ///
-/// Shared by [`root_dir`]; exists separately so tests can inject a
-/// synthetic `home` value without touching environment variables.
-pub(crate) fn root_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
+/// Shared by [`root_dir`]; exposed so tests (also in other crates) can
+/// inject a synthetic `home` value without touching environment variables.
+pub fn root_dir_inner(home: &str) -> anyhow::Result<PathBuf> {
     let path = root_dir_path(home);
     std::fs::create_dir_all(&path)
         .with_context(|| format!("failed to create root dir at {}", path.display()))?;
