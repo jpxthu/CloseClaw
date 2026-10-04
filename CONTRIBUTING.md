@@ -190,6 +190,7 @@ Layer 5: daemon（composition root，允许全量依赖）
 | 开发工具相关设定（IDE、Agent、编译 Jobs 等本地环境配置）禁止进入代码库，应走各自工具的忽略规则（如 `.gitignore`）或平台层配置 | 本节 |
 | 禁止 `std::env::set_var` / `remove_var`（唯一例外 `daemon` 的 `load_env_file`） | §7 |
 | 测试 config 与临时文件必须落在系统临时目录（`tempfile::TempDir`），不可硬编码路径 | §8 |
+| 测试禁止读写真实 `~/.closeclaw`（含经 `root_dir()` / `pid_file_path()` / `CooldownManager::new()` 等默认路径 API 的间接调用），一律 `TempDir` + 路径注入；默认路径 API 仅允许纯路径断言 | §8 |
 | 端口不硬编码，用 port 0 系统分配 | §7 |
 | 测试间不共享可变状态；端口/文件锁/全局资源加 `#[serial_test::serial]` | §7 |
 | 单测 30s 硬上限；CI 单用例 >5s 必须修复 | §6 |
