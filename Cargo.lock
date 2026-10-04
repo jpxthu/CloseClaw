@@ -794,7 +794,6 @@ dependencies = [
  "async-trait",
  "base64",
  "chrono",
- "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",

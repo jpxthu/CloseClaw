@@ -69,6 +69,7 @@ fn test_model_spec_deserialize_empty_string_accepted_as_is() {
     let spec: ModelSpec = serde_json::from_str(r#""""#).unwrap();
     assert_eq!(spec, ModelSpec::single(""));
 }
+
 // ⑤ visit_map: duplicate `primary` key is rejected
 #[test]
 fn test_model_spec_deserialize_duplicate_primary_errors() {
@@ -108,13 +109,24 @@ fn test_model_spec_deserialize_unknown_fields_ignored() {
 }
 
 // ④ error path: malformed JSON (truncated / not JSON at all)
+// 断言错误类别（serde_json::Error::classify），而非恒真的「非空」检查。
 #[test]
 fn test_model_spec_deserialize_malformed_json_errors() {
-    for input in ["", r#"{"primary":"a/b""#, "not json", "{", r#"["a/b""#] {
-        let err = serde_json::from_str::<ModelSpec>(input)
-            .expect_err("malformed input must fail")
-            .to_string();
-        assert!(!err.is_empty(), "input {input}: empty error");
+    use serde_json::error::Category;
+    for (input, expected) in [
+        ("", Category::Eof),
+        (r#"{"primary":"a/b""#, Category::Eof),
+        ("not json", Category::Syntax),
+        ("{", Category::Eof),
+        // 序列形态：Visitor 未实现 visit_seq，类型错在截断语法错被检出前先返回
+        (r#"["a/b""#, Category::Data),
+    ] {
+        let err = serde_json::from_str::<ModelSpec>(input).expect_err("malformed input must fail");
+        let actual = err.classify();
+        assert_eq!(
+            actual, expected,
+            "input {input:?}: expected error category {expected:?}, got {actual:?}: {err}"
+        );
     }
 }
 

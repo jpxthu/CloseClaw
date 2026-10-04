@@ -12,9 +12,18 @@ use std::sync::{Arc, Mutex};
 #[test]
 fn test_agent_config_info_default_all_fields_none() {
     let info = AgentConfigInfo::default();
-    assert!(info.subagents_model.is_none());
-    assert!(info.timeout_warning.is_none());
-    assert!(info.timeout_notify_interval_ratio.is_none());
+    assert_eq!(
+        info.subagents_model, None,
+        "default subagents_model must be None"
+    );
+    assert_eq!(
+        info.timeout_warning, None,
+        "default timeout_warning must be None"
+    );
+    assert_eq!(
+        info.timeout_notify_interval_ratio, None,
+        "default timeout_notify_interval_ratio must be None"
+    );
 }
 
 #[test]
@@ -36,11 +45,24 @@ fn test_agent_config_info_clone_consistency() {
     let mut cloned = cloned;
     cloned.subagents_model = None;
     cloned.timeout_warning = None;
-    assert!(original.subagents_model.is_some());
-    assert_eq!(original.timeout_warning, Some(600));
+    assert!(
+        original.subagents_model.is_some(),
+        "clone independence: clearing cloned.subagents_model must not clear original.subagents_model"
+    );
+    assert_eq!(
+        original.timeout_warning,
+        Some(600),
+        "clone independence: clearing cloned.timeout_warning must not clear original.timeout_warning"
+    );
 }
 
 // ── AgentRegistryQuery 组合契约（mock 实现三 supertrait） ─────────────────
+//
+// 与 `crates/agent/src/registry/registry_query_tests.rs` 的分工：agent 侧
+// 那组用例验证真实 `AgentRegistry` 实现三 supertrait 后经 `Arc<dyn
+// AgentRegistryQuery>` 分发；common 不能依赖 agent crate，故此处仅在 trait
+// 定义所在 crate 用 mock 复核「三 supertrait 组合后可作为组合 trait 对象使用」
+// 的接口契约。两组用例互不替代，均保留（plan Step 1.3 明确要求 mock 契约测试）。
 
 #[derive(Clone, Debug)]
 struct MockAgentRecord {
@@ -127,7 +149,10 @@ async fn test_agent_registry_query_dispatches_all_supertrait_methods() {
         q.get_agent_model("a1").await,
         Some(ModelSpec::single("gpt-4o"))
     );
-    assert!(q.agent_exists("a1").await);
+    assert!(
+        q.agent_exists("a1").await,
+        "registered agent 'a1' must be reachable via Arc<dyn AgentRegistryQuery>"
+    );
     assert_eq!(
         q.query_bootstrap_mode("a1").await,
         Some(BootstrapMode::Minimal)
@@ -148,7 +173,10 @@ async fn test_agent_registry_query_missing_agent_defaults() {
     let mock = Arc::new(MockRegistryQuery::default());
     let q: Arc<dyn AgentRegistryQuery> = mock;
 
-    assert!(!q.agent_exists("ghost").await);
+    assert!(
+        !q.agent_exists("ghost").await,
+        "unregistered agent 'ghost' must not be reported as existing"
+    );
     assert_eq!(q.get_agent_model("ghost").await, None);
     assert_eq!(q.query_bootstrap_mode("ghost").await, None);
     assert_eq!(q.get_agent_workspace("ghost").await, None);
@@ -162,17 +190,26 @@ async fn test_agent_registry_query_reflects_state_transitions() {
     let mock = Arc::new(MockRegistryQuery::default());
     let q: Arc<dyn AgentRegistryQuery> = mock.clone();
 
-    assert!(!q.agent_exists("a2").await);
+    assert!(
+        !q.agent_exists("a2").await,
+        "agent 'a2' must be invisible before registration"
+    );
     assert_eq!(q.get_agent_skills("a2"), None);
     assert_eq!(q.get_agent_tools_config("a2").await, None);
 
     mock.insert("a2", sample_agent_record());
 
-    assert!(q.agent_exists("a2").await);
+    assert!(
+        q.agent_exists("a2").await,
+        "agent 'a2' must become visible immediately after registration"
+    );
     assert_eq!(
         q.get_agent_model("a2").await,
         Some(ModelSpec::single("gpt-4o"))
     );
     assert_eq!(q.get_agent_skills("a2"), Some(vec!["coding".to_string()]));
-    assert!(q.get_agent_tools_config("a2").await.is_some());
+    assert!(
+        q.get_agent_tools_config("a2").await.is_some(),
+        "tools config registered for 'a2' must be reachable through the combined trait object"
+    );
 }

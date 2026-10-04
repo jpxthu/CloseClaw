@@ -16,7 +16,10 @@ use std::fmt;
 /// the LLM layer (`unified_fallback.rs`), not here.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct ModelSpec {
+    /// Primary model identifier, tried first (e.g. `"gpt-4o"`).
     pub primary: String,
+    /// Fallback model identifiers, tried in order when the primary is unavailable.
+    /// Empty when the spec was created from the string form.
     pub fallback: Vec<String>,
 }
 
