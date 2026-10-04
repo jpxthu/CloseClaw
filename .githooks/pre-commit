@@ -17,6 +17,10 @@ if [ -n "$staged_rs" ]; then
     # 判定与错误文案的单一来源：scripts/check-env-var.sh（与 CI 共享），细则见 docs/developer/STANDARDS.md §7
     bash scripts/check-env-var.sh staged
 
+    # 测试合规静态扫描 — 禁止硬编码路径 / 手动目录管理 / 环境变量泄漏
+    # 判定与错误文案的单一来源：scripts/test-audit.sh（与 CI 共享），细则见 docs/developer/STANDARDS.md §8
+    bash scripts/test-audit.sh
+
     # cargo fmt check — 仅检查 staged 文件，不背负历史技术债
     # 行宽（默认 100）、缩进、空白等格式问题一并覆盖
     if ! cargo fmt --check -- $staged_rs 2>&1; then
