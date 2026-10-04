@@ -127,10 +127,20 @@ fn daemon_test_temp_config() -> tempfile::TempDir {
 async fn test_daemon_run_sigterm_shutdown() {
     let temp_dir = daemon_test_temp_config();
 
+    // Isolated PID file path under the TempDir — PID-file side effects of
+    // Daemon::start and its shutdown cleanup stay out of the real
+    // `~/.closeclaw` (same pattern as helpers::spawn_daemon's temp HOME).
+    let pid_dir = temp_dir.path().join(".closeclaw");
+    closeclaw_common::test_helpers::ensure_dir(&pid_dir).expect("create .closeclaw dir");
+    let pid_file = pid_dir.join("daemon.pid");
+
     // Do NOT set FEISHU/LLM env vars — Daemon::start will skip those components
-    let mut daemon = closeclaw_daemon::Daemon::start(temp_dir.path().to_str().unwrap())
-        .await
-        .expect("daemon start");
+    let mut daemon = closeclaw_daemon::Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(pid_file),
+    )
+    .await
+    .expect("daemon start");
 
     // Spawn a task that sends SIGTERM to this process — mirrors an external
     // signal source. Deterministic ordering (no sleep gamble): the explicit

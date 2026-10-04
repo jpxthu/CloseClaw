@@ -8,4 +8,6 @@ mod bootstrap;
 mod plugin_init;
 mod run;
 
+#[cfg(test)]
+pub(crate) use run::resolve_pid_file_path;
 pub(crate) use run::TaskStopStatus;
