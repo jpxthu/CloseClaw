@@ -541,15 +541,15 @@ use crate::admin::rpc::client::admin_socket_path;
 use crate::args::{AgentAction, RuleAction, SkillAction};
 use std::path::{Path, PathBuf};
 
-// ── config_root() delegation ──────────────────────────────────────────────
+// ── config_root() → platform root_dir (verified via injectable inner) ─────
 
-/// config_root() is a thin pass-through wrapper over the platform
+/// `config_root()` is a thin pass-through wrapper over the platform
 /// `root_dir()` (see super::common) and has no home-injection seam — calling
-/// it directly would create the real `~/.closeclaw`. The delegation contract
-/// is therefore verified through the platform-side injectable inner under a
+/// it directly would create the real `~/.closeclaw`. Its delegation target
+/// is therefore exercised through the platform-side injectable inner under a
 /// TempDir home: `<home>` must resolve (and be created) as `<home>/.closeclaw`.
 #[test]
-fn test_config_root_delegates_to_platform() {
+fn test_platform_root_inner_resolves_temp_home_to_closeclaw() {
     let tmp = TempDir::new().unwrap();
     let home = tmp.path().to_str().unwrap().to_string();
 
@@ -566,23 +566,21 @@ fn test_config_root_delegates_to_platform() {
     );
 }
 
-/// config_root() returns anyhow::Result, not panicking. Verified via the
-/// injectable platform inner under a TempDir home — calling config_root()
-/// itself would create the real `~/.closeclaw`.
+/// Root resolution under an injected TempDir home returns `Ok` with the
+/// directory created on disk. Calling `config_root()` itself would create
+/// the real `~/.closeclaw`, so the platform-side injectable inner is
+/// exercised instead.
 #[test]
-fn test_config_root_returns_result_not_panic() {
+fn test_root_resolution_succeeds_under_temp_home() {
     let tmp = TempDir::new().unwrap();
     let home = tmp.path().to_str().unwrap().to_string();
 
-    let result = closeclaw_platform::config::root_dir_inner(&home);
+    let resolved = closeclaw_platform::config::root_dir_inner(&home)
+        .expect("root resolution under a TempDir home should succeed");
     assert!(
-        result.is_ok() || result.is_err(),
-        "config root resolution must return a Result, not panic"
-    );
-    assert!(
-        result.is_ok(),
-        "root resolution under a TempDir home should succeed: {:?}",
-        result
+        resolved.is_dir(),
+        "root resolution should create the directory: {}",
+        resolved.display()
     );
 }
 
