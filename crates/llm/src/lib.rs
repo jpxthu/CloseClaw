@@ -13,6 +13,8 @@ pub mod cache_adapter;
 pub mod call_chain;
 pub mod fallback;
 #[cfg(test)]
+mod fallback_streaming_tests;
+#[cfg(test)]
 mod fallback_tests;
 pub mod glm;
 pub mod http_client;

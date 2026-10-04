@@ -77,6 +77,22 @@ impl FallbackClient {
         }
     }
 
+    /// Construct a `FallbackClient` with an explicit cooldown manager (test-only).
+    #[cfg(test)]
+    pub(crate) fn new_with_cooldown(
+        registry: Arc<crate::LLMRegistry>,
+        fallback_chain: Vec<ModelEntry>,
+        cooldown: Arc<CooldownManager>,
+    ) -> Self {
+        Self {
+            registry,
+            fallback_chain,
+            cooldown,
+            call_timeout: Duration::from_secs(DEFAULT_CALL_TIMEOUT_SECS),
+            protocol: Arc::new(crate::protocol::OpenAiProtocol::default()),
+        }
+    }
+
     /// Async constructor: creates the client and loads persisted cooldowns.
     pub async fn new_async(
         registry: Arc<crate::LLMRegistry>,
@@ -122,17 +138,17 @@ impl FallbackClient {
         chain: Vec<String>,
         protocol: Arc<dyn ChatProtocol>,
     ) -> Self {
-        let fallback_chain: Vec<ModelEntry> = chain
-            .into_iter()
-            .filter_map(|s| {
-                let (provider, model) = s.split_once('/')?;
-                Some(ModelEntry {
-                    provider: provider.to_string(),
-                    model: model.to_string(),
-                })
-            })
-            .collect();
-        Self::new_with_protocol(registry, fallback_chain, protocol)
+        Self::new_with_protocol(registry, parse_model_entries(chain), protocol)
+    }
+
+    /// Create from config-style strings with an explicit cooldown manager (test-only).
+    #[cfg(test)]
+    pub(crate) fn from_strings_with_cooldown(
+        registry: Arc<crate::LLMRegistry>,
+        chain: Vec<String>,
+        cooldown: Arc<CooldownManager>,
+    ) -> Self {
+        Self::new_with_cooldown(registry, parse_model_entries(chain), cooldown)
     }
 
     /// Set call timeout
@@ -141,6 +157,20 @@ impl FallbackClient {
         self.call_timeout = Duration::from_secs(secs);
         self
     }
+}
+
+/// Parse config-style "provider/model" strings into [`ModelEntry`]s, skipping invalid entries.
+fn parse_model_entries(chain: Vec<String>) -> Vec<ModelEntry> {
+    chain
+        .into_iter()
+        .filter_map(|s| {
+            let (provider, model) = s.split_once('/')?;
+            Some(ModelEntry {
+                provider: provider.to_string(),
+                model: model.to_string(),
+            })
+        })
+        .collect()
 }
 
 // --- Request/response conversion helpers ---
