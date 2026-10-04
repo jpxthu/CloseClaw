@@ -10,7 +10,16 @@ use std::io;
 /// temp-tree layout expected by the daemon or fixtures is prepared through
 /// this helper instead, so every created path stays inside the caller's
 /// managed temp tree (STANDARDS §8).
+///
+/// Debug builds assert the TempDir contract: `dir` must resolve under
+/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
+/// mis-injected path fails fast in tests instead of writing elsewhere.
 pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
+    debug_assert!(
+        dir.starts_with(std::env::temp_dir()),
+        "ensure_dir contract violation: {dir:?} is not under std::env::temp_dir(); \
+         tests must operate inside a tempfile::TempDir root (STANDARDS §8)"
+    );
     std::fs::create_dir_all(dir)
 }
 

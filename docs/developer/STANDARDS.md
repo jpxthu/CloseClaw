@@ -107,7 +107,7 @@ let provider = FakeProvider::builder()
 let dir = tempfile::TempDir::new()?;      // 落在系统临时目录，Drop 自动清理
 ```
 
-- **禁止读写真实 `~/.closeclaw`**：直接读写与间接触碰都算违规——包括经 `root_dir()`、`pid_file_path()`、`CooldownManager::new()` 等默认路径 API 解析到真实 home 的调用。需要持久化路径时一律 `TempDir` + 路径注入（如 `CooldownManager::with_path`、`SpawnOptions::pid_file_path`、`root_dir_inner(home)`），构造 `{tempdir}/.closeclaw/...` 形态路径；默认路径 API（不注入的形态）仅允许做纯路径断言，不得产生真实文件系统副作用。该禁令由 `scripts/test-audit.sh` 静态扫描 + CI / pre-commit 强制执行。
+- **禁止读写真实 `~/.closeclaw`**：直接读写与间接触碰都算违规——包括经 `root_dir()`、`pid_file_path()`、`CooldownManager::new()` 等默认路径 API 解析到真实 home 的调用。需要持久化路径时一律 `TempDir` + 路径注入（如 `CooldownManager::with_path`、`SpawnOptions::pid_file_path`、`root_dir_inner(home)`），构造 `{tempdir}/.closeclaw/...` 形态路径；默认路径 API（不注入的形态）仅允许做纯路径断言，不得产生真实文件系统副作用。该禁令由 `scripts/test-audit.sh` 静态扫描 + CI / pre-commit 强制执行；静态扫描覆盖范围为顶层 `src/` 与 `tests/`（不含 `crates/*/src/**`）——crates 内测试依赖本规范约束，扫描扩展另见 follow-up issue。
 - 测试后**无残留**进程、端口、临时文件（TempDir 自动清理；spawn 的子进程显式 kill/await）。
 - 禁止把临时产物写到仓库目录或 `tests/fixtures/`。**边界说明**：「仓库目录」指仓库源码树内的固定路径；沙箱/开发环境可能把 `$TMPDIR` 指向仓库内子目录，此时经 `std::env::temp_dir()` / `TempDir` 落盘的仍是系统临时目录，**允许**——即「写系统临时目录」与「沙箱 `$TMPDIR` 物理上位于仓库内」两者皆允许，违规的只是绕过临时目录机制向源码树固定路径写临时产物。
 

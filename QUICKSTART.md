@@ -18,8 +18,6 @@ closeclaw config setup
 cargo run -- run --config-dir ./configs
 ```
 
-> ⚠️ **注意**：如果 `cargo run` 出现编译错误（`closeclaw::cli::chat::ChatCommand` 未找到），这是当前已知 bug，请参考 [docs/developer/STANDARDS.md](docs/developer/STANDARDS.md) 或等待修复。
-
 ### 3. 和 guide agent 对话
 
 guide agent 会引导你完成后续配置。
