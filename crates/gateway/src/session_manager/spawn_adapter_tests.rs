@@ -10,7 +10,9 @@ use std::sync::Arc;
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
-use closeclaw_common::{BootstrapMode, ModelSpec, PermissionChecker, SpawnPermissionError};
+use closeclaw_common::{
+    BootstrapMode, ModelSpec, PermissionChecker, SpawnError, SpawnPermissionError,
+};
 use closeclaw_config::agents::{
     ActionPermission, AgentPermissions, ConfigSource, MemoryConfig, PermissionLimits,
     ResolvedAgentConfig, SubagentsConfig,
@@ -479,7 +481,7 @@ async fn test_adapter_integration_validate_then_permission_no_restrictions() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     // Step 2: permission check passes (no permissions configured)
     controller
@@ -537,7 +539,7 @@ async fn test_adapter_integration_validate_then_permission_denied() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     // Step 2: permission check rejects (child fully denied)
     let err = controller
@@ -546,10 +548,10 @@ async fn test_adapter_integration_validate_then_permission_denied() {
         .expect_err("check_spawn_permission should reject when child fully denied");
 
     match err {
-        closeclaw_session::spawn_validation::SpawnError::PermissionDenied { agent_id, .. } => {
+        SpawnError::Permission(SpawnPermissionError::Denied { agent_id, .. }) => {
             assert_eq!(agent_id, "child");
         }
-        other => panic!("expected PermissionDenied, got {:?}", other),
+        other => panic!("expected Permission variant, got {:?}", other),
     }
 }
 
@@ -585,7 +587,7 @@ async fn test_validate_result_usable_for_child_session_creation() {
         .expect("validate should succeed");
 
     // All fields required by ChildSessionCreationParams must be present:
-    assert_eq!(result.config.id, "child", "target agent config");
+    assert_eq!(result.agent_id, "child", "target agent id");
     // Parent max_spawn_depth=3, child max_spawn_depth=2.
     // effective = min(child_max, parent_effective - 1) = min(2, 3-1) = 2
     assert_eq!(

@@ -23,7 +23,6 @@ pub mod registrar;
 pub mod registrars;
 pub mod registry;
 pub mod security;
-pub mod spawn_validation;
 pub mod tool_types;
 pub mod tools_fragment_provider;
 pub mod workdir_context;
@@ -38,7 +37,6 @@ pub use registry::ToolRegistryImpl;
 pub use tool_types::{ToolError, ToolSummary};
 /// Type alias for backward compatibility.
 pub type ToolRegistry = ToolRegistryImpl;
-pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 
 // Re-export WorkdirContext helpers from common (via workdir_context module).
 pub use build_tools_section::{build_tools_section, ToolsSectionParams};

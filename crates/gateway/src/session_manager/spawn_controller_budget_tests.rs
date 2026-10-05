@@ -3,6 +3,7 @@ use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, SessionManager};
+use closeclaw_common::SpawnError;
 use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
@@ -11,7 +12,6 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::SessionCheckpoint;
-use closeclaw_session::spawn_validation::SpawnError;
 use closeclaw_session::storage::memory::MemoryStorage;
 use std::sync::Arc;
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
@@ -250,7 +250,7 @@ async fn test_depth_budget_child_narrows_via_min() {
         .await
         .expect("should pass: effective=2, child_depth=1");
     assert_eq!(result.effective_max_spawn_depth, 2);
-    assert_eq!(result.config.id, "narrow-child");
+    assert_eq!(result.agent_id, "narrow-child");
     // Simulate child created with effective budget = 2
     let child_session_id = "narrow-child-session";
     sm.sessions.write().await.insert(

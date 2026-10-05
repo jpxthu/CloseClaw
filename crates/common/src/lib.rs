@@ -67,6 +67,7 @@ pub mod slash_router;
 #[cfg(test)]
 pub mod slash_router_tests;
 pub mod slash_session_query;
+pub mod spawn_validation;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
@@ -143,6 +144,7 @@ pub use slash_router::{
     SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
 };
 pub use slash_session_query::SlashSessionQuery;
+pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 pub use streaming::{CodeBlockMode, DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 

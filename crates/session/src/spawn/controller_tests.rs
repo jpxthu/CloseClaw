@@ -16,7 +16,7 @@ use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 
 use super::controller::{SpawnContext, SpawnController};
-use crate::spawn_validation::SpawnError;
+use closeclaw_common::SpawnError;
 
 // ── Mock implementations ───────────────────────────────────────────────
 
@@ -135,7 +135,7 @@ async fn test_require_agent_id_false_fallback_to_parent() {
     let result = controller.validate("session-1", None).await;
 
     let result = result.expect("validate should succeed when requireAgentId=false");
-    assert_eq!(result.config.id, "parent-agent");
+    assert_eq!(result.agent_id, "parent-agent");
 }
 
 /// Error path: requireAgentId=true, no agentId provided → reject
@@ -213,7 +213,7 @@ async fn test_valid_spawn_with_budget() {
     let result = controller.validate("session-1", Some("child-agent")).await;
 
     let result = result.expect("validate should succeed");
-    assert_eq!(result.config.id, "child-agent");
+    assert_eq!(result.agent_id, "child-agent");
     // effective_max_spawn_depth = min(target.max_spawn_depth=2, parent_budget-1=1) = 1
     assert_eq!(result.effective_max_spawn_depth, 1);
 }
@@ -272,7 +272,7 @@ async fn test_require_agent_id_true_with_explicit_agent_id() {
     let result = controller.validate("session-1", Some("child-agent")).await;
 
     let result = result.expect("validate should succeed with explicit agentId");
-    assert_eq!(result.config.id, "child-agent");
+    assert_eq!(result.agent_id, "child-agent");
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -516,7 +516,7 @@ async fn test_budget_one_allows_spawn() {
     let controller = make_controller(config_manager, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("budget=1 should allow spawn");
-    assert_eq!(result.config.id, "child-agent");
+    assert_eq!(result.agent_id, "child-agent");
     // effective = min(target.max_spawn_depth=1, parent_budget-1=0) = 0
     assert_eq!(result.effective_max_spawn_depth, 0);
 }

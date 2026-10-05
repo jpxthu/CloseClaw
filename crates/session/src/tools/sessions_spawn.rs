@@ -2,19 +2,20 @@
 
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
-use crate::spawn_validation::SpawnValidator;
+use crate::spawn::SpawnTargetConfigLookup;
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
 
 use async_trait::async_trait;
-use closeclaw_common::AgentConfigLookup;
+use closeclaw_common::{AgentConfigLookup, SpawnError, SpawnPermissionError, SpawnValidator};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 /// Tool that spawns child sessions for sub-agent execution.
 pub struct SessionsSpawnTool {
     spawn_validator: Arc<dyn SpawnValidator>,
+    spawn_target_config: Arc<dyn SpawnTargetConfigLookup>,
     session_manager: Arc<dyn SessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
 }
@@ -39,13 +40,19 @@ pub(crate) struct SpawnArgs {
 
 impl SessionsSpawnTool {
     /// Create a new `SessionsSpawnTool` with the given dependencies.
+    ///
+    /// `spawn_target_config` resolves the target agent's full config
+    /// profile inside the session domain after precondition validation
+    /// (the shared `SpawnValidationResult` only carries `agent_id`).
     pub fn new(
         spawn_validator: Arc<dyn SpawnValidator>,
+        spawn_target_config: Arc<dyn SpawnTargetConfigLookup>,
         session_manager: Arc<dyn SessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
     ) -> Self {
         Self {
             spawn_validator,
+            spawn_target_config,
             session_manager,
             agent_config_lookup,
         }
@@ -308,8 +315,8 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(result) => result,
-            Err(crate::spawn_validation::SpawnError::PermissionDenied { .. }) => {
-                // validate_spawn should not return PermissionDenied after
+            Err(SpawnError::Permission(_)) => {
+                // validate_spawn should not return a permission error after
                 // two-step separation (permission check is step 2).
                 // If this ever fires, it indicates a bug in the two-step
                 // separation — log it as an error for diagnostics.
@@ -336,7 +343,7 @@ impl Tool for SessionsSpawnTool {
             .await
         {
             Ok(()) => {}
-            Err(crate::spawn_validation::SpawnError::PermissionDenied { reason, .. }) => {
+            Err(SpawnError::Permission(SpawnPermissionError::Denied { reason, .. })) => {
                 return Err(ToolCallError::PermissionDenied(reason));
             }
             Err(other) => {
@@ -347,8 +354,18 @@ impl Tool for SessionsSpawnTool {
             }
         }
 
-        let config = spawn_result.config;
+        let agent_id = spawn_result.agent_id;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
+        // The full target config profile is obtained through the
+        // session-internal channel — it never enters the shared
+        // SpawnValidationResult (design doc §shared-types).
+        let config = self
+            .spawn_target_config
+            .resolve_agent_config(&agent_id)
+            .await
+            .ok_or_else(|| {
+                ToolCallError::ExecutionFailed(format!("agent config not found: {}", agent_id))
+            })?;
         let mut spawn_timeout = spawn_result.spawn_timeout;
         if let Some(arg_timeout) = spawn_args.timeout {
             spawn_timeout = Some(arg_timeout);
@@ -403,7 +420,7 @@ impl Tool for SessionsSpawnTool {
         Ok(ToolResult {
             data: json!({
                 "session_id": child_session_id,
-                "agent_id": config.id,
+                "agent_id": agent_id,
                 "depth": parent_depth + 1,
                 "mode": spawn_args.mode_str,
             }),

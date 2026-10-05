@@ -14,6 +14,7 @@ use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
+use closeclaw_common::SpawnError;
 use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
@@ -21,7 +22,6 @@ use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::persistence::ReasoningLevel;
-use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -195,8 +195,9 @@ async fn test_validate_passes() {
         .await
         .expect("validate should succeed for a legal request");
 
-    assert_eq!(result.config.id, "child");
-    assert_eq!(result.config.source, ConfigSource::User);
+    assert_eq!(result.agent_id, "child");
+    // Full target config (incl. source) now asserted from the config store.
+    assert_eq!(cm.agents()["child"].source, ConfigSource::User);
     // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
     // effective_max = min(1, 2-1) = 1
     assert_eq!(result.effective_max_spawn_depth, 1);
@@ -371,7 +372,7 @@ async fn test_validate_wildcard_allow() {
         .await
         .expect("validate should succeed when allow_agents contains '*'");
 
-    assert_eq!(result.config.id, "any-arbitrary-agent");
+    assert_eq!(result.agent_id, "any-arbitrary-agent");
     // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
     // effective_max = min(1, 2-1) = 1
     assert_eq!(result.effective_max_spawn_depth, 1);
@@ -440,7 +441,7 @@ async fn test_validate_cascade_parent_depth2_child_depth2() {
         .await
         .expect("should pass: effective_max=1, child_depth=1 <= 1");
 
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
     assert_eq!(result.effective_max_spawn_depth, 1);
 }
 
@@ -474,7 +475,7 @@ async fn test_validate_cascade_parent_depth3_child_depth1() {
         .await
         .expect("should pass: effective_max=1, child_depth=1 <= 1");
 
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
     assert_eq!(result.effective_max_spawn_depth, 1);
 }
 
@@ -538,7 +539,7 @@ async fn test_validate_cascade_parent_depth5_child_depth1() {
         .await
         .expect("should pass: effective_max=1, child_depth=1 <= 1");
 
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
     assert_eq!(result.effective_max_spawn_depth, 1);
 }
 
@@ -568,7 +569,7 @@ async fn test_validate_cascade_parent_depth5_child_depth3() {
         .await
         .expect("should pass: effective_max=3, child_depth=1 <= 3");
 
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
     assert_eq!(result.effective_max_spawn_depth, 3);
 }
 
@@ -892,7 +893,7 @@ async fn test_validate_no_target_parent_in_allowlist() {
         .await
         .expect("validate should succeed: parent agent is in its own allowlist");
 
-    assert_eq!(result.config.id, "parent");
+    assert_eq!(result.agent_id, "parent");
 }
 
 /// Verify that session-mode children registered under a parent are NOT

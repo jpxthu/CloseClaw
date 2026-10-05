@@ -201,9 +201,13 @@ pub(crate) fn spawn_plan_archive_sweeper(
 /// Uses trait adapters to bridge `PermissionEngine` and `ApprovalFlow`
 /// into the session tool interfaces.
 fn build_session_registrar(ctx: &RegistryContext<'_>) -> SessionToolsRegistrar {
-    let spawn_validator: Arc<dyn closeclaw_session::spawn_validation::SpawnValidator> =
+    let spawn_validator: Arc<dyn closeclaw_common::SpawnValidator> =
+        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_common::SpawnValidator>;
+    // Session-internal channel: full target agent config never enters the
+    // shared SpawnValidationResult (design doc §shared-types).
+    let spawn_target_config: Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup> =
         Arc::clone(&ctx.spawn_controller)
-            as Arc<dyn closeclaw_session::spawn_validation::SpawnValidator>;
+            as Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup>;
     let agent_config_lookup: Arc<dyn AgentConfigLookup> =
         Arc::clone(ctx.agent_registry) as Arc<dyn AgentConfigLookup>;
     let permission_evaluator: Arc<dyn closeclaw_common::permission_types::PermissionEvaluator> =
@@ -216,6 +220,7 @@ fn build_session_registrar(ctx: &RegistryContext<'_>) -> SessionToolsRegistrar {
 
     SessionToolsRegistrar::new(
         spawn_validator,
+        spawn_target_config,
         Arc::clone(&ctx.late_bound_session_manager)
             as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
         agent_config_lookup,

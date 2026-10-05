@@ -9,6 +9,7 @@
 use super::sessions_spawn::SessionsSpawnTool;
 use super::SessionManagerOps;
 use closeclaw_common::tool_trait::{PromptGenerationContext, Tool, WorkdirContext};
+use closeclaw_common::{SpawnError, SpawnValidationResult, SpawnValidator};
 
 use std::sync::Arc;
 
@@ -89,22 +90,59 @@ impl SessionManagerOps for MockSessionManager {
 struct MockSpawnValidator;
 
 #[async_trait::async_trait]
-impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
+impl SpawnValidator for MockSpawnValidator {
     async fn validate_spawn(
         &self,
         _parent_session_id: &str,
         _target_agent_id: Option<&str>,
-    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
-    {
-        Err(crate::spawn_validation::SpawnError::AgentIdRequired)
+    ) -> Result<SpawnValidationResult, SpawnError> {
+        Err(SpawnError::AgentIdRequired)
     }
 
     async fn check_spawn_permission(
         &self,
         _parent_session_id: &str,
-        _validation: &crate::spawn_validation::SpawnValidationResult,
-    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        _validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
         Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Mock SpawnTargetConfigLookup (session-internal full config channel)
+// ---------------------------------------------------------------------------
+
+/// Build a minimal resolved agent config for `id`.
+fn make_agent_config(id: &str) -> closeclaw_config::agents::ResolvedAgentConfig {
+    closeclaw_config::agents::ResolvedAgentConfig {
+        id: id.to_string(),
+        name: id.to_string(),
+        parent_id: None,
+        model: Some(closeclaw_common::ModelSpec::single("test-model")),
+        workspace: None,
+        agent_dir: None,
+        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
+        skills: vec![],
+        tools: vec![],
+        disallowed_tools: vec![],
+        subagents: closeclaw_config::agents::SubagentsConfig::default(),
+        memory: closeclaw_config::agents::MemoryConfig::default(),
+        hooks: vec![],
+        parallel_tool_calls: true,
+        memory_configured: false,
+        source: closeclaw_config::agents::ConfigSource::User,
+    }
+}
+
+struct MockSpawnTargetConfigLookup;
+
+#[async_trait::async_trait]
+impl crate::spawn::SpawnTargetConfigLookup for MockSpawnTargetConfigLookup {
+    async fn resolve_agent_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+        Some(make_agent_config(agent_id))
     }
 }
 
@@ -127,6 +165,7 @@ impl closeclaw_common::AgentConfigLookup for MockAgentConfigLookup {
 fn make_tool() -> SessionsSpawnTool {
     SessionsSpawnTool::new(
         Arc::new(MockSpawnValidator),
+        Arc::new(MockSpawnTargetConfigLookup),
         Arc::new(MockSessionManager),
         Arc::new(MockAgentConfigLookup),
     )
@@ -405,9 +444,9 @@ struct CallLog {
 struct TrackingSpawnValidator {
     /// If `Some`, `validate_spawn` returns this error; otherwise Ok with a
     /// default SpawnValidationResult.
-    validate_error: Mutex<Option<crate::spawn_validation::SpawnError>>,
+    validate_error: Mutex<Option<SpawnError>>,
     /// If `Some`, `check_spawn_permission` returns this error; otherwise Ok.
-    permission_error: Mutex<Option<crate::spawn_validation::SpawnError>>,
+    permission_error: Mutex<Option<SpawnError>>,
     log: Arc<CallLog>,
 }
 
@@ -420,7 +459,7 @@ impl TrackingSpawnValidator {
         }
     }
 
-    fn with_validate_error(e: crate::spawn_validation::SpawnError) -> Self {
+    fn with_validate_error(e: SpawnError) -> Self {
         Self {
             validate_error: Mutex::new(Some(e)),
             permission_error: Mutex::new(None),
@@ -428,7 +467,7 @@ impl TrackingSpawnValidator {
         }
     }
 
-    fn with_permission_error(e: crate::spawn_validation::SpawnError) -> Self {
+    fn with_permission_error(e: SpawnError) -> Self {
         Self {
             validate_error: Mutex::new(None),
             permission_error: Mutex::new(Some(e)),
@@ -442,36 +481,18 @@ impl TrackingSpawnValidator {
 }
 
 #[async_trait::async_trait]
-impl crate::spawn_validation::SpawnValidator for TrackingSpawnValidator {
+impl SpawnValidator for TrackingSpawnValidator {
     async fn validate_spawn(
         &self,
         _parent_session_id: &str,
         _target_agent_id: Option<&str>,
-    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
-    {
+    ) -> Result<SpawnValidationResult, SpawnError> {
         self.log.validate_called.store(true, Ordering::SeqCst);
         if let Some(e) = self.validate_error.lock().unwrap().take() {
             return Err(e);
         }
-        Ok(crate::spawn_validation::SpawnValidationResult {
-            config: closeclaw_config::agents::ResolvedAgentConfig {
-                id: "child-agent".to_string(),
-                name: "child-agent".to_string(),
-                parent_id: None,
-                model: Some(closeclaw_common::ModelSpec::single("test-model")),
-                workspace: None,
-                agent_dir: None,
-                bootstrap_mode: closeclaw_common::BootstrapMode::Full,
-                skills: vec![],
-                tools: vec![],
-                disallowed_tools: vec![],
-                subagents: closeclaw_config::agents::SubagentsConfig::default(),
-                memory: closeclaw_config::agents::MemoryConfig::default(),
-                hooks: vec![],
-                parallel_tool_calls: true,
-                memory_configured: false,
-                source: closeclaw_config::agents::ConfigSource::User,
-            },
+        Ok(SpawnValidationResult {
+            agent_id: "child-agent".to_string(),
             effective_max_spawn_depth: 1,
             spawn_timeout: Some(172800),
             timeout_warning_secs: None,
@@ -482,8 +503,8 @@ impl crate::spawn_validation::SpawnValidator for TrackingSpawnValidator {
     async fn check_spawn_permission(
         &self,
         _parent_session_id: &str,
-        _validation: &crate::spawn_validation::SpawnValidationResult,
-    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        _validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
         self.log
             .check_permission_called
             .store(true, Ordering::SeqCst);
@@ -585,14 +606,20 @@ fn make_spawn_args(task: &str) -> serde_json::Value {
 /// `check_spawn_permission` must NOT be called.
 #[tokio::test]
 async fn test_two_step_precondition_failure_skips_permission() {
-    let validator = TrackingSpawnValidator::with_validate_error(
-        crate::spawn_validation::SpawnError::DepthExceeded { current: 1, max: 0 },
-    );
+    let validator = TrackingSpawnValidator::with_validate_error(SpawnError::DepthExceeded {
+        current: 1,
+        max: 0,
+    });
     let log = validator.log();
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+    let tool = SessionsSpawnTool::new(
+        Arc::new(validator),
+        Arc::new(MockSpawnTargetConfigLookup),
+        sm,
+        Arc::new(MockAgentConfigLookup),
+    );
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -626,17 +653,22 @@ async fn test_two_step_precondition_failure_skips_permission() {
 /// submitted (design doc §Spawn 控制流程: Deny → return error).
 #[tokio::test]
 async fn test_two_step_permission_denied_returns_error() {
-    let validator = TrackingSpawnValidator::with_permission_error(
-        crate::spawn_validation::SpawnError::PermissionDenied {
+    let validator = TrackingSpawnValidator::with_permission_error(SpawnError::Permission(
+        closeclaw_common::SpawnPermissionError::Denied {
             agent_id: "child-agent".to_string(),
             reason: "not allowed".to_string(),
         },
-    );
+    ));
     let log = validator.log();
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+    let tool = SessionsSpawnTool::new(
+        Arc::new(validator),
+        Arc::new(MockSpawnTargetConfigLookup),
+        sm,
+        Arc::new(MockAgentConfigLookup),
+    );
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -668,17 +700,22 @@ async fn test_two_step_permission_denied_returns_error() {
 #[tokio::test]
 async fn test_permission_denied_error_message_propagated() {
     let reason_text = "agent 'secret-agent' is not in the parent allowlist";
-    let validator = TrackingSpawnValidator::with_permission_error(
-        crate::spawn_validation::SpawnError::PermissionDenied {
+    let validator = TrackingSpawnValidator::with_permission_error(SpawnError::Permission(
+        closeclaw_common::SpawnPermissionError::Denied {
             agent_id: "secret-agent".to_string(),
             reason: reason_text.to_string(),
         },
-    );
+    ));
     let log = validator.log();
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+    let tool = SessionsSpawnTool::new(
+        Arc::new(validator),
+        Arc::new(MockSpawnTargetConfigLookup),
+        sm,
+        Arc::new(MockAgentConfigLookup),
+    );
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");
@@ -706,7 +743,12 @@ async fn test_two_step_both_pass_creates_child() {
     let sm = Arc::new(RecordingSessionManager {
         log: Arc::clone(&log),
     });
-    let tool = SessionsSpawnTool::new(Arc::new(validator), sm, Arc::new(MockAgentConfigLookup));
+    let tool = SessionsSpawnTool::new(
+        Arc::new(validator),
+        Arc::new(MockSpawnTargetConfigLookup),
+        sm,
+        Arc::new(MockAgentConfigLookup),
+    );
 
     let ctx = make_tool_context("parent-session");
     let args = make_spawn_args("test task");

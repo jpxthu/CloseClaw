@@ -255,7 +255,9 @@ mod tests {
                 tool_registry,
             )),
             Box::new(SessionToolsRegistrar::new(
-                spawn_controller.clone() as Arc<dyn crate::SpawnValidator>,
+                spawn_controller.clone() as Arc<dyn closeclaw_common::SpawnValidator>,
+                spawn_controller.clone()
+                    as Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup>,
                 session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
                 agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
                 Arc::new(PermissionEngineAdapter(permission_engine)),

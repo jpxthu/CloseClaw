@@ -20,9 +20,9 @@ use closeclaw_session::persistence::ReasoningLevel;
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus};
 use crate::{GatewayConfig, Message, SessionManager};
+use closeclaw_common::SpawnError;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated to keep this file self-contained)
@@ -240,7 +240,7 @@ async fn test_validate_unparent_config_uses_defaults() {
         "should pass: unregistered parent uses default config (max_children=5, allow=[wildcard])",
     );
 
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
     assert_eq!(result.effective_max_spawn_depth, 0);
 }
 
@@ -270,7 +270,7 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
         .await
         .expect("should succeed: parent-agent-id fallback resolves to parent itself");
 
-    assert_eq!(result.config.id, "parent");
+    assert_eq!(result.agent_id, "parent");
 }
 
 /// Default max_children (5) allows up to 4 concurrent children.
@@ -299,7 +299,7 @@ async fn test_validate_default_max_children_boundary() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("should pass: 4 active < max_children=5");
-    assert_eq!(result.config.id, "child");
+    assert_eq!(result.agent_id, "child");
 
     // Add 5th child to reach the limit.
     fill_children(&sm, &parent_id, 1).await;
