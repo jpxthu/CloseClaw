@@ -7,6 +7,7 @@ pub mod background_task;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
+pub mod content_segment;
 pub mod execution_types;
 pub mod executor;
 #[cfg(test)]
@@ -99,6 +100,7 @@ pub use background_task::{
 };
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
+pub use content_segment::{parse_content_segments, ContentSegment};
 pub use execution_types::{ExecutionStep, ExecutionStepStatus};
 pub use fragment::{
     FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,

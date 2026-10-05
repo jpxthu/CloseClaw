@@ -1,8 +1,8 @@
 //! Feishu renderer — card building and content dispatch logic.
 
-use crate::code_block::{parse_content_segments, ContentSegment};
-use crate::plugin::RenderedOutput;
+use closeclaw_common::content_segment::{parse_content_segments, ContentSegment};
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
+use closeclaw_common::RenderedOutput;
 use serde::Serialize;
 
 // ---------------------------------------------------------------------------

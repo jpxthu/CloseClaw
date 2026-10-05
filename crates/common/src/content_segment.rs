@@ -1,8 +1,9 @@
-//! Code-block parsing utilities.
+//! Content segment parsing — platform-agnostic markdown primitives.
 //!
 //! Provides [`ContentSegment`] and [`parse_content_segments`] for splitting
 //! markdown content into segments that preserve fenced code blocks as single
-//! units, enabling downstream renderers (e.g. Feishu) to emit them intact.
+//! units, enabling downstream renderers (e.g. Feishu cards, Terminal ANSI)
+//! to emit them intact.
 
 // ---------------------------------------------------------------------------
 // ContentSegment

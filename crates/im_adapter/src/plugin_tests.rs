@@ -13,13 +13,12 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::code_block::{parse_content_segments, ContentSegment};
     use crate::media_store::MediaStore;
     use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
-    use crate::plugin::{IMPlugin, RenderedOutput};
     use async_trait::async_trait;
+    use closeclaw_common::content_segment::{parse_content_segments, ContentSegment};
     use closeclaw_common::processor::ContentBlock;
-    use closeclaw_common::{AdapterError, NormalizedMessage};
+    use closeclaw_common::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
     use std::sync::Arc;
 
     // =========================================================================
