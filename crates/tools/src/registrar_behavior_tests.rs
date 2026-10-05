@@ -103,7 +103,7 @@ fn make_standard_registrars(
     vec![
         Box::new(CoreToolsRegistrar::new(
             permission_engine.clone(),
-            task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
+            task_manager as Arc<dyn closeclaw_common::TaskManager>,
             session_manager.clone(),
             config_manager,
             approval_flow.clone(),

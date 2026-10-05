@@ -803,7 +803,6 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-processor-chain",
  "closeclaw-session",
- "closeclaw-tasks",
  "closeclaw-workflow",
  "dirs",
  "futures",
@@ -971,7 +970,6 @@ dependencies = [
  "closeclaw-config",
  "closeclaw-debug-log",
  "closeclaw-execution",
- "closeclaw-tasks",
  "closeclaw-workflow",
  "dirs",
  "filetime",
@@ -1070,6 +1068,7 @@ name = "closeclaw-tasks"
 version = "0.1.0"
 dependencies = [
  "async-trait",
+ "closeclaw-common",
  "closeclaw-debug-log",
  "serde",
  "serde_json",

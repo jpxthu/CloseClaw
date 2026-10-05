@@ -9,10 +9,10 @@
 //! - [`terminate_stale_child`] — kill a stale child and notify the parent.
 
 use super::SessionManager;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::{ChildCompletionStatus, SessionExecStatus};
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::run_health::AnnounceSweepTarget;
-use closeclaw_tasks::NotificationPriority;
 use tracing::warn;
 
 use super::announce::build_announce_event;

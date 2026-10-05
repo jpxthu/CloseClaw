@@ -23,7 +23,7 @@ use std::sync::Arc;
 
 impl SessionManager {
     /// Set the background task manager for notification drain and cleanup.
-    pub async fn set_task_manager(&self, tm: Arc<dyn closeclaw_tasks::TaskManager>) {
+    pub async fn set_task_manager(&self, tm: Arc<dyn closeclaw_common::TaskManager>) {
         *self.task_manager.write().await = Some(tm);
     }
 
@@ -56,7 +56,7 @@ impl SessionManager {
     }
 
     /// Get a clone of the task manager, if set.
-    pub async fn get_task_manager(&self) -> Option<Arc<dyn closeclaw_tasks::TaskManager>> {
+    pub async fn get_task_manager(&self) -> Option<Arc<dyn closeclaw_common::TaskManager>> {
         self.task_manager.read().await.clone()
     }
 

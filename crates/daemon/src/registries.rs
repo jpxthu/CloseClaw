@@ -235,7 +235,7 @@ async fn register_standard_registrars(
     ctx: &RegistryContext<'_>,
     disk_reg: &Arc<DiskSkillRegistry>,
 ) -> anyhow::Result<()> {
-    let task_manager: Arc<dyn closeclaw_tasks::TaskManager> = ctx
+    let task_manager: Arc<dyn closeclaw_common::TaskManager> = ctx
         .session_manager
         .get_task_manager()
         .await
@@ -243,7 +243,7 @@ async fn register_standard_registrars(
 
     let core_registrar = CoreToolsRegistrar::new(
         Arc::clone(ctx.permission_engine),
-        task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
+        task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),

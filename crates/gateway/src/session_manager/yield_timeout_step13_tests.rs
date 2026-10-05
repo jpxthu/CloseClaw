@@ -12,7 +12,7 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 

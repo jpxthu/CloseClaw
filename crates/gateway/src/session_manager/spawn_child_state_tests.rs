@@ -13,9 +13,9 @@ use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
 use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::ChildSessionState;
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 

@@ -4,7 +4,7 @@
 //! `background.rs`'s `#[cfg(test)] mod tests`.
 
 use super::*;
-use crate::TaskManager;
+use closeclaw_common::TaskManager;
 use std::time::Duration;
 use tempfile::TempDir;
 

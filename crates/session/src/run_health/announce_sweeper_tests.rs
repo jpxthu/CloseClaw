@@ -16,7 +16,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 
 /// Mock target for testing `AnnounceSweeper` without a real
 /// `SessionManager`.

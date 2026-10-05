@@ -6,8 +6,8 @@
 
 use super::*;
 use chrono::Utc;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::{ChildCompletionStatus, PendingMessage};
-use closeclaw_tasks::NotificationPriority;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -230,8 +230,8 @@ fn test_unified_queue_push_entry_preserves_order() {
 
 #[test]
 fn test_unified_queue_background_tool_notification_priority() {
-    use closeclaw_tasks::CompletionNotification;
-    use closeclaw_tasks::TaskState;
+    use closeclaw_common::CompletionNotification;
+    use closeclaw_common::TaskState;
     use std::path::PathBuf;
 
     let mut q = UnifiedMessageQueue::default();

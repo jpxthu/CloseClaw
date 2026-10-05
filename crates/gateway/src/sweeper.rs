@@ -32,9 +32,9 @@ pub trait ActiveSessionQuery: Send + Sync {
 pub(crate) const SWEEPER_GRACE_PERIOD_SECS: u64 = 10;
 
 use closeclaw_common::SessionActivityDimensions;
+use closeclaw_common::TaskManager;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_session::persistence::{AgentRole, PersistenceError, PersistenceService};
-use closeclaw_tasks::TaskManager;
 
 /// Errors that can occur during sweeper operations.
 #[derive(Debug, Error)]

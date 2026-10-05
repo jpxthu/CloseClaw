@@ -4,7 +4,7 @@
 //! 1000-line limit.
 
 use super::*;
-use crate::TaskManager;
+use closeclaw_common::TaskManager;
 use std::time::Duration;
 use tempfile::TempDir;
 

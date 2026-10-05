@@ -9,8 +9,8 @@ use super::test_helpers::{
     append_assistant_to_child, setup_parent_with_conv, spawn_n_run_children, test_resolved_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ChatSession;
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 
 // ── Helper: complete a child and remove it from the SpawnTree ──────────────

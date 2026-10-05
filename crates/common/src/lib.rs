@@ -2,6 +2,7 @@ pub mod agent_lookup;
 #[cfg(test)]
 pub mod agent_lookup_tests;
 pub mod agent_query;
+pub mod background_task;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
@@ -72,6 +73,7 @@ pub mod streaming_tests;
 pub mod system_prompt;
 #[cfg(test)]
 pub mod system_prompt_tests;
+pub mod task_manager;
 pub mod test_helpers;
 #[cfg(test)]
 pub mod test_helpers_tests;
@@ -88,6 +90,10 @@ pub mod verbosity;
 
 pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
+pub use background_task::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
+    RunningTaskInfo, TaskState,
+};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
 pub use execution_types::{ExecutionStep, ExecutionStepStatus};
@@ -145,22 +151,22 @@ pub use communication::{
 };
 // Executor types: defined here (not in slash) because gateway cannot
 // depend on slash (cycle: gateway -> slash -> tools -> gateway).
+pub use dispatcher::{
+    extract_file_path, DispatchGroup, PendingToolCall, ToolCallDispatcher, ToolExecutor,
+};
 pub use executor::{
     CompactionError, CompactionResult, ReplyAction, SideEffectContext, SlashEffectExecutor,
     SlashResultExecutor,
 };
+pub use file_mutex::FileMutexMap;
+pub use lazy_tool::{LazyTool, ToolMeta};
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use system_prompt::{
     split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, ModeTransition,
     PromptOverrides, SystemPromptBuilder,
 };
-// TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
-pub use dispatcher::{
-    extract_file_path, DispatchGroup, PendingToolCall, ToolCallDispatcher, ToolExecutor,
-};
-pub use file_mutex::FileMutexMap;
-pub use lazy_tool::{LazyTool, ToolMeta};
+pub use task_manager::TaskManager;
 pub use tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,

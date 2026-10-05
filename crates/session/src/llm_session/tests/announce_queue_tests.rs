@@ -7,7 +7,7 @@
 use super::*;
 use chrono::Utc;
 use closeclaw_common::ChildCompletionStatus;
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 
 // ── Helper ──────────────────────────────────────────────────────────────────
 

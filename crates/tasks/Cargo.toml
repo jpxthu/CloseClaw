@@ -13,6 +13,7 @@ uuid = { version = "1.6", features = ["v4", "serde"] }
 async-trait = "0.1"
 tracing = "=0.1.43"
 serde_json = "1.0"
+closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 [dev-dependencies]

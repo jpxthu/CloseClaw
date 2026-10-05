@@ -8,6 +8,7 @@ use crate::outbound::StreamResult;
 use crate::session_manager::SessionManager;
 use crate::Gateway;
 use closeclaw_common::MetricsEmitter;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::RequestContext;
 use closeclaw_llm::resolve_anthropic_effective as resolve_anthropic_effective_shared;
 use closeclaw_llm::session_state::LlmState;
@@ -16,7 +17,6 @@ use closeclaw_llm::LLMError;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::RecoverableAction;
-use closeclaw_tasks::NotificationPriority;
 use tokio::time::Instant;
 
 /// Resolve effective level for a multi-level provider.
@@ -669,7 +669,7 @@ impl SessionMessageHandler {
     async fn inject_running_tasks_summary(
         session_manager: &Arc<SessionManager>,
         session_id: &str,
-        running_tasks: &[closeclaw_tasks::RunningTaskInfo],
+        running_tasks: &[closeclaw_common::RunningTaskInfo],
     ) {
         let Some(cs) = session_manager.get_conversation_session(session_id).await else {
             tracing::warn!(
