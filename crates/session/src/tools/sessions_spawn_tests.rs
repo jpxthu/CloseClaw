@@ -852,3 +852,66 @@ fn test_input_schema_task_description_no_old_wording() {
         );
     }
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Step 1.7: full-config channel failure branch
+// ═══════════════════════════════════════════════════════════════════════
+
+/// SpawnTargetConfigLookup that resolves nothing — the session-internal
+/// full-config channel returns `None` for every agent id.
+struct MissingAgentConfigLookup;
+
+#[async_trait::async_trait]
+impl crate::spawn::SpawnTargetConfigLookup for MissingAgentConfigLookup {
+    async fn resolve_agent_config(
+        &self,
+        _agent_id: &str,
+    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+        None
+    }
+}
+
+/// When `resolve_agent_config` returns `None` after preconditions passed,
+/// the tool fails with `ExecutionFailed("agent config not found: …")`
+/// and no child session is created.
+#[tokio::test]
+async fn test_resolve_agent_config_none_fails_with_config_not_found() {
+    let validator = TrackingSpawnValidator::new();
+    let log = validator.log();
+    let sm = Arc::new(RecordingSessionManager {
+        log: Arc::clone(&log),
+    });
+    let tool = SessionsSpawnTool::new(
+        Arc::new(validator),
+        Arc::new(MissingAgentConfigLookup),
+        sm,
+        Arc::new(MockAgentConfigLookup),
+    );
+
+    let ctx = make_tool_context("parent-session");
+    let args = make_spawn_args("test task");
+
+    let err = tool.call(args, &ctx).await.expect_err("should fail");
+    match err {
+        closeclaw_common::tool_trait::ToolCallError::ExecutionFailed(msg) => {
+            assert_eq!(
+                msg, "agent config not found: child-agent",
+                "error must name the unresolvable agent id"
+            );
+        }
+        other => panic!("expected ExecutionFailed, got: {:?}", other),
+    }
+
+    assert!(
+        log.validate_called.load(Ordering::SeqCst),
+        "validate_spawn should still run before config resolution"
+    );
+    assert!(
+        log.check_permission_called.load(Ordering::SeqCst),
+        "permission check should still run before config resolution"
+    );
+    assert!(
+        !log.create_child_called.load(Ordering::SeqCst),
+        "create_child_session must NOT be called when the config channel returns None"
+    );
+}

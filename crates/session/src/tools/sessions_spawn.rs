@@ -8,7 +8,9 @@ use closeclaw_common::tool_trait::{
 };
 
 use async_trait::async_trait;
-use closeclaw_common::{AgentConfigLookup, SpawnError, SpawnPermissionError, SpawnValidator};
+use closeclaw_common::{
+    AgentConfigLookup, SpawnError, SpawnPermissionError, SpawnValidationResult, SpawnValidator,
+};
 use serde_json::{json, Value};
 use std::sync::Arc;
 
@@ -169,6 +171,78 @@ impl SessionsSpawnTool {
                 ToolCallError::ExecutionFailed(format!("child session creation failed: {}", e))
             })
     }
+
+    /// Resolve everything needed to create the child session: the target
+    /// agent's full config (session-internal channel), the effective
+    /// timeout chain, and the parent session's depth / model context.
+    async fn resolve_child_config(
+        &self,
+        spawn_result: &SpawnValidationResult,
+        spawn_args: &SpawnArgs,
+        parent_session_id: &str,
+    ) -> Result<ResolvedChildConfig, ToolCallError> {
+        // The full target config profile is obtained through the
+        // session-internal channel — it never enters the shared
+        // SpawnValidationResult (design doc §shared-types).
+        let config = self
+            .spawn_target_config
+            .resolve_agent_config(&spawn_result.agent_id)
+            .await
+            .ok_or_else(|| {
+                ToolCallError::ExecutionFailed(format!(
+                    "agent config not found: {}",
+                    spawn_result.agent_id
+                ))
+            })?;
+        let mut spawn_timeout = spawn_result.spawn_timeout;
+        if let Some(arg_timeout) = spawn_args.timeout {
+            spawn_timeout = Some(arg_timeout);
+        }
+        // Apply timeout_warning priority chain: spawn args > target agent config > global default.
+        let mut timeout_warning_secs = spawn_result.timeout_warning_secs;
+        let mut timeout_notify_interval_ratio = spawn_result.timeout_notify_interval_ratio;
+        if spawn_args.timeout_warning.is_some() {
+            timeout_warning_secs = spawn_args.timeout_warning;
+        }
+        if spawn_args.timeout_notify_interval_ratio.is_some() {
+            timeout_notify_interval_ratio = spawn_args.timeout_notify_interval_ratio;
+        }
+        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
+        let parent_subagents_model: Option<String> = match &parent_agent_id {
+            Some(id) => self
+                .agent_config_lookup
+                .lookup_agent_config(id)
+                .await
+                .and_then(|c| c.subagents_model)
+                .map(|m| m.primary),
+            None => None,
+        };
+        let parent_depth = self
+            .session_manager
+            .get_session_depth(parent_session_id)
+            .await
+            .unwrap_or(0);
+        Ok(ResolvedChildConfig {
+            config,
+            spawn_timeout,
+            timeout_warning_secs,
+            timeout_notify_interval_ratio,
+            parent_subagents_model,
+            parent_depth,
+            prompt_template_prefix: spawn_args.prompt_template.as_ref().map(|tpl| tpl.prefix()),
+        })
+    }
+}
+
+/// Child-session inputs resolved by [`SessionsSpawnTool::resolve_child_config`].
+struct ResolvedChildConfig {
+    config: closeclaw_config::agents::ResolvedAgentConfig,
+    spawn_timeout: Option<u64>,
+    timeout_warning_secs: Option<u64>,
+    timeout_notify_interval_ratio: Option<f64>,
+    parent_subagents_model: Option<String>,
+    parent_depth: u32,
+    prompt_template_prefix: Option<&'static str>,
 }
 
 #[async_trait]
@@ -354,53 +428,20 @@ impl Tool for SessionsSpawnTool {
             }
         }
 
+        // Resolve the target config (session-internal channel) plus the
+        // timeout chain and parent context in one helper — see
+        // `resolve_child_config`.
+        let child = self
+            .resolve_child_config(&spawn_result, &spawn_args, parent_session_id)
+            .await?;
         let agent_id = spawn_result.agent_id;
         let effective_max_spawn_depth = spawn_result.effective_max_spawn_depth;
-        // The full target config profile is obtained through the
-        // session-internal channel — it never enters the shared
-        // SpawnValidationResult (design doc §shared-types).
-        let config = self
-            .spawn_target_config
-            .resolve_agent_config(&agent_id)
-            .await
-            .ok_or_else(|| {
-                ToolCallError::ExecutionFailed(format!("agent config not found: {}", agent_id))
-            })?;
-        let mut spawn_timeout = spawn_result.spawn_timeout;
-        if let Some(arg_timeout) = spawn_args.timeout {
-            spawn_timeout = Some(arg_timeout);
-        }
-        // Apply timeout_warning priority chain: spawn args > target agent config > global default.
-        let mut timeout_warning_secs = spawn_result.timeout_warning_secs;
-        let mut timeout_notify_interval_ratio = spawn_result.timeout_notify_interval_ratio;
-        if spawn_args.timeout_warning.is_some() {
-            timeout_warning_secs = spawn_args.timeout_warning;
-        }
-        if spawn_args.timeout_notify_interval_ratio.is_some() {
-            timeout_notify_interval_ratio = spawn_args.timeout_notify_interval_ratio;
-        }
-        let parent_agent_id = self.session_manager.get_chat_id(parent_session_id).await;
-        let parent_subagents_model: Option<String> = match &parent_agent_id {
-            Some(id) => self
-                .agent_config_lookup
-                .lookup_agent_config(id)
-                .await
-                .and_then(|c| c.subagents_model)
-                .map(|m| m.primary),
-            None => None,
-        };
-        let parent_depth = self
-            .session_manager
-            .get_session_depth(parent_session_id)
-            .await
-            .unwrap_or(0);
-        let prompt_template_prefix = spawn_args.prompt_template.as_ref().map(|tpl| tpl.prefix());
 
         let child_session_id = self
             .create_child(
-                &config,
+                &child.config,
                 parent_session_id,
-                parent_depth,
+                child.parent_depth,
                 &spawn_args.task,
                 spawn_args.light_context,
                 spawn_args.workspace.as_deref(),
@@ -408,20 +449,20 @@ impl Tool for SessionsSpawnTool {
                 spawn_args.fork,
                 spawn_args.allowed_tools.clone(),
                 spawn_args.model.as_deref(),
-                parent_subagents_model.as_deref(),
+                child.parent_subagents_model.as_deref(),
                 effective_max_spawn_depth,
-                spawn_timeout,
+                child.spawn_timeout,
                 spawn_args.label.as_deref(),
-                prompt_template_prefix,
-                timeout_warning_secs,
-                timeout_notify_interval_ratio,
+                child.prompt_template_prefix,
+                child.timeout_warning_secs,
+                child.timeout_notify_interval_ratio,
             )
             .await?;
         Ok(ToolResult {
             data: json!({
                 "session_id": child_session_id,
                 "agent_id": agent_id,
-                "depth": parent_depth + 1,
+                "depth": child.parent_depth + 1,
                 "mode": spawn_args.mode_str,
             }),
             new_messages: vec![],

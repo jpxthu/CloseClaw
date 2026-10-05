@@ -179,7 +179,8 @@ impl SpawnController {
         parent_session_id: &str,
         validation: &SpawnValidationResult,
     ) -> Result<(), SpawnError> {
-        let config = SpawnTargetConfigLookup::resolve_agent_config(self, &validation.agent_id)
+        let config = self
+            .resolve_agent_config(&validation.agent_id)
             .await
             .ok_or_else(|| SpawnError::ConfigNotFound(validation.agent_id.clone()))?;
         self.validate_permissions(&config, parent_session_id).await

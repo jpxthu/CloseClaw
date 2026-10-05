@@ -2,9 +2,9 @@
 //!
 //! Holds the [`PermissionDenied`] error consumed by `closeclaw-execution`
 //! plus the spawn-side [`PermissionChecker`] / [`SpawnPermissionError`]
-//! pair. Implementations live in `closeclaw-permission` /
-//! `closeclaw-gateway`; this module only holds trait signatures and the
-//! error type.
+//! pair. [`PermissionChecker`] is implemented in `closeclaw-gateway`
+//! (session tests carry their own mock); this module only holds trait
+//! signatures and the error type.
 
 use std::fmt;
 

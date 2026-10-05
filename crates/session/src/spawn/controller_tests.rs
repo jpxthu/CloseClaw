@@ -16,7 +16,7 @@ use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 
 use super::controller::{SpawnContext, SpawnController};
-use closeclaw_common::SpawnError;
+use closeclaw_common::{SpawnError, SpawnValidationResult};
 
 // ── Mock implementations ───────────────────────────────────────────────
 
@@ -70,6 +70,30 @@ impl PermissionChecker for AllowAllPermissionChecker {
     }
 }
 
+/// Configurable PermissionChecker mock: `deny_reason` set → deny with that
+/// reason, `None` → allow. Lets one mock cover both branches of
+/// `check_spawn_permission`.
+struct ConfigurablePermissionChecker {
+    deny_reason: Option<String>,
+}
+
+#[async_trait::async_trait]
+impl PermissionChecker for ConfigurablePermissionChecker {
+    async fn validate_spawn_permission(
+        &self,
+        child_agent_id: &str,
+        _parent_session_id: &str,
+    ) -> Result<(), SpawnPermissionError> {
+        match &self.deny_reason {
+            None => Ok(()),
+            Some(reason) => Err(SpawnPermissionError::Denied {
+                agent_id: child_agent_id.to_string(),
+                reason: reason.clone(),
+            }),
+        }
+    }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /// Build a ResolvedAgentConfig with the given subagent settings.
@@ -112,6 +136,14 @@ fn make_controller(
     context: Arc<dyn SpawnContext>,
 ) -> SpawnController {
     SpawnController::new(config_manager, context, Arc::new(AllowAllPermissionChecker))
+}
+
+fn make_controller_with_checker(
+    config_manager: Arc<ConfigManager>,
+    context: Arc<dyn SpawnContext>,
+    checker: ConfigurablePermissionChecker,
+) -> SpawnController {
+    SpawnController::new(config_manager, context, Arc::new(checker))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -545,4 +577,99 @@ async fn test_budget_zero_blocks_spawn() {
             other
         ),
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// check_spawn_permission — internal config re-resolution (two-step separation)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Build a validation result targeting `agent_id`.
+fn make_validation(agent_id: &str) -> SpawnValidationResult {
+    SpawnValidationResult {
+        agent_id: agent_id.to_string(),
+        effective_max_spawn_depth: 1,
+        spawn_timeout: Some(172800),
+        timeout_warning_secs: None,
+        timeout_notify_interval_ratio: None,
+    }
+}
+
+/// Parent subagent settings that permit any target agent.
+fn permissive_subagents() -> SubagentsConfig {
+    SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(5),
+        ..Default::default()
+    }
+}
+
+/// Re-resolution failure: the validation's `agent_id` is unknown to the
+/// config store → `SpawnError::ConfigNotFound` instead of a permission
+/// verdict (the full config is re-resolved inside the session domain).
+#[tokio::test]
+async fn test_check_spawn_permission_config_not_found() {
+    let parent_config = make_agent_config("parent-agent", permissive_subagents());
+    let config_manager = make_config_manager(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+    let controller = make_controller(config_manager, context);
+
+    let validation = make_validation("missing-agent");
+    let result = controller
+        .check_spawn_permission("session-1", &validation)
+        .await;
+
+    match result {
+        Err(SpawnError::ConfigNotFound(id)) => assert_eq!(id, "missing-agent"),
+        other => panic!("expected ConfigNotFound, got {:?}", other),
+    }
+}
+
+/// Re-resolution success + checker denial → `SpawnError::Permission`
+/// carrying the checker's payload (permission verdict is step 2).
+#[tokio::test]
+async fn test_check_spawn_permission_denied_propagates() {
+    let parent_config = make_agent_config("parent-agent", permissive_subagents());
+    let config_manager = make_config_manager(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+    let controller = make_controller_with_checker(
+        config_manager,
+        context,
+        ConfigurablePermissionChecker {
+            deny_reason: Some("blocked by policy".to_string()),
+        },
+    );
+
+    let validation = make_validation("parent-agent");
+    let result = controller
+        .check_spawn_permission("session-1", &validation)
+        .await;
+
+    match result {
+        Err(SpawnError::Permission(SpawnPermissionError::Denied { agent_id, reason })) => {
+            assert_eq!(agent_id, "parent-agent");
+            assert_eq!(reason, "blocked by policy");
+        }
+        other => panic!("expected Permission(Denied), got {:?}", other),
+    }
+}
+
+/// Re-resolution success + checker approval → `Ok(())`.
+#[tokio::test]
+async fn test_check_spawn_permission_allowed() {
+    let parent_config = make_agent_config("parent-agent", permissive_subagents());
+    let config_manager = make_config_manager(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+    let controller = make_controller_with_checker(
+        config_manager,
+        context,
+        ConfigurablePermissionChecker { deny_reason: None },
+    );
+
+    let validation = make_validation("parent-agent");
+    controller
+        .check_spawn_permission("session-1", &validation)
+        .await
+        .expect("allow-all checker should let the spawn through");
 }

@@ -10,7 +10,7 @@ use closeclaw_common::{llm_stats::CacheBreakInfo, MetricsEmitter};
 /// No-op metrics emitter — the default implementation.
 ///
 /// All methods are empty; used when no metrics backend is configured.
-pub struct NoopMetricsEmitter;
+pub(crate) struct NoopMetricsEmitter;
 
 impl MetricsEmitter for NoopMetricsEmitter {
     fn emit_cache_break(&self, _info: &CacheBreakInfo) {}
