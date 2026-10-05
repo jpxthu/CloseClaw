@@ -18,13 +18,6 @@ pub enum RiskLevel {
     Critical,
 }
 
-/// Simplified inter-agent message body for permission evaluation.
-#[derive(Debug, Clone)]
-pub struct InterAgentMsg {
-    pub from: String,
-    pub to: String,
-}
-
 /// Result of a permission evaluation.
 #[derive(Debug, Clone)]
 pub enum PermissionEvalResponse {

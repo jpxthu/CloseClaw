@@ -7,6 +7,7 @@ pub mod approval;
 pub mod approval_flow;
 pub mod debug_log;
 pub mod engine;
+pub mod inter_agent_msg;
 pub mod permission_op;
 pub mod rules;
 pub mod sandbox;
