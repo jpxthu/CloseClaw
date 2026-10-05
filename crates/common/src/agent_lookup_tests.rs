@@ -62,7 +62,8 @@ fn test_agent_config_info_clone_consistency() {
 // 那组用例验证真实 `AgentRegistry` 实现三 supertrait 后经 `Arc<dyn
 // AgentRegistryQuery>` 分发；common 不能依赖 agent crate，故此处仅在 trait
 // 定义所在 crate 用 mock 复核「三 supertrait 组合后可作为组合 trait 对象使用」
-// 的接口契约。两组用例互不替代，均保留（plan Step 1.3 明确要求 mock 契约测试）。
+// 的接口契约。本文件是该契约的定义侧验证（mock 即契约的标准样例），agent 侧
+// 用例是实现侧验证，两组用例互不替代，均保留。
 
 #[derive(Clone, Debug)]
 struct MockAgentRecord {
