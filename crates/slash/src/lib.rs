@@ -16,7 +16,7 @@ pub mod skill_handler;
 
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 pub use context::SlashContext;
-pub use dispatcher::{parse_slash, SlashDispatcher};
+pub use dispatcher::{parse_slash, SlashDispatcher, SlashDispatcherTrait};
 pub use executor::{ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor};
 pub use handler::SlashHandler;
 pub use handlers::{ClearHandler, CompactHandler, ExecHandler, HelpHandler};

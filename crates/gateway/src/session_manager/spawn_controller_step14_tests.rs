@@ -20,9 +20,9 @@ use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::{GatewayConfig, Message, SessionManager};
+use closeclaw_common::SpawnError;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs)
@@ -142,7 +142,7 @@ async fn test_validate_agent_id_fallback_to_parent() {
         .await
         .expect("should succeed: no agentId + requireAgentId=false → fallback to parent");
 
-    assert_eq!(result.config.id, "parent");
+    assert_eq!(result.agent_id, "parent");
     assert_eq!(result.effective_max_spawn_depth, 1);
 }
 
@@ -202,7 +202,7 @@ async fn test_validate_explicit_agent_id_no_fallback() {
         .await
         .expect("should succeed with explicit agentId");
 
-    assert_eq!(result.config.id, "explicit-child");
+    assert_eq!(result.agent_id, "explicit-child");
 }
 
 /// When default_child_agent is configured but no explicit agentId is given,
@@ -232,7 +232,7 @@ async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
         .await
         .expect("should succeed using parent agent ID as default");
 
-    assert_eq!(result.config.id, "parent");
+    assert_eq!(result.agent_id, "parent");
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

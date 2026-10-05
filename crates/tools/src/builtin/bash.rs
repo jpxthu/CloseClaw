@@ -54,7 +54,7 @@ const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 /// Shell command execution tool with timeout, output control, and auto-backgroundize.
 pub struct BashTool {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
-    bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: Arc<dyn closeclaw_common::TaskManager>,
     session_manager: Arc<SessionManager>,
     config_manager: Arc<ConfigManager>,
     approval_flow: Arc<TokioMutex<ApprovalFlow>>,
@@ -65,7 +65,7 @@ impl BashTool {
     /// background task manager, config manager, and approval flow.
     pub fn new(
         permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
-        bg_manager: Arc<dyn closeclaw_tasks::TaskManager>,
+        bg_manager: Arc<dyn closeclaw_common::TaskManager>,
         session_manager: Arc<SessionManager>,
         config_manager: Arc<ConfigManager>,
         approval_flow: Arc<TokioMutex<ApprovalFlow>>,
@@ -343,7 +343,7 @@ struct ChildHandles {
 async fn backgroundize_child(
     handles: ChildHandles,
     command: &str,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> Result<(ToolResult, String), String> {
@@ -371,7 +371,7 @@ async fn backgroundize_child(
 async fn auto_backgroundize_foreground(
     handles: ChildHandles,
     command: &str,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
     by_user: bool,
     session_id: &str,
 ) -> ForegroundOutcome {
@@ -383,7 +383,7 @@ async fn auto_backgroundize_foreground(
 
 /// Context for foreground result handling.
 struct ForegroundContext<'a> {
-    bg_manager: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
     manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
     session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&'a str>,
@@ -600,7 +600,7 @@ async fn prepare_and_sandbox(
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
 async fn execute_bash_call(
     deps: &PermDeps,
-    bg: &Arc<dyn closeclaw_tasks::TaskManager>,
+    bg: &Arc<dyn closeclaw_common::TaskManager>,
     args: Value,
     ctx: &ToolContext,
 ) -> Result<ToolResult, ToolCallError> {
@@ -665,7 +665,7 @@ fn spawn_bg_monitor(
     session: &Arc<dyn closeclaw_common::tool_session::ToolSession>,
     call_id: &str,
     task_id: String,
-    bg_manager: &Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
 ) {
     let bg = Arc::clone(bg_manager);
     let s = Arc::clone(session);
@@ -676,19 +676,19 @@ fn spawn_bg_monitor(
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             match bg.get_task(&task_id).await {
                 Some(bt) => match bt.state {
-                    closeclaw_tasks::TaskState::Completed { .. } => {
+                    closeclaw_common::TaskState::Completed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Completed).await;
                         return;
                     }
-                    closeclaw_tasks::TaskState::Failed { .. } => {
+                    closeclaw_common::TaskState::Failed { .. } => {
                         s.update_tool_state(&cid, ToolExecState::Failed).await;
                         return;
                     }
-                    closeclaw_tasks::TaskState::Killed => {
+                    closeclaw_common::TaskState::Killed => {
                         s.update_tool_state(&cid, ToolExecState::Terminated).await;
                         return;
                     }
-                    closeclaw_tasks::TaskState::Running { .. } => {
+                    closeclaw_common::TaskState::Running { .. } => {
                         // Still running — continue polling.
                     }
                 },
@@ -711,7 +711,7 @@ fn spawn_bg_monitor(
 struct BashExecCtx<'a> {
     command: &'a str,
     cwd: &'a str,
-    bg_manager: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
     session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     call_id: Option<&'a str>,
     session_id: &'a str,

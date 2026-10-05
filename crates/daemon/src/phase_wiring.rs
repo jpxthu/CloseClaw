@@ -16,6 +16,8 @@ use crate::{
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::AuditLogger;
+use closeclaw_common::TaskManager;
 use closeclaw_common::{
     AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
     SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
@@ -34,7 +36,7 @@ use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::{AuditLogger, PermissionEngine, RuleSet};
+use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
 use closeclaw_session::spawn::controller::SpawnContext;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
@@ -44,7 +46,7 @@ use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsFragmentPr
 use closeclaw_slash::{skill_handler::SkillSlashHandler, SlashHandler};
 use closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter;
 use closeclaw_system_prompt::{BootstrapFragmentProvider, SystemPromptDynamicBuilder};
-use closeclaw_tasks::{BackgroundTaskManager, TaskManager};
+use closeclaw_tasks::BackgroundTaskManager;
 use closeclaw_tools::builtin::CreateChildSessionFn;
 use closeclaw_tools::ToolsFragmentProvider;
 use std::future::Future;

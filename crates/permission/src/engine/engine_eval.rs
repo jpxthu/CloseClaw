@@ -1,6 +1,6 @@
 //! Permission Engine - Evaluation logic.
 
-use super::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
+use super::audit_log::build_audit_log;
 use super::engine_agent_rules::AgentRuleStore;
 use super::engine_helpers::{generate_token, get_agent_deny_subjects, resolve_template_actions};
 use super::engine_matching::action_matches_request;
@@ -11,6 +11,7 @@ use super::engine_types::{
 };
 use super::engine_workspace;
 use super::rejection_log::{build_rejection_log, RejectionLogger};
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogger};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;

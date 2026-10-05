@@ -18,15 +18,15 @@ use tempfile::TempDir;
 struct TimeoutBgManager;
 
 #[async_trait::async_trait]
-impl closeclaw_tasks::TaskManager for TimeoutBgManager {
+impl closeclaw_common::TaskManager for TimeoutBgManager {
     async fn spawn_task(
         &self,
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
             "not used".into(),
         ))
     }
@@ -36,28 +36,28 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
         command: &str,
         is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
         // Kill and reap the child — this suite doesn't care about its survival.
         let _ = child.kill().await;
         // Return a fake task — the test only cares about whether the
         // child was backgroundized, not the task itself.
-        Ok(closeclaw_tasks::BackgroundTask {
+        Ok(closeclaw_common::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            state: closeclaw_common::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/test-output"),
         })
     }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
         Ok(())
     }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
         None
     }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         vec![]
     }
-    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
@@ -66,7 +66,7 @@ impl closeclaw_tasks::TaskManager for TimeoutBgManager {
     }
 }
 
-fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
+fn bg_trait() -> Arc<dyn closeclaw_common::TaskManager> {
     Arc::new(TimeoutBgManager)
 }
 
@@ -76,7 +76,7 @@ fn bg_trait() -> Arc<dyn closeclaw_tasks::TaskManager> {
 /// (`command` / `agent_timeout_ms`).
 fn fg_test_env<'a>(
     tmp: &'a TempDir,
-    bg: &'a Arc<dyn closeclaw_tasks::TaskManager>,
+    bg: &'a Arc<dyn closeclaw_common::TaskManager>,
     command: &'a str,
     agent_timeout_ms: Option<u64>,
 ) -> (BashExecCtx<'a>, ForegroundOptions<'a>) {
@@ -103,15 +103,15 @@ struct ShortTimeoutBgManager {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_tasks::TaskManager for ShortTimeoutBgManager {
+impl closeclaw_common::TaskManager for ShortTimeoutBgManager {
     async fn spawn_task(
         &self,
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
             "not used".into(),
         ))
     }
@@ -121,24 +121,24 @@ impl closeclaw_tasks::TaskManager for ShortTimeoutBgManager {
         command: &str,
         is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        Ok(closeclaw_tasks::BackgroundTask {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        Ok(closeclaw_common::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            state: closeclaw_common::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/test-output"),
         })
     }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
         Ok(())
     }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
         None
     }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         vec![]
     }
-    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
@@ -432,7 +432,8 @@ async fn test_excluded_command_exceeds_max_execution_force_killed() {
     // write end open until ~3s — that 2s gap doubles as the kill-timer
     // delay margin. Do not shorten the sleep further, or a late timer
     // makes this test flake as Completed instead of Failed.
-    let bg: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(ShortTimeoutBgManager { max_secs: 1 });
+    let bg: Arc<dyn closeclaw_common::TaskManager> =
+        Arc::new(ShortTimeoutBgManager { max_secs: 1 });
 
     let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 3", None);
     let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)

@@ -5,7 +5,7 @@
 
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::{Daemon, Phase5Deps};
-use closeclaw_permission::engine::audit_log::AuditLogger;
+use closeclaw_common::AuditLogger;
 use closeclaw_platform::process;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;

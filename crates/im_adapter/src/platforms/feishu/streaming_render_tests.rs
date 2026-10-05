@@ -9,9 +9,9 @@
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
 use super::FeishuPlugin;
-use crate::plugin::IMPlugin;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
+use closeclaw_common::IMPlugin;
 use closeclaw_common::StreamingOutput;
 use std::sync::Arc;
 

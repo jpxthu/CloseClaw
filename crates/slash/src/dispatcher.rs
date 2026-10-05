@@ -199,3 +199,18 @@ impl SlashRouter for SlashDispatcher {
         self.registry.get(command)
     }
 }
+
+/// Trait for dispatching slash commands to handlers.
+///
+/// Provides handler lookup and command metadata.
+#[async_trait::async_trait]
+pub trait SlashDispatcherTrait: Send + Sync {
+    /// Get a handler by command name.
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>>;
+
+    /// Check whether a command is immediate.
+    ///
+    /// `content` is the full raw message content (e.g. `"/mode"` or
+    /// `"/mode plan"`).
+    fn is_immediate(&self, content: &str) -> bool;
+}

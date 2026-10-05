@@ -1,7 +1,7 @@
 //! Execution-related pure data types shared across crates.
 //!
-//! Contains `ExecutionStep` and `ExecutionStepStatus`
-//! which are consumed by the execution engine and session (recovery/persistence).
+//! Contains `ExecutionStepStatus`
+//! which is consumed by the execution engine and session (recovery/persistence).
 
 use serde::{Deserialize, Serialize};
 
@@ -23,20 +23,4 @@ pub enum ExecutionStepStatus {
     Failed,
     /// 已跳过
     Skipped,
-}
-
-/// 执行步骤 — 描述单个步骤的当前状态
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-pub struct ExecutionStep {
-    /// 步骤索引（从 0 开始）
-    pub step_index: usize,
-    /// 当前状态
-    #[serde(default)]
-    pub status: ExecutionStepStatus,
-    /// 步骤描述或摘要
-    #[serde(default)]
-    pub summary: String,
-    /// 失败时的错误信息
-    #[serde(default)]
-    pub error_message: Option<String>,
 }

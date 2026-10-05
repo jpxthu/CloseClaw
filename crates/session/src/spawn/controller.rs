@@ -10,10 +10,8 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::{PermissionChecker, SpawnPermissionError};
+use closeclaw_common::{PermissionChecker, SpawnError, SpawnValidationResult, SpawnValidator};
 use closeclaw_config::agents::ResolvedAgentConfig;
-
-use crate::spawn_validation::{SpawnError, SpawnValidationResult};
 
 /// Dependency injection trait for querying active child session counts
 /// and session metadata.
@@ -34,6 +32,22 @@ pub trait SpawnContext: Send + Sync {
 
     /// Get the effective max spawn depth budget for a session.
     async fn effective_max_spawn_depth(&self, session_id: &str) -> Option<u32>;
+}
+
+/// Session-internal channel for resolving a target agent's full config.
+///
+/// [`SpawnValidationResult`] carries only the target `agent_id` plus its
+/// derived parameters — the full config profile never enters the shared
+/// structure (design doc §shared-types SpawnValidationResult). Consumers
+/// inside the session domain (`SessionsSpawnTool`) obtain the complete
+/// target config through this channel instead.
+///
+/// Implemented by [`SpawnController`]; injected by the session tools
+/// registrar (composition root assembles it).
+#[async_trait::async_trait]
+pub trait SpawnTargetConfigLookup: Send + Sync {
+    /// Resolve the full agent config for `agent_id`; `None` if unknown.
+    async fn resolve_agent_config(&self, agent_id: &str) -> Option<ResolvedAgentConfig>;
 }
 
 /// Internal result from resolving parent depth and max spawn budget.
@@ -87,8 +101,8 @@ impl SpawnController {
 
     /// Validate a spawn request.
     ///
-    /// Returns a [`SpawnValidationResult`] with the target agent's resolved
-    /// config and the effective max spawn depth for the child, or a
+    /// Returns a [`SpawnValidationResult`] with the target agent identifier
+    /// and the effective max spawn depth for the child, or a
     /// [`SpawnError`] on failure.
     pub async fn validate(
         &self,
@@ -132,7 +146,7 @@ impl SpawnController {
         // (design doc §Spawn 控制流程 — two-step separation)
         let config = resolved
             .target_config
-            .ok_or(SpawnError::ConfigNotFound(target_id))?
+            .ok_or_else(|| SpawnError::ConfigNotFound(target_id.clone()))?
             .clone();
 
         // Compute effective_max_spawn_depth and validate child depth.
@@ -142,8 +156,11 @@ impl SpawnController {
         let (timeout_warning_secs, timeout_notify_interval_ratio) =
             self.resolve_timeout_warning(&config);
 
+        // Only the derived parameters + target agent id enter the shared
+        // structure — the full config stays inside the session domain
+        // (design doc §shared-types SpawnValidationResult).
         Ok(SpawnValidationResult {
-            config,
+            agent_id: target_id,
             effective_max_spawn_depth: effective_max,
             spawn_timeout,
             timeout_warning_secs,
@@ -155,13 +172,18 @@ impl SpawnController {
     ///
     /// This is the second step of the two-step spawn validation
     /// architecture (design doc §Spawn 控制流程 — two-step separation).
+    /// The full target config is re-resolved internally from the
+    /// validation's `agent_id` — it never leaves the session domain.
     pub async fn check_spawn_permission(
         &self,
         parent_session_id: &str,
         validation: &SpawnValidationResult,
     ) -> Result<(), SpawnError> {
-        self.validate_permissions(&validation.config, parent_session_id)
+        let config = self
+            .resolve_agent_config(&validation.agent_id)
             .await
+            .ok_or_else(|| SpawnError::ConfigNotFound(validation.agent_id.clone()))?;
+        self.validate_permissions(&config, parent_session_id).await
     }
 }
 
@@ -270,11 +292,7 @@ impl SpawnController {
         self.permission_checker
             .validate_spawn_permission(&config.id, parent_session_id)
             .await
-            .map_err(|e| match e {
-                SpawnPermissionError::Denied { agent_id, reason } => {
-                    SpawnError::PermissionDenied { agent_id, reason }
-                }
-            })
+            .map_err(SpawnError::Permission)
     }
 
     /// Check that the parent has not reached its maximum concurrent children.
@@ -336,16 +354,25 @@ impl SpawnController {
     }
 }
 
-// ── SpawnValidator trait impl ───────────────────────────────────────
+// ── Trait impls ────────────────────────────────────────────────────
 
 #[async_trait::async_trait]
-impl crate::spawn_validation::SpawnValidator for SpawnController {
+impl SpawnTargetConfigLookup for SpawnController {
+    /// Resolve the target agent's full config from the config store —
+    /// the complete profile is obtained here and never enters shared
+    /// structures (session-internal channel).
+    async fn resolve_agent_config(&self, agent_id: &str) -> Option<ResolvedAgentConfig> {
+        self.config_manager.agents().get(agent_id).cloned()
+    }
+}
+
+#[async_trait::async_trait]
+impl SpawnValidator for SpawnController {
     async fn validate_spawn(
         &self,
         parent_session_id: &str,
         target_agent_id: Option<&str>,
-    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
-    {
+    ) -> Result<SpawnValidationResult, SpawnError> {
         // Both sides use the same SpawnValidationResult type after unification;
         // pass through directly without field-by-field copy.
         self.validate(parent_session_id, target_agent_id).await
@@ -354,8 +381,8 @@ impl crate::spawn_validation::SpawnValidator for SpawnController {
     async fn check_spawn_permission(
         &self,
         parent_session_id: &str,
-        validation: &crate::spawn_validation::SpawnValidationResult,
-    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
         // Both sides use the same SpawnValidationResult type after unification;
         // pass through directly without reconstructing an identical struct.
         self.check_spawn_permission(parent_session_id, validation)

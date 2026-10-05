@@ -684,7 +684,7 @@ mod tests {
     use crate::llm_session::SessionMessage;
     use crate::recovery::{parse_progress_call_record, scan_progress_tool_calls};
     use closeclaw_common::ContentBlock;
-    use closeclaw_execution::ExecutionStepStatus;
+    use closeclaw_common::ExecutionStepStatus;
 
     fn make_tool_use_message(tool_name: &str, input_json: &str) -> SessionMessage {
         SessionMessage {

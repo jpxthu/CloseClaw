@@ -16,6 +16,7 @@ use tokio_util::sync::CancellationToken;
 use crate::persistence::{PendingOperationDetail, ReasoningLevel, SessionMode};
 use crate::run_health::{RunHealthChecker, RuntimeSnapshotManager};
 use crate::spawn::CommunicationConfig;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::{
     ChildCompletionStatus, ChildSessionState, LlmState, SkillListingProvider, ToolExecState,
 };
@@ -25,7 +26,6 @@ use closeclaw_common::{
     ToolRegistryQuery,
 };
 use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
-use closeclaw_tasks::NotificationPriority;
 
 /// Max length of an append-section item (chars).
 pub const APPEND_SECTION_MAX_LEN: usize = 500;

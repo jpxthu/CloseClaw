@@ -5,9 +5,13 @@
 
 use async_trait::async_trait;
 
-use closeclaw_config::agents::ResolvedAgentConfig;
+use crate::SpawnPermissionError;
 
 /// Errors returned by spawn validation.
+///
+/// Unified error carrier for both [`SpawnValidator`] steps: precondition
+/// failures use the corresponding precondition variant, permission denials
+/// reuse [`SpawnPermissionError`] (no duplicate denial payload).
 #[derive(Debug, thiserror::Error)]
 pub enum SpawnError {
     #[error("spawn depth limit exceeded: current depth {current} >= max {max}")]
@@ -20,18 +24,21 @@ pub enum SpawnError {
     AgentIdRequired,
     #[error("agent config not found: {0}")]
     ConfigNotFound(String),
-    #[error("spawn permission denied for agent '{agent_id}': {reason}")]
-    PermissionDenied { agent_id: String, reason: String },
+    #[error(transparent)]
+    Permission(SpawnPermissionError),
 }
 
 /// Result of a successful spawn validation.
 ///
-/// Contains the resolved target agent configuration and the effective
-/// max spawn depth for the child.
+/// Contains the target agent identifier and the derived spawn parameters
+/// for the child. The target agent's full configuration profile (including
+/// model) does NOT enter this shared structure — it is obtained internally
+/// by the provider (session) when creating the child session.
 #[derive(Debug, Clone)]
 pub struct SpawnValidationResult {
-    /// Resolved configuration of the target agent.
-    pub config: ResolvedAgentConfig,
+    /// Target agent identifier (resolved by the precondition step when the
+    /// input is optional; unresolvable input yields [`SpawnError`]).
+    pub agent_id: String,
     /// Effective max spawn depth the child may use.
     pub effective_max_spawn_depth: u32,
     /// Sub-agent maximum execution duration (seconds), resolved via
@@ -49,8 +56,8 @@ pub struct SpawnValidationResult {
 
 /// Trait for validating spawn requests.
 ///
-/// Implemented by `SpawnController` in the main crate; used by the tools
-/// crate's `SessionsSpawnTool` to validate spawn requests.
+/// Implemented by `SpawnController` in the session crate; used by the tools
+/// layer's `SessionsSpawnTool` to validate spawn requests.
 ///
 /// The two-step architecture separates precondition checks ([`validate_spawn`])
 /// from permission checks ([`check_spawn_permission`]) so that tools can
@@ -64,8 +71,8 @@ pub trait SpawnValidator: Send + Sync {
     /// Does NOT check permissions — that is a separate step via
     /// [`check_spawn_permission`].
     ///
-    /// Returns a [`SpawnValidationResult`] with the resolved target info,
-    /// or a [`SpawnError`] on failure.
+    /// Returns a [`SpawnValidationResult`] with the target agent identifier
+    /// and derived parameters, or a [`SpawnError`] on failure.
     async fn validate_spawn(
         &self,
         parent_session_id: &str,

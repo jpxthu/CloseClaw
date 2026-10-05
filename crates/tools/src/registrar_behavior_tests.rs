@@ -103,14 +103,15 @@ fn make_standard_registrars(
     vec![
         Box::new(CoreToolsRegistrar::new(
             permission_engine.clone(),
-            task_manager as Arc<dyn closeclaw_tasks::TaskManager>,
+            task_manager as Arc<dyn closeclaw_common::TaskManager>,
             session_manager.clone(),
             config_manager,
             approval_flow.clone(),
             tool_registry,
         )),
         Box::new(SessionToolsRegistrar::new(
-            spawn_controller.clone() as Arc<dyn crate::SpawnValidator>,
+            spawn_controller.clone() as Arc<dyn closeclaw_common::SpawnValidator>,
+            spawn_controller.clone() as Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup>,
             session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
             agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
             Arc::new(PermissionEngineAdapter(permission_engine)),

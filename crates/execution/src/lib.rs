@@ -9,6 +9,7 @@ pub mod event;
 pub mod execution_types;
 pub mod hook;
 pub mod notification;
+pub mod permission_check;
 pub mod spawn;
 pub mod types;
 
@@ -16,11 +17,12 @@ pub use engine::{ExecutionEngine, ExecutionReport, StepResult};
 
 pub use error::ExecutionError;
 pub use event::ExecutionEvent;
-pub use execution_types::{ExecutionStep, ExecutionStepStatus};
+pub use execution_types::ExecutionStep;
 pub use hook::{
     CustomHook, HookError, HookResult, HookRunner, NotifyHook, StepHook, VerificationHook,
 };
 pub use notification::{parse_subagent_result, ParseError};
+pub use permission_check::ExecutionPermissionCheck;
 pub use spawn::SpawnAdapter;
 pub use types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 

@@ -29,7 +29,7 @@ struct RecordedBackgroundize {
 /// Shared recorder inspected by the tests after the call under test.
 struct BgRecorder {
     calls: std::sync::Mutex<Vec<RecordedBackgroundize>>,
-    tasks: std::sync::Mutex<Vec<closeclaw_tasks::BackgroundTask>>,
+    tasks: std::sync::Mutex<Vec<closeclaw_common::BackgroundTask>>,
 }
 
 impl BgRecorder {
@@ -44,7 +44,7 @@ impl BgRecorder {
         self.calls.lock().unwrap().clone()
     }
 
-    fn task(&self, task_id: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    fn task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
         self.tasks
             .lock()
             .unwrap()
@@ -90,15 +90,15 @@ async fn reap_child(mut child: tokio::process::Child) {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_tasks::TaskManager for RecordingBgManager {
+impl closeclaw_common::TaskManager for RecordingBgManager {
     async fn spawn_task(
         &self,
         _command: &str,
         _cwd: &std::path::Path,
         _is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
             "not used".into(),
         ))
     }
@@ -109,7 +109,7 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
         command: &str,
         is_backgrounded: bool,
         session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
         // Lock the pipe reattachment behavior: the production chain
         // (`backgroundize_child`) must reattach the taken stdout/stderr
         // handles before handing the child to the manager. Without the
@@ -124,14 +124,14 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
         );
         reap_child(child).await;
         if self.fail {
-            return Err(closeclaw_tasks::BackgroundTaskError::SpawnFailed(
+            return Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
                 "boom".into(),
             ));
         }
-        let task = closeclaw_tasks::BackgroundTask {
+        let task = closeclaw_common::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            state: closeclaw_common::TaskState::Running { is_backgrounded },
             // Placeholder only, never written to disk: this fake never
             // performs output I/O; the backgroundize chain under test
             // only forwards the path into the result payload.
@@ -150,21 +150,21 @@ impl closeclaw_tasks::TaskManager for RecordingBgManager {
         Ok(task)
     }
 
-    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
         // Deliberately a no-op: this suite never exercises the kill
         // chain, so there is nothing meaningful to record or remove.
         Ok(())
     }
 
-    async fn get_task(&self, task_id: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    async fn get_task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
         self.recorder.task(task_id)
     }
 
-    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
         vec![]
     }
 
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         vec![]
     }
 
@@ -195,7 +195,7 @@ fn make_handles(command: &str, cwd: &str) -> ChildHandles {
 #[tokio::test]
 async fn test_backgroundize_child_by_user_builds_manual_result() {
     let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(mgr);
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -235,7 +235,7 @@ async fn test_backgroundize_child_by_user_builds_manual_result() {
     assert_eq!(task.command, "true");
     assert!(matches!(
         task.state,
-        closeclaw_tasks::TaskState::Running {
+        closeclaw_common::TaskState::Running {
             is_backgrounded: true
         }
     ));
@@ -259,7 +259,7 @@ async fn test_backgroundize_child_by_user_builds_manual_result() {
 #[tokio::test]
 async fn test_backgroundize_child_auto_builds_auto_result() {
     let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(mgr);
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -306,7 +306,7 @@ async fn test_backgroundize_child_auto_builds_auto_result() {
 /// `backgroundize_child`.
 #[tokio::test]
 async fn test_backgroundize_child_maps_manager_error() {
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(RecordingBgManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(RecordingBgManager::failing());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -331,7 +331,7 @@ async fn test_backgroundize_child_maps_manager_error() {
 #[tokio::test]
 async fn test_auto_backgroundize_foreground_ok_maps_to_auto_background() {
     let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(mgr);
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -363,7 +363,7 @@ async fn test_auto_backgroundize_foreground_ok_maps_to_auto_background() {
 /// `ForegroundOutcome::Failed` with the mapped message.
 #[tokio::test]
 async fn test_auto_backgroundize_foreground_err_maps_to_failed() {
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(RecordingBgManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(RecordingBgManager::failing());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -390,7 +390,7 @@ async fn test_auto_backgroundize_foreground_err_maps_to_failed() {
 #[tokio::test]
 async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
     let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(mgr);
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
     let tmp = tempfile::TempDir::new().unwrap();
 
     let mut child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");

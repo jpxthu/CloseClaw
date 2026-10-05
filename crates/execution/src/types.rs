@@ -1,6 +1,6 @@
 //! Core types for the execution engine.
 
-use crate::execution_types::ExecutionStepStatus;
+use closeclaw_common::ExecutionStepStatus;
 use serde::{Deserialize, Serialize};
 
 /// Execution mode — determines how steps are dispatched.

@@ -13,8 +13,8 @@ use super::test_helpers::{
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::ChildSessionState;
+use closeclaw_common::NotificationPriority;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use tempfile::TempDir;
 

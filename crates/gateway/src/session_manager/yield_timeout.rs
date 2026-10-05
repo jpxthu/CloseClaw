@@ -27,13 +27,13 @@ use std::time::Duration;
 
 use super::SessionManager;
 use closeclaw_common::ChildSessionState;
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::compaction::{
     estimate_total_tokens, get_context_window, CompactConfig, CompactionMessage,
 };
 use closeclaw_session::llm_session::{ChatSession, SessionMessage};
 use closeclaw_session::persistence::PendingOperationDetail;
 use closeclaw_session::spawn::ChildSessionInfo;
-use closeclaw_tasks::NotificationPriority;
 
 impl SessionManager {
     /// Start a yield timeout for the given session.

@@ -3,6 +3,9 @@
 use super::*;
 use crate::registries::RegistryContext;
 use crate::test_helpers::load_system_config_manager;
+use closeclaw_common::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo, TaskManager,
+};
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
@@ -10,9 +13,6 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::LateBoundSessionManagerOps;
-use closeclaw_tasks::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo, TaskManager,
-};
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use tempfile::TempDir;

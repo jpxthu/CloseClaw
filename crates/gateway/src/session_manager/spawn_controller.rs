@@ -6,7 +6,7 @@
 //! continues to resolve to the same type.
 //!
 //! The session crate's `SpawnController` implements `SpawnValidator`
-//! (from `closeclaw_session::spawn_validation`), so it can be used
+//! (from `closeclaw_common`), so it can be used
 //! directly as `Arc<dyn SpawnValidator>` in the tools layer.
 
 pub use closeclaw_session::spawn::controller::SpawnController;

@@ -2,9 +2,12 @@ pub mod agent_lookup;
 #[cfg(test)]
 pub mod agent_lookup_tests;
 pub mod agent_query;
+pub mod audit_log;
+pub mod background_task;
 pub mod bootstrap;
 pub mod communication;
 pub mod compaction;
+pub mod content_segment;
 pub mod execution_types;
 pub mod executor;
 #[cfg(test)]
@@ -21,9 +24,6 @@ pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
 pub mod injection_params;
-pub mod lazy_tool;
-#[cfg(test)]
-pub mod lazy_tool_tests;
 pub mod llm_caller;
 pub mod llm_error;
 pub mod llm_stats;
@@ -66,12 +66,18 @@ pub mod slash_router;
 #[cfg(test)]
 pub mod slash_router_tests;
 pub mod slash_session_query;
+pub mod spawn_validation;
+#[cfg(test)]
+pub mod spawn_validation_tests;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod system_prompt;
 #[cfg(test)]
 pub mod system_prompt_tests;
+pub mod task_manager;
+#[cfg(test)]
+pub mod task_manager_tests;
 pub mod test_helpers;
 #[cfg(test)]
 pub mod test_helpers_tests;
@@ -88,9 +94,15 @@ pub mod verbosity;
 
 pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
+pub use audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+pub use background_task::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
+    RunningTaskInfo, TaskState,
+};
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
-pub use execution_types::{ExecutionStep, ExecutionStepStatus};
+pub use content_segment::{parse_content_segments, ContentSegment};
+pub use execution_types::ExecutionStepStatus;
 pub use fragment::{
     FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,
 };
@@ -107,16 +119,12 @@ pub use llm_stats::{detect_cache_break, CacheBreakInfo, CacheBreakThresholds, Ru
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use media_store::{MediaStoreAccess, MediaStoreError};
-pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
+pub use metrics::MetricsEmitter;
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
-pub use permission_check::{
-    ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,
-};
-pub use permission_op::{
-    InitialPermissionSet, PermissionOperation, UserCreationRequest, UserRegistration,
-};
+pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
+pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};
 pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
@@ -133,10 +141,9 @@ pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_listing_provider::ConditionalSkillMatch;
 pub use skill_listing_provider::SkillListingProvider;
 pub use skill_registry::SkillRegistryQuery;
-pub use slash_router::{
-    SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
-};
+pub use slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction};
 pub use slash_session_query::SlashSessionQuery;
+pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 pub use streaming::{CodeBlockMode, DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
 pub use turn::TurnCounter;
 
@@ -145,22 +152,21 @@ pub use communication::{
 };
 // Executor types: defined here (not in slash) because gateway cannot
 // depend on slash (cycle: gateway -> slash -> tools -> gateway).
+pub use dispatcher::{
+    extract_file_path, DispatchGroup, PendingToolCall, ToolCallDispatcher, ToolExecutor,
+};
 pub use executor::{
     CompactionError, CompactionResult, ReplyAction, SideEffectContext, SlashEffectExecutor,
     SlashResultExecutor,
 };
+pub use file_mutex::FileMutexMap;
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use system_prompt::{
     split_static_dynamic, DynamicPromptBuilder, DynamicPromptContext, ModeTransition,
     PromptOverrides, SystemPromptBuilder,
 };
-// TaskManager, TaskState, BackgroundTask, BackgroundTaskError migrated to closeclaw-tasks
-pub use dispatcher::{
-    extract_file_path, DispatchGroup, PendingToolCall, ToolCallDispatcher, ToolExecutor,
-};
-pub use file_mutex::FileMutexMap;
-pub use lazy_tool::{LazyTool, ToolMeta};
+pub use task_manager::TaskManager;
 pub use tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,

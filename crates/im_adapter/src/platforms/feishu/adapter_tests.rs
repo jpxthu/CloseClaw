@@ -4,9 +4,8 @@
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
-use crate::plugin::IMPlugin;
 use crate::IMAdapter;
-use closeclaw_common::MessageType;
+use closeclaw_common::{IMPlugin, MessageType};
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use serial_test::serial;

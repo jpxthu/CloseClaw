@@ -4,14 +4,14 @@
 //! audit logs only in Auto Mode, no logs in other modes or without
 //! session_mode_query.
 
-use crate::engine::audit_log::{AuditDisposition, AuditLogEntry, AuditLogger};
 use crate::engine::engine_eval::PermissionEngine;
-use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{
     Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::engine::rejection_log::{RejectionLog, RejectionLogger};
 use crate::rules::RuleSetBuilder;
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::sync::{Arc, Mutex};
@@ -71,6 +71,19 @@ impl TestAuditLogger {
 impl AuditLogger for TestAuditLogger {
     fn log(&self, entry: &AuditLogEntry) {
         self.entries.lock().unwrap().push(entry.clone());
+    }
+
+    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+        let mut matched: Vec<AuditLogEntry> = self
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| filter.matches(e))
+            .cloned()
+            .collect();
+        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        matched
     }
 }
 
@@ -142,7 +155,7 @@ fn test_engine_logs_rejection_to_audit_log() {
     assert_eq!(entry.tool_name, "file");
     assert_eq!(entry.operation, "write /repo/src/main.rs");
     assert_eq!(entry.disposition, AuditDisposition::Rejected);
-    assert_eq!(entry.risk_level, RiskLevel::Low);
+    assert_eq!(entry.risk_level, CommonRiskLevel::Low);
     assert_eq!(entry.session_mode, Some(SessionMode::Auto));
     assert!(!entry.timestamp.is_empty());
 }

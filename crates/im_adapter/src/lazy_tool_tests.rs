@@ -4,8 +4,8 @@ use std::sync::Arc;
 use serde_json::json;
 
 use crate::lazy_tool::{LazyTool, ToolMeta};
-use crate::tool_registry::ToolFlags;
-use crate::tool_trait::{Tool, ToolCallError, ToolContext, ToolResult};
+use closeclaw_common::tool_registry::ToolFlags;
+use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Stub tool for testing

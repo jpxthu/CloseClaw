@@ -23,7 +23,7 @@ use tokio::sync::watch;
 use tokio::time::Instant;
 use tracing::{error, info, warn};
 
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 
 /// Fixed scan interval in seconds (design doc specifies 60s).
 const ANNOUNCE_SWEEP_INTERVAL_SECS: u64 = 60;

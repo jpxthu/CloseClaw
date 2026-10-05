@@ -6,10 +6,10 @@ use crate::outbound::SendOutboundIds;
 use crate::session_manager::communication::CommunicationError;
 use crate::Gateway;
 use chrono::Utc;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState};
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession, QueueEntry};
 use closeclaw_session::spawn::types::ChildSessionStatus;
-use closeclaw_tasks::NotificationPriority;
 use std::collections::HashMap;
 use std::sync::Arc;
 use tracing::{debug, warn};
@@ -951,8 +951,8 @@ async fn inject_announces_as_system_messages(
 /// Convert a background tool [`CompletionNotification`] into an
 /// [`AnnounceEvent`]. Used by `drain_announces` and
 /// `drain_announces_filtered` to avoid duplicating the conversion.
-fn notif_to_announce(notif: closeclaw_tasks::CompletionNotification) -> AnnounceEvent {
-    use closeclaw_tasks::TaskState;
+fn notif_to_announce(notif: closeclaw_common::CompletionNotification) -> AnnounceEvent {
+    use closeclaw_common::TaskState;
     let status = match notif.state {
         TaskState::Completed { .. } => ChildCompletionStatus::Completed,
         TaskState::Failed { .. } => ChildCompletionStatus::Errored,

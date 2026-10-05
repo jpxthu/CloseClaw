@@ -4,6 +4,10 @@ use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
 use crate::session_manager::test_helpers::make_msg;
 use closeclaw_common::LlmCaller;
+use closeclaw_common::{
+    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
+    RunningTaskInfo, TaskManager, TaskState,
+};
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::types::ContentBlock;
@@ -11,10 +15,6 @@ use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::run_health::TranscriptOp;
-use closeclaw_tasks::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
-    RunningTaskInfo, TaskManager, TaskState,
-};
 
 /// Create a `SessionMessageHandler` with a mock LLM caller injected
 /// into the `SessionManager`. Must be called BEFORE `find_or_create`

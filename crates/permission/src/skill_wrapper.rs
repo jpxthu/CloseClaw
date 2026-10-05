@@ -2,17 +2,18 @@
 //!
 //! Provides [`SkillPermissionEngineWrapper`] and [`SkillApprovalFlowWrapper`]
 //! that implement the trait abstractions defined in
-//! [`closeclaw_common::permission_types`], allowing `closeclaw-skills` to
+//! [`crate::skill_permission`], allowing `closeclaw-skills` to
 //! depend on traits rather than concrete permission types.
 
 use crate::approval_flow::ApprovalFlow;
 use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_risk::RiskLevel as EngineRiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequest, PermissionRequestBody};
-use async_trait::async_trait;
-use closeclaw_common::permission_types::{
-    CallerInfo, PermissionEvalResult, RiskLevel, SkillApprovalSubmitter, SkillPermissionChecker,
+use crate::skill_permission::{
+    PermissionEvalResult, SkillApprovalSubmitter, SkillPermissionChecker,
 };
+use async_trait::async_trait;
+use closeclaw_common::permission_types::{CallerInfo, RiskLevel};
 use std::sync::Arc;
 
 /// Wrapper around [`PermissionEngine`] implementing [`SkillPermissionChecker`].

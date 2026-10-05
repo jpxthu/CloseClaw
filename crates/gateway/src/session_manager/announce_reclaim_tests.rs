@@ -10,8 +10,8 @@ use super::test_helpers::{
     append_assistant_to_child, setup_parent_with_conv, test_resolved_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::run_health::AnnounceSweepTarget;
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 
 // ── 1. Run-mode child completed + announce push success → node reclaimed ──

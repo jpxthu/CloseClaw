@@ -15,6 +15,7 @@ use closeclaw_common::tool_registry::{
     RegistryError, ToolBox, ToolDescriptor, ToolRegistrar, ToolRegistrarError, ToolRegistry,
     ToolRegistryQuery,
 };
+use closeclaw_common::{SpawnError, SpawnValidationResult, SpawnValidator};
 
 use super::{SessionManagerOps, SessionToolsRegistrar};
 
@@ -204,22 +205,33 @@ impl SessionManagerOps for MockSessionManagerOps {
 struct MockSpawnValidator;
 
 #[async_trait]
-impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
+impl SpawnValidator for MockSpawnValidator {
     async fn validate_spawn(
         &self,
         _parent_session_id: &str,
         _target_agent_id: Option<&str>,
-    ) -> Result<crate::spawn_validation::SpawnValidationResult, crate::spawn_validation::SpawnError>
-    {
-        Err(crate::spawn_validation::SpawnError::AgentIdRequired)
+    ) -> Result<SpawnValidationResult, SpawnError> {
+        Err(SpawnError::AgentIdRequired)
     }
 
     async fn check_spawn_permission(
         &self,
         _parent_session_id: &str,
-        _validation: &crate::spawn_validation::SpawnValidationResult,
-    ) -> Result<(), crate::spawn_validation::SpawnError> {
+        _validation: &SpawnValidationResult,
+    ) -> Result<(), SpawnError> {
         Ok(())
+    }
+}
+
+struct MockSpawnTargetConfigLookup;
+
+#[async_trait]
+impl crate::spawn::SpawnTargetConfigLookup for MockSpawnTargetConfigLookup {
+    async fn resolve_agent_config(
+        &self,
+        _agent_id: &str,
+    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+        None
     }
 }
 
@@ -275,6 +287,7 @@ fn mock_permission_engine() -> closeclaw_common::permission_types::SharedPermiss
 fn make_registrar() -> SessionToolsRegistrar {
     SessionToolsRegistrar::new(
         Arc::new(MockSpawnValidator),
+        Arc::new(MockSpawnTargetConfigLookup),
         Arc::new(MockSessionManagerOps),
         Arc::new(MockAgentConfigLookup),
         mock_permission_engine(),

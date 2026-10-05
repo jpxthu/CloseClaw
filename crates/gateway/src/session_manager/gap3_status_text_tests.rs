@@ -14,9 +14,9 @@ use crate::session_manager::test_helpers::register_child_only;
 use crate::Session;
 use chrono::Utc;
 use closeclaw_common::ChildCompletionStatus;
+use closeclaw_common::NotificationPriority;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession};
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 

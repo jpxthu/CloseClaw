@@ -11,8 +11,8 @@ use serde_json::Value;
 use std::sync::Arc;
 use tokio::sync::OnceCell;
 
-use crate::tool_registry::ToolFlags;
-use crate::tool_trait::{Tool, ToolCallError, ToolContext, ToolResult};
+use closeclaw_common::tool_registry::ToolFlags;
+use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolResult};
 
 /// Pre-stored metadata for a tool, consumed by [`LazyTool::new`].
 ///

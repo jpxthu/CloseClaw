@@ -2,8 +2,11 @@
 //!
 //! Provides `SpawnController` for validating spawn requests,
 //! `create_child_conversation_session` for building child sessions,
-//! shared types (`ChildSessionInfo`, `ChildSessionStatus`, `SpawnMode`, `SpawnValidationResult`),
+//! shared types (`ChildSessionInfo`, `ChildSessionStatus`, `SpawnMode`),
 //! and the `SpawnCreationContext` trait for dependency injection.
+//!
+//! The spawn validation interface (`SpawnValidator`) and its payloads
+//! (`SpawnValidationResult`, `SpawnError`) live in `closeclaw_common`.
 
 pub mod communication;
 pub mod context;
@@ -18,6 +21,7 @@ pub use communication::{
 pub use context::SpawnCreationContext;
 pub use controller::SpawnContext;
 pub use controller::SpawnController;
+pub use controller::SpawnTargetConfigLookup;
 pub use creation::{
     build_spawn_context, create_child_conversation_session, ChildSessionCreated,
     ChildSessionCreationParams,

@@ -9,7 +9,8 @@ use std::time::Duration;
 
 use tokio::sync::Mutex;
 
-use crate::background::{CompletionNotification, NotificationPriority, TaskMap, TaskState};
+use crate::background::TaskMap;
+use closeclaw_common::{CompletionNotification, NotificationPriority, TaskState};
 
 /// Check interval between stuck detection polls.
 const CHECK_INTERVAL_SECS: u64 = 5;

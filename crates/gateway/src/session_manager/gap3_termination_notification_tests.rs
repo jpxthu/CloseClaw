@@ -12,9 +12,9 @@ use super::SessionManager;
 use crate::session_manager::spawn::SpawnMode;
 use crate::Session;
 use chrono::Utc;
+use closeclaw_common::NotificationPriority;
 use closeclaw_common::{ChildCompletionStatus, ChildSessionState};
 use closeclaw_session::llm_session::ConversationSession;
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 

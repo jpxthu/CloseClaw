@@ -8,9 +8,7 @@ mod tests {
         ContentBlockType, ContentDelta, DslInstruction, DslParseResult, StreamEvent,
     };
     use closeclaw_common::streaming::StreamingRenderer;
-    use closeclaw_common::{MessageType, NormalizedMessage};
-    use closeclaw_im_adapter::plugin::IMPlugin;
-    use closeclaw_im_adapter::RenderedOutput;
+    use closeclaw_common::{IMPlugin, MessageType, NormalizedMessage, RenderedOutput};
     use closeclaw_llm::types::ContentBlock;
 
     // =========================================================================

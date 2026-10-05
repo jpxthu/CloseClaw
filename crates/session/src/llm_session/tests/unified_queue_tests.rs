@@ -7,7 +7,7 @@
 use super::*;
 use chrono::Utc;
 use closeclaw_common::ChildCompletionStatus;
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -25,11 +25,11 @@ fn make_announce(agent_id: &str, priority: NotificationPriority) -> AnnounceEven
 fn make_bg_notification(
     task_id: &str,
     priority: NotificationPriority,
-) -> closeclaw_tasks::CompletionNotification {
-    closeclaw_tasks::CompletionNotification {
+) -> closeclaw_common::CompletionNotification {
+    closeclaw_common::CompletionNotification {
         task_id: task_id.to_string(),
         command: "echo test".to_string(),
-        state: closeclaw_tasks::TaskState::Completed { exit_code: 0 },
+        state: closeclaw_common::TaskState::Completed { exit_code: 0 },
         output_path: std::path::PathBuf::from("/tmp/output"),
         priority,
         summary: format!("task {} done", task_id),

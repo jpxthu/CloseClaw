@@ -8,7 +8,7 @@
 use super::AnnounceEvent;
 use super::ConversationSession;
 use closeclaw_common::ContentBlock;
-use closeclaw_tasks::NotificationPriority;
+use closeclaw_common::NotificationPriority;
 
 // ── Priority level ─────────────────────────────────────────────────────────
 
@@ -45,7 +45,7 @@ pub enum QueueEntry {
     Announce(AnnounceEvent),
     /// A background tool (BashTool) completion notification.
     /// Priority is taken from the inner `CompletionNotification`.
-    BackgroundToolNotification(closeclaw_tasks::CompletionNotification),
+    BackgroundToolNotification(closeclaw_common::CompletionNotification),
     /// A system-level notification (e.g. yield timeout warning).
     /// Injected as a `role="system"` message during drain.
     SystemNotification(String, NotificationPriority),
@@ -248,7 +248,7 @@ impl ConversationSession {
     /// queue (priority from the notification, typically `Later`).
     pub fn push_background_tool_notification(
         &mut self,
-        notif: closeclaw_tasks::CompletionNotification,
+        notif: closeclaw_common::CompletionNotification,
     ) {
         self.unified_queue
             .push(QueueEntry::BackgroundToolNotification(notif));

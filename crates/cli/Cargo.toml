@@ -16,7 +16,6 @@ closeclaw-slash = { path = "../slash" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
-closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-session = { path = "../session" }

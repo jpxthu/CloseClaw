@@ -8,7 +8,7 @@
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
-use crate::plugin::IMPlugin;
+use closeclaw_common::IMPlugin;
 use closeclaw_config::identity::ConfigIdentityResolver;
 use closeclaw_config::identity::IdentityMapping;
 use std::sync::Arc;

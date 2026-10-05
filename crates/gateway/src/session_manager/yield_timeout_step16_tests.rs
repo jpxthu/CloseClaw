@@ -7,8 +7,8 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
 use super::tests::clear_global_prompt_state;
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ChatSession;
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 use std::sync::Arc;
 

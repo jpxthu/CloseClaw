@@ -14,9 +14,9 @@
 use super::test_helpers::setup_parent_with_conv;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use chrono::Utc;
+use closeclaw_common::NotificationPriority;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
-use closeclaw_tasks::NotificationPriority;
 use serial_test::serial;
 
 // ── helper ──────────────────────────────────────────────────────────────

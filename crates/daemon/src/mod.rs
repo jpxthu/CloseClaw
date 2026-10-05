@@ -13,6 +13,7 @@ pub mod dreaming_scheduler;
 mod env_file;
 pub mod gateway_restart;
 pub mod lifecycle;
+mod metrics;
 pub mod phase_init;
 pub mod phase_wiring;
 pub mod registries;

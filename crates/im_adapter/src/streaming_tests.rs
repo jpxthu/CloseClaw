@@ -1,11 +1,11 @@
-//! Unit tests for [`super::streaming`].
+//! Unit tests for `closeclaw_common::streaming`.
 //!
 //! Covers LineBuffer splitting/flushing, DefaultStreamingRenderer
 //! incremental rendering, DSL line detection, block accumulation,
 //! and state reset on flush/MessageEnd.
 
-use super::streaming::*;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
+use closeclaw_common::streaming::*;
 
 fn text_delta(text: &str) -> StreamEvent {
     StreamEvent::BlockDelta {

@@ -30,8 +30,8 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::ToolResult;
 use closeclaw_common::tool_session::{KillHandle, ToolProgress, ToolSession};
+use closeclaw_common::TaskManager;
 use closeclaw_common::ToolExecState;
-use closeclaw_tasks::TaskManager;
 use tokio::io::AsyncReadExt;
 
 use super::bash_classify;
@@ -519,7 +519,7 @@ pub(crate) fn build_result(
 // ── build_background_result ──────────────────────────────────────────────
 
 /// Build a [`ToolResult`] for an explicitly backgrounded command.
-pub(crate) fn build_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+pub(crate) fn build_background_result(task: &closeclaw_common::BackgroundTask) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
             "backgroundTaskId": task.id,
@@ -531,7 +531,7 @@ pub(crate) fn build_background_result(task: &closeclaw_tasks::BackgroundTask) ->
 }
 
 /// Build a [`ToolResult`] for an auto-backgrounded command.
-pub(crate) fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+pub(crate) fn build_auto_background_result(task: &closeclaw_common::BackgroundTask) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
             "backgroundTaskId": task.id,
@@ -544,7 +544,9 @@ pub(crate) fn build_auto_background_result(task: &closeclaw_tasks::BackgroundTas
 }
 
 /// Build a [`ToolResult`] for a manually backgrounded command.
-pub(crate) fn build_manual_background_result(task: &closeclaw_tasks::BackgroundTask) -> ToolResult {
+pub(crate) fn build_manual_background_result(
+    task: &closeclaw_common::BackgroundTask,
+) -> ToolResult {
     ToolResult {
         data: serde_json::json!({
             "backgroundTaskId": task.id,

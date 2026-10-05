@@ -21,12 +21,12 @@ use super::test_helpers::{
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use chrono::Utc;
-use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
-use closeclaw_tasks::{
+use closeclaw_common::{
     BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
     RunningTaskInfo, TaskManager, TaskState,
 };
+use closeclaw_llm::types::ContentBlock;
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
 use serial_test::serial;
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -944,7 +944,7 @@ async fn test_mock_task_manager_dedup() {
 
 // ── Mock TaskManager ────────────────────────────────────────────────────────
 
-/// A minimal mock implementing [`closeclaw_tasks::TaskManager`] that
+/// A minimal mock implementing [`closeclaw_common::TaskManager`] that
 /// returns pre-built notifications from `drain_notifications`. Used
 /// to test notification priority formatting without spawning real
 /// background processes.

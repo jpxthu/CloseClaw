@@ -1,7 +1,7 @@
 //! Tests for SpawnController::validate() permission check (Step 1.4).
 //!
 //! Verifies that `validate()` delegates permission validation to the
-//! PermissionEngine and returns `SpawnError::PermissionDenied` when the
+//! PermissionEngine and returns `SpawnError::Permission` when the
 //! child agent's permissions are fully denied after intersection with
 //! the parent agent's effective permissions.
 
@@ -19,9 +19,9 @@ use closeclaw_session::persistence::ReasoningLevel;
 
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::{GatewayConfig, Message, SessionManager};
+use closeclaw_common::{SpawnError, SpawnPermissionError};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
-use closeclaw_session::spawn_validation::SpawnError;
 
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs to keep modules self-contained)
@@ -159,7 +159,7 @@ fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
 // ---------------------------------------------------------------------------
 
 /// When the child agent has all permissions denied, `validate()` must
-/// return `SpawnError::PermissionDenied` because the intersection with
+/// return `SpawnError::Permission` because the intersection with
 /// the parent's permissions produces a fully-denied result.
 #[tokio::test]
 async fn test_validate_permission_denied_child_fully_denied() {
@@ -211,7 +211,7 @@ async fn test_validate_permission_denied_child_fully_denied() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed (preconditions pass)");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     let err = controller
         .check_spawn_permission(&parent_id, &validation)
@@ -219,20 +219,20 @@ async fn test_validate_permission_denied_child_fully_denied() {
         .expect_err("check_spawn_permission should reject when child permissions are fully denied");
 
     match err {
-        SpawnError::PermissionDenied { agent_id, reason } => {
+        SpawnError::Permission(SpawnPermissionError::Denied { agent_id, reason }) => {
             assert_eq!(agent_id, "child");
             assert!(
                 reason.contains("denied"),
                 "reason should mention denial, got: {reason}"
             );
         }
-        other => panic!("expected PermissionDenied, got {:?}", other),
+        other => panic!("expected Permission variant, got {:?}", other),
     }
 }
 
 /// When the child has some permissions and the parent denies all of them,
 /// the intersection is fully denied and `validate()` returns
-/// `SpawnError::PermissionDenied`.
+/// `SpawnError::Permission`.
 #[tokio::test]
 async fn test_validate_permission_denied_parent_denies_all() {
     let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
@@ -283,7 +283,7 @@ async fn test_validate_permission_denied_parent_denies_all() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed (preconditions pass)");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     let err = controller
         .check_spawn_permission(&parent_id, &validation)
@@ -291,14 +291,14 @@ async fn test_validate_permission_denied_parent_denies_all() {
         .expect_err("check_spawn_permission should reject when parent denies all permissions");
 
     match err {
-        SpawnError::PermissionDenied { agent_id, reason } => {
+        SpawnError::Permission(SpawnPermissionError::Denied { agent_id, reason }) => {
             assert_eq!(agent_id, "child");
             assert!(
                 reason.contains("denied"),
                 "reason should mention denial, got: {reason}"
             );
         }
-        other => panic!("expected PermissionDenied, got {:?}", other),
+        other => panic!("expected Permission variant, got {:?}", other),
     }
 }
 
@@ -334,7 +334,7 @@ async fn test_validate_permission_allowed_partial_overlap() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed when permissions partially overlap");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     // Permission check should also pass (partial overlap is not fully denied).
     controller
@@ -371,7 +371,7 @@ async fn test_validate_no_permissions_configured() {
         .validate(&parent_id, Some("child"))
         .await
         .expect("validate should succeed when no permissions are configured");
-    assert_eq!(validation.config.id, "child");
+    assert_eq!(validation.agent_id, "child");
 
     // Permission check should also pass (no permissions configured).
     controller
@@ -382,8 +382,7 @@ async fn test_validate_no_permissions_configured() {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use closeclaw_session::spawn_validation::SpawnValidator;
+    use closeclaw_common::SpawnValidator;
 
     /// Verify the two-step call sequence: `validate_spawn` passes →
     /// `check_spawn_permission` is called.
@@ -394,7 +393,7 @@ mod tests {
     /// `test_two_step_precondition_failure_skips_permission` pattern.
     #[tokio::test]
     async fn test_two_step_validate_passes_permission_called() {
-        use closeclaw_session::spawn_validation::{
+        use closeclaw_common::{
             SpawnError as SessionSpawnError, SpawnValidationResult as SessionValidationResult,
         };
         use std::sync::atomic::{AtomicBool, Ordering};
@@ -424,24 +423,7 @@ mod tests {
             ) -> Result<SessionValidationResult, SessionSpawnError> {
                 self.validate_called.store(true, Ordering::SeqCst);
                 Ok(SessionValidationResult {
-                    config: ResolvedAgentConfig {
-                        id: "child-agent".to_string(),
-                        name: "child-agent".to_string(),
-                        parent_id: None,
-                        model: Some(ModelSpec::single("test-model")),
-                        workspace: None,
-                        agent_dir: None,
-                        bootstrap_mode: BootstrapMode::Full,
-                        skills: vec![],
-                        tools: vec![],
-                        disallowed_tools: vec![],
-                        subagents: SubagentsConfig::default(),
-                        memory: MemoryConfig::default(),
-                        hooks: vec![],
-                        parallel_tool_calls: true,
-                        memory_configured: false,
-                        source: ConfigSource::User,
-                    },
+                    agent_id: "child-agent".to_string(),
                     effective_max_spawn_depth: 1,
                     spawn_timeout: Some(172800),
                     timeout_warning_secs: None,
@@ -485,7 +467,7 @@ mod tests {
     /// `check_spawn_permission` must NOT be called.
     #[tokio::test]
     async fn test_two_step_validate_fails_permission_skipped() {
-        use closeclaw_session::spawn_validation::{
+        use closeclaw_common::{
             SpawnError as SessionSpawnError, SpawnValidationResult as SessionValidationResult,
         };
         use std::sync::atomic::{AtomicBool, Ordering};

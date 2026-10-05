@@ -4,12 +4,12 @@
 
 use async_trait::async_trait;
 use closeclaw_common::SessionActivityDimensions;
+use closeclaw_common::{BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager};
 use closeclaw_config::session::{PerAgentSessionConfig, DEFAULT_SWEEPER_INTERVAL_SECS};
 use closeclaw_config::SessionConfigProvider;
 use closeclaw_session::persistence::{
     AgentRole, PersistenceError, PersistenceService, SessionCheckpoint,
 };
-use closeclaw_tasks::{BackgroundTask, BackgroundTaskError, CompletionNotification, TaskManager};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -380,7 +380,7 @@ impl TaskManager for MockTaskManager {
     async fn get_task(&self, _: &str) -> Option<BackgroundTask> {
         unimplemented!()
     }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         unimplemented!()
     }
     async fn drain_notifications(&self) -> Vec<CompletionNotification> {

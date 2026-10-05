@@ -8,11 +8,12 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::spawn_validation::SpawnValidator;
 use closeclaw_common::permission_types::{SharedApprovalSubmission, SharedPermissionEvaluator};
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistry};
 use closeclaw_common::tool_trait::Tool;
-use closeclaw_common::AgentConfigLookup;
+use closeclaw_common::{AgentConfigLookup, SpawnValidator};
+
+use crate::spawn::SpawnTargetConfigLookup;
 
 use super::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYieldTool};
 
@@ -40,6 +41,7 @@ macro_rules! try_register {
 /// `sessions_spawn`, `sessions_steer`, `sessions_kill`, `sessions_yield`.
 pub struct SessionToolsRegistrar {
     spawn_validator: Arc<dyn SpawnValidator>,
+    spawn_target_config: Arc<dyn SpawnTargetConfigLookup>,
     session_manager: Arc<dyn super::SessionManagerOps>,
     agent_config_lookup: Arc<dyn AgentConfigLookup>,
     permission_engine: SharedPermissionEvaluator,
@@ -48,8 +50,13 @@ pub struct SessionToolsRegistrar {
 
 impl SessionToolsRegistrar {
     /// Create a new `SessionToolsRegistrar` with the required dependencies.
+    ///
+    /// `spawn_target_config` is the session-internal channel through which
+    /// `sessions_spawn` obtains the target agent's full config profile
+    /// (it never enters the shared `SpawnValidationResult`).
     pub fn new(
         spawn_validator: Arc<dyn SpawnValidator>,
+        spawn_target_config: Arc<dyn SpawnTargetConfigLookup>,
         session_manager: Arc<dyn super::SessionManagerOps>,
         agent_config_lookup: Arc<dyn AgentConfigLookup>,
         permission_engine: SharedPermissionEvaluator,
@@ -57,6 +64,7 @@ impl SessionToolsRegistrar {
     ) -> Self {
         Self {
             spawn_validator,
+            spawn_target_config,
             session_manager,
             agent_config_lookup,
             permission_engine,
@@ -83,6 +91,7 @@ impl ToolRegistrar for SessionToolsRegistrar {
             registered,
             SessionsSpawnTool::new(
                 self.spawn_validator.clone(),
+                self.spawn_target_config.clone(),
                 self.session_manager.clone(),
                 self.agent_config_lookup.clone(),
             ),

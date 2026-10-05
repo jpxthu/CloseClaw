@@ -11,8 +11,8 @@ use super::stop::StopOptions;
 use super::test_helpers::{register_child_only, setup_parent_with_conv};
 use super::tests::make_test_mgr;
 use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::NotificationPriority;
 use closeclaw_session::persistence::PendingMessage;
-use closeclaw_tasks::NotificationPriority;
 use std::sync::Arc;
 use std::time::Duration;
 

@@ -1,27 +1,14 @@
 //! Trait for managing background tasks.
 //!
 //! Provides an interface for spawning, monitoring, and killing
-//! background processes. Implemented by [`BackgroundTaskManager`].
+//! background processes. Implemented by `BackgroundTaskManager`
+//! (defined in the `closeclaw-tasks` crate).
 
-use crate::{BackgroundTask, BackgroundTaskError, CompletionNotification};
-
-/// Lightweight summary of a currently running background task.
-///
-/// Returned by [`TaskManager::list_running_tasks`] so the caller
-/// can inject a running-task digest without querying individual tasks.
-#[derive(Debug, Clone)]
-pub struct RunningTaskInfo {
-    /// Unique identifier of the background task.
-    pub task_id: String,
-    /// The original shell command.
-    pub command: String,
-    /// Seconds elapsed since the task was created.
-    pub elapsed_secs: u64,
-}
+use crate::{BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo};
 
 /// Trait for managing background tasks.
 ///
-/// Implemented by [`BackgroundTaskManager`](crate::BackgroundTaskManager);
+/// Implemented by `BackgroundTaskManager` (`closeclaw-tasks`);
 /// consumed by the tools crate's `BashTool` to spawn and manage
 /// background processes.
 #[async_trait::async_trait]
@@ -64,8 +51,8 @@ pub trait TaskManager: Send + Sync {
 
     /// List all currently running background tasks.
     ///
-    /// Returns a snapshot of tasks in the [`TaskState::Running`] state,
-    /// each summarised as a [`RunningTaskInfo`].
+    /// Returns a snapshot of tasks in the [`TaskState::Running`](crate::TaskState::Running)
+    /// state, each summarised as a [`RunningTaskInfo`].
     async fn list_running_tasks(&self) -> Vec<RunningTaskInfo>;
 
     /// Drain all pending completion notifications.

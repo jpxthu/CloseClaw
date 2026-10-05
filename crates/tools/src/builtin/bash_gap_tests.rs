@@ -30,7 +30,7 @@ fn make_tool() -> BashTool {
     let perm = Arc::new(tokio::sync::RwLock::new(
         PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ));
-    let bg_manager: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(DummyTaskManager);
+    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(DummyTaskManager);
     let session_manager = Arc::new(SessionManager::new(
         &GatewayConfig {
             name: "test".to_string(),
@@ -81,14 +81,14 @@ fn ctx_with_workdir(path: &str, has_git: bool) -> PromptGenerationContext {
 struct DummyTaskManager;
 
 #[async_trait::async_trait]
-impl closeclaw_tasks::TaskManager for DummyTaskManager {
+impl closeclaw_common::TaskManager for DummyTaskManager {
     async fn spawn_task(
         &self,
         _cmd: &str,
         _cwd: &std::path::Path,
         _bg: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
         unimplemented!()
     }
     async fn backgroundize_task(
@@ -97,19 +97,19 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
         _cmd: &str,
         _bg: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
         unimplemented!()
     }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
         Ok(())
     }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
         None
     }
-    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
         vec![]
     }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
@@ -121,7 +121,7 @@ impl closeclaw_tasks::TaskManager for DummyTaskManager {
 /// Working TaskManager for tests that need spawn/backgroundize.
 struct WorkingTaskManager {
     tasks: std::sync::Arc<
-        tokio::sync::RwLock<std::collections::HashMap<String, closeclaw_tasks::BackgroundTask>>,
+        tokio::sync::RwLock<std::collections::HashMap<String, closeclaw_common::BackgroundTask>>,
     >,
 }
 
@@ -134,18 +134,18 @@ impl WorkingTaskManager {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_tasks::TaskManager for WorkingTaskManager {
+impl closeclaw_common::TaskManager for WorkingTaskManager {
     async fn spawn_task(
         &self,
         command: &str,
         cwd: &std::path::Path,
         is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        let task = closeclaw_tasks::BackgroundTask {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        let task = closeclaw_common::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            state: closeclaw_common::TaskState::Running { is_backgrounded },
             output_path: cwd.join("output"),
         };
         self.tasks
@@ -160,11 +160,11 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
         command: &str,
         is_backgrounded: bool,
         _session_id: &str,
-    ) -> Result<closeclaw_tasks::BackgroundTask, closeclaw_tasks::BackgroundTaskError> {
-        let task = closeclaw_tasks::BackgroundTask {
+    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
+        let task = closeclaw_common::BackgroundTask {
             id: uuid::Uuid::new_v4().to_string(),
             command: command.to_string(),
-            state: closeclaw_tasks::TaskState::Running { is_backgrounded },
+            state: closeclaw_common::TaskState::Running { is_backgrounded },
             output_path: std::path::PathBuf::from("/tmp/output"),
         };
         self.tasks
@@ -173,16 +173,16 @@ impl closeclaw_tasks::TaskManager for WorkingTaskManager {
             .insert(task.id.clone(), task.clone());
         Ok(task)
     }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_tasks::BackgroundTaskError> {
+    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
         Ok(())
     }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_tasks::BackgroundTask> {
+    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
         None
     }
-    async fn drain_notifications(&self) -> Vec<closeclaw_tasks::CompletionNotification> {
+    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
         vec![]
     }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_tasks::RunningTaskInfo> {
+    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
         vec![]
     }
     async fn cleanup_all_finished(&self, _session_id: &str) {}
@@ -572,7 +572,7 @@ async fn test_background_command_no_progress_reports() {
     let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
         Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
 
-    let bg_manager: Arc<dyn closeclaw_tasks::TaskManager> = Arc::new(WorkingTaskManager::new());
+    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(WorkingTaskManager::new());
     let tmp = tempfile::TempDir::new().unwrap();
     let ctx = BashExecCtx {
         command: "echo bg",

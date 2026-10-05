@@ -10,8 +10,8 @@
 use super::adapter::FeishuAdapter;
 use super::FeishuPlugin;
 use crate::media_store::MediaStore;
-use crate::IMPlugin;
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::IMPlugin;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
 use std::sync::Arc;
 use tempfile::TempDir;

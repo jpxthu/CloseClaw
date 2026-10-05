@@ -3,23 +3,22 @@
 //! This crate unifies IMPlugin, IMAdapter, NormalizedMessage, AdapterError,
 //! and RenderedOutput under a single entry point.
 
-pub mod code_block;
 pub mod error;
+pub mod lazy_tool;
+#[cfg(test)]
+pub mod lazy_tool_tests;
 pub mod media_store;
 pub mod normalized;
 #[cfg(test)]
 pub mod normalized_tests;
 pub mod platforms;
-pub mod plugin;
 #[cfg(test)]
 pub mod plugin_tests;
-pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod tool_registrar;
 
 pub use error::AdapterError;
-pub use plugin::{IMPlugin, RenderedOutput};
 pub use tool_registrar::ImAdapterToolsRegistrar;
 
 use async_trait::async_trait;

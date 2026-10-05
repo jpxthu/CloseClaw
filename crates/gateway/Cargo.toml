@@ -18,7 +18,6 @@ closeclaw-llm = { path = "../llm" }
 closeclaw-memory = { path = "../memory" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-processor-chain = { path = "../processor_chain" }
-closeclaw-tasks = { path = "../tasks" }
 closeclaw-workflow = { path = "../workflow" }
 
 # Async runtime
