@@ -3,12 +3,12 @@
 
 use std::sync::Arc;
 
-use crate::execution_types::ExecutionStepStatus;
-use closeclaw_common::ExecutionPermissionCheck;
+use closeclaw_common::ExecutionStepStatus;
 
 use crate::error::ExecutionError;
 use crate::event::ExecutionEvent;
 use crate::hook::HookRunner;
+use crate::permission_check::ExecutionPermissionCheck;
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult};
 

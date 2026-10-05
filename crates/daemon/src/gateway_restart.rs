@@ -354,7 +354,7 @@ impl crate::Daemon {
             new_gw.set_debug_log(debug_log).await;
         }
         new_gw
-            .set_metrics_emitter(Arc::new(closeclaw_common::NoopMetricsEmitter))
+            .set_metrics_emitter(Arc::new(crate::metrics::NoopMetricsEmitter))
             .await;
         let common_sh = crate::bridge::common_shutdown_handle(&self.shutdown);
         new_gw.set_shutdown_handle(Arc::clone(&common_sh));

@@ -3,69 +3,6 @@
 use super::*;
 
 #[test]
-fn test_describe_create_user_basic() {
-    let op = PermissionOperation::CreateUser {
-        user_id: "ou_123".into(),
-        channel: "feishu".into(),
-        initial_permissions: vec![InitialPermissionSet::BasicMessaging],
-    };
-    assert_eq!(
-        op.describe(),
-        "register user `ou_123` via feishu with permissions [BasicMessaging]"
-    );
-}
-
-#[test]
-fn test_describe_create_user_no_permissions() {
-    let op = PermissionOperation::CreateUser {
-        user_id: "ou_456".into(),
-        channel: "telegram".into(),
-        initial_permissions: vec![],
-    };
-    assert_eq!(
-        op.describe(),
-        "register user `ou_456` via telegram with permissions []"
-    );
-}
-
-#[test]
-fn test_create_user_serialization_roundtrip() {
-    let op = PermissionOperation::CreateUser {
-        user_id: "ou_abc".into(),
-        channel: "feishu".into(),
-        initial_permissions: vec![InitialPermissionSet::BasicMessaging],
-    };
-    let json = serde_json::to_string(&op).unwrap();
-    let deserialized: PermissionOperation = serde_json::from_str(&json).unwrap();
-    assert_eq!(op, deserialized);
-}
-
-#[test]
-fn test_create_user_serialization_preserves_fields() {
-    let op = PermissionOperation::CreateUser {
-        user_id: "ou_xyz".into(),
-        channel: "slack".into(),
-        initial_permissions: vec![],
-    };
-    let json = serde_json::to_string(&op).unwrap();
-    assert!(json.contains("ou_xyz"));
-    assert!(json.contains("slack"));
-    let deserialized: PermissionOperation = serde_json::from_str(&json).unwrap();
-    match deserialized {
-        PermissionOperation::CreateUser {
-            user_id,
-            channel,
-            initial_permissions,
-        } => {
-            assert_eq!(user_id, "ou_xyz");
-            assert_eq!(channel, "slack");
-            assert!(initial_permissions.is_empty());
-        }
-        other => panic!("expected CreateUser, got {:?}", other),
-    }
-}
-
-#[test]
 fn test_initial_permission_set_serialization_roundtrip() {
     let perm = InitialPermissionSet::BasicMessaging;
     let json = serde_json::to_string(&perm).unwrap();

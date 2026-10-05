@@ -3,8 +3,8 @@ use crate::error::ExecutionError;
 use crate::hook::{HookResult, HookRunner, StepHook};
 use crate::spawn::SpawnAdapter;
 use crate::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
-use crate::ExecutionStepStatus;
 use async_trait::async_trait;
+use closeclaw_common::ExecutionStepStatus;
 
 /// Mock spawn adapter that returns a configurable sequence of results.
 struct MockSpawnAdapter {

@@ -4,6 +4,9 @@
 //! and RenderedOutput under a single entry point.
 
 pub mod error;
+pub mod lazy_tool;
+#[cfg(test)]
+pub mod lazy_tool_tests;
 pub mod media_store;
 pub mod normalized;
 #[cfg(test)]

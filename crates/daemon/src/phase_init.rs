@@ -4,8 +4,8 @@
 //! limits (`mod.rs` only holds `pub use` / `pub mod` re-exports).
 
 use super::Daemon;
+use crate::metrics::NoopMetricsEmitter;
 use crate::{llm_init, registries, shutdown, skill_reload, skills_helper};
-use closeclaw_common::NoopMetricsEmitter;
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::{ConfigManager, ConfigSection};

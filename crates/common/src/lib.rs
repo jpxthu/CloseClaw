@@ -24,9 +24,6 @@ pub mod im_plugin;
 #[cfg(test)]
 pub mod im_plugin_tests;
 pub mod injection_params;
-pub mod lazy_tool;
-#[cfg(test)]
-pub mod lazy_tool_tests;
 pub mod llm_caller;
 pub mod llm_error;
 pub mod llm_stats;
@@ -101,7 +98,7 @@ pub use background_task::{
 pub use bootstrap::BootstrapMode;
 pub use compaction::CompactConfig;
 pub use content_segment::{parse_content_segments, ContentSegment};
-pub use execution_types::{ExecutionStep, ExecutionStepStatus};
+pub use execution_types::ExecutionStepStatus;
 pub use fragment::{
     FragmentContext, PromptFragment, PromptFragmentProvider, SectionType, SessionRole,
 };
@@ -118,16 +115,12 @@ pub use llm_stats::{detect_cache_break, CacheBreakInfo, CacheBreakThresholds, Ru
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use media_store::{MediaStoreAccess, MediaStoreError};
-pub use metrics::{MetricsEmitter, NoopMetricsEmitter};
+pub use metrics::MetricsEmitter;
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
-pub use permission_check::{
-    ExecutionPermissionCheck, PermissionChecker, PermissionDenied, SpawnPermissionError,
-};
-pub use permission_op::{
-    InitialPermissionSet, PermissionOperation, UserCreationRequest, UserRegistration,
-};
+pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
+pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};
 pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{
     ContentBlock, ContentBlockType, ContentDelta, DslInstruction, DslParseResult, ProcessError,
@@ -144,9 +137,7 @@ pub use shutdown::{DrainStatus, ShutdownMode, ShutdownSignal, ShutdownState};
 pub use skill_listing_provider::ConditionalSkillMatch;
 pub use skill_listing_provider::SkillListingProvider;
 pub use skill_registry::SkillRegistryQuery;
-pub use slash_router::{
-    SlashContext, SlashDispatcherTrait, SlashHandler, SlashResult, SlashRouter, SystemAppendAction,
-};
+pub use slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter, SystemAppendAction};
 pub use slash_session_query::SlashSessionQuery;
 pub use spawn_validation::{SpawnError, SpawnValidationResult, SpawnValidator};
 pub use streaming::{CodeBlockMode, DefaultStreamingRenderer, LineBuffer, StreamingRenderer};
@@ -165,7 +156,6 @@ pub use executor::{
     SlashResultExecutor,
 };
 pub use file_mutex::FileMutexMap;
-pub use lazy_tool::{LazyTool, ToolMeta};
 pub use session_mode::SessionMode;
 pub use session_mode_query::SessionModeQuery;
 pub use system_prompt::{

@@ -15,7 +15,7 @@ mod tests {
     };
     use crate::storage::memory::MemoryStorage;
     use closeclaw_common::ContentBlock;
-    use closeclaw_execution::ExecutionStepStatus;
+    use closeclaw_common::ExecutionStepStatus;
 
     fn create_test_checkpoint(session_id: &str) -> crate::persistence::SessionCheckpoint {
         use crate::persistence::*;

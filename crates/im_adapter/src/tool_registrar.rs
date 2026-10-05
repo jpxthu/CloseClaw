@@ -6,10 +6,9 @@
 use async_trait::async_trait;
 
 use closeclaw_common::tool_trait::{Tool, ToolFlags};
-use closeclaw_common::LazyTool;
-use closeclaw_common::ToolMeta;
 use closeclaw_tools::{ToolRegistrar, ToolRegistrarError};
 
+use crate::lazy_tool::{LazyTool, ToolMeta};
 use crate::platforms::feishu::tools::{
     FeishuBitableAppTableFieldTool, FeishuBitableAppTableRecordTool, FeishuBitableAppTableTool,
     FeishuBitableAppTableViewTool, FeishuBitableAppTool, FeishuCalendarCalendarTool,

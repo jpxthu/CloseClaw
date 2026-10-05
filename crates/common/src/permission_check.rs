@@ -1,9 +1,10 @@
-//! Permission check trait for execution engine integration.
+//! Permission check traits and error types for cross-crate use.
 //!
-//! Defines the [`ExecutionPermissionCheck`] trait so that `closeclaw-execution`
-//! can enforce permission policies without depending on the permission crate.
-//! Implementations live in `closeclaw-permission`; this module only holds the
-//! trait signature and the error type.
+//! Holds the [`PermissionDenied`] error consumed by `closeclaw-execution`
+//! plus the spawn-side [`PermissionChecker`] / [`SpawnPermissionError`]
+//! pair. Implementations live in `closeclaw-permission` /
+//! `closeclaw-gateway`; this module only holds trait signatures and the
+//! error type.
 
 use std::fmt;
 
@@ -29,19 +30,6 @@ impl PermissionDenied {
             reason: reason.into(),
         }
     }
-}
-
-/// Trait for checking whether a step is permitted to execute.
-///
-/// Implementations live in the permission crate; the execution crate consumes
-/// this trait through `closeclaw-common` to avoid a circular dependency.
-#[async_trait::async_trait]
-pub trait ExecutionPermissionCheck: Send + Sync {
-    /// Check whether the step described by `step_description` is allowed to run.
-    ///
-    /// Returns `Ok(())` if the step is permitted, or
-    /// `Err(PermissionDenied)` with a reason if not.
-    async fn check_execution(&self, step_description: &str) -> Result<(), PermissionDenied>;
 }
 
 // ── Spawn permission checking ───────────────────────────────────────────

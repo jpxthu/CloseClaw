@@ -6,12 +6,12 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
+use closeclaw_common::ExecutionStepStatus;
 use closeclaw_execution::error::ExecutionError;
 use closeclaw_execution::event::ExecutionEvent;
 use closeclaw_execution::spawn::SpawnAdapter;
 use closeclaw_execution::types::{ExecutionConfig, ExecutionMode, SubAgentResult, VerifyTrigger};
 use closeclaw_execution::ExecutionEngine;
-use closeclaw_execution::ExecutionStepStatus;
 
 // ---------------------------------------------------------------------------
 // Mock adapters
