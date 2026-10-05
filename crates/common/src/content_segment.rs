@@ -362,4 +362,56 @@ mod tests {
             ]
         );
     }
+
+    // ---- Step 1.6 gap tests ----
+
+    #[test]
+    fn unclosed_fence_without_language_falls_back_verbatim() {
+        // Exercises the empty-language arm of the unclosed-fence fallback:
+        // the bare ``` opener and every collected line (including a blank
+        // one) are preserved as Markdown, in order.
+        let input = "```\nline1\n\nline2";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("```".into()),
+                ContentSegment::Markdown("line1".into()),
+                ContentSegment::Markdown("".into()),
+                ContentSegment::Markdown("line2".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn fence_info_string_with_space_does_not_open_code_block() {
+        // Only a fence line whose info string is contiguous with the backticks
+        // opens a code block; "``` rust" (space after the fence) stays plain
+        // markdown, so the following lines remain outside any code block.
+        let input = "``` rust\nfn main() {}\nafter";
+        let segs = parse_content_segments(input);
+        assert_eq!(
+            segs,
+            vec![
+                ContentSegment::Markdown("``` rust".into()),
+                ContentSegment::Markdown("fn main() {}".into()),
+                ContentSegment::Markdown("after".into()),
+            ]
+        );
+    }
+
+    #[test]
+    fn hr_detection_trims_trailing_whitespace_only() {
+        // "---" followed by trailing whitespace is still a horizontal rule
+        // (trailing whitespace is trimmed before the exact match), while
+        // leading whitespace keeps the line as regular markdown.
+        let with_trailing = parse_content_segments("---  \ntext");
+        assert_eq!(
+            with_trailing,
+            vec![ContentSegment::Hr, ContentSegment::Markdown("text".into())]
+        );
+
+        let with_leading = parse_content_segments("  ---");
+        assert_eq!(with_leading, vec![ContentSegment::Markdown("  ---".into())]);
+    }
 }

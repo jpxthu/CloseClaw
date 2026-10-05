@@ -67,6 +67,8 @@ pub mod slash_router;
 pub mod slash_router_tests;
 pub mod slash_session_query;
 pub mod spawn_validation;
+#[cfg(test)]
+pub mod spawn_validation_tests;
 pub mod streaming;
 #[cfg(test)]
 pub mod streaming_tests;
@@ -74,6 +76,8 @@ pub mod system_prompt;
 #[cfg(test)]
 pub mod system_prompt_tests;
 pub mod task_manager;
+#[cfg(test)]
+pub mod task_manager_tests;
 pub mod test_helpers;
 #[cfg(test)]
 pub mod test_helpers_tests;

@@ -229,6 +229,89 @@ mod tests {
         assert!(filter.matches(&entry));
     }
 
+    /// Time-window semantics of `matches`: `since` / `until` are inclusive
+    /// ISO 8601 bounds compared lexicographically, each bound is open-ended
+    /// when `None`, and the window ANDs with the other dimensions.
+    ///
+    /// (agent_id / disposition alone, combination and empty filter are
+    /// covered by `test_audit_logger_trait_log_and_query_roundtrip` and the
+    /// permission crate's `FileAuditLogger` query tests.)
+    #[test]
+    fn test_audit_log_filter_time_bounds_inclusive_and_exclusive() {
+        let entry_at = |ts: &str, agent: &str| make_entry(agent, ts, AuditDisposition::Approved);
+
+        let window = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-03T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+
+        // Inclusive bounds: an entry exactly at since / until still matches.
+        assert!(
+            window.matches(&entry_at("2026-01-02T00:00:00Z", "a1")),
+            "entry at `since` must match (inclusive lower bound)"
+        );
+        assert!(
+            window.matches(&entry_at("2026-01-03T00:00:00Z", "a1")),
+            "entry at `until` must match (inclusive upper bound)"
+        );
+        assert!(
+            window.matches(&entry_at("2026-01-02T12:00:00Z", "a1")),
+            "entry inside the window must match"
+        );
+        // Exclusive sides.
+        assert!(
+            !window.matches(&entry_at("2026-01-01T23:59:59Z", "a1")),
+            "entry strictly before `since` must be excluded"
+        );
+        assert!(
+            !window.matches(&entry_at("2026-01-03T00:00:01Z", "a1")),
+            "entry strictly after `until` must be excluded"
+        );
+
+        // A bound left as `None` means "no filter" on that side.
+        let since_only = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            since_only.matches(&entry_at("2026-12-31T00:00:00Z", "a1")),
+            "`until: None` must leave the window open-ended"
+        );
+        let until_only = AuditLogFilter {
+            until: Some("2026-01-03T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            until_only.matches(&entry_at("2020-01-01T00:00:00Z", "a1")),
+            "`since: None` must leave the window open-ended"
+        );
+
+        // The time window ANDs with agent_id / disposition.
+        let full = AuditLogFilter {
+            agent_id: Some("a1".to_string()),
+            disposition: Some(AuditDisposition::Approved),
+            ..window.clone()
+        };
+        assert!(
+            full.matches(&entry_at("2026-01-02T12:00:00Z", "a1")),
+            "in-window entry matching agent and disposition must match"
+        );
+        assert!(
+            !full.matches(&entry_at("2026-01-02T12:00:00Z", "a2")),
+            "in-window entry for another agent must be excluded"
+        );
+        let rejected = make_entry("a1", "2026-01-02T12:00:00Z", AuditDisposition::Rejected);
+        assert!(
+            !full.matches(&rejected),
+            "in-window entry with another disposition must be excluded"
+        );
+        assert!(
+            !full.matches(&entry_at("2026-01-04T00:00:00Z", "a1")),
+            "out-of-window entry for the right agent must still be excluded"
+        );
+    }
+
     /// In-memory [`AuditLogger`] used to exercise the trait contract
     /// (record + query) through `Arc<dyn AuditLogger>`.
     struct MemAuditLogger {
