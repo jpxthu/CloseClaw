@@ -49,7 +49,7 @@ impl Daemon {
     pub(crate) async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
-        audit_logger: &Option<Arc<dyn closeclaw_permission::AuditLogger>>,
+        audit_logger: &Option<Arc<dyn closeclaw_common::AuditLogger>>,
     ) -> anyhow::Result<(
         Arc<closeclaw_agent::registry::AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,

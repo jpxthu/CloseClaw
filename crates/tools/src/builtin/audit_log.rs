@@ -6,12 +6,12 @@
 use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogFilter, AuditLogger};
 use closeclaw_common::tool_trait::ToolContext;
-use closeclaw_permission::engine::audit_log::{AuditDisposition, AuditLogFilter, FileAuditLogger};
+use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use serde_json::Value;
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 // ---------------------------------------------------------------------------
 // AuditLogTool
@@ -22,7 +22,7 @@ use tokio::sync::RwLock;
 /// In Auto Mode, dangerous operations that trigger approval produce
 /// audit log entries. This tool lets the LLM inspect those entries.
 pub struct AuditLogTool {
-    logger: Arc<RwLock<FileAuditLogger>>,
+    logger: Arc<dyn AuditLogger>,
 }
 
 impl AuditLogTool {
@@ -30,12 +30,12 @@ impl AuditLogTool {
     pub fn new(audit_log_path: PathBuf) -> Result<Self, std::io::Error> {
         let logger = FileAuditLogger::new(audit_log_path)?;
         Ok(Self {
-            logger: Arc::new(RwLock::new(logger)),
+            logger: Arc::new(logger),
         })
     }
 
     /// Create with an existing logger (for testing).
-    pub fn with_logger(logger: Arc<RwLock<FileAuditLogger>>) -> Self {
+    pub fn with_logger(logger: Arc<dyn AuditLogger>) -> Self {
         Self { logger }
     }
 }
@@ -93,8 +93,7 @@ impl Tool for AuditLogTool {
 
     async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
         let filter = parse_filter(&args);
-        let logger = self.logger.read().await;
-        let entries = logger.query_entries(&filter);
+        let entries = self.logger.query_entries(&filter);
 
         let data = serde_json::json!({
             "total": entries.len(),
@@ -150,16 +149,15 @@ fn parse_filter(args: &Value) -> AuditLogFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_permission::engine::audit_log::AuditLogEntry;
-    use closeclaw_permission::engine::engine_risk::RiskLevel;
-    use closeclaw_permission::AuditLogger;
+    use closeclaw_common::audit_log::AuditLogEntry;
+    use closeclaw_common::permission_types::RiskLevel;
 
-    fn make_test_logger(dir: &std::path::Path) -> Arc<RwLock<FileAuditLogger>> {
+    fn make_test_logger(dir: &std::path::Path) -> Arc<dyn AuditLogger> {
         let path = dir.join("audit.log");
-        Arc::new(RwLock::new(FileAuditLogger::new(path).unwrap()))
+        Arc::new(FileAuditLogger::new(path).unwrap())
     }
 
-    fn write_test_entry(logger: &FileAuditLogger, agent: &str, ts: &str) {
+    fn write_test_entry(logger: &dyn AuditLogger, agent: &str, ts: &str) {
         logger.log(&AuditLogEntry {
             timestamp: ts.to_string(),
             agent_id: agent.to_string(),
@@ -284,11 +282,8 @@ mod tests {
     async fn test_audit_log_tool_call_returns_entries() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            write_test_entry(&l, "a1", "2026-01-01T00:00:00Z");
-            write_test_entry(&l, "a2", "2026-01-01T00:01:00Z");
-        }
+        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
+        write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -310,11 +305,8 @@ mod tests {
     async fn test_audit_log_tool_call_with_filter() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            write_test_entry(&l, "a1", "2026-01-01T00:00:00Z");
-            write_test_entry(&l, "a2", "2026-01-01T00:01:00Z");
-        }
+        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
+        write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -342,29 +334,26 @@ mod tests {
     async fn test_audit_log_tool_call_with_disposition_filter() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            l.log(&AuditLogEntry {
-                timestamp: "2026-01-01T00:00:00Z".to_string(),
-                agent_id: "a1".to_string(),
-                tool_name: "file".to_string(),
-                operation: "write /x".to_string(),
-                reason: "approved".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            });
-            l.log(&AuditLogEntry {
-                timestamp: "2026-01-01T00:01:00Z".to_string(),
-                agent_id: "a2".to_string(),
-                tool_name: "command".to_string(),
-                operation: "rm /tmp".to_string(),
-                reason: "denied".to_string(),
-                risk_level: RiskLevel::High,
-                session_mode: None,
-                disposition: AuditDisposition::Rejected,
-            });
-        }
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            agent_id: "a1".to_string(),
+            tool_name: "file".to_string(),
+            operation: "write /x".to_string(),
+            reason: "approved".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Approved,
+        });
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-01-01T00:01:00Z".to_string(),
+            agent_id: "a2".to_string(),
+            tool_name: "command".to_string(),
+            operation: "rm /tmp".to_string(),
+            reason: "denied".to_string(),
+            risk_level: RiskLevel::High,
+            session_mode: None,
+            disposition: AuditDisposition::Rejected,
+        });
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -389,39 +378,36 @@ mod tests {
     async fn test_audit_log_tool_call_with_time_range_filter() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            l.log(&AuditLogEntry {
-                timestamp: "2026-01-01T00:00:00Z".to_string(),
-                agent_id: "early".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            });
-            l.log(&AuditLogEntry {
-                timestamp: "2026-06-15T12:00:00Z".to_string(),
-                agent_id: "mid".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            });
-            l.log(&AuditLogEntry {
-                timestamp: "2026-12-31T23:59:59Z".to_string(),
-                agent_id: "late".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            });
-        }
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            agent_id: "early".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Approved,
+        });
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-06-15T12:00:00Z".to_string(),
+            agent_id: "mid".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Approved,
+        });
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-12-31T23:59:59Z".to_string(),
+            agent_id: "late".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Approved,
+        });
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -451,39 +437,36 @@ mod tests {
     async fn test_audit_log_tool_call_combined_filters() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            l.log(&AuditLogEntry {
-                timestamp: "2026-01-01T00:00:00Z".to_string(),
-                agent_id: "a1".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            });
-            l.log(&AuditLogEntry {
-                timestamp: "2026-06-01T00:00:00Z".to_string(),
-                agent_id: "a1".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Rejected,
-            });
-            l.log(&AuditLogEntry {
-                timestamp: "2026-06-01T00:00:00Z".to_string(),
-                agent_id: "a2".to_string(),
-                tool_name: "file".to_string(),
-                operation: "w".to_string(),
-                reason: "r".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Rejected,
-            });
-        }
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            agent_id: "a1".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Approved,
+        });
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-06-01T00:00:00Z".to_string(),
+            agent_id: "a1".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Rejected,
+        });
+        logger.log(&AuditLogEntry {
+            timestamp: "2026-06-01T00:00:00Z".to_string(),
+            agent_id: "a2".to_string(),
+            tool_name: "file".to_string(),
+            operation: "w".to_string(),
+            reason: "r".to_string(),
+            risk_level: RiskLevel::Low,
+            session_mode: None,
+            disposition: AuditDisposition::Rejected,
+        });
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -514,10 +497,7 @@ mod tests {
     async fn test_audit_log_tool_call_no_entries_matching() {
         let dir = tempfile::tempdir().unwrap();
         let logger = make_test_logger(dir.path());
-        {
-            let l = logger.read().await;
-            write_test_entry(&l, "a1", "2026-01-01T00:00:00Z");
-        }
+        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
         let tool = AuditLogTool::with_logger(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),

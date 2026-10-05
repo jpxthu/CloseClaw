@@ -4,9 +4,10 @@
 //! 1000-line CONTRIBUTING.md limit.
 
 use super::Daemon;
+use closeclaw_common::AuditLogger;
 use closeclaw_config::session::SessionConfig;
 use closeclaw_config::SystemConfigData;
-use closeclaw_permission::engine::audit_log::{AuditLogger, FileAuditLogger};
+use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use closeclaw_permission::engine::rejection_log::FileRejectionLogger;
 use closeclaw_permission::{Defaults, PermissionEngine, RuleSet};
 use std::sync::Arc;

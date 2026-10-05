@@ -2,6 +2,7 @@ pub mod agent_lookup;
 #[cfg(test)]
 pub mod agent_lookup_tests;
 pub mod agent_query;
+pub mod audit_log;
 pub mod background_task;
 pub mod bootstrap;
 pub mod communication;
@@ -91,6 +92,7 @@ pub mod verbosity;
 
 pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
+pub use audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 pub use background_task::{
     BackgroundTask, BackgroundTaskError, CompletionNotification, NotificationPriority,
     RunningTaskInfo, TaskState,

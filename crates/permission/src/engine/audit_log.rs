@@ -2,60 +2,17 @@
 //!
 //! Records structured logs for both approved and rejected permission requests.
 //! Follows the same JSON Lines format and truncation logic as `RejectionLog`.
+//!
+//! The [`AuditLogger`] trait and its payload family ([`AuditLogEntry`],
+//! [`AuditDisposition`], [`AuditLogFilter`]) live in `closeclaw_common`;
+//! this module keeps the file-backed implementation and the entry builder.
 
 use super::engine_risk::RiskLevel;
 use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 use closeclaw_common::session_mode::SessionMode;
-use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-
-/// Disposition of an audited permission request.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AuditDisposition {
-    /// The operation was approved by the user.
-    Approved,
-    /// The operation was rejected (by user or engine).
-    Rejected,
-}
-
-impl std::fmt::Display for AuditDisposition {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            AuditDisposition::Approved => write!(f, "approved"),
-            AuditDisposition::Rejected => write!(f, "rejected"),
-        }
-    }
-}
-
-/// A single audit log entry for a permission request.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct AuditLogEntry {
-    /// Timestamp of the event (ISO 8601).
-    pub timestamp: String,
-    /// Agent ID involved.
-    pub agent_id: String,
-    /// Tool/request type name.
-    pub tool_name: String,
-    /// Operation description (e.g. "write", "read", command text).
-    pub operation: String,
-    /// Human-readable reason for the disposition.
-    pub reason: String,
-    /// Risk level of the operation.
-    pub risk_level: RiskLevel,
-    /// Session mode at the time of the event.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub session_mode: Option<SessionMode>,
-    /// Final disposition of the operation.
-    pub disposition: AuditDisposition,
-}
-
-/// Trait for recording audit log entries.
-pub trait AuditLogger: Send + Sync {
-    /// Log an audit entry.
-    fn log(&self, entry: &AuditLogEntry);
-}
 
 /// File-based audit logger using JSON Lines format.
 ///
@@ -112,62 +69,24 @@ impl FileAuditLogger {
             .filter_map(|line| serde_json::from_str(line).ok())
             .collect()
     }
-
-    /// Query audit log entries with optional filters.
-    ///
-    /// All filter fields are optional; `None` means "no filter".
-    /// Supports filtering by agent_id, disposition, and time range.
-    pub fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
-        self.read_entries()
-            .into_iter()
-            .filter(|e| filter.matches(e))
-            .collect()
-    }
-}
-
-/// Filter criteria for querying audit log entries.
-#[derive(Debug, Clone, Default)]
-pub struct AuditLogFilter {
-    /// If set, only return entries for this agent.
-    pub agent_id: Option<String>,
-    /// If set, only return entries with this disposition.
-    pub disposition: Option<AuditDisposition>,
-    /// If set, only return entries with timestamp >= this value (ISO 8601).
-    pub since: Option<String>,
-    /// If set, only return entries with timestamp <= this value (ISO 8601).
-    pub until: Option<String>,
-}
-
-impl AuditLogFilter {
-    /// Check whether an entry matches this filter.
-    pub fn matches(&self, entry: &AuditLogEntry) -> bool {
-        if let Some(ref agent) = self.agent_id {
-            if entry.agent_id != *agent {
-                return false;
-            }
-        }
-        if let Some(disp) = self.disposition {
-            if entry.disposition != disp {
-                return false;
-            }
-        }
-        if let Some(ref since) = self.since {
-            if entry.timestamp < *since {
-                return false;
-            }
-        }
-        if let Some(ref until) = self.until {
-            if entry.timestamp > *until {
-                return false;
-            }
-        }
-        true
-    }
 }
 
 impl AuditLogger for FileAuditLogger {
     fn log(&self, entry: &AuditLogEntry) {
         self.inner.write(entry);
+    }
+
+    /// Query audit log entries with optional filters.
+    ///
+    /// All filter fields are optional; `None` means "no filter".
+    /// Supports filtering by agent_id, disposition, and time range.
+    /// Returns matching entries newest first (reverse chronological
+    /// write order).
+    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+        self.read_entries()
+            .into_iter()
+            .filter(|e| filter.matches(e))
+            .collect()
     }
 }
 
@@ -177,6 +96,20 @@ impl std::fmt::Debug for FileAuditLogger {
             .field("path", &self.inner.path())
             .field("max_entries", &self.inner.max_entries())
             .finish()
+    }
+}
+
+/// Convert the engine's risk classification into the shared
+/// [`RiskLevel`](closeclaw_common::permission_types::RiskLevel) carried by
+/// [`AuditLogEntry`].
+impl From<RiskLevel> for closeclaw_common::permission_types::RiskLevel {
+    fn from(level: RiskLevel) -> Self {
+        match level {
+            RiskLevel::Low => Self::Low,
+            RiskLevel::Medium => Self::Medium,
+            RiskLevel::High => Self::High,
+            RiskLevel::Critical => Self::Critical,
+        }
     }
 }
 
@@ -222,7 +155,7 @@ pub fn build_audit_log(
         tool_name,
         operation,
         reason,
-        risk_level,
+        risk_level: risk_level.into(),
         session_mode,
         disposition,
     }
@@ -231,50 +164,7 @@ pub fn build_audit_log(
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn test_audit_log_entry_serialize_deserialize() {
-        let entry = AuditLogEntry {
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            agent_id: "agent-1".to_string(),
-            tool_name: "file".to_string(),
-            operation: "write /x".to_string(),
-            reason: "approved by user".to_string(),
-            risk_level: RiskLevel::High,
-            session_mode: Some(SessionMode::Auto),
-            disposition: AuditDisposition::Approved,
-        };
-
-        let json = serde_json::to_string(&entry).unwrap();
-        let parsed: AuditLogEntry = serde_json::from_str(&json).unwrap();
-
-        assert_eq!(parsed.agent_id, "agent-1");
-        assert_eq!(parsed.tool_name, "file");
-        assert_eq!(parsed.disposition, AuditDisposition::Approved);
-        assert_eq!(parsed.risk_level, RiskLevel::High);
-        assert_eq!(parsed.session_mode, Some(SessionMode::Auto));
-    }
-
-    #[test]
-    fn test_audit_disposition_display() {
-        assert_eq!(AuditDisposition::Approved.to_string(), "approved");
-        assert_eq!(AuditDisposition::Rejected.to_string(), "rejected");
-    }
-
-    #[test]
-    fn test_audit_disposition_json_roundtrip() {
-        let approved = AuditDisposition::Approved;
-        let json = serde_json::to_string(&approved).unwrap();
-        assert_eq!(json, "\"approved\"");
-        let parsed: AuditDisposition = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, AuditDisposition::Approved);
-
-        let rejected = AuditDisposition::Rejected;
-        let json = serde_json::to_string(&rejected).unwrap();
-        assert_eq!(json, "\"rejected\"");
-        let parsed: AuditDisposition = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, AuditDisposition::Rejected);
-    }
+    use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
 
     #[test]
     fn test_build_audit_log_file_op() {
@@ -294,7 +184,7 @@ mod tests {
         assert_eq!(log.tool_name, "file");
         assert_eq!(log.operation, "write /repo/src/main.rs");
         assert_eq!(log.reason, "user approved");
-        assert_eq!(log.risk_level, RiskLevel::Low);
+        assert_eq!(log.risk_level, CommonRiskLevel::Low);
         assert_eq!(log.disposition, AuditDisposition::Approved);
         assert!(log.session_mode.is_none());
     }
@@ -331,7 +221,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "approved".to_string(),
-            risk_level: RiskLevel::Low,
+            risk_level: CommonRiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -357,7 +247,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: RiskLevel::Low,
+                risk_level: CommonRiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -386,7 +276,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: RiskLevel::Low,
+                risk_level: CommonRiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -416,7 +306,7 @@ mod tests {
             tool_name: "f".to_string(),
             operation: "w x".to_string(),
             reason: "r".to_string(),
-            risk_level: RiskLevel::Low,
+            risk_level: CommonRiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -460,7 +350,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "test".to_string(),
-            risk_level: RiskLevel::Low,
+            risk_level: CommonRiskLevel::Low,
             session_mode: None,
             disposition: disp,
         }
@@ -665,22 +555,6 @@ mod tests {
         };
         let results = logger.query_entries(&filter);
         assert!(results.is_empty());
-    }
-
-    #[test]
-    fn test_audit_log_filter_default() {
-        let filter = AuditLogFilter::default();
-        assert!(filter.agent_id.is_none());
-        assert!(filter.disposition.is_none());
-        assert!(filter.since.is_none());
-        assert!(filter.until.is_none());
-    }
-
-    #[test]
-    fn test_audit_log_filter_matches_all_none() {
-        let filter = AuditLogFilter::default();
-        let entry = make_entry("a", "2026-01-01T00:00:00Z", AuditDisposition::Approved);
-        assert!(filter.matches(&entry));
     }
 
     // ------------------------------------------------------------------

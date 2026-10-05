@@ -32,12 +32,13 @@ use std::sync::Arc;
 use crate::debug_log::{
     emit_permission_event, PermissionDebugLogContext, PermissionEmitEventParams,
 };
-use crate::engine::audit_log::{build_audit_log, AuditDisposition, AuditLogger};
+use crate::engine::audit_log::build_audit_log;
 use crate::engine::engine_eval::PermissionEngine;
 use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse, RuleSet,
 };
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogger};
 use closeclaw_common::permission_op::{InitialPermissionSet, UserCreationRequest};
 use closeclaw_common::{generate_trace_id, PendingMessage, SessionLookup, SessionMode};
 use closeclaw_debug_log::{DebugLog, LogLevel};

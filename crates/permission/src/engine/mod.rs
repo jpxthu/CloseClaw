@@ -17,9 +17,7 @@ pub mod engine_workspace;
 pub mod jsonl_writer;
 pub mod rejection_log;
 
-pub use audit_log::{
-    build_audit_log, AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger, FileAuditLogger,
-};
+pub use audit_log::{build_audit_log, FileAuditLogger};
 pub use engine_eval::PermissionEngine;
 pub use engine_matching::{action_matches_request, glob_match};
 pub use engine_risk::RiskLevel;

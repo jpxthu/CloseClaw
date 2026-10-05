@@ -5,10 +5,12 @@
 //! `closeclaw-permission` (e.g., `closeclaw-session`).
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Risk level for permission requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
     Low,
     Medium,

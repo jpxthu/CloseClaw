@@ -5,9 +5,11 @@
 
 use super::super::*;
 use super::{test_approval_flow, test_runtime, test_session_lookup};
-use crate::engine::audit_log::{AuditDisposition, AuditLogEntry, AuditLogger, FileAuditLogger};
+use crate::engine::audit_log::FileAuditLogger;
 use crate::engine::engine_types::RuleSet;
 use crate::mock_session_lookup::MockSessionLookup;
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
 use std::sync::atomic::AtomicUsize;
 use std::sync::{Arc, Mutex};
 
@@ -31,6 +33,19 @@ impl TestAuditLogger {
 impl AuditLogger for TestAuditLogger {
     fn log(&self, entry: &AuditLogEntry) {
         self.entries.lock().unwrap().push(entry.clone());
+    }
+
+    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+        let mut matched: Vec<AuditLogEntry> = self
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| filter.matches(e))
+            .cloned()
+            .collect();
+        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        matched
     }
 }
 
@@ -82,7 +97,7 @@ async fn test_approval_flow_logs_approved_to_audit_log() {
     assert_eq!(entries[0].tool_name, "tool_call");
     assert_eq!(entries[0].operation, "test_skill.test_method");
     assert_eq!(entries[0].reason, "user approved");
-    assert_eq!(entries[0].risk_level, RiskLevel::Low);
+    assert_eq!(entries[0].risk_level, CommonRiskLevel::Low);
 }
 
 #[tokio::test]
@@ -104,7 +119,7 @@ async fn test_approval_flow_logs_denied_to_audit_log() {
     assert_eq!(entries[0].tool_name, "tool_call");
     assert_eq!(entries[0].operation, "test_skill.test_method");
     assert_eq!(entries[0].reason, "user denied");
-    assert_eq!(entries[0].risk_level, RiskLevel::Low);
+    assert_eq!(entries[0].risk_level, CommonRiskLevel::Low);
 }
 
 #[test]
@@ -162,7 +177,7 @@ async fn test_approved_audit_log_records_high_risk_level() {
     let entries = logger.entries();
     assert_eq!(entries.len(), 1, "should have one audit log entry");
     assert_eq!(entries[0].disposition, AuditDisposition::Approved);
-    assert_eq!(entries[0].risk_level, RiskLevel::High);
+    assert_eq!(entries[0].risk_level, CommonRiskLevel::High);
 }
 
 #[tokio::test]
@@ -180,5 +195,5 @@ async fn test_denied_audit_log_records_high_risk_level() {
     let entries = logger.entries();
     assert_eq!(entries.len(), 1, "should have one audit log entry");
     assert_eq!(entries[0].disposition, AuditDisposition::Rejected);
-    assert_eq!(entries[0].risk_level, RiskLevel::High);
+    assert_eq!(entries[0].risk_level, CommonRiskLevel::High);
 }

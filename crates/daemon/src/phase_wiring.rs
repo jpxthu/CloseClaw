@@ -16,6 +16,7 @@ use crate::{
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::AuditLogger;
 use closeclaw_common::TaskManager;
 use closeclaw_common::{
     AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
@@ -35,7 +36,7 @@ use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_permission::{AuditLogger, PermissionEngine, RuleSet};
+use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
 use closeclaw_session::spawn::controller::SpawnContext;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
