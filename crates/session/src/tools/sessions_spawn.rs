@@ -8,7 +8,7 @@ use closeclaw_common::tool_trait::{
 };
 
 use async_trait::async_trait;
-use closeclaw_agent::AgentConfigLookup;
+use closeclaw_common::AgentConfigLookup;
 use serde_json::{json, Value};
 use std::sync::Arc;
 

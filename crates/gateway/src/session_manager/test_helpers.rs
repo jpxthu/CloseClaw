@@ -9,10 +9,10 @@
 use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use super::SessionManager;
 use chrono::Utc;
-use closeclaw_common::BootstrapMode;
 use closeclaw_common::{tool_session::ToolSession, ToolExecState};
+use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
-use closeclaw_config::agents::{ModelSpec, SubagentsConfig};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
@@ -69,7 +69,7 @@ pub(super) struct MockAgentRegistryQuery {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
+impl closeclaw_common::AgentLookup for MockAgentRegistryQuery {
     async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
         None
     }
@@ -101,7 +101,7 @@ impl closeclaw_common::AgentToolsConfigQuery for MockAgentRegistryQuery {
     }
 }
 
-impl closeclaw_agent::AgentRegistryQuery for MockAgentRegistryQuery {}
+impl closeclaw_common::AgentRegistryQuery for MockAgentRegistryQuery {}
 
 /// Build a `ResolvedAgentConfig` for tests. Identical to the one in
 /// `spawn_tests` / `announce_tests` — kept local to avoid a

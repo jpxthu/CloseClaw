@@ -9,8 +9,7 @@
 use super::tests::{make_test_mgr, test_config};
 use super::SessionManager;
 use crate::Message;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::ModelSpec;
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -65,7 +64,7 @@ impl PerAgentMock {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentLookup for PerAgentMock {
+impl closeclaw_common::AgentLookup for PerAgentMock {
     async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
         None
     }
@@ -105,7 +104,7 @@ impl closeclaw_common::AgentToolsConfigQuery for PerAgentMock {
     }
 }
 
-impl closeclaw_agent::AgentRegistryQuery for PerAgentMock {}
+impl closeclaw_common::AgentRegistryQuery for PerAgentMock {}
 
 // ── Workspace fallback tests ──────────────────────────────────────────────
 
@@ -227,7 +226,7 @@ async fn test_resolve_no_registry_defaults_to_full() {
 struct NotFoundMock;
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentLookup for NotFoundMock {
+impl closeclaw_common::AgentLookup for NotFoundMock {
     async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
         None
     }
@@ -259,7 +258,7 @@ impl closeclaw_common::AgentToolsConfigQuery for NotFoundMock {
     }
 }
 
-impl closeclaw_agent::AgentRegistryQuery for NotFoundMock {}
+impl closeclaw_common::AgentRegistryQuery for NotFoundMock {}
 
 /// When agent is not found in registry, bootstrap_mode falls back to Full.
 #[tokio::test]

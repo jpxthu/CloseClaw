@@ -112,7 +112,7 @@ fn make_standard_registrars(
         Box::new(SessionToolsRegistrar::new(
             spawn_controller.clone() as Arc<dyn crate::SpawnValidator>,
             session_manager.clone() as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
-            agent_registry.clone() as Arc<dyn closeclaw_agent::AgentConfigLookup>,
+            agent_registry.clone() as Arc<dyn closeclaw_common::AgentConfigLookup>,
             Arc::new(PermissionEngineAdapter(permission_engine)),
             Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(
                 approval_flow.clone(),

@@ -13,7 +13,7 @@ use crate::admin::rpc::protocol::{
 };
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_config::agents::ModelSpec;
+use closeclaw_common::ModelSpec;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 use closeclaw_skills::DiskSkillRegistry;

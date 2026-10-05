@@ -115,11 +115,11 @@ impl crate::spawn_validation::SpawnValidator for MockSpawnValidator {
 struct MockAgentConfigLookup;
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentConfigLookup for MockAgentConfigLookup {
+impl closeclaw_common::AgentConfigLookup for MockAgentConfigLookup {
     async fn lookup_agent_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_agent::AgentConfigInfo> {
+    ) -> Option<closeclaw_common::AgentConfigInfo> {
         None
     }
 }
@@ -458,7 +458,7 @@ impl crate::spawn_validation::SpawnValidator for TrackingSpawnValidator {
                 id: "child-agent".to_string(),
                 name: "child-agent".to_string(),
                 parent_id: None,
-                model: Some(closeclaw_config::agents::ModelSpec::single("test-model")),
+                model: Some(closeclaw_common::ModelSpec::single("test-model")),
                 workspace: None,
                 agent_dir: None,
                 bootstrap_mode: closeclaw_common::BootstrapMode::Full,

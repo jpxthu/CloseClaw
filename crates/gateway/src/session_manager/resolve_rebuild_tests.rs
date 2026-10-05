@@ -555,11 +555,8 @@ impl SkillListingProvider for MockSkillListingProvider {
 struct MockAgentRegistryQuery;
 
 #[async_trait::async_trait]
-impl closeclaw_agent::AgentLookup for MockAgentRegistryQuery {
-    async fn get_agent_model(
-        &self,
-        _agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ModelSpec> {
+impl closeclaw_common::AgentLookup for MockAgentRegistryQuery {
+    async fn get_agent_model(&self, _agent_id: &str) -> Option<closeclaw_common::ModelSpec> {
         None
     }
     async fn agent_exists(&self, _agent_id: &str) -> bool {
@@ -587,7 +584,7 @@ impl AgentToolsConfigQuery for MockAgentRegistryQuery {
     }
 }
 
-impl closeclaw_agent::AgentRegistryQuery for MockAgentRegistryQuery {}
+impl closeclaw_common::AgentRegistryQuery for MockAgentRegistryQuery {}
 
 /// Mock SessionConfigProvider that returns git_status = true.
 struct MockSessionConfigProvider;
@@ -729,7 +726,7 @@ fn make_test_config_manager() -> Arc<closeclaw_config::manager::ConfigManager> {
                 id: "agent-b".into(),
                 name: "agent-b".into(),
                 parent_id: None,
-                model: Some(closeclaw_config::agents::ModelSpec::single("test-model")),
+                model: Some(closeclaw_common::ModelSpec::single("test-model")),
                 workspace: None,
                 agent_dir: None,
                 bootstrap_mode: BootstrapMode::Full,
@@ -785,7 +782,7 @@ async fn set_injection_deps(mgr: &SessionManager) -> tempfile::TempDir {
     mgr.set_skill_listing_provider(Arc::new(MockSkillListingProvider))
         .await;
     mgr.set_agent_registry(
-        Arc::new(MockAgentRegistryQuery) as Arc<dyn closeclaw_agent::AgentRegistryQuery>
+        Arc::new(MockAgentRegistryQuery) as Arc<dyn closeclaw_common::AgentRegistryQuery>
     )
     .await;
     mgr.set_config_manager(make_test_config_manager()).await;

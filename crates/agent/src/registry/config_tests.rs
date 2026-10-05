@@ -1,12 +1,11 @@
 use crate::config::MemoryConfig;
 use crate::config::SubagentsConfig;
 use crate::registry::AgentRegistry;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{ConfigSource, ModelSpec, ResolvedAgentConfig};
+use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 
 // Trait imports for AgentLookup / AgentSkillsQuery / AgentToolsConfigQuery / AgentConfigLookup tests
-use crate::lookup::{AgentConfigLookup, AgentLookup};
-use closeclaw_common::{AgentSkillsQuery, AgentToolsConfigQuery};
+use closeclaw_common::{AgentConfigLookup, AgentLookup, AgentSkillsQuery, AgentToolsConfigQuery};
 
 // ---- Construction tests ----
 

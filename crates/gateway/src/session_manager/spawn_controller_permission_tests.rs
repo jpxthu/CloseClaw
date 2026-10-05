@@ -9,9 +9,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
-use closeclaw_common::BootstrapMode;
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_config::agents::{
-    ActionPermission, AgentPermissions, ModelSpec, PermissionLimits, SubagentsConfig,
+    ActionPermission, AgentPermissions, PermissionLimits, SubagentsConfig,
 };
 use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
