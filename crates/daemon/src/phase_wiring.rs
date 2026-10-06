@@ -115,7 +115,8 @@ impl Daemon {
             gw.set_approval_flow(af_for_gw).await;
         };
         let builtin_fut = async {
-            let skills = builtin_skills();
+            let skills =
+                builtin_skills(crate::workflow_port_adapter::workflow_definition_validator());
             let reg = Arc::new(BuiltinSkillRegistry::from_skills(skills).await);
             let count = reg.list().await.len();
             info!(count, "builtin skills registered in BuiltinSkillRegistry");

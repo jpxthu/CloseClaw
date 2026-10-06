@@ -15,6 +15,7 @@ use std::sync::Arc;
 use closeclaw_session::workflow_port::{
     JumpQuestionSpec, WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunInfo,
 };
+use closeclaw_skills::WorkflowDefinitionValidator;
 
 use closeclaw_workflow::context_append::build_workflow_context_append;
 use closeclaw_workflow::definition::{
@@ -30,6 +31,19 @@ pub struct EngineWorkflowPort;
 /// Build the production workflow port as `Arc<dyn WorkflowPort>`.
 pub fn engine_workflow_port() -> Arc<dyn WorkflowPort> {
     Arc::new(EngineWorkflowPort)
+}
+
+/// Build the production workflow definition validator injected into
+/// the `create_workflow` builtin skill. Wraps the real workflow
+/// definition parser (`Workflow::parse_skill_md`) and maps its result
+/// to the validation snapshot consumed by skills: `Ok(())` on a valid
+/// definition, `Err` carrying the error message otherwise.
+pub fn workflow_definition_validator() -> WorkflowDefinitionValidator {
+    Arc::new(|content: &str| {
+        Workflow::parse_skill_md(content)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
 }
 
 fn phase_to_mirror(phase: &Phase) -> WorkflowPhase {
