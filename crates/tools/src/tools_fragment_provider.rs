@@ -279,9 +279,13 @@ mod tests {
                 permission_engine.clone(),
             ),
         );
+        let budget_lookup: Arc<dyn closeclaw_session::spawn::controller::SpawnBudgetLookup> =
+            Arc::new(crate::test_adapters::ConfigSpawnBudgetLookupAdapter(
+                Arc::clone(&cfg_mgr),
+            ));
         let spawn_controller =
             Arc::new(closeclaw_session::spawn::controller::SpawnController::new(
-                Arc::clone(&cfg_mgr),
+                budget_lookup,
                 Arc::clone(&session_manager)
                     as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
                 permission_checker,

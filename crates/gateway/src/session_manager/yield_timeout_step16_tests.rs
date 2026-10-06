@@ -5,7 +5,7 @@
 //! and created_at timestamp tracking.
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
+use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
 use super::tests::clear_global_prompt_state;
 use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ChatSession;
@@ -32,7 +32,7 @@ async fn test_yield_timeout_structured_notification_content() {
     // Spawn two children: one will be marked Completed, one remains Active.
     let child1_id = m
         .create_child_session(
-            &test_resolved_config("worker-sn1", None),
+            &test_spawn_target_config("worker-sn1", None),
             &parent_id,
             1,
             "task 1",
@@ -55,7 +55,7 @@ async fn test_yield_timeout_structured_notification_content() {
 
     let child2_id = m
         .create_child_session(
-            &test_resolved_config("worker-sn2", None),
+            &test_spawn_target_config("worker-sn2", None),
             &parent_id,
             1,
             "task 2",
@@ -150,7 +150,7 @@ async fn test_yield_timeout_no_force_terminate_children() {
     // Spawn two children (with long timeouts so they don't hit per-child timeout).
     let _child1 = m
         .create_child_session(
-            &test_resolved_config("worker-nft1", None),
+            &test_spawn_target_config("worker-nft1", None),
             &parent_id,
             1,
             "task 1",
@@ -173,7 +173,7 @@ async fn test_yield_timeout_no_force_terminate_children() {
 
     let _child2 = m
         .create_child_session(
-            &test_resolved_config("worker-nft2", None),
+            &test_spawn_target_config("worker-nft2", None),
             &parent_id,
             1,
             "task 2",
@@ -240,7 +240,7 @@ async fn test_yield_per_child_spawn_timeout_independent() {
     // Spawn a child with a very short per-child timeout (1 second).
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-pct", None),
+            &test_spawn_target_config("worker-pct", None),
             &parent_id,
             1,
             "quick task",
@@ -301,7 +301,7 @@ async fn test_child_session_info_timeout_secs_passed() {
     // Spawn with explicit timeout.
     let child_id = m
         .create_child_session(
-            &test_resolved_config("worker-tsi", None),
+            &test_spawn_target_config("worker-tsi", None),
             &parent_id,
             1,
             "task",
@@ -348,7 +348,7 @@ async fn test_child_session_info_timeout_secs_none() {
     // Spawn without timeout.
     let child_id = m
         .create_child_session(
-            &test_resolved_config("worker-ts2", None),
+            &test_spawn_target_config("worker-ts2", None),
             &parent_id,
             1,
             "task",
@@ -396,7 +396,7 @@ async fn test_child_session_info_created_at() {
     let before = std::time::Instant::now();
     let child_id = m
         .create_child_session(
-            &test_resolved_config("worker-ca", None),
+            &test_spawn_target_config("worker-ca", None),
             &parent_id,
             1,
             "task",
@@ -450,7 +450,7 @@ async fn test_yield_timeout_with_multiple_children() {
 
     // Spawn two children with different timeouts.
     m.create_child_session(
-        &test_resolved_config("worker-mc1", None),
+        &test_spawn_target_config("worker-mc1", None),
         &parent_id,
         1,
         "task 1",
@@ -472,7 +472,7 @@ async fn test_yield_timeout_with_multiple_children() {
     .unwrap();
 
     m.create_child_session(
-        &test_resolved_config("worker-mc2", None),
+        &test_spawn_target_config("worker-mc2", None),
         &parent_id,
         1,
         "task 2",

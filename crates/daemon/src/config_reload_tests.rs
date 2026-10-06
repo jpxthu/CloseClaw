@@ -3,6 +3,7 @@
 use super::*;
 use crate::registries::RegistryContext;
 use crate::test_helpers::load_system_config_manager;
+use crate::trait_adapters::ConfigSpawnBudgetLookup;
 use closeclaw_common::{
     BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo, TaskManager,
 };
@@ -770,7 +771,8 @@ fn make_spawn_controller(
             ),
         );
         closeclaw_session::spawn::controller::SpawnController::new(
-            Arc::clone(config_mgr),
+            Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_mgr)))
+                as Arc<dyn closeclaw_session::spawn::controller::SpawnBudgetLookup>,
             Arc::clone(session_mgr) as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
             permission_checker,
         )

@@ -72,9 +72,11 @@ impl Gateway {
             return None;
         }
         // Clone to release the lock before the owner check and content matching.
+        // Value → WorkflowRun conversion at the gateway boundary.
         let paused_reason = cs_read
-            .workflow_run()
-            .map(|r| r.paused_reason.clone())
+            .workflow_run_value()
+            .and_then(|v| serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(v).ok())
+            .map(|r| r.paused_reason)
             .unwrap_or_default();
         drop(cs_read);
         let owner_id = self.session_manager.get_sender_id(session_id).await;
@@ -105,18 +107,16 @@ impl Gateway {
         // Capture snapshot AFTER on_owner_resolve() so pending_verify=0 and
         // phase=Verifying are preserved (not overwritten by a stale snapshot).
         if let Some(handler) = cs.workflow_handler() {
-            let run_snapshot = handler.run().clone();
-            let definition_snapshot = handler.definition().clone();
-            let current_step = handler.run().current_step;
-            if let Some(step) = definition_snapshot.steps.get(current_step) {
-                let allow_blocked = step
-                    .allow_blocked
-                    .unwrap_or(definition_snapshot.allow_blocked);
-                let verify_msg =
-                    closeclaw_workflow::definition::build_verify_message(step, allow_blocked);
-                cs.inject_workflow_message(&verify_msg);
+            let run_snapshot = handler.run_state().clone();
+            let current_step = handler.run_info().map(|i| i.current_step).unwrap_or(0);
+            if let Some(allow_blocked) = handler.current_step_effective_allow_blocked() {
+                if let Some(verify_msg) =
+                    handler.verify_message_for_step(current_step, allow_blocked)
+                {
+                    cs.inject_workflow_message(&verify_msg);
+                }
             }
-            cs.set_workflow_run(Some(run_snapshot));
+            cs.set_workflow_run_value(Some(run_snapshot));
         }
     }
 
@@ -152,7 +152,7 @@ impl Gateway {
             .get_conversation_session(session_id)
             .await
         {
-            Some(c) => c.read().await.workflow_run().cloned(),
+            Some(c) => c.read().await.workflow_run_value(),
             None => None,
         };
         if let Err(e) = self

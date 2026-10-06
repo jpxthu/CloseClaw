@@ -13,8 +13,7 @@ use std::sync::{Arc, OnceLock};
 
 use async_trait::async_trait;
 
-use crate::spawn::{ChildSessionInfo, SpawnMode};
-use closeclaw_config::agents::ResolvedAgentConfig;
+use crate::spawn::{ChildSessionInfo, SpawnMode, SpawnTargetAgentConfig};
 
 use super::SessionManagerOps;
 
@@ -75,7 +74,7 @@ impl Default for LateBoundSessionManagerOps {
 impl SessionManagerOps for LateBoundSessionManagerOps {
     async fn create_child_session(
         &self,
-        config: &ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         depth: u32,
         task: &str,
@@ -182,7 +181,6 @@ impl SessionManagerOps for LateBoundSessionManagerOps {
 mod tests {
     use super::*;
     use crate::spawn::SpawnMode;
-    use closeclaw_config::agents::ResolvedAgentConfig;
 
     /// A minimal mock that always succeeds.
     struct MockSessionManagerOps;
@@ -191,7 +189,7 @@ mod tests {
     impl SessionManagerOps for MockSessionManagerOps {
         async fn create_child_session(
             &self,
-            _config: &ResolvedAgentConfig,
+            _config: &SpawnTargetAgentConfig,
             _parent_session_id: &str,
             _depth: u32,
             _task: &str,
@@ -283,12 +281,11 @@ mod tests {
     }
 
     /// Build a minimal valid config for tests.
-    fn test_config() -> ResolvedAgentConfig {
-        use closeclaw_config::agents::{AgentConfig, ConfigSource};
-        let mut config = AgentConfig::default();
-        config.id = "test-agent".to_string();
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "test", None)
-            .expect("test config should be valid")
+    fn test_config() -> SpawnTargetAgentConfig {
+        SpawnTargetAgentConfig {
+            id: "test-agent".to_string(),
+            ..Default::default()
+        }
     }
 
     #[tokio::test]

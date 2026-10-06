@@ -195,10 +195,12 @@ pub struct ConversationSession {
     checkpoint_storage: Option<Arc<dyn crate::persistence::PersistenceService>>,
     /// Whether git_status config switch is enabled.
     is_git_status_enabled: bool,
-    /// Active workflow run state. Persisted in SessionCheckpoint.
-    workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
+    /// Active workflow run state (Value-erased; persisted in SessionCheckpoint).
+    workflow_run: Option<serde_json::Value>,
     /// Workflow handler for tool result processing and engine state.
     workflow_handler: Option<crate::workflow_handler::WorkflowHandler>,
+    /// Workflow engine port (injected by the composition root).
+    workflow_port: Option<Arc<dyn crate::workflow_port::WorkflowPort>>,
     plan_file_path: Option<String>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
@@ -269,6 +271,7 @@ impl ConversationSession {
             is_git_status_enabled: false,
             workflow_run: None,
             workflow_handler: None,
+            workflow_port: None,
         }
     }
 
@@ -356,17 +359,6 @@ impl ConversationSession {
     /// Returns a reference to the injected [`SkillListingProvider`], if any.
     pub fn skill_listing_provider(&self) -> Option<&Arc<dyn SkillListingProvider>> {
         self.skill_listing_provider.as_ref()
-    }
-    /// Set the agent-level skill whitelist filter.
-    ///
-    /// When set, only skills whose names appear in `skills` are included
-    /// in the injected listing. A list containing `"*"` means no filtering.
-    pub fn set_agent_skills(&mut self, skills: Vec<String>) {
-        self.agent_skills = Some(skills);
-    }
-    /// Returns the agent-level skill whitelist, if any.
-    pub fn agent_skills(&self) -> Option<&[String]> {
-        self.agent_skills.as_deref()
     }
     /// Returns the last skill listing snapshot, if any.
     pub fn skill_listing_snapshot(&self) -> Option<&str> {

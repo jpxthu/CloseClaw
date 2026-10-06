@@ -8,8 +8,8 @@ use crate::handler::SlashHandler;
 use crate::handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
-use closeclaw_config::IdentifierFormat;
 use closeclaw_gateway::session_manager::SessionManager;
+use closeclaw_session::plan_file::PlanIdentifierFormat;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -42,7 +42,7 @@ fn make_session_manager() -> Arc<SessionManager> {
 fn make_plan_handler() -> PlanModeHandler {
     PlanModeHandler::new(
         make_session_manager() as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::default(),
+        PlanIdentifierFormat::default(),
     )
 }
 
@@ -114,7 +114,7 @@ async fn test_plan_mode_handler_with_args_sets_plan_file_path() {
     let sid = create_test_session(&sm).await;
     let h = PlanModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::default(),
+        PlanIdentifierFormat::default(),
     );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
@@ -149,7 +149,7 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
     let sid = create_test_session(&sm).await;
     let h = PlanModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::default(),
+        PlanIdentifierFormat::default(),
     );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid.clone();
@@ -200,7 +200,7 @@ async fn test_plan_mode_handler_no_args_enters_plan_mode() {
     );
 }
 
-// ── PlanModeHandler IdentifierFormat tests (Step 1.4) ─────────────────────
+// ── PlanModeHandler PlanIdentifierFormat tests (Step 1.4) ─────────────────
 
 #[tokio::test]
 async fn test_plan_handler_timestamp_format_creates_timestamp_plan_file() {
@@ -208,7 +208,7 @@ async fn test_plan_handler_timestamp_format_creates_timestamp_plan_file() {
     let sid = create_test_session(&sm).await;
     let h = PlanModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::Timestamp,
+        PlanIdentifierFormat::Timestamp,
     );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
@@ -248,7 +248,7 @@ async fn test_plan_handler_random_words_format_creates_random_plan_file() {
     let sid = create_test_session(&sm).await;
     let h = PlanModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::RandomWords,
+        PlanIdentifierFormat::RandomWords,
     );
     let mut ctx = dummy_ctx();
     ctx.session_id = sid;
@@ -792,7 +792,7 @@ async fn test_mode_delegation_equivalence() {
     let sm = make_session_manager_with_storage();
     let plan_h = Arc::new(PlanModeHandler::new(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,
-        IdentifierFormat::default(),
+        PlanIdentifierFormat::default(),
     ));
     let h = ModeHandler::with_handlers(
         Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>,

@@ -2,13 +2,14 @@
 //!
 //! Detects active workflow runs in recovered checkpoints and injects
 //! workflow context and recovery notifications into `system_injection_appends`.
+//!
+//! All workflow-engine operations (definition loading, message
+//! rendering, state mutation) are delegated to the injected
+//! [`WorkflowPort`]; this module keeps the recovery orchestration,
+//! notification formatting, and cleanup ordering.
 
 use crate::persistence::SessionCheckpoint;
-use closeclaw_workflow::context_append::{build_workflow_context_append, has_workflow_context};
-use closeclaw_workflow::definition::build_goal_message;
-use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
-use closeclaw_workflow::engine::WorkflowEngine;
-use closeclaw_workflow::run::{GoalHint, Phase};
+use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunInfo};
 
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
@@ -17,6 +18,24 @@ pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
 /// the latest definition version. Used as a single source of truth for
 /// both the write site (recovery) and the read site (owner resolve guard).
 pub const DEFINITION_CHANGED_PAUSE_REASON: &str = "当前步骤在最新定义中已不存在";
+
+/// Prefix marker for workflow context items in `system_injection_appends`.
+const WORKFLOW_CONTEXT_PREFIX: &str = "--- WORKFLOW ---";
+
+/// Returns `true` when a workflow context marker exists in the list.
+fn has_workflow_context_marker(appends: &[String]) -> bool {
+    appends
+        .iter()
+        .any(|s| s.starts_with(WORKFLOW_CONTEXT_PREFIX))
+}
+
+/// Remove all workflow context markers from the list, returning the
+/// number of removed items.
+fn remove_workflow_context_markers(appends: &mut Vec<String>) -> usize {
+    let before = appends.len();
+    appends.retain(|s| !s.starts_with(WORKFLOW_CONTEXT_PREFIX));
+    before - appends.len()
+}
 
 /// Inject workflow recovery state for sessions with active workflow runs.
 ///
@@ -29,88 +48,92 @@ pub async fn inject_workflow_recovery(
     session_id: &str,
     checkpoint: &mut SessionCheckpoint,
     agent_workspace: Option<&std::path::Path>,
+    port: &dyn WorkflowPort,
 ) {
-    let wf_run = match &checkpoint.workflow_run {
-        Some(run) if run.phase != Phase::Complete => run.clone(),
-        _ => return,
+    let Some(mut state) = checkpoint.workflow_run.clone() else {
+        return;
     };
+    let Some(mut info) = port.run_info(&state) else {
+        tracing::warn!(
+            error = "undecodable",
+            "failed to decode checkpoint workflow_run"
+        );
+        return;
+    };
+    if info.phase == WorkflowPhase::Complete {
+        return;
+    }
 
-    let wf = try_reload_definition(&wf_run.definition_name, agent_workspace);
+    let wf = try_reload_definition(port, &info.definition_name, agent_workspace);
 
     // 1. Re-inject workflow context into system_injection_appends if not already present
-    if !has_workflow_context(&checkpoint.system_injection_appends) {
+    if !has_workflow_context_marker(&checkpoint.system_injection_appends) {
         if let Some(ref wf) = wf {
             checkpoint
                 .system_injection_appends
-                .push(build_workflow_context_append(wf));
+                .push(port.build_context_append(wf));
         } else {
             tracing::warn!(
                 session_id = %session_id,
-                definition_name = %wf_run.definition_name,
+                definition_name = %info.definition_name,
                 "failed to reload workflow definition for context re-injection"
             );
         }
     }
 
     // 2. Handle definition_version changes
-    handle_definition_version_change(session_id, &wf, &wf_run, checkpoint);
+    handle_definition_version_change(session_id, port, &wf, &mut state, &mut info);
+    checkpoint.workflow_run = Some(state);
 
     // 3. Extract step info and store recovery notification
-    //    Re-read from checkpoint (handle_definition_version_change may have
-    //    updated phase/paused_reason on the mutable reference).
-    let (step_num, definition_name, step_name, phase, paused_reason) = {
-        let wf_run = checkpoint
-            .workflow_run
-            .as_ref()
-            .expect("workflow_run set above");
-        (
-            wf_run.current_step,
-            wf_run.definition_name.clone(),
-            current_step_name(wf_run),
-            wf_run.phase.clone(),
-            wf_run.paused_reason.clone(),
-        )
-    };
+    //    Read from the updated info above (handle_definition_version_change
+    //    may have updated phase/paused_reason on it).
+    let (step_num, definition_name, step_name, phase, paused_reason) = (
+        info.current_step,
+        info.definition_name.clone(),
+        info.last_history_step_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
+        info.phase,
+        info.paused_reason.clone(),
+    );
     // Build recovery workflow messages (recovered + goal) for transcript injection.
     // store_recovery_notification remains for system prompt context.
-    build_recovery_workflow_messages(&wf, checkpoint, &step_name, &phase, &paused_reason);
+    build_recovery_workflow_messages(
+        port,
+        &wf,
+        &info,
+        checkpoint,
+        &step_name,
+        phase,
+        &paused_reason,
+    );
     store_recovery_notification(
         &definition_name,
         step_num,
         &step_name,
-        &phase,
+        phase,
         &paused_reason,
         checkpoint,
     );
 
     tracing::info!(
         session_id = %session_id,
-        workflow_name = %wf_run.definition_name,
+        workflow_name = %definition_name,
         step = step_num,
-        phase = ?wf_run.phase,
+        phase = ?phase,
         "injected workflow recovery state into system_injection_appends"
     );
 }
 
-/// Extract the current step name from a workflow run's step history.
-///
-/// Returns the name of the last step in `step_history`, or `"unknown"` if
-/// the history is empty.
-fn current_step_name(wf_run: &closeclaw_workflow::run::WorkflowRun) -> String {
-    wf_run
-        .step_history
-        .last()
-        .map(|e| e.step_name.clone())
-        .unwrap_or_else(|| "unknown".to_string())
-}
-
-/// Try to reload the workflow definition from disk.
+/// Try to reload the workflow definition from disk via the port.
 fn try_reload_definition(
+    port: &dyn WorkflowPort,
     definition_name: &str,
     agent_workspace: Option<&std::path::Path>,
-) -> Option<closeclaw_workflow::definition::Workflow> {
+) -> Option<serde_json::Value> {
     let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
-    WorkflowDefinitionLoader::load(
+    port.load_definition(
         definition_name,
         agent_workspace,
         global_workflows.as_deref(),
@@ -123,11 +146,11 @@ fn store_recovery_notification(
     definition_name: &str,
     step_num: usize,
     step_name: &str,
-    phase: &Phase,
+    phase: WorkflowPhase,
     paused_reason: &str,
     checkpoint: &mut SessionCheckpoint,
 ) {
-    let reason = if *phase == Phase::Blocked && !paused_reason.is_empty() {
+    let reason = if phase == WorkflowPhase::Blocked && !paused_reason.is_empty() {
         Some(paused_reason)
     } else {
         None
@@ -171,36 +194,35 @@ fn build_recovery_notification(
 /// step no longer exists in the new definition.
 fn handle_definition_version_change(
     session_id: &str,
-    wf: &Option<closeclaw_workflow::definition::Workflow>,
-    wf_run: &closeclaw_workflow::run::WorkflowRun,
-    checkpoint: &mut SessionCheckpoint,
+    port: &dyn WorkflowPort,
+    wf: &Option<serde_json::Value>,
+    state: &mut serde_json::Value,
+    info: &mut WorkflowRunInfo,
 ) {
     let Some(ref wf) = wf else {
         return;
     };
-    if wf.version.as_deref() == Some(&wf_run.definition_version) {
+    let definition_version = port.definition_version(wf);
+    if definition_version.as_deref() == Some(info.definition_version.as_str()) {
         return;
     }
     tracing::info!(
         session_id = %session_id,
-        old_version = %wf_run.definition_version,
-        new_version = ?wf.version,
+        old_version = %info.definition_version,
+        new_version = ?definition_version,
         "workflow definition version changed during recovery"
     );
-    let step_num = wf_run.current_step;
-    if step_num >= wf.steps.len() {
+    let step_num = info.current_step;
+    if step_num >= port.definition_step_count(wf) {
         tracing::warn!(
             session_id = %session_id,
             step_num,
-            total_steps = wf.steps.len(),
+            total_steps = port.definition_step_count(wf),
             "current step not in new definition — blocking workflow"
         );
-        let wf_ref = checkpoint
-            .workflow_run
-            .as_mut()
-            .expect("workflow_run checked above");
-        wf_ref.phase = Phase::Blocked;
-        wf_ref.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
+        *state = port.mark_blocked(std::mem::take(state), DEFINITION_CHANGED_PAUSE_REASON);
+        info.phase = WorkflowPhase::Blocked;
+        info.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
     }
 }
 
@@ -211,34 +233,29 @@ fn handle_definition_version_change(
 /// only the recovered message is built (goal requires step definitions).
 /// Goal message is only built when the step exists in the latest definition.
 fn build_recovery_workflow_messages(
-    wf: &Option<closeclaw_workflow::definition::Workflow>,
+    port: &dyn WorkflowPort,
+    wf: &Option<serde_json::Value>,
+    info: &WorkflowRunInfo,
     checkpoint: &mut SessionCheckpoint,
     step_name: &str,
-    phase: &Phase,
+    phase: WorkflowPhase,
     paused_reason: &str,
 ) {
-    let wf_run = match checkpoint.workflow_run.as_ref() {
-        Some(run) => run,
-        None => return,
-    };
-    let step_num = wf_run.current_step;
+    let step_num = info.current_step;
 
     // Recovered message (always built)
     let mut recovered_msg = format!(
         "[workflow recovered] 正在执行 {}，当前 Step {} ({})",
-        wf_run.definition_name, step_num, step_name
+        info.definition_name, step_num, step_name
     );
-    if *phase == Phase::Blocked && !paused_reason.is_empty() {
+    if phase == WorkflowPhase::Blocked && !paused_reason.is_empty() {
         recovered_msg = format!("{}\n暂停原因：{}", recovered_msg, paused_reason);
     }
 
     // Goal message (only when definition loaded and step exists)
-    let goal_msg = wf.as_ref().and_then(|wf_def| {
-        wf_def
-            .steps
-            .get(step_num)
-            .map(|step| build_goal_message(step, GoalHint::Normal))
-    });
+    let goal_msg = wf
+        .as_ref()
+        .and_then(|wf_def| port.goal_message(wf_def, step_num, WorkflowGoalHint::Normal));
 
     let mut msgs = vec![recovered_msg];
     if let Some(ref goal) = goal_msg {
@@ -246,9 +263,13 @@ fn build_recovery_workflow_messages(
     }
 
     // Re-inject jump question when phase is Jumping (mirrors initial injection).
-    if *phase == Phase::Jumping {
-        if let (Some(run), Some(def)) = (checkpoint.workflow_run.as_ref(), wf.as_ref()) {
-            if let Some(jump_msg) = WorkflowEngine::build_recovery_jump_message(run, def) {
+    if phase == WorkflowPhase::Jumping {
+        if let Some(def) = wf.as_ref() {
+            let jump_msg = checkpoint
+                .workflow_run
+                .clone()
+                .and_then(|state| port.recovery_jump_message(&state, def));
+            if let Some(jump_msg) = jump_msg {
                 msgs.push(jump_msg);
             }
         }
@@ -283,9 +304,8 @@ fn build_recovery_workflow_messages(
 /// A [`WorkflowExitReport`] summarising what was cleaned up.
 pub fn cleanup_workflow_exit(checkpoint: &mut SessionCheckpoint) -> WorkflowExitReport {
     // 1. Remove workflow context markers from system_injection_appends.
-    let removed_contexts = closeclaw_workflow::context_append::remove_workflow_context(
-        &mut checkpoint.system_injection_appends,
-    );
+    let removed_contexts =
+        remove_workflow_context_markers(&mut checkpoint.system_injection_appends);
 
     // 2. Remove workflow recovery notification entries.
     let before = checkpoint.system_injection_appends.len();

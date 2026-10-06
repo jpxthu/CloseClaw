@@ -71,8 +71,14 @@ async fn setup_session(phase: Phase, pending_verify: usize) -> (Arc<SessionManag
         "model".to_string(),
         std::path::PathBuf::from("/tmp"),
     );
-    cs.set_workflow_run(Some(make_test_run(phase.clone(), pending_verify)));
-    let handler = WorkflowHandler::new(make_test_run(phase, pending_verify), make_test_workflow());
+    cs.set_workflow_run_value(Some(
+        serde_json::to_value(make_test_run(phase.clone(), pending_verify)).unwrap(),
+    ));
+    let handler = WorkflowHandler::new(
+        serde_json::to_value(make_test_run(phase, pending_verify)).unwrap(),
+        serde_json::to_value(make_test_workflow()).unwrap(),
+        crate::test_support_workflow_port::test_port::test_port(),
+    );
     cs.set_workflow_handler(Some(handler));
 
     // Inject a goal message so the transcript is non-empty.
@@ -111,7 +117,9 @@ async fn setup_session_no_handler() -> (Arc<SessionManager>, String, tempfile::T
         tmp.path().to_path_buf(),
     );
     // Set workflow_run but NOT workflow_handler — ensure_workflow_handler will try to load.
-    cs.set_workflow_run(Some(make_test_run(Phase::Executing, 0)));
+    cs.set_workflow_run_value(Some(
+        serde_json::to_value(make_test_run(Phase::Executing, 0)).unwrap(),
+    ));
 
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     {
@@ -143,10 +151,8 @@ async fn read_handler_state(sm: &SessionManager, session_id: &str) -> (Phase, us
     let cs = sm.get_conversation_session(session_id).await.unwrap();
     let cs_read = cs.read().await;
     let handler = cs_read.workflow_handler().unwrap();
-    (
-        handler.run().phase.clone(),
-        handler.run().pending_verify.count,
-    )
+    let run: WorkflowRun = serde_json::from_value(handler.run_state().clone()).unwrap();
+    (run.phase, run.pending_verify.count)
 }
 
 // ── Full chain tests ───────────────────────────────────────────────────
@@ -305,13 +311,18 @@ fn test_verify_injected_queues_notification_when_blocked() {
         pending_verify: closeclaw_workflow::run::PendingVerify::default(),
         paused_reason: String::new(),
     };
-    let mut handler = WorkflowHandler::new(run, make_test_workflow());
+    let mut handler = WorkflowHandler::new(
+        serde_json::to_value(&run).unwrap(),
+        serde_json::to_value(make_test_workflow()).unwrap(),
+        crate::test_support_workflow_port::test_port::test_port(),
+    );
 
     // Inject 3 times to reach limit=3 (>= semantics).
     for _ in 0..3 {
         handler.on_verify_injected(3);
     }
-    assert_eq!(handler.run().phase, Phase::Blocked);
+    let state: WorkflowRun = serde_json::from_value(handler.run_state().clone()).unwrap();
+    assert_eq!(state.phase, Phase::Blocked);
 
     // Notification should be queued.
     let notification = handler.take_notification();

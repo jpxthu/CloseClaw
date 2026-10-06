@@ -148,6 +148,8 @@ pub struct SessionManager {
     /// Injected by daemon (composition root) so each LLM turn can
     /// prepend a tool-role attachment with the agent's skill listing.
     skill_listing_provider: RwLock<Option<Arc<dyn SkillListingProvider>>>,
+    /// Workflow engine port, injected by the daemon composition root.
+    workflow_port: RwLock<Option<Arc<dyn closeclaw_session::workflow_port::WorkflowPort>>>,
     /// Output channel for sending LLM responses to the user.
     /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
     /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
@@ -159,10 +161,7 @@ pub struct SessionManager {
     tool_register_fn: RwLock<Option<register_tools::ToolRegisterFn>>,
     /// Back-reference to Gateway for outbound dispatch (Weak to avoid cycle).
     gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
-    /// Timestamp (Unix epoch seconds) of the last consistency scan.
-    /// `None` means no scan has been performed yet; the first periodic
-    /// incremental scan will use 0 (equivalent to full scan) until the
-    /// startup full scan sets this value.
+    /// `None` means no consistency scan has run yet.
     last_consistency_check_time: std::sync::Mutex<Option<i64>>,
     /// Injected SessionConfigProvider for per-agent idle/purge thresholds.
     /// When set, `get_session_config_for_agent` uses this directly instead
@@ -220,6 +219,7 @@ impl SessionManager {
             task_manager: RwLock::new(None),
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
             skill_listing_provider: RwLock::new(None),
+            workflow_port: RwLock::new(None),
             yield_timeout_handles: RwLock::new(HashMap::new()),
             yield_warning_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),
@@ -705,18 +705,19 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Set the active workflow run for a session and persist the checkpoint.
+    /// Set the active workflow run (serialized `Value` checkpoint form;
+    /// Value↔WorkflowRun conversion lives at the gateway boundary) and persist.
     pub async fn set_workflow_run(
         &self,
         session_id: &str,
-        run: Option<closeclaw_workflow::run::WorkflowRun>,
+        run: Option<serde_json::Value>,
     ) -> Result<(), String> {
         let conv_sessions = self.conversation_sessions.read().await;
         let cs = conv_sessions
             .get(session_id)
             .ok_or_else(|| format!("session not found: {}", session_id))?;
         let mut cs = cs.write().await;
-        cs.set_workflow_run(run);
+        cs.set_workflow_run_value(run);
         cs.persist_pending_checkpoint()
             .await
             .map_err(|e| format!("checkpoint persist failed: {}", e))?;

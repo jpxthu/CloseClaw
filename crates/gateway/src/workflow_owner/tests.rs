@@ -72,10 +72,24 @@ fn make_session_with_reason(
     run.paused_reason = paused_reason.to_string();
     // Set both workflow_handler (for is_workflow_blocked) and workflow_run
     // (for paused_reason access via workflow_run()).
-    let handler = WorkflowHandler::new(run.clone(), make_test_workflow());
+    let handler = WorkflowHandler::new(
+        serde_json::to_value(&run).unwrap(),
+        serde_json::to_value(make_test_workflow()).unwrap(),
+        crate::test_support_workflow_port::test_port::test_port(),
+    );
     cs.set_workflow_handler(Some(handler));
-    cs.set_workflow_run(Some(run));
+    cs.set_workflow_run_value(Some(serde_json::to_value(&run).unwrap()));
     cs
+}
+
+/// Decode the handler's serialized run state into the typed form.
+fn typed_state(cs: &closeclaw_session::llm_session::ConversationSession) -> WorkflowRun {
+    serde_json::from_value(cs.workflow_handler().unwrap().run_state().clone()).unwrap()
+}
+
+/// Decode the handler's serialized definition into the typed form.
+fn typed_definition(cs: &closeclaw_session::llm_session::ConversationSession) -> Workflow {
+    serde_json::from_value(cs.workflow_handler().unwrap().definition_state().clone()).unwrap()
 }
 
 /// Extract text content from a session message.
@@ -115,10 +129,7 @@ fn test_resolve_preserves_goal_cleans_verify_injects_new() {
     let texts: Vec<String> = messages.iter().map(|m| message_text(m)).collect();
     assert_eq!(
         texts[1],
-        closeclaw_workflow::definition::build_verify_message(
-            &cs.workflow_handler().unwrap().definition().steps[0],
-            true,
-        )
+        closeclaw_workflow::definition::build_verify_message(&typed_definition(&cs).steps[0], true,)
     );
     // Old verify text must not appear.
     assert!(!texts.contains(&old_verify.to_string()));
@@ -147,23 +158,18 @@ fn test_resolve_pending_verify_zeroed_not_overwritten() {
     cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
 
     // Before resolve: pending_verify = 3.
-    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 3);
-    assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
+    assert_eq!(typed_state(&cs).pending_verify.count, 3);
+    assert_eq!(typed_state(&cs).phase, Phase::Blocked);
 
     Gateway::apply_resolve_action(&mut cs);
 
     // After resolve: pending_verify = 0, phase = Verifying.
-    let handler = cs.workflow_handler().unwrap();
+    let state = typed_state(&cs);
     assert_eq!(
-        handler.run().pending_verify.count,
-        0,
+        state.pending_verify.count, 0,
         "pending_verify must be zeroed"
     );
-    assert_eq!(
-        handler.run().phase,
-        Phase::Verifying,
-        "phase must be Verifying"
-    );
+    assert_eq!(state.phase, Phase::Verifying, "phase must be Verifying");
 }
 
 /// After resolve with user messages interleaved, user messages are
@@ -219,14 +225,14 @@ fn test_rejected_resolve_injects_message_without_changing_state() {
     Gateway::apply_rejected_resolve_action(&mut cs);
 
     // Phase unchanged.
-    assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
+    assert_eq!(typed_state(&cs).phase, Phase::Blocked);
     // paused_reason unchanged.
     assert_eq!(
-        cs.workflow_handler().unwrap().run().paused_reason,
+        typed_state(&cs).paused_reason,
         DEFINITION_CHANGED_PAUSE_REASON
     );
     // pending_verify unchanged.
-    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 3);
+    assert_eq!(typed_state(&cs).pending_verify.count, 3);
     // Rejection message injected.
     let msgs: Vec<String> = cs.messages().iter().map(|m| message_text(m)).collect();
     assert!(
@@ -250,8 +256,8 @@ fn test_normal_resolve_with_empty_paused_reason() {
 
     Gateway::apply_resolve_action(&mut cs);
 
-    assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
-    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 0);
+    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
+    assert_eq!(typed_state(&cs).pending_verify.count, 0);
 }
 
 /// When paused_reason is a non-definition-changed value,
@@ -264,8 +270,8 @@ fn test_normal_resolve_with_other_paused_reason() {
 
     Gateway::apply_resolve_action(&mut cs);
 
-    assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
-    assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 0);
+    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
+    assert_eq!(typed_state(&cs).pending_verify.count, 0);
 }
 
 /// Terminate still works normally even with a definition-changed pause.
@@ -278,7 +284,7 @@ fn test_terminate_works_with_definition_changed_pause() {
 
     // Workflow cleared.
     assert!(cs.workflow_handler().is_none());
-    assert!(cs.workflow_run().is_none());
+    assert!(cs.workflow_run_value().is_none());
     // Messages cleared.
     let msgs: Vec<String> = cs.messages().iter().map(|m| message_text(m)).collect();
     assert!(
@@ -297,7 +303,7 @@ fn test_resolve_with_empty_paused_reason_is_not_rejected() {
     // apply_resolve_action is the correct path.
     Gateway::apply_resolve_action(&mut cs);
 
-    assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
+    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
 }
 
 // ── Step 1.2: resolve_owner_action return value branches ───────

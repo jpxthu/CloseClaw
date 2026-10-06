@@ -9,7 +9,8 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
-    append_assistant_to_child, register_child_only, setup_parent_with_conv, test_resolved_config,
+    append_assistant_to_child, register_child_only, setup_parent_with_conv,
+    test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::ChildSessionState;
@@ -34,7 +35,7 @@ async fn test_dedup_child_running_allows_push() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-dedup-run", None),
+            &test_spawn_target_config("worker-dedup-run", None),
             &parent_id,
             1,
             "do work",
@@ -91,7 +92,7 @@ async fn test_dedup_child_completed_skips_push() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-dedup-compl", None),
+            &test_spawn_target_config("worker-dedup-compl", None),
             &parent_id,
             1,
             "do work",
@@ -162,7 +163,7 @@ async fn test_dedup_child_errored_skips_push() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-dedup-err", None),
+            &test_spawn_target_config("worker-dedup-err", None),
             &parent_id,
             1,
             "do work",
@@ -226,7 +227,7 @@ async fn test_dedup_child_terminated_skips_push() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-dedup-term", None),
+            &test_spawn_target_config("worker-dedup-term", None),
             &parent_id,
             1,
             "do work",
@@ -340,7 +341,7 @@ async fn test_dedup_first_push_deregisters_child() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-seq", None),
+            &test_spawn_target_config("worker-seq", None),
             &parent_id,
             1,
             "do work",

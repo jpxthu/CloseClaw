@@ -64,7 +64,7 @@ impl ConversationSession {
         let mut cp = SessionCheckpoint::new(self.session_id.clone());
         cp.user_appends = self.user_system_appends().to_vec();
         cp.system_injection_appends = self.system_injection_appends().to_vec();
-        cp.workflow_run = self.workflow_run().cloned();
+        cp.workflow_run = self.workflow_run_value();
         cp
     }
 
@@ -72,7 +72,7 @@ impl ConversationSession {
     fn apply_cleanup_checkpoint(&mut self, cp: &crate::persistence::SessionCheckpoint) {
         self.restore_system_appends(cp.user_appends.clone());
         self.restore_system_injection_appends(cp.system_injection_appends.clone());
-        self.set_workflow_run(cp.workflow_run.clone());
+        self.set_workflow_run_value(cp.workflow_run.clone());
     }
 }
 

@@ -10,3 +10,6 @@
 //! directly as `Arc<dyn SpawnValidator>` in the tools layer.
 
 pub use closeclaw_session::spawn::controller::SpawnController;
+
+#[cfg(test)]
+pub(crate) mod budget_test_support;

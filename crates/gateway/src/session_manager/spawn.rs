@@ -10,7 +10,6 @@ use closeclaw_common::shutdown::ShutdownMode;
 use super::SessionManager;
 use crate::session_manager::communication::CommunicationError;
 use crate::Session;
-use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_session::persistence::{
     PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };
@@ -21,7 +20,9 @@ use tracing::warn;
 
 #[cfg(test)]
 use closeclaw_session::spawn::creation::build_spawn_context as build_spawn_context_inner;
-pub use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
+pub use closeclaw_session::spawn::{
+    ChildSessionInfo, ChildSessionStatus, SpawnMode, SpawnTargetAgentConfig,
+};
 
 /// Configuration for creating a child session.
 ///
@@ -30,8 +31,9 @@ pub use closeclaw_session::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMo
 /// project's 6-parameter function limit.
 #[derive(Debug, Clone)]
 pub struct ChildSessionConfig {
-    /// Resolved agent configuration.
-    pub config: ResolvedAgentConfig,
+    /// Session-owned narrow spawn-time view of the target agent
+    /// (identity, model, workspace, skills, tools, hooks).
+    pub config: SpawnTargetAgentConfig,
     /// Parent session ID.
     pub parent_session_id: String,
     /// Spawn depth (parent depth + 1).
@@ -192,7 +194,7 @@ impl SessionManager {
     #[allow(clippy::too_many_arguments)]
     pub async fn create_child_session(
         &self,
-        config: &ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         depth: u32,
         task: &str,
@@ -222,25 +224,18 @@ impl SessionManager {
         }
 
         // Apply tool whitelist override.
-        let config = if let Some(ref tools) = allowed_tools {
-            let mut overridden = config.clone();
-            overridden.tools = tools.clone();
-            overridden
-        } else {
-            config.clone()
-        };
+        let mut config = config.clone();
+        if let Some(tools) = allowed_tools {
+            config.tools = tools;
+        }
 
         // Tool-level spawn prevention (design doc §两层防护).
         // NOTE: `<= 0` matches design doc wording (§Depth 追踪: effective budget ≤ 0).
         // For u32 this is equivalent to `== 0`, kept for spec alignment.
         #[allow(clippy::absurd_extreme_comparisons)]
-        let config = if max_spawn_depth <= 0 {
-            let mut filtered = config.clone();
-            filtered.tools.retain(|t| t != "sessions_spawn");
-            filtered
-        } else {
-            config
-        };
+        if max_spawn_depth <= 0 {
+            config.tools.retain(|t| t != "sessions_spawn");
+        }
 
         // Resolve parent agent ID for communication config.
         let parent_agent_id = self

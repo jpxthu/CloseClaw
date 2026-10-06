@@ -11,8 +11,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use crate::spawn::{ChildSessionInfo, SpawnMode};
-use closeclaw_config::agents::ResolvedAgentConfig;
+use crate::spawn::{ChildSessionInfo, SpawnMode, SpawnTargetAgentConfig};
 use serde_json::Value;
 
 pub mod late_bound;
@@ -48,10 +47,14 @@ pub(crate) fn build_approval_pending(request_id: String) -> Value {
 #[async_trait]
 pub trait SessionManagerOps: Send + Sync {
     /// Create a child session for the given parent.
+    ///
+    /// `config` is the session-owned narrow spawn-time view of the target
+    /// agent (identity, model, workspace, skills, tools, hooks) — the
+    /// full config profile never crosses the crate boundary.
     #[allow(clippy::too_many_arguments)]
     async fn create_child_session(
         &self,
-        config: &ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         depth: u32,
         task: &str,

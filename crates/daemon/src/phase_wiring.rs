@@ -12,6 +12,7 @@ use crate::{
     config_watcher,
     dreaming_scheduler::DreamingScheduler,
     noop_miner_llm, registries,
+    trait_adapters::ConfigSpawnBudgetLookup,
 };
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
@@ -38,7 +39,8 @@ use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
-use closeclaw_session::spawn::controller::SpawnContext;
+use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
+use closeclaw_session::spawn::SpawnTargetAgentConfig;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
 use closeclaw_session::{persistence::PersistenceService, storage::SqliteStorage};
 use closeclaw_skills::builtin::builtin_skills;
@@ -155,8 +157,19 @@ impl Daemon {
                         .get_effective_max_spawn_depth(&parent_session_id)
                         .await
                         .unwrap_or(3);
+                    // Map the full resolved config onto the session-owned
+                    // narrow spawn-time view (pure data copy — the gateway
+                    // boundary only carries creation-chain fields).
+                    let target_config = SpawnTargetAgentConfig {
+                        id: config.id.clone(),
+                        model: config.model.clone(),
+                        workspace: config.workspace.clone(),
+                        skills: config.skills.clone(),
+                        tools: config.tools.clone(),
+                        hooks: config.hooks.clone(),
+                    };
                     let child_config = ChildSessionConfig {
-                        config,
+                        config: target_config,
                         parent_session_id,
                         depth: depth + 1,
                         task,
@@ -235,8 +248,10 @@ impl Daemon {
                 Arc::clone(config_manager),
                 Arc::clone(permission_engine),
             ));
+            let budget_lookup: Arc<dyn SpawnBudgetLookup> =
+                Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_manager)));
             SpawnController::new(
-                Arc::clone(config_manager),
+                budget_lookup,
                 Arc::clone(session_manager) as Arc<dyn SpawnContext>,
                 pc,
             )
@@ -340,6 +355,13 @@ impl Daemon {
                 skill_registry.clone(),
                 Arc::clone(&builtin_skill_listing),
             )) as Arc<dyn SkillListingProvider>)
+            .await;
+        // Inject the production workflow engine port (stateless adapter
+        // over the workflow crate). Wired onto every created/restored
+        // session and handed to child session creation; also used by
+        // the recovery scan in phase_init.
+        session_manager
+            .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
             .await;
         // Inject static-layer cache invalidation callback.
         session_manager

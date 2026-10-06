@@ -34,7 +34,7 @@ async fn test_get_last_output_at_exists() {
 
     let child_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-glo", None),
+            &super::test_helpers::test_spawn_target_config("worker-glo", None),
             &parent_id,
             1,
             "work",
@@ -132,7 +132,7 @@ async fn test_terminate_stale_child_active_parent_notifies() {
 
     let child_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-kill1", None),
+            &super::test_helpers::test_spawn_target_config("worker-kill1", None),
             &parent_id,
             1,
             "stale work",
@@ -206,7 +206,7 @@ async fn test_terminate_stale_child_archived_parent_no_notification() {
 
     let child_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-kill2", None),
+            &super::test_helpers::test_spawn_target_config("worker-kill2", None),
             &parent_id,
             1,
             "stale work 2",
@@ -303,7 +303,7 @@ async fn test_terminate_stale_child_cascade_descendants() {
     // Create child and grandchild.
     let child_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-casc", None),
+            &super::test_helpers::test_spawn_target_config("worker-casc", None),
             &parent_id,
             1,
             "stale parent",
@@ -326,7 +326,7 @@ async fn test_terminate_stale_child_cascade_descendants() {
 
     let grandchild_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-casc-gc", None),
+            &super::test_helpers::test_spawn_target_config("worker-casc-gc", None),
             &child_id,
             2,
             "nested work",
@@ -400,7 +400,7 @@ async fn test_terminate_stale_child_notification_text_format() {
 
     let child_id = mgr
         .create_child_session(
-            &super::test_helpers::test_resolved_config("worker-fmt", None),
+            &super::test_helpers::test_spawn_target_config("worker-fmt", None),
             &parent_id,
             1,
             "format test",

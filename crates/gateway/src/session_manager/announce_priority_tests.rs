@@ -7,7 +7,7 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
-    append_assistant_to_child, setup_parent_with_conv, test_resolved_config,
+    append_assistant_to_child, setup_parent_with_conv, test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
@@ -30,7 +30,7 @@ async fn test_try_push_announce_passes_later_priority() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-prio-later", None),
+            &test_spawn_target_config("worker-prio-later", None),
             &parent_id,
             1,
             "do work",
@@ -83,7 +83,7 @@ async fn test_try_push_announce_passes_now_priority() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-prio-now", None),
+            &test_spawn_target_config("worker-prio-now", None),
             &parent_id,
             1,
             "do work",
@@ -139,7 +139,7 @@ async fn test_try_push_announce_normal_completion_uses_next() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-prio-next", None),
+            &test_spawn_target_config("worker-prio-next", None),
             &parent_id,
             1,
             "do work",
@@ -194,7 +194,7 @@ async fn test_forced_termination_produces_next_priority() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-term-now", None),
+            &test_spawn_target_config("worker-term-now", None),
             &parent_id,
             1,
             "do work",

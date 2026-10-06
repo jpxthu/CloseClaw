@@ -77,17 +77,6 @@ impl SpawnCreationContext for SessionManager {
         }
     }
 
-    fn get_agent_config(
-        &self,
-        agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
-        // Synchronous lookup from the config manager's in-memory agents map.
-        let guard = self.config_manager.try_read().ok()?;
-        let cm = (*guard).as_ref()?;
-        let agents = cm.agents();
-        agents.get(agent_id).cloned()
-    }
-
     fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
         // Return the shutdown handle as a ShutdownSignal trait object.
         // Use try_read to avoid blocking; if unavailable, return None.
@@ -122,6 +111,11 @@ impl SpawnCreationContext for SessionManager {
 
     fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>> {
         let guard = self.skill_listing_provider.try_read().ok()?;
+        guard.clone()
+    }
+
+    fn workflow_port(&self) -> Option<Arc<dyn closeclaw_session::workflow_port::WorkflowPort>> {
+        let guard = self.workflow_port.try_read().ok()?;
         guard.clone()
     }
 

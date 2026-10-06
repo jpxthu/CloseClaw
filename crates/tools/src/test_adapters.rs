@@ -11,6 +11,7 @@ use std::sync::Arc;
 use closeclaw_common::permission_types::{
     ApprovalSubmission, CallerInfo, PermissionEvalResponse, PermissionEvaluator, RiskLevel,
 };
+use closeclaw_config::ConfigManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
 use closeclaw_permission::engine::engine_types::{
@@ -98,5 +99,51 @@ fn map_risk_level_to_permission(
         RiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
         RiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
         RiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
+    }
+}
+
+/// Test adapter mapping a `ConfigManager` onto the session crate's
+/// narrow `SpawnBudgetLookup` port.
+///
+/// Mirrors the daemon-side production implementation; duplicated here
+/// because the tools crate cannot depend on `closeclaw-daemon`. Test
+/// fixtures inject agent configs into `ConfigManager::agents` directly.
+pub struct ConfigSpawnBudgetLookupAdapter(pub Arc<ConfigManager>);
+
+#[async_trait]
+impl closeclaw_session::spawn::controller::SpawnBudgetLookup for ConfigSpawnBudgetLookupAdapter {
+    async fn spawn_budget(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_session::spawn::controller::AgentSpawnBudget> {
+        use closeclaw_session::spawn::controller::AgentSpawnBudget;
+        let agents = self.0.agents();
+        let sc = &agents.get(agent_id)?.subagents;
+        Some(AgentSpawnBudget {
+            max_spawn_depth: sc.max_spawn_depth,
+            max_children: sc.max_children,
+            allow_agents: Some(sc.allow_agents.clone()),
+            require_agent_id: sc.require_agent_id,
+            timeout: sc.timeout,
+            timeout_warning: sc.timeout_warning,
+            timeout_notify_interval_ratio: sc.timeout_notify_interval_ratio,
+        })
+    }
+
+    async fn spawn_target_config(
+        &self,
+        agent_id: &str,
+    ) -> Option<closeclaw_session::spawn::controller::SpawnTargetAgentConfig> {
+        use closeclaw_session::spawn::controller::SpawnTargetAgentConfig;
+        let agents = self.0.agents();
+        let cfg = agents.get(agent_id)?;
+        Some(SpawnTargetAgentConfig {
+            id: cfg.id.clone(),
+            model: cfg.model.clone(),
+            workspace: cfg.workspace.clone(),
+            skills: cfg.skills.clone(),
+            tools: cfg.tools.clone(),
+            hooks: cfg.hooks.clone(),
+        })
     }
 }

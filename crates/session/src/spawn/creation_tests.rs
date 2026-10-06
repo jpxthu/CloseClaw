@@ -8,10 +8,10 @@
 use std::sync::Arc;
 
 use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::ResolvedAgentConfig;
 use tokio::sync::RwLock;
 
 use super::context::SpawnCreationContext;
+use super::controller::SpawnTargetAgentConfig;
 use super::creation::{create_child_conversation_session, ChildSessionCreationParams};
 use super::types::SpawnMode;
 use crate::llm_session::ConversationSession;
@@ -25,8 +25,6 @@ struct MockCreationContext {
     parent_session: Arc<RwLock<ConversationSession>>,
     /// Mock config directory path.
     config_dir: std::path::PathBuf,
-    /// Optional agent config override for `get_agent_config`.
-    agent_config: Option<ResolvedAgentConfig>,
     /// Optional override for `sender_id`: None = use default "test-user",
     /// Some(None) = return None.
     sender_id_override: Option<Option<String>>,
@@ -44,14 +42,8 @@ impl MockCreationContext {
         Self {
             parent_session: Arc::new(RwLock::new(cs)),
             config_dir,
-            agent_config: None,
             sender_id_override: None,
         }
-    }
-    fn with_agent_config(config: ResolvedAgentConfig) -> Self {
-        let mut ctx = Self::new();
-        ctx.agent_config = Some(config);
-        ctx
     }
     fn with_no_sender_id() -> Self {
         let mut ctx = Self::new();
@@ -74,10 +66,6 @@ impl SpawnCreationContext for MockCreationContext {
     }
 
     async fn save_checkpoint(&self, _cp: &SessionCheckpoint) {}
-
-    fn get_agent_config(&self, _agent_id: &str) -> Option<ResolvedAgentConfig> {
-        self.agent_config.clone()
-    }
 
     fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
         None
@@ -118,24 +106,10 @@ impl SpawnCreationContext for MockCreationContext {
         &self.config_dir
     }
 }
-fn make_config(id: &str) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
+fn make_config(id: &str) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
         id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
-        model: None,
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
-        skills: vec![],
-        tools: vec![],
-        disallowed_tools: vec![],
-        subagents: Default::default(),
-        memory: Default::default(),
-        hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: closeclaw_config::agents::ConfigSource::User,
+        ..Default::default()
     }
 }
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -340,16 +314,12 @@ fn default_params<'a>() -> ChildSessionCreationParams<'a> {
 async fn test_skills_whitelist_injected() {
     let mut config = make_config("child-agent");
     config.skills = vec!["skill-a".into(), "skill-b".into()];
-    let ctx = MockCreationContext::with_agent_config(config);
+    let ctx = MockCreationContext::new();
     let params = default_params();
 
-    let result = create_child_conversation_session(
-        &ctx,
-        &ctx.get_agent_config("child-agent").unwrap(),
-        &params,
-    )
-    .await
-    .expect("should succeed");
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     let skills = cs.agent_skills().expect("agent_skills should be Some");
@@ -364,16 +334,12 @@ async fn test_skills_whitelist_injected() {
 async fn test_skills_wildcard_empty_no_injection() {
     let mut config = make_config("child-agent");
     config.skills = vec![]; // empty = wildcard
-    let ctx = MockCreationContext::with_agent_config(config);
+    let ctx = MockCreationContext::new();
     let params = default_params();
 
-    let result = create_child_conversation_session(
-        &ctx,
-        &ctx.get_agent_config("child-agent").unwrap(),
-        &params,
-    )
-    .await
-    .expect("should succeed");
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     assert!(
@@ -385,16 +351,12 @@ async fn test_skills_wildcard_empty_no_injection() {
 async fn test_skills_wildcard_star_no_injection() {
     let mut config = make_config("child-agent");
     config.skills = vec!["*".into()];
-    let ctx = MockCreationContext::with_agent_config(config);
+    let ctx = MockCreationContext::new();
     let params = default_params();
 
-    let result = create_child_conversation_session(
-        &ctx,
-        &ctx.get_agent_config("child-agent").unwrap(),
-        &params,
-    )
-    .await
-    .expect("should succeed");
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     assert!(
@@ -406,20 +368,16 @@ async fn test_skills_wildcard_star_no_injection() {
 async fn test_skills_injected_in_fork_mode() {
     let mut config = make_config("child-agent");
     config.skills = vec!["only-this".into()];
-    let ctx = MockCreationContext::with_agent_config(config);
+    let ctx = MockCreationContext::new();
     let params = ChildSessionCreationParams {
         fork: true,
         light_context: false,
         ..default_params()
     };
 
-    let result = create_child_conversation_session(
-        &ctx,
-        &ctx.get_agent_config("child-agent").unwrap(),
-        &params,
-    )
-    .await
-    .expect("should succeed");
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     let skills = cs
@@ -431,20 +389,16 @@ async fn test_skills_injected_in_fork_mode() {
 async fn test_skills_injected_in_light_context() {
     let mut config = make_config("child-agent");
     config.skills = vec!["light-skill".into()];
-    let ctx = MockCreationContext::with_agent_config(config);
+    let ctx = MockCreationContext::new();
     let params = ChildSessionCreationParams {
         light_context: true,
         fork: false,
         ..default_params()
     };
 
-    let result = create_child_conversation_session(
-        &ctx,
-        &ctx.get_agent_config("child-agent").unwrap(),
-        &params,
-    )
-    .await
-    .expect("should succeed");
+    let result = create_child_conversation_session(&ctx, &config, &params)
+        .await
+        .expect("should succeed");
 
     let cs = result.conversation_session.read().await;
     let skills = cs
@@ -955,44 +909,42 @@ async fn test_fork_mode_task_in_system_appends_parent_history_in_messages() {
     );
 }
 
-// Bootstrap mode: child sessions always Minimal (design doc contract).
+// Bootstrap mode: child sessions always Minimal (design doc contract) —
+// regardless of the `light_context` flag. The narrow spawn-time view
+// carries no bootstrap mode by construction.
 #[tokio::test]
 async fn test_bootstrap_mode_always_minimal() {
     let ctx = MockCreationContext::new();
     for light in [true, false] {
-        for config_mode in [BootstrapMode::Full, BootstrapMode::Minimal] {
-            let mut config = make_config("child-agent");
-            config.bootstrap_mode = config_mode;
-            let params = ChildSessionCreationParams {
-                parent_session_id: "parent-session",
-                parent_agent_id: "parent-agent",
-                depth: 0,
-                task: "test task",
-                light_context: light,
-                workspace: None,
-                mode: SpawnMode::Run,
-                fork: false,
-                model_override: None,
-                parent_subagents_model: None,
-                max_spawn_depth: 3,
-                prompt_template_prefix: None,
-                timeout_warning_secs: None,
-                timeout_notify_interval_ratio: None,
-                debug_log: None,
-                trace_id: "",
-                session_key: None,
-            };
-            let result = create_child_conversation_session(&ctx, &config, &params)
-                .await
-                .expect("should succeed");
-            let cs = result.conversation_session.read().await;
-            assert_eq!(
-                cs.bootstrap_mode(),
-                BootstrapMode::Minimal,
-                "light={}, config={:?} → must be Minimal",
-                light,
-                config_mode
-            );
-        }
+        let config = make_config("child-agent");
+        let params = ChildSessionCreationParams {
+            parent_session_id: "parent-session",
+            parent_agent_id: "parent-agent",
+            depth: 0,
+            task: "test task",
+            light_context: light,
+            workspace: None,
+            mode: SpawnMode::Run,
+            fork: false,
+            model_override: None,
+            parent_subagents_model: None,
+            max_spawn_depth: 3,
+            prompt_template_prefix: None,
+            timeout_warning_secs: None,
+            timeout_notify_interval_ratio: None,
+            debug_log: None,
+            trace_id: "",
+            session_key: None,
+        };
+        let result = create_child_conversation_session(&ctx, &config, &params)
+            .await
+            .expect("should succeed");
+        let cs = result.conversation_session.read().await;
+        assert_eq!(
+            cs.bootstrap_mode(),
+            BootstrapMode::Minimal,
+            "light={} → must be Minimal",
+            light
+        );
     }
 }

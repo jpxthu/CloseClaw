@@ -90,10 +90,11 @@ impl SlashSessionQuery for SessionManager {
         run: Option<Box<dyn std::any::Any + Send + Sync>>,
     ) -> Result<(), String> {
         let typed_run = run.map(|r| {
-            r.downcast::<closeclaw_workflow::run::WorkflowRun>()
-                .expect("set_workflow_run: downcast to WorkflowRun failed")
-                .as_ref()
-                .clone()
+            let run = r
+                .downcast::<closeclaw_workflow::run::WorkflowRun>()
+                .expect("set_workflow_run: downcast to WorkflowRun failed");
+            serde_json::to_value(run.as_ref().clone())
+                .expect("set_workflow_run: serialize WorkflowRun failed")
         });
         SessionManager::set_workflow_run(self, session_id, typed_run).await
     }
@@ -102,7 +103,9 @@ impl SlashSessionQuery for SessionManager {
         let conv_sessions = self.conversation_sessions.read().await;
         let cs = conv_sessions.get(session_id)?;
         let cs = cs.read().await;
-        let run = cs.workflow_run()?;
+        // Value → WorkflowRun conversion at the gateway boundary.
+        let run: closeclaw_workflow::run::WorkflowRun =
+            serde_json::from_value(cs.workflow_run_value()?).ok()?;
         if run.phase == closeclaw_workflow::run::Phase::Complete {
             None
         } else {

@@ -63,7 +63,7 @@ fn make_controller(
     pe: &Arc<tokio::sync::RwLock<PermissionEngine>>,
 ) -> SpawnController {
     SpawnController::new(
-        cm.clone(),
+        super::spawn_controller::budget_test_support::config_spawn_budget_lookup(cm),
         sm.clone() as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
         Arc::new(GatewayPermissionChecker::new(
             sm.clone(),

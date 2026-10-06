@@ -174,6 +174,8 @@ impl SessionManager {
         }
         // Inject skill listing provider and agent skills.
         self.wire_skill_listing_deps(conv, agent_id).await;
+        // Inject workflow engine port.
+        self.wire_workflow_port(conv).await;
     }
 }
 

@@ -13,6 +13,8 @@ pub mod checkpoint_manager;
 mod checkpoint_manager_tests;
 pub mod compaction;
 pub mod debug_log;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub mod events;
 pub mod llm_session;
 pub mod notifications;
@@ -29,6 +31,9 @@ pub mod tools;
 pub mod workflow_handler;
 #[cfg(test)]
 mod workflow_handler_tests;
+pub mod workflow_port;
+#[cfg(test)]
+mod workflow_port_tests;
 pub mod workflow_recovery;
 pub mod workspace;
 
@@ -60,5 +65,7 @@ mod persistence_type_tests;
 mod plan_archive_tests;
 #[cfg(test)]
 mod plan_file_access_timestamp_tests;
+#[cfg(test)]
+mod plan_file_identifier_format_tests;
 #[cfg(test)]
 mod plan_file_tests;

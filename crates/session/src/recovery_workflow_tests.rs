@@ -11,6 +11,21 @@ mod tests {
         GoalHint, Phase, StepHistoryEntry, StepHistoryStatus, WorkflowRun,
     };
 
+    /// Inject workflow recovery with the real-engine test port.
+    async fn inject_recovery(
+        session_id: &str,
+        cp: &mut SessionCheckpoint,
+        agent_workspace: Option<&std::path::Path>,
+    ) {
+        inject_workflow_recovery(
+            session_id,
+            cp,
+            agent_workspace,
+            crate::workflow_port::real_engine_port::test_port().as_ref(),
+        )
+        .await;
+    }
+
     fn make_workflow_run(current_step: usize, phase: Phase) -> WorkflowRun {
         WorkflowRun {
             workflow_id: "test-wf".to_string(),
@@ -31,6 +46,12 @@ mod tests {
             pending_verify: closeclaw_workflow::run::PendingVerify::default(),
             paused_reason: String::new(),
         }
+    }
+
+    /// Store a workflow run into the checkpoint's `Value`-erased
+    /// `workflow_run` field (serialized form, matching persistence).
+    fn store_workflow_run(cp: &mut SessionCheckpoint, run: WorkflowRun) {
+        cp.workflow_run = Some(serde_json::to_value(&run).unwrap());
     }
 
     fn make_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -85,9 +106,9 @@ mod tests {
     #[tokio::test]
     async fn test_inject_notification_for_executing_phase() {
         let mut cp = make_test_checkpoint("wf-1");
-        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
 
-        inject_workflow_recovery("wf-1", &mut cp, None).await;
+        inject_recovery("wf-1", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -103,9 +124,9 @@ mod tests {
     #[tokio::test]
     async fn test_skip_complete_phase() {
         let mut cp = make_test_checkpoint("wf-2");
-        cp.workflow_run = Some(make_workflow_run(1, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(1, Phase::Complete));
 
-        inject_workflow_recovery("wf-2", &mut cp, None).await;
+        inject_recovery("wf-2", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -119,9 +140,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-3");
         let mut run = make_workflow_run(0, Phase::Verifying);
         run.pending_verify.count = 2;
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-3", &mut cp, None).await;
+        inject_recovery("wf-3", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -136,9 +157,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-4");
         let mut run = make_workflow_run(0, Phase::Blocked);
         run.paused_reason = "验收重试次数耗尽".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-4", &mut cp, None).await;
+        inject_recovery("wf-4", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -161,9 +182,9 @@ mod tests {
     #[tokio::test]
     async fn test_executing_phase_no_paused_reason() {
         let mut cp = make_test_checkpoint("wf-4b");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
 
-        inject_workflow_recovery("wf-4b", &mut cp, None).await;
+        inject_recovery("wf-4b", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -180,10 +201,10 @@ mod tests {
     #[tokio::test]
     async fn test_preserves_other_appends() {
         let mut cp = make_test_checkpoint("wf-5");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
         cp.user_appends.push("existing-append".to_string());
 
-        inject_workflow_recovery("wf-5", &mut cp, None).await;
+        inject_recovery("wf-5", &mut cp, None).await;
 
         assert!(
             cp.user_appends.iter().any(|s| s == "existing-append"),
@@ -196,7 +217,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-6");
         // No workflow_run set
 
-        inject_workflow_recovery("wf-6", &mut cp, None).await;
+        inject_recovery("wf-6", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -208,11 +229,11 @@ mod tests {
     #[tokio::test]
     async fn test_replaces_existing_notification() {
         let mut cp = make_test_checkpoint("wf-7");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
         cp.system_injection_appends
             .push(format!("{}old notification", WORKFLOW_RECOVERY_PREFIX));
 
-        inject_workflow_recovery("wf-7", &mut cp, None).await;
+        inject_recovery("wf-7", &mut cp, None).await;
 
         let notif_count = cp
             .system_injection_appends
@@ -231,7 +252,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_definition_version_change_blocks_with_paused_reason() {
-        use crate::workflow_recovery::inject_workflow_recovery;
         use closeclaw_workflow::run::Phase;
 
         // Simulate the state produced by handle_definition_version_change:
@@ -245,16 +265,18 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-dvc1");
         let mut run = make_workflow_run(2, Phase::Executing);
         run.definition_version = "0.1".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
         // Simulate what handle_definition_version_change would produce
-        let wf_run = cp.workflow_run.as_mut().unwrap();
+        let mut wf_run: WorkflowRun =
+            serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
         wf_run.phase = Phase::Blocked;
         wf_run.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
+        cp.workflow_run = Some(serde_json::to_value(&wf_run).unwrap());
 
-        inject_workflow_recovery("wf-dvc1", &mut cp, None).await;
+        inject_recovery("wf-dvc1", &mut cp, None).await;
 
-        let wf_run = cp.workflow_run.as_ref().unwrap();
+        let wf_run: WorkflowRun = serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
         assert_eq!(wf_run.paused_reason, DEFINITION_CHANGED_PAUSE_REASON);
 
@@ -281,9 +303,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-8");
         let mut run = make_workflow_run(0, Phase::Executing);
         run.step_history.clear();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-8", &mut cp, None).await;
+        inject_recovery("wf-8", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -344,7 +366,7 @@ mod tests {
     #[test]
     fn test_cleanup_removes_workflow_context() {
         let mut cp = make_test_checkpoint("wf-c1");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Complete));
         cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
 
@@ -360,7 +382,7 @@ mod tests {
     #[test]
     fn test_cleanup_removes_recovery_notification() {
         let mut cp = make_test_checkpoint("wf-c2");
-        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
         cp.system_injection_appends
             .push(format!("{}recovery msg", WORKFLOW_RECOVERY_PREFIX));
 
@@ -376,7 +398,7 @@ mod tests {
     #[test]
     fn test_cleanup_clears_workflow_run() {
         let mut cp = make_test_checkpoint("wf-c3");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Complete));
 
         let report = cleanup_workflow_exit(&mut cp);
 
@@ -398,7 +420,7 @@ mod tests {
     #[test]
     fn test_cleanup_preserves_non_workflow_appends() {
         let mut cp = make_test_checkpoint("wf-c5");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Complete));
         cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
         cp.system_injection_appends
@@ -420,7 +442,7 @@ mod tests {
     fn test_cleanup_full_lifecycle() {
         // Simulate a complete workflow lifecycle: inject → cleanup.
         let mut cp = make_test_checkpoint("wf-c6");
-        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
         cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
         cp.user_appends.push("user-append".to_string());
@@ -428,7 +450,7 @@ mod tests {
         // First inject recovery state (as would happen on resume).
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(inject_workflow_recovery("wf-c6", &mut cp, None));
+            .block_on(inject_recovery("wf-c6", &mut cp, None));
 
         // Verify injection happened.
         assert!(cp
@@ -464,9 +486,9 @@ mod tests {
         write_skill_md(tmp.path(), "test-wf");
 
         let mut cp = make_test_checkpoint("wf-rwm-1");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
 
-        inject_workflow_recovery("wf-rwm-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -485,9 +507,9 @@ mod tests {
     async fn test_recovery_workflow_messages_no_definition() {
         // When definition not found on disk, only recovered message is built.
         let mut cp = make_test_checkpoint("wf-rwm-2");
-        cp.workflow_run = Some(make_workflow_run(1, Phase::Executing));
+        store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
 
-        inject_workflow_recovery("wf-rwm-2", &mut cp, None).await;
+        inject_recovery("wf-rwm-2", &mut cp, None).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -507,9 +529,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-rwm-3");
         let mut run = make_workflow_run(0, Phase::Executing);
         run.definition_version = "999".to_string(); // Force version mismatch
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-rwm-3", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-3", &mut cp, Some(tmp.path())).await;
 
         // Version mismatch → step 0 doesn't exist in definition with version "999"
         // Wait: definition has version "0.1", run has "999", so handle_definition_version_change
@@ -530,12 +552,12 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-rwm-4");
         let mut run = make_workflow_run(5, Phase::Executing);
         run.definition_version = "999".to_string(); // Force version mismatch
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-rwm-4", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-4", &mut cp, Some(tmp.path())).await;
 
         // Step 5 >= 1 (definition has 1 step) → blocked, goal not built
-        let wf_run = cp.workflow_run.as_ref().unwrap();
+        let wf_run: WorkflowRun = serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -548,7 +570,7 @@ mod tests {
     #[test]
     fn test_cleanup_clears_recovery_workflow_messages() {
         let mut cp = make_test_checkpoint("wf-rwm-5");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Complete));
         cp.recovery_workflow_messages = vec!["msg1".to_string(), "msg2".to_string()];
 
         cleanup_workflow_exit(&mut cp);
@@ -559,7 +581,7 @@ mod tests {
     #[test]
     fn test_cleanup_preserves_other_fields_with_messages() {
         let mut cp = make_test_checkpoint("wf-rwm-6");
-        cp.workflow_run = Some(make_workflow_run(0, Phase::Complete));
+        store_workflow_run(&mut cp, make_workflow_run(0, Phase::Complete));
         cp.recovery_workflow_messages = vec!["recovered".to_string(), "goal".to_string()];
         cp.system_injection_appends
             .push(build_workflow_context_append(&make_test_workflow_def()));
@@ -622,9 +644,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-1");
         let mut run = make_workflow_run(0, Phase::Jumping);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -653,9 +675,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-2");
         let mut run = make_workflow_run(0, Phase::Jumping);
         run.definition_name = "nonexistent-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-2", &mut cp, None).await;
+        inject_recovery("wf-jump-2", &mut cp, None).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -677,13 +699,13 @@ mod tests {
         let mut run = make_workflow_run(5, Phase::Jumping);
         run.definition_name = "jump-wf".to_string();
         run.definition_version = "999".to_string(); // force version mismatch
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-3", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-3", &mut cp, Some(tmp.path())).await;
 
         // Step 5 >= 2 (definition has 2 steps) → blocked by version check,
         // no jump message injected because run is now Blocked, not Jumping.
-        let wf_run = cp.workflow_run.as_ref().unwrap();
+        let wf_run: WorkflowRun = serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -701,9 +723,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-4");
         let mut run = make_workflow_run(0, Phase::Complete);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-4", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-4", &mut cp, Some(tmp.path())).await;
 
         // Complete phase → early return, no messages built at all.
         assert!(
@@ -721,9 +743,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-5");
         let mut run = make_workflow_run(0, Phase::Blocked);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-5", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-5", &mut cp, Some(tmp.path())).await;
 
         // Blocked phase: recovered + goal built, but no jump message
         // (phase != Jumping, so jump injection is skipped).
@@ -744,9 +766,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-6");
         let mut run = make_workflow_run(0, Phase::Executing);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-6", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-6", &mut cp, Some(tmp.path())).await;
 
         assert!(
             cp.recovery_workflow_messages
@@ -765,9 +787,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-7");
         let mut run = make_workflow_run(0, Phase::Verifying);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-7", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-7", &mut cp, Some(tmp.path())).await;
 
         assert!(
             cp.recovery_workflow_messages
@@ -788,9 +810,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-jump-8");
         let mut run = make_workflow_run(0, Phase::Jumping);
         run.definition_name = "jump-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-8", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-8", &mut cp, Some(tmp.path())).await;
 
         // Verify the complete set: recovered + goal + jump
         assert_eq!(cp.recovery_workflow_messages.len(), 3);
@@ -825,10 +847,10 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-aws-1");
         let mut run = make_workflow_run(0, Phase::Executing);
         run.definition_name = "agent-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
         // agent_workspace = Some(tmp.path()) → definition found at level 1.
-        inject_workflow_recovery("wf-aws-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-aws-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -850,9 +872,9 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-aws-2");
         let mut run = make_workflow_run(0, Phase::Executing);
         run.definition_name = "nonexistent-wf".to_string();
-        cp.workflow_run = Some(run);
+        store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-aws-2", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-aws-2", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),

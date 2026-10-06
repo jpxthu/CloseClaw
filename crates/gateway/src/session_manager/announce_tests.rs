@@ -11,13 +11,13 @@
 //!
 //! Step 1.6 (test scaffolding) is added after Steps 1.3–1.5 land.
 //!
-//! Shared helpers (e.g. `test_resolved_config`, `setup_parent_with_conv`,
+//! Shared helpers (e.g. `test_spawn_target_config`, `setup_parent_with_conv`,
 //! `inject_events_and_return_messages`, `spawn_n_run_children`) live in
 //! `super::test_helpers` to keep this file under the 500-line limit.
 use super::spawn::SpawnMode;
 use super::test_helpers::{
     append_assistant_to_child, inject_events_and_return_messages, register_child_only,
-    setup_parent_with_conv, spawn_n_run_children, test_resolved_config,
+    setup_parent_with_conv, spawn_n_run_children, test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use chrono::Utc;
@@ -88,7 +88,7 @@ async fn test_try_push_announce_run_mode() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-run", None),
+            &test_spawn_target_config("worker-run", None),
             &parent_id,
             1,
             "do work",
@@ -142,7 +142,7 @@ async fn test_try_push_announce_session_mode_noop() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sess", None),
+            &test_spawn_target_config("worker-sess", None),
             &parent_id,
             1,
             "stay alive",
@@ -278,7 +278,7 @@ async fn test_thinking_blocks_excluded() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-think", None),
+            &test_spawn_target_config("worker-think", None),
             &parent_id,
             1,
             "think first",
@@ -409,7 +409,7 @@ async fn test_try_push_announce_sends_mining_notification() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-mine", None),
+            &test_spawn_target_config("worker-mine", None),
             &parent_id,
             1,
             "mine this",
@@ -464,7 +464,7 @@ async fn test_try_push_announce_no_notification_without_tx() {
     // Do NOT set mining_notify_tx — should still work.
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-no-mine", None),
+            &test_spawn_target_config("worker-no-mine", None),
             &parent_id,
             1,
             "no mine",
@@ -519,7 +519,7 @@ async fn test_session_mode_no_mining_notification() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sess-mine", None),
+            &test_spawn_target_config("worker-sess-mine", None),
             &parent_id,
             1,
             "session work",

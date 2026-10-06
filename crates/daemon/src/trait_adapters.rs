@@ -12,12 +12,16 @@ use std::sync::Arc;
 use closeclaw_common::permission_types::{
     ApprovalSubmission, CallerInfo, PermissionEvalResponse, PermissionEvaluator, RiskLevel,
 };
+use closeclaw_config::ConfigManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody,
 };
 use closeclaw_permission::PermissionEngine;
+use closeclaw_session::spawn::controller::{
+    AgentSpawnBudget, SpawnBudgetLookup, SpawnTargetAgentConfig,
+};
 
 /// Wrapper around `Arc<tokio::sync::RwLock<PermissionEngine>>` implementing
 /// [`PermissionEvaluator`] so session tools can evaluate inter-agent
@@ -107,5 +111,53 @@ fn map_risk_level_to_permission(
         RiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
         RiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
         RiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
+    }
+}
+
+/// Config-backed production implementation of the session crate's
+/// [`SpawnBudgetLookup`] port.
+///
+/// The daemon is the composition root owning the config store; this
+/// adapter maps `ConfigManager` agent entries onto the narrow
+/// spawn-budget / spawn-time config views. Pure data mapping — the
+/// controller owns all defaulting and validation semantics. Injected
+/// into `SpawnController` in `phase_wiring`.
+pub struct ConfigSpawnBudgetLookup {
+    config_manager: Arc<ConfigManager>,
+}
+
+impl ConfigSpawnBudgetLookup {
+    pub fn new(config_manager: Arc<ConfigManager>) -> Self {
+        Self { config_manager }
+    }
+}
+
+#[async_trait]
+impl SpawnBudgetLookup for ConfigSpawnBudgetLookup {
+    async fn spawn_budget(&self, agent_id: &str) -> Option<AgentSpawnBudget> {
+        let agents = self.config_manager.agents();
+        let sc = &agents.get(agent_id)?.subagents;
+        Some(AgentSpawnBudget {
+            max_spawn_depth: sc.max_spawn_depth,
+            max_children: sc.max_children,
+            allow_agents: Some(sc.allow_agents.clone()),
+            require_agent_id: sc.require_agent_id,
+            timeout: sc.timeout,
+            timeout_warning: sc.timeout_warning,
+            timeout_notify_interval_ratio: sc.timeout_notify_interval_ratio,
+        })
+    }
+
+    async fn spawn_target_config(&self, agent_id: &str) -> Option<SpawnTargetAgentConfig> {
+        let agents = self.config_manager.agents();
+        let cfg = agents.get(agent_id)?;
+        Some(SpawnTargetAgentConfig {
+            id: cfg.id.clone(),
+            model: cfg.model.clone(),
+            workspace: cfg.workspace.clone(),
+            skills: cfg.skills.clone(),
+            tools: cfg.tools.clone(),
+            hooks: cfg.hooks.clone(),
+        })
     }
 }

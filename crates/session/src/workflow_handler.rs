@@ -2,16 +2,19 @@
 //!
 //! Intercepts workflow tool results (`workflow_start`, `workflow_verify`,
 //! `workflow_jump`, `workflow_blocked`) from the LLM response, routes
-//! them to the appropriate [`WorkflowEngine`] method, and manages
-//! blocked-state notifications for owner intervention.
+//! them through the injected [`WorkflowPort`] to the workflow engine,
+//! and manages blocked-state notifications for owner intervention.
+//!
+//! All engine state is held in its serialized (`serde_json::Value`)
+//! form; typed engine access is delegated to the port.
 
-use std::collections::HashMap;
-
-use closeclaw_workflow::definition::Workflow;
-use closeclaw_workflow::engine::WorkflowEngine;
-use closeclaw_workflow::run::{Phase, WorkflowRun};
+use std::sync::Arc;
 
 use closeclaw_common::ContentBlock;
+
+use crate::workflow_port::{
+    JumpQuestionSpec, WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunInfo,
+};
 
 /// Result of processing a verify/jump tool action, indicating the
 /// resulting workflow phase transition.
@@ -40,42 +43,45 @@ pub struct WorkflowNotification {
 
 /// Workflow tool result processor and engine state holder.
 ///
-/// Manages the [`WorkflowEngine`] and the current [`WorkflowRun`] state.
-/// Tool results from the LLM are parsed and routed to the appropriate
-/// engine method. Blocked-state notifications are queued for the
-/// gateway to deliver to the owner.
+/// Manages the serialized workflow-run state and the active definition.
+/// Tool results from the LLM are parsed and routed to the engine via
+/// the injected [`WorkflowPort`]. Blocked-state notifications are
+/// queued for the gateway to deliver to the owner.
 #[derive(Clone)]
 pub struct WorkflowHandler {
-    /// The current workflow run state.
-    run: WorkflowRun,
-    /// The workflow definition for the active run.
-    definition: Workflow,
+    /// The current workflow run state (serialized form).
+    run: serde_json::Value,
+    /// The workflow definition for the active run (serialized form).
+    definition: serde_json::Value,
+    /// Engine port for all workflow-crate operations.
+    port: Arc<dyn WorkflowPort>,
     /// Pending notification to send to the owner (blocked state only).
     pending_notification: Option<WorkflowNotification>,
 }
 
 impl WorkflowHandler {
-    /// Create a new handler from a started workflow run and definition.
-    pub fn new(run: WorkflowRun, definition: Workflow) -> Self {
+    /// Create a new handler from serialized run state, a serialized
+    /// definition, and the engine port.
+    pub fn new(
+        run: serde_json::Value,
+        definition: serde_json::Value,
+        port: Arc<dyn WorkflowPort>,
+    ) -> Self {
         Self {
             run,
             definition,
+            port,
             pending_notification: None,
         }
     }
 
-    /// Returns a reference to the current workflow run.
-    pub fn run(&self) -> &WorkflowRun {
+    /// Returns a reference to the serialized workflow run state.
+    pub fn run_state(&self) -> &serde_json::Value {
         &self.run
     }
 
-    /// Returns a mutable reference to the current workflow run.
-    pub fn run_mut(&mut self) -> &mut WorkflowRun {
-        &mut self.run
-    }
-
-    /// Returns a reference to the workflow definition.
-    pub fn definition(&self) -> &Workflow {
+    /// Returns a reference to the serialized workflow definition.
+    pub fn definition_state(&self) -> &serde_json::Value {
         &self.definition
     }
 
@@ -83,23 +89,67 @@ impl WorkflowHandler {
     pub fn take_notification(&mut self) -> Option<WorkflowNotification> {
         self.pending_notification.take()
     }
+}
+
+// ── State queries (delegated to the port) ───────────────────────
+impl WorkflowHandler {
+    /// Decoded view of the current run state, if decodable.
+    pub fn run_info(&self) -> Option<WorkflowRunInfo> {
+        self.port.run_info(&self.run)
+    }
+
+    /// Returns the current phase, if the run state is decodable.
+    pub fn phase(&self) -> Option<WorkflowPhase> {
+        self.port.run_phase(&self.run)
+    }
 
     /// Returns `true` if the workflow is in a blocked state.
     pub fn is_blocked(&self) -> bool {
-        self.run.phase == Phase::Blocked
+        self.phase() == Some(WorkflowPhase::Blocked)
     }
 
     /// Returns `true` if the workflow is complete.
     pub fn is_complete(&self) -> bool {
-        self.run.phase == Phase::Complete
+        self.phase() == Some(WorkflowPhase::Complete)
     }
 
     /// Returns `true` if the session idle condition should trigger
     /// a verify injection (phase == Executing).
     pub fn on_session_idle(&self) -> bool {
-        WorkflowEngine::on_session_idle(&self.run)
+        self.port.on_session_idle(&self.run)
     }
 
+    /// Returns the verify retry limit declared by the definition.
+    pub fn verify_retry_limit(&self) -> Option<usize> {
+        self.port.definition_verify_retry_limit(&self.definition)
+    }
+
+    /// Returns the effective `allow_blocked` for the current step.
+    pub fn current_step_effective_allow_blocked(&self) -> Option<bool> {
+        let step = self.run_info()?.current_step;
+        self.port
+            .step_effective_allow_blocked(&self.definition, step)
+    }
+
+    /// Render the verify checklist message for the given step.
+    pub fn verify_message_for_step(&self, step: usize, allow_blocked: bool) -> Option<String> {
+        self.port
+            .verify_message(&self.definition, step, allow_blocked)
+    }
+
+    /// Render the jump question message for the given step.
+    pub fn jump_message_for_step(&self, step: usize) -> Option<String> {
+        self.port.jump_message(&self.definition, step)
+    }
+
+    /// Render the goal message for the given step.
+    pub fn goal_message_for_step(&self, step: usize, hint: WorkflowGoalHint) -> Option<String> {
+        self.port.goal_message(&self.definition, step, hint)
+    }
+}
+
+// ── Tool result processing ──────────────────────────────────────
+impl WorkflowHandler {
     /// Process a workflow tool result from the LLM response.
     ///
     /// Parses the `ContentBlock::ToolResult` content as JSON and routes
@@ -155,42 +205,48 @@ impl WorkflowHandler {
     ///
     /// Records the goal injection timestamp.
     fn handle_start_result(&mut self, _data: &serde_json::Value) -> bool {
-        WorkflowEngine::on_goal_injected(&mut self.run);
-        tracing::debug!(
-            step = self.run.current_step,
-            workflow = %self.run.definition_name,
-            "workflow goal injected"
-        );
+        self.run = self
+            .port
+            .on_goal_injected(std::mem::replace(&mut self.run, serde_json::Value::Null));
+        let (step, name) = match self.run_info() {
+            Some(info) => (info.current_step, info.definition_name),
+            None => (0, String::new()),
+        };
+        tracing::debug!(step, workflow = %name, "workflow goal injected");
         true
     }
 
     /// Handle a `workflow_verify` tool result.
     ///
-    /// Calls `WorkflowEngine::handle_verify` to evaluate transitions.
+    /// Delegates to the port's `handle_verify` to evaluate transitions.
     /// Returns [`JumpResult::Jumped`] if the workflow entered jumping phase,
     /// [`JumpResult::NotJumped`] otherwise.
     fn handle_verify_result(&mut self) -> (bool, JumpResult) {
-        match WorkflowEngine::handle_verify(&mut self.run, &self.definition) {
-            Ok(_action) => {
-                let jump_result = if self.run.phase == Phase::Jumping {
+        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
+        match self.port.handle_verify(taken.clone(), &self.definition) {
+            Ok((run, phase)) => {
+                self.run = run;
+                let jump_result = if phase == WorkflowPhase::Jumping {
                     JumpResult::Jumped
                 } else {
                     JumpResult::NotJumped
                 };
-                tracing::debug!(
-                    step = self.run.current_step,
-                    phase = ?self.run.phase,
-                    "verify processed"
-                );
+                let step = self.run_info().map(|i| i.current_step).unwrap_or(0);
+                tracing::debug!(step, phase = ?phase, "verify processed");
                 (true, jump_result)
             }
             Err(e) => {
+                // Engine rejected the transition — restore prior state.
+                self.run = taken;
                 tracing::warn!(error = %e, "verify handling failed");
                 (false, JumpResult::NotJumped)
             }
         }
     }
+}
 
+// ── Jump handling ───────────────────────────────────────────────
+impl WorkflowHandler {
     /// Handle a `workflow_jump` tool result.
     ///
     /// Evaluates answers against transitions and executes the matched action.
@@ -200,36 +256,33 @@ impl WorkflowHandler {
     /// Returns [`JumpResult::Completed`] when the workflow transitions
     /// to the `Complete` phase.
     fn handle_jump_result(&mut self, data: &serde_json::Value) -> (bool, JumpResult) {
-        let answers = match data.get("answers") {
+        let mut answers = match data.get("answers") {
             Some(a) => a.as_object().cloned().unwrap_or_default(),
             None => return (false, JumpResult::NotJumped),
         };
-        let mut yaml_answers: HashMap<String, serde_yaml::Value> = answers
-            .into_iter()
-            .filter_map(|(k, v)| {
-                let yaml_val: serde_yaml::Value = serde_yaml::from_str(&v.to_string()).ok()?;
-                Some((k, yaml_val))
-            })
-            .collect();
 
         // Map enum letter answers to internal option values.
-        self.map_enum_letter_answers(&mut yaml_answers);
+        self.map_enum_letter_answers(&mut answers);
 
-        match WorkflowEngine::handle_jump(&mut self.run, &self.definition, &yaml_answers) {
-            Ok(action) => {
-                let jump_result = if self.run.phase == Phase::Complete {
+        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
+        match self
+            .port
+            .handle_jump(taken.clone(), &self.definition, &answers)
+        {
+            Ok((run, phase)) => {
+                self.run = run;
+                let jump_result = if phase == WorkflowPhase::Complete {
                     JumpResult::Completed
                 } else {
                     JumpResult::NotJumped
                 };
-                tracing::debug!(
-                    action = ?action,
-                    step = self.run.current_step,
-                    "jump processed"
-                );
+                let step = self.run_info().map(|i| i.current_step).unwrap_or(0);
+                tracing::debug!(step, phase = ?phase, "jump processed");
                 (true, jump_result)
             }
             Err(e) => {
+                // Engine rejected the transition — restore prior state.
+                self.run = taken;
                 tracing::warn!(error = %e, "jump handling failed");
                 (false, JumpResult::NotJumped)
             }
@@ -240,21 +293,25 @@ impl WorkflowHandler {
     ///
     /// When an agent answers an enum question with a letter like "A",
     /// this maps it to the corresponding `options[index]` value so that
-    /// `evaluate_transitions` can match against `expected_value`.
-    pub(crate) fn map_enum_letter_answers(&self, answers: &mut HashMap<String, serde_yaml::Value>) {
-        let step = match self.definition.steps.get(self.run.current_step) {
-            Some(s) => s,
+    /// transition evaluation can match against `expected_value`.
+    pub(crate) fn map_enum_letter_answers(
+        &self,
+        answers: &mut serde_json::Map<String, serde_json::Value>,
+    ) {
+        let step = match self.run_info() {
+            Some(info) => info.current_step,
             None => return,
         };
-        for q in &step.jump {
-            if q.question_type != "enum" || q.options.is_empty() {
+        for q in self.port.step_jump_questions(&self.definition, step) {
+            let JumpQuestionSpec {
+                id,
+                question_type,
+                options,
+            } = q;
+            if question_type != "enum" || options.is_empty() {
                 continue;
             }
-            let answer_val = match answers.get(&q.id) {
-                Some(v) => v,
-                None => continue,
-            };
-            let letter = match answer_val.as_str() {
+            let letter = match answers.get(&id).and_then(|v| v.as_str()) {
                 Some(s) => s,
                 None => continue,
             };
@@ -262,11 +319,8 @@ impl WorkflowHandler {
                 Some(i) => i,
                 None => continue,
             };
-            if idx < q.options.len() {
-                answers.insert(
-                    q.id.clone(),
-                    serde_yaml::Value::String(q.options[idx].clone()),
-                );
+            if idx < options.len() {
+                answers.insert(id, serde_json::Value::String(options[idx].clone()));
             }
         }
     }
@@ -286,11 +340,14 @@ impl WorkflowHandler {
         }
         Some((b - b'A') as usize)
     }
+}
 
+// ── Engine callbacks and notifications ──────────────────────────
+impl WorkflowHandler {
     /// Handle a `workflow_blocked` tool result.
     ///
-    /// Calls `WorkflowEngine::handle_blocked` and queues a notification
-    /// for the owner if blocking is allowed.
+    /// Routes through the port's `handle_blocked` and queues a
+    /// notification for the owner if blocking is allowed.
     fn handle_blocked_result(&mut self, data: &serde_json::Value) -> bool {
         let reason = data
             .get("reason")
@@ -298,41 +355,57 @@ impl WorkflowHandler {
             .unwrap_or("unknown");
 
         // Check if blocking is allowed for the current step.
-        let step = match self.definition.steps.get(self.run.current_step) {
-            Some(s) => s,
+        let current_step = match self.run_info() {
+            Some(info) => info.current_step,
             None => return false,
         };
-        let allow_blocked = step.allow_blocked.unwrap_or(self.definition.allow_blocked);
-
-        if let Err(e) =
-            WorkflowEngine::handle_blocked(&mut self.run, &self.definition, allow_blocked, reason)
+        let allow_blocked = match self
+            .port
+            .step_effective_allow_blocked(&self.definition, current_step)
         {
-            tracing::warn!(error = %e, "blocked handling failed");
-            return false;
+            Some(a) => a,
+            None => return false,
+        };
+
+        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
+        match self
+            .port
+            .handle_blocked(taken.clone(), &self.definition, allow_blocked, reason)
+        {
+            Ok(run) => {
+                self.run = run;
+                let workflow_name = self
+                    .run_info()
+                    .map(|i| i.definition_name)
+                    .unwrap_or_default();
+                let step_name = self
+                    .port
+                    .step_name(&self.definition, current_step)
+                    .unwrap_or_default();
+                self.pending_notification = Some(WorkflowNotification {
+                    workflow_name: workflow_name.clone(),
+                    current_step,
+                    reason: reason.to_string(),
+                    message: format!(
+                        "⚠️ Workflow「{}」在 Step {} ({}) 被阻塞\n原因：{}\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
+                        workflow_name, current_step, step_name, reason,
+                    ),
+                });
+                tracing::info!(
+                    workflow = %workflow_name,
+                    step = current_step,
+                    reason = %reason,
+                    "workflow blocked, owner notification queued"
+                );
+                true
+            }
+            Err(e) => {
+                // Engine rejected the transition — restore prior state.
+                self.run = taken;
+                tracing::warn!(error = %e, "blocked handling failed");
+                false
+            }
         }
-
-        // Queue notification for the owner.
-        let step_name = step.name.clone();
-        self.pending_notification = Some(WorkflowNotification {
-            workflow_name: self.run.definition_name.clone(),
-            current_step: self.run.current_step,
-            reason: reason.to_string(),
-            message: format!(
-                "⚠️ Workflow「{}」在 Step {} ({}) 被阻塞\n原因：{}\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
-                self.run.definition_name,
-                self.run.current_step,
-                step_name,
-                reason,
-            ),
-        });
-
-        tracing::info!(
-            workflow = %self.run.definition_name,
-            step = self.run.current_step,
-            reason = %reason,
-            "workflow blocked, owner notification queued"
-        );
-        true
     }
 
     /// Notify the engine that the verify limit has been exceeded.
@@ -340,8 +413,11 @@ impl WorkflowHandler {
     /// Called by the gateway when `on_verify_injected` transitions the
     /// run to blocked state. Queues a notification for the owner.
     pub fn on_verify_limit_exceeded(&mut self, verify_retry_limit: usize) {
-        WorkflowEngine::on_verify_injected(&mut self.run, verify_retry_limit);
-        if self.run.phase == Phase::Blocked {
+        self.run = self.port.on_verify_injected(
+            std::mem::replace(&mut self.run, serde_json::Value::Null),
+            verify_retry_limit,
+        );
+        if self.is_blocked() {
             self.queue_verify_limit_notification(verify_retry_limit);
         }
     }
@@ -351,58 +427,71 @@ impl WorkflowHandler {
     /// Transitions the workflow from blocked to verifying, clears
     /// pending_verify, and removes old goal message.
     pub fn on_owner_resolve(&mut self) {
-        WorkflowEngine::on_owner_resolve(&mut self.run);
+        self.run = self
+            .port
+            .on_owner_resolve(std::mem::replace(&mut self.run, serde_json::Value::Null));
         self.pending_notification = None;
-        tracing::info!(
-            workflow = %self.run.definition_name,
-            "owner resolved blocked workflow"
-        );
+        let workflow = self
+            .run_info()
+            .map(|i| i.definition_name)
+            .unwrap_or_default();
+        tracing::info!(workflow = %workflow, "owner resolved blocked workflow");
     }
 
     /// Handle an owner terminate response.
     ///
     /// Transitions the workflow to complete phase.
     pub fn on_owner_terminate(&mut self) {
-        WorkflowEngine::on_owner_terminate(&mut self.run);
+        self.run = self
+            .port
+            .on_owner_terminate(std::mem::replace(&mut self.run, serde_json::Value::Null));
         self.pending_notification = None;
-        tracing::info!(
-            workflow = %self.run.definition_name,
-            "owner terminated workflow"
-        );
+        let workflow = self
+            .run_info()
+            .map(|i| i.definition_name)
+            .unwrap_or_default();
+        tracing::info!(workflow = %workflow, "owner terminated workflow");
     }
 
     /// Record that a verify message has been injected.
     ///
-    /// Delegates to `WorkflowEngine::on_verify_injected` which
+    /// Delegates to the port's `on_verify_injected` which
     /// increments `pending_verify` and may transition to blocked.
     pub fn on_verify_injected(&mut self, verify_retry_limit: usize) {
-        WorkflowEngine::on_verify_injected(&mut self.run, verify_retry_limit);
-        if self.run.phase == Phase::Blocked && self.pending_notification.is_none() {
+        self.run = self.port.on_verify_injected(
+            std::mem::replace(&mut self.run, serde_json::Value::Null),
+            verify_retry_limit,
+        );
+        if self.is_blocked() && self.pending_notification.is_none() {
             self.queue_verify_limit_notification(verify_retry_limit);
         }
     }
 
     /// Queue a notification for verify-limit-exceeded blocking.
     fn queue_verify_limit_notification(&mut self, verify_retry_limit: usize) {
+        let (workflow_name, current_step) = match self.run_info() {
+            Some(info) => (info.definition_name, info.current_step),
+            None => (String::new(), 0),
+        };
         let step_name = self
-            .definition
-            .steps
-            .get(self.run.current_step)
-            .map(|s| s.name.clone())
+            .port
+            .step_name(&self.definition, current_step)
             .unwrap_or_default();
         self.pending_notification = Some(WorkflowNotification {
-            workflow_name: self.run.definition_name.clone(),
-            current_step: self.run.current_step,
+            workflow_name: workflow_name.clone(),
+            current_step,
             reason: format!("验证重试次数超过上限 ({})", verify_retry_limit),
             message: format!(
                 "⚠️ Workflow「{}」在 Step {} ({}) 验证重试次数超过上限\n\n请回复「恢复」继续执行，或「终止」结束工作流。",
-                self.run.definition_name, self.run.current_step, step_name,
+                workflow_name, current_step, step_name,
             ),
         });
     }
 
     /// Record that a goal message has been injected.
     pub fn on_goal_injected(&mut self) {
-        WorkflowEngine::on_goal_injected(&mut self.run);
+        self.run = self
+            .port
+            .on_goal_injected(std::mem::replace(&mut self.run, serde_json::Value::Null));
     }
 }

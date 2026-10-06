@@ -2,7 +2,7 @@
 
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
-use crate::spawn::SpawnTargetConfigLookup;
+use crate::spawn::{SpawnTargetAgentConfig, SpawnTargetConfigLookup};
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
@@ -128,7 +128,7 @@ impl SessionsSpawnTool {
     #[allow(clippy::too_many_arguments)]
     async fn create_child(
         &self,
-        config: &closeclaw_config::agents::ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         parent_depth: u32,
         task: &str,
@@ -173,18 +173,19 @@ impl SessionsSpawnTool {
     }
 
     /// Resolve everything needed to create the child session: the target
-    /// agent's full config (session-internal channel), the effective
-    /// timeout chain, and the parent session's depth / model context.
+    /// agent's spawn-time config view (session-internal channel), the
+    /// effective timeout chain, and the parent session's depth / model
+    /// context.
     async fn resolve_child_config(
         &self,
         spawn_result: &SpawnValidationResult,
         spawn_args: &SpawnArgs,
         parent_session_id: &str,
     ) -> Result<ResolvedChildConfig, ToolCallError> {
-        // The full target config profile is obtained through the
-        // session-internal channel — it never enters the shared
+        // The target agent's spawn-time config view is obtained through
+        // the session-internal channel — it never enters the shared
         // SpawnValidationResult (design doc §shared-types).
-        let config = self
+        let target = self
             .spawn_target_config
             .resolve_agent_config(&spawn_result.agent_id)
             .await
@@ -223,7 +224,7 @@ impl SessionsSpawnTool {
             .await
             .unwrap_or(0);
         Ok(ResolvedChildConfig {
-            config,
+            config: target,
             spawn_timeout,
             timeout_warning_secs,
             timeout_notify_interval_ratio,
@@ -236,7 +237,7 @@ impl SessionsSpawnTool {
 
 /// Child-session inputs resolved by [`SessionsSpawnTool::resolve_child_config`].
 struct ResolvedChildConfig {
-    config: closeclaw_config::agents::ResolvedAgentConfig,
+    config: SpawnTargetAgentConfig,
     spawn_timeout: Option<u64>,
     timeout_warning_secs: Option<u64>,
     timeout_notify_interval_ratio: Option<f64>,
@@ -289,9 +290,8 @@ impl Tool for SessionsSpawnTool {
         let tools_desc = "Optional whitelist of tools the child session may ".to_owned()
             + "use. When provided, only these tools are available"
             + " to the child agent.";
-        // promptTemplate enum values: "explore"/"plan"/"executor" correspond to
-        // AgentType enum (crates/agent/src/config/agent_type.rs); "validation" is
-        // a pre-existing template outside the AgentType scope.
+        // promptTemplate enum values map to the built-in prompt prefixes
+        // defined in `prompt_template.rs`.
         json!({
             "type": "object",
             "properties": {
@@ -353,7 +353,7 @@ impl Tool for SessionsSpawnTool {
                 "promptTemplate": {
                     "type": "string",
                     "enum": ["explore", "validation", "plan", "executor"],
-                    "description": "Built-in prompt template to prepend to the task. Values align with AgentType enum (crates/agent/src/config/agent_type.rs): 'explore' = Explore Agent (read-only research, Research phase); 'plan' = Plan Agent (read-only architect perspective, Design phase); 'executor' = Executor Agent (full toolset, Auto Mode). 'validation' is a pre-existing audit template not in AgentType."
+                    "description": "Built-in prompt template to prepend to the task: 'explore' = Explore Agent (read-only research, Research phase); 'plan' = Plan Agent (read-only architect perspective, Design phase); 'executor' = Executor Agent (full toolset, Auto Mode). 'validation' is a pre-existing audit template."
                 }
             },
             "required": ["task"]

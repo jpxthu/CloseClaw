@@ -537,6 +537,7 @@ impl SessionManager {
                             // Inject skill listing provider and agent skills.
                             self.wire_skill_listing_deps(&mut conv_session, &agent_id)
                                 .await;
+                            self.wire_workflow_port(&mut conv_session).await;
                             // Query bootstrap mode from AgentRegistry and cache.
                             let bootstrap_mode = self
                                 .query_agent_bootstrap_mode(&agent_id)
@@ -713,6 +714,7 @@ impl SessionManager {
         // Inject skill listing provider and agent skills.
         self.wire_skill_listing_deps(&mut conv_session, &agent_id)
             .await;
+        self.wire_workflow_port(&mut conv_session).await;
         // Query bootstrap mode from AgentRegistry and cache.
         let bootstrap_mode = self
             .query_agent_bootstrap_mode(&agent_id)
@@ -985,8 +987,6 @@ impl SessionManager {
             }
         }
     }
-    /// Sync `plan_file_path` from checkpoint into ConversationSession
-    /// so Auto Mode plan injection survives process restarts.
     pub(super) fn sync_plan_file_path_from_checkpoint(
         conv: &mut ConversationSession,
         cp: &SessionCheckpoint,

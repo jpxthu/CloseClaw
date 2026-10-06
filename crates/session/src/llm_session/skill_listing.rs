@@ -14,6 +14,17 @@ use closeclaw_common::SkillListingProvider;
 use std::sync::Arc;
 
 impl ConversationSession {
+    /// Set the agent-level skill whitelist filter.
+    ///
+    /// When set, only skills whose names appear in `skills` are included
+    /// in the injected listing. A list containing `"*"` means no filtering.
+    pub fn set_agent_skills(&mut self, skills: Vec<String>) {
+        self.agent_skills = Some(skills);
+    }
+    /// Returns the agent-level skill whitelist, if any.
+    pub fn agent_skills(&self) -> Option<&[String]> {
+        self.agent_skills.as_deref()
+    }
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///

@@ -5,36 +5,27 @@
 //! (`make_test_mgr`, `clear_global_prompt_state`) are re-exported by
 //! `super::tests` at `pub(super)` visibility.
 
-use super::spawn::SpawnMode;
+use super::spawn::{SpawnMode, SpawnTargetAgentConfig};
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
-use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::ModelSpec;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
+pub(crate) fn test_spawn_target_config(
+    id: &str,
+    workspace: Option<PathBuf>,
+) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
         id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
         model: Some(ModelSpec::single("test-model")),
         workspace,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
         skills: vec![],
         tools: vec![],
-        disallowed_tools: vec![],
-        subagents: SubagentsConfig::default(),
-        memory: MemoryConfig::default(),
         hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: ConfigSource::Merged,
     }
 }
 
@@ -76,7 +67,7 @@ async fn test_create_child_session_basic() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("child-agent", None);
+    let config = test_spawn_target_config("child-agent", None);
 
     // Step 1.5 requires the parent to live in conversation_sessions
     // so the child can be wired into the parent's cancel token tree.
@@ -130,7 +121,7 @@ async fn test_create_child_session_workspace_fallback() {
     // No manager-level workspace → falls back to config.workspace
     let mgr = make_test_mgr(None);
     let explicit = tempfile::TempDir::new().unwrap();
-    let config = test_resolved_config("child-agent", Some(explicit.path().to_path_buf()));
+    let config = test_spawn_target_config("child-agent", Some(explicit.path().to_path_buf()));
     // Step 1.5: pre-populate parent so child can inherit its cancel
     // token tree.
     register_parent_session(&mgr, "parent-x", explicit.path().to_path_buf()).await;
@@ -193,7 +184,7 @@ async fn test_create_child_session_workspace_fallback() {
 async fn test_create_child_session_registers_child_info() {
     clear_global_prompt_state();
     let mgr = make_test_mgr(None);
-    let config = test_resolved_config("worker-1", None);
+    let config = test_spawn_target_config("worker-1", None);
     // Step 1.5: pre-populate parent so child inherits the parent's
     // cancel token tree and is registered in the parent's
     // child_handles.
@@ -239,7 +230,7 @@ async fn test_steer_child_injects_pending_message() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("steer-child", None);
+    let config = test_spawn_target_config("steer-child", None);
     register_parent_session(&mgr, "parent-steer", tmp.path().to_path_buf()).await;
     let child_id = mgr
         .create_child_session(
@@ -294,7 +285,7 @@ async fn test_kill_child_removes_from_all_tables() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("kill-child", None);
+    let config = test_spawn_target_config("kill-child", None);
     register_parent_session(&mgr, "parent-kill", tmp.path().to_path_buf()).await;
     let child_id = mgr
         .create_child_session(
@@ -359,7 +350,7 @@ async fn test_validate_child_ownership_by_mode() {
     {
         let tmp = tempfile::TempDir::new().unwrap();
         let mgr = make_test_mgr(Some(tmp.path()));
-        let config = test_resolved_config("run-child", None);
+        let config = test_spawn_target_config("run-child", None);
         register_parent_session(&mgr, "parent-validate-run", tmp.path().to_path_buf()).await;
         let child_id = mgr
             .create_child_session(
@@ -397,7 +388,7 @@ async fn test_validate_child_ownership_by_mode() {
     {
         let tmp = tempfile::TempDir::new().unwrap();
         let mgr = make_test_mgr(Some(tmp.path()));
-        let config = test_resolved_config("session-child", None);
+        let config = test_spawn_target_config("session-child", None);
         register_parent_session(&mgr, "parent-validate-session", tmp.path().to_path_buf()).await;
         let child_id = mgr
             .create_child_session(
@@ -438,24 +429,8 @@ async fn test_create_child_session_allowed_tools_override() {
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
     // Config with some tools listed
-    let config = ResolvedAgentConfig {
-        id: "tools-agent".to_string(),
-        name: "tools-agent".to_string(),
-        parent_id: None,
-        model: Some(ModelSpec::single("test-model")),
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
-        skills: vec![],
-        tools: vec!["ToolA".into(), "ToolB".into(), "ToolC".into()],
-        disallowed_tools: vec![],
-        subagents: SubagentsConfig::default(),
-        memory: MemoryConfig::default(),
-        hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: ConfigSource::Merged,
-    };
+    let mut config = test_spawn_target_config("tools-agent", None);
+    config.tools = vec!["ToolA".into(), "ToolB".into(), "ToolC".into()];
 
     register_parent_session(&mgr, "parent-tools", tmp.path().to_path_buf()).await;
     // Create child with allowed_tools override
@@ -525,7 +500,7 @@ async fn test_create_child_session_workspace_fallback_to_dedicated_dir() {
         .join("parent-agent")
         .join("default");
     std::fs::create_dir_all(&parent_workspace).unwrap();
-    let config = test_resolved_config("child-agent", None);
+    let config = test_spawn_target_config("child-agent", None);
 
     // Register parent session with the parent workspace as its workdir.
     register_parent_session(&mgr, "parent-ws", parent_workspace.clone()).await;
@@ -602,7 +577,7 @@ async fn test_create_child_session_workspace_uses_actual_user_id() {
         .join(parent_agent_id)
         .join("default");
     std::fs::create_dir_all(&parent_workspace).unwrap();
-    let config = test_resolved_config("child-agent", None);
+    let config = test_spawn_target_config("child-agent", None);
     // Register parent session with the parent workspace as its workdir.
     register_parent_session(&mgr, parent_session_id, parent_workspace.clone()).await;
     let child_id = mgr
@@ -718,7 +693,7 @@ async fn test_child_session_system_prompt_contains_spawn_context() {
     clear_global_prompt_state();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("child-agent", None);
+    let config = test_spawn_target_config("child-agent", None);
     register_parent_session(&mgr, "parent-prompt", tmp.path().to_path_buf()).await;
     let child_id = mgr
         .create_child_session(
@@ -838,7 +813,7 @@ async fn test_child_session_communication_config_has_parent() {
         ReasoningLevel::default(),
     );
     mgr.set_config_dir_for_testing(tmp.path());
-    let config = test_resolved_config("comm-child", None);
+    let config = test_spawn_target_config("comm-child", None);
     register_parent_session(&mgr, "parent-comm", tmp.path().to_path_buf()).await;
     let child_id = mgr
         .create_child_session(
@@ -950,7 +925,7 @@ async fn test_spawn_checkpoint_persists_parent_session_id_and_depth() {
         ReasoningLevel::default(),
     );
     mgr.set_config_dir_for_testing(tmp.path());
-    let config = test_resolved_config("cp-check-agent", None);
+    let config = test_spawn_target_config("cp-check-agent", None);
     register_parent_session(&mgr, parent_session_id, tmp.path().to_path_buf()).await;
     let child_id = mgr
         .create_child_session(

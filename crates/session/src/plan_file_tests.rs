@@ -1,10 +1,10 @@
 use super::plan_file;
-use closeclaw_config::IdentifierFormat;
+use super::plan_file::PlanIdentifierFormat;
 use std::path::Path;
 
 #[test]
 fn test_generate_identifier_timestamp_format() {
-    let id = plan_file::generate_identifier("my feature", IdentifierFormat::Timestamp);
+    let id = plan_file::generate_identifier("my feature", PlanIdentifierFormat::Timestamp);
     // Format: yyyy-MM-dd-HH-mm-ss-slug
     assert!(id.starts_with("20"));
     assert!(id.contains('-'));
@@ -17,7 +17,7 @@ fn test_generate_identifier_timestamp_format() {
 
 #[test]
 fn test_generate_identifier_empty_title() {
-    let id = plan_file::generate_identifier("", IdentifierFormat::Timestamp);
+    let id = plan_file::generate_identifier("", PlanIdentifierFormat::Timestamp);
     assert!(
         id.ends_with("-untitled"),
         "empty title should end with -untitled, got: {id}"
@@ -27,7 +27,7 @@ fn test_generate_identifier_empty_title() {
 #[test]
 fn test_generate_identifier_long_title_truncated() {
     let long_title = "a".repeat(100);
-    let id = plan_file::generate_identifier(&long_title, IdentifierFormat::Timestamp);
+    let id = plan_file::generate_identifier(&long_title, PlanIdentifierFormat::Timestamp);
     let parts: Vec<&str> = id.splitn(7, '-').collect();
     let slug = parts.last().unwrap_or(&"");
     assert!(
@@ -40,7 +40,7 @@ fn test_generate_identifier_long_title_truncated() {
 
 #[test]
 fn test_generate_identifier_special_chars() {
-    let id = plan_file::generate_identifier("Hello World! @#$%", IdentifierFormat::Timestamp);
+    let id = plan_file::generate_identifier("Hello World! @#$%", PlanIdentifierFormat::Timestamp);
     let parts: Vec<&str> = id.splitn(7, '-').collect();
     let slug = parts.last().unwrap_or(&"");
     // Special chars replaced with hyphens, collapsed
@@ -127,8 +127,8 @@ fn test_create_plan_file_long_title() {
 
 #[test]
 fn test_generate_identifier_different_titles() {
-    let id_a = plan_file::generate_identifier("Feature A", IdentifierFormat::Timestamp);
-    let id_b = plan_file::generate_identifier("Feature B", IdentifierFormat::Timestamp);
+    let id_a = plan_file::generate_identifier("Feature A", PlanIdentifierFormat::Timestamp);
+    let id_b = plan_file::generate_identifier("Feature B", PlanIdentifierFormat::Timestamp);
     assert_ne!(
         id_a, id_b,
         "different titles should produce different identifiers"
@@ -193,13 +193,19 @@ fn test_generate_random_identifier_uniqueness() {
 
 #[test]
 fn test_generate_identifier_random_words_format() {
-    let id = plan_file::generate_identifier("ignored", IdentifierFormat::RandomWords);
+    let id = plan_file::generate_identifier("ignored", PlanIdentifierFormat::RandomWords);
     let parts: Vec<&str> = id.split('-').collect();
     assert_eq!(
         parts.len(),
         3,
         "random format should have 3 parts, got: {id}"
     );
+    for segment in parts {
+        assert!(
+            !segment.is_empty() && segment.chars().all(|c| c.is_ascii_lowercase()),
+            "segments must be non-empty lowercase words: {id}"
+        );
+    }
 }
 
 #[test]
@@ -208,7 +214,7 @@ fn test_create_plan_file_with_format_timestamp() {
     let path = plan_file::create_plan_file_with_format(
         dir.path(),
         "Test Feature",
-        IdentifierFormat::Timestamp,
+        PlanIdentifierFormat::Timestamp,
     )
     .unwrap();
     assert!(path.exists());
@@ -226,7 +232,7 @@ fn test_create_plan_file_with_format_random_words() {
     let path = plan_file::create_plan_file_with_format(
         dir.path(),
         "Test Feature",
-        IdentifierFormat::RandomWords,
+        PlanIdentifierFormat::RandomWords,
     )
     .unwrap();
     assert!(path.exists());
