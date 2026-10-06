@@ -10,7 +10,6 @@ license = "MIT"
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-debug-log = { path = "../debug_log" }
-closeclaw-agent = { path = "../agent" }
 closeclaw-workflow = { path = "../workflow" }
 dirs = "5"
 serde_yaml = "0.9"

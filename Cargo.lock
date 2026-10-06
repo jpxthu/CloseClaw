@@ -960,7 +960,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "chrono",
- "closeclaw-agent",
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",

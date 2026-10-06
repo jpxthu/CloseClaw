@@ -289,9 +289,8 @@ impl Tool for SessionsSpawnTool {
         let tools_desc = "Optional whitelist of tools the child session may ".to_owned()
             + "use. When provided, only these tools are available"
             + " to the child agent.";
-        // promptTemplate enum values: "explore"/"plan"/"executor" correspond to
-        // AgentType enum (crates/agent/src/config/agent_type.rs); "validation" is
-        // a pre-existing template outside the AgentType scope.
+        // promptTemplate enum values map to the built-in prompt prefixes
+        // defined in `prompt_template.rs`.
         json!({
             "type": "object",
             "properties": {
@@ -353,7 +352,7 @@ impl Tool for SessionsSpawnTool {
                 "promptTemplate": {
                     "type": "string",
                     "enum": ["explore", "validation", "plan", "executor"],
-                    "description": "Built-in prompt template to prepend to the task. Values align with AgentType enum (crates/agent/src/config/agent_type.rs): 'explore' = Explore Agent (read-only research, Research phase); 'plan' = Plan Agent (read-only architect perspective, Design phase); 'executor' = Executor Agent (full toolset, Auto Mode). 'validation' is a pre-existing audit template not in AgentType."
+                    "description": "Built-in prompt template to prepend to the task: 'explore' = Explore Agent (read-only research, Research phase); 'plan' = Plan Agent (read-only architect perspective, Design phase); 'executor' = Executor Agent (full toolset, Auto Mode). 'validation' is a pre-existing audit template."
                 }
             },
             "required": ["task"]
