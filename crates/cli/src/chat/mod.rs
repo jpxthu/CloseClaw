@@ -39,7 +39,9 @@ enum ExitReason {
 /// 2. Create an in-process Gateway + TerminalPlugin.
 /// 3. Initialize LLM call chain for Session/LLM integration.
 /// 4. Loop: read user input → process through Gateway → render output.
-async fn build_gateway(
+///
+/// `pub(crate)` so unit tests can drive the injection seam directly.
+pub(crate) async fn build_gateway(
     config_dir: &std::path::Path,
     agent_id: &str,
     _llm_registry: &Arc<closeclaw_llm::LLMRegistry>,

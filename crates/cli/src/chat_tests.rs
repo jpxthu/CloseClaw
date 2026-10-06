@@ -574,3 +574,314 @@ fn test_terminal_plugin_in_chat() {
         "chat/mod.rs should register TerminalPlugin with Gateway"
     );
 }
+
+// ── Slash injection path (Step 1.4) ──────────────────────────────────────
+
+use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+
+/// Reply text produced by the fake handler injected for `/ping`.
+const PING_REPLY_TEXT: &str = "injected-pong";
+
+/// Build the inbound message used by the injection-path tests.
+fn slash_input(content: &str) -> NormalizedMessage {
+    NormalizedMessage {
+        platform: "terminal".into(),
+        sender_id: "owner".into(),
+        peer_id: "cli".into(),
+        content: content.to_string(),
+        timestamp: 0,
+        account_id: "owner".into(),
+        thread_id: None,
+        chat_name: String::new(),
+        trace_id: String::new(),
+        message_id: String::new(),
+        message_type: Default::default(),
+        media_refs: Vec::new(),
+        reply_ref: None,
+        unavailable_media: Vec::new(),
+    }
+}
+
+/// Fake router standing in for the composition-root-injected dispatcher:
+/// records the slash input the chat pipeline routes to it and answers
+/// `/ping` with a `SlashResult::Reply` produced by its handler.
+struct RecordingReplyRouter {
+    received: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+impl RecordingReplyRouter {
+    fn record(&self, content: &str) {
+        self.received
+            .lock()
+            .expect("received mutex poisoned")
+            .push(content.to_string());
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashRouter for RecordingReplyRouter {
+    async fn dispatch(
+        &self,
+        content: &str,
+        _ctx: &closeclaw_common::SlashContext,
+    ) -> Option<closeclaw_common::SlashResult> {
+        self.record(content);
+        Some(closeclaw_common::SlashResult::Reply(
+            PING_REPLY_TEXT.to_string(),
+        ))
+    }
+
+    fn is_immediate(&self, _content: &str) -> bool {
+        true
+    }
+
+    fn get_handler(&self, command: &str) -> Option<Box<dyn closeclaw_common::SlashHandler>> {
+        if command != "ping" {
+            return None;
+        }
+        self.record(&format!("/{command}"));
+        Some(Box::new(RecordingReplyHandler {
+            received: Arc::clone(&self.received),
+        }))
+    }
+}
+
+/// Handler backing [`RecordingReplyRouter`]: yields the `Reply` result the
+/// Gateway must route to the output link.
+struct RecordingReplyHandler {
+    received: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashHandler for RecordingReplyHandler {
+    fn clone_box(&self) -> Box<dyn closeclaw_common::SlashHandler> {
+        Box::new(Self {
+            received: Arc::clone(&self.received),
+        })
+    }
+
+    fn commands(&self) -> &[&str] {
+        &["ping"]
+    }
+
+    fn description(&self) -> &str {
+        "ping (fake)"
+    }
+
+    async fn handle(
+        &self,
+        _args: &str,
+        _ctx: &closeclaw_common::SlashContext,
+    ) -> closeclaw_common::SlashResult {
+        closeclaw_common::SlashResult::Reply(PING_REPLY_TEXT.to_string())
+    }
+}
+
+/// Spy IM plugin on the `terminal` channel: records every outbound text the
+/// Gateway sends through the registered plugin (replaces `TerminalPlugin`,
+/// which would write to stdout).
+struct TerminalSpyPlugin {
+    sent: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::IMPlugin for TerminalSpyPlugin {
+    fn platform(&self) -> &str {
+        "terminal"
+    }
+
+    async fn parse_inbound(
+        &self,
+        _payload: &[u8],
+    ) -> Result<Option<NormalizedMessage>, closeclaw_common::AdapterError> {
+        Ok(None)
+    }
+
+    async fn send(
+        &self,
+        output: &closeclaw_common::RenderedOutput,
+        _peer_id: &str,
+        _thread_id: Option<&str>,
+        _reply_ref: Option<&str>,
+    ) -> Result<(), closeclaw_common::AdapterError> {
+        let text = output.payload.as_str().unwrap_or("").to_string();
+        if !text.is_empty() {
+            self.sent.lock().expect("sent mutex poisoned").push(text);
+        }
+        Ok(())
+    }
+}
+
+/// Build the cli chat gateway through the real injection seam, feeding it a
+/// fake router and returning the observable handles the tests assert on.
+struct InjectionFixture {
+    gateway: Arc<closeclaw_gateway::Gateway>,
+    /// Keeps the injected config dir alive for the test's duration.
+    _tmp: tempfile::TempDir,
+    _output_rx: tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+    received: Arc<std::sync::Mutex<Vec<String>>>,
+    sent: Arc<std::sync::Mutex<Vec<String>>>,
+    sm_query_slot: Arc<std::sync::Mutex<Option<Arc<dyn closeclaw_common::SlashSessionQuery>>>>,
+    closure_calls: Arc<AtomicUsize>,
+}
+
+async fn build_injection_fixture() -> InjectionFixture {
+    let tmp = tempfile::tempdir().expect("tempdir");
+    let received = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sent = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let sm_query_slot: Arc<std::sync::Mutex<Option<Arc<dyn closeclaw_common::SlashSessionQuery>>>> =
+        Arc::new(std::sync::Mutex::new(None));
+    let closure_calls = Arc::new(AtomicUsize::new(0));
+
+    let llm_registry = Arc::new(closeclaw_llm::LLMRegistry::new());
+    let fallback_client = closeclaw_llm::call_chain::build_fallback_client(&llm_registry).await;
+
+    let router_received = Arc::clone(&received);
+    let (gateway, output_rx) =
+        crate::chat::build_gateway(tmp.path(), "test-agent", &llm_registry, &fallback_client, {
+            let sm_query_slot = Arc::clone(&sm_query_slot);
+            let closure_calls = Arc::clone(&closure_calls);
+            move |sm_query| {
+                closure_calls.fetch_add(1, AtomicOrdering::SeqCst);
+                *sm_query_slot.lock().expect("slot mutex poisoned") = Some(sm_query);
+                Arc::new(RecordingReplyRouter {
+                    received: router_received,
+                }) as Arc<dyn closeclaw_common::SlashRouter>
+            }
+        })
+        .await
+        .expect("build_gateway must succeed");
+
+    InjectionFixture {
+        gateway,
+        _tmp: tmp,
+        _output_rx: output_rx,
+        received,
+        sent,
+        sm_query_slot,
+        closure_calls,
+    }
+}
+
+/// Slash injection seam: `build_gateway` invokes the injected assembly
+/// closure exactly once, hands it the `SessionManager`-derived
+/// `SlashSessionQuery`, and installs the returned router on the Gateway.
+#[tokio::test]
+async fn test_slash_router_injection_installed_on_gateway() {
+    let fx = build_injection_fixture().await;
+
+    assert_eq!(
+        fx.closure_calls.load(AtomicOrdering::SeqCst),
+        1,
+        "the injected slash assembly closure must be called exactly once"
+    );
+    assert!(
+        fx.sm_query_slot
+            .lock()
+            .expect("slot mutex poisoned")
+            .is_some(),
+        "the closure must receive the SessionManager-derived SlashSessionQuery"
+    );
+    assert!(
+        fx.gateway.has_slash_dispatcher().await,
+        "the router returned by the injected closure must be installed on the Gateway"
+    );
+}
+
+/// Slash injection normal path: the chat pipeline routes `/` input to the
+/// injected router and the handler's `SlashResult::Reply` comes out of the
+/// terminal output link.
+///
+/// `#[ignore]` — blocked by the pre-existing production bug tracked in
+/// issue #3411 (not a defect of the injection itself):
+/// - **blocker**: `build_gateway` builds `GatewayConfig` with
+///   `..Default::default()`, so `max_message_size == 0` and
+///   `validate_inbound` rejects every non-empty message before slash routing.
+/// - **复现证据**: running this test un-ignored prints
+///   `result=None sessions=0 sent=["消息过长，请缩短后重试"]` — the
+///   closure runs and the router is installed, but the router never sees
+///   `/ping`.
+/// - **解除条件**: #3411 fixed (non-zero `max_message_size` for cli chat) →
+///   remove `#[ignore]` and this test must pass unchanged; it is listed in
+///   the PR body dormant-test list until then.
+#[tokio::test]
+#[ignore = "blocked by closeclaw issue #3411: cli chat max_message_size = 0 rejects all input"]
+async fn test_slash_router_injection_reply_reaches_output() {
+    let fx = build_injection_fixture().await;
+
+    // Replace the TerminalPlugin registered by build_gateway so the
+    // outbound reply text is observable instead of printed to stdout.
+    fx.gateway
+        .register_plugin(Arc::new(TerminalSpyPlugin {
+            sent: Arc::clone(&fx.sent),
+        }))
+        .await;
+
+    let processed = fx
+        .gateway
+        .process_inbound_chain(&slash_input("/ping"))
+        .await;
+    let result = fx
+        .gateway
+        .handle_inbound_message(processed, Some("owner"), "terminal")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "slash reply must be consumed as SlashHandled, got {result:?}"
+    );
+    assert_eq!(
+        *fx.received.lock().expect("received mutex poisoned"),
+        vec!["/ping".to_string()],
+        "the injected router must receive the chat pipeline's slash input"
+    );
+    assert_eq!(
+        *fx.sent.lock().expect("sent mutex poisoned"),
+        vec![PING_REPLY_TEXT.to_string()],
+        "SlashResult::Reply must reach the terminal output link"
+    );
+}
+
+/// Slash injection boundary: a Gateway that never had `set_slash_dispatcher`
+/// called must not panic on `/` input. Recorded actual behaviour:
+/// `dispatch_slash` yields `None` without a dispatcher, so the message is
+/// not consumed as a slash command and falls through to the session handler;
+/// this Gateway registers no session handler, hence the result is `None`.
+#[tokio::test]
+async fn test_slash_input_without_dispatcher_does_not_panic() {
+    let config = GatewayConfig {
+        name: "test-no-dispatcher-gw".to_string(),
+        max_message_size: 64 * 1024,
+        bot_agent_bindings: std::collections::HashMap::from([(
+            "cli".to_string(),
+            "test-agent".to_string(),
+        )]),
+        ..Default::default()
+    };
+    let session_manager = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gateway = closeclaw_gateway::Gateway::new(config, Arc::clone(&session_manager));
+    assert!(
+        !gateway.has_slash_dispatcher().await,
+        "precondition: no slash dispatcher injected"
+    );
+
+    let processed = gateway.process_inbound_chain(&slash_input("/ping")).await;
+    let result = gateway
+        .handle_inbound_message(processed, Some("owner"), "terminal")
+        .await;
+
+    assert_eq!(
+        gateway.get_agent_sessions("test-agent").await.len(),
+        1,
+        "session must be resolved so the input actually reaches slash routing"
+    );
+    assert!(
+        result.is_none(),
+        "without a dispatcher the input must not be claimed as SlashHandled, got {result:?}"
+    );
+}
