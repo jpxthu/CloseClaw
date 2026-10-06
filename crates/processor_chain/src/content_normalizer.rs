@@ -17,7 +17,7 @@ use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::ProcessedMessage;
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::MessageType;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 use std::sync::LazyLock;
 
 use regex::Regex;

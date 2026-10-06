@@ -14,7 +14,7 @@ use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
 use crate::processor_chain::registry::ProcessorRegistry;
 use crate::ProcessedMessage;
 use closeclaw_common::im_plugin::NormalizedMessage;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 use crate::content_normalizer::ContentNormalizer;
 

@@ -3,7 +3,7 @@
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::dsl_parser::DslParser;
 use crate::processor_chain::processor::MessageProcessor;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 fn make_ctx(content: &str, content_blocks: Vec<ContentBlock>) -> MessageContext {
     MessageContext {

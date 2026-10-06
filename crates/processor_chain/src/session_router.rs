@@ -19,7 +19,7 @@ use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 /// Inbound processor that computes and attaches a `session_key` to the
 /// message metadata.
