@@ -114,6 +114,11 @@ impl SpawnCreationContext for SessionManager {
         guard.clone()
     }
 
+    fn workflow_port(&self) -> Option<Arc<dyn closeclaw_session::workflow_port::WorkflowPort>> {
+        let guard = self.workflow_port.try_read().ok()?;
+        guard.clone()
+    }
+
     fn config_dir(&self) -> &std::path::Path {
         self.config_dir
             .get()

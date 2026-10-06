@@ -356,6 +356,13 @@ impl Daemon {
                 Arc::clone(&builtin_skill_listing),
             )) as Arc<dyn SkillListingProvider>)
             .await;
+        // Inject the production workflow engine port (stateless adapter
+        // over the workflow crate). Wired onto every created/restored
+        // session and handed to child session creation; also used by
+        // the recovery scan in phase_init.
+        session_manager
+            .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
+            .await;
         // Inject static-layer cache invalidation callback.
         session_manager
             .set_cache_invalidator(Arc::new({

@@ -167,6 +167,12 @@ impl Daemon {
             use closeclaw_session::recovery::SessionRecoveryService;
             let recovery_svc =
                 SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
+            // Inject the production workflow port so recovery scan can
+            // re-inject workflow state (goal/jump messages) for sessions
+            // with an active workflow run.
+            recovery_svc
+                .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
+                .await;
             let recovery_result =
                 tokio::time::timeout(std::time::Duration::from_secs(10), recovery_svc.recover())
                     .await;

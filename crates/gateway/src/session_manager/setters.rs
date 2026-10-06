@@ -331,6 +331,33 @@ impl SessionManager {
         self.skill_listing_provider.read().await.clone()
     }
 
+    /// Set the workflow engine port for workflow state advancement.
+    ///
+    /// Called by the daemon (composition root) at startup; without the
+    /// port, new/restored sessions and child session creation receive
+    /// no port and workflow advancement is skipped.
+    pub async fn set_workflow_port(
+        &self,
+        port: Arc<dyn closeclaw_session::workflow_port::WorkflowPort>,
+    ) {
+        *self.workflow_port.write().await = Some(port);
+    }
+
+    /// Get the workflow engine port, if set.
+    pub async fn get_workflow_port(
+        &self,
+    ) -> Option<Arc<dyn closeclaw_session::workflow_port::WorkflowPort>> {
+        self.workflow_port.read().await.clone()
+    }
+
+    /// Wire the workflow engine port into ConversationSession; no-op
+    /// when no port has been injected.
+    pub(crate) async fn wire_workflow_port(&self, conv: &mut ConversationSession) {
+        if let Some(port) = self.get_workflow_port().await {
+            conv.set_workflow_port(port);
+        }
+    }
+
     /// Register an IM adapter.
     pub async fn register_adapter(&self, name: String, adapter: Arc<dyn IMPlugin>) {
         let mut adapters = self.adapters.write().await;

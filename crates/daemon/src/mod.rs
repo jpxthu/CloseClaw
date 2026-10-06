@@ -22,6 +22,7 @@ pub(crate) mod shutdown_heartbeat;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
+pub mod workflow_port_adapter;
 #[cfg(test)]
 pub(crate) use closeclaw_config::{ConfigManager, ConfigSection};
 #[cfg(test)]

@@ -162,6 +162,7 @@ impl SessionManager {
             conv.set_dynamic_prompt_builder(dpb);
         }
         self.wire_skill_listing_deps(conv, agent_id).await;
+        self.wire_workflow_port(conv).await;
     }
 
     /// Query bootstrap mode, rebuild the system prompt, inject
