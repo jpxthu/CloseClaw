@@ -13,14 +13,10 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
+use closeclaw_common::{ReasoningLevel, SlashRouter, SlashSessionQuery};
 use closeclaw_gateway::{
     Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
 };
-use closeclaw_session::persistence::ReasoningLevel;
-use closeclaw_slash::dispatcher::SlashDispatcher;
-use closeclaw_slash::handlers::CompactHandler;
-use closeclaw_slash::handlers_session::{StopHandler, VerboseHandler};
-use closeclaw_slash::registry::HandlerRegistry;
 
 use crate::admin::rpc::client::{admin_socket_path, AdminClient};
 use crate::llm_init;
@@ -43,11 +39,14 @@ enum ExitReason {
 /// 2. Create an in-process Gateway + TerminalPlugin.
 /// 3. Initialize LLM call chain for Session/LLM integration.
 /// 4. Loop: read user input → process through Gateway → render output.
-async fn build_gateway(
+///
+/// `pub(crate)` so unit tests can drive the injection seam directly.
+pub(crate) async fn build_gateway(
     config_dir: &std::path::Path,
     agent_id: &str,
     _llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
     fallback_client: &Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
+    build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
 ) -> anyhow::Result<(
     Arc<Gateway>,
     tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
@@ -101,14 +100,11 @@ async fn build_gateway(
     gateway.set_session_handler(session_handler);
 
     // ── Slash command dispatcher setup ──────────────────────────────
-    let slash_registry = Arc::new(HandlerRegistry::new());
-    slash_registry.register(Arc::new(CompactHandler));
-    slash_registry.register(Arc::new(StopHandler));
-    let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
-    slash_registry.register(Arc::new(VerboseHandler::new(sm_query)));
-    let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
-        as Arc<dyn closeclaw_common::SlashRouter>;
-    gateway.set_slash_dispatcher(slash_dispatcher).await;
+    // The concrete handler set is assembled and injected by the composition
+    // root (root crate); cli only supplies the SessionManager query it needs.
+    let sm_query: Arc<dyn SlashSessionQuery> = session_manager.clone();
+    let slash_router = build_slash_router(sm_query);
+    gateway.set_slash_dispatcher(slash_router).await;
 
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
     gateway.register_plugin(plugin).await;
@@ -116,7 +112,15 @@ async fn build_gateway(
     Ok((gateway, output_rx))
 }
 
-pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
+/// Run the interactive chat REPL.
+///
+/// `build_slash_router` is supplied by the composition root (root crate),
+/// which owns the concrete slash handler set — cli only consumes the
+/// resulting `SlashRouter` trait object.
+pub async fn run_chat(
+    agent_id: &str,
+    build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
+) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
         .unwrap_or_else(|| std::path::PathBuf::from(".closeclaw"));
@@ -136,8 +140,14 @@ pub async fn run_chat(agent_id: &str) -> anyhow::Result<()> {
     let llm_registry = llm_init::init_llm_registry(&config_dir).await;
     let fallback_client = llm_init::create_fallback_client(&llm_registry).await;
 
-    let (gateway, mut output_rx) =
-        build_gateway(&config_dir, agent_id, &llm_registry, &fallback_client).await?;
+    let (gateway, mut output_rx) = build_gateway(
+        &config_dir,
+        agent_id,
+        &llm_registry,
+        &fallback_client,
+        build_slash_router,
+    )
+    .await?;
 
     println!("CloseClaw Chat — agent: {}", agent_id);
     println!(

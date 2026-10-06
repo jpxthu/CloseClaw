@@ -1,15 +1,60 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::ModelSpec;
+use closeclaw_common::{ModelSpec, SkillRegistryQuery};
 use closeclaw_config::agents::{AgentConfig, ConfigSource, ResolvedAgentConfig};
-use closeclaw_skills::DiskSkillRegistry;
 
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
 use crate::admin::rpc::server::{
     dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list, dispatch_skill_list,
     reload_registry, AdminContext,
 };
+
+/// Fake skill registry injected into `AdminContext` — serves a fixed,
+/// in-memory listing so tests can drive both the empty and the populated
+/// SkillList paths without touching disk.
+///
+/// Only `list_skills` (the method `dispatch_skill_list` actually consumes)
+/// answers; every other trait method is `unimplemented!()` so an unexpected
+/// call fails loudly instead of returning a plausible default.
+struct FakeSkillRegistry {
+    skills: Vec<String>,
+}
+
+impl FakeSkillRegistry {
+    fn new(skills: &[&str]) -> Self {
+        Self {
+            skills: skills.iter().map(|s| s.to_string()).collect(),
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl SkillRegistryQuery for FakeSkillRegistry {
+    async fn has_skill(&self, _name: &str) -> bool {
+        unimplemented!()
+    }
+
+    async fn list_skills(&self) -> Vec<String> {
+        self.skills.clone()
+    }
+
+    async fn list_skills_for_agent(&self, _agent_skills: Option<&[String]>) -> Vec<String> {
+        unimplemented!()
+    }
+
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        unimplemented!()
+    }
+}
+
+fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
+    Some(Arc::new(FakeSkillRegistry::new(&[])))
+}
 
 fn make_test_context() -> AdminContext {
     let config_dir = tempfile::tempdir().unwrap().keep();
@@ -21,7 +66,7 @@ fn make_test_context() -> AdminContext {
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
     AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
+        skill_registry: empty_skill_registry(),
         config_manager,
         config_dir,
         restart_tx: None,
@@ -57,6 +102,54 @@ async fn test_dispatch_skill_list_empty() {
     match resp {
         AdminResponse::SkillListResult { skills } => assert!(skills.is_empty()),
         _ => panic!("expected SkillListResult"),
+    }
+}
+
+/// SkillList normal path: an injected registry returning two skill names →
+/// the response carries both names in the same order and `version` is
+/// `None` for every entry (the skill manifest exposes no version).
+#[tokio::test]
+async fn test_dispatch_skill_list_maps_names_in_order() {
+    let mut ctx = make_test_context();
+    ctx.skill_registry = Some(Arc::new(FakeSkillRegistry::new(&[
+        "alpha-skill",
+        "beta-skill",
+    ])));
+
+    let resp = dispatch_skill_list(&ctx).await;
+    match resp {
+        AdminResponse::SkillListResult { skills } => {
+            let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+            assert_eq!(
+                names,
+                vec!["alpha-skill", "beta-skill"],
+                "skill names must be mapped in registry order"
+            );
+            assert!(
+                skills.iter().all(|s| s.version.is_none()),
+                "version must stay None (SkillManifest carries no version), got {:?}",
+                skills
+            );
+        }
+        other => panic!("expected SkillListResult, got {:?}", other),
+    }
+}
+
+/// SkillList boundary: `skill_registry = None` (never injected) → empty
+/// list, no panic. Distinct from the "injected but empty" case above.
+#[tokio::test]
+async fn test_dispatch_skill_list_uninjected_returns_empty() {
+    let mut ctx = make_test_context();
+    ctx.skill_registry = None;
+
+    let resp = dispatch_skill_list(&ctx).await;
+    match resp {
+        AdminResponse::SkillListResult { skills } => assert!(
+            skills.is_empty(),
+            "uninjected registry must yield an empty list, got {:?}",
+            skills
+        ),
+        other => panic!("expected SkillListResult, got {:?}", other),
     }
 }
 
@@ -156,7 +249,7 @@ fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
     config_manager.load_agents(None).unwrap();
     AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
+        skill_registry: empty_skill_registry(),
         config_manager: Arc::new(config_manager),
         config_dir: config_dir.to_path_buf(),
         restart_tx: None,

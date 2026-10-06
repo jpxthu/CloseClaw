@@ -1,12 +1,12 @@
 //! Unit tests for the interactive chat REPL.
 //!
-//! Verifies quit/exit detection, stop routing, inbound processor chain
+//! Verifies quit/exit and `/stop` detection, inbound processor chain
 //! behavior, NormalizedMessage field mapping, streaming wait conditions,
-//! and Gateway architecture verification.
+//! and Gateway architecture verification. Slash injection seam tests live
+//! in `chat_slash_injection_tests.rs`.
 
 use closeclaw_common::NormalizedMessage;
-use closeclaw_gateway::{GatewayConfig, SessionManager};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_gateway::GatewayConfig;
 use std::sync::Arc;
 
 // ── TerminalAdapter / REPL quit/exit detection ──────────────────────────────
@@ -61,40 +61,7 @@ fn test_stop_detection() {
     assert!(!is_stop_command("/stopextra"));
 }
 
-// ── /stop REPL routing tests ───────────────────────────────────────────────
-
-/// Verify that `/stop` routes through the gateway's SlashDispatcher
-/// and returns `SlashResult::Stop` with cascade=true, force=true.
-#[tokio::test]
-async fn test_stop_routes_through_gateway_slash_dispatcher() {
-    use closeclaw_slash::dispatcher::SlashDispatcher;
-    use closeclaw_slash::registry::HandlerRegistry;
-
-    let slash_registry = Arc::new(HandlerRegistry::new());
-    let _session_manager = Arc::new(SessionManager::new(
-        &GatewayConfig {
-            name: "test-stop-gw".to_string(),
-            ..Default::default()
-        },
-        None,
-        None,
-        ReasoningLevel::default(),
-    ));
-    slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
-    let dispatcher = SlashDispatcher::from_shared(slash_registry);
-
-    let ctx = closeclaw_slash::context::SlashContext {
-        command: String::new(),
-        sender_id: "u".to_owned(),
-        session_id: "s".to_owned(),
-        channel: "c".to_owned(),
-    };
-
-    match dispatcher.dispatch("/stop", &ctx).await {
-        closeclaw_common::slash_router::SlashResult::Stop => {}
-        other => panic!("expected Stop from gateway dispatch, got {other:?}"),
-    }
-}
+// ── /stop REPL detection tests ──────────────────────────────────────────────
 
 /// Verify that `/stop` is NOT treated as a quit command by the REPL
 /// detection logic. This ensures the REPL continues after `/stop`.
@@ -155,7 +122,7 @@ fn make_gw_with_registry(registry: ProcessorRegistry) -> closeclaw_gateway::Gate
             },
             None,
             None,
-            closeclaw_session::persistence::ReasoningLevel::default(),
+            closeclaw_common::ReasoningLevel::default(),
         )),
         Arc::new(registry),
     )
@@ -431,8 +398,17 @@ fn test_whitespace_only_content_filtered() {
 #[tokio::test]
 async fn test_run_chat_daemon_unreachable() {
     // run_chat checks admin socket reachability internally; calling it
-    // when no daemon is running should return an error.
-    let result = crate::chat::run_chat("test-agent").await;
+    // when no daemon is running should return an error. The injected slash
+    // assembly closure is never reached on this path, so the fake router
+    // below only satisfies the injection signature.
+    let result = crate::chat::run_chat("test-agent", |_sm_query| {
+        crate::chat_slash_injection_tests::recording_router(
+            "stop",
+            Arc::new(|| closeclaw_common::SlashResult::Stop),
+            Arc::new(std::sync::Mutex::new(Vec::new())),
+        )
+    })
+    .await;
     assert!(result.is_err(), "should fail when daemon is unreachable");
 }
 

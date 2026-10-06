@@ -380,10 +380,9 @@ async fn start_mock_server(config_dir: PathBuf) -> (PathBuf, tokio::task::JoinHa
     // ConfigManager receives the config subdirectory
     let config_sub = config_dir.join("config");
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-    let skill_registry = closeclaw_skills::DiskSkillRegistry::default();
     let context = closeclaw_cli::admin::AdminContext {
         agent_registry: Arc::new(closeclaw_agent::registry::AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(Some(skill_registry))),
+        skill_registry: None,
         config_manager,
         config_dir: config_dir.clone(),
         restart_tx: None,

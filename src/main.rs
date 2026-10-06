@@ -64,7 +64,13 @@ async fn main() -> anyhow::Result<()> {
         Commands::Config { action } => handle_config(action, cli.json).await?,
         Commands::Rule { action } => handle_rule(action, cli.json).await?,
         Commands::Skill { action } => handle_skill(action, cli.json).await?,
-        Commands::Chat(args) => closeclaw::cli::chat::run_chat(&args.agent_id).await?,
+        Commands::Chat(args) => {
+            closeclaw::cli::chat::run_chat(
+                &args.agent_id,
+                closeclaw::bridge::build_chat_slash_router,
+            )
+            .await?
+        }
         Commands::Run {
             config_dir,
             foreground,
