@@ -185,27 +185,20 @@ impl SessionCheckpoint {
 ///
 /// Reloads the definition via the three-level lookup (agent workspace →
 /// global workflows → built-in) through `port` and renders the context
-/// text. Returns `None` when the definition cannot be loaded.
+/// text. Returns the load error when the definition cannot be loaded — the
+/// caller owns the failure logging (target semantics stay with the
+/// caller's module).
 pub fn rebuild_workflow_context_append(
     port: &dyn WorkflowPort,
     definition_name: &str,
     agent_workspace: Option<&std::path::Path>,
-) -> Option<String> {
-    match port.load_definition(
+) -> Result<String, String> {
+    let definition = port.load_definition(
         definition_name,
         agent_workspace,
         global_workflows_dir().as_deref(),
-    ) {
-        Ok(definition) => Some(port.build_context_append(&definition)),
-        Err(e) => {
-            tracing::warn!(
-                definition_name = %definition_name,
-                error = %e,
-                "failed to reload workflow definition for post-compaction re-injection"
-            );
-            None
-        }
-    }
+    )?;
+    Ok(port.build_context_append(&definition))
 }
 
 /// Store a recovery notification in `system_injection_appends`.

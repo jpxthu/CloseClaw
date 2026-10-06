@@ -182,7 +182,7 @@ fn test_rebuild_workflow_context_append_from_agent_workspace() {
 }
 
 #[test]
-fn test_rebuild_workflow_context_append_missing_definition_is_none() {
+fn test_rebuild_workflow_context_append_missing_definition_is_err() {
     let tmp = tempfile::tempdir().unwrap();
     assert!(
         rebuild_workflow_context_append(
@@ -190,7 +190,7 @@ fn test_rebuild_workflow_context_append_missing_definition_is_none() {
             "__closeclaw_missing_wf__",
             Some(tmp.path()),
         )
-        .is_none(),
-        "unknown definition should not produce context"
+        .is_err(),
+        "unknown definition must surface the loader error to the caller"
     );
 }

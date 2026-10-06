@@ -257,10 +257,20 @@ impl SessionManager {
             Some(ref agent_id) => self.query_agent_workspace(agent_id.as_str()).await,
             None => None,
         };
-        closeclaw_session::workflow_recovery::rebuild_workflow_context_append(
+        match closeclaw_session::workflow_recovery::rebuild_workflow_context_append(
             port,
             definition_name,
             agent_ws.as_deref(),
-        )
+        ) {
+            Ok(ctx) => Some(ctx),
+            Err(e) => {
+                tracing::warn!(
+                    definition_name = %definition_name,
+                    error = %e,
+                    "failed to reload workflow definition for post-compaction re-injection"
+                );
+                None
+            }
+        }
     }
 }
