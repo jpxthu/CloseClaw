@@ -54,6 +54,35 @@ impl ConversationSession {
         self.workflow_port.clone()
     }
 
+    /// Returns the phase of the active workflow run as a string.
+    ///
+    /// The stored `Value` is decoded through the injected [`WorkflowPort`],
+    /// so no workflow type surfaces outside the session crate. Returns
+    /// `None` when no run is stored, the run has completed, no port is
+    /// injected, or the stored value cannot be decoded (logged) — callers
+    /// use this to enforce the one-workflow-per-session constraint.
+    pub fn active_workflow_run_phase(&self) -> Option<String> {
+        let state = self.workflow_run.as_ref()?;
+        let port = self.workflow_port.as_ref()?;
+        let Some(phase) = port.run_phase(state) else {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "failed to decode workflow_run value, skipping phase lookup"
+            );
+            return None;
+        };
+        if phase == WorkflowPhase::Complete {
+            return None;
+        }
+        Some(format!("{:?}", phase))
+    }
+
+    /// Returns `true` when a workflow context append is already present in
+    /// the merged system append list.
+    pub fn has_workflow_context(&self) -> bool {
+        crate::workflow_recovery::has_workflow_context_marker(&self.system_appends())
+    }
+
     pub fn workflow_handler(&self) -> Option<&crate::workflow_handler::WorkflowHandler> {
         self.workflow_handler.as_ref()
     }

@@ -174,6 +174,10 @@ impl SessionManager {
     /// reload the definition via three-level lookup and re-inject the
     /// workflow context so the agent maintains workflow awareness.
     ///
+    /// The workflow-specific steps (active-run check, definition reload,
+    /// context rendering) live in the session crate; the gateway only
+    /// orchestrates lookup, existence check and injection.
+    ///
     /// Called from [`save_checkpoint_after_compact`] as part of the
     /// post-compaction pipeline.
     pub(crate) async fn reinject_workflow_context_after_compact(&self, session_id: &str) {
@@ -182,36 +186,26 @@ impl SessionManager {
             None => return,
         };
 
-        // Decode the `Value`-erased checkpoint run into the typed form.
-        let Some(ref run_value) = cp.workflow_run else {
+        // The session's injected port decodes the erased run and reloads
+        // definitions, so workflow types never surface in the gateway.
+        let Some(cs_arc) = self.get_conversation_session(session_id).await else {
             return;
         };
-        let Ok(run) =
-            serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(run_value.clone())
-        else {
-            tracing::warn!(
-                session_id = %session_id,
-                "failed to decode checkpoint workflow_run, skipping context re-injection"
-            );
+        let Some(port) = cs_arc.read().await.workflow_port() else {
             return;
         };
 
-        // Skip if workflow is already complete.
-        if run.phase == closeclaw_workflow::run::Phase::Complete {
+        // No active run (absent or already Complete) → nothing to re-inject.
+        let Some(definition_name) = cp.active_workflow_definition_name(port.as_ref()) else {
             return;
-        }
+        };
 
         // Check if workflow context already exists in the ConversationSession.
         // workflow context is system injection, checked in the merged list.
-        if let Some(cs_arc) = self.get_conversation_session(session_id).await {
-            let cs = cs_arc.read().await;
-            if closeclaw_workflow::context_append::has_workflow_context(&cs.system_appends()) {
-                return;
-            }
+        if cs_arc.read().await.has_workflow_context() {
+            return;
         }
 
-        // Workflow context is missing — reload the definition and re-inject.
-        let definition_name = run.definition_name.clone();
         if definition_name.is_empty() {
             tracing::warn!(
                 session_id = %session_id,
@@ -221,7 +215,7 @@ impl SessionManager {
         }
 
         let context = match self
-            .build_workflow_context_for_compact(cp, &definition_name)
+            .build_workflow_context_for_compact(&cp, port.as_ref(), &definition_name)
             .await
         {
             Some(ctx) => ctx,
@@ -249,9 +243,13 @@ impl SessionManager {
     }
 
     /// Build the workflow context string for re-injection after compaction.
+    ///
+    /// The definition reload / context rendering run through the session's
+    /// workflow port; failures surface here so the gateway keeps the log.
     async fn build_workflow_context_for_compact(
         &self,
-        cp: closeclaw_session::persistence::SessionCheckpoint,
+        cp: &closeclaw_session::persistence::SessionCheckpoint,
+        port: &dyn closeclaw_session::workflow_port::WorkflowPort,
         definition_name: &str,
     ) -> Option<String> {
         // Resolve agent workspace for three-level lookup.
@@ -259,24 +257,10 @@ impl SessionManager {
             Some(ref agent_id) => self.query_agent_workspace(agent_id.as_str()).await,
             None => None,
         };
-        let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
-
-        let workflow = match closeclaw_workflow::definition_loader::WorkflowDefinitionLoader::load(
+        closeclaw_session::workflow_recovery::rebuild_workflow_context_append(
+            port,
             definition_name,
             agent_ws.as_deref(),
-            global_workflows.as_deref(),
-        ) {
-            Ok(wf) => wf,
-            Err(e) => {
-                tracing::warn!(
-                    definition_name = %definition_name,
-                    error = %e,
-                    "failed to reload workflow definition for post-compaction re-injection"
-                );
-                return None;
-            }
-        };
-
-        Some(closeclaw_workflow::context_append::build_workflow_context_append(&workflow))
+        )
     }
 }

@@ -57,7 +57,9 @@ impl WorkflowLauncher for EngineWorkflowLauncher {
             context_append,
             goal_message,
             first_step_name,
-            run: Box::new(run),
+            // The erased handle carries the serialized run (checkpoint) form:
+            // neither slash nor gateway names workflow types on this path.
+            run: Box::new(serde_json::to_value(&run).expect("workflow run must serialize")),
         })
     }
 }
@@ -142,12 +144,13 @@ mod tests {
         assert_eq!(launch.first_step_name, "Step Zero");
         assert!(launch.context_append.contains("--- WORKFLOW ---"));
         assert!(launch.goal_message.contains("[workflow goal]"));
-        // The run handle must downcast to `WorkflowRun` — the contract
-        // `SlashSessionQuery` implementations rely on.
+        // The run handle must downcast to the serialized run (checkpoint)
+        // form — the contract `SlashSessionQuery` implementations rely on.
         let run = launch
             .run
-            .downcast::<WorkflowRun>()
-            .expect("run handle downcasts to WorkflowRun");
+            .downcast::<serde_json::Value>()
+            .expect("run handle downcasts to the serialized run value");
+        let run: WorkflowRun = serde_json::from_value(*run).expect("value decodes as a run");
         assert_eq!(run.current_step, 0);
         assert_eq!(run.definition_name, "Test Workflow");
     }

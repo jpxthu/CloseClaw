@@ -89,37 +89,21 @@ impl SlashSessionQuery for SessionManager {
         session_id: &str,
         run: Option<Box<dyn std::any::Any + Send + Sync>>,
     ) -> Result<(), String> {
-        let typed_run = run.map(|r| {
-            let run = r
-                .downcast::<closeclaw_workflow::run::WorkflowRun>()
-                .expect("set_workflow_run: downcast to WorkflowRun failed");
-            serde_json::to_value(run.as_ref().clone())
-                .expect("set_workflow_run: serialize WorkflowRun failed")
+        // The erased handle carries the serialized run (checkpoint) form, so
+        // the downcast names no workflow type. It runs *before* the session
+        // lookup: a mis-typed box panics even when the session does not
+        // exist (historical ordering). The panic message is kept verbatim.
+        let value = run.map(|r| {
+            *r.downcast::<serde_json::Value>()
+                .expect("set_workflow_run: downcast to WorkflowRun failed")
         });
-        SessionManager::set_workflow_run(self, session_id, typed_run).await
+        SessionManager::set_workflow_run(self, session_id, value).await
     }
 
     async fn get_active_workflow_run_phase(&self, session_id: &str) -> Option<String> {
-        let conv_sessions = self.conversation_sessions.read().await;
-        let cs = conv_sessions.get(session_id)?;
-        let cs = cs.read().await;
-        let run_value = cs.workflow_run_value()?;
-        // Value → WorkflowRun conversion at the gateway boundary. A
-        // malformed run value is logged and skipped (consistent with
-        // compaction_helpers).
-        let Ok(run) = serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(run_value)
-        else {
-            tracing::warn!(
-                session_id = %session_id,
-                "failed to decode workflow_run value, skipping phase lookup"
-            );
-            return None;
-        };
-        if run.phase == closeclaw_workflow::run::Phase::Complete {
-            None
-        } else {
-            Some(format!("{:?}", run.phase))
-        }
+        let cs = get_cs(self, session_id).await?;
+        let guard = cs.read().await;
+        guard.active_workflow_run_phase()
     }
 
     async fn invalidate_static_cache(&self) {

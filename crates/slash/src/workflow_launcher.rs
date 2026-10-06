@@ -33,8 +33,8 @@ pub struct WorkflowLaunch {
     pub first_step_name: String,
 
     /// Type-erased run handle persisted via `set_workflow_run`
-    /// (`SlashSessionQuery` implementations downcast to
-    /// `closeclaw_workflow::run::WorkflowRun`).
+    /// (the handle carries the serialized run — the checkpoint form — so
+    /// `SlashSessionQuery` implementations never name workflow types).
     pub run: Box<dyn std::any::Any + Send + Sync>,
 }
 
@@ -139,7 +139,9 @@ pub(crate) mod real_launcher {
                 context_append,
                 goal_message,
                 first_step_name,
-                run: Box::new(run),
+                // Mirrors the daemon adapter: the handle carries the
+                // serialized run (checkpoint) form.
+                run: Box::new(serde_json::to_value(&run).expect("workflow run must serialize")),
             })
         }
     }

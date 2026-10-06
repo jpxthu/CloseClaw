@@ -7,6 +7,12 @@
 //! rendering, state mutation) are delegated to the injected
 //! [`WorkflowPort`]; this module keeps the recovery orchestration,
 //! notification formatting, and cleanup ordering.
+//!
+//! Also hosts the checkpoint-level workflow queries and the definition
+//! reload / context rebuild shared with the post-compaction re-injection
+//! path (gateway drives it, session decodes through the port).
+
+use std::path::PathBuf;
 
 use crate::persistence::SessionCheckpoint;
 use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunInfo};
@@ -23,7 +29,10 @@ pub const DEFINITION_CHANGED_PAUSE_REASON: &str = "当前步骤在最新定义�
 const WORKFLOW_CONTEXT_PREFIX: &str = "--- WORKFLOW ---";
 
 /// Returns `true` when a workflow context marker exists in the list.
-fn has_workflow_context_marker(appends: &[String]) -> bool {
+///
+/// `pub(crate)`: `ConversationSession::has_workflow_context` reuses this
+/// marker check for the post-compaction de-duplication path.
+pub(crate) fn has_workflow_context_marker(appends: &[String]) -> bool {
     appends
         .iter()
         .any(|s| s.starts_with(WORKFLOW_CONTEXT_PREFIX))
@@ -132,13 +141,71 @@ fn try_reload_definition(
     definition_name: &str,
     agent_workspace: Option<&std::path::Path>,
 ) -> Option<serde_json::Value> {
-    let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
     port.load_definition(
         definition_name,
         agent_workspace,
-        global_workflows.as_deref(),
+        global_workflows_dir().as_deref(),
     )
     .ok()
+}
+
+/// Global workflows root used by the level-2 lookup (`~/.openclaw`).
+fn global_workflows_dir() -> Option<PathBuf> {
+    dirs::home_dir().map(|h| h.join(".openclaw"))
+}
+
+// ── Checkpoint-level workflow queries (consumed by gateway) ──────────────
+
+impl SessionCheckpoint {
+    /// Definition name of the stored active workflow run, decoded through
+    /// `port` so no workflow type surfaces outside the session crate.
+    ///
+    /// Returns `None` when no run is stored, the run has completed, or the
+    /// stored value cannot be decoded (logged). An empty string means the
+    /// run was persisted without a definition name — callers must treat it
+    /// as unusable.
+    pub fn active_workflow_definition_name(&self, port: &dyn WorkflowPort) -> Option<String> {
+        let state = self.workflow_run.as_ref()?;
+        let Some(info) = port.run_info(state) else {
+            tracing::warn!(
+                session_id = %self.session_id,
+                "failed to decode checkpoint workflow_run, skipping context re-injection"
+            );
+            return None;
+        };
+        if info.phase == WorkflowPhase::Complete {
+            return None;
+        }
+        Some(info.definition_name)
+    }
+}
+
+/// Rebuild the workflow context append used to re-inject workflow awareness
+/// into the system prompt after compaction (mirrors the recovery path).
+///
+/// Reloads the definition via the three-level lookup (agent workspace →
+/// global workflows → built-in) through `port` and renders the context
+/// text. Returns `None` when the definition cannot be loaded.
+pub fn rebuild_workflow_context_append(
+    port: &dyn WorkflowPort,
+    definition_name: &str,
+    agent_workspace: Option<&std::path::Path>,
+) -> Option<String> {
+    match port.load_definition(
+        definition_name,
+        agent_workspace,
+        global_workflows_dir().as_deref(),
+    ) {
+        Ok(definition) => Some(port.build_context_append(&definition)),
+        Err(e) => {
+            tracing::warn!(
+                definition_name = %definition_name,
+                error = %e,
+                "failed to reload workflow definition for post-compaction re-injection"
+            );
+            None
+        }
+    }
 }
 
 /// Store a recovery notification in `system_injection_appends`.
