@@ -6,11 +6,9 @@ description = "Session management for CloseClaw"
 license = "MIT"
 
 [dependencies]
-# Internal crates
+# Internal crates — only the allowed edge table (docs/design/STANDARDS.md)
 closeclaw-common = { path = "../common" }
-closeclaw-config = { path = "../config" }
 closeclaw-debug-log = { path = "../debug_log" }
-closeclaw-workflow = { path = "../workflow" }
 dirs = "5"
 serde_yaml = "0.9"
 
@@ -56,6 +54,8 @@ filetime = "0.2"
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter"] }
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { version = "=1.35.0", features = ["test-util"] }
-# Workflow test support: tests provide a real-engine WorkflowPort wrapper.
-# (Still declared in [dependencies] until Step 1.8 moves it out.)
+# Test-only workspace deps (outside the allowed edge table, which constrains
+# regular [dependencies] only): tests provide a real-engine WorkflowPort
+# wrapper and config fixtures against the real types.
+closeclaw-config = { path = "../config" }
 closeclaw-workflow = { path = "../workflow" }

@@ -13,6 +13,8 @@ pub mod checkpoint_manager;
 mod checkpoint_manager_tests;
 pub mod compaction;
 pub mod debug_log;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub mod events;
 pub mod llm_session;
 pub mod notifications;
