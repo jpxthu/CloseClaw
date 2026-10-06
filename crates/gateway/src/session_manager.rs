@@ -3,9 +3,7 @@
 //! Responsible for session lifecycle: lookup, creation, restoration.
 //! On daemon shutdown, `flush_all()` serializes all active sessions to the persistence backend.
 use crate::shutdown_handle::ShutdownHandle;
-use crate::sweeper::ActiveSessionQuery;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
-use async_trait::async_trait;
 use closeclaw_common::processor::ProcessError;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::tool_session::ToolSession;
@@ -30,8 +28,10 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::warn;
+mod active_session_query;
 mod announce;
 mod channel;
+mod checkpoint_sync;
 pub mod communication;
 pub(crate) mod compact;
 mod compaction_helpers;
@@ -161,7 +161,10 @@ pub struct SessionManager {
     tool_register_fn: RwLock<Option<register_tools::ToolRegisterFn>>,
     /// Back-reference to Gateway for outbound dispatch (Weak to avoid cycle).
     gateway_ref: RwLock<Option<std::sync::Weak<crate::Gateway>>>,
-    /// `None` means no consistency scan has run yet.
+    /// Timestamp (Unix epoch seconds) of the last consistency scan.
+    /// `None` means no scan has been performed yet; the first periodic
+    /// incremental scan will use 0 (equivalent to full scan) until the
+    /// startup full scan sets this value.
     last_consistency_check_time: std::sync::Mutex<Option<i64>>,
     /// Injected SessionConfigProvider for per-agent idle/purge thresholds.
     /// When set, `get_session_config_for_agent` uses this directly instead
@@ -873,16 +876,6 @@ impl SessionManager {
             session_count = session_ids.len(),
             "session_manager: config change notification sent to sessions"
         );
-    }
-}
-
-#[async_trait]
-impl ActiveSessionQuery for SessionManager {
-    /// Return the four-dimensional activity state of the session.
-    ///
-    /// Delegates to [`SessionManager::activity_dimensions`].
-    async fn activity_dimensions(&self, session_id: &str) -> SessionActivityDimensions {
-        self.activity_dimensions(session_id).await
     }
 }
 
