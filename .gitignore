@@ -53,6 +53,7 @@ run_ddt_check.sh
 
 # Runtime state (not source)
 .opencode/
+opencode.json
 AGENTS.md
 configs/sessions.db
 sweep.timestamp
