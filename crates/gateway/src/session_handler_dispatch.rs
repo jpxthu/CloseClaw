@@ -630,3 +630,6 @@ impl SessionMessageHandler {
 #[cfg(test)]
 #[path = "session_handler_dispatch_role_tests.rs"]
 mod session_handler_dispatch_role_tests;
+#[cfg(test)]
+#[path = "session_handler_dispatch_seam_tests.rs"]
+mod session_handler_dispatch_seam_tests;

@@ -13,6 +13,8 @@ mod debug_log_emitter_tests;
 #[cfg(test)]
 pub mod debug_log_tests;
 mod default_middlewares;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
@@ -56,6 +58,8 @@ mod outbound_helpers;
 mod outbound_helpers_tests;
 pub mod outbound_middleware;
 pub mod outbound_raw_log;
+#[cfg(test)]
+mod outbound_raw_log_seam_tests;
 #[cfg(test)]
 mod outbound_streaming_checkpoint_tests;
 #[cfg(test)]
