@@ -1,7 +1,8 @@
 //! Dependency boundary guard tests.
 //!
 //! Enforces the dependency allowed-edge table (docs/design/STANDARDS.md):
-//! this crate's regular [dependencies] may only contain the workspace crates
+//! this crate's regular dependency sections ([dependencies] and
+//! [target.'…'.dependencies]) may only contain the workspace crates
 //! {closeclaw-common, closeclaw-platform, closeclaw-debug-log}.
 
 use std::fs;
@@ -17,20 +18,114 @@ fn manifest_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml")
 }
 
-fn workspace_internal_violations(dependencies: &[(String, String)]) -> Vec<String> {
-    let mut violations: Vec<String> = dependencies
+fn workspace_internal_violations<'a>(dependencies: &[(&'a str, &'a str)]) -> Vec<&'a str> {
+    let mut violations: Vec<&'a str> = dependencies
         .iter()
         .filter(|(_, declaration)| is_workspace_internal_declaration(declaration))
-        .map(|(name, _)| name.clone())
-        .filter(|name| !ALLOWED_WORKSPACE_DEPS.contains(&name.as_str()))
+        .map(|(name, _)| *name)
+        .filter(|name| !ALLOWED_WORKSPACE_DEPS.contains(name))
         .collect();
-    violations.sort();
+    violations.sort_unstable();
     violations.dedup();
     violations
 }
 
+/// A declaration is workspace-internal only through TOML structure: a `path`
+/// key, or `workspace = true` inheritance — recognized by key, never by
+/// substring matching. Trailing comments are stripped before the judgment.
 fn is_workspace_internal_declaration(declaration: &str) -> bool {
-    declaration.contains("path") || declaration.contains("workspace")
+    let declaration = strip_trailing_comment(declaration).trim();
+    match inline_table_inner(declaration) {
+        Some(inner) => inline_table_items(inner)
+            .into_iter()
+            .any(|(key, value)| key == "path" || (key == "workspace" && value == "true")),
+        None => declaration
+            .split_once('=')
+            .is_some_and(|(key, value)| key.trim() == "workspace" && value.trim() == "true"),
+    }
+}
+
+/// Removes a trailing comment: the first `#` outside of quotes starts one.
+fn strip_trailing_comment(line: &str) -> &str {
+    let mut in_basic_string = false;
+    let mut in_literal_string = false;
+    let mut escaped = false;
+    for (index, ch) in line.char_indices() {
+        if in_basic_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_basic_string = false;
+            }
+        } else if in_literal_string {
+            if ch == '\'' {
+                in_literal_string = false;
+            }
+        } else {
+            match ch {
+                '"' => in_basic_string = true,
+                '\'' => in_literal_string = true,
+                '#' => return &line[..index],
+                _ => {}
+            }
+        }
+    }
+    line
+}
+
+fn inline_table_inner(declaration: &str) -> Option<&str> {
+    declaration
+        .strip_prefix('{')
+        .and_then(|rest| rest.strip_suffix('}'))
+        .map(str::trim)
+}
+
+/// Splits inline-table content into top-level `(key, value)` items, ignoring
+/// separators inside strings, arrays, and nested tables.
+fn inline_table_items(inner: &str) -> Vec<(&str, &str)> {
+    let mut item_slices: Vec<&str> = Vec::new();
+    let mut depth = 0usize;
+    let mut in_basic_string = false;
+    let mut in_literal_string = false;
+    let mut escaped = false;
+    let mut item_start = 0;
+    for (index, ch) in inner.char_indices() {
+        if in_basic_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_basic_string = false;
+            }
+        } else if in_literal_string {
+            if ch == '\'' {
+                in_literal_string = false;
+            }
+        } else {
+            match ch {
+                '"' => in_basic_string = true,
+                '\'' => in_literal_string = true,
+                '[' | '{' => depth += 1,
+                ']' | '}' => depth = depth.saturating_sub(1),
+                ',' if depth == 0 => {
+                    item_slices.push(&inner[item_start..index]);
+                    item_start = index + ch.len_utf8();
+                }
+                _ => {}
+            }
+        }
+    }
+    item_slices.push(&inner[item_start..]);
+    item_slices
+        .into_iter()
+        .filter_map(|item| {
+            let (key, value) = item.split_once('=')?;
+            Some((key.trim().trim_matches('"'), value.trim()))
+        })
+        .collect()
 }
 
 fn parse_regular_dependencies(manifest: &str) -> Vec<(String, String)> {
@@ -39,16 +134,26 @@ fn parse_regular_dependencies(manifest: &str) -> Vec<(String, String)> {
     let mut in_dependencies_section = false;
 
     for line in manifest.lines() {
-        let trimmed = line.trim();
+        let trimmed = strip_trailing_comment(line).trim();
         if trimmed.starts_with('[') {
             flush_pending(&mut pending, &mut dependencies);
-            in_dependencies_section = trimmed == "[dependencies]";
+            in_dependencies_section = is_regular_dependencies_section(trimmed);
         } else if in_dependencies_section && is_entry_line(trimmed) {
             extend_or_push_entry(trimmed, &mut pending, &mut dependencies);
         }
     }
     flush_pending(&mut pending, &mut dependencies);
     dependencies
+}
+
+/// Matches `[dependencies]` and every `[target.'…'.dependencies]`-style
+/// regular dependency section; `[dev-dependencies]` and friends stay excluded.
+fn is_regular_dependencies_section(header: &str) -> bool {
+    header
+        .strip_prefix('[')
+        .and_then(|rest| rest.strip_suffix(']'))
+        .and_then(|inner| inner.trim().rsplit('.').next())
+        == Some("dependencies")
 }
 
 fn flush_pending(pending: &mut Option<(String, String)>, dependencies: &mut Vec<(String, String)>) {
@@ -77,9 +182,7 @@ fn extend_or_push_entry(
             .split_once('=')
             .filter(|(raw_name, _)| is_dependency_name(raw_name.trim()))
         {
-            Some((raw_name, declaration)) => {
-                (raw_name.trim().to_string(), declaration.trim().to_string())
-            }
+            Some((raw_name, declaration)) => normalize_entry(raw_name.trim(), declaration.trim()),
             None => return,
         },
     };
@@ -87,6 +190,16 @@ fn extend_or_push_entry(
         dependencies.push((name, declaration));
     } else {
         pending.replace((name, declaration));
+    }
+}
+
+/// Resolves a possibly dotted entry key: `name.workspace = true` declares the
+/// dependency `name` with workspace inheritance, so the sub-key belongs to
+/// the declaration, not the dependency name.
+fn normalize_entry(raw_name: &str, declaration: &str) -> (String, String) {
+    match raw_name.split_once('.') {
+        Some((name, subkey)) => (name.to_string(), format!("{subkey} = {declaration}")),
+        None => (raw_name.to_string(), declaration.to_string()),
     }
 }
 
@@ -109,7 +222,7 @@ fn test_regular_dependencies_stay_within_allowed_edge_table() {
         !dependencies.is_empty(),
         "parser must extract the [dependencies] entries"
     );
-    let violations = workspace_internal_violations(&dependencies);
+    let violations = workspace_internal_violations(&as_ref_pairs(&dependencies));
     assert!(
         violations.is_empty(),
         "workspace deps outside the allowed edge table: {violations:?}"
@@ -119,19 +232,13 @@ fn test_regular_dependencies_stay_within_allowed_edge_table() {
 #[test]
 fn test_out_of_bound_internal_dependency_is_reported() {
     let dependencies = vec![
-        (
-            "closeclaw-common".to_string(),
-            r#"{ path = "../common" }"#.to_string(),
-        ),
-        (
-            "closeclaw-llm".to_string(),
-            r#"{ path = "../llm" }"#.to_string(),
-        ),
+        ("closeclaw-common", r#"{ path = "../common" }"#),
+        ("closeclaw-llm", r#"{ path = "../llm" }"#),
     ];
     let violations = workspace_internal_violations(&dependencies);
     assert_eq!(
         violations,
-        vec!["closeclaw-llm".to_string()],
+        vec!["closeclaw-llm"],
         "judgment must report the out-of-bound workspace crate by name"
     );
 }
@@ -144,31 +251,125 @@ fn test_dev_dependencies_are_not_judged() {
         !dependencies
             .iter()
             .any(|(name, _)| name == "closeclaw-im-adapter" || name == "tempfile"),
-        "only [dependencies] entries may be judged"
+        "only regular dependency entries may be judged"
     );
-    let dev_only = vec![(
-        "closeclaw-im-adapter".to_string(),
-        r#"{ path = "../im_adapter" }"#.to_string(),
-    )];
+    let dev_only = vec![("closeclaw-im-adapter", r#"{ path = "../im_adapter" }"#)];
     assert_eq!(
         workspace_internal_violations(&dev_only),
-        vec!["closeclaw-im-adapter".to_string()],
+        vec!["closeclaw-im-adapter"],
         "the same judgment would flag a path dep outside the allowed set"
     );
 }
 
 #[test]
-fn test_registry_dependencies_are_not_judged() {
+fn test_crates_io_dependencies_are_not_judged() {
     let dependencies = vec![
-        (
-            "tokio".to_string(),
-            r#"{ version = "=1.35.0", features = ["full"] }"#.to_string(),
-        ),
-        ("serde".to_string(), "\"1.0\"".to_string()),
+        ("tokio", r#"{ version = "=1.35.0", features = ["full"] }"#),
+        ("serde", "\"1.0\""),
     ];
     assert!(
         workspace_internal_violations(&dependencies).is_empty(),
         "crates.io version deps must not participate in the judgment"
+    );
+}
+
+#[test]
+fn test_workspace_inheritance_dotted_key_is_judged_internal() {
+    let manifest = "\
+[dependencies]
+closeclaw-llm.workspace = true
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        dependencies,
+        vec![("closeclaw-llm".to_string(), "workspace = true".to_string())],
+        "the dotted key must resolve to the dependency name with a sub-key declaration"
+    );
+    assert_eq!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)),
+        vec!["closeclaw-llm"],
+        "the `.workspace = true` form must not slip through as a crates.io dep"
+    );
+}
+
+#[test]
+fn test_inline_table_workspace_key_is_recognized_structurally() {
+    assert!(
+        is_workspace_internal_declaration(r#"{ workspace = true }"#),
+        "inline-table workspace inheritance is judged internal"
+    );
+    let substring_decoys = vec![
+        ("serde", r#"{ workspaces = "path-to-llm" }"#),
+        ("tokio", r#"{ version = "1.0", features = ["full"] }"#),
+    ];
+    assert!(
+        workspace_internal_violations(&substring_decoys).is_empty(),
+        "keys must be identified structurally, not by substring matching"
+    );
+}
+
+#[test]
+fn test_trailing_comments_do_not_affect_internal_judgment() {
+    let crates_io_with_comments = vec![
+        ("serde", "\"1.0\" # path helper"),
+        (
+            "tokio",
+            r#"{ version = "1.0" } # workspace inheritance happens elsewhere"#,
+        ),
+    ];
+    assert!(
+        workspace_internal_violations(&crates_io_with_comments).is_empty(),
+        "keywords inside trailing comments must not turn a crates.io dep internal"
+    );
+    let path_dep_with_comment = vec![("closeclaw-llm", r#"{ path = "../llm" } # out of bound"#)];
+    assert_eq!(
+        workspace_internal_violations(&path_dep_with_comment),
+        vec!["closeclaw-llm"],
+        "comment stripping must not hide a real path key"
+    );
+}
+
+#[test]
+fn test_parser_includes_target_dependencies_sections() {
+    let manifest = "\
+[target.'cfg(unix)'.dependencies]
+closeclaw-llm = { path = \"../llm\" }
+
+[target.'cfg(windows)'.dev-dependencies]
+closeclaw-im-adapter = { path = \"../im_adapter\" }
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)),
+        vec!["closeclaw-llm"],
+        "target dependency sections must be judged; target dev sections must not"
+    );
+}
+
+#[test]
+fn test_parser_strips_comments_in_dependency_entries() {
+    let manifest = "\
+[dependencies]
+closeclaw-platform = {
+  path = \"../platform\", # internal dep
+}
+serde = \"1.0\" # path helper
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        dependencies,
+        vec![
+            (
+                "closeclaw-platform".to_string(),
+                r#"{ path = "../platform", }"#.to_string()
+            ),
+            ("serde".to_string(), "\"1.0\"".to_string()),
+        ],
+        "trailing comments must be stripped before entry joining and judgment"
+    );
+    assert!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)).is_empty(),
+        "allowed path deps plus comment decoys must not be reported"
     );
 }
 
@@ -203,4 +404,11 @@ serde = \"1.0\"
     let dependencies = parse_regular_dependencies(manifest);
     let names: Vec<&str> = dependencies.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, vec!["closeclaw-platform", "serde"]);
+}
+
+fn as_ref_pairs(dependencies: &[(String, String)]) -> Vec<(&str, &str)> {
+    dependencies
+        .iter()
+        .map(|(name, declaration)| (name.as_str(), declaration.as_str()))
+        .collect()
 }
