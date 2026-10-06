@@ -597,7 +597,9 @@ impl SessionManager {
                                 if let Some(ref comm_config) = cp.communication_config {
                                     cs.set_communication_config(comm_config.clone());
                                 }
-                                Self::sync_plan_file_path_from_checkpoint(&mut cs, &cp);
+                                super::checkpoint_sync::sync_plan_file_path_from_checkpoint(
+                                    &mut cs, &cp,
+                                );
                                 // Restore transcript from checkpoint.
                                 if !cp.pending_messages.is_empty() {
                                     cs.apply_transcript_op(
@@ -984,16 +986,6 @@ impl SessionManager {
         if let Some(config) = self.get_agent_config(agent_id).await {
             if let Some(skills) = config.effective_skills() {
                 conv.set_agent_skills(skills);
-            }
-        }
-    }
-    pub(super) fn sync_plan_file_path_from_checkpoint(
-        conv: &mut ConversationSession,
-        cp: &SessionCheckpoint,
-    ) {
-        if let Some(ref ps) = cp.plan_state {
-            if !ps.plan_file_path.is_empty() {
-                conv.set_plan_file_path(Some(ps.plan_file_path.clone()));
             }
         }
     }

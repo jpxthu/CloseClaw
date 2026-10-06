@@ -39,9 +39,11 @@ pub trait SpawnContext: Send + Sync {
 /// Raw spawn-budget fields for one agent, mapped from its config's
 /// `subagents` block.
 ///
-/// `Option` fields mirror the config verbatim — defaulting stays inside
-/// [`SpawnController`], so [`SpawnBudgetLookup`] implementations remain
-/// a pure data copy.
+/// Fields mirror the config verbatim: `allow_agents` is the config's
+/// `Vec<String>` as-is (`["*"]` allows all targets, an empty vec denies
+/// all — identical semantics on both sides); the `Option` fields keep
+/// defaulting inside [`SpawnController`], so [`SpawnBudgetLookup`]
+/// implementations remain a pure data copy.
 #[derive(Debug, Clone, Default)]
 pub struct AgentSpawnBudget {
     /// Maximum nested spawn depth (`subagents.maxSpawnDepth`).
@@ -49,7 +51,7 @@ pub struct AgentSpawnBudget {
     /// Maximum concurrent active children (`subagents.maxChildren`).
     pub max_children: Option<u32>,
     /// Target agent whitelist (`subagents.allowAgents`).
-    pub allow_agents: Option<Vec<String>>,
+    pub allow_agents: Vec<String>,
     /// Whether agentId must be explicit (`subagents.requireAgentId`).
     pub require_agent_id: Option<bool>,
     /// Sub-agent execution timeout in seconds (`subagents.timeout`).
@@ -298,7 +300,7 @@ impl SpawnController {
         match self.budget_lookup.spawn_budget(parent_agent_id).await {
             Some(b) => ParentSpawnConfig {
                 max_children: b.max_children.unwrap_or(5),
-                allow_agents: b.allow_agents.unwrap_or_else(|| vec!["*".to_string()]),
+                allow_agents: b.allow_agents,
                 require_agent_id: b.require_agent_id.unwrap_or(false),
             },
             None => ParentSpawnConfig {

@@ -302,24 +302,7 @@ pub(crate) mod real_engine_port {
     }
 
     fn decode_run(run: &serde_json::Value) -> Option<WorkflowRun> {
-        // Backward compatibility: old checkpoints stored `pending_verify` as a bare usize.
-        let mut v = run.clone();
-        if let Some(obj) = v.as_object_mut() {
-            if let Some(pv) = obj.get("pending_verify") {
-                if pv.is_number() {
-                    let count = pv.as_u64().unwrap_or(0) as usize;
-                    obj.insert(
-                        "pending_verify".to_string(),
-                        serde_json::json!({
-                            "count": count,
-                            "last_inject_time": "",
-                            "max_retry_limit": 3
-                        }),
-                    );
-                }
-            }
-        }
-        serde_json::from_value(v).ok()
+        serde_json::from_value(run.clone()).ok()
     }
 
     fn decode_definition(definition: &serde_json::Value) -> Option<Workflow> {

@@ -140,7 +140,7 @@ impl SpawnBudgetLookup for ConfigSpawnBudgetLookup {
         Some(AgentSpawnBudget {
             max_spawn_depth: sc.max_spawn_depth,
             max_children: sc.max_children,
-            allow_agents: Some(sc.allow_agents.clone()),
+            allow_agents: sc.allow_agents.clone(),
             require_agent_id: sc.require_agent_id,
             timeout: sc.timeout,
             timeout_warning: sc.timeout_warning,
@@ -151,13 +151,26 @@ impl SpawnBudgetLookup for ConfigSpawnBudgetLookup {
     async fn spawn_target_config(&self, agent_id: &str) -> Option<SpawnTargetAgentConfig> {
         let agents = self.config_manager.agents();
         let cfg = agents.get(agent_id)?;
-        Some(SpawnTargetAgentConfig {
-            id: cfg.id.clone(),
-            model: cfg.model.clone(),
-            workspace: cfg.workspace.clone(),
-            skills: cfg.skills.clone(),
-            tools: cfg.tools.clone(),
-            hooks: cfg.hooks.clone(),
-        })
+        Some(spawn_target_agent_config(cfg))
+    }
+}
+
+/// Map a resolved agent config onto the session-owned narrow
+/// spawn-time view.
+///
+/// Pure data copy of the creation-chain fields — the full config
+/// profile never crosses into the shared structure. Single-point
+/// definition shared by [`ConfigSpawnBudgetLookup::spawn_target_config`]
+/// and the phase-wiring child-session callback.
+pub(super) fn spawn_target_agent_config(
+    cfg: &closeclaw_config::agents::ResolvedAgentConfig,
+) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
+        id: cfg.id.clone(),
+        model: cfg.model.clone(),
+        workspace: cfg.workspace.clone(),
+        skills: cfg.skills.clone(),
+        tools: cfg.tools.clone(),
+        hooks: cfg.hooks.clone(),
     }
 }

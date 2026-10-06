@@ -207,7 +207,7 @@ impl SessionManager {
             if let Some(ref comm_config) = cp.communication_config {
                 cs.set_communication_config(comm_config.clone());
             }
-            Self::sync_plan_file_path_from_checkpoint(&mut cs, cp);
+            super::checkpoint_sync::sync_plan_file_path_from_checkpoint(&mut cs, cp);
             if !cp.pending_messages.is_empty() {
                 cs.apply_transcript_op(TranscriptOp::Rewrite, cp.pending_messages.clone());
             }

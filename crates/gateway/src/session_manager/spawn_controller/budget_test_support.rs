@@ -28,7 +28,7 @@ impl SpawnBudgetLookup for ConfigManagerSpawnBudgetLookup {
         Some(AgentSpawnBudget {
             max_spawn_depth: sc.max_spawn_depth,
             max_children: sc.max_children,
-            allow_agents: Some(sc.allow_agents.clone()),
+            allow_agents: sc.allow_agents.clone(),
             require_agent_id: sc.require_agent_id,
             timeout: sc.timeout,
             timeout_warning: sc.timeout_warning,

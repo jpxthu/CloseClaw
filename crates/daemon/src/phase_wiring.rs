@@ -12,7 +12,7 @@ use crate::{
     config_watcher,
     dreaming_scheduler::DreamingScheduler,
     noop_miner_llm, registries,
-    trait_adapters::ConfigSpawnBudgetLookup,
+    trait_adapters::{spawn_target_agent_config, ConfigSpawnBudgetLookup},
 };
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
@@ -40,7 +40,6 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
 use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
-use closeclaw_session::spawn::SpawnTargetAgentConfig;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
 use closeclaw_session::{persistence::PersistenceService, storage::SqliteStorage};
 use closeclaw_skills::builtin::builtin_skills;
@@ -159,15 +158,9 @@ impl Daemon {
                         .unwrap_or(3);
                     // Map the full resolved config onto the session-owned
                     // narrow spawn-time view (pure data copy — the gateway
-                    // boundary only carries creation-chain fields).
-                    let target_config = SpawnTargetAgentConfig {
-                        id: config.id.clone(),
-                        model: config.model.clone(),
-                        workspace: config.workspace.clone(),
-                        skills: config.skills.clone(),
-                        tools: config.tools.clone(),
-                        hooks: config.hooks.clone(),
-                    };
+                    // boundary only carries creation-chain fields). Shared
+                    // mapping with trait_adapters (single-point definition).
+                    let target_config = spawn_target_agent_config(&config);
                     let child_config = ChildSessionConfig {
                         config: target_config,
                         parent_session_id,

@@ -61,7 +61,6 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Defaults to `None` (workflow engine operations unavailable);
     /// composition roots override this to supply the production port.
     fn workflow_port(&self) -> Option<Arc<dyn crate::workflow_port::WorkflowPort>> {
-        let _ = self;
         None
     }
 
