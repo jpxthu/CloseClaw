@@ -274,8 +274,12 @@ pub struct SessionCheckpoint {
     /// Persisted with session checkpoint so workflow state survives restarts.
     ///
     /// Stored as `serde_json::Value` to avoid leaking workflow crate types
-    /// into the session API; the JSON shape remains byte-for-byte
-    /// compatible with the previous typed representation.
+    /// into the session API. The stored value is value-level equivalent to
+    /// the previous typed representation: readers and writers both go
+    /// through serde decoding, and no consumer depends on key order (after
+    /// the `Value` round-trip object keys are alphabetically ordered, so
+    /// byte-level key order may differ from the old struct-field-order
+    /// form).
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
     pub workflow_run: Option<serde_json::Value>,

@@ -103,9 +103,18 @@ impl SlashSessionQuery for SessionManager {
         let conv_sessions = self.conversation_sessions.read().await;
         let cs = conv_sessions.get(session_id)?;
         let cs = cs.read().await;
-        // Value → WorkflowRun conversion at the gateway boundary.
-        let run: closeclaw_workflow::run::WorkflowRun =
-            serde_json::from_value(cs.workflow_run_value()?).ok()?;
+        let run_value = cs.workflow_run_value()?;
+        // Value → WorkflowRun conversion at the gateway boundary. A
+        // malformed run value is logged and skipped (consistent with
+        // compaction_helpers).
+        let Ok(run) = serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(run_value)
+        else {
+            tracing::warn!(
+                session_id = %session_id,
+                "failed to decode workflow_run value, skipping phase lookup"
+            );
+            return None;
+        };
         if run.phase == closeclaw_workflow::run::Phase::Complete {
             None
         } else {

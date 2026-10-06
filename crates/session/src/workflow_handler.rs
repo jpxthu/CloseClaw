@@ -222,8 +222,9 @@ impl WorkflowHandler {
     /// Returns [`JumpResult::Jumped`] if the workflow entered jumping phase,
     /// [`JumpResult::NotJumped`] otherwise.
     fn handle_verify_result(&mut self) -> (bool, JumpResult) {
-        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
-        match self.port.handle_verify(taken.clone(), &self.definition) {
+        // Fallible engine call: on Err the engine did not advance, so
+        // `self.run` is left untouched (no transient Null swap needed).
+        match self.port.handle_verify(self.run.clone(), &self.definition) {
             Ok((run, phase)) => {
                 self.run = run;
                 let jump_result = if phase == WorkflowPhase::Jumping {
@@ -236,8 +237,6 @@ impl WorkflowHandler {
                 (true, jump_result)
             }
             Err(e) => {
-                // Engine rejected the transition — restore prior state.
-                self.run = taken;
                 tracing::warn!(error = %e, "verify handling failed");
                 (false, JumpResult::NotJumped)
             }
@@ -264,10 +263,11 @@ impl WorkflowHandler {
         // Map enum letter answers to internal option values.
         self.map_enum_letter_answers(&mut answers);
 
-        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
+        // Fallible engine call: on Err the engine did not advance, so
+        // `self.run` is left untouched (no transient Null swap needed).
         match self
             .port
-            .handle_jump(taken.clone(), &self.definition, &answers)
+            .handle_jump(self.run.clone(), &self.definition, &answers)
         {
             Ok((run, phase)) => {
                 self.run = run;
@@ -281,8 +281,6 @@ impl WorkflowHandler {
                 (true, jump_result)
             }
             Err(e) => {
-                // Engine rejected the transition — restore prior state.
-                self.run = taken;
                 tracing::warn!(error = %e, "jump handling failed");
                 (false, JumpResult::NotJumped)
             }
@@ -367,10 +365,11 @@ impl WorkflowHandler {
             None => return false,
         };
 
-        let taken = std::mem::replace(&mut self.run, serde_json::Value::Null);
+        // Fallible engine call: on Err the engine did not advance, so
+        // `self.run` is left untouched (no transient Null swap needed).
         match self
             .port
-            .handle_blocked(taken.clone(), &self.definition, allow_blocked, reason)
+            .handle_blocked(self.run.clone(), &self.definition, allow_blocked, reason)
         {
             Ok(run) => {
                 self.run = run;
@@ -400,8 +399,6 @@ impl WorkflowHandler {
                 true
             }
             Err(e) => {
-                // Engine rejected the transition — restore prior state.
-                self.run = taken;
                 tracing::warn!(error = %e, "blocked handling failed");
                 false
             }
