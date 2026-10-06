@@ -78,6 +78,30 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Slash router — CLI chat slash assembly (composition root)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Assemble the concrete slash router injected into the CLI chat Gateway.
+///
+/// The CLI crate only consumes `closeclaw_common::SlashRouter`; the concrete
+/// handler set (and its registration order) is owned here, in the
+/// composition root. `sm_query` is the chat process's `SessionManager`,
+/// supplied by `build_gateway` once the session manager exists.
+pub fn build_chat_slash_router(
+    sm_query: Arc<dyn closeclaw_common::SlashSessionQuery>,
+) -> Arc<dyn closeclaw_common::SlashRouter> {
+    let registry = Arc::new(closeclaw_slash::registry::HandlerRegistry::new());
+    registry.register(Arc::new(closeclaw_slash::handlers::CompactHandler));
+    registry.register(Arc::new(closeclaw_slash::handlers_session::StopHandler));
+    registry.register(Arc::new(
+        closeclaw_slash::handlers_session::VerboseHandler::new(sm_query),
+    ));
+    Arc::new(closeclaw_slash::dispatcher::SlashDispatcher::from_shared(
+        registry,
+    ))
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ShutdownHandle conversion
 // ═══════════════════════════════════════════════════════════════════════════
 

@@ -12,7 +12,6 @@ path = "src/lib.rs"
 [dependencies]
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
-closeclaw-slash = { path = "../slash" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-llm = { path = "../llm" }

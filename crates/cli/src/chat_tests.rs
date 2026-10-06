@@ -62,37 +62,139 @@ fn test_stop_detection() {
 
 // ── /stop REPL routing tests ───────────────────────────────────────────────
 
-/// Verify that `/stop` routes through the gateway's SlashDispatcher
-/// and returns `SlashResult::Stop` with cascade=true, force=true.
+/// Fake slash router standing in for the composition-root-injected
+/// concrete dispatcher (cli must not depend on the slash crate): records
+/// every command the Gateway routes to it and answers `/stop` with
+/// `SlashResult::Stop`.
+struct RecordingStopRouter {
+    received: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashRouter for RecordingStopRouter {
+    async fn dispatch(
+        &self,
+        content: &str,
+        _ctx: &closeclaw_common::SlashContext,
+    ) -> Option<closeclaw_common::SlashResult> {
+        self.received
+            .lock()
+            .expect("received mutex poisoned")
+            .push(content.to_string());
+        Some(closeclaw_common::SlashResult::Stop)
+    }
+
+    fn is_immediate(&self, _content: &str) -> bool {
+        true
+    }
+
+    fn get_handler(&self, command: &str) -> Option<Box<dyn closeclaw_common::SlashHandler>> {
+        if command != "stop" {
+            return None;
+        }
+        self.received
+            .lock()
+            .expect("received mutex poisoned")
+            .push(format!("/{command}"));
+        Some(Box::new(RecordingStopHandler {
+            received: Arc::clone(&self.received),
+        }))
+    }
+}
+
+/// Handler backing [`RecordingStopRouter`]: yields the `Stop` result the
+/// Gateway must consume.
+struct RecordingStopHandler {
+    received: Arc<std::sync::Mutex<Vec<String>>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::SlashHandler for RecordingStopHandler {
+    fn clone_box(&self) -> Box<dyn closeclaw_common::SlashHandler> {
+        Box::new(Self {
+            received: Arc::clone(&self.received),
+        })
+    }
+
+    fn commands(&self) -> &[&str] {
+        &["stop"]
+    }
+
+    fn description(&self) -> &str {
+        "stop (fake)"
+    }
+
+    async fn handle(
+        &self,
+        _args: &str,
+        _ctx: &closeclaw_common::SlashContext,
+    ) -> closeclaw_common::SlashResult {
+        closeclaw_common::SlashResult::Stop
+    }
+}
+
+/// Verify that `/stop` reaches the router injected into the Gateway and
+/// that the router's `SlashResult::Stop` is consumed by the Gateway as a
+/// handled slash command (the cli-side injection seam).
 #[tokio::test]
 async fn test_stop_routes_through_gateway_slash_dispatcher() {
-    use closeclaw_slash::dispatcher::SlashDispatcher;
-    use closeclaw_slash::registry::HandlerRegistry;
+    let received = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let router = Arc::new(RecordingStopRouter {
+        received: Arc::clone(&received),
+    });
 
-    let slash_registry = Arc::new(HandlerRegistry::new());
-    let _session_manager = Arc::new(SessionManager::new(
-        &GatewayConfig {
-            name: "test-stop-gw".to_string(),
-            ..Default::default()
-        },
+    let config = GatewayConfig {
+        name: "test-stop-gw".to_string(),
+        max_message_size: 64 * 1024,
+        bot_agent_bindings: std::collections::HashMap::from([(
+            "cli".to_string(),
+            "test-agent".to_string(),
+        )]),
+        ..Default::default()
+    };
+    let session_manager = Arc::new(SessionManager::new(
+        &config,
         None,
         None,
         ReasoningLevel::default(),
     ));
-    slash_registry.register(Arc::new(closeclaw_slash::StopHandler));
-    let dispatcher = SlashDispatcher::from_shared(slash_registry);
+    let gateway = closeclaw_gateway::Gateway::new(config, session_manager);
+    gateway
+        .set_slash_dispatcher(router as Arc<dyn closeclaw_common::SlashRouter>)
+        .await;
 
-    let ctx = closeclaw_slash::context::SlashContext {
-        command: String::new(),
-        sender_id: "u".to_owned(),
-        session_id: "s".to_owned(),
-        channel: "c".to_owned(),
-    };
+    let processed = gateway
+        .process_inbound_chain(&NormalizedMessage {
+            platform: "terminal".into(),
+            sender_id: "owner".into(),
+            peer_id: "cli".into(),
+            content: "/stop".into(),
+            timestamp: 0,
+            account_id: "owner".into(),
+            thread_id: None,
+            chat_name: String::new(),
+            trace_id: String::new(),
+            message_id: String::new(),
+            message_type: Default::default(),
+            media_refs: Vec::new(),
+            reply_ref: None,
+            unavailable_media: Vec::new(),
+        })
+        .await;
 
-    match dispatcher.dispatch("/stop", &ctx).await {
-        closeclaw_common::slash_router::SlashResult::Stop => {}
-        other => panic!("expected Stop from gateway dispatch, got {other:?}"),
-    }
+    let result = gateway
+        .handle_inbound_message(processed, Some("owner"), "terminal")
+        .await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "gateway must handle the injected router's Stop result, got {result:?}"
+    );
+    assert_eq!(
+        *received.lock().expect("received mutex poisoned"),
+        vec!["/stop".to_string()],
+        "injected router must receive /stop"
+    );
 }
 
 /// Verify that `/stop` is NOT treated as a quit command by the REPL
@@ -430,8 +532,14 @@ fn test_whitespace_only_content_filtered() {
 #[tokio::test]
 async fn test_run_chat_daemon_unreachable() {
     // run_chat checks admin socket reachability internally; calling it
-    // when no daemon is running should return an error.
-    let result = crate::chat::run_chat("test-agent").await;
+    // when no daemon is running should return an error. The injected slash
+    // assembly closure is never reached on this path.
+    let result = crate::chat::run_chat("test-agent", |_sm_query| {
+        Arc::new(RecordingStopRouter {
+            received: Arc::new(std::sync::Mutex::new(Vec::new())),
+        }) as Arc<dyn closeclaw_common::SlashRouter>
+    })
+    .await;
     assert!(result.is_err(), "should fail when daemon is unreachable");
 }
 
