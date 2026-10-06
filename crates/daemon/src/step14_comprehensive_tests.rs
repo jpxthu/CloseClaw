@@ -422,7 +422,7 @@ fn test_admin_context_no_gateway_field() {
     // a `gateway` field — the required-field check catches it.
     let ctx = AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(None)),
+        skill_registry: None,
         config_manager: Arc::new({
             #[allow(deprecated)]
             closeclaw_config::ConfigManager::new(tempfile::tempdir().unwrap().into_path()).unwrap()

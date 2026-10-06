@@ -1,15 +1,45 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::ModelSpec;
+use closeclaw_common::{ModelSpec, SkillRegistryQuery};
 use closeclaw_config::agents::{AgentConfig, ConfigSource, ResolvedAgentConfig};
-use closeclaw_skills::DiskSkillRegistry;
 
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
 use crate::admin::rpc::server::{
     dispatch, dispatch_agent_create, dispatch_agent_info, dispatch_agent_list, dispatch_skill_list,
     reload_registry, AdminContext,
 };
+
+/// Fake skill registry injected into `AdminContext` — returns an empty
+/// listing (equivalent to the former `DiskSkillRegistry::default()`).
+struct EmptySkillRegistry;
+
+#[async_trait::async_trait]
+impl SkillRegistryQuery for EmptySkillRegistry {
+    async fn has_skill(&self, _name: &str) -> bool {
+        false
+    }
+
+    async fn list_skills(&self) -> Vec<String> {
+        Vec::new()
+    }
+
+    async fn list_skills_for_agent(&self, _agent_skills: Option<&[String]>) -> Vec<String> {
+        Vec::new()
+    }
+
+    fn generate_listing(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_skills: Option<&[String]>,
+    ) -> String {
+        String::new()
+    }
+}
+
+fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
+    Some(Arc::new(EmptySkillRegistry))
+}
 
 fn make_test_context() -> AdminContext {
     let config_dir = tempfile::tempdir().unwrap().keep();
@@ -21,7 +51,7 @@ fn make_test_context() -> AdminContext {
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
     AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
+        skill_registry: empty_skill_registry(),
         config_manager,
         config_dir,
         restart_tx: None,
@@ -156,7 +186,7 @@ fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
     config_manager.load_agents(None).unwrap();
     AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(Some(DiskSkillRegistry::default()))),
+        skill_registry: empty_skill_registry(),
         config_manager: Arc::new(config_manager),
         config_dir: config_dir.to_path_buf(),
         restart_tx: None,

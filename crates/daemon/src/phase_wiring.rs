@@ -495,7 +495,8 @@ impl Daemon {
         let admin_sock_path = admin_socket_path(Path::new(config_dir));
         let admin_context = AdminContext {
             agent_registry: Arc::clone(agent_registry),
-            skill_registry: skill_registry.clone(),
+            skill_registry: Some(Arc::new(SkillRegistryWrapper(skill_registry.clone()))
+                as Arc<dyn SkillRegistryQuery>),
             config_manager: Arc::clone(config_manager),
             config_dir: PathBuf::from(config_dir),
             restart_tx: Some(admin_restart_tx),

@@ -642,7 +642,6 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-platform",
  "closeclaw-processor-chain",
- "closeclaw-skills",
  "closeclaw-slash",
  "dialoguer",
  "dirs",

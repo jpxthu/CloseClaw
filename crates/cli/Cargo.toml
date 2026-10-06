@@ -14,7 +14,6 @@ closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-slash = { path = "../slash" }
 closeclaw-agent = { path = "../agent" }
-closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
@@ -31,7 +30,6 @@ dirs = "5"
 unicode-width = "0.2"
 
 [dev-dependencies]
-closeclaw-skills = { path = "../skills" }
 closeclaw-processor-chain = { path = "../processor_chain" }
 tempfile = "3.10"
 serial_test = "*"

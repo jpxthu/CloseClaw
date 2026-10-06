@@ -13,15 +13,16 @@ use crate::admin::rpc::protocol::{
 };
 use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::ModelSpec;
+use closeclaw_common::{ModelSpec, SkillRegistryQuery};
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
-use closeclaw_skills::DiskSkillRegistry;
 
 /// Server-side context holding references to daemon components.
 pub struct AdminContext {
     pub agent_registry: Arc<AgentRegistry>,
-    pub skill_registry: Arc<std::sync::RwLock<Option<DiskSkillRegistry>>>,
+    /// Skill registry injected by the composition root (daemon).
+    /// `None` = not injected → SkillList returns an empty list.
+    pub skill_registry: Option<Arc<dyn SkillRegistryQuery>>,
     pub config_manager: Arc<ConfigManager>,
     pub config_dir: PathBuf,
     /// Channel to signal gateway restart requests to the daemon.
@@ -304,19 +305,16 @@ pub(crate) async fn dispatch_agent_create(
     AdminResponse::Ok
 }
 
-/// List all skills from the DiskSkillRegistry with version info.
+/// List all skills from the injected skill registry with version info.
 pub(crate) async fn dispatch_skill_list(context: &AdminContext) -> AdminResponse {
-    let guard = context
-        .skill_registry
-        .read()
-        .unwrap_or_else(|e| e.into_inner());
-    match guard.as_ref() {
+    match &context.skill_registry {
         Some(registry) => {
             let skills: Vec<SkillInfo> = registry
-                .list()
+                .list_skills()
+                .await
                 .into_iter()
                 .map(|name| SkillInfo {
-                    name: name.to_string(),
+                    name,
                     version: None,
                 })
                 .collect();

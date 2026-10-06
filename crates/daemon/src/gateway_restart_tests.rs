@@ -348,7 +348,7 @@ fn admin_context_has_no_gateway_reference() {
     let (cm, _tmpdir) = make_test_config_manager();
     let ctx = AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: Arc::new(std::sync::RwLock::new(None)),
+        skill_registry: None,
         config_manager: cm,
         config_dir: std::path::PathBuf::from("/tmp/test"),
         restart_tx: None,
