@@ -13,6 +13,10 @@ use crate::admin::rpc::server::{
 /// Fake skill registry injected into `AdminContext` — serves a fixed,
 /// in-memory listing so tests can drive both the empty and the populated
 /// SkillList paths without touching disk.
+///
+/// Only `list_skills` (the method `dispatch_skill_list` actually consumes)
+/// answers; every other trait method is `unimplemented!()` so an unexpected
+/// call fails loudly instead of returning a plausible default.
 struct FakeSkillRegistry {
     skills: Vec<String>,
 }
@@ -27,8 +31,8 @@ impl FakeSkillRegistry {
 
 #[async_trait::async_trait]
 impl SkillRegistryQuery for FakeSkillRegistry {
-    async fn has_skill(&self, name: &str) -> bool {
-        self.skills.iter().any(|s| s == name)
+    async fn has_skill(&self, _name: &str) -> bool {
+        unimplemented!()
     }
 
     async fn list_skills(&self) -> Vec<String> {
@@ -36,7 +40,7 @@ impl SkillRegistryQuery for FakeSkillRegistry {
     }
 
     async fn list_skills_for_agent(&self, _agent_skills: Option<&[String]>) -> Vec<String> {
-        self.skills.clone()
+        unimplemented!()
     }
 
     fn generate_listing(
@@ -44,7 +48,7 @@ impl SkillRegistryQuery for FakeSkillRegistry {
         _agent_id: Option<&str>,
         _agent_skills: Option<&[String]>,
     ) -> String {
-        self.skills.join("\n")
+        unimplemented!()
     }
 }
 
