@@ -625,7 +625,7 @@ mod ensure_master_agent_tests {
         assert!(config.agent_dir.is_none());
         assert_eq!(
             config.bootstrap_mode,
-            Some(closeclaw_session::bootstrap::BootstrapMode::Full)
+            Some(closeclaw_common::BootstrapMode::Full)
         );
         assert_eq!(config.skills, vec!["*"]);
         assert_eq!(config.tools, vec!["*"]);

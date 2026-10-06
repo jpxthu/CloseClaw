@@ -18,7 +18,6 @@ closeclaw-skills = { path = "../skills" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
-closeclaw-session = { path = "../session" }
 closeclaw-platform = { path = "../platform" }
 clap = { version = "4.4", features = ["derive"] }
 dialoguer = "0.11"

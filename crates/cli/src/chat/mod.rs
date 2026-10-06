@@ -13,10 +13,10 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
+use closeclaw_common::ReasoningLevel;
 use closeclaw_gateway::{
     Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
 };
-use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_slash::dispatcher::SlashDispatcher;
 use closeclaw_slash::handlers::CompactHandler;
 use closeclaw_slash::handlers_session::{StopHandler, VerboseHandler};

@@ -4,9 +4,8 @@
 //! behavior, NormalizedMessage field mapping, streaming wait conditions,
 //! and Gateway architecture verification.
 
-use closeclaw_common::NormalizedMessage;
+use closeclaw_common::{NormalizedMessage, ReasoningLevel};
 use closeclaw_gateway::{GatewayConfig, SessionManager};
-use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 
 // ── TerminalAdapter / REPL quit/exit detection ──────────────────────────────
@@ -155,7 +154,7 @@ fn make_gw_with_registry(registry: ProcessorRegistry) -> closeclaw_gateway::Gate
             },
             None,
             None,
-            closeclaw_session::persistence::ReasoningLevel::default(),
+            closeclaw_common::ReasoningLevel::default(),
         )),
         Arc::new(registry),
     )
