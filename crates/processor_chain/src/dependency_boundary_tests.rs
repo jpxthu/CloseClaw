@@ -2,7 +2,8 @@
 //!
 //! Enforces the dependency allowed-edge table (docs/design/STANDARDS.md):
 //! this crate's regular dependency entries — key entries in [dependencies] /
-//! [target.'…'.dependencies] and their `[dependencies.<name>]` sub-tables —
+//! [target.'…'.dependencies] and their `[dependencies.<name>]` /
+//! `[target.'…'.dependencies.<name>]` sub-tables —
 //! may only contain the workspace crates
 //! {closeclaw-common, closeclaw-platform, closeclaw-debug-log}.
 
@@ -427,6 +428,38 @@ path = \"../llm\"
         workspace_internal_violations(&as_ref_pairs(&dependencies)),
         vec!["closeclaw-llm"],
         "the `[dependencies.<name>]` sub-table form must be judged, not skipped"
+    );
+}
+
+#[test]
+fn test_target_sub_table_form_dependency_is_judged_internal() {
+    let manifest = "\
+[target.'cfg(unix)'.dependencies.closeclaw-llm]
+path = \"../llm\"
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        dependencies,
+        vec![("closeclaw-llm".to_string(), "path = \"../llm\"".to_string())],
+        "target sub-table key lines must be extracted as the dependency's declaration"
+    );
+    assert_eq!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)),
+        vec!["closeclaw-llm"],
+        "the `[target.'…'.dependencies.<name>]` sub-table form must be judged, not skipped"
+    );
+}
+
+#[test]
+fn test_dev_sub_table_body_produces_no_entries() {
+    let manifest = "\
+[dev-dependencies.closeclaw-llm]
+path = \"../llm\"
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert!(
+        dependencies.is_empty(),
+        "dev dependency sub-tables must not produce judged entries"
     );
 }
 
