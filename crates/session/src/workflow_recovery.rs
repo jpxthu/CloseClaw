@@ -8,7 +8,7 @@ use closeclaw_workflow::context_append::{build_workflow_context_append, has_work
 use closeclaw_workflow::definition::build_goal_message;
 use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
 use closeclaw_workflow::engine::WorkflowEngine;
-use closeclaw_workflow::run::{GoalHint, Phase};
+use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
@@ -17,6 +17,29 @@ pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
 /// the latest definition version. Used as a single source of truth for
 /// both the write site (recovery) and the read site (owner resolve guard).
 pub const DEFINITION_CHANGED_PAUSE_REASON: &str = "当前步骤在最新定义中已不存在";
+
+/// Decode the workflow run from a checkpoint's `Value`-erased state.
+///
+/// Returns `None` when absent or undecodable (a decode failure is logged
+/// and treated as "no workflow", matching the absent case).
+fn decode_checkpoint_run(checkpoint: &SessionCheckpoint) -> Option<WorkflowRun> {
+    let value = checkpoint.workflow_run.as_ref()?;
+    match serde_json::from_value(value.clone()) {
+        Ok(run) => Some(run),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to decode checkpoint workflow_run");
+            None
+        }
+    }
+}
+
+/// Encode the workflow run back into a checkpoint's `Value`-erased state.
+fn encode_checkpoint_run(checkpoint: &mut SessionCheckpoint, run: &WorkflowRun) {
+    match serde_json::to_value(run) {
+        Ok(value) => checkpoint.workflow_run = Some(value),
+        Err(e) => tracing::warn!(error = %e, "failed to encode checkpoint workflow_run"),
+    }
+}
 
 /// Inject workflow recovery state for sessions with active workflow runs.
 ///
@@ -30,9 +53,9 @@ pub async fn inject_workflow_recovery(
     checkpoint: &mut SessionCheckpoint,
     agent_workspace: Option<&std::path::Path>,
 ) {
-    let wf_run = match &checkpoint.workflow_run {
-        Some(run) if run.phase != Phase::Complete => run.clone(),
-        _ => return,
+    let Some(mut wf_run) = decode_checkpoint_run(checkpoint).filter(|r| r.phase != Phase::Complete)
+    else {
+        return;
     };
 
     let wf = try_reload_definition(&wf_run.definition_name, agent_workspace);
@@ -53,27 +76,22 @@ pub async fn inject_workflow_recovery(
     }
 
     // 2. Handle definition_version changes
-    handle_definition_version_change(session_id, &wf, &wf_run, checkpoint);
+    handle_definition_version_change(session_id, &wf, &mut wf_run);
+    encode_checkpoint_run(checkpoint, &wf_run);
 
     // 3. Extract step info and store recovery notification
-    //    Re-read from checkpoint (handle_definition_version_change may have
-    //    updated phase/paused_reason on the mutable reference).
-    let (step_num, definition_name, step_name, phase, paused_reason) = {
-        let wf_run = checkpoint
-            .workflow_run
-            .as_ref()
-            .expect("workflow_run set above");
-        (
-            wf_run.current_step,
-            wf_run.definition_name.clone(),
-            current_step_name(wf_run),
-            wf_run.phase.clone(),
-            wf_run.paused_reason.clone(),
-        )
-    };
+    //    Read from the mutable run above (handle_definition_version_change
+    //    may have updated phase/paused_reason on it).
+    let (step_num, definition_name, step_name, phase, paused_reason) = (
+        wf_run.current_step,
+        wf_run.definition_name.clone(),
+        current_step_name(&wf_run),
+        wf_run.phase.clone(),
+        wf_run.paused_reason.clone(),
+    );
     // Build recovery workflow messages (recovered + goal) for transcript injection.
     // store_recovery_notification remains for system prompt context.
-    build_recovery_workflow_messages(&wf, checkpoint, &step_name, &phase, &paused_reason);
+    build_recovery_workflow_messages(&wf, &wf_run, checkpoint, &step_name, &phase, &paused_reason);
     store_recovery_notification(
         &definition_name,
         step_num,
@@ -172,8 +190,7 @@ fn build_recovery_notification(
 fn handle_definition_version_change(
     session_id: &str,
     wf: &Option<closeclaw_workflow::definition::Workflow>,
-    wf_run: &closeclaw_workflow::run::WorkflowRun,
-    checkpoint: &mut SessionCheckpoint,
+    wf_run: &mut WorkflowRun,
 ) {
     let Some(ref wf) = wf else {
         return;
@@ -195,12 +212,8 @@ fn handle_definition_version_change(
             total_steps = wf.steps.len(),
             "current step not in new definition — blocking workflow"
         );
-        let wf_ref = checkpoint
-            .workflow_run
-            .as_mut()
-            .expect("workflow_run checked above");
-        wf_ref.phase = Phase::Blocked;
-        wf_ref.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
+        wf_run.phase = Phase::Blocked;
+        wf_run.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
     }
 }
 
@@ -212,15 +225,12 @@ fn handle_definition_version_change(
 /// Goal message is only built when the step exists in the latest definition.
 fn build_recovery_workflow_messages(
     wf: &Option<closeclaw_workflow::definition::Workflow>,
+    wf_run: &WorkflowRun,
     checkpoint: &mut SessionCheckpoint,
     step_name: &str,
     phase: &Phase,
     paused_reason: &str,
 ) {
-    let wf_run = match checkpoint.workflow_run.as_ref() {
-        Some(run) => run,
-        None => return,
-    };
     let step_num = wf_run.current_step;
 
     // Recovered message (always built)
@@ -247,8 +257,8 @@ fn build_recovery_workflow_messages(
 
     // Re-inject jump question when phase is Jumping (mirrors initial injection).
     if *phase == Phase::Jumping {
-        if let (Some(run), Some(def)) = (checkpoint.workflow_run.as_ref(), wf.as_ref()) {
-            if let Some(jump_msg) = WorkflowEngine::build_recovery_jump_message(run, def) {
+        if let Some(def) = wf.as_ref() {
+            if let Some(jump_msg) = WorkflowEngine::build_recovery_jump_message(wf_run, def) {
                 msgs.push(jump_msg);
             }
         }

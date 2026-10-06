@@ -182,7 +182,17 @@ impl SessionManager {
             None => return,
         };
 
-        let Some(ref run) = cp.workflow_run else {
+        // Decode the `Value`-erased checkpoint run into the typed form.
+        let Some(ref run_value) = cp.workflow_run else {
+            return;
+        };
+        let Ok(run) =
+            serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(run_value.clone())
+        else {
+            tracing::warn!(
+                session_id = %session_id,
+                "failed to decode checkpoint workflow_run, skipping context re-injection"
+            );
             return;
         };
 

@@ -152,7 +152,7 @@ impl Gateway {
             .get_conversation_session(session_id)
             .await
         {
-            Some(c) => c.read().await.workflow_run().cloned(),
+            Some(c) => c.read().await.workflow_run(),
             None => None,
         };
         if let Err(e) = self

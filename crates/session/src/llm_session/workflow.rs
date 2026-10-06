@@ -4,20 +4,77 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_workflow::definition::build_jump_message;
 use closeclaw_workflow::run::Phase;
 
+use std::sync::Arc;
+
 use crate::workflow_handler::JumpResult;
 
 use super::ConversationSession;
 
+/// Encode a workflow run into the `Value`-erased checkpoint form.
+///
+/// Returns `None` (with a warning) when encoding fails; callers then
+/// treat the state as cleared, mirroring [`ConversationSession::
+/// set_workflow_run`].
+pub(crate) fn encode_run_state(
+    run: &closeclaw_workflow::run::WorkflowRun,
+) -> Option<serde_json::Value> {
+    match serde_json::to_value(run) {
+        Ok(state) => Some(state),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to encode workflow_run state");
+            None
+        }
+    }
+}
+
 // ── Run / handler accessors ─────────────────────────────────────
 impl ConversationSession {
-    /// Returns a reference to the active workflow run, if any.
-    pub fn workflow_run(&self) -> Option<&closeclaw_workflow::run::WorkflowRun> {
-        self.workflow_run.as_ref()
+    /// Returns the active workflow run, if any.
+    ///
+    /// The run state is stored `Value`-erased (checkpoint-compatible);
+    /// this accessor decodes it back to the typed form for callers that
+    /// still work with the concrete run type.
+    pub fn workflow_run(&self) -> Option<closeclaw_workflow::run::WorkflowRun> {
+        let state = self.workflow_run.as_ref()?;
+        match serde_json::from_value(state.clone()) {
+            Ok(run) => Some(run),
+            Err(e) => {
+                tracing::warn!(error = %e, "failed to decode workflow_run state");
+                None
+            }
+        }
     }
 
     /// Sets the active workflow run state.
+    ///
+    /// The run is encoded to the `Value`-erased checkpoint form; on
+    /// encoding failure the state is left cleared and a warning logged.
     pub fn set_workflow_run(&mut self, run: Option<closeclaw_workflow::run::WorkflowRun>) {
-        self.workflow_run = run;
+        self.workflow_run = run.and_then(|r| encode_run_state(&r));
+    }
+
+    /// Returns the raw `Value`-erased workflow run state (checkpoint form).
+    pub(crate) fn workflow_run_state(&self) -> Option<serde_json::Value> {
+        self.workflow_run.clone()
+    }
+
+    /// Overwrites the raw `Value`-erased workflow run state (checkpoint form).
+    pub(crate) fn set_workflow_run_state(&mut self, state: Option<serde_json::Value>) {
+        self.workflow_run = state;
+    }
+
+    /// Inject the [`crate::workflow_port::WorkflowPort`] for workflow
+    /// engine operations.
+    ///
+    /// Called by the composition root (daemon) after session creation;
+    /// child sessions inherit it via [`crate::spawn::SpawnCreationContext`].
+    pub fn set_workflow_port(&mut self, port: Arc<dyn crate::workflow_port::WorkflowPort>) {
+        self.workflow_port = Some(port);
+    }
+
+    /// Returns the injected [`crate::workflow_port::WorkflowPort`], if any.
+    pub fn workflow_port(&self) -> Option<Arc<dyn crate::workflow_port::WorkflowPort>> {
+        self.workflow_port.clone()
     }
 
     pub fn workflow_handler(&self) -> Option<&crate::workflow_handler::WorkflowHandler> {
@@ -53,8 +110,7 @@ impl ConversationSession {
             let has_start = blocks.iter().any(Self::is_workflow_start_block);
             if has_start {
                 let phase = self
-                    .workflow_run
-                    .as_ref()
+                    .workflow_run()
                     .map(|r| format!("{:?}", r.phase))
                     .unwrap_or_default();
                 self.inject_workflow_message(&format!(
@@ -73,7 +129,7 @@ impl ConversationSession {
             let was_blocked_before = handler.run().phase == Phase::Blocked;
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
-                self.workflow_run = Some(handler.run().clone());
+                self.workflow_run = encode_run_state(handler.run());
             }
             let jump_msg = if matches!(jump_result, JumpResult::Jumped) {
                 let current_step = handler.run().current_step;
@@ -146,8 +202,7 @@ impl ConversationSession {
 
     /// Returns `true` if there is an active (non-Complete) workflow run.
     fn has_active_workflow(&self) -> bool {
-        self.workflow_run
-            .as_ref()
+        self.workflow_run()
             .is_some_and(|r| r.phase != Phase::Complete)
     }
 

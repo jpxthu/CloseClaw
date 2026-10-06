@@ -272,9 +272,13 @@ pub struct SessionCheckpoint {
     /// Active workflow run state (None when no workflow is active).
     ///
     /// Persisted with session checkpoint so workflow state survives restarts.
+    ///
+    /// Stored as `serde_json::Value` to avoid leaking workflow crate types
+    /// into the session API; the JSON shape remains byte-for-byte
+    /// compatible with the previous typed representation.
     /// 用 `#[serde(default)]` 兼容旧 checkpoint JSON（无此字段时反序列化为 None）。
     #[serde(default)]
-    pub workflow_run: Option<closeclaw_workflow::run::WorkflowRun>,
+    pub workflow_run: Option<serde_json::Value>,
 
     /// Workflow recovery messages to inject into the transcript on restore.
     ///

@@ -954,7 +954,7 @@ impl closeclaw_common::tool_session::ToolSession for ConversationSession {
         let collected_ops = self.collect_pending_operations();
         let system_appends = self.user_system_appends().to_vec();
         let verbosity = self.verbosity_level();
-        let workflow_run = self.workflow_run().cloned();
+        let workflow_run = self.workflow_run_state();
         // Load existing checkpoint or create a minimal one.
         let mut cp = match storage.load_checkpoint(&session_id).await {
             Ok(Some(cp)) => cp,

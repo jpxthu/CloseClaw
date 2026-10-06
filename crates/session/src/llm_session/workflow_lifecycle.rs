@@ -38,9 +38,8 @@ impl ConversationSession {
         if self.workflow_handler.is_some() {
             return;
         }
-        let run = match self.workflow_run.clone() {
-            Some(r) => r,
-            None => return,
+        let Some(run) = self.workflow_run() else {
+            return;
         };
         let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
         let definition = match WorkflowDefinitionLoader::load(
@@ -168,14 +167,16 @@ impl ConversationSession {
                     self.inject_workflow_message(&msg);
                     if let Some(ref mut h) = self.workflow_handler {
                         h.on_goal_injected();
-                        self.workflow_run = Some(h.run().clone());
+                        let run = h.run().clone();
+                        self.workflow_run = super::workflow::encode_run_state(&run);
                     }
                     tracing::debug!(step, "goal message injected after jump");
                 }
             }
             Phase::Complete => {
                 tracing::info!("workflow complete after jump, triggering exit cleanup");
-                self.workflow_run = Some(self.workflow_handler.as_ref().unwrap().run().clone());
+                let run = self.workflow_handler.as_ref().unwrap().run().clone();
+                self.workflow_run = super::workflow::encode_run_state(&run);
                 let session = self.clone();
                 tokio::spawn(async move {
                     let mut session = session;

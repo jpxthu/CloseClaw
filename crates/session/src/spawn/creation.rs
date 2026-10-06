@@ -284,6 +284,11 @@ fn wire_session_dependencies(
     if let Some(provider) = ctx.skill_listing_provider() {
         cs.set_skill_listing_provider(provider);
     }
+    // Inject workflow engine port for workflow state advancement
+    // (no-op when the composition root does not supply one).
+    if let Some(port) = ctx.workflow_port() {
+        cs.set_workflow_port(port);
+    }
 }
 
 /// Per-call configuration for [`configure_spawn_behavior`].

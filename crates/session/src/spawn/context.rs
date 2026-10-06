@@ -56,6 +56,15 @@ pub trait SpawnCreationContext: Send + Sync {
     /// Get the skill listing provider for per-turn injection.
     fn skill_listing_provider(&self) -> Option<Arc<dyn closeclaw_common::SkillListingProvider>>;
 
+    /// Get the workflow engine port for workflow state advancement.
+    ///
+    /// Defaults to `None` (workflow engine operations unavailable);
+    /// composition roots override this to supply the production port.
+    fn workflow_port(&self) -> Option<Arc<dyn crate::workflow_port::WorkflowPort>> {
+        let _ = self;
+        None
+    }
+
     /// Get the configuration root directory (parent of agents/).
     fn config_dir(&self) -> &std::path::Path;
 
