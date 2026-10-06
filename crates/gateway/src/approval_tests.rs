@@ -78,7 +78,7 @@ fn make_session_manager() -> Arc<SessionManager> {
 }
 
 fn make_gw() -> crate::Gateway {
-    crate::Gateway::new(make_config(), make_session_manager())
+    crate::Gateway::new_for_tests(make_config(), make_session_manager())
 }
 
 fn noop_notify(_n: closeclaw_permission::approval_flow::ApprovalNotification) {}
@@ -253,7 +253,7 @@ async fn s13_env(
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new(s13_cfg(), Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(s13_cfg(), Arc::clone(&sm));
     gw.register_plugin(p).await;
     gw.set_slash_dispatcher(Arc::new(S13Router)).await;
     (Arc::new(gw), sm)
@@ -652,7 +652,7 @@ async fn test_approval_without_slash_dispatcher() {
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new(s13_cfg(), Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(s13_cfg(), Arc::clone(&sm));
     gw.register_plugin(Arc::new(CapturingPlugin::new("mock")))
         .await;
     let _flow_dir = install_approval_flow(&gw).await;

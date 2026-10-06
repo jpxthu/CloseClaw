@@ -307,7 +307,7 @@ async fn test_streaming_path_persists_user_message_before_compact() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let config = make_config();
-    let gw = Arc::new(crate::Gateway::new(config, Arc::clone(&sm)));
+    let gw = Arc::new(crate::Gateway::new_for_tests(config, Arc::clone(&sm)));
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockStreamingPlugin);
     gw.register_plugin(plugin.clone()).await;
 

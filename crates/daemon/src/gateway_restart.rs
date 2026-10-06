@@ -341,9 +341,13 @@ impl crate::Daemon {
     /// Create a new Gateway and inject all shared dependencies.
     async fn build_new_gateway(&self, config_dir: &str) -> Arc<closeclaw_gateway::Gateway> {
         let gw_config = self.load_gateway_config(config_dir).await;
+        // Restart reassembles the processor chain here (composition root)
+        // and injects it as a common `ProcessorChain` trait object.
+        let processor_chain = crate::processor_registry::build_processor_chain(&gw_config);
         let new_gw = Arc::new(closeclaw_gateway::Gateway::new(
             gw_config,
             Arc::clone(&self.session_manager),
+            processor_chain,
         ));
         new_gw.set_self_ref(Arc::clone(&new_gw));
 

@@ -195,7 +195,7 @@ async fn make_gw(
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(p) = plugin {
         gw.register_plugin(p).await;
     }

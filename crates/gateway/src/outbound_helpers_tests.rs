@@ -41,7 +41,7 @@ fn test_gw() -> Gateway {
         ..Default::default()
     };
     let sm = std::sync::Arc::new(SessionManager::new(&config, None, None, Default::default()));
-    Gateway::new(config, sm)
+    Gateway::new_for_tests(config, sm)
 }
 
 /// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
@@ -702,7 +702,7 @@ fn make_gateway_for_1s_test() -> Arc<Gateway> {
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(&config, None, None, Default::default()));
-    Arc::new(Gateway::new(config, sm))
+    Arc::new(Gateway::new_for_tests(config, sm))
 }
 
 fn make_slow_request() -> InboundRequest {
@@ -757,7 +757,11 @@ async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) 
         .find_or_create("mock", &make_msg(), None)
         .await
         .expect("session creation must succeed");
-    (Arc::new(Gateway::new(config, Arc::clone(&sm))), sm, sid)
+    (
+        Arc::new(Gateway::new_for_tests(config, Arc::clone(&sm))),
+        sm,
+        sid,
+    )
 }
 
 /// Streaming-skip branch: streaming turns were already delivered chunk by

@@ -31,7 +31,7 @@ fn make_gw() -> crate::Gateway {
         None,
         ReasoningLevel::default(),
     ));
-    crate::Gateway::new(config, sm)
+    crate::Gateway::new_for_tests(config, sm)
 }
 
 /// Build a fully-populated NormalizedMessage for the normal-path test.

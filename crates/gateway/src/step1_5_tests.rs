@@ -444,7 +444,7 @@ async fn test_gateway_delegates_llm_to_session_layer() {
             closeclaw_session::compaction::CompactConfig::default(),
         ),
     );
-    let gw = crate::Gateway::new(config, sm).with_session_handler(handler);
+    let gw = crate::Gateway::new_for_tests(config, sm).with_session_handler(handler);
     assert!(
         gw.has_session_handler().await,
         "session_handler should be configured for delegation"
@@ -515,7 +515,7 @@ async fn test_permission_check_after_handler_before_execute() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
@@ -559,7 +559,7 @@ async fn test_permission_denied_handler_still_invoked() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {

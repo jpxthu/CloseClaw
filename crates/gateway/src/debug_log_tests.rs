@@ -216,7 +216,7 @@ async fn setup_gw_with_debug(
         Some(ws),
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let debug_log = make_debug_log(temp_dir).await;
     gw.set_debug_log(debug_log).await;
     (gw, sm, "ou_sender", "oc_chat")
@@ -294,7 +294,7 @@ async fn test_handle_inbound_with_debug_log_no_panic() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
     let config = make_config();
     let sm = make_session_manager(&config);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
 
@@ -320,7 +320,7 @@ async fn test_handle_inbound_with_debug_log_no_panic() {
 async fn test_handle_inbound_no_debug_log_no_panic() {
     let config = make_config();
     let sm = make_session_manager(&config);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let processed = make_processed_with_trace("feishu-456-uuid2", "sess-2");
 
@@ -341,7 +341,7 @@ async fn test_handle_inbound_no_trace_id_no_panic() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
     let config = make_config();
     let sm = make_session_manager(&config);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
 
@@ -533,7 +533,7 @@ async fn test_no_debug_log_no_session_resolved_or_route_decision() {
         ReasoningLevel::default(),
     ));
     // No debug_log set — stays None.
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let gw = gw.with_session_handler(Arc::new(handler));
 
@@ -694,7 +694,7 @@ async fn setup_gw_with_feishu_mock(
         Some(ws),
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let debug_log = make_debug_log(temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let plugin = Arc::new(FeishuMockPlugin::new());
@@ -776,7 +776,7 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     // No debug_log set.
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(FeishuMockPlugin::new());
     gw.register_plugin(plugin).await;
@@ -897,7 +897,7 @@ async fn test_outbound_non_feishu_no_feishu_events() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(DiscordMockPlugin);

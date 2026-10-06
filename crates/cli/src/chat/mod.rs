@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
+use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::{ReasoningLevel, SlashRouter, SlashSessionQuery};
 use closeclaw_gateway::{
     Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
@@ -47,6 +48,7 @@ pub(crate) async fn build_gateway(
     _llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
     fallback_client: &Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
     build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
+    build_processor_chain: impl FnOnce(&GatewayConfig) -> Arc<dyn ProcessorChain>,
 ) -> anyhow::Result<(
     Arc<Gateway>,
     tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
@@ -74,7 +76,14 @@ pub(crate) async fn build_gateway(
         .set_llm_caller(llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
         .await;
 
-    let gateway = Arc::new(Gateway::new(gateway_config, Arc::clone(&session_manager)));
+    // The processor chain is assembled by the composition root (root crate)
+    // and injected here as a common `ProcessorChain` trait object.
+    let processor_chain = build_processor_chain(&gateway_config);
+    let gateway = Arc::new(Gateway::new(
+        gateway_config,
+        Arc::clone(&session_manager),
+        processor_chain,
+    ));
     gateway.set_self_ref(Arc::clone(&gateway));
 
     // ── SessionMessageHandler setup ────────────────────────────────
@@ -114,12 +123,14 @@ pub(crate) async fn build_gateway(
 
 /// Run the interactive chat REPL.
 ///
-/// `build_slash_router` is supplied by the composition root (root crate),
-/// which owns the concrete slash handler set — cli only consumes the
-/// resulting `SlashRouter` trait object.
+/// `build_slash_router` and `build_processor_chain` are supplied by the
+/// composition root (root crate), which owns the concrete slash handler set
+/// and the default processor chain — cli only consumes the resulting trait
+/// objects.
 pub async fn run_chat(
     agent_id: &str,
     build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
+    build_processor_chain: impl FnOnce(&GatewayConfig) -> Arc<dyn ProcessorChain>,
 ) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
@@ -146,6 +157,7 @@ pub async fn run_chat(
         &llm_registry,
         &fallback_client,
         build_slash_router,
+        build_processor_chain,
     )
     .await?;
 

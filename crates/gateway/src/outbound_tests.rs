@@ -132,7 +132,8 @@ fn test_streaming_nothing_filtered_at_full() {
 use closeclaw_common::processor::ProcessedMessage;
 
 /// Build an outbound registry with VerbosityFilter + DslParser.
-/// Mirrors the chain produced by `build_processor_registry` for default config.
+/// Mirrors the composition-root default outbound chain
+/// (`closeclaw-daemon::processor_registry`).
 fn build_full_outbound_chain() -> closeclaw_processor_chain::ProcessorRegistry {
     let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(
@@ -401,7 +402,7 @@ pub(crate) async fn setup_streaming_gw(
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
     gw
 }
@@ -646,7 +647,7 @@ async fn test_thinking_indicator_sends_on_block_start() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -747,7 +748,7 @@ async fn test_thinking_indicator_suppressed_at_off() {
     let mock = ThinkingIndicatorMock::new("mock");
     let calls_ref = mock.thinking_calls.clone();
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -840,7 +841,7 @@ async fn test_thinking_indicator_stops_on_block_end() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -897,7 +898,7 @@ async fn test_process_outbound_raw_log_only_fail_open() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(config, sm);
+    let gw = Gateway::new_for_tests(config, sm);
 
     let blocks = vec![ContentBlock::Text("hello world".into())];
     let result = gw

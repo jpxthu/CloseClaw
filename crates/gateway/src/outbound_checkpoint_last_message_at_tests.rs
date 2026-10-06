@@ -131,7 +131,7 @@ async fn setup_gw(persist: Arc<MockPersist>) -> (Gateway, Arc<SessionManager>, S
     let cm = Arc::new(CheckpointManager::new(
         Arc::clone(&persist) as Arc<dyn PersistenceService>
     ));
-    let gw = Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw = Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
     (gw, sm, session_id)
 }
 

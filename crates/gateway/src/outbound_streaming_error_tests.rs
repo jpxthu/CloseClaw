@@ -171,7 +171,7 @@ async fn setup() -> (crate::Gateway, Arc<SessionManager>, String) {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin: Arc<dyn IMPlugin> = Arc::new(NoopPlugin::new("mock"));
     gw.register_plugin(plugin).await;
     let msg = Message {

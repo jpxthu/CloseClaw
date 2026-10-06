@@ -34,7 +34,7 @@ pub(crate) fn make_gateway() -> Arc<Gateway> {
         None,
         ReasoningLevel::default(),
     ));
-    Arc::new(Gateway::new(config, sm))
+    Arc::new(Gateway::new_for_tests(config, sm))
 }
 
 /// Create a [`PermissionEngine`] that denies every action for every agent.

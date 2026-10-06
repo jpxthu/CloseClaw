@@ -140,7 +140,7 @@ async fn test_close_outbound_calls_shutdown_outbound_on_plugins() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     let plugin_a = Arc::new(OutboundTrackerPlugin::new("alpha"));
     let plugin_b = Arc::new(OutboundTrackerPlugin::new("beta"));
@@ -175,7 +175,7 @@ async fn test_close_outbound_clears_plugin_registry() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     gw.register_plugin(Arc::new(OutboundTrackerPlugin::new("p1")))
         .await;
@@ -202,10 +202,14 @@ async fn test_close_outbound_clears_processor_registry() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let chain = crate::test_processor_registry::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, sm, chain);
 
     let (i, o) = gw.processor_registry_len();
-    assert!(i + o > 0, "Gateway::new should have a processor registry");
+    assert!(
+        i + o > 0,
+        "injected default chain must be present before close_outbound"
+    );
 
     gw.close_outbound().await;
 
@@ -228,7 +232,7 @@ async fn test_sync_storage_delegates_to_persistence_sync() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     gw.sync_storage().await.unwrap();
 
@@ -250,7 +254,7 @@ async fn test_sync_storage_noop_without_storage() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     gw.sync_storage().await.unwrap();
 }
@@ -270,7 +274,7 @@ async fn test_close_storage_delegates_to_persistence_close() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     gw.close_storage().await.unwrap();
 
@@ -292,7 +296,7 @@ async fn test_close_storage_noop_without_storage() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
 
     gw.close_storage().await.unwrap();
 }

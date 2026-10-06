@@ -153,8 +153,16 @@ impl Daemon {
         session_manager
             .set_checkpoint_manager(Arc::clone(&checkpoint_manager))
             .await;
-        let gateway = Gateway::new(gateway_config, Arc::clone(&session_manager))
-            .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
+        // The processor chain is assembled here (composition root) and
+        // injected as a common `ProcessorChain` trait object — the Gateway
+        // never builds concrete processors itself.
+        let processor_chain = crate::processor_registry::build_processor_chain(&gateway_config);
+        let gateway = Gateway::new(
+            gateway_config,
+            Arc::clone(&session_manager),
+            processor_chain,
+        )
+        .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
         // Storage injection is now handled via the shared CheckpointManager
         // set on both SessionManager and Gateway above. The old
         // gateway.set_storage() path still works as a backward-compatible

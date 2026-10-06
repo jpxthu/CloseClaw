@@ -399,15 +399,19 @@ fn test_whitespace_only_content_filtered() {
 async fn test_run_chat_daemon_unreachable() {
     // run_chat checks admin socket reachability internally; calling it
     // when no daemon is running should return an error. The injected slash
-    // assembly closure is never reached on this path, so the fake router
-    // below only satisfies the injection signature.
-    let result = crate::chat::run_chat("test-agent", |_sm_query| {
-        crate::chat_slash_injection_tests::recording_router(
-            "stop",
-            Arc::new(|| closeclaw_common::SlashResult::Stop),
-            Arc::new(std::sync::Mutex::new(Vec::new())),
-        )
-    })
+    // and processor-chain assembly closures are never reached on this path,
+    // so the fakes below only satisfy the injection signatures.
+    let result = crate::chat::run_chat(
+        "test-agent",
+        |_sm_query| {
+            crate::chat_slash_injection_tests::recording_router(
+                "stop",
+                Arc::new(|| closeclaw_common::SlashResult::Stop),
+                Arc::new(std::sync::Mutex::new(Vec::new())),
+            )
+        },
+        |_config| crate::chat_slash_injection_tests::chat_processor_chain(),
+    )
     .await;
     assert!(result.is_err(), "should fail when daemon is unreachable");
 }

@@ -761,7 +761,7 @@ async fn test_boundary_n_plus_one_triggers_busy_reply_text() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let plugin = Arc::new(CapturingPlugin::new());
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;

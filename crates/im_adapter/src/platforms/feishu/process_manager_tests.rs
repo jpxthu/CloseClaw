@@ -627,7 +627,7 @@ async fn make_test_gateway_with_debug_log() -> (
         None,
         closeclaw_common::ReasoningLevel::default(),
     ));
-    let gw = std::sync::Arc::new(Gateway::new(config, sm));
+    let gw = std::sync::Arc::new(Gateway::new_for_tests(config, sm));
     gw.start_inbound_queue();
 
     // Set DebugLog so emit_arrived_log writes to JSONL.

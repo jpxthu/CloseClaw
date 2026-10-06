@@ -229,7 +229,7 @@ async fn setup_with_thread_id(
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(make_config(), Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");
@@ -300,7 +300,7 @@ async fn test_route_message_forwards_thread_id() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(make_config(), Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
     let setup_msg = make_message("agent-1", "hello");
@@ -335,7 +335,7 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(make_config(), Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin_for_stream) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");
@@ -479,7 +479,7 @@ async fn test_send_outbound_streaming_forwards_block_delta_index() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(make_config(), Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");

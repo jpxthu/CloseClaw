@@ -589,7 +589,7 @@ async fn test_batch_send_success_no_notification() {
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
 
     let result = gw
@@ -666,7 +666,7 @@ async fn test_preflight_rejection_does_not_notify_user() {
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
     gw.add_outbound_middleware(Arc::new(RejectAll));
 

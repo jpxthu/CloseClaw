@@ -194,7 +194,7 @@ async fn make_gw(session_id: &str, channel: &str, plugin: Arc<dyn IMPlugin>) -> 
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin).await;
     gw
 }
@@ -526,7 +526,7 @@ async fn test_no_plugin_uses_fallback_not_batch_failure() {
         },
     );
     // Do NOT register any plugin.
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let result = gw
         .send_outbound(

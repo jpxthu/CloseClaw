@@ -44,7 +44,7 @@ fn make_test_gateway() -> std::sync::Arc<closeclaw_gateway::Gateway> {
         None,
         closeclaw_common::ReasoningLevel::default(),
     ));
-    let gw = std::sync::Arc::new(Gateway::new(config, sm));
+    let gw = std::sync::Arc::new(Gateway::new_for_tests(config, sm));
     gw.start_inbound_queue();
     gw
 }

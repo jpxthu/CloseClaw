@@ -189,7 +189,7 @@ pub(crate) fn make_outbound_gw(config: GatewayConfig) -> (Gateway, Arc<SessionMa
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     (gw, sm)
 }
 

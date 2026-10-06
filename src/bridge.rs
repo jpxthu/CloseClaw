@@ -102,6 +102,21 @@ pub fn build_chat_slash_router(
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Processor chain — CLI chat gateway assembly (composition root)
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Assemble the concrete processor chain injected into the CLI chat Gateway.
+///
+/// The cli crate only consumes `closeclaw_common::processor::ProcessorChain`;
+/// the concrete inbound/outbound processor set is owned here, in the
+/// composition root (delegated to the daemon-side single implementation).
+pub fn build_chat_processor_chain(
+    config: &closeclaw_gateway::GatewayConfig,
+) -> Arc<dyn closeclaw_common::processor::ProcessorChain> {
+    closeclaw_daemon::processor_registry::build_processor_chain(config)
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ShutdownHandle conversion
 // ═══════════════════════════════════════════════════════════════════════════
 

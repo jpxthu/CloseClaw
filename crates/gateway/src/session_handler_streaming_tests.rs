@@ -291,7 +291,7 @@ async fn build_degradation_env(
         ),
     );
 
-    let gw = Gateway::new(make_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let gw_arc = Arc::new(gw);

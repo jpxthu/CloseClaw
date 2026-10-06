@@ -341,7 +341,8 @@ pub(crate) async fn setup_gw_with_persist(
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw =
+        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
 
     let (plugin, entered, ok, texts) = SyncPlugin::new();
     gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)

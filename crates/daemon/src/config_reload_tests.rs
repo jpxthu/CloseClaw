@@ -101,7 +101,7 @@ pub(super) fn make_session_manager() -> Arc<SessionManager> {
 
 /// Helper: create a Gateway with defaults (for subscriber tests).
 pub(super) fn make_gateway() -> Arc<Gateway> {
-    Arc::new(Gateway::new(
+    Arc::new(Gateway::new_for_tests(
         GatewayConfig::default(),
         make_session_manager(),
     ))

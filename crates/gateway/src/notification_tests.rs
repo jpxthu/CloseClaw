@@ -292,7 +292,8 @@ async fn make_gw_with_handler(
         ReasoningLevel::default(),
     ));
     let (handler, _cooldown_dir) = build_handler(Arc::clone(&sm));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm)).with_session_handler(Arc::new(handler));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm))
+        .with_session_handler(Arc::new(handler));
     let plugin: Arc<CapturingPlugin> = Arc::new(CapturingPlugin::new(channel));
     let im_plugin: Arc<dyn IMPlugin> = plugin.clone() as Arc<dyn IMPlugin>;
     gw.register_plugin(im_plugin).await;
@@ -311,7 +312,8 @@ async fn make_gw_with_failing_handler(
         ReasoningLevel::default(),
     ));
     let (handler, _cooldown_dir) = build_handler(Arc::clone(&sm));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm)).with_session_handler(Arc::new(handler));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm))
+        .with_session_handler(Arc::new(handler));
     let plugin: Arc<FailingSendPlugin> = Arc::new(FailingSendPlugin::new(channel));
     let im_plugin: Arc<dyn IMPlugin> = plugin.clone() as Arc<dyn IMPlugin>;
     gw.register_plugin(im_plugin).await;

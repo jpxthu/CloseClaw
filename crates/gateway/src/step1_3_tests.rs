@@ -227,7 +227,7 @@ async fn build_env(
             depth: 0,
         },
     );
-    let gw = Gateway::new(test_config(), Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(test_config(), Arc::clone(&sm));
     gw.register_plugin(plugin).await;
     gw.set_slash_dispatcher(Arc::new(TestSlashRouter)).await;
     (Arc::new(gw), sm)
@@ -358,7 +358,9 @@ async fn build_degradation_env(
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = Arc::new(Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm));
+    let gw = Arc::new(
+        Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm),
+    );
     (gw, sm, persist)
 }
 

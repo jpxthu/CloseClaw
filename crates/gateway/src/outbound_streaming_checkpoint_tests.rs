@@ -291,7 +291,7 @@ async fn setup_with_checkpoint(
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin).await;
     let msg = Message {
         id: "test_msg".to_string(),
@@ -322,7 +322,7 @@ async fn setup_without_checkpoint(plugin: Arc<dyn IMPlugin>) -> (crate::Gateway,
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin).await;
     let msg = Message {
         id: "test_msg".to_string(),

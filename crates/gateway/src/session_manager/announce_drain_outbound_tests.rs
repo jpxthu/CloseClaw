@@ -218,7 +218,7 @@ async fn setup_with_mock_gateway() -> (Arc<SessionManager>, Arc<Gateway>, Arc<Mo
         max_message_size: 65536,
         ..Default::default()
     };
-    let gw = Gateway::new(gw_config, Arc::clone(&mgr));
+    let gw = Gateway::new_for_tests(gw_config, Arc::clone(&mgr));
     let gw_arc = Arc::new(gw);
     let plugin = Arc::new(MockPlugin::new());
     gw_arc
@@ -238,7 +238,7 @@ async fn setup_with_failing_gateway(
         max_message_size: 65536,
         ..Default::default()
     };
-    let gw = Gateway::new(gw_config, Arc::clone(&mgr));
+    let gw = Gateway::new_for_tests(gw_config, Arc::clone(&mgr));
     let gw_arc = Arc::new(gw);
     let plugin = Arc::new(MockPlugin::with_fail_after(fail_after));
     gw_arc

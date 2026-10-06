@@ -187,7 +187,7 @@ async fn make_wired_sm(
     );
 
     // Real Gateway + handler with knowledge (daemon composition-root wiring).
-    let gw = Gateway::new(test_config(), sm.clone());
+    let gw = Gateway::new_for_tests(test_config(), sm.clone());
     let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(StubProvider::new());
     let client = Arc::new(UnifiedChatClient::new(
         provider,

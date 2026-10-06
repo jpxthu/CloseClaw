@@ -113,7 +113,7 @@ fn make_gw(config: GatewayConfig) -> (Gateway, Arc<SessionManager>) {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     (gw, sm)
 }
 

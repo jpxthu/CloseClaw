@@ -79,7 +79,7 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     (gw, sm)
 }
 

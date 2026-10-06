@@ -227,7 +227,8 @@ async fn setup_timing_gw(persist: Arc<TimingMockPersist>) -> SetupResult {
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw =
+        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
 
     let entered = Arc::new(Notify::new());
     let ok = Arc::new(Notify::new());
@@ -376,7 +377,8 @@ async fn test_interactive_message_writeahead_and_ackclear() {
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw =
+        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
 
     let entered = Arc::new(Notify::new());
     let ok = Arc::new(Notify::new());
@@ -686,7 +688,8 @@ async fn setup_failing_gw(
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw =
+        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
 
     let entered = Arc::new(Notify::new());
     let ok = Arc::new(Notify::new());

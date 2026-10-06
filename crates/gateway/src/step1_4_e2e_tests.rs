@@ -131,7 +131,7 @@ async fn test_e2e_wal_lifecycle_enqueue_process_delete_reopen() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw_a = Arc::new(Gateway::new(config_a, sm_a));
+    let gw_a = Arc::new(Gateway::new_for_tests(config_a, sm_a));
     gw_a.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle_a = gw_a.start_inbound_queue();
@@ -154,7 +154,7 @@ async fn test_e2e_wal_lifecycle_enqueue_process_delete_reopen() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw_b = Arc::new(Gateway::new(config_b, sm_b));
+    let gw_b = Arc::new(Gateway::new_for_tests(config_b, sm_b));
     gw_b.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle_b = gw_b.start_inbound_queue();
@@ -200,7 +200,7 @@ async fn test_e2e_reopen_replays_pending_entries() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle = gw.start_inbound_queue();
@@ -264,7 +264,7 @@ async fn test_e2e_arrived_then_dequeued_lifecycle() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.set_debug_log(make_debug_log(&debug_tmp).await).await;
     gw.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
@@ -312,7 +312,7 @@ async fn test_e2e_no_wal_files_when_disabled() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle = gw.start_inbound_queue();
@@ -349,7 +349,7 @@ async fn test_e2e_multiple_messages_wal_clean() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.register_plugin(Arc::new(E2ePlugin) as Arc<dyn IMPlugin>)
         .await;
     let _handle = gw.start_inbound_queue();

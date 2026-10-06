@@ -215,7 +215,7 @@ async fn setup_gw(session_id: &str, plugin: Arc<dyn IMPlugin>) -> crate::Gateway
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
     gw.register_plugin(plugin).await;
     gw
 }
@@ -389,7 +389,8 @@ async fn test_raw_log_dir_configured_pipeline_runs() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let chain = crate::test_processor_registry::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, sm, chain);
     let session_id = "rawlog-test";
 
     // Map session

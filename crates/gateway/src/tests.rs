@@ -161,7 +161,7 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     (gw, sm)
 }
 
@@ -260,7 +260,7 @@ async fn test_session_created_on_route() {
 
 #[tokio::test]
 async fn test_no_sessions_for_unknown_agent() {
-    let gw = crate::Gateway::new(
+    let gw = crate::Gateway::new_for_tests(
         make_config(),
         Arc::new(SessionManager::new(
             &make_config(),

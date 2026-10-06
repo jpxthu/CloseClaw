@@ -560,7 +560,7 @@ mod tests {
             None,
             closeclaw_common::ReasoningLevel::default(),
         ));
-        Arc::new(Gateway::new(config, sm))
+        Arc::new(Gateway::new_for_tests(config, sm))
     }
 
     /// `register_platform_plugins` stays reachable via the historical
