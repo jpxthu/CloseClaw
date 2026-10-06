@@ -2,7 +2,7 @@
 
 use super::prompt_template::PromptTemplate;
 use super::SessionManagerOps;
-use crate::spawn::SpawnTargetConfigLookup;
+use crate::spawn::{SpawnTargetAgentConfig, SpawnTargetConfigLookup};
 use closeclaw_common::tool_trait::{
     PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult,
 };
@@ -173,18 +173,19 @@ impl SessionsSpawnTool {
     }
 
     /// Resolve everything needed to create the child session: the target
-    /// agent's full config (session-internal channel), the effective
-    /// timeout chain, and the parent session's depth / model context.
+    /// agent's spawn-time config view (session-internal channel), the
+    /// effective timeout chain, and the parent session's depth / model
+    /// context.
     async fn resolve_child_config(
         &self,
         spawn_result: &SpawnValidationResult,
         spawn_args: &SpawnArgs,
         parent_session_id: &str,
     ) -> Result<ResolvedChildConfig, ToolCallError> {
-        // The full target config profile is obtained through the
-        // session-internal channel — it never enters the shared
+        // The target agent's spawn-time config view is obtained through
+        // the session-internal channel — it never enters the shared
         // SpawnValidationResult (design doc §shared-types).
-        let config = self
+        let target = self
             .spawn_target_config
             .resolve_agent_config(&spawn_result.agent_id)
             .await
@@ -223,7 +224,7 @@ impl SessionsSpawnTool {
             .await
             .unwrap_or(0);
         Ok(ResolvedChildConfig {
-            config,
+            config: to_full_config(&target),
             spawn_timeout,
             timeout_warning_secs,
             timeout_notify_interval_ratio,
@@ -231,6 +232,37 @@ impl SessionsSpawnTool {
             parent_depth,
             prompt_template_prefix: spawn_args.prompt_template.as_ref().map(|tpl| tpl.prefix()),
         })
+    }
+}
+
+/// Reconstruct the full config profile expected by
+/// `SessionManagerOps::create_child_session` from the narrow spawn-time
+/// view.
+///
+/// Transitional bridge: only the fields consumed by the child-creation
+/// chain (id/model/workspace/skills/tools/hooks) are carried over; the
+/// remaining fields use neutral defaults. This disappears once the
+/// creation chain takes the narrow structure directly.
+fn to_full_config(
+    target: &SpawnTargetAgentConfig,
+) -> closeclaw_config::agents::ResolvedAgentConfig {
+    closeclaw_config::agents::ResolvedAgentConfig {
+        id: target.id.clone(),
+        name: target.id.clone(),
+        parent_id: None,
+        model: target.model.clone(),
+        workspace: target.workspace.clone(),
+        agent_dir: None,
+        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
+        skills: target.skills.clone(),
+        tools: target.tools.clone(),
+        disallowed_tools: Vec::new(),
+        subagents: closeclaw_config::agents::SubagentsConfig::default(),
+        memory: closeclaw_config::agents::MemoryConfig::default(),
+        hooks: target.hooks.clone(),
+        parallel_tool_calls: true,
+        memory_configured: false,
+        source: closeclaw_config::agents::ConfigSource::User,
     }
 }
 

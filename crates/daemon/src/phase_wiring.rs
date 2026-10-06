@@ -12,6 +12,7 @@ use crate::{
     config_watcher,
     dreaming_scheduler::DreamingScheduler,
     noop_miner_llm, registries,
+    trait_adapters::ConfigSpawnBudgetLookup,
 };
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
@@ -38,7 +39,7 @@ use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
-use closeclaw_session::spawn::controller::SpawnContext;
+use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
 use closeclaw_session::{persistence::PersistenceService, storage::SqliteStorage};
 use closeclaw_skills::builtin::builtin_skills;
@@ -235,8 +236,10 @@ impl Daemon {
                 Arc::clone(config_manager),
                 Arc::clone(permission_engine),
             ));
+            let budget_lookup: Arc<dyn SpawnBudgetLookup> =
+                Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_manager)));
             SpawnController::new(
-                Arc::clone(config_manager),
+                budget_lookup,
                 Arc::clone(session_manager) as Arc<dyn SpawnContext>,
                 pc,
             )

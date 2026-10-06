@@ -19,9 +19,8 @@ pub use communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig, CommunicationError,
 };
 pub use context::SpawnCreationContext;
-pub use controller::SpawnContext;
-pub use controller::SpawnController;
-pub use controller::SpawnTargetConfigLookup;
+pub use controller::{AgentSpawnBudget, SpawnBudgetLookup, SpawnContext, SpawnController};
+pub use controller::{SpawnTargetAgentConfig, SpawnTargetConfigLookup};
 pub use creation::{
     build_spawn_context, create_child_conversation_session, ChildSessionCreated,
     ChildSessionCreationParams,

@@ -109,30 +109,8 @@ impl SpawnValidator for MockSpawnValidator {
 }
 
 // ---------------------------------------------------------------------------
-// Mock SpawnTargetConfigLookup (session-internal full config channel)
+// Mock SpawnTargetConfigLookup (session-internal config-view channel)
 // ---------------------------------------------------------------------------
-
-/// Build a minimal resolved agent config for `id`.
-fn make_agent_config(id: &str) -> closeclaw_config::agents::ResolvedAgentConfig {
-    closeclaw_config::agents::ResolvedAgentConfig {
-        id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
-        model: Some(closeclaw_common::ModelSpec::single("test-model")),
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
-        skills: vec![],
-        tools: vec![],
-        disallowed_tools: vec![],
-        subagents: closeclaw_config::agents::SubagentsConfig::default(),
-        memory: closeclaw_config::agents::MemoryConfig::default(),
-        hooks: vec![],
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: closeclaw_config::agents::ConfigSource::User,
-    }
-}
 
 struct MockSpawnTargetConfigLookup;
 
@@ -141,8 +119,12 @@ impl crate::spawn::SpawnTargetConfigLookup for MockSpawnTargetConfigLookup {
     async fn resolve_agent_config(
         &self,
         agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
-        Some(make_agent_config(agent_id))
+    ) -> Option<crate::spawn::SpawnTargetAgentConfig> {
+        Some(crate::spawn::SpawnTargetAgentConfig {
+            id: agent_id.to_string(),
+            model: Some(closeclaw_common::ModelSpec::single("test-model")),
+            ..Default::default()
+        })
     }
 }
 
@@ -866,7 +848,7 @@ impl crate::spawn::SpawnTargetConfigLookup for MissingAgentConfigLookup {
     async fn resolve_agent_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+    ) -> Option<crate::spawn::SpawnTargetAgentConfig> {
         None
     }
 }

@@ -9,7 +9,9 @@
 
 use super::*;
 use crate::builtin::skill_tool::SkillTool;
-use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
+use crate::test_adapters::{
+    ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter, PermissionEngineAdapter,
+};
 use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::ToolRegistryQuery;
@@ -84,7 +86,8 @@ fn test_spawn_deps() -> (
         ),
     );
     let spawn_controller = Arc::new(SpawnController::new(
-        Arc::clone(&cfg_mgr),
+        Arc::new(ConfigSpawnBudgetLookupAdapter(Arc::clone(&cfg_mgr)))
+            as Arc<dyn closeclaw_session::spawn::controller::SpawnBudgetLookup>,
         Arc::clone(&session_manager) as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
         permission_checker,
     ));

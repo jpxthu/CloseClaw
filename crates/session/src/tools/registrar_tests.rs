@@ -230,7 +230,7 @@ impl crate::spawn::SpawnTargetConfigLookup for MockSpawnTargetConfigLookup {
     async fn resolve_agent_config(
         &self,
         _agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+    ) -> Option<crate::spawn::SpawnTargetAgentConfig> {
         None
     }
 }

@@ -13,9 +13,10 @@ use std::sync::Arc;
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
 use closeclaw_config::agents::SubagentsConfig;
 use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
-use closeclaw_config::ConfigManager;
 
-use super::controller::{SpawnContext, SpawnController};
+use super::controller::{
+    AgentSpawnBudget, SpawnBudgetLookup, SpawnContext, SpawnController, SpawnTargetAgentConfig,
+};
 use closeclaw_common::{SpawnError, SpawnValidationResult};
 
 // ── Mock implementations ───────────────────────────────────────────────
@@ -94,6 +95,40 @@ impl PermissionChecker for ConfigurablePermissionChecker {
     }
 }
 
+/// Local mock replacing the old ConfigManager fixture: holds agent
+/// config fixtures and maps them onto the narrow spawn-budget view.
+struct MockSpawnBudgetLookup {
+    agents: Vec<ResolvedAgentConfig>,
+}
+
+#[async_trait::async_trait]
+impl SpawnBudgetLookup for MockSpawnBudgetLookup {
+    async fn spawn_budget(&self, agent_id: &str) -> Option<AgentSpawnBudget> {
+        let sc = &self.agents.iter().find(|a| a.id == agent_id)?.subagents;
+        Some(AgentSpawnBudget {
+            max_spawn_depth: sc.max_spawn_depth,
+            max_children: sc.max_children,
+            allow_agents: Some(sc.allow_agents.clone()),
+            require_agent_id: sc.require_agent_id,
+            timeout: sc.timeout,
+            timeout_warning: sc.timeout_warning,
+            timeout_notify_interval_ratio: sc.timeout_notify_interval_ratio,
+        })
+    }
+
+    async fn spawn_target_config(&self, agent_id: &str) -> Option<SpawnTargetAgentConfig> {
+        let cfg = self.agents.iter().find(|a| a.id == agent_id)?;
+        Some(SpawnTargetAgentConfig {
+            id: cfg.id.clone(),
+            model: cfg.model.clone(),
+            workspace: cfg.workspace.clone(),
+            skills: cfg.skills.clone(),
+            tools: cfg.tools.clone(),
+            hooks: cfg.hooks.clone(),
+        })
+    }
+}
+
 // ── Helpers ────────────────────────────────────────────────────────────
 
 /// Build a ResolvedAgentConfig with the given subagent settings.
@@ -118,32 +153,24 @@ fn make_agent_config(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfi
     }
 }
 
-/// Create a ConfigManager with the given agents pre-loaded.
-fn make_config_manager(agents: Vec<ResolvedAgentConfig>) -> Arc<ConfigManager> {
-    let tmp = tempfile::TempDir::new().expect("tempdir");
-    let mgr = ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager");
-    {
-        let mut map = mgr.agents.write().expect("poisoned");
-        for agent in agents {
-            map.insert(agent.id.clone(), agent);
-        }
-    }
-    Arc::new(mgr)
+/// Create a budget lookup with the given agents pre-loaded.
+fn make_budget_lookup(agents: Vec<ResolvedAgentConfig>) -> Arc<dyn SpawnBudgetLookup> {
+    Arc::new(MockSpawnBudgetLookup { agents })
 }
 
 fn make_controller(
-    config_manager: Arc<ConfigManager>,
+    budget_lookup: Arc<dyn SpawnBudgetLookup>,
     context: Arc<dyn SpawnContext>,
 ) -> SpawnController {
-    SpawnController::new(config_manager, context, Arc::new(AllowAllPermissionChecker))
+    SpawnController::new(budget_lookup, context, Arc::new(AllowAllPermissionChecker))
 }
 
 fn make_controller_with_checker(
-    config_manager: Arc<ConfigManager>,
+    budget_lookup: Arc<dyn SpawnBudgetLookup>,
     context: Arc<dyn SpawnContext>,
     checker: ConfigurablePermissionChecker,
 ) -> SpawnController {
-    SpawnController::new(config_manager, context, Arc::new(checker))
+    SpawnController::new(budget_lookup, context, Arc::new(checker))
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -160,10 +187,10 @@ async fn test_require_agent_id_false_fallback_to_parent() {
         ..Default::default()
     };
     let parent_config = make_agent_config("parent-agent", subagents);
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", None).await;
 
     let result = result.expect("validate should succeed when requireAgentId=false");
@@ -182,10 +209,10 @@ async fn test_require_agent_id_true_rejects_without_agent_id() {
         ..Default::default()
     };
     let parent_config = make_agent_config("parent-agent", subagents);
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", None).await;
 
     match result {
@@ -206,11 +233,11 @@ async fn test_depth_budget_zero_rejects() {
         ..Default::default()
     };
     let parent_config = make_agent_config("parent-agent", subagents);
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     // Mock context returns budget = 0.
     let context = Arc::new(MockSpawnContext::with_budget(Some(0)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", None).await;
 
     match result {
@@ -238,10 +265,10 @@ async fn test_valid_spawn_with_budget() {
     };
     let parent_config = make_agent_config("parent-agent", subagents);
     let target_config = make_agent_config("child-agent", target_subagents);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
 
     let result = result.expect("validate should succeed");
@@ -261,10 +288,10 @@ async fn test_whitelist_rejects_unknown_agent() {
         ..Default::default()
     };
     let parent_config = make_agent_config("parent-agent", subagents);
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller
         .validate("session-1", Some("unknown-agent"))
         .await;
@@ -297,10 +324,10 @@ async fn test_require_agent_id_true_with_explicit_agent_id() {
     };
     let parent_config = make_agent_config("parent-agent", subagents);
     let target_config = make_agent_config("child-agent", target_subagents);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
 
     let result = result.expect("validate should succeed with explicit agentId");
@@ -331,10 +358,10 @@ async fn test_timeout_from_target_agent_config() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.spawn_timeout, Some(60));
@@ -359,10 +386,10 @@ async fn test_timeout_global_default_when_target_has_no_config() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.spawn_timeout, Some(172800));
@@ -388,10 +415,10 @@ async fn test_timeout_zero_passthrough() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.spawn_timeout, Some(0));
@@ -422,10 +449,10 @@ async fn test_timeout_warning_from_target_agent_config() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.timeout_warning_secs, Some(120));
@@ -450,10 +477,10 @@ async fn test_timeout_warning_none_when_target_has_no_config() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.timeout_warning_secs, None);
@@ -480,10 +507,10 @@ async fn test_timeout_notify_interval_ratio_from_target_agent_config() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.timeout_warning_secs, Some(90));
@@ -510,10 +537,10 @@ async fn test_timeout_warning_zero_passthrough() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("validate should succeed");
     assert_eq!(result.timeout_warning_secs, Some(0));
@@ -542,10 +569,10 @@ async fn test_budget_one_allows_spawn() {
     };
     let parent_config = make_agent_config("parent-agent", parent_sub);
     let target_config = make_agent_config("child-agent", target_sub);
-    let config_manager = make_config_manager(vec![parent_config, target_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config, target_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(1)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", Some("child-agent")).await;
     let result = result.expect("budget=1 should allow spawn");
     assert_eq!(result.agent_id, "child-agent");
@@ -564,10 +591,10 @@ async fn test_budget_zero_blocks_spawn() {
         ..Default::default()
     };
     let parent_config = make_agent_config("parent-agent", subagents);
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(0)));
 
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
     let result = controller.validate("session-1", None).await;
 
     match result {
@@ -611,9 +638,9 @@ fn permissive_subagents() -> SubagentsConfig {
 #[tokio::test]
 async fn test_check_spawn_permission_config_not_found() {
     let parent_config = make_agent_config("parent-agent", permissive_subagents());
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
-    let controller = make_controller(config_manager, context);
+    let controller = make_controller(budget_lookup, context);
 
     let validation = make_validation("missing-agent");
     let result = controller
@@ -631,10 +658,10 @@ async fn test_check_spawn_permission_config_not_found() {
 #[tokio::test]
 async fn test_check_spawn_permission_denied_propagates() {
     let parent_config = make_agent_config("parent-agent", permissive_subagents());
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
     let controller = make_controller_with_checker(
-        config_manager,
+        budget_lookup,
         context,
         ConfigurablePermissionChecker {
             deny_reason: Some("blocked by policy".to_string()),
@@ -659,10 +686,10 @@ async fn test_check_spawn_permission_denied_propagates() {
 #[tokio::test]
 async fn test_check_spawn_permission_allowed() {
     let parent_config = make_agent_config("parent-agent", permissive_subagents());
-    let config_manager = make_config_manager(vec![parent_config]);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
     let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
     let controller = make_controller_with_checker(
-        config_manager,
+        budget_lookup,
         context,
         ConfigurablePermissionChecker { deny_reason: None },
     );

@@ -114,8 +114,8 @@ pub fn generate_timestamp_identifier(title: &str) -> String {
 
 /// Generate a plan identifier using the specified format.
 ///
-/// - [`PlanIdentifierFormat::Timestamp`]: `yyyy-MM-dd-HH-mm-ss-{slug}`
-/// - [`PlanIdentifierFormat::RandomWords`]: `{adjective}-{noun}-{noun}`
+/// - Timestamp: `yyyy-MM-dd-HH-mm-ss-{slug}`
+/// - RandomWords: `{adjective}-{noun}-{noun}`
 pub fn generate_identifier(title: &str, format: PlanIdentifierFormat) -> String {
     match format {
         PlanIdentifierFormat::Timestamp => generate_timestamp_identifier(title),
