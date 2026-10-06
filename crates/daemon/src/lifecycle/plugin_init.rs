@@ -113,3 +113,35 @@ fn to_session_identifier_format(
         }
     }
 }
+
+#[cfg(test)]
+mod plugin_init_tests {
+    use super::to_session_identifier_format;
+    use closeclaw_config::IdentifierFormat;
+    use closeclaw_session::plan_file::PlanIdentifierFormat;
+
+    /// Every config variant maps to its same-named session variant
+    /// (full variant coverage of the decoupling seam).
+    #[test]
+    fn test_map_covers_all_config_variants() {
+        assert_eq!(
+            to_session_identifier_format(IdentifierFormat::Timestamp),
+            PlanIdentifierFormat::Timestamp
+        );
+        assert_eq!(
+            to_session_identifier_format(IdentifierFormat::RandomWords),
+            PlanIdentifierFormat::RandomWords
+        );
+    }
+
+    /// Default path: the handler is wired from `IdentifierFormat::default()`
+    /// (plugin_init call site), which must land on the session enum's own
+    /// default — both sides agree on Timestamp.
+    #[test]
+    fn test_map_default_lands_on_session_default() {
+        assert_eq!(IdentifierFormat::default(), IdentifierFormat::Timestamp);
+        let mapped = to_session_identifier_format(IdentifierFormat::default());
+        assert_eq!(mapped, PlanIdentifierFormat::default());
+        assert_eq!(mapped, PlanIdentifierFormat::Timestamp);
+    }
+}

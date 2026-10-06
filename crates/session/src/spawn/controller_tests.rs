@@ -700,3 +700,189 @@ async fn test_check_spawn_permission_allowed() {
         .await
         .expect("allow-all checker should let the spawn through");
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// Critical boundary tests (Step 1.9 — decoupled budget-lookup semantics)
+// ═══════════════════════════════════════════════════════════════════════
+
+/// Unknown target agent with a wildcard whitelist: the whitelist passes
+/// (["*"]), then the budget lookup misses → `ConfigNotFound` from
+/// `validate` itself (not just the permission re-resolution step).
+#[tokio::test]
+async fn test_validate_unknown_target_agent_config_not_found() {
+    let parent_config = make_agent_config("parent-agent", permissive_subagents());
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+    let controller = make_controller(budget_lookup, context);
+
+    let result = controller
+        .validate("session-1", Some("missing-agent"))
+        .await;
+
+    match result {
+        Err(SpawnError::ConfigNotFound(id)) => assert_eq!(id, "missing-agent"),
+        other => panic!("expected ConfigNotFound, got {:?}", other),
+    }
+}
+
+/// `max_children=0` → immediate `MaxChildrenReached` even with zero
+/// active children (boundary: `active >= max` fires at 0 >= 0).
+#[tokio::test]
+async fn test_max_children_zero_blocks_immediately() {
+    let subagents = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(0),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", subagents);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext {
+        active_children: 0,
+        chat_id: Some("parent-agent".to_string()),
+        effective_budget: Some(2),
+    });
+    let controller = make_controller(budget_lookup, context);
+
+    let result = controller.validate("session-1", None).await;
+
+    match result {
+        Err(SpawnError::MaxChildrenReached { current, max }) => {
+            assert_eq!((current, max), (0, 0));
+        }
+        other => panic!("expected MaxChildrenReached(0, 0), got {:?}", other),
+    }
+}
+
+/// Last-slot boundary for concurrency: `max_children=1` admits the spawn
+/// at `active=0` and rejects at `active=1` (check is `active >= max`).
+#[tokio::test]
+async fn test_max_children_boundary_last_slot() {
+    let subagents = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec!["*".to_string()],
+        max_spawn_depth: Some(3),
+        max_children: Some(1),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", subagents);
+
+    // active=0 → the single slot is available.
+    let context = Arc::new(MockSpawnContext {
+        active_children: 0,
+        chat_id: Some("parent-agent".to_string()),
+        effective_budget: Some(2),
+    });
+    let controller = make_controller(make_budget_lookup(vec![parent_config.clone()]), context);
+    let result = controller
+        .validate("session-1", None)
+        .await
+        .expect("active=0 < max_children=1 must pass");
+    assert_eq!(result.agent_id, "parent-agent");
+
+    // active=1 → the slot is taken.
+    let context = Arc::new(MockSpawnContext {
+        active_children: 1,
+        chat_id: Some("parent-agent".to_string()),
+        effective_budget: Some(2),
+    });
+    let controller = make_controller(make_budget_lookup(vec![parent_config]), context);
+    let result = controller.validate("session-1", None).await;
+    match result {
+        Err(SpawnError::MaxChildrenReached { current, max }) => {
+            assert_eq!((current, max), (1, 1));
+        }
+        other => panic!("expected MaxChildrenReached(1, 1), got {:?}", other),
+    }
+}
+
+/// Child `max_spawn_depth` boundaries against the parent's effective
+/// budget (3): exactly equal → allowed but clamped to budget-1; exactly
+/// budget-1 → passed through unclamped; exceeding → clamped. The
+/// `min` semantics never reject on the child's declared depth alone.
+#[tokio::test]
+async fn test_max_spawn_depth_boundaries_against_parent_budget() {
+    let parent_config = make_agent_config("parent-agent", permissive_subagents());
+
+    let make_case = |child_depth: u32| {
+        let child = make_agent_config(
+            "child-agent",
+            SubagentsConfig {
+                require_agent_id: Some(false),
+                allow_agents: vec!["*".to_string()],
+                max_spawn_depth: Some(child_depth),
+                max_children: Some(5),
+                ..Default::default()
+            },
+        );
+        let context = Arc::new(MockSpawnContext {
+            active_children: 0,
+            chat_id: Some("parent-agent".to_string()),
+            effective_budget: Some(3),
+        });
+        make_controller(
+            make_budget_lookup(vec![parent_config.clone(), child]),
+            context,
+        )
+    };
+
+    // Exactly equal to the parent budget → allowed, clamped to budget-1.
+    let result = make_case(3)
+        .validate("session-1", Some("child-agent"))
+        .await
+        .expect("child depth == budget must not reject");
+    assert_eq!(result.effective_max_spawn_depth, 2, "clamped to budget-1");
+
+    // Exactly budget-1 → the unclamped pass-through value.
+    let result = make_case(2)
+        .validate("session-1", Some("child-agent"))
+        .await
+        .expect("child depth == budget-1 must not reject");
+    assert_eq!(result.effective_max_spawn_depth, 2);
+
+    // Exceeding the budget → still clamped, not rejected.
+    let result = make_case(10)
+        .validate("session-1", Some("child-agent"))
+        .await
+        .expect("child depth above budget must clamp, not reject");
+    assert_eq!(result.effective_max_spawn_depth, 2);
+}
+
+/// Empty `allowAgents` whitelist is honored literally — it is NOT the
+/// `["*"]` default (which only applies when the field is absent) — so
+/// even the fallback self-target is rejected with `AgentNotAllowed`.
+#[tokio::test]
+async fn test_allow_agents_empty_whitelist_rejects() {
+    let subagents = SubagentsConfig {
+        require_agent_id: Some(false),
+        allow_agents: vec![], // empty whitelist, configured explicitly
+        max_spawn_depth: Some(3),
+        max_children: Some(5),
+        ..Default::default()
+    };
+    let parent_config = make_agent_config("parent-agent", subagents);
+    let budget_lookup = make_budget_lookup(vec![parent_config]);
+    let context = Arc::new(MockSpawnContext::with_budget(Some(2)));
+    let controller = make_controller(budget_lookup, context);
+
+    // Fallback self-target: still rejected by the empty whitelist.
+    let result = controller.validate("session-1", None).await;
+    match result {
+        Err(SpawnError::AgentNotAllowed { agent_id }) => assert_eq!(agent_id, "parent-agent"),
+        other => panic!(
+            "expected AgentNotAllowed for fallback target, got {:?}",
+            other
+        ),
+    }
+
+    // Explicit target that exists but is not whitelisted: same verdict.
+    let result = controller.validate("session-1", Some("parent-agent")).await;
+    match result {
+        Err(SpawnError::AgentNotAllowed { agent_id }) => assert_eq!(agent_id, "parent-agent"),
+        other => panic!(
+            "expected AgentNotAllowed for explicit target, got {:?}",
+            other
+        ),
+    }
+}
