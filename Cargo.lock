@@ -945,7 +945,6 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-debug-log",
  "closeclaw-im-adapter",
- "closeclaw-llm",
  "regex",
  "serde",
  "serde_json",

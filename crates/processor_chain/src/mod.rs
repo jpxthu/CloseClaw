@@ -15,6 +15,8 @@ pub mod context;
 #[cfg(test)]
 mod context_tests;
 pub mod debug_log;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub mod dsl_parser;
 #[cfg(test)]
 mod dsl_parser_tests;

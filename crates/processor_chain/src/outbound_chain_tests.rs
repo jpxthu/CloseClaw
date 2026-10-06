@@ -12,7 +12,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 use super::dsl_parser::DslParser;
 use super::loader::{ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig};

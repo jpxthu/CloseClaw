@@ -20,7 +20,7 @@ fn make_ctx(content: &str, channel: &str) -> MessageContext {
     };
     let mut ctx = MessageContext::from_normalized(msg);
     ctx.content_blocks
-        .push(closeclaw_llm::types::ContentBlock::Text(
+        .push(closeclaw_common::processor::ContentBlock::Text(
             content.to_string(),
         ));
     ctx.metadata
@@ -173,7 +173,7 @@ async fn test_preserves_content_and_blocks() {
     ctx.metadata
         .insert("session_key".to_string(), "sess_1".to_string());
     // Set content_blocks since the OutboundRawLogProcessor passes them through
-    ctx.content_blocks = vec![closeclaw_llm::types::ContentBlock::Text(
+    ctx.content_blocks = vec![closeclaw_common::processor::ContentBlock::Text(
         "output text".to_string(),
     )];
 

@@ -17,7 +17,7 @@ use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 /// Configuration for [`RawLogProcessor`].
 #[derive(Debug, Clone)]

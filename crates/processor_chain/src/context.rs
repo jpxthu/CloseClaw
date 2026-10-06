@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use closeclaw_common::im_plugin::NormalizedMessage;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 
 /// Result type alias for processor chain operations.
 pub type Result<T> = std::result::Result<T, super::error::ProcessError>;

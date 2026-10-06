@@ -12,9 +12,7 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use tracing::warn;
 
-use closeclaw_llm::types::ContentBlock;
-
-use closeclaw_common::processor::{DslInstruction, DslParseResult};
+use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 
@@ -53,7 +51,7 @@ impl DslParser {
         (DslParseResult { instructions }, clean_text)
     }
 
-    /// Parse DSL instructions from a list of [`ContentBlock`][closeclaw_llm::types::ContentBlock].
+    /// Parse DSL instructions from a list of [`ContentBlock`][closeclaw_common::processor::ContentBlock].
     ///
     /// Only [`ContentBlock::Text`] variants are processed; [`ContentBlock::Thinking`],
     /// [`ContentBlock::ToolUse`], and [`ContentBlock::ToolResult`] are skipped.
@@ -253,7 +251,7 @@ impl MessageProcessor for DslParser {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_llm::types::ContentBlock;
+    use closeclaw_common::processor::ContentBlock;
 
     #[test]
     fn test_no_dsl() {

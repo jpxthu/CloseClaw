@@ -10,8 +10,8 @@ use super::processor::{MessageProcessor, ProcessPhase};
 use super::ProcessedMessage;
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::NormalizedMessage;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_debug_log::DebugLog;
-use closeclaw_llm::types::ContentBlock;
 
 use crate::debug_log::{
     emit_processor_chain_event, ProcessorChainDebugLogContext, ProcessorChainEmitEventParams,

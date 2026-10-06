@@ -2,8 +2,8 @@
 
 use super::processor::MessageProcessor;
 use super::verbosity_filter::VerbosityFilter;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_llm::types::ContentBlock;
 use std::collections::HashMap;
 
 fn thinking_block(thinking: &str) -> ContentBlock {

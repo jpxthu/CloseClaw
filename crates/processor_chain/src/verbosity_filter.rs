@@ -18,8 +18,8 @@ use std::str::FromStr;
 
 use async_trait::async_trait;
 
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::VerbosityLevel;
-use closeclaw_llm::types::ContentBlock;
 
 use super::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 
