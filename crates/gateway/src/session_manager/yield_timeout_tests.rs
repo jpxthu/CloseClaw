@@ -4,7 +4,7 @@
 //! notification injection, and session resume after timeout.
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
+use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::AgentConfigLookup;
 use closeclaw_common::NotificationPriority;
@@ -131,7 +131,7 @@ async fn test_yield_timeout_fires_and_resumes() {
     // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-to4", None),
+            &test_spawn_target_config("worker-to4", None),
             &parent_id,
             1,
             "long task",
@@ -208,7 +208,7 @@ async fn test_yield_timeout_default_value_in_notification() {
     // Spawn a child.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-to5", None),
+            &test_spawn_target_config("worker-to5", None),
             &parent_id,
             1,
             "work",
@@ -312,7 +312,7 @@ async fn test_yield_warning_timeout_injects_notification() {
     // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-to7", None),
+            &test_spawn_target_config("worker-to7", None),
             &parent_id,
             1,
             "long task",
@@ -392,7 +392,7 @@ async fn test_yield_two_stage_timeout_sequence() {
     // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-to8", None),
+            &test_spawn_target_config("worker-to8", None),
             &parent_id,
             1,
             "long task",
@@ -541,7 +541,7 @@ async fn test_yield_legacy_single_warning_only() {
     // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-lsw", None),
+            &test_spawn_target_config("worker-lsw", None),
             &parent_id,
             1,
             "long task",
@@ -659,7 +659,7 @@ async fn test_yield_with_child_not_busy() {
     // Spawn a child.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-yic", None),
+            &test_spawn_target_config("worker-yic", None),
             &parent_id,
             1,
             "task",
@@ -712,7 +712,7 @@ async fn test_yield_warning_is_system_notification_with_next_priority() {
     // Spawn a run-mode child that won't complete.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-wnp", None),
+            &test_spawn_target_config("worker-wnp", None),
             &parent_id,
             1,
             "long task",
@@ -796,7 +796,7 @@ async fn test_yield_timeout_notification_goes_through_queue() {
     // Spawn a child.
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-tnq", None),
+            &test_spawn_target_config("worker-tnq", None),
             &parent_id,
             1,
             "work",

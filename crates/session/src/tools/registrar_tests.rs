@@ -142,7 +142,7 @@ struct MockSessionManagerOps;
 impl SessionManagerOps for MockSessionManagerOps {
     async fn create_child_session(
         &self,
-        _config: &closeclaw_config::agents::ResolvedAgentConfig,
+        _config: &crate::spawn::SpawnTargetAgentConfig,
         _parent_session_id: &str,
         _depth: u32,
         _task: &str,

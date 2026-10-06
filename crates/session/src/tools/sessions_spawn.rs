@@ -128,7 +128,7 @@ impl SessionsSpawnTool {
     #[allow(clippy::too_many_arguments)]
     async fn create_child(
         &self,
-        config: &closeclaw_config::agents::ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         parent_depth: u32,
         task: &str,
@@ -224,7 +224,7 @@ impl SessionsSpawnTool {
             .await
             .unwrap_or(0);
         Ok(ResolvedChildConfig {
-            config: to_full_config(&target),
+            config: target,
             spawn_timeout,
             timeout_warning_secs,
             timeout_notify_interval_ratio,
@@ -235,40 +235,9 @@ impl SessionsSpawnTool {
     }
 }
 
-/// Reconstruct the full config profile expected by
-/// `SessionManagerOps::create_child_session` from the narrow spawn-time
-/// view.
-///
-/// Transitional bridge: only the fields consumed by the child-creation
-/// chain (id/model/workspace/skills/tools/hooks) are carried over; the
-/// remaining fields use neutral defaults. This disappears once the
-/// creation chain takes the narrow structure directly.
-fn to_full_config(
-    target: &SpawnTargetAgentConfig,
-) -> closeclaw_config::agents::ResolvedAgentConfig {
-    closeclaw_config::agents::ResolvedAgentConfig {
-        id: target.id.clone(),
-        name: target.id.clone(),
-        parent_id: None,
-        model: target.model.clone(),
-        workspace: target.workspace.clone(),
-        agent_dir: None,
-        bootstrap_mode: closeclaw_common::BootstrapMode::Full,
-        skills: target.skills.clone(),
-        tools: target.tools.clone(),
-        disallowed_tools: Vec::new(),
-        subagents: closeclaw_config::agents::SubagentsConfig::default(),
-        memory: closeclaw_config::agents::MemoryConfig::default(),
-        hooks: target.hooks.clone(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: closeclaw_config::agents::ConfigSource::User,
-    }
-}
-
 /// Child-session inputs resolved by [`SessionsSpawnTool::resolve_child_config`].
 struct ResolvedChildConfig {
-    config: closeclaw_config::agents::ResolvedAgentConfig,
+    config: SpawnTargetAgentConfig,
     spawn_timeout: Option<u64>,
     timeout_warning_secs: Option<u64>,
     timeout_notify_interval_ratio: Option<f64>,

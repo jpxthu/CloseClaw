@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use std::sync::Arc;
 
-use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode};
+use closeclaw_session::spawn::{ChildSessionInfo, SpawnMode, SpawnTargetAgentConfig};
 use closeclaw_session::tools::SessionManagerOps;
 
 use super::SessionManager;
@@ -16,7 +16,7 @@ use super::SessionManager;
 impl SessionManagerOps for SessionManager {
     async fn create_child_session(
         &self,
-        config: &closeclaw_config::agents::ResolvedAgentConfig,
+        config: &SpawnTargetAgentConfig,
         parent_session_id: &str,
         depth: u32,
         task: &str,

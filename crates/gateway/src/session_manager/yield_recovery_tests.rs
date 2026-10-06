@@ -6,7 +6,8 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
-    append_assistant_to_child, setup_parent_with_conv, spawn_n_run_children, test_resolved_config,
+    append_assistant_to_child, setup_parent_with_conv, spawn_n_run_children,
+    test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
@@ -41,7 +42,7 @@ async fn test_yield_recovery_single_child() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-r1", None),
+            &test_spawn_target_config("worker-r1", None),
             &parent_id,
             1,
             "do task",
@@ -150,7 +151,7 @@ async fn test_yield_recovery_injects_announce() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-inj", None),
+            &test_spawn_target_config("worker-inj", None),
             &parent_id,
             1,
             "compute",
@@ -269,7 +270,7 @@ async fn test_yield_recovery_drains_announce_queue() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-drain", None),
+            &test_spawn_target_config("worker-drain", None),
             &parent_id,
             1,
             "task",
@@ -328,7 +329,7 @@ async fn test_yield_session_mode_no_block() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sess", None),
+            &test_spawn_target_config("worker-sess", None),
             &parent_id,
             1,
             "long task",
@@ -392,7 +393,7 @@ async fn test_yield_no_recovery_while_child_registered() {
 
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-stay", None),
+            &test_spawn_target_config("worker-stay", None),
             &parent_id,
             1,
             "task",

@@ -7,7 +7,7 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
-    append_assistant_to_child, setup_parent_with_conv, test_resolved_config,
+    append_assistant_to_child, setup_parent_with_conv, test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
@@ -30,7 +30,7 @@ async fn test_run_child_completed_push_success_removes_node() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-reclaim", None),
+            &test_spawn_target_config("worker-reclaim", None),
             &parent_id,
             1,
             "complete work",
@@ -102,7 +102,7 @@ async fn test_missing_parent_preserves_node_early_return() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-fail", None),
+            &test_spawn_target_config("worker-fail", None),
             &parent_id,
             1,
             "will fail",
@@ -180,7 +180,7 @@ async fn test_push_failure_preserves_node_completed_status() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-push-fail", None),
+            &test_spawn_target_config("worker-push-fail", None),
             &parent_id,
             1,
             "will fail on push",
@@ -261,7 +261,7 @@ async fn test_session_mode_child_no_reclaim() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sess-reclaim", None),
+            &test_spawn_target_config("worker-sess-reclaim", None),
             &parent_id,
             1,
             "stay alive",
@@ -326,7 +326,7 @@ async fn test_reclaim_does_not_affect_active_count() {
     // Spawn two run-mode children.
     let child1_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-a1", None),
+            &test_spawn_target_config("worker-a1", None),
             &parent_id,
             1,
             "task 1",
@@ -349,7 +349,7 @@ async fn test_reclaim_does_not_affect_active_count() {
 
     let _child2_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-a2", None),
+            &test_spawn_target_config("worker-a2", None),
             &parent_id,
             1,
             "task 2",
@@ -419,7 +419,7 @@ async fn test_sweeper_does_not_see_reclaimed_child() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sweep-reclaim", None),
+            &test_spawn_target_config("worker-sweep-reclaim", None),
             &parent_id,
             1,
             "sweep test",
@@ -486,7 +486,7 @@ async fn test_push_failure_sweeper_still_sees_child() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-sweep-fail", None),
+            &test_spawn_target_config("worker-sweep-fail", None),
             &parent_id,
             1,
             "fail sweep test",

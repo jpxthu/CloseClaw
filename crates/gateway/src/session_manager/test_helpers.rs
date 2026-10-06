@@ -6,13 +6,11 @@
 //! reuse helpers such as `set_config_dir_for_testing` without circular
 //! imports.
 
-use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
+use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode, SpawnTargetAgentConfig};
 use super::SessionManager;
 use chrono::Utc;
 use closeclaw_common::{tool_session::ToolSession, ToolExecState};
 use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
@@ -103,27 +101,20 @@ impl closeclaw_common::AgentToolsConfigQuery for MockAgentRegistryQuery {
 
 impl closeclaw_common::AgentRegistryQuery for MockAgentRegistryQuery {}
 
-/// Build a `ResolvedAgentConfig` for tests. Identical to the one in
-/// `spawn_tests` / `announce_tests` — kept local to avoid a
+/// Build a narrow [`SpawnTargetAgentConfig`] spawn-time view for tests.
+/// Identical to the one in `spawn_tests` — kept local to avoid a
 /// cross-test-module import path.
-pub(crate) fn test_resolved_config(id: &str, workspace: Option<PathBuf>) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
+pub(crate) fn test_spawn_target_config(
+    id: &str,
+    workspace: Option<PathBuf>,
+) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
         id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
         model: Some(ModelSpec::single("test-model")),
         workspace,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
         skills: vec![],
         tools: vec![],
-        disallowed_tools: vec![],
-        subagents: SubagentsConfig::default(),
-        memory: MemoryConfig::default(),
         hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: ConfigSource::Merged,
     }
 }
 
@@ -267,7 +258,7 @@ pub(super) async fn spawn_n_run_children(
 ) -> Vec<String> {
     let mut child_ids: Vec<String> = Vec::with_capacity(n);
     for i in 0..n {
-        let config = test_resolved_config(&format!("worker-{}", i), None);
+        let config = test_spawn_target_config(&format!("worker-{}", i), None);
         let child_id = mgr
             .create_child_session(
                 &config,

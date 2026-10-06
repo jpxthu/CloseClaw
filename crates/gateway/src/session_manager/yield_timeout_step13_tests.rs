@@ -10,7 +10,7 @@
 //! - Gap ② regression: per-child spawn timeout → Now priority
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
+use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
 use serial_test::serial;
@@ -41,7 +41,7 @@ async fn test_cyclic_warning_notification_contains_five_elements() {
     // Spawn a child so we have per-child data.
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-cw5", None),
+            &test_spawn_target_config("worker-cw5", None),
             &parent_id,
             1,
             "task",
@@ -172,7 +172,7 @@ async fn test_legacy_warning_shows_unset_label() {
     // Spawn a child.
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-lgu", None),
+            &test_spawn_target_config("worker-lgu", None),
             &parent_id,
             1,
             "task",
@@ -350,7 +350,7 @@ async fn test_cyclic_warning_no_llm_calls_estimation_works() {
     // Spawn a child but don't add any messages (request_count=0).
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-nlc", None),
+            &test_spawn_target_config("worker-nlc", None),
             &parent_id,
             1,
             "task",
@@ -448,7 +448,7 @@ async fn test_per_child_spawn_timeout_uses_now_priority() {
     // Spawn a child with a very short per-child timeout (1 second).
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-nto", None),
+            &test_spawn_target_config("worker-nto", None),
             &parent_id,
             1,
             "quick task",
@@ -507,7 +507,7 @@ async fn test_cyclic_warning_uses_next_priority() {
     // Spawn a child.
     let _child_id = m
         .create_child_session(
-            &test_resolved_config("worker-cnp", None),
+            &test_spawn_target_config("worker-cnp", None),
             &parent_id,
             1,
             "task",

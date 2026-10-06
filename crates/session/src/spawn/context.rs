@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 use crate::llm_session::ConversationSession;
 use crate::persistence::ReasoningLevel;
-use closeclaw_config::agents::ResolvedAgentConfig;
 
 use closeclaw_common::{LlmCaller, PromptOverrides, ShutdownSignal, SystemPromptBuilder};
 
@@ -35,9 +34,6 @@ pub trait SpawnCreationContext: Send + Sync {
 
     /// Save a checkpoint to persistent storage.
     async fn save_checkpoint(&self, cp: &crate::persistence::SessionCheckpoint);
-
-    /// Look up a resolved agent config by agent ID.
-    fn get_agent_config(&self, agent_id: &str) -> Option<ResolvedAgentConfig>;
 
     /// Get the shutdown signal for busy-count tracking.
     fn shutdown_signal(&self) -> Option<Arc<dyn ShutdownSignal>>;

@@ -21,7 +21,7 @@
 //! in a later batch.
 
 use super::spawn::SpawnMode;
-use super::test_helpers::{setup_parent_with_conv, test_resolved_config};
+use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ChatSession;
@@ -49,7 +49,7 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
 
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-r01", None),
+            &test_spawn_target_config("worker-r01", None),
             &parent_id,
             1,
             "long task",
@@ -216,7 +216,7 @@ async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
 
     let _child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-cs", None),
+            &test_spawn_target_config("worker-cs", None),
             &parent_id,
             1,
             "long task",

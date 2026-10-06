@@ -17,13 +17,13 @@ use crate::debug_log::{self, SessionDebugLogContext};
 use crate::llm_session::ChatSession;
 use crate::llm_session::ConversationSession;
 use crate::persistence::{PendingMessage, SessionMode};
-use closeclaw_config::agents::ResolvedAgentConfig;
 use closeclaw_debug_log::{DebugLog, LogLevel};
 use tokio_util::sync::CancellationToken;
 use uuid::Uuid;
 
 use super::communication::CommunicationConfig;
 use super::context::SpawnCreationContext;
+use super::controller::SpawnTargetAgentConfig;
 use super::types::SpawnMode;
 
 /// Result of creating a child session's `ConversationSession`.
@@ -105,7 +105,7 @@ pub struct ChildSessionCreationParams<'a> {
 /// - Spawn timeout setup
 pub async fn create_child_conversation_session(
     ctx: &dyn SpawnCreationContext,
-    config: &ResolvedAgentConfig,
+    config: &SpawnTargetAgentConfig,
     params: &ChildSessionCreationParams<'_>,
 ) -> Result<ChildSessionCreated, String> {
     let child_session_id = Uuid::new_v4().to_string();
@@ -113,7 +113,7 @@ pub async fn create_child_conversation_session(
         resolve_child_workspace(ctx, config, params.workspace, params.parent_session_id).await?;
     let model = resolve_model(params.model_override, params.parent_subagents_model, config);
     let model_for_log = model.clone();
-    let bootstrap_mode = resolve_bootstrap_mode(params.light_context, config);
+    let bootstrap_mode = resolve_bootstrap_mode(params.light_context);
     let child_token = derive_child_token(ctx, params.parent_session_id).await?;
 
     let mut cs = ConversationSession::with_cancel_token(
@@ -129,9 +129,9 @@ pub async fn create_child_conversation_session(
 
     // Inject agent-level skills whitelist into the child session.
     // Mirrors the normal session path in resolve.rs::wire_skill_listing_deps:
-    // effective_skills() returns None for wildcard (empty/["*"]), meaning
+    // the effective whitelist is None for wildcard (empty/["*"]), meaning
     // no filtering — which is the same as not calling set_agent_skills.
-    if let Some(skills) = config.effective_skills() {
+    if let Some(skills) = effective_skills(&config.skills) {
         cs.set_agent_skills(skills);
     }
 
@@ -208,8 +208,19 @@ pub async fn create_child_conversation_session(
 ///
 /// The `light_context` parameter still controls context volume passed to
 /// the child session — it is decoupled from bootstrap mode selection.
-fn resolve_bootstrap_mode(_light_context: bool, _config: &ResolvedAgentConfig) -> BootstrapMode {
+fn resolve_bootstrap_mode(_light_context: bool) -> BootstrapMode {
     BootstrapMode::Minimal
+}
+
+/// Effective skills whitelist: `None` when the list is a wildcard
+/// (empty or `["*"]`), meaning no filtering applies; otherwise the
+/// whitelist itself.
+fn effective_skills(skills: &[String]) -> Option<Vec<String>> {
+    if skills.is_empty() || skills == ["*"] {
+        None
+    } else {
+        Some(skills.to_vec())
+    }
 }
 
 /// Resolve the model to use via the priority chain:
@@ -217,7 +228,7 @@ fn resolve_bootstrap_mode(_light_context: bool, _config: &ResolvedAgentConfig) -
 fn resolve_model(
     model_override: Option<&str>,
     parent_subagents_model: Option<&str>,
-    config: &ResolvedAgentConfig,
+    config: &SpawnTargetAgentConfig,
 ) -> String {
     model_override
         .map(String::from)
@@ -381,7 +392,7 @@ async fn configure_spawn_behavior(
 ///    directory under the configuration root.
 async fn resolve_child_workspace(
     ctx: &dyn SpawnCreationContext,
-    config: &ResolvedAgentConfig,
+    config: &SpawnTargetAgentConfig,
     workspace: Option<&str>,
     parent_session_id: &str,
 ) -> Result<PathBuf, String> {

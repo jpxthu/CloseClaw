@@ -5,7 +5,7 @@
 //! are still cleaned up, and single-child scenarios work correctly.
 
 use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
-use super::test_helpers::test_resolved_config;
+use super::test_helpers::test_spawn_target_config;
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -176,7 +176,7 @@ async fn test_kill_child_completed_session_skips_stop() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("done-child", None);
+    let config = test_spawn_target_config("done-child", None);
 
     // Register parent with a ConversationSession.
     {
@@ -270,7 +270,7 @@ async fn test_kill_child_single_child() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("only-child", None);
+    let config = test_spawn_target_config("only-child", None);
 
     // Register parent with a ConversationSession.
     {

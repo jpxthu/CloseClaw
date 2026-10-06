@@ -6,10 +6,10 @@
 use std::sync::Arc;
 
 use closeclaw_common::{BootstrapMode, PromptOverrides, SessionRole, SystemPromptBuilder};
-use closeclaw_config::agents::ResolvedAgentConfig;
 use tokio::sync::RwLock;
 
 use super::context::SpawnCreationContext;
+use super::controller::SpawnTargetAgentConfig;
 use super::creation::{create_child_conversation_session, ChildSessionCreationParams};
 use super::types::SpawnMode;
 use crate::llm_session::ConversationSession;
@@ -61,10 +61,6 @@ impl SpawnCreationContext for MockCreationContext {
 
     async fn save_checkpoint(&self, _cp: &SessionCheckpoint) {}
 
-    fn get_agent_config(&self, _agent_id: &str) -> Option<ResolvedAgentConfig> {
-        None
-    }
-
     fn shutdown_signal(&self) -> Option<Arc<dyn closeclaw_common::ShutdownSignal>> {
         None
     }
@@ -102,24 +98,10 @@ impl SpawnCreationContext for MockCreationContext {
     }
 }
 
-fn make_config(id: &str) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
+fn make_config(id: &str) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
         id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
-        model: None,
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
-        skills: vec![],
-        tools: vec![],
-        disallowed_tools: vec![],
-        subagents: Default::default(),
-        memory: Default::default(),
-        hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: closeclaw_config::agents::ConfigSource::User,
+        ..Default::default()
     }
 }
 

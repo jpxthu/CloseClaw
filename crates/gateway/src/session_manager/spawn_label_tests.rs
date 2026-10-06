@@ -7,7 +7,7 @@ use closeclaw_session::persistence::{PersistenceService, ReasoningLevel};
 use serial_test::serial;
 use std::sync::Arc;
 
-use super::spawn_tests::{register_parent_session, test_resolved_config};
+use super::spawn_tests::{register_parent_session, test_spawn_target_config};
 
 // ── Unit tests: default_spawn_label ─────────────────────────────────────
 
@@ -60,7 +60,7 @@ async fn test_spawn_label_auto_generated_when_none() {
         ReasoningLevel::default(),
     );
     mgr.set_config_dir_for_testing(tmp.path());
-    let config = test_resolved_config("label-child", None);
+    let config = test_spawn_target_config("label-child", None);
     register_parent_session(&mgr, "parent-label", tmp.path().to_path_buf()).await;
 
     let child_id = mgr
@@ -123,7 +123,7 @@ async fn test_spawn_label_explicit_value_preserved() {
         ReasoningLevel::default(),
     );
     mgr.set_config_dir_for_testing(tmp.path());
-    let config = test_resolved_config("label-child-explicit", None);
+    let config = test_spawn_target_config("label-child-explicit", None);
     register_parent_session(&mgr, "parent-label-explicit", tmp.path().to_path_buf()).await;
 
     let child_id = mgr
@@ -176,7 +176,7 @@ async fn test_spawn_label_via_config_none_generates() {
         ReasoningLevel::default(),
     );
     mgr.set_config_dir_for_testing(tmp.path());
-    let config = test_resolved_config("label-config-child", None);
+    let config = test_spawn_target_config("label-config-child", None);
     register_parent_session(&mgr, "parent-label-config", tmp.path().to_path_buf()).await;
 
     let child_config = ChildSessionConfig {

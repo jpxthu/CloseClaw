@@ -7,7 +7,7 @@
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{
-    append_assistant_to_child, setup_parent_with_conv, test_resolved_config,
+    append_assistant_to_child, setup_parent_with_conv, test_spawn_target_config,
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr, test_config};
 use super::SessionManager;
@@ -44,7 +44,7 @@ async fn test_spawn_registers_child_state_in_checkpoint() {
     );
     mgr.set_config_dir_for_testing(tmp.path());
 
-    let config = test_resolved_config("worker-child-state", None);
+    let config = test_spawn_target_config("worker-child-state", None);
     setup_parent_with_conv(&mgr, parent_id).await;
 
     let child_id = mgr
@@ -137,7 +137,7 @@ async fn test_child_completion_deregisters_child_state() {
 
     let child_id = mgr
         .create_child_session(
-            &test_resolved_config("worker-dereg", None),
+            &test_spawn_target_config("worker-dereg", None),
             &parent_id,
             1,
             "deregister task",

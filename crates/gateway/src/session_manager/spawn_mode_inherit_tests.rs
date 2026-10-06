@@ -1,10 +1,9 @@
 //! Tests for Step 1.2: child session inherits parent's session_mode.
 
-use super::spawn::SpawnMode;
+use super::spawn::{SpawnMode, SpawnTargetAgentConfig};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
-use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::ModelSpec;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::SessionMode;
 use serial_test::serial;
@@ -12,24 +11,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
-fn test_resolved_config(id: &str) -> ResolvedAgentConfig {
-    ResolvedAgentConfig {
+fn test_spawn_target_config(id: &str) -> SpawnTargetAgentConfig {
+    SpawnTargetAgentConfig {
         id: id.to_string(),
-        name: id.to_string(),
-        parent_id: None,
         model: Some(ModelSpec::single("test-model")),
-        workspace: None,
-        agent_dir: None,
-        bootstrap_mode: BootstrapMode::Full,
-        skills: vec![],
-        tools: vec![],
-        disallowed_tools: vec![],
-        subagents: Default::default(),
-        memory: MemoryConfig::default(),
-        hooks: Vec::new(),
-        parallel_tool_calls: true,
-        memory_configured: false,
-        source: ConfigSource::Merged,
+        ..Default::default()
     }
 }
 
@@ -65,7 +51,7 @@ async fn test_child_inherits_plan_mode_from_parent() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("plan-child");
+    let config = test_spawn_target_config("plan-child");
 
     register_parent_session_with_mode(
         &mgr,
@@ -118,7 +104,7 @@ async fn test_child_stays_normal_when_parent_is_normal() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("normal-child");
+    let config = test_spawn_target_config("normal-child");
 
     register_parent_session_with_mode(
         &mgr,
@@ -172,7 +158,7 @@ async fn test_child_stays_normal_when_parent_is_auto() {
 
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = make_test_mgr(Some(tmp.path()));
-    let config = test_resolved_config("auto-child");
+    let config = test_spawn_target_config("auto-child");
 
     register_parent_session_with_mode(
         &mgr,
