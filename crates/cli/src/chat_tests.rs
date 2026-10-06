@@ -795,12 +795,15 @@ async fn test_slash_router_injection_installed_on_gateway() {
 /// `#[ignore]` — blocked by the pre-existing production bug tracked in
 /// issue #3411 (not a defect of the injection itself):
 /// - **blocker**: `build_gateway` builds `GatewayConfig` with
-///   `..Default::default()`, so `max_message_size == 0` and
-///   `validate_inbound` rejects every non-empty message before slash routing.
-/// - **复现证据**: running this test un-ignored prints
-///   `result=None sessions=0 sent=["消息过长，请缩短后重试"]` — the
-///   closure runs and the router is installed, but the router never sees
-///   `/ping`.
+///   `..Default::default()` (`crates/cli/src/chat/mod.rs`), so
+///   `max_message_size == 0` and `validate_inbound`
+///   (`crates/gateway/src/media_routing.rs`) rejects every non-empty message
+///   with `InboundValidation::RejectSilently` before slash routing.
+/// - **复现证据**: `cargo nextest run -p closeclaw-cli -E 'test(test_slash_router_injection_reply_reaches_output)' --run-ignored only`
+///   panics with
+///   `slash reply must be consumed as SlashHandled, got result=None received=[] sent=["消息过长，请缩短后重试"]`
+///   at `crates/cli/src/chat_tests.rs:832:5` — the closure runs and the
+///   router is installed, but the router never sees `/ping`.
 /// - **解除条件**: #3411 fixed (non-zero `max_message_size` for cli chat) →
 ///   remove `#[ignore]` and this test must pass unchanged; it is listed in
 ///   the PR body dormant-test list until then.
@@ -828,7 +831,9 @@ async fn test_slash_router_injection_reply_reaches_output() {
 
     assert!(
         matches!(result, Some(HandleResult::SlashHandled)),
-        "slash reply must be consumed as SlashHandled, got {result:?}"
+        "slash reply must be consumed as SlashHandled, got result={result:?} received={:?} sent={:?}",
+        fx.received.lock().expect("received mutex poisoned"),
+        fx.sent.lock().expect("sent mutex poisoned"),
     );
     assert_eq!(
         *fx.received.lock().expect("received mutex poisoned"),
