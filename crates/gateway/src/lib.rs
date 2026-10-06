@@ -105,6 +105,8 @@ pub mod sweeper;
 #[cfg(test)]
 mod sweeper_tests;
 #[cfg(test)]
+mod test_support_workflow_port;
+#[cfg(test)]
 pub mod tests_checkpoint;
 #[cfg(feature = "full-tests")]
 mod tests_plugin;

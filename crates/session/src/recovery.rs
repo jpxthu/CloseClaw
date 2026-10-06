@@ -80,6 +80,10 @@ pub struct SessionRecoveryService<S: PersistenceService + ?Sized> {
             >,
         >,
     >,
+    /// Workflow engine port used for workflow recovery injection.
+    /// Injected by the composition root; when absent, workflow recovery
+    /// injection is skipped (with a warning).
+    workflow_port: RwLock<Option<Arc<dyn crate::workflow_port::WorkflowPort>>>,
 }
 
 impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
@@ -88,7 +92,16 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
         Self {
             storage,
             restore_fn: RwLock::new(None),
+            workflow_port: RwLock::new(None),
         }
+    }
+
+    /// Inject the workflow engine port used for workflow recovery.
+    ///
+    /// Called by the composition root (daemon) at startup; without the
+    /// port, workflow recovery state injection is skipped.
+    pub async fn set_workflow_port(&self, port: Arc<dyn crate::workflow_port::WorkflowPort>) {
+        *self.workflow_port.write().await = Some(port);
     }
 
     /// Set the restore callback
@@ -246,8 +259,23 @@ impl<S: PersistenceService + ?Sized> SessionRecoveryService<S> {
                         .map(std::path::PathBuf::into_boxed_path)
                 });
                 let agent_ws_ref = agent_workspace.as_deref();
-                crate::workflow_recovery::inject_workflow_recovery(session_id, cp, agent_ws_ref)
-                    .await;
+                match self.workflow_port.read().await.clone() {
+                    Some(port) => {
+                        crate::workflow_recovery::inject_workflow_recovery(
+                            session_id,
+                            cp,
+                            agent_ws_ref,
+                            port.as_ref(),
+                        )
+                        .await;
+                    }
+                    None => {
+                        tracing::warn!(
+                            session_id = %session_id,
+                            "workflow port not injected, skipping workflow recovery injection"
+                        );
+                    }
+                }
                 // Inject recovery notifications for dirty sessions
                 if !cp.pending_operations.is_empty() {
                     self.inject_recovery_notifications(session_id, cp);

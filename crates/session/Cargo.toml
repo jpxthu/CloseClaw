@@ -56,3 +56,6 @@ filetime = "0.2"
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter"] }
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { version = "=1.35.0", features = ["test-util"] }
+# Workflow test support: tests provide a real-engine WorkflowPort wrapper.
+# (Still declared in [dependencies] until Step 1.8 moves it out.)
+closeclaw-workflow = { path = "../workflow" }

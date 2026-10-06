@@ -15,14 +15,14 @@ use std::sync::Arc;
 
 use super::session_handler::SessionMessageHandler;
 use crate::session_manager::SessionManager;
-use closeclaw_workflow::run::Phase;
+use closeclaw_session::workflow_port::WorkflowPhase;
 
 /// Parameters extracted from the handler for idle hook injection.
 pub(crate) struct VerifyInjectParams {
     pub current_step: usize,
     pub allow_blocked: bool,
     pub verify_retry_limit: usize,
-    pub phase: Phase,
+    pub phase: WorkflowPhase,
 }
 
 /// Idle → workflow message hook.
@@ -54,7 +54,7 @@ pub(crate) async fn maybe_inject_workflow_verify(
     };
 
     match params.phase {
-        Phase::Jumping => {
+        WorkflowPhase::Jumping => {
             // Re-inject jump question message.
             inject_jump_message(&mut cs_write, &params);
             tracing::info!(
@@ -63,7 +63,7 @@ pub(crate) async fn maybe_inject_workflow_verify(
                 "idle hook: jump question message injected"
             );
         }
-        Phase::Executing | Phase::Verifying => {
+        WorkflowPhase::Executing | WorkflowPhase::Verifying => {
             // Remove previous verify, build and inject new one.
             inject_verify_message(&mut cs_write, &params);
 
@@ -71,7 +71,7 @@ pub(crate) async fn maybe_inject_workflow_verify(
             let phase = {
                 let handler = cs_write.workflow_handler_mut().unwrap();
                 handler.on_verify_injected(params.verify_retry_limit);
-                handler.run().phase.clone()
+                handler.phase()
             };
             tracing::info!(
                 session_id = %session_id,
@@ -126,23 +126,22 @@ pub(crate) fn check_idle_verify_conditions(
     if !handler.on_session_idle() {
         tracing::debug!(
             session_id = %session_id,
-            phase = ?handler.run().phase,
+            phase = ?handler.phase(),
             "idle hook: workflow not in actionable phase, skipping"
         );
         return None;
     }
 
-    let step = handler.definition().steps.get(handler.run().current_step);
-    let step_ref = step?;
-    let allow_blocked = step_ref
-        .allow_blocked
-        .unwrap_or(handler.definition().allow_blocked);
+    let info = handler.run_info()?;
+    let current_step = info.current_step;
+    // `None` when the current step does not exist in the definition.
+    let allow_blocked = handler.current_step_effective_allow_blocked()?;
 
     Some(VerifyInjectParams {
-        current_step: handler.run().current_step,
+        current_step,
         allow_blocked,
-        verify_retry_limit: handler.definition().verify_retry_limit,
-        phase: handler.run().phase.clone(),
+        verify_retry_limit: handler.verify_retry_limit()?,
+        phase: info.phase,
     })
 }
 
@@ -154,10 +153,11 @@ fn inject_verify_message(
     cs.remove_workflow_verify_messages();
     let verify_msg = {
         let handler = cs.workflow_handler().unwrap();
-        let step = &handler.definition().steps[params.current_step];
-        closeclaw_workflow::definition::build_verify_message(step, params.allow_blocked)
+        handler.verify_message_for_step(params.current_step, params.allow_blocked)
     };
-    cs.inject_workflow_message(&verify_msg);
+    if let Some(verify_msg) = verify_msg {
+        cs.inject_workflow_message(&verify_msg);
+    }
 }
 
 /// Re-inject jump question message when the session is idle in Jumping
@@ -169,10 +169,11 @@ fn inject_jump_message(
 ) {
     let jump_msg = {
         let handler = cs.workflow_handler().unwrap();
-        let step = &handler.definition().steps[params.current_step];
-        closeclaw_workflow::definition::build_jump_message(step)
+        handler.jump_message_for_step(params.current_step)
     };
-    cs.inject_workflow_message(&jump_msg);
+    if let Some(jump_msg) = jump_msg {
+        cs.inject_workflow_message(&jump_msg);
+    }
 }
 
 // ── Tests ──────────────────────────────────────────────────────────────
@@ -182,8 +183,25 @@ pub(crate) mod tests {
     use super::*;
     use closeclaw_session::llm_session::ChatSession;
     use closeclaw_session::workflow_handler::WorkflowHandler;
+    use closeclaw_session::workflow_port::WorkflowPhase;
     use closeclaw_workflow::definition::{Step, Workflow};
     use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
+
+    use crate::test_support_workflow_port::test_port::test_port;
+
+    /// Decode the handler's serialized run state into the typed form.
+    pub(crate) fn typed_state(
+        cs: &closeclaw_session::llm_session::ConversationSession,
+    ) -> WorkflowRun {
+        serde_json::from_value(cs.workflow_handler().unwrap().run_state().clone()).unwrap()
+    }
+
+    /// Decode the handler's serialized definition into the typed form.
+    pub(crate) fn typed_definition(
+        cs: &closeclaw_session::llm_session::ConversationSession,
+    ) -> Workflow {
+        serde_json::from_value(cs.workflow_handler().unwrap().definition_state().clone()).unwrap()
+    }
 
     // ── test-only wrappers ────────────────────────────────────────
 
@@ -268,8 +286,11 @@ pub(crate) mod tests {
             "model".to_string(),
             std::path::PathBuf::from("/tmp"),
         );
-        let handler =
-            WorkflowHandler::new(make_test_run(phase, pending_verify), make_test_workflow());
+        let handler = WorkflowHandler::new(
+            serde_json::to_value(make_test_run(phase, pending_verify)).unwrap(),
+            serde_json::to_value(make_test_workflow()).unwrap(),
+            test_port(),
+        );
         cs.set_workflow_handler(Some(handler));
         cs
     }
@@ -342,7 +363,7 @@ pub(crate) mod tests {
             current_step: 0,
             allow_blocked: true,
             verify_retry_limit: 3,
-            phase: Phase::Executing,
+            phase: WorkflowPhase::Executing,
         };
         test_inject_verify_message(&mut cs, &params);
 
@@ -371,7 +392,7 @@ pub(crate) mod tests {
         assert!(wf_texts[1].starts_with("Verify Step"));
         // New verify content should match build_verify_message output.
         let expected = closeclaw_workflow::definition::build_verify_message(
-            &cs.workflow_handler().unwrap().definition().steps[0],
+            &typed_definition(&cs).steps[0],
             true,
         );
         assert_eq!(wf_texts[1], expected);
@@ -386,7 +407,7 @@ pub(crate) mod tests {
             current_step: 0,
             allow_blocked: true,
             verify_retry_limit: 3,
-            phase: Phase::Executing,
+            phase: WorkflowPhase::Executing,
         };
         test_inject_verify_message(&mut cs, &params);
 
@@ -405,8 +426,8 @@ pub(crate) mod tests {
             let handler = cs.workflow_handler_mut().unwrap();
             handler.on_verify_injected(3);
         }
-        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 1);
-        assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Verifying);
+        assert_eq!(typed_state(&cs).pending_verify.count, 1);
+        assert_eq!(typed_state(&cs).phase, Phase::Verifying);
     }
 
     #[test]
@@ -416,8 +437,8 @@ pub(crate) mod tests {
             let handler = cs.workflow_handler_mut().unwrap();
             handler.on_verify_injected(1); // 1st: pending=1, limit=1 → blocked
         }
-        assert_eq!(cs.workflow_handler().unwrap().run().pending_verify.count, 1);
-        assert_eq!(cs.workflow_handler().unwrap().run().phase, Phase::Blocked);
+        assert_eq!(typed_state(&cs).pending_verify.count, 1);
+        assert_eq!(typed_state(&cs).phase, Phase::Blocked);
     }
 
     // ── Four-dimensional idle check (Step 1.3) ──────────────────────────
@@ -532,7 +553,7 @@ pub(crate) mod tests {
         let result = test_check_idle_verify_conditions(&cs, "sid");
         let params = result.expect("should return Some for idle+jumping");
         assert_eq!(params.current_step, 0);
-        assert_eq!(params.phase, Phase::Jumping);
+        assert_eq!(params.phase, WorkflowPhase::Jumping);
     }
 
     /// inject_jump_message builds jump message from step definition
@@ -548,7 +569,7 @@ pub(crate) mod tests {
             current_step: 0,
             allow_blocked: true,
             verify_retry_limit: 3,
-            phase: Phase::Jumping,
+            phase: WorkflowPhase::Jumping,
         };
         test_inject_jump_message(&mut cs, &params);
 
@@ -574,9 +595,8 @@ pub(crate) mod tests {
             })
             .collect();
         assert!(wf_texts[0].starts_with("[workflow goal]"));
-        let expected = closeclaw_workflow::definition::build_jump_message(
-            &cs.workflow_handler().unwrap().definition().steps[0],
-        );
+        let expected =
+            closeclaw_workflow::definition::build_jump_message(&typed_definition(&cs).steps[0]);
         assert_eq!(wf_texts[1], expected);
     }
 

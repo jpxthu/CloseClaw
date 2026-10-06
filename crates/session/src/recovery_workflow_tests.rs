@@ -11,6 +11,21 @@ mod tests {
         GoalHint, Phase, StepHistoryEntry, StepHistoryStatus, WorkflowRun,
     };
 
+    /// Inject workflow recovery with the real-engine test port.
+    async fn inject_recovery(
+        session_id: &str,
+        cp: &mut SessionCheckpoint,
+        agent_workspace: Option<&std::path::Path>,
+    ) {
+        inject_workflow_recovery(
+            session_id,
+            cp,
+            agent_workspace,
+            crate::workflow_port::real_engine_port::test_port().as_ref(),
+        )
+        .await;
+    }
+
     fn make_workflow_run(current_step: usize, phase: Phase) -> WorkflowRun {
         WorkflowRun {
             workflow_id: "test-wf".to_string(),
@@ -93,7 +108,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-1");
         store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
 
-        inject_workflow_recovery("wf-1", &mut cp, None).await;
+        inject_recovery("wf-1", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -111,7 +126,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-2");
         store_workflow_run(&mut cp, make_workflow_run(1, Phase::Complete));
 
-        inject_workflow_recovery("wf-2", &mut cp, None).await;
+        inject_recovery("wf-2", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -127,7 +142,7 @@ mod tests {
         run.pending_verify.count = 2;
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-3", &mut cp, None).await;
+        inject_recovery("wf-3", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -144,7 +159,7 @@ mod tests {
         run.paused_reason = "验收重试次数耗尽".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-4", &mut cp, None).await;
+        inject_recovery("wf-4", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -169,7 +184,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-4b");
         store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
 
-        inject_workflow_recovery("wf-4b", &mut cp, None).await;
+        inject_recovery("wf-4b", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -189,7 +204,7 @@ mod tests {
         store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
         cp.user_appends.push("existing-append".to_string());
 
-        inject_workflow_recovery("wf-5", &mut cp, None).await;
+        inject_recovery("wf-5", &mut cp, None).await;
 
         assert!(
             cp.user_appends.iter().any(|s| s == "existing-append"),
@@ -202,7 +217,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-6");
         // No workflow_run set
 
-        inject_workflow_recovery("wf-6", &mut cp, None).await;
+        inject_recovery("wf-6", &mut cp, None).await;
 
         let has_recovery = cp
             .system_injection_appends
@@ -218,7 +233,7 @@ mod tests {
         cp.system_injection_appends
             .push(format!("{}old notification", WORKFLOW_RECOVERY_PREFIX));
 
-        inject_workflow_recovery("wf-7", &mut cp, None).await;
+        inject_recovery("wf-7", &mut cp, None).await;
 
         let notif_count = cp
             .system_injection_appends
@@ -237,7 +252,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_definition_version_change_blocks_with_paused_reason() {
-        use crate::workflow_recovery::inject_workflow_recovery;
         use closeclaw_workflow::run::Phase;
 
         // Simulate the state produced by handle_definition_version_change:
@@ -260,7 +274,7 @@ mod tests {
         wf_run.paused_reason = DEFINITION_CHANGED_PAUSE_REASON.to_string();
         cp.workflow_run = Some(serde_json::to_value(&wf_run).unwrap());
 
-        inject_workflow_recovery("wf-dvc1", &mut cp, None).await;
+        inject_recovery("wf-dvc1", &mut cp, None).await;
 
         let wf_run: WorkflowRun = serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
         assert_eq!(wf_run.phase, Phase::Blocked);
@@ -291,7 +305,7 @@ mod tests {
         run.step_history.clear();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-8", &mut cp, None).await;
+        inject_recovery("wf-8", &mut cp, None).await;
 
         let notif = cp
             .system_injection_appends
@@ -436,7 +450,7 @@ mod tests {
         // First inject recovery state (as would happen on resume).
         tokio::runtime::Runtime::new()
             .unwrap()
-            .block_on(inject_workflow_recovery("wf-c6", &mut cp, None));
+            .block_on(inject_recovery("wf-c6", &mut cp, None));
 
         // Verify injection happened.
         assert!(cp
@@ -474,7 +488,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-rwm-1");
         store_workflow_run(&mut cp, make_workflow_run(0, Phase::Executing));
 
-        inject_workflow_recovery("wf-rwm-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -495,7 +509,7 @@ mod tests {
         let mut cp = make_test_checkpoint("wf-rwm-2");
         store_workflow_run(&mut cp, make_workflow_run(1, Phase::Executing));
 
-        inject_workflow_recovery("wf-rwm-2", &mut cp, None).await;
+        inject_recovery("wf-rwm-2", &mut cp, None).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -517,7 +531,7 @@ mod tests {
         run.definition_version = "999".to_string(); // Force version mismatch
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-rwm-3", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-3", &mut cp, Some(tmp.path())).await;
 
         // Version mismatch → step 0 doesn't exist in definition with version "999"
         // Wait: definition has version "0.1", run has "999", so handle_definition_version_change
@@ -540,7 +554,7 @@ mod tests {
         run.definition_version = "999".to_string(); // Force version mismatch
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-rwm-4", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-rwm-4", &mut cp, Some(tmp.path())).await;
 
         // Step 5 >= 1 (definition has 1 step) → blocked, goal not built
         let wf_run: WorkflowRun = serde_json::from_value(cp.workflow_run.clone().unwrap()).unwrap();
@@ -632,7 +646,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -663,7 +677,7 @@ mod tests {
         run.definition_name = "nonexistent-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-2", &mut cp, None).await;
+        inject_recovery("wf-jump-2", &mut cp, None).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -687,7 +701,7 @@ mod tests {
         run.definition_version = "999".to_string(); // force version mismatch
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-3", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-3", &mut cp, Some(tmp.path())).await;
 
         // Step 5 >= 2 (definition has 2 steps) → blocked by version check,
         // no jump message injected because run is now Blocked, not Jumping.
@@ -711,7 +725,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-4", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-4", &mut cp, Some(tmp.path())).await;
 
         // Complete phase → early return, no messages built at all.
         assert!(
@@ -731,7 +745,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-5", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-5", &mut cp, Some(tmp.path())).await;
 
         // Blocked phase: recovered + goal built, but no jump message
         // (phase != Jumping, so jump injection is skipped).
@@ -754,7 +768,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-6", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-6", &mut cp, Some(tmp.path())).await;
 
         assert!(
             cp.recovery_workflow_messages
@@ -775,7 +789,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-7", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-7", &mut cp, Some(tmp.path())).await;
 
         assert!(
             cp.recovery_workflow_messages
@@ -798,7 +812,7 @@ mod tests {
         run.definition_name = "jump-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-jump-8", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-jump-8", &mut cp, Some(tmp.path())).await;
 
         // Verify the complete set: recovered + goal + jump
         assert_eq!(cp.recovery_workflow_messages.len(), 3);
@@ -836,7 +850,7 @@ mod tests {
         store_workflow_run(&mut cp, run);
 
         // agent_workspace = Some(tmp.path()) → definition found at level 1.
-        inject_workflow_recovery("wf-aws-1", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-aws-1", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),
@@ -860,7 +874,7 @@ mod tests {
         run.definition_name = "nonexistent-wf".to_string();
         store_workflow_run(&mut cp, run);
 
-        inject_workflow_recovery("wf-aws-2", &mut cp, Some(tmp.path())).await;
+        inject_recovery("wf-aws-2", &mut cp, Some(tmp.path())).await;
 
         assert_eq!(
             cp.recovery_workflow_messages.len(),

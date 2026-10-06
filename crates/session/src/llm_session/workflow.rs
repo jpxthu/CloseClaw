@@ -1,39 +1,28 @@
 //! Workflow-related methods for `ConversationSession`.
 
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_workflow::definition::build_jump_message;
-use closeclaw_workflow::run::Phase;
 
 use std::sync::Arc;
 
 use crate::workflow_handler::JumpResult;
+use crate::workflow_port::WorkflowPhase;
 
 use super::ConversationSession;
 
-/// Encode a workflow run into the `Value`-erased checkpoint form.
-///
-/// Returns `None` (with a warning) when encoding fails; callers then
-/// treat the state as cleared, mirroring [`ConversationSession::
-/// set_workflow_run`].
-pub(crate) fn encode_run_state(
-    run: &closeclaw_workflow::run::WorkflowRun,
-) -> Option<serde_json::Value> {
-    match serde_json::to_value(run) {
-        Ok(state) => Some(state),
-        Err(e) => {
-            tracing::warn!(error = %e, "failed to encode workflow_run state");
-            None
-        }
-    }
-}
-
 // ── Run / handler accessors ─────────────────────────────────────
 impl ConversationSession {
-    /// Returns the active workflow run, if any.
-    ///
-    /// The run state is stored `Value`-erased (checkpoint-compatible);
-    /// this accessor decodes it back to the typed form for callers that
-    /// still work with the concrete run type.
+    /// Returns the raw `Value`-erased workflow run state (checkpoint form).
+    pub fn workflow_run_value(&self) -> Option<serde_json::Value> {
+        self.workflow_run.clone()
+    }
+
+    /// Overwrites the raw `Value`-erased workflow run state (checkpoint form).
+    pub fn set_workflow_run_value(&mut self, state: Option<serde_json::Value>) {
+        self.workflow_run = state;
+    }
+
+    /// Returns the active workflow run, if any (test-only typed view).
+    #[cfg(test)]
     pub fn workflow_run(&self) -> Option<closeclaw_workflow::run::WorkflowRun> {
         let state = self.workflow_run.as_ref()?;
         match serde_json::from_value(state.clone()) {
@@ -45,22 +34,10 @@ impl ConversationSession {
         }
     }
 
-    /// Sets the active workflow run state.
-    ///
-    /// The run is encoded to the `Value`-erased checkpoint form; on
-    /// encoding failure the state is left cleared and a warning logged.
+    /// Sets the active workflow run state (test-only typed form).
+    #[cfg(test)]
     pub fn set_workflow_run(&mut self, run: Option<closeclaw_workflow::run::WorkflowRun>) {
-        self.workflow_run = run.and_then(|r| encode_run_state(&r));
-    }
-
-    /// Returns the raw `Value`-erased workflow run state (checkpoint form).
-    pub(crate) fn workflow_run_state(&self) -> Option<serde_json::Value> {
-        self.workflow_run.clone()
-    }
-
-    /// Overwrites the raw `Value`-erased workflow run state (checkpoint form).
-    pub(crate) fn set_workflow_run_state(&mut self, state: Option<serde_json::Value>) {
-        self.workflow_run = state;
+        self.workflow_run = run.and_then(|r| serde_json::to_value(r).ok());
     }
 
     /// Inject the [`crate::workflow_port::WorkflowPort`] for workflow
@@ -110,8 +87,8 @@ impl ConversationSession {
             let has_start = blocks.iter().any(Self::is_workflow_start_block);
             if has_start {
                 let phase = self
-                    .workflow_run()
-                    .map(|r| format!("{:?}", r.phase))
+                    .workflow_run_state_phase()
+                    .map(|p| format!("{p:?}"))
                     .unwrap_or_default();
                 self.inject_workflow_message(&format!(
                     "⚠️ 无法启动新工作流：当前 Session 已有活跃的工作流运行（阶段：{phase}）。\n请等待当前工作流完成后再启动新工作流。"
@@ -125,19 +102,15 @@ impl ConversationSession {
         }
 
         if let Some(ref mut handler) = self.workflow_handler {
-            let was_jumping = handler.run().phase == Phase::Jumping;
-            let was_blocked_before = handler.run().phase == Phase::Blocked;
+            let was_jumping = handler.phase() == Some(WorkflowPhase::Jumping);
+            let was_blocked_before = handler.phase() == Some(WorkflowPhase::Blocked);
             let (processed, jump_result) = handler.process_content_blocks(blocks);
             if processed {
-                self.workflow_run = encode_run_state(handler.run());
+                self.workflow_run = Some(handler.run_state().clone());
             }
             let jump_msg = if matches!(jump_result, JumpResult::Jumped) {
-                let current_step = handler.run().current_step;
-                handler
-                    .definition()
-                    .steps
-                    .get(current_step)
-                    .map(build_jump_message)
+                let current_step = handler.run_info().map(|i| i.current_step).unwrap_or(0);
+                handler.jump_message_for_step(current_step)
             } else {
                 None
             };
@@ -153,13 +126,10 @@ impl ConversationSession {
                 self.remove_workflow_jump_messages();
                 self.remove_workflow_tool_exchange(&["workflow_jump"]);
                 // Post-jump phase dispatch: inject goal or trigger cleanup.
-                let (current_phase, current_step, hint) = {
-                    let h = self.workflow_handler.as_ref().unwrap();
-                    (
-                        h.run().phase.clone(),
-                        h.run().current_step,
-                        h.run().pending_goal_hint.clone(),
-                    )
+                let info = self.workflow_handler.as_ref().and_then(|h| h.run_info());
+                let (current_phase, current_step, hint) = match info {
+                    Some(i) => (Some(i.phase), i.current_step, i.pending_goal_hint),
+                    None => (None, 0, Default::default()),
                 };
                 self.dispatch_post_jump_phase(current_phase, current_step, hint);
                 tracing::debug!("jump messages cleaned up after phase transition");
@@ -178,7 +148,7 @@ impl ConversationSession {
         let is_blocked = self
             .workflow_handler
             .as_ref()
-            .is_some_and(|h| h.run().phase == Phase::Blocked);
+            .is_some_and(|h| h.is_blocked());
         if is_blocked {
             self.remove_workflow_verify_messages();
             self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
@@ -200,10 +170,16 @@ impl ConversationSession {
             .is_some_and(|h| h.is_blocked())
     }
 
+    /// Returns the phase of the stored run state, if any and decodable.
+    fn workflow_run_state_phase(&self) -> Option<WorkflowPhase> {
+        let state = self.workflow_run.as_ref()?;
+        let port = self.workflow_port.as_ref()?;
+        port.run_phase(state)
+    }
+
     /// Returns `true` if there is an active (non-Complete) workflow run.
     fn has_active_workflow(&self) -> bool {
-        self.workflow_run()
-            .is_some_and(|r| r.phase != Phase::Complete)
+        matches!(self.workflow_run_state_phase(), Some(p) if p != WorkflowPhase::Complete)
     }
 
     /// Returns `true` if a content block is a `workflow_start` tool result.
@@ -227,9 +203,10 @@ impl ConversationSession {
 #[cfg(test)]
 mod tests {
     use crate::llm_session::ConversationSession;
+    use crate::workflow_port::real_engine_port::test_port;
     use closeclaw_common::ContentBlock;
     use closeclaw_workflow::definition::{Step, Workflow};
-    use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
+    use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
 
     fn make_test_run(definition_name: &str) -> WorkflowRun {
         WorkflowRun {
@@ -242,9 +219,14 @@ mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
+            pending_verify: PendingVerify::default(),
             paused_reason: String::new(),
         }
+    }
+
+    /// Decode the handler's serialized run state into the typed form.
+    fn typed_run(session: &ConversationSession) -> WorkflowRun {
+        serde_json::from_value(session.workflow_handler().unwrap().run_state().clone()).unwrap()
     }
 
     fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
@@ -352,6 +334,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         let mut run = make_test_run(wf_name);
         run.phase = phase;
         session.set_workflow_run(Some(run));
@@ -437,17 +420,26 @@ mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
+            pending_verify: PendingVerify::default(),
             paused_reason: String::new(),
         };
-        let mut handler = WorkflowHandler::new(run, definition);
+        let mut handler = WorkflowHandler::new(
+            serde_json::to_value(&run).unwrap(),
+            serde_json::to_value(&definition).unwrap(),
+            test_port(),
+        );
 
         let blocks = vec![ContentBlock::ToolResult {
             tool_call_id: "c1".to_string(),
             content: r#"{"action": "workflow_blocked", "reason": "test"}"#.to_string(),
         }];
         assert!(handler.process_content_blocks(&blocks).0);
-        assert_eq!(handler.run().phase, Phase::Blocked);
+        assert_eq!(typed_run_value(handler.run_state()).phase, Phase::Blocked);
+    }
+
+    /// Decode a serialized run state into the typed form (handler-level).
+    fn typed_run_value(state: &serde_json::Value) -> WorkflowRun {
+        serde_json::from_value(state.clone()).unwrap()
     }
 
     #[test]
@@ -460,6 +452,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         session.set_workflow_run(Some(make_test_run("Test Workflow")));
 
         // Build handler first.
@@ -476,10 +469,7 @@ mod tests {
             .unwrap()
             .process_content_blocks(&blocks);
         assert!(processed, "direct handler call should work");
-        assert_eq!(
-            session.workflow_handler().unwrap().run().phase,
-            Phase::Blocked
-        );
+        assert_eq!(typed_run(&session).phase, Phase::Blocked);
     }
 
     // ── Step 1.3: jump → goal injection / complete exit ─────────
@@ -512,9 +502,9 @@ mod tests {
         assert!(wf[0].starts_with("[workflow goal]"), "goal: {}", wf[0]);
         assert!(wf[0].contains("Step 1"), "step 1: {}", wf[0]);
         // pending_goal_hint should be consumed (reset to Normal).
-        let handler = session.workflow_handler().unwrap();
-        assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
-        assert_eq!(handler.run().current_step, 1);
+        let run = typed_run(&session);
+        assert_eq!(run.pending_goal_hint, GoalHint::Normal);
+        assert_eq!(run.current_step, 1);
     }
 
     /// After a reexecute jump, the goal message includes the reexecute hint.
@@ -543,9 +533,9 @@ mod tests {
         assert_eq!(wf.len(), 1);
         assert!(wf[0].starts_with("[workflow goal]"));
         assert!(wf[0].contains("重新执行"), "reexecute hint: {}", wf[0]);
-        let handler = session.workflow_handler().unwrap();
-        assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
-        assert_eq!(handler.run().current_step, 0);
+        let run = typed_run(&session);
+        assert_eq!(run.pending_goal_hint, GoalHint::Normal);
+        assert_eq!(run.current_step, 0);
     }
 
     /// After a complete jump, workflow_run is set and handler is cleared.
@@ -559,6 +549,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         let mut run = make_test_run("Test WF");
         run.phase = Phase::Jumping;
         session.set_workflow_run(Some(run));
@@ -591,7 +582,7 @@ mod tests {
             wf_messages.is_empty(),
             "no workflow messages should remain after complete"
         );
-        // workflow_run should be set (from handler.clone()).
+        // workflow_run should be set (from handler state).
         assert!(session.workflow_run().is_some());
         assert_eq!(session.workflow_run().unwrap().phase, Phase::Complete);
     }
@@ -673,10 +664,10 @@ mod tests {
         assert!(wf[0].starts_with("[workflow goal]"), "goal: {}", wf[0]);
         assert!(wf[0].contains("Step 1"), "step 1: {}", wf[0]);
 
-        let handler = session.workflow_handler().unwrap();
-        assert_eq!(handler.run().phase, Phase::Executing);
-        assert_eq!(handler.run().current_step, 1);
-        assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
+        let run = typed_run(&session);
+        assert_eq!(run.phase, Phase::Executing);
+        assert_eq!(run.current_step, 1);
+        assert_eq!(run.pending_goal_hint, GoalHint::Normal);
     }
 
     /// When jump answers match no transition, no goal is injected.
@@ -690,6 +681,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         let mut run = make_test_run("Test WF");
         run.phase = Phase::Jumping;
         run.current_step = 0;
@@ -762,10 +754,7 @@ mod tests {
             content: r#"{"action": "workflow_verify"}"#.to_string(),
         }]);
 
-        assert_eq!(
-            session.workflow_handler().unwrap().run().phase,
-            Phase::Jumping
-        );
+        assert_eq!(typed_run(&session).phase, Phase::Jumping);
         let wf = wf_messages(&session);
         assert_eq!(wf.len(), 1, "jump injected");
         assert!(wf[0].starts_with("Jump"), "jump: {}", wf[0]);
@@ -793,6 +782,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         let mut run = make_test_run("Test WF");
         run.phase = Phase::Jumping;
         run.pending_goal_hint = GoalHint::Reexecute; // Set hint before jump
@@ -816,8 +806,7 @@ mod tests {
         session.process_workflow_tool_results(&blocks);
 
         // Handler hint should be Normal after injection consumed it.
-        let handler = session.workflow_handler().unwrap();
-        assert_eq!(handler.run().pending_goal_hint, GoalHint::Normal);
+        assert_eq!(typed_run(&session).pending_goal_hint, GoalHint::Normal);
     }
 
     /// Blocked phase erases verify injection + tool_call + tool_result.
@@ -853,7 +842,7 @@ mod tests {
 
         assert!(processed, "should have processed blocked action");
         assert_eq!(
-            session.workflow_handler().unwrap().run().phase,
+            typed_run(&session).phase,
             Phase::Blocked,
             "phase should be Blocked"
         );
@@ -908,10 +897,7 @@ mod tests {
         assert_eq!(wf.len(), 1, "should have one error message");
         assert!(wf[0].contains("无法启动新工作流"), "error: {}", wf[0]);
         // Handler should still have the original run (not overwritten).
-        assert_eq!(
-            session.workflow_handler().unwrap().run().phase,
-            Phase::Executing
-        );
+        assert_eq!(typed_run(&session).phase, Phase::Executing);
     }
 
     /// workflow_start is rejected during Blocked phase.
@@ -947,10 +933,7 @@ mod tests {
         let processed = session.process_workflow_tool_results(&blocks);
 
         assert!(processed, "non-start actions should still be processed");
-        assert_eq!(
-            session.workflow_handler().unwrap().run().phase,
-            Phase::Blocked
-        );
+        assert_eq!(typed_run(&session).phase, Phase::Blocked);
     }
 
     /// When workflow is Complete, workflow_start is allowed.

@@ -705,18 +705,19 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Set the active workflow run for a session and persist the checkpoint.
+    /// Set the active workflow run (serialized `Value` checkpoint form;
+    /// Value↔WorkflowRun conversion lives at the gateway boundary) and persist.
     pub async fn set_workflow_run(
         &self,
         session_id: &str,
-        run: Option<closeclaw_workflow::run::WorkflowRun>,
+        run: Option<serde_json::Value>,
     ) -> Result<(), String> {
         let conv_sessions = self.conversation_sessions.read().await;
         let cs = conv_sessions
             .get(session_id)
             .ok_or_else(|| format!("session not found: {}", session_id))?;
         let mut cs = cs.write().await;
-        cs.set_workflow_run(run);
+        cs.set_workflow_run_value(run);
         cs.persist_pending_checkpoint()
             .await
             .map_err(|e| format!("checkpoint persist failed: {}", e))?;

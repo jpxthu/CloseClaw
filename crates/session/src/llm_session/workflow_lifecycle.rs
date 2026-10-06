@@ -4,22 +4,21 @@
 //! under the CONTRIBUTING.md 100-line cap.
 
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_workflow::definition::build_goal_message;
-use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
-use closeclaw_workflow::run::Phase;
+
+use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase};
 
 use super::ConversationSession;
 
-/// Prefix used by [`closeclaw_workflow::definition::build_verify_message`]
-/// to render verify messages. Used by
-/// [`ConversationSession::remove_workflow_verify_messages`] to distinguish
-/// verify messages from goal/recovered messages in the transcript.
+/// Prefix used by the workflow engine's verify message rendering.
+/// Used by [`ConversationSession::remove_workflow_verify_messages`] to
+/// distinguish verify messages from goal/recovered messages in the
+/// transcript.
 pub const VERIFY_MESSAGE_PREFIX: &str = "Verify Step";
 
-/// Prefix used by [`closeclaw_workflow::definition::build_jump_message`]
-/// to render jump messages. Used by
-/// [`ConversationSession::remove_workflow_jump_messages`] to distinguish
-/// jump messages from goal/recovered messages in the transcript.
+/// Prefix used by the workflow engine's jump message rendering.
+/// Used by [`ConversationSession::remove_workflow_jump_messages`] to
+/// distinguish jump messages from goal/recovered messages in the
+/// transcript.
 pub const JUMP_MESSAGE_PREFIX: &str = "Jump Step";
 
 /// Handler lifecycle and verify-message transcript cleanup.
@@ -27,30 +26,38 @@ impl ConversationSession {
     /// Lazily build the [`WorkflowHandler`] if a `workflow_run` exists
     /// but no handler is present.
     ///
-    /// Loads the workflow definition via the three-level priority lookup:
-    /// 1. `{agent_workspace}/workflows/{name}/SKILL.md`
-    /// 2. `~/.openclaw/workflows/{name}/SKILL.md` (global workflows directory)
-    /// 3. Built-in (currently a no-op placeholder)
+    /// Loads the workflow definition via the injected
+    /// [`crate::workflow_port::WorkflowPort`] (three-level priority
+    /// lookup: agent workspace → global workflows directory → built-in).
     ///
-    /// On failure, logs a warning and leaves the handler as `None`.
+    /// On failure (port missing, undecodable state, or load error),
+    /// logs a warning and leaves the handler as `None`.
     /// Does not panic and does not block the session.
     pub fn ensure_workflow_handler(&mut self) {
         if self.workflow_handler.is_some() {
             return;
         }
-        let Some(run) = self.workflow_run() else {
+        let Some(state) = self.workflow_run.clone() else {
+            return;
+        };
+        let Some(port) = self.workflow_port.clone() else {
+            tracing::warn!("workflow port not injected, handler remains None");
+            return;
+        };
+        let Some(info) = port.run_info(&state) else {
+            tracing::warn!("failed to decode workflow_run state, handler remains None");
             return;
         };
         let global_workflows = dirs::home_dir().map(|h| h.join(".openclaw"));
-        let definition = match WorkflowDefinitionLoader::load(
-            &run.definition_name,
+        let definition = match port.load_definition(
+            &info.definition_name,
             Some(self.workdir.as_path()),
             global_workflows.as_deref(),
         ) {
             Ok(d) => d,
             Err(e) => {
                 tracing::warn!(
-                    workflow = %run.definition_name,
+                    workflow = %info.definition_name,
                     error = %e,
                     "failed to load workflow definition, handler remains None"
                 );
@@ -58,7 +65,7 @@ impl ConversationSession {
             }
         };
         self.workflow_handler = Some(crate::workflow_handler::WorkflowHandler::new(
-            run, definition,
+            state, definition, port,
         ));
     }
 
@@ -150,42 +157,39 @@ impl ConversationSession {
     /// or trigger exit cleanup for Complete.
     pub(crate) fn dispatch_post_jump_phase(
         &mut self,
-        phase: Phase,
+        phase: Option<WorkflowPhase>,
         step: usize,
-        hint: closeclaw_workflow::run::GoalHint,
+        hint: WorkflowGoalHint,
     ) {
         match phase {
-            Phase::Executing => {
-                let goal_msg = {
-                    let h = self.workflow_handler.as_ref().unwrap();
-                    h.definition()
-                        .steps
-                        .get(step)
-                        .map(|s| build_goal_message(s, hint))
-                };
+            Some(WorkflowPhase::Executing) => {
+                let goal_msg = self
+                    .workflow_handler
+                    .as_ref()
+                    .and_then(|h| h.goal_message_for_step(step, hint));
                 if let Some(msg) = goal_msg {
                     self.inject_workflow_message(&msg);
                     if let Some(ref mut h) = self.workflow_handler {
                         h.on_goal_injected();
-                        let run = h.run().clone();
-                        self.workflow_run = super::workflow::encode_run_state(&run);
+                        self.workflow_run = Some(h.run_state().clone());
                     }
                     tracing::debug!(step, "goal message injected after jump");
                 }
             }
-            Phase::Complete => {
+            Some(WorkflowPhase::Complete) => {
                 tracing::info!("workflow complete after jump, triggering exit cleanup");
-                let run = self.workflow_handler.as_ref().unwrap().run().clone();
-                self.workflow_run = super::workflow::encode_run_state(&run);
+                if let Some(ref h) = self.workflow_handler {
+                    self.workflow_run = Some(h.run_state().clone());
+                }
                 let session = self.clone();
                 tokio::spawn(async move {
                     let mut session = session;
                     session.cleanup_workflow_exit().await;
                 });
             }
-            _ => {
+            other => {
                 tracing::debug!(
-                    phase = ?phase,
+                    phase = ?other,
                     "jump completed with non-actionable phase"
                 );
             }
@@ -196,10 +200,28 @@ impl ConversationSession {
 #[cfg(test)]
 mod tests {
     use crate::llm_session::ConversationSession;
+    use crate::workflow_port::real_engine_port::test_port;
     use closeclaw_common::ContentBlock;
     use closeclaw_workflow::definition::{Step, Workflow};
-    use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
+    use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
     use std::path::PathBuf;
+
+    /// Decode the handler's serialized run state into the typed form.
+    fn typed_run(session: &ConversationSession) -> WorkflowRun {
+        serde_json::from_value(session.workflow_handler().unwrap().run_state().clone()).unwrap()
+    }
+
+    /// Decode the handler's serialized definition into the typed form.
+    fn typed_definition(session: &ConversationSession) -> Workflow {
+        serde_json::from_value(
+            session
+                .workflow_handler()
+                .unwrap()
+                .definition_state()
+                .clone(),
+        )
+        .unwrap()
+    }
 
     fn make_test_workflow() -> Workflow {
         Workflow {
@@ -233,7 +255,7 @@ mod tests {
             step_history: vec![],
             step_data: serde_yaml::Value::Null,
             pending_goal_hint: GoalHint::default(),
-            pending_verify: closeclaw_workflow::run::PendingVerify::default(),
+            pending_verify: PendingVerify::default(),
             paused_reason: String::new(),
         }
     }
@@ -271,14 +293,16 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         session.set_workflow_run(Some(make_test_run("Test Workflow")));
         assert!(session.workflow_handler().is_none());
 
         session.ensure_workflow_handler();
 
         let handler = session.workflow_handler().expect("handler should be set");
-        assert_eq!(handler.definition().id, "test-wf");
-        assert_eq!(handler.run().definition_name, "Test Workflow");
+        assert_eq!(typed_definition(&session).id, "test-wf");
+        assert_eq!(typed_run(&session).definition_name, "Test Workflow");
+        let _ = handler;
     }
 
     #[test]
@@ -303,19 +327,20 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         session.set_workflow_run(Some(make_test_run("Test Workflow")));
         // Pre-set a handler — ensure_workflow_handler should not overwrite.
         let existing = crate::workflow_handler::WorkflowHandler::new(
-            make_test_run("Test Workflow"),
-            make_test_workflow(),
+            serde_json::to_value(make_test_run("Test Workflow")).unwrap(),
+            serde_json::to_value(make_test_workflow()).unwrap(),
+            test_port(),
         );
         session.set_workflow_handler(Some(existing));
 
         session.ensure_workflow_handler();
 
         // Handler should still be the pre-existing one (same definition).
-        let handler = session.workflow_handler().unwrap();
-        assert_eq!(handler.definition().id, "test-wf");
+        assert_eq!(typed_definition(&session).id, "test-wf");
     }
 
     #[test]
@@ -328,6 +353,7 @@ mod tests {
             "model".to_string(),
             tmp.path().to_path_buf(),
         );
+        session.set_workflow_port(test_port());
         session.set_workflow_run(Some(make_test_run("nonexistent")));
 
         // Should not panic; handler remains None.
