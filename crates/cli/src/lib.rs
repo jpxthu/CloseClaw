@@ -9,6 +9,8 @@ pub mod renderer;
 pub mod terminal;
 
 #[cfg(test)]
+mod chat_slash_injection_tests;
+#[cfg(test)]
 mod chat_tests;
 #[cfg(test)]
 mod renderer_blank_line_tests;
