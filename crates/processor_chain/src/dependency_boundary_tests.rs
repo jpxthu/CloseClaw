@@ -1,8 +1,9 @@
 //! Dependency boundary guard tests.
 //!
 //! Enforces the dependency allowed-edge table (docs/design/STANDARDS.md):
-//! this crate's regular dependency sections ([dependencies] and
-//! [target.'…'.dependencies]) may only contain the workspace crates
+//! this crate's regular dependency entries — key entries in [dependencies] /
+//! [target.'…'.dependencies] and their `[dependencies.<name>]` sub-tables —
+//! may only contain the workspace crates
 //! {closeclaw-common, closeclaw-platform, closeclaw-debug-log}.
 
 use std::fs;
@@ -32,44 +33,75 @@ fn workspace_internal_violations<'a>(dependencies: &[(&'a str, &'a str)]) -> Vec
 
 /// A declaration is workspace-internal only through TOML structure: a `path`
 /// key, or `workspace = true` inheritance — recognized by key, never by
-/// substring matching. Trailing comments are stripped before the judgment.
+/// substring matching. Covers inline tables plus the dotted-key and sub-table
+/// forms, whose key lines arrive joined into a plain `key = value` list.
+/// Trailing comments are stripped before the judgment.
 fn is_workspace_internal_declaration(declaration: &str) -> bool {
     let declaration = strip_trailing_comment(declaration).trim();
-    match inline_table_inner(declaration) {
-        Some(inner) => inline_table_items(inner)
-            .into_iter()
-            .any(|(key, value)| key == "path" || (key == "workspace" && value == "true")),
-        None => declaration
-            .split_once('=')
-            .is_some_and(|(key, value)| key.trim() == "workspace" && value.trim() == "true"),
+    let content = inline_table_inner(declaration).unwrap_or(declaration);
+    inline_table_items(content)
+        .into_iter()
+        .any(|(key, value)| key == "path" || (key == "workspace" && value == "true"))
+}
+
+/// Quote/escape scan state shared by the TOML scanners: basic strings
+/// (`"…"` with `\` escapes) and literal strings (`'…'`) hide structural
+/// characters such as `#`, `,`, and brackets from the scanners.
+struct StringScan {
+    in_basic_string: bool,
+    in_literal_string: bool,
+    escaped: bool,
+}
+
+impl StringScan {
+    fn new() -> Self {
+        Self {
+            in_basic_string: false,
+            in_literal_string: false,
+            escaped: false,
+        }
+    }
+
+    /// Consumes one char: string delimiters and contents only advance the
+    /// state and yield `None`; chars outside strings are structural and are
+    /// yielded as-is.
+    fn feed(&mut self, ch: char) -> Option<char> {
+        if self.in_basic_string {
+            if self.escaped {
+                self.escaped = false;
+            } else if ch == '\\' {
+                self.escaped = true;
+            } else if ch == '"' {
+                self.in_basic_string = false;
+            }
+            return None;
+        }
+        if self.in_literal_string {
+            if ch == '\'' {
+                self.in_literal_string = false;
+            }
+            return None;
+        }
+        match ch {
+            '"' => {
+                self.in_basic_string = true;
+                None
+            }
+            '\'' => {
+                self.in_literal_string = true;
+                None
+            }
+            structural => Some(structural),
+        }
     }
 }
 
 /// Removes a trailing comment: the first `#` outside of quotes starts one.
 fn strip_trailing_comment(line: &str) -> &str {
-    let mut in_basic_string = false;
-    let mut in_literal_string = false;
-    let mut escaped = false;
+    let mut scan = StringScan::new();
     for (index, ch) in line.char_indices() {
-        if in_basic_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_basic_string = false;
-            }
-        } else if in_literal_string {
-            if ch == '\'' {
-                in_literal_string = false;
-            }
-        } else {
-            match ch {
-                '"' => in_basic_string = true,
-                '\'' => in_literal_string = true,
-                '#' => return &line[..index],
-                _ => {}
-            }
+        if scan.feed(ch) == Some('#') {
+            return &line[..index];
         }
     }
     line
@@ -86,36 +118,18 @@ fn inline_table_inner(declaration: &str) -> Option<&str> {
 /// separators inside strings, arrays, and nested tables.
 fn inline_table_items(inner: &str) -> Vec<(&str, &str)> {
     let mut item_slices: Vec<&str> = Vec::new();
+    let mut scan = StringScan::new();
     let mut depth = 0usize;
-    let mut in_basic_string = false;
-    let mut in_literal_string = false;
-    let mut escaped = false;
     let mut item_start = 0;
     for (index, ch) in inner.char_indices() {
-        if in_basic_string {
-            if escaped {
-                escaped = false;
-            } else if ch == '\\' {
-                escaped = true;
-            } else if ch == '"' {
-                in_basic_string = false;
+        match scan.feed(ch) {
+            Some('[') | Some('{') => depth += 1,
+            Some(']') | Some('}') => depth = depth.saturating_sub(1),
+            Some(',') if depth == 0 => {
+                item_slices.push(&inner[item_start..index]);
+                item_start = index + ch.len_utf8();
             }
-        } else if in_literal_string {
-            if ch == '\'' {
-                in_literal_string = false;
-            }
-        } else {
-            match ch {
-                '"' => in_basic_string = true,
-                '\'' => in_literal_string = true,
-                '[' | '{' => depth += 1,
-                ']' | '}' => depth = depth.saturating_sub(1),
-                ',' if depth == 0 => {
-                    item_slices.push(&inner[item_start..index]);
-                    item_start = index + ch.len_utf8();
-                }
-                _ => {}
-            }
+            _ => {}
         }
     }
     item_slices.push(&inner[item_start..]);
@@ -131,29 +145,70 @@ fn inline_table_items(inner: &str) -> Vec<(&str, &str)> {
 fn parse_regular_dependencies(manifest: &str) -> Vec<(String, String)> {
     let mut dependencies: Vec<(String, String)> = Vec::new();
     let mut pending: Option<(String, String)> = None;
-    let mut in_dependencies_section = false;
+    let mut section = Section::Other;
 
     for line in manifest.lines() {
         let trimmed = strip_trailing_comment(line).trim();
         if trimmed.starts_with('[') {
             flush_pending(&mut pending, &mut dependencies);
-            in_dependencies_section = is_regular_dependencies_section(trimmed);
-        } else if in_dependencies_section && is_entry_line(trimmed) {
-            extend_or_push_entry(trimmed, &mut pending, &mut dependencies);
+            flush_sub_table(&mut section, &mut dependencies);
+            section = classify_section(trimmed);
+        } else if is_entry_line(trimmed) {
+            match &mut section {
+                Section::Regular => {
+                    extend_or_push_entry(trimmed, &mut pending, &mut dependencies);
+                }
+                Section::SubTable { keys, .. } => {
+                    if trimmed.contains('=') {
+                        keys.push(trimmed.to_string());
+                    }
+                }
+                Section::Other => {}
+            }
         }
     }
     flush_pending(&mut pending, &mut dependencies);
+    flush_sub_table(&mut section, &mut dependencies);
     dependencies
 }
 
-/// Matches `[dependencies]` and every `[target.'…'.dependencies]`-style
-/// regular dependency section; `[dev-dependencies]` and friends stay excluded.
-fn is_regular_dependencies_section(header: &str) -> bool {
-    header
+/// Parser state between manifest lines: which section the cursor is in, and —
+/// for the sub-table form — the dependency name plus its collected `key =
+/// value` lines.
+enum Section {
+    Regular,
+    SubTable { name: String, keys: Vec<String> },
+    Other,
+}
+
+/// Classifies a section header: `[dependencies]` and
+/// `[target.'…'.dependencies]` are regular dependency sections, a header
+/// ending in `dependencies.<name>` opens the sub-table form of dependency
+/// `<name>`; everything else (dev, build, package, …) stays out of scope.
+fn classify_section(header: &str) -> Section {
+    let Some(inner) = header
         .strip_prefix('[')
         .and_then(|rest| rest.strip_suffix(']'))
-        .and_then(|inner| inner.trim().rsplit('.').next())
-        == Some("dependencies")
+    else {
+        return Section::Other;
+    };
+    let mut segments = inner.trim().split('.').map(str::trim).rev();
+    match (segments.next(), segments.next()) {
+        (Some("dependencies"), _) => Section::Regular,
+        (Some(name), Some("dependencies")) => Section::SubTable {
+            name: name.trim_matches('"').to_string(),
+            keys: Vec::new(),
+        },
+        _ => Section::Other,
+    }
+}
+
+fn flush_sub_table(section: &mut Section, dependencies: &mut Vec<(String, String)>) {
+    if let Section::SubTable { name, keys } = std::mem::replace(section, Section::Other) {
+        if !keys.is_empty() {
+            dependencies.push((name, keys.join(", ")));
+        }
+    }
 }
 
 fn flush_pending(pending: &mut Option<(String, String)>, dependencies: &mut Vec<(String, String)>) {
@@ -343,6 +398,35 @@ closeclaw-im-adapter = { path = \"../im_adapter\" }
         workspace_internal_violations(&as_ref_pairs(&dependencies)),
         vec!["closeclaw-llm"],
         "target dependency sections must be judged; target dev sections must not"
+    );
+}
+
+#[test]
+fn test_sub_table_form_dependency_is_judged_internal() {
+    let manifest = "\
+[dependencies]
+serde = \"1.0\"
+
+[dependencies.closeclaw-llm]
+version = \"1.0\"
+path = \"../llm\"
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        dependencies,
+        vec![
+            ("serde".to_string(), "\"1.0\"".to_string()),
+            (
+                "closeclaw-llm".to_string(),
+                "version = \"1.0\", path = \"../llm\"".to_string()
+            ),
+        ],
+        "sub-table key lines must be extracted as the dependency's declaration"
+    );
+    assert_eq!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)),
+        vec!["closeclaw-llm"],
+        "the `[dependencies.<name>]` sub-table form must be judged, not skipped"
     );
 }
 
