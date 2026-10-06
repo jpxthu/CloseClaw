@@ -66,4 +66,6 @@ mod plan_archive_tests;
 #[cfg(test)]
 mod plan_file_access_timestamp_tests;
 #[cfg(test)]
+mod plan_file_identifier_format_tests;
+#[cfg(test)]
 mod plan_file_tests;
