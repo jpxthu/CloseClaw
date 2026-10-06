@@ -53,6 +53,7 @@ mod outbound_helpers;
 #[cfg(test)]
 mod outbound_helpers_tests;
 pub mod outbound_middleware;
+pub mod outbound_raw_log;
 #[cfg(test)]
 mod outbound_streaming_checkpoint_tests;
 #[cfg(test)]
@@ -151,6 +152,9 @@ pub struct Gateway {
     plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
     processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
+    /// Simplified-path outbound raw-log writer injected by the composition
+    /// root; `None` skips the write (bypass / test construction).
+    outbound_raw_log: Option<Arc<dyn outbound_raw_log::OutboundRawLogWriter>>,
     checkpoint_manager: std::sync::RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,

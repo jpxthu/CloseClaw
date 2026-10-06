@@ -79,10 +79,14 @@ pub(crate) async fn build_gateway(
     // The processor chain is assembled by the composition root (root crate)
     // and injected here as a common `ProcessorChain` trait object.
     let processor_chain = build_processor_chain(&gateway_config);
+    // CLI chat builds its `GatewayConfig` with `raw_log_dir` unset, so the
+    // simplified outbound raw-log write is disabled by construction and the
+    // composition root has nothing to inject here.
     let gateway = Arc::new(Gateway::new(
         gateway_config,
         Arc::clone(&session_manager),
         processor_chain,
+        None,
     ));
     gateway.set_self_ref(Arc::clone(&gateway));
 

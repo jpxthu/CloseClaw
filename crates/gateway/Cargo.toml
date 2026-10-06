@@ -17,7 +17,6 @@ closeclaw-session = { path = "../session" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-memory = { path = "../memory" }
 closeclaw-permission = { path = "../permission" }
-closeclaw-processor-chain = { path = "../processor_chain" }
 closeclaw-workflow = { path = "../workflow" }
 
 # Async runtime
@@ -59,6 +58,9 @@ shlex = "1.3"
 [dev-dependencies]
 closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-llm = { path = "../llm", features = ["test-helpers"] }
+# dev-dependencies are not constrained by the allowed-edge table: tests keep
+# assembling the real processor chain.
+closeclaw-processor-chain = { path = "../processor_chain" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 tempfile = "3.10"
 serial_test = "3.4"

@@ -17,6 +17,7 @@ pub mod lifecycle;
 mod memory_params_adapter;
 mod memory_storage_adapter;
 mod metrics;
+pub mod outbound_raw_log;
 pub mod phase_init;
 pub mod phase_wiring;
 pub mod plan_file_store_adapter;
@@ -63,6 +64,8 @@ mod lifecycle_tests;
 mod llm_components;
 mod llm_init;
 mod noop_miner_llm;
+#[cfg(test)]
+mod outbound_raw_log_tests;
 #[cfg(test)]
 mod processor_registry_tests;
 #[cfg(test)]

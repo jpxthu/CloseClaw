@@ -883,8 +883,20 @@ async fn test_thinking_indicator_stops_on_block_end() {
 
 #[tokio::test]
 async fn test_process_outbound_raw_log_only_fail_open() {
-    // A non-existent directory triggers a write error in OutboundRawLogProcessor.
+    // The composition-root-injected raw-log writer fails the write.
     // The function must still return Ok with the original content_blocks.
+    struct FailingRawLogWriter;
+
+    #[async_trait::async_trait]
+    impl crate::outbound_raw_log::OutboundRawLogWriter for FailingRawLogWriter {
+        async fn write(
+            &self,
+            _snapshot: crate::outbound_raw_log::OutboundRawLogSnapshot,
+        ) -> Result<(), String> {
+            Err("processor `outbound_raw_log` failed".to_string())
+        }
+    }
+
     let config = GatewayConfig {
         name: "test-rawlog-fail-open".to_string(),
         rate_limit_per_minute: 100,
@@ -898,7 +910,12 @@ async fn test_process_outbound_raw_log_only_fail_open() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new_for_tests(config, sm);
+    let gw = Gateway::new(
+        config,
+        sm,
+        Arc::new(closeclaw_processor_chain::ProcessorRegistry::new()),
+        Some(Arc::new(FailingRawLogWriter)),
+    );
 
     let blocks = vec![ContentBlock::Text("hello world".into())];
     let result = gw

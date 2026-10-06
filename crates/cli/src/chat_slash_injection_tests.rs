@@ -165,7 +165,8 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
         None,
         ReasoningLevel::default(),
     ));
-    let gateway = closeclaw_gateway::Gateway::new(config, session_manager, chat_processor_chain());
+    let gateway =
+        closeclaw_gateway::Gateway::new(config, session_manager, chat_processor_chain(), None);
     gateway.set_slash_dispatcher(router).await;
 
     let processed = gateway.process_inbound_chain(&slash_input("/stop")).await;
@@ -415,6 +416,7 @@ async fn test_slash_input_without_dispatcher_does_not_panic() {
         config,
         Arc::clone(&session_manager),
         chat_processor_chain(),
+        None,
     );
     assert!(
         !gateway.has_slash_dispatcher().await,

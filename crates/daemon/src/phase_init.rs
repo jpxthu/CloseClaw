@@ -157,10 +157,14 @@ impl Daemon {
         // injected as a common `ProcessorChain` trait object — the Gateway
         // never builds concrete processors itself.
         let processor_chain = crate::processor_registry::build_processor_chain(&gateway_config);
+        // Same for the simplified-path outbound raw-log writer.
+        let outbound_raw_log =
+            crate::outbound_raw_log::build_outbound_raw_log_writer(&gateway_config);
         let gateway = Gateway::new(
             gateway_config,
             Arc::clone(&session_manager),
             processor_chain,
+            outbound_raw_log,
         )
         .with_checkpoint_manager(Arc::clone(&checkpoint_manager));
         // Storage injection is now handled via the shared CheckpointManager

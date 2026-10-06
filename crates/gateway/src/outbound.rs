@@ -9,12 +9,10 @@ use crate::outbound_helpers::{
     notify_batch_send_failure, process_single_through_chain, send_render_block, CheckpointMeta,
     StreamContext, StreamState,
 };
-use closeclaw_common::im_plugin::{IMPlugin, NormalizedMessage, RenderedOutput};
+use crate::outbound_middleware::runner::{run_middleware_chain, run_pre_flight_check};
+use crate::outbound_raw_log::OutboundRawLogSnapshot;
+use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
-use closeclaw_processor_chain::{
-    context::MessageContext, outbound_raw_log::OutboundRawLogProcessor,
-    processor::MessageProcessor, raw_log_processor::RawLogConfig, run_middleware_chain,
-};
 use std::sync::Arc;
 
 use closeclaw_common::processor::{DslParseResult, ProcessedMessage};
@@ -381,7 +379,11 @@ impl Gateway {
         Ok(SendOutcome::Sent)
     }
 
-    /// Run only the outbound raw-log processor, bypassing the full chain.
+    /// Write the outbound raw-log snapshot, bypassing the full chain.
+    ///
+    /// The write goes through the composition-root-injected
+    /// [`OutboundRawLogWriter`](crate::outbound_raw_log::OutboundRawLogWriter);
+    /// without an injection (bypass / test construction) the write is skipped.
     ///
     /// On write failure the error is logged and the original content is
     /// forwarded unchanged (fail-open), so the message is never blocked
@@ -394,35 +396,22 @@ impl Gateway {
     ) -> Result<ProcessedMessage, GatewayError> {
         let meta = make_outbound_meta(&[("channel", channel)]);
         let input = self.make_outbound_input(raw_output, content_blocks, meta);
-        let Some(ref dir) = self.config.raw_log_dir else {
+        let Some(writer) = self.outbound_raw_log.as_ref() else {
             return Ok(input);
         };
-        let mut ctx = MessageContext::from_normalized(NormalizedMessage {
+        let snapshot = OutboundRawLogSnapshot {
             content: raw_output.to_string(),
-            timestamp: chrono::Utc::now().timestamp_millis(),
-            ..Default::default()
-        });
-        ctx.metadata = input.metadata;
-        ctx.content_blocks = input.content_blocks;
-        let cfg = RawLogConfig::new(true, Some(dir.clone()));
-        match OutboundRawLogProcessor::new(cfg).process(&ctx).await {
-            Ok(Some(out)) => Ok(ProcessedMessage {
-                content_blocks: out.content_blocks,
-                metadata: out.metadata,
-            }),
-            Ok(None) => unreachable!("processor always returns Some when enabled"),
-            Err(e) => {
-                tracing::error!(
-                    channel = %channel,
-                    error = %e,
-                    "outbound raw-log write failed, forwarding original content"
-                );
-                Ok(ProcessedMessage {
-                    content_blocks: ctx.content_blocks,
-                    metadata: ctx.metadata,
-                })
-            }
+            content_blocks: input.content_blocks.clone(),
+            metadata: input.metadata.clone(),
+        };
+        if let Err(e) = writer.write(snapshot).await {
+            tracing::error!(
+                channel = %channel,
+                error = %e,
+                "outbound raw-log write failed, forwarding original content"
+            );
         }
+        Ok(input)
     }
 
     /// Run the outbound processor chain if configured, otherwise bypass.
@@ -620,9 +609,7 @@ impl Gateway {
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Self::make_middleware_ctx(session_id, channel, &chat_id);
-            if let Err(e) =
-                closeclaw_processor_chain::run_pre_flight_check(&middlewares, &mctx).await
-            {
+            if let Err(e) = run_pre_flight_check(&middlewares, &mctx).await {
                 // Log the rejection reason at warning level.
                 match &e {
                     closeclaw_common::MiddlewareError::Rejected { name, reason } => {

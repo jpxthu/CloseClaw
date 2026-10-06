@@ -344,10 +344,13 @@ impl crate::Daemon {
         // Restart reassembles the processor chain here (composition root)
         // and injects it as a common `ProcessorChain` trait object.
         let processor_chain = crate::processor_registry::build_processor_chain(&gw_config);
+        // Same for the simplified-path outbound raw-log writer.
+        let outbound_raw_log = crate::outbound_raw_log::build_outbound_raw_log_writer(&gw_config);
         let new_gw = Arc::new(closeclaw_gateway::Gateway::new(
             gw_config,
             Arc::clone(&self.session_manager),
             processor_chain,
+            outbound_raw_log,
         ));
         new_gw.set_self_ref(Arc::clone(&new_gw));
 

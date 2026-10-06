@@ -31,7 +31,7 @@ fn test_gateway_new_stores_injected_processor_chain() {
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(SessionRouter::new()));
     let (expected_inbound, expected_outbound) = (registry.inbound_len(), registry.outbound_len());
-    let gw = crate::Gateway::new(config, sm, Arc::new(registry));
+    let gw = crate::Gateway::new(config, sm, Arc::new(registry), None);
     assert_eq!(
         gw.processor_registry_len(),
         (expected_inbound, expected_outbound),

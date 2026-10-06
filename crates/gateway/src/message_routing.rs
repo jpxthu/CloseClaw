@@ -5,11 +5,11 @@
 use super::Gateway;
 use crate::debug_log_emitter;
 use crate::types::{GatewayError, Message};
+use closeclaw_common::im_plugin::MessageType;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::LogLevel;
-use closeclaw_processor_chain::context::inject_chain_dispatcher_keys;
 use std::collections::HashMap;
 
 /// 会话路由失败，请重试
@@ -222,6 +222,29 @@ impl Gateway {
             }
         }
     }
+}
+
+/// Inject `message_type` and `unavailable_media` chain dispatcher keys into a
+/// metadata map.
+///
+/// Single source of truth for the *gateway fallback* branches: the normal
+/// chain path injects the same two keys through the dispatcher inside the
+/// injected [`closeclaw_common::processor::ProcessorChain`]. The serialization
+/// format must stay aligned with the chain dispatcher's copy so the metadata
+/// contract is identical regardless of which path produced the metadata.
+fn inject_chain_dispatcher_keys(
+    metadata: &mut HashMap<String, String>,
+    message_type: &MessageType,
+    unavailable_media: &[String],
+) {
+    metadata.insert(
+        "message_type".to_string(),
+        serde_json::to_string(message_type).unwrap_or_default(),
+    );
+    metadata.insert(
+        "unavailable_media".to_string(),
+        serde_json::to_string(unavailable_media).unwrap_or_default(),
+    );
 }
 
 /// Build a metadata map for fallback branches (no-registry or chain error).
