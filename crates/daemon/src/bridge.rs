@@ -48,11 +48,9 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
     async fn list_skills(&self) -> Vec<String> {
         self.0
             .read()
-            .ok()
-            .and_then(|g| {
-                g.as_ref()
-                    .map(|r| r.list().into_iter().map(String::from).collect())
-            })
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+            .map(|r| r.list().into_iter().map(String::from).collect())
             .unwrap_or_default()
     }
 
