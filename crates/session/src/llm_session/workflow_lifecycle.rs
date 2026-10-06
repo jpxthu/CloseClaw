@@ -152,6 +152,29 @@ impl ConversationSession {
         self.workflow_run = None;
         self.workflow_handler = None;
     }
+}
+
+/// Blocked-state query consumed by the gateway owner flow.
+impl ConversationSession {
+    /// Reason the active workflow run is paused, read from the stored run
+    /// state (the same snapshot the blocked check reads in one lock).
+    ///
+    /// Decoded through the session port; sessions that only carry a
+    /// handler reuse the handler's port. Returns an empty string when there
+    /// is no run, no port is available, or the stored value cannot be
+    /// decoded — callers treat that as "no pause reason".
+    pub fn workflow_paused_reason(&self) -> String {
+        let Some(state) = self.workflow_run.as_ref() else {
+            return String::new();
+        };
+        let port = self
+            .workflow_port
+            .as_ref()
+            .or_else(|| self.workflow_handler.as_ref().map(|handler| handler.port()));
+        port.and_then(|port| port.run_info(state))
+            .map(|info| info.paused_reason)
+            .unwrap_or_default()
+    }
 
     /// Dispatch post-jump phase transitions: inject goal for Executing
     /// or trigger exit cleanup for Complete.
