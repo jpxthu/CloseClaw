@@ -55,7 +55,7 @@ impl Daemon {
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm_query))));
         let plan_handler = Arc::new(PlanModeHandler::new(
             Arc::clone(&sm_query),
-            closeclaw_config::IdentifierFormat::default(),
+            to_session_identifier_format(closeclaw_config::IdentifierFormat::default()),
         ));
         slash_registry.register(plan_handler.clone() as Arc<dyn closeclaw_common::SlashHandler>);
         slash_registry.register(Arc::new(ModeHandler::with_handlers(
@@ -94,5 +94,22 @@ impl Daemon {
         // immediately after Gateway construction (dependency topology aligned).
         info!("Slash dispatcher installed");
         registry_for_return
+    }
+}
+
+/// Map the config-side plan identifier format to the session-side enum.
+///
+/// `closeclaw-session` no longer depends on `closeclaw-config`, so the
+/// config→session mapping lives at the call site (this module).
+fn to_session_identifier_format(
+    format: closeclaw_config::IdentifierFormat,
+) -> closeclaw_session::plan_file::PlanIdentifierFormat {
+    match format {
+        closeclaw_config::IdentifierFormat::Timestamp => {
+            closeclaw_session::plan_file::PlanIdentifierFormat::Timestamp
+        }
+        closeclaw_config::IdentifierFormat::RandomWords => {
+            closeclaw_session::plan_file::PlanIdentifierFormat::RandomWords
+        }
     }
 }

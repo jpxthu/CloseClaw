@@ -4,13 +4,14 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::{DateTime, Local, Utc};
-use closeclaw_config::{write_atomically, IdentifierFormat};
 use rand::seq::SliceRandom;
+use serde::{Deserialize, Serialize};
 use std::fs::File;
-use std::io;
+use std::io::{self, Write};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
+use uuid::Uuid;
 
 /// Errors that can occur when resolving a plan file by name.
 #[derive(Debug, Error)]
@@ -67,6 +68,18 @@ pub const PLAN_TEMPLATE: &str = "\
 
 ";
 
+/// Format for plan file identifiers.
+///
+/// - `Timestamp`: `yyyy-MM-dd-HH-mm-ss-{slug}` (default)
+/// - `RandomWords`: `{adjective}-{noun}-{noun}` (e.g. `calm-wave-oven`)
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum PlanIdentifierFormat {
+    #[default]
+    Timestamp,
+    RandomWords,
+}
+
 /// Generate a plan identifier in `{adjective}-{noun}-{noun}` format.
 ///
 /// Uses `rand` crate for randomness. Words are drawn from built-in
@@ -101,12 +114,12 @@ pub fn generate_timestamp_identifier(title: &str) -> String {
 
 /// Generate a plan identifier using the specified format.
 ///
-/// - [`IdentifierFormat::Timestamp`][]: `yyyy-MM-dd-HH-mm-ss-{slug}`
-/// - [`IdentifierFormat::RandomWords`][]: `{adjective}-{noun}-{noun}`
-pub fn generate_identifier(title: &str, format: IdentifierFormat) -> String {
+/// - [`PlanIdentifierFormat::Timestamp`]: `yyyy-MM-dd-HH-mm-ss-{slug}`
+/// - [`PlanIdentifierFormat::RandomWords`]: `{adjective}-{noun}-{noun}`
+pub fn generate_identifier(title: &str, format: PlanIdentifierFormat) -> String {
     match format {
-        IdentifierFormat::Timestamp => generate_timestamp_identifier(title),
-        IdentifierFormat::RandomWords => generate_random_identifier(),
+        PlanIdentifierFormat::Timestamp => generate_timestamp_identifier(title),
+        PlanIdentifierFormat::RandomWords => generate_random_identifier(),
     }
 }
 
@@ -115,7 +128,7 @@ pub fn generate_identifier(title: &str, format: IdentifierFormat) -> String {
 /// Uses the default timestamp identifier format. For explicit format
 /// control, use [`create_plan_file_with_format`].
 pub fn create_plan_file(workdir: &Path, title: &str) -> Result<PathBuf, std::io::Error> {
-    create_plan_file_with_format(workdir, title, IdentifierFormat::default())
+    create_plan_file_with_format(workdir, title, PlanIdentifierFormat::default())
 }
 
 /// Create a plan file with explicit identifier format.
@@ -125,7 +138,7 @@ pub fn create_plan_file(workdir: &Path, title: &str) -> Result<PathBuf, std::io:
 pub fn create_plan_file_with_format(
     workdir: &Path,
     title: &str,
-    format: IdentifierFormat,
+    format: PlanIdentifierFormat,
 ) -> Result<PathBuf, std::io::Error> {
     let plans_dir = workdir.join("plans");
     std::fs::create_dir_all(&plans_dir)?;
@@ -143,6 +156,52 @@ pub fn create_plan_file_with_format(
     Ok(file_path)
 }
 
+// ── Atomic write ─────────────────────────────────────────────────────────
+
+/// Write content to a file atomically: write to a temp file, fsync,
+/// then rename to the target path. Cleans up the temp file on failure.
+///
+/// If `file_permissions` is `Some(mode)`, the target file's permission
+/// is set to `mode` (octal, e.g. `0o600`) after the rename.
+fn write_atomically(path: &Path, content: &[u8], file_permissions: Option<u32>) -> io::Result<()> {
+    let parent = path.parent().unwrap_or(Path::new("."));
+    std::fs::create_dir_all(parent)?;
+
+    let tmp_name = format!(".tmp.{}", Uuid::new_v4());
+    let tmp_path = parent.join(tmp_name);
+
+    let mut file = File::create(&tmp_path)?;
+
+    if let Err(e) = file.write_all(content) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    if let Err(e) = file.sync_all() {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    // Sync parent directory to make the rename durable.
+    if let Ok(dir) = File::open(parent) {
+        let _ = dir.sync_all();
+    }
+
+    if let Err(e) = std::fs::rename(&tmp_path, path) {
+        let _ = std::fs::remove_file(&tmp_path);
+        return Err(e);
+    }
+
+    // Set file permissions after rename to ensure the final file has
+    // the correct mode. This is done post-rename so the rename itself
+    // remains atomic.
+    if let Some(mode) = file_permissions {
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    }
+
+    Ok(())
+}
+
 // ── Concurrency-safe read-modify-write ─────────────────────────────────
 
 /// Perform a read-modify-write cycle on a plan file under an exclusive lock.
@@ -151,7 +210,7 @@ pub fn create_plan_file_with_format(
 /// holding an exclusive advisory lock on the sidecar `{path}.lock` file, so
 /// concurrent writers (threads and separate processes alike) are serialized
 /// and can never observe a truncated file or lose each other's updates. The
-/// write-back goes through [`closeclaw_config::write_atomically`] (tempfile +
+/// write-back goes through [`write_atomically`] (tempfile +
 /// fsync + rename) with the original file mode preserved, so readers only
 /// ever see the complete old content or the complete new content.
 ///
