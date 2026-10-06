@@ -72,7 +72,7 @@ async fn setup_session(phase: Phase, pending_verify: usize) -> (Arc<SessionManag
         std::path::PathBuf::from("/tmp"),
     );
     cs.set_workflow_run_value(Some(
-        serde_json::to_value(&make_test_run(phase.clone(), pending_verify)).unwrap(),
+        serde_json::to_value(make_test_run(phase.clone(), pending_verify)).unwrap(),
     ));
     let handler = WorkflowHandler::new(
         serde_json::to_value(make_test_run(phase, pending_verify)).unwrap(),
@@ -118,7 +118,7 @@ async fn setup_session_no_handler() -> (Arc<SessionManager>, String, tempfile::T
     );
     // Set workflow_run but NOT workflow_handler — ensure_workflow_handler will try to load.
     cs.set_workflow_run_value(Some(
-        serde_json::to_value(&make_test_run(Phase::Executing, 0)).unwrap(),
+        serde_json::to_value(make_test_run(Phase::Executing, 0)).unwrap(),
     ));
 
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
