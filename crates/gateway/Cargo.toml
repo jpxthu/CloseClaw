@@ -15,7 +15,6 @@ closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-config = { path = "../config" }
 closeclaw-session = { path = "../session" }
 closeclaw-llm = { path = "../llm" }
-closeclaw-memory = { path = "../memory" }
 closeclaw-permission = { path = "../permission" }
 
 # Async runtime

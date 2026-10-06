@@ -31,9 +31,11 @@ mod inbound_queue_tests;
 pub(crate) mod inbound_wal;
 #[cfg(test)]
 mod inbound_wal_tests;
+pub mod injection_convert;
+#[cfg(test)]
+mod injection_convert_tests;
 pub mod llm_caller_impl;
 mod media_routing;
-mod memory;
 pub mod message;
 mod message_routing;
 pub mod outbound;
@@ -139,7 +141,7 @@ use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use outbound::{OutboundMeta, SendOutboundIds};
 pub(crate) use rebuild_stash::RebuildStash;
-pub use session_handler::{HandleResult, SessionMessageHandler};
+pub use session_handler::{HandleResult, SearcherRunner, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
 use std::collections::HashMap;

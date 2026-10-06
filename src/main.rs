@@ -69,6 +69,7 @@ async fn main() -> anyhow::Result<()> {
                 &args.agent_id,
                 closeclaw::bridge::build_chat_slash_router,
                 closeclaw::bridge::build_chat_processor_chain,
+                closeclaw::bridge::build_chat_searcher_runner,
             )
             .await?
         }

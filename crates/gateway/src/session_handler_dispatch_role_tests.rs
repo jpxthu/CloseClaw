@@ -1,4 +1,6 @@
-use super::active_searcher_llm::should_trigger_role;
+//! Role-exclusion tests for the active-searcher trigger.
+
+use super::should_trigger_role;
 
 #[test]
 fn test_normal_role_triggers() {

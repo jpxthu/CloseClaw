@@ -425,20 +425,17 @@ impl crate::Daemon {
         new_gw: &Arc<closeclaw_gateway::Gateway>,
     ) -> Arc<crate::chat_rpc::RpcTerminalPlugin> {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
-        let active_searcher = Arc::new(
-            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-                    Arc::clone(&self.fallback_client),
-                )) as Arc<dyn closeclaw_common::LlmCaller>,
-                model: String::new(),
-            },
-        );
+        let searcher_runner = crate::searcher_runner::build_searcher_runner(Arc::new(
+            closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(Arc::clone(
+                &self.fallback_client,
+            )),
+        ));
         let session_handler = Arc::new(
             closeclaw_gateway::SessionMessageHandler::new(
                 Arc::clone(&self.session_manager),
                 Arc::clone(&self.fallback_client),
                 output_tx,
-                active_searcher,
+                Some(searcher_runner),
                 closeclaw_common::CompactConfig::default(),
             )
             .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),

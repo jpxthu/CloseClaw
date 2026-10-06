@@ -6,7 +6,6 @@
 //! returns after truncation (single source of truth).
 
 use super::*;
-use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::ContentBlock;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
@@ -45,20 +44,6 @@ fn make_fallback_client(cooldown_dir: &tempfile::TempDir) -> Arc<UnifiedFallback
     ))
 }
 
-fn make_active_searcher_caller(cooldown_dir: &tempfile::TempDir) -> Arc<ActiveSearcherLlmCaller> {
-    Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
-            UnifiedFallbackClient::new(
-                vec![],
-                Arc::new(CooldownManager::with_path(
-                    cooldown_dir.path().join("searcher_llm_cooldowns.json"),
-                )),
-            ),
-        ))) as Arc<dyn closeclaw_common::LlmCaller>,
-        model: String::new(),
-    })
-}
-
 /// Create a handler with no output channel and the given compact config.
 fn handler_no_output(
     sm: &Arc<SessionManager>,
@@ -68,7 +53,7 @@ fn handler_no_output(
     let handler = SessionMessageHandler::new_no_output(
         Arc::clone(sm),
         make_fallback_client(&cooldown_dir),
-        make_active_searcher_caller(&cooldown_dir),
+        None,
         config,
     );
     (handler, cooldown_dir)

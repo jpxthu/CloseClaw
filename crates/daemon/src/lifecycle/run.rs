@@ -186,11 +186,8 @@ impl Daemon {
         ));
         // Create SessionMessageHandler for busy/pending state machine.
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
-        let active_searcher_llm_caller = Arc::new(
-            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                caller: fallback_llm_caller.clone() as Arc<dyn closeclaw_common::LlmCaller>,
-                model: String::new(),
-            },
+        let searcher_runner = crate::searcher_runner::build_searcher_runner(
+            fallback_llm_caller.clone() as Arc<dyn closeclaw_common::LlmCaller>,
         );
         session_manager
             .set_llm_caller(fallback_llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
@@ -204,7 +201,7 @@ impl Daemon {
                 Arc::clone(&session_manager),
                 Arc::clone(&fallback_client),
                 output_tx,
-                active_searcher_llm_caller,
+                Some(searcher_runner),
                 closeclaw_common::CompactConfig::default(),
             )
             .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),

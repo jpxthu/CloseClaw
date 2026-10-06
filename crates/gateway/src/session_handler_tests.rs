@@ -1,6 +1,5 @@
 use super::*;
 use crate::session_handler::apply_compact_result;
-use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler::MessageMetadata;
 use crate::session_manager::test_helpers::make_msg;
 use closeclaw_common::LlmCaller;
@@ -30,16 +29,11 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tem
     let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
-    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
-            as Arc<dyn closeclaw_common::LlmCaller>,
-        model: String::new(),
-    });
     (
         SessionMessageHandler::new_no_output(
             sm,
             ufc,
-            fallback_llm_caller,
+            None,
             closeclaw_session::compaction::CompactConfig::default(),
         ),
         cooldown_dir,
@@ -786,11 +780,7 @@ fn handler_with_channel(
         Arc::clone(sm),
         Arc::clone(&ufc),
         tx,
-        Arc::new(ActiveSearcherLlmCaller {
-            caller: Arc::new(llm_caller_impl::FallbackLlmCaller(ufc))
-                as Arc<dyn closeclaw_common::LlmCaller>,
-            model: String::new(),
-        }),
+        None,
         closeclaw_session::compaction::CompactConfig::default(),
     );
     (handler, rx, cooldown_dir)

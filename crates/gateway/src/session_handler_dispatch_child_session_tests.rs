@@ -6,7 +6,6 @@
 //! - Normal (non-child) sessions trigger active-searcher as before.
 
 use super::*;
-use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler_dispatch::SearcherTriggerDeps;
 use closeclaw_common::compaction::CompactConfig;
 use closeclaw_llm::retry::CooldownManager;
@@ -40,26 +39,12 @@ fn make_fallback_client(cooldown_dir: &tempfile::TempDir) -> Arc<UnifiedFallback
     ))
 }
 
-fn make_searcher_caller(cooldown_dir: &tempfile::TempDir) -> Arc<ActiveSearcherLlmCaller> {
-    Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::new(
-            UnifiedFallbackClient::new(
-                vec![],
-                Arc::new(CooldownManager::with_path(
-                    cooldown_dir.path().join("searcher_llm_cooldowns.json"),
-                )),
-            ),
-        ))) as Arc<dyn closeclaw_common::LlmCaller>,
-        model: "test-model".to_string(),
-    })
-}
-
 fn make_handler(sm: &Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
     let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let handler = SessionMessageHandler::new_no_output(
         Arc::clone(sm),
         make_fallback_client(&cooldown_dir),
-        make_searcher_caller(&cooldown_dir),
+        None,
         CompactConfig::default(),
     );
     (handler, cooldown_dir)
@@ -141,11 +126,9 @@ async fn test_child_session_assistant_skips_searcher() {
         .register_child("parent-sid", child_info("child-sid", "parent-sid"));
 
     let before = sm.searcher_sessions.len();
-    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
-
     let deps = SearcherTriggerDeps {
         session_manager: Arc::clone(&sm),
-        fallback_llm_caller: make_searcher_caller(&cooldown_dir),
+        searcher_runner: None,
         memory_db_path: None,
         agent_model: None,
         memory_config: None,
@@ -197,11 +180,9 @@ async fn test_normal_session_assistant_proceeds() {
     assert!(sm.children.read().await.get_parent("normal-sid").is_none());
 
     let before = sm.searcher_sessions.len();
-    let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
-
     let deps = SearcherTriggerDeps {
         session_manager: Arc::clone(&sm),
-        fallback_llm_caller: make_searcher_caller(&cooldown_dir),
+        searcher_runner: None,
         memory_db_path: None,
         agent_model: None,
         memory_config: None,

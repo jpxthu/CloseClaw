@@ -898,7 +898,6 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
 fn session_handler_model_knowledge_returns_some() {
     use closeclaw_common::CompactConfig;
     use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
-    use closeclaw_gateway::session_handler::ActiveSearcherLlmCaller;
     use closeclaw_gateway::{SessionManager, SessionMessageHandler};
     use closeclaw_llm::knowledge::ProviderModelKnowledge;
     use closeclaw_llm::plugin::PluginPipeline;
@@ -934,15 +933,14 @@ fn session_handler_model_knowledge_returns_some() {
             cooldown_dir.path().join("llm_cooldowns.json"),
         )),
     ));
-    let caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(FallbackLlmCaller(fallback_client.clone())),
-        model: String::new(),
-    });
+    let runner = crate::searcher_runner::build_searcher_runner(Arc::new(FallbackLlmCaller(
+        fallback_client.clone(),
+    )));
     let handler = SessionMessageHandler::new(
         sm,
         fallback_client,
         tokio::sync::mpsc::channel(1).0,
-        caller,
+        Some(runner),
         CompactConfig::default(),
     )
     .with_model_knowledge(ProviderModelKnowledge::new());

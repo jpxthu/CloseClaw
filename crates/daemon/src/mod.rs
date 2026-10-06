@@ -24,6 +24,7 @@ pub mod plan_file_store_adapter;
 pub mod processor_registry;
 pub mod read_truncation_adapter;
 pub mod registries;
+pub mod searcher_runner;
 pub mod shutdown;
 pub(crate) mod shutdown_heartbeat;
 pub mod skill_access_adapter;

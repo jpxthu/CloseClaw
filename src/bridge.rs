@@ -116,6 +116,17 @@ pub fn build_chat_processor_chain(
     closeclaw_daemon::processor_registry::build_processor_chain(config)
 }
 
+/// Assemble the active-searcher runner injected into the CLI chat Gateway.
+///
+/// The cli crate only consumes `closeclaw_gateway::SearcherRunner`; the
+/// concrete memory-crate pipeline is owned here, in the composition root
+/// (delegated to the daemon-side single implementation).
+pub fn build_chat_searcher_runner(
+    caller: Arc<dyn closeclaw_common::LlmCaller>,
+) -> closeclaw_gateway::SearcherRunner {
+    closeclaw_daemon::searcher_runner::build_searcher_runner(caller)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // ShutdownHandle conversion
 // ═══════════════════════════════════════════════════════════════════════════

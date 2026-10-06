@@ -14,7 +14,7 @@ use tokio::time::Instant;
 
 use closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
 
-use super::session_handler::{ActiveSearcherLlmCaller, MessageMetadata, SessionMessageHandler};
+use super::session_handler::{BoxFuture, MessageMetadata, SearcherRunner, SessionMessageHandler};
 use super::Gateway;
 use crate::session_manager::compact::flatten_content_blocks;
 use crate::session_manager::SessionManager;
@@ -33,7 +33,7 @@ use closeclaw_session::persistence::PendingMessage;
 #[derive(Clone)]
 pub(crate) struct SearcherTriggerDeps {
     pub(crate) session_manager: Arc<SessionManager>,
-    pub(crate) fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+    pub(crate) searcher_runner: Option<SearcherRunner>,
     pub(crate) memory_db_path: Option<std::path::PathBuf>,
     /// Pre-loaded agent model (avoids redundant config load in closures).
     pub(crate) agent_model: Option<String>,
@@ -41,7 +41,18 @@ pub(crate) struct SearcherTriggerDeps {
     pub(crate) memory_config: Option<serde_json::Value>,
 }
 
-type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
+/// Session roles that should NOT trigger the active-searcher.
+const EXCLUDED_ROLES: &[&str] = &["memory-miner", "dreaming"];
+
+/// Check whether the given role should trigger the active searcher.
+///
+/// Returns `false` for roles that are excluded (e.g. memory-miner, dreaming)
+/// to avoid circular memory writes.
+fn should_trigger_role(role: &str) -> bool {
+    !EXCLUDED_ROLES
+        .iter()
+        .any(|excluded| role.starts_with(excluded))
+}
 
 /// Return type for the `get_agent_config` closure.
 type AgentConfigResult = Result<(Option<String>, Option<serde_json::Value>), String>;
@@ -198,7 +209,7 @@ impl SearcherTriggerDeps {
                 Box::pin(async move {
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
                         let injection =
-                            crate::memory::injection_convert::slot_parts_to_session_injection(
+                            crate::injection_convert::slot_parts_to_session_injection(
                                 content, &position, event_ids,
                             );
                         cs.read().await.set_memory_injection(injection);
@@ -209,15 +220,21 @@ impl SearcherTriggerDeps {
     }
 
     /// Build a closure that executes the active-searcher pipeline.
+    ///
+    /// The pipeline itself is injected by the composition root through
+    /// [`SearcherRunner`]; without one the searcher produces no injection.
     fn build_run_searcher(&self) -> RunSearcher {
-        let caller = Arc::clone(&self.fallback_llm_caller);
+        let runner = self.searcher_runner.clone();
         Box::new(
             move |input: closeclaw_session::active_searcher::SearcherInput| -> BoxFuture<
                 Option<(String, String, std::collections::HashSet<i64>)>,
             > {
-                let caller = Arc::clone(&caller);
+                let runner = runner.clone();
                 Box::pin(async move {
-                    run_searcher_pipeline(input, &caller).await
+                    match runner {
+                        Some(runner) => runner.run(input).await,
+                        None => None,
+                    }
                 })
             },
         )
@@ -236,8 +253,6 @@ impl SearcherTriggerDeps {
         message_role: &str,
         context_turns: usize,
     ) {
-        use crate::memory::active_searcher_llm::should_trigger_role;
-
         if !should_trigger_role(message_role) {
             return;
         }
@@ -261,84 +276,6 @@ impl SearcherTriggerDeps {
             deps,
         );
     }
-}
-
-// ── build_run_searcher helpers ─────────────────────────────────────
-
-/// Deserialize the memory config JSON into a strongly-typed struct.
-fn deserialize_memory_config(
-    memory_config: &serde_json::Value,
-) -> Option<closeclaw_config::agents::MemoryConfig> {
-    serde_json::from_value(memory_config.clone()).ok()
-}
-
-/// Map the agent memory config onto the memory crate's search params.
-///
-/// Pure field copy — default-value fallbacks live in `closeclaw-memory`.
-fn search_params_from_memory_config(
-    mem_cfg: &closeclaw_config::agents::MemoryConfig,
-) -> closeclaw_memory::params::SearchParams {
-    let search = &mem_cfg.search;
-    closeclaw_memory::params::SearchParams {
-        enabled: search.enabled,
-        model: search.model.clone(),
-        context_turns: search.context_turns,
-        timeout_ms: search.timeout_ms,
-        max_summary_chars: search.max_summary_chars,
-        min_entity_hits: search.min_entity_hits,
-        top_k_events: search.top_k_events,
-    }
-}
-
-/// Map the agent forgetting config onto the memory crate's forgetting params.
-fn forgetting_params_from_memory_config(
-    mem_cfg: &closeclaw_config::agents::MemoryConfig,
-) -> closeclaw_memory::params::ForgettingParams {
-    closeclaw_memory::params::ForgettingParams {
-        injection_extension_days: mem_cfg.forgetting.injection_extension_days,
-    }
-}
-
-/// Build the active-searcher config from model and memory config.
-///
-/// Returns `None` if `search.enabled` is `false` in the agent config.
-fn build_searcher_config(
-    model: &str,
-    mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
-) -> Option<crate::memory::active_searcher::ActiveSearcherConfig> {
-    use crate::memory::active_searcher::ActiveSearcherConfig;
-    let search = mem_cfg.as_ref().map(search_params_from_memory_config);
-    let forgetting = mem_cfg.as_ref().map(forgetting_params_from_memory_config);
-    ActiveSearcherConfig::from_agent_config(Some(model), search.as_ref(), forgetting.as_ref())
-}
-
-/// Execute the searcher pipeline and convert the result.
-async fn run_searcher_pipeline(
-    input: closeclaw_session::active_searcher::SearcherInput,
-    caller: &ActiveSearcherLlmCaller,
-) -> Option<(String, String, std::collections::HashSet<i64>)> {
-    use crate::memory::active_searcher::ActiveSearcher;
-    let llm_messages =
-        crate::memory::injection_convert::snapshots_to_internal_messages(&input.context_messages);
-    let mem_cfg = deserialize_memory_config(&input.memory_config);
-    let config = build_searcher_config(&input.model, &mem_cfg);
-    let config = config?;
-    let searcher = ActiveSearcher::new(std::path::PathBuf::from(&input.db_path), config.clone());
-
-    let injection = searcher
-        .run(
-            &input.agent_id,
-            &input.role,
-            &input.content,
-            &llm_messages,
-            &input.injected_ids,
-            caller,
-        )
-        .await?;
-
-    Some(crate::memory::injection_convert::summary_to_slot_parts(
-        injection,
-    ))
 }
 
 // ── Config loading helper ──────────────────────────────────────────
@@ -418,7 +355,7 @@ impl SessionMessageHandler {
     ) -> SearcherTriggerDeps {
         let deps = SearcherTriggerDeps {
             session_manager: Arc::clone(&self.session_manager),
-            fallback_llm_caller: Arc::clone(&self.fallback_llm_caller),
+            searcher_runner: self.searcher_runner.clone(),
             memory_db_path: self.memory_db_path.clone(),
             agent_model: None,
             memory_config: None,
@@ -690,165 +627,6 @@ impl SessionMessageHandler {
     }
 }
 
-// ── Mapping helper tests (dependency-alignment regression) ─────────────
-
 #[cfg(test)]
-mod search_mapping_tests {
-    use super::{
-        build_searcher_config, deserialize_memory_config, forgetting_params_from_memory_config,
-        search_params_from_memory_config,
-    };
-    use closeclaw_config::agents::{ForgettingConfig, MemoryConfig, SearchConfig};
-    use closeclaw_memory::params::{
-        default_forgetting_injection_extension_days, default_search_context_turns,
-        default_search_max_summary_chars, default_search_min_entity_hits,
-        default_search_timeout_ms, default_search_top_k_events,
-    };
-
-    fn full_search_config() -> SearchConfig {
-        SearchConfig {
-            enabled: Some(true),
-            model: Some("search-model".to_string()),
-            context_turns: Some(8),
-            timeout_ms: Some(1500),
-            max_summary_chars: Some(300),
-            min_entity_hits: Some(2),
-            top_k_events: Some(4),
-        }
-    }
-
-    #[test]
-    fn test_search_params_mapping_field_equivalence() {
-        let mem_cfg = MemoryConfig {
-            search: full_search_config(),
-            ..Default::default()
-        };
-        let params = search_params_from_memory_config(&mem_cfg);
-        assert_eq!(params.enabled, Some(true));
-        assert_eq!(params.model.as_deref(), Some("search-model"));
-        assert_eq!(params.context_turns, Some(8));
-        assert_eq!(params.timeout_ms, Some(1500));
-        assert_eq!(params.max_summary_chars, Some(300));
-        assert_eq!(params.min_entity_hits, Some(2));
-        assert_eq!(params.top_k_events, Some(4));
-    }
-
-    #[test]
-    fn test_forgetting_params_mapping_field_equivalence() {
-        let mem_cfg = MemoryConfig {
-            forgetting: ForgettingConfig {
-                injection_extension_days: Some(21),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let params = forgetting_params_from_memory_config(&mem_cfg);
-        assert_eq!(
-            params.injection_extension_days,
-            Some(21),
-            "the searcher-consumed forgetting field must be carried over"
-        );
-    }
-
-    #[test]
-    fn test_mapping_with_missing_fields_stays_none() {
-        let params = search_params_from_memory_config(&MemoryConfig::default());
-        assert_eq!(
-            params,
-            Default::default(),
-            "undeclared config fields must stay None; the memory crate owns the default fallbacks"
-        );
-        let forgetting = forgetting_params_from_memory_config(&MemoryConfig::default());
-        assert_eq!(forgetting.injection_extension_days, None);
-    }
-
-    #[test]
-    fn test_build_searcher_config_applies_memory_defaults_for_missing_fields() {
-        let mem_cfg = MemoryConfig {
-            search: SearchConfig {
-                enabled: Some(true),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = build_searcher_config("agent-model", &Some(mem_cfg))
-            .expect("enabled search must build a config");
-        assert_eq!(config.timeout_ms, default_search_timeout_ms());
-        assert_eq!(config.max_summary_chars, default_search_max_summary_chars());
-        assert_eq!(config.min_entity_hits, default_search_min_entity_hits());
-        assert_eq!(config.top_k_events, default_search_top_k_events());
-        assert_eq!(config.context_turns, default_search_context_turns());
-        assert_eq!(
-            config.injection_extension_days,
-            default_forgetting_injection_extension_days()
-        );
-        assert_eq!(
-            config.model, "agent-model",
-            "missing search.model must fall back to the agent model"
-        );
-    }
-
-    #[test]
-    fn test_build_searcher_config_carries_explicit_overrides() {
-        let mem_cfg = MemoryConfig {
-            search: full_search_config(),
-            forgetting: ForgettingConfig {
-                injection_extension_days: Some(14),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        let config = build_searcher_config("agent-model", &Some(mem_cfg))
-            .expect("enabled search must build a config");
-        assert_eq!(
-            config.model, "search-model",
-            "explicit search.model wins over the agent model"
-        );
-        assert_eq!(config.timeout_ms, 1500);
-        assert_eq!(config.context_turns, 8);
-        assert_eq!(config.injection_extension_days, 14);
-    }
-
-    #[test]
-    fn test_build_searcher_config_none_when_search_disabled() {
-        let mem_cfg = MemoryConfig {
-            search: SearchConfig {
-                enabled: Some(false),
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-        assert!(
-            build_searcher_config("agent-model", &Some(mem_cfg)).is_none(),
-            "explicitly disabled search must not build a searcher config"
-        );
-    }
-
-    #[test]
-    fn test_build_searcher_config_without_memory_config_uses_defaults() {
-        let config = build_searcher_config("agent-model", &None)
-            .expect("absent memory config keeps search enabled with defaults");
-        assert_eq!(config.timeout_ms, default_search_timeout_ms());
-        assert_eq!(config.context_turns, default_search_context_turns());
-        assert_eq!(
-            config.injection_extension_days,
-            default_forgetting_injection_extension_days()
-        );
-        assert_eq!(config.model, "agent-model");
-    }
-
-    #[test]
-    fn test_deserialize_memory_config_round_trip() {
-        let mem_cfg = MemoryConfig {
-            search: full_search_config(),
-            ..Default::default()
-        };
-        let json = serde_json::to_value(&mem_cfg).expect("serialize memory config");
-        let parsed = deserialize_memory_config(&json).expect("serialized config must deserialize");
-        assert_eq!(
-            parsed.search,
-            full_search_config(),
-            "serde round trip must preserve the search fields"
-        );
-    }
-}
+#[path = "session_handler_dispatch_role_tests.rs"]
+mod session_handler_dispatch_role_tests;

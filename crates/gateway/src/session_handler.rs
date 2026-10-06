@@ -82,6 +82,47 @@ pub enum HandleResult {
     Error(String),
 }
 
+/// Boxed, `Send` future used by the composition-root injection seams.
+pub type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
+
+/// Result of one active-searcher run: `(injection, position, event ids)`.
+pub type SearcherOutput = Option<(String, String, std::collections::HashSet<i64>)>;
+
+/// Gateway-local seam for the active-searcher pipeline.
+///
+/// The gateway never references the memory crate: the composition root
+/// (daemon / root crate) assembles the concrete pipeline and injects it
+/// here. The signature only uses session/std types.
+#[derive(Clone)]
+pub struct SearcherRunner(
+    Arc<
+        dyn Fn(closeclaw_session::active_searcher::SearcherInput) -> BoxFuture<SearcherOutput>
+            + Send
+            + Sync,
+    >,
+);
+
+impl SearcherRunner {
+    /// Wrap an async searcher pipeline closure.
+    pub fn new<F>(f: F) -> Self
+    where
+        F: Fn(closeclaw_session::active_searcher::SearcherInput) -> BoxFuture<SearcherOutput>
+            + Send
+            + Sync
+            + 'static,
+    {
+        Self(Arc::new(f))
+    }
+
+    /// Run the injected pipeline for one search input.
+    pub async fn run(
+        &self,
+        input: closeclaw_session::active_searcher::SearcherInput,
+    ) -> SearcherOutput {
+        (self.0)(input).await
+    }
+}
+
 /// Gateway-layer LLM session handler with busy/pending state management.
 pub struct SessionMessageHandler {
     pub(super) session_manager: Arc<SessionManager>,
@@ -91,14 +132,14 @@ pub struct SessionMessageHandler {
     /// Per-file mutex map for serializing concurrent writes to the same file.
     #[allow(dead_code)] // Will be used by ToolCallDispatcher integration in Step 1.2
     pub(super) file_mutex_map: Arc<FileMutexMap>,
-    /// Concrete [`ActiveSearcherLlmCaller`] for the active-searcher pipeline.
+    /// Composition-root-injected active-searcher pipeline.
     ///
-    /// The active-searcher uses its own narrow [`ActiveSearchLlm`][closeclaw_memory::active_searcher_llm::ActiveSearchLlm]
-    /// trait (with `complete()`) rather than the main
-    /// [`closeclaw_common::LlmCaller`] trait. This field provides the
-    /// concrete wrapper needed by the searcher pipeline without
-    /// exposing `UnifiedFallbackClient` as a direct dependency.
-    pub(super) fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+    /// The concrete memory-crate pipeline (config → searcher → injection)
+    /// is assembled by the composition root and injected through
+    /// [`SessionMessageHandler::new`] as a [`SearcherRunner`]; the gateway
+    /// only orchestrates when the searcher is triggered. `None` disables
+    /// the pipeline (no injection is produced).
+    pub(super) searcher_runner: Option<SearcherRunner>,
     /// Optional back-reference to the owning [`Gateway`] (weak).
     ///
     /// When set, `handle_message_with_gateway` can route streaming LLM
@@ -146,7 +187,7 @@ impl SessionMessageHandler {
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<UnifiedFallbackClient>,
         output_tx: mpsc::Sender<(String, Vec<ContentBlock>)>,
-        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        searcher_runner: Option<SearcherRunner>,
         compact_config: CompactConfig,
     ) -> Self {
         let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
@@ -158,7 +199,7 @@ impl SessionMessageHandler {
                 compact_config,
             ))),
             file_mutex_map,
-            fallback_llm_caller,
+            searcher_runner,
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
@@ -172,7 +213,7 @@ impl SessionMessageHandler {
     pub fn new_no_output(
         session_manager: Arc<SessionManager>,
         fallback_client: Arc<UnifiedFallbackClient>,
-        fallback_llm_caller: Arc<ActiveSearcherLlmCaller>,
+        searcher_runner: Option<SearcherRunner>,
         compact_config: CompactConfig,
     ) -> Self {
         let file_mutex_map = Arc::clone(&session_manager.file_mutex_map);
@@ -184,7 +225,7 @@ impl SessionMessageHandler {
                 compact_config,
             ))),
             file_mutex_map,
-            fallback_llm_caller,
+            searcher_runner,
             gateway: None,
             shutdown_handle: None,
             memory_db_path: None,
@@ -344,69 +385,6 @@ impl SessionMessageHandler {
             .has_circuit_break_notified
             .lock()
             .expect("has_circuit_break_notified poisoned") = false;
-    }
-}
-
-/// LlmCaller adapter for the active-searcher pipeline.
-///
-/// Wraps a [`closeclaw_common::LlmCaller`] so it can be used as a trait
-/// object by the active-searcher pipeline in the memory crate.
-pub struct ActiveSearcherLlmCaller {
-    /// The common LLM caller used for prompt completion.
-    pub caller: Arc<dyn closeclaw_common::LlmCaller>,
-    /// Model identifier passed in the [`InternalRequest`].
-    pub model: String,
-}
-
-#[async_trait::async_trait]
-impl crate::memory::active_searcher_llm::ActiveSearchLlm for ActiveSearcherLlmCaller {
-    async fn complete(
-        &self,
-        prompt: &str,
-    ) -> Result<String, crate::memory::active_searcher::ActiveSearcherError> {
-        use closeclaw_common::llm_types::{InternalMessage, InternalRequest};
-
-        let request = InternalRequest {
-            model: self.model.clone(),
-            messages: vec![InternalMessage {
-                role: "user".to_string(),
-                content: prompt.to_string(),
-                content_blocks: None,
-                tool_call_id: None,
-            }],
-            temperature: 0.0,
-            max_tokens: None,
-            stream: false,
-            extra_body: Default::default(),
-            system_static: None,
-            system_dynamic: None,
-            system_blocks: None,
-            tools: None,
-            session_id: None,
-            reasoning_level: closeclaw_common::ReasoningLevel::default(),
-            turn_count: None,
-        };
-
-        match self.caller.call(request).await {
-            Ok(response) => {
-                let text = response
-                    .content_blocks
-                    .iter()
-                    .filter_map(|b| match b {
-                        closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
-                        _ => None,
-                    })
-                    .collect::<Vec<_>>()
-                    .join("");
-                Ok(text)
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                Err(crate::memory::active_searcher::ActiveSearcherError::Llm(
-                    msg,
-                ))
-            }
-        }
     }
 }
 

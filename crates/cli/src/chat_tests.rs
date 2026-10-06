@@ -411,6 +411,7 @@ async fn test_run_chat_daemon_unreachable() {
             )
         },
         |_config| crate::chat_slash_injection_tests::chat_processor_chain(),
+        |_caller| closeclaw_gateway::SearcherRunner::new(|_input| Box::pin(async { None })),
     )
     .await;
     assert!(result.is_err(), "should fail when daemon is unreachable");

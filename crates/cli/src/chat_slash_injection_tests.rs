@@ -269,6 +269,7 @@ async fn build_injection_fixture() -> InjectionFixture {
             chain_calls_for_closure.fetch_add(1, AtomicOrdering::SeqCst);
             chat_processor_chain()
         },
+        |_caller| closeclaw_gateway::SearcherRunner::new(|_input| Box::pin(async { None })),
     )
     .await
     .expect("build_gateway must succeed");

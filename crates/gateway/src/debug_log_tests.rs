@@ -9,7 +9,7 @@
 //! 6. Step 1.3: session.resolved and route.decision events
 
 use crate::outbound::SendOutboundIds;
-use crate::session_handler::{ActiveSearcherLlmCaller, SessionMessageHandler};
+use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
@@ -182,16 +182,11 @@ async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tem
     let llm_caller: Arc<dyn closeclaw_common::LlmCaller> =
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     sm.set_llm_caller(llm_caller).await;
-    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
-            as Arc<dyn closeclaw_common::LlmCaller>,
-        model: String::new(),
-    });
     (
         SessionMessageHandler::new_no_output(
             sm,
             ufc,
-            fallback_llm_caller,
+            None,
             closeclaw_session::compaction::CompactConfig::default(),
         ),
         cooldown_dir,
