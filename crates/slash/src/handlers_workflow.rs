@@ -1,35 +1,36 @@
 //! Slash handler for `/workflow <name>`.
 //!
-//! Loads a workflow definition, initializes a WorkflowRun, persists it
-//! to the session checkpoint, injects the workflow context into the
-//! system prompt append section, and pushes the Step 0 goal message.
+//! Launches a workflow via the injected [`WorkflowLauncher`] port
+//! (definition loading, run creation, and message rendering live
+//! behind the port), persists the run to the session checkpoint,
+//! injects the workflow context into the system prompt append
+//! section, and pushes the Step 0 goal message. All session side
+//! effects are orchestrated here over common `SlashSessionQuery`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
+use crate::workflow_launcher::WorkflowLauncher;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
-use closeclaw_workflow::context_append::build_workflow_context_append;
-use closeclaw_workflow::definition::Workflow;
-use closeclaw_workflow::definition_loader::WorkflowDefinitionLoader;
-use closeclaw_workflow::engine::WorkflowEngine;
 
 /// `/workflow <name>` — start a workflow by definition name.
 ///
 /// Processing flow:
 /// 1. Extract `name` parameter
-/// 2. Load workflow definition via three-level lookup
-/// 3. Initialize WorkflowRun via WorkflowEngine::start
-/// 4. Persist WorkflowRun to session checkpoint
+/// 2. Load workflow definition + start run via the [`WorkflowLauncher`] port
+/// 3. Enforce the one-active-workflow-per-session constraint
+/// 4. Persist the run to session checkpoint (`set_workflow_run`)
 /// 5. Inject workflow context into system_injection_appends
 /// 6. Push Step 0 goal message as pending
 /// 7. Return confirmation
 #[derive(Clone)]
 pub struct WorkflowSlashHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
+    launcher: Arc<dyn WorkflowLauncher>,
     agent_workspace: Option<PathBuf>,
     global_workflows: Option<PathBuf>,
 }
@@ -38,32 +39,16 @@ impl WorkflowSlashHandler {
     /// Create a new WorkflowHandler.
     pub fn new(
         session_manager: Arc<dyn SlashSessionQuery>,
+        launcher: Arc<dyn WorkflowLauncher>,
         agent_workspace: Option<PathBuf>,
         global_workflows: Option<PathBuf>,
     ) -> Self {
         Self {
             session_manager,
+            launcher,
             agent_workspace,
             global_workflows,
         }
-    }
-
-    /// Build the workflow context string to inject into system_injection_appends.
-    ///
-    /// Delegates to [`closeclaw_workflow::context_append::build_workflow_context_append`].
-    pub fn build_workflow_context_append(workflow: &Workflow) -> String {
-        build_workflow_context_append(workflow)
-    }
-
-    /// Build the Step 0 goal message content.
-    fn build_goal_message(workflow: &Workflow) -> String {
-        let step = &workflow.steps[0];
-        format!(
-            "[workflow goal] Step {id}: {name}\n\n{goal}",
-            id = step.id,
-            name = step.name,
-            goal = step.goal,
-        )
     }
 }
 
@@ -94,9 +79,13 @@ impl SlashHandler for WorkflowSlashHandler {
             .get_workdir(&ctx.session_id)
             .await
             .or_else(|| self.agent_workspace.clone());
-        let workflow = match self.load_workflow(name, resolved_workdir.as_deref()) {
-            Ok(wf) => wf,
-            Err(reply) => return reply,
+        let launch = match self.launcher.start(
+            name,
+            resolved_workdir.as_deref(),
+            self.global_workflows.as_deref(),
+        ) {
+            Ok(launch) => launch,
+            Err(e) => return SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")),
         };
 
         // Enforce one-active-workflow-per-session constraint.
@@ -110,23 +99,21 @@ impl SlashHandler for WorkflowSlashHandler {
             ));
         }
 
-        if let Err(reply) = self
-            .init_and_persist_run(&workflow, name, &ctx.session_id)
-            .await
-        {
+        if let Err(reply) = self.persist_run(launch.run, name, &ctx.session_id).await {
             return reply;
         }
-        self.inject_workflow_context(&workflow, &ctx.session_id)
+        self.session_manager
+            .add_system_injection_append(&ctx.session_id, launch.context_append)
             .await;
         if let Err(reply) = self
-            .push_goal_message(&workflow, name, &ctx.session_id)
+            .push_goal_message(launch.goal_message, name, &ctx.session_id)
             .await
         {
             return reply;
         }
         SlashResult::Reply(format!(
             "工作流 \"{name}\" 已启动。正在执行 Step 0: {}",
-            workflow.steps[0].name,
+            launch.first_step_name,
         ))
     }
 
@@ -136,51 +123,28 @@ impl SlashHandler for WorkflowSlashHandler {
 }
 
 impl WorkflowSlashHandler {
-    /// Load workflow definition via three-level lookup.
-    ///
-    /// `resolved_workdir` is the dynamically resolved agent workspace (from
-    /// session context or fallback); `None` means skip Level 1.
-    fn load_workflow(
+    /// Persist the type-erased run handle to the session checkpoint.
+    async fn persist_run(
         &self,
-        name: &str,
-        resolved_workdir: Option<&std::path::Path>,
-    ) -> Result<Workflow, SlashResult> {
-        WorkflowDefinitionLoader::load(name, resolved_workdir, self.global_workflows.as_deref())
-            .map_err(|e| SlashResult::Reply(format!("工作流 \"{name}\" 加载失败：{e}")))
-    }
-
-    /// Initialize WorkflowRun and persist to checkpoint.
-    async fn init_and_persist_run(
-        &self,
-        workflow: &Workflow,
+        run: Box<dyn std::any::Any + Send + Sync>,
         name: &str,
         session_id: &str,
     ) -> Result<(), SlashResult> {
-        let run = WorkflowEngine::start(workflow);
         self.session_manager
-            .set_workflow_run(session_id, Some(Box::new(run)))
+            .set_workflow_run(session_id, Some(run))
             .await
             .map_err(|e| {
                 SlashResult::Reply(format!("工作流 \"{name}\" 启动失败（持久化错误）：{e}"))
             })
     }
 
-    /// Inject workflow context into system_injection_appends.
-    async fn inject_workflow_context(&self, workflow: &Workflow, session_id: &str) {
-        let context = Self::build_workflow_context_append(workflow);
-        self.session_manager
-            .add_system_injection_append(session_id, context)
-            .await;
-    }
-
     /// Push Step 0 goal message as pending.
     async fn push_goal_message(
         &self,
-        workflow: &Workflow,
+        goal: String,
         name: &str,
         session_id: &str,
     ) -> Result<(), SlashResult> {
-        let goal = Self::build_goal_message(workflow);
         let pending_msg = PendingMessage::with_role(
             format!("workflow-goal-{}", session_id),
             goal,
@@ -198,50 +162,7 @@ impl WorkflowSlashHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_workflow::definition::{Step, Workflow};
-
-    fn make_test_workflow() -> Workflow {
-        Workflow {
-            id: "test-wf".to_string(),
-            name: "Test Workflow".to_string(),
-            description: "A test workflow".to_string(),
-            version: Some("0.1".to_string()),
-            allow_blocked: false,
-            verify_retry_limit: 3,
-            step_data_schema: serde_yaml::Value::Null,
-            steps: vec![Step {
-                id: 0,
-                name: "Step Zero".to_string(),
-                allow_blocked: None,
-                goal: "Do the first thing".to_string(),
-                verify: vec![],
-                jump: vec![],
-                transitions: vec![],
-            }],
-        }
-    }
-
-    #[test]
-    fn test_build_workflow_context_append() {
-        let wf = make_test_workflow();
-        let ctx = WorkflowSlashHandler::build_workflow_context_append(&wf);
-        assert!(ctx.starts_with("--- WORKFLOW ---"));
-        assert!(ctx.ends_with("--- WORKFLOW END ---"));
-        assert!(ctx.contains("Test Workflow"));
-        assert!(ctx.contains("A test workflow"));
-        assert!(ctx.contains("workflow_verify"));
-        assert!(ctx.contains("workflow_jump"));
-    }
-
-    #[test]
-    fn test_build_goal_message() {
-        let wf = make_test_workflow();
-        let goal = WorkflowSlashHandler::build_goal_message(&wf);
-        assert!(goal.contains("[workflow goal]"));
-        assert!(goal.contains("Step 0"));
-        assert!(goal.contains("Step Zero"));
-        assert!(goal.contains("Do the first thing"));
-    }
+    use crate::workflow_launcher::real_launcher;
 
     // ── Mock for handler integration tests ─────────────────────────────
 
@@ -443,7 +364,12 @@ mod tests {
         // No active workflow set → get_active_workflow_run_phase returns None.
         mock.set_active_phase("s1", None);
 
-        let handler = WorkflowSlashHandler::new(mock.clone(), Some(tmp.path().to_path_buf()), None);
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            Some(tmp.path().to_path_buf()),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -480,7 +406,12 @@ mod tests {
         let mock = Arc::new(MockQuery::new());
         mock.set_active_phase("s1", Some("Executing".to_string()));
 
-        let handler = WorkflowSlashHandler::new(mock.clone(), Some(tmp.path().to_path_buf()), None);
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            Some(tmp.path().to_path_buf()),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -509,7 +440,12 @@ mod tests {
         let mock = Arc::new(MockQuery::new());
         mock.set_active_phase("s1", Some("Blocked".to_string()));
 
-        let handler = WorkflowSlashHandler::new(mock.clone(), Some(tmp.path().to_path_buf()), None);
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            Some(tmp.path().to_path_buf()),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -537,7 +473,12 @@ mod tests {
         // (Complete phase is filtered out by the real implementation).
         mock.set_active_phase("s1", None);
 
-        let handler = WorkflowSlashHandler::new(mock.clone(), Some(tmp.path().to_path_buf()), None);
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            Some(tmp.path().to_path_buf()),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -559,7 +500,7 @@ mod tests {
     #[tokio::test]
     async fn test_workflow_empty_name_returns_usage() {
         let mock = Arc::new(MockQuery::new());
-        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let handler = WorkflowSlashHandler::new(mock, real_launcher::real_launcher(), None, None);
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("", &ctx).await;
@@ -580,7 +521,12 @@ mod tests {
         // No workflow file written — Level 1 miss, Level 2 miss, no builtin.
 
         let mock = Arc::new(MockQuery::new());
-        let handler = WorkflowSlashHandler::new(mock, Some(tmp.path().to_path_buf()), None);
+        let handler = WorkflowSlashHandler::new(
+            mock,
+            real_launcher::real_launcher(),
+            Some(tmp.path().to_path_buf()),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("NonExistent", &ctx).await;
@@ -603,7 +549,8 @@ mod tests {
         let mock = Arc::new(MockQuery::new());
         mock.set_workdir_for("s1", tmp.path().to_path_buf());
         // agent_workspace is None — get_workdir must supply Level 1.
-        let handler = WorkflowSlashHandler::new(mock.clone(), None, None);
+        let handler =
+            WorkflowSlashHandler::new(mock.clone(), real_launcher::real_launcher(), None, None);
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -636,7 +583,12 @@ mod tests {
         mock.set_workdir_for("s1", dynamic.clone());
         // Static workspace is set but has no workflow — if get_workdir
         // is used, the dynamic path should be tried first.
-        let handler = WorkflowSlashHandler::new(mock.clone(), Some(static_ws), None);
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            Some(static_ws),
+            None,
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -656,7 +608,7 @@ mod tests {
         // No workflow file anywhere — Level 1 skipped, Level 2 skipped, builtin empty → error.
         let mock = Arc::new(MockQuery::new());
         // get_workdir returns None (default), agent_workspace is None.
-        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let handler = WorkflowSlashHandler::new(mock, real_launcher::real_launcher(), None, None);
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("anything", &ctx).await;
@@ -682,6 +634,7 @@ mod tests {
         let empty_dir = tempfile::tempdir().unwrap();
         let handler = WorkflowSlashHandler::new(
             mock.clone(),
+            real_launcher::real_launcher(),
             Some(empty_dir.path().to_path_buf()),
             Some(tmp.path().to_path_buf()),
         );
@@ -714,7 +667,7 @@ mod tests {
     #[tokio::test]
     async fn test_workflow_whitespace_name_returns_usage() {
         let mock = Arc::new(MockQuery::new());
-        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let handler = WorkflowSlashHandler::new(mock, real_launcher::real_launcher(), None, None);
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("   ", &ctx).await;
@@ -738,7 +691,12 @@ mod tests {
         let mock = Arc::new(MockQuery::new());
         // get_workdir returns None (default mock), agent_workspace is None.
         // global_workflows points to tmp.path() so Level 2 is available.
-        let handler = WorkflowSlashHandler::new(mock.clone(), None, Some(tmp.path().to_path_buf()));
+        let handler = WorkflowSlashHandler::new(
+            mock.clone(),
+            real_launcher::real_launcher(),
+            None,
+            Some(tmp.path().to_path_buf()),
+        );
         let ctx = make_slash_context("s1");
 
         let result = handler.handle("Test WF", &ctx).await;
@@ -768,7 +726,7 @@ mod tests {
     #[test]
     fn test_workflow_handler_commands_returns_workflow() {
         let mock = Arc::new(MockQuery::new());
-        let handler = WorkflowSlashHandler::new(mock, None, None);
+        let handler = WorkflowSlashHandler::new(mock, real_launcher::real_launcher(), None, None);
         let cmds = handler.commands();
         assert_eq!(
             cmds,

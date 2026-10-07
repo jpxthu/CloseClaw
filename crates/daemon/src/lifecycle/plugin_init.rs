@@ -92,8 +92,13 @@ impl Daemon {
                 None
             }
         };
+        // Production workflow launcher: adapter assembling the workflow
+        // definition loader, engine, and message builders, injected into
+        // the handler.
+        let workflow_launcher = crate::workflow_launcher_adapter::engine_workflow_launcher();
         slash_registry.register(Arc::new(WorkflowSlashHandler::new(
             Arc::clone(&sm_query),
+            workflow_launcher,
             None,
             global_workflows,
         )));
