@@ -322,6 +322,32 @@ async fn test_bootstrap_mode_from_registry_when_no_override() {
     );
 }
 
+/// Injected `AgentLookup` answering `None` (unconfigured agent) →
+/// `build_prompt_inner` must fall back to `BootstrapMode::Full`, loading
+/// BOOTSTRAP.md (a Full-mode-only file).
+#[tokio::test]
+async fn test_agent_lookup_none_falls_back_to_full() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+    std::fs::write(ws.join("BOOTSTRAP.md"), "full fallback content").unwrap();
+
+    // Empty fake — query_bootstrap_mode returns None for every agent.
+    let lookup = Arc::new(FakeAgentLookup::new());
+    let adapter =
+        SystemPromptBuilderAdapter::new(lookup, tmp.path().to_path_buf(), bootstrap_providers());
+
+    let result = adapter
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
+        .await;
+    assert!(
+        result.contains("full fallback content"),
+        "lookup None must fall back to Full mode and load BOOTSTRAP.md, got: {}",
+        result
+    );
+}
+
 /// Adapter with multiple providers respects priority ordering.
 #[tokio::test]
 async fn test_adapter_multiple_providers_priority() {

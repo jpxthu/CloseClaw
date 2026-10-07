@@ -20,8 +20,9 @@ mod tests {
     #[test]
     fn test_build_workdir_context_git_detection() {
         let ctx = build_workdir_context(env!("CARGO_MANIFEST_DIR"));
-        // Just verify it runs without panicking
-        assert!(ctx.has_git || !ctx.has_git);
+        assert!(ctx.has_git, "expected git repo at {}", ctx.path);
+        assert!(ctx.branch.is_some(), "branch must be set when has_git");
+        assert!(!ctx.path.is_empty());
     }
 
     #[test]

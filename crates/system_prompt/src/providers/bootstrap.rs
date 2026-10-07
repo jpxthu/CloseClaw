@@ -851,3 +851,7 @@ mod tests {
         assert!(key.contains("AGENTS.md"));
     }
 }
+
+#[cfg(test)]
+#[path = "bootstrap_injection_tests.rs"]
+mod injection_tests;
