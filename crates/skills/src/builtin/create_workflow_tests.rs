@@ -3,13 +3,25 @@
 //! Covers: manifest, body, execute() normal/error/arg paths,
 //! and validate() error paths exercising the 12-rule validator.
 
-use super::create_workflow::WorkflowCreatorSkill;
+use super::create_workflow::{WorkflowCreatorSkill, WorkflowDefinitionValidator};
 use crate::registry::{Skill, SkillError};
 use std::io::Write;
+use std::sync::Arc;
 
 // ==========================================================================
 // Helpers
 // ==========================================================================
+
+/// Build the real workflow definition validator backed by the actual
+/// workflow parser (`closeclaw_workflow` dev-dependency), mapping the
+/// parse result to the `Result<(), String>` snapshot the skill consumes.
+fn real_workflow_validator() -> WorkflowDefinitionValidator {
+    Arc::new(|content: &str| {
+        closeclaw_workflow::definition::Workflow::parse_skill_md(content)
+            .map(|_| ())
+            .map_err(|e| e.to_string())
+    })
+}
 
 const SCHEMA_EMPTY: &str = "step_data_schema: {}";
 
@@ -106,25 +118,25 @@ steps:
 
 #[test]
 fn test_manifest_name() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     assert_eq!(skill.manifest().name, "create_workflow");
 }
 
 #[test]
 fn test_manifest_when_to_use_not_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     assert!(!skill.manifest().when_to_use.is_empty());
 }
 
 #[test]
 fn test_manifest_user_invocable() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     assert!(skill.manifest().user_invocable);
 }
 
 #[test]
 fn test_manifest_effort_valid() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let effort_str = skill.manifest().effort.to_string();
     assert!(!effort_str.is_empty(), "effort display should not be empty");
     assert!(
@@ -138,7 +150,7 @@ fn test_manifest_effort_valid() {
 
 #[test]
 fn test_manifest_description_not_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     assert!(!skill.manifest().description.is_empty());
 }
 
@@ -148,13 +160,13 @@ fn test_manifest_description_not_empty() {
 
 #[test]
 fn test_body_not_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     assert!(!skill.body().is_empty());
 }
 
 #[test]
 fn test_body_contains_frontmatter_guidance() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(
         body.contains("frontmatter"),
@@ -164,14 +176,14 @@ fn test_body_contains_frontmatter_guidance() {
 
 #[test]
 fn test_body_contains_steps_guidance() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(body.contains("steps"), "body should mention steps");
 }
 
 #[test]
 fn test_body_contains_transitions_rules() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(
         body.contains("transition"),
@@ -181,7 +193,7 @@ fn test_body_contains_transitions_rules() {
 
 #[test]
 fn test_body_contains_writing_principles() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(
         body.contains("Writing Principles"),
@@ -191,7 +203,7 @@ fn test_body_contains_writing_principles() {
 
 #[test]
 fn test_body_mentions_file_structure() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(
         body.contains("SKILL.md"),
@@ -201,7 +213,7 @@ fn test_body_mentions_file_structure() {
 
 #[test]
 fn test_body_mentions_default_transition_requirement() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let body = skill.body();
     assert!(
         body.contains("default"),
@@ -215,7 +227,7 @@ fn test_body_mentions_default_transition_requirement() {
 
 #[tokio::test]
 async fn test_execute_none_returns_capabilities() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill.execute(None).await.unwrap();
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["skill"], "create_workflow");
@@ -226,7 +238,7 @@ async fn test_execute_none_returns_capabilities() {
 
 #[tokio::test]
 async fn test_execute_empty_args_returns_capabilities() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill.execute(Some(serde_json::json!({}))).await.unwrap();
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["skill"], "create_workflow");
@@ -235,7 +247,7 @@ async fn test_execute_empty_args_returns_capabilities() {
 
 #[tokio::test]
 async fn test_execute_create_returns_guidance_with_target_path() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "create",
@@ -260,7 +272,7 @@ async fn test_execute_create_returns_guidance_with_target_path() {
 
 #[tokio::test]
 async fn test_execute_create_template_has_key_fields() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "create",
@@ -288,7 +300,7 @@ async fn test_execute_create_template_has_key_fields() {
 
 #[tokio::test]
 async fn test_execute_create_with_default_description() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "create",
@@ -303,7 +315,7 @@ async fn test_execute_create_with_default_description() {
 
 #[tokio::test]
 async fn test_execute_validate_valid_definition_passes() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let tmp = write_temp_skill_md(&valid_skill_md());
     let path = tmp.path().to_str().unwrap();
     let result = skill
@@ -325,7 +337,7 @@ async fn test_execute_validate_valid_definition_passes() {
 
 #[tokio::test]
 async fn test_execute_validate_two_step_valid_passes() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let tmp = write_temp_skill_md(&valid_skill_md_two_steps());
     let path = tmp.path().to_str().unwrap();
     let result = skill
@@ -345,7 +357,7 @@ async fn test_execute_validate_two_step_valid_passes() {
 
 #[tokio::test]
 async fn test_validate_yaml_syntax_error() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let bad_yaml = "---\nid: test\nname: Test\n  bad_indent: [\n---\n";
     let tmp = write_temp_skill_md(bad_yaml);
     let path = tmp.path().to_str().unwrap();
@@ -366,7 +378,7 @@ async fn test_validate_yaml_syntax_error() {
 
 #[tokio::test]
 async fn test_validate_steps_not_sequential() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step Zero
     goal: Do A
@@ -403,7 +415,7 @@ async fn test_validate_steps_not_sequential() {
 
 #[tokio::test]
 async fn test_validate_transitions_no_default() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step One
     goal: Do something
@@ -437,7 +449,7 @@ async fn test_validate_transitions_no_default() {
 
 #[tokio::test]
 async fn test_validate_enum_options_over_limit() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let options: Vec<String> = (0..27).map(|i| format!("opt_{i}")).collect();
     let options_yaml = options
         .iter()
@@ -482,7 +494,7 @@ async fn test_validate_enum_options_over_limit() {
 
 #[tokio::test]
 async fn test_validate_file_not_found() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "validate",
@@ -499,7 +511,7 @@ async fn test_validate_file_not_found() {
 
 #[tokio::test]
 async fn test_validate_empty_steps_list() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let bad_yaml = "---\nid: test\nname: Test\ndescription: Empty\n\
                      version: \"0.1\"\nallow_blocked: false\n\
                      verify_retry_limit: 3\nstep_data_schema: {}\n\
@@ -524,7 +536,7 @@ async fn test_validate_empty_steps_list() {
 
 #[tokio::test]
 async fn test_validate_step_name_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: ""
     goal: Do something
@@ -553,7 +565,7 @@ async fn test_validate_step_name_empty() {
 
 #[tokio::test]
 async fn test_validate_step_goal_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step One
     goal: ""
@@ -582,7 +594,7 @@ async fn test_validate_step_goal_empty() {
 
 #[tokio::test]
 async fn test_validate_verify_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step One
     goal: Do something
@@ -610,7 +622,7 @@ async fn test_validate_verify_empty() {
 
 #[tokio::test]
 async fn test_validate_transitions_empty() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step One
     goal: Do something
@@ -638,7 +650,7 @@ async fn test_validate_transitions_empty() {
 
 #[tokio::test]
 async fn test_validate_missing_frontmatter_delimiters() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let bad_yaml = "id: test\nname: Test\n";
     let tmp = write_temp_skill_md(bad_yaml);
     let path = tmp.path().to_str().unwrap();
@@ -660,7 +672,7 @@ async fn test_validate_missing_frontmatter_delimiters() {
 
 #[tokio::test]
 async fn test_validate_duplicate_jump_ids() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let steps = r#"  - id: 0
     name: Step One
     goal: Do something
@@ -702,7 +714,7 @@ async fn test_validate_duplicate_jump_ids() {
 
 #[tokio::test]
 async fn test_execute_validate_missing_path() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "validate"
@@ -717,7 +729,7 @@ async fn test_execute_validate_missing_path() {
 
 #[tokio::test]
 async fn test_execute_unknown_action() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "nonexistent"
@@ -732,7 +744,7 @@ async fn test_execute_unknown_action() {
 
 #[tokio::test]
 async fn test_execute_create_missing_name() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "create"
@@ -751,7 +763,7 @@ async fn test_execute_create_missing_name() {
 
 #[tokio::test]
 async fn test_execute_does_not_return_body_text() {
-    let skill = WorkflowCreatorSkill::new();
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let result = skill.execute(None).await.unwrap();
     assert_ne!(result, skill.body());
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();

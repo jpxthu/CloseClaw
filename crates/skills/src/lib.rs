@@ -19,6 +19,7 @@ mod tool_registrar_tests;
 
 pub use builtin::builtin_skills;
 pub use builtin::WorkflowCreatorSkill;
+pub use builtin::WorkflowDefinitionValidator;
 pub use coding_agent::CodingAgentSkill;
 pub use disk::types::{SkillContext, SkillEffort, SkillManifest, SkillSource};
 pub use disk::{init_disk_skills, resolve_skill, DiskSkillRegistry, ResolvedSkill, ScanConfig};

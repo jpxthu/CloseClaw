@@ -2,29 +2,35 @@
 //!
 //! Provides two actions:
 //! - `create`: structured guidance for writing a new workflow SKILL.md
-//! - `validate`: parse a workflow definition via `Workflow::parse_skill_md`
-//!   and report pass/fail with error details.
+//! - `validate`: parse a workflow definition via the injected
+//!   [`WorkflowDefinitionValidator`] and report pass/fail with error details.
 
 use crate::disk::types::SkillEffort;
 use crate::registry::{Skill, SkillError, SkillManifest};
 use async_trait::async_trait;
-use closeclaw_workflow::definition::Workflow;
 use serde_json::json;
+use std::sync::Arc;
+
+/// Injected parser for workflow definition content.
+///
+/// Input is the raw `SKILL.md` content; output is the resolved
+/// validation snapshot (`Ok` on a valid definition, `Err` carrying the
+/// error message otherwise). The workflow domain owns actual parsing;
+/// this crate only consumes the conclusion, wired in at assembly time
+/// by the composition root.
+pub type WorkflowDefinitionValidator = Arc<dyn Fn(&str) -> Result<(), String> + Send + Sync>;
 
 /// Bundled skill that assists agents in creating and validating workflow
 /// definition files (`SKILL.md` with YAML frontmatter).
-pub struct WorkflowCreatorSkill;
-
-impl Default for WorkflowCreatorSkill {
-    fn default() -> Self {
-        Self
-    }
+pub struct WorkflowCreatorSkill {
+    validator: WorkflowDefinitionValidator,
 }
 
 impl WorkflowCreatorSkill {
-    /// Construct a new instance.
-    pub fn new() -> Self {
-        Self
+    /// Construct a new instance with the given workflow
+    /// definition validator.
+    pub fn new(validator: WorkflowDefinitionValidator) -> Self {
+        Self { validator }
     }
 
     /// Return JSON describing available actions when no action
@@ -72,12 +78,12 @@ impl WorkflowCreatorSkill {
     /// Read a file and validate it as a workflow definition.
     ///
     /// Returns structured JSON with the validation result.
-    async fn validate_file(path: &str) -> Result<String, SkillError> {
+    async fn validate_file(&self, path: &str) -> Result<String, SkillError> {
         let content = std::fs::read_to_string(path)
             .map_err(|e| SkillError::ExecutionFailed(format!("failed to read '{path}': {e}")))?;
 
-        match Workflow::parse_skill_md(&content) {
-            Ok(_) => Ok(json!({
+        match (self.validator)(&content) {
+            Ok(()) => Ok(json!({
                 "skill": "create_workflow",
                 "action": "validate",
                 "path": path,
@@ -85,12 +91,12 @@ impl WorkflowCreatorSkill {
                 "message": "Workflow definition is valid"
             })
             .to_string()),
-            Err(ref e) => Ok(json!({
+            Err(error) => Ok(json!({
                 "skill": "create_workflow",
                 "action": "validate",
                 "path": path,
                 "valid": false,
-                "error": e.to_string()
+                "error": error
             })
             .to_string()),
         }
@@ -330,7 +336,7 @@ impl Skill for WorkflowCreatorSkill {
                 let path = args.get("path").and_then(|v| v.as_str()).ok_or_else(|| {
                     SkillError::InvalidArgs("missing 'path' for validate action".into())
                 })?;
-                Self::validate_file(path).await
+                self.validate_file(path).await
             }
             Some(other) => Err(SkillError::InvalidArgs(format!(
                 "unknown action '{other}', supported: \

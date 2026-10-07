@@ -8,7 +8,6 @@ license = "MIT"
 [dependencies]
 # Internal crates
 closeclaw-common = { path = "../common" }
-closeclaw-workflow = { path = "../workflow" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
@@ -34,6 +33,7 @@ glob = "0.3"
 
 
 [dev-dependencies]
+closeclaw-workflow = { path = "../workflow" }
 closeclaw-permission = { path = "../permission" }
 tempfile = "3"
 serial_test = "3.4"

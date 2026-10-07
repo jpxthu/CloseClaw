@@ -146,7 +146,7 @@ async fn test_skill_loading_and_execution_chain() {
     // Create skill registry and load built-in skills
     let registry = Arc::new(closeclaw_skills::registry::BuiltinSkillRegistry::new());
 
-    for skill in closeclaw_skills::builtin::builtin_skills() {
+    for skill in closeclaw_skills::builtin::builtin_skills(Arc::new(|_| Ok(()))) {
         registry.register(skill).await;
     }
 
@@ -178,7 +178,7 @@ async fn test_skill_loading_and_execution_chain() {
 async fn test_skill_unregister_and_not_found() {
     let registry = Arc::new(closeclaw_skills::registry::BuiltinSkillRegistry::new());
 
-    for skill in closeclaw_skills::builtin::builtin_skills() {
+    for skill in closeclaw_skills::builtin::builtin_skills(Arc::new(|_| Ok(()))) {
         registry.register(skill).await;
     }
 

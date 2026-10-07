@@ -3,6 +3,7 @@
 //! Per-skill tests live in `*_tests.rs` files. This file only contains
 //! assertions that span multiple skills or test shared infrastructure.
 
+use super::trivial_validator;
 use crate::builtin::{builtin_skills, BuiltinSkills};
 
 // ==========================================================================
@@ -11,13 +12,13 @@ use crate::builtin::{builtin_skills, BuiltinSkills};
 
 #[test]
 fn test_builtin_skills_count() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     assert_eq!(skills.len(), 7);
 }
 
 #[test]
 fn test_builtin_skills_names() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     let names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
     assert!(names.contains(&"file_ops".to_string()));
     assert!(names.contains(&"git_ops".to_string()));
@@ -30,7 +31,7 @@ fn test_builtin_skills_names() {
 
 #[test]
 fn test_builtin_skills_all_have_body() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let body = skill.body();
         assert!(
@@ -43,7 +44,7 @@ fn test_builtin_skills_all_have_body() {
 
 #[test]
 fn test_builtin_skills_all_have_manifest_fields() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let m = skill.manifest();
         assert!(
@@ -61,7 +62,7 @@ fn test_builtin_skills_all_have_manifest_fields() {
 
 #[test]
 fn test_skill_creator_and_coding_agent_are_user_invocable() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let m = skill.manifest();
         if m.name == "skill_creator" || m.name == "coding_agent" {
@@ -76,7 +77,7 @@ fn test_skill_creator_and_coding_agent_are_user_invocable() {
 
 #[test]
 fn test_file_ops_and_git_ops_are_not_user_invocable() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let m = skill.manifest();
         if m.name == "file_ops" || m.name == "git_ops" {
@@ -95,7 +96,7 @@ fn test_file_ops_and_git_ops_are_not_user_invocable() {
 
 #[tokio::test]
 async fn test_all_bundled_skills_override_execute() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let name = skill.manifest().name;
         let body = skill.body().to_string();
@@ -110,7 +111,7 @@ async fn test_all_bundled_skills_override_execute() {
 
 #[tokio::test]
 async fn test_all_bundled_skills_execute_returns_valid_json_not_body() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let name = skill.manifest().name;
         let body = skill.body().to_string();
@@ -131,7 +132,7 @@ async fn test_all_bundled_skills_execute_returns_valid_json_not_body() {
 
 #[tokio::test]
 async fn test_all_bundled_skills_empty_args_returns_valid_json() {
-    let skills = BuiltinSkills::all();
+    let skills = BuiltinSkills::all(trivial_validator());
     for skill in &skills {
         let name = skill.manifest().name;
         let result = skill.execute(Some(serde_json::json!({}))).await.unwrap();
@@ -149,7 +150,7 @@ async fn test_all_bundled_skills_empty_args_returns_valid_json() {
 async fn test_skill_registry_with_builtins() {
     use crate::registry::BuiltinSkillRegistry;
     let registry = BuiltinSkillRegistry::new();
-    for skill in builtin_skills() {
+    for skill in builtin_skills(trivial_validator()) {
         registry.register(skill).await;
     }
     let skills: Vec<String> = registry.list().await;

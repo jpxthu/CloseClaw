@@ -19,6 +19,7 @@ mod search_tests;
 mod tests;
 
 pub use create_workflow::WorkflowCreatorSkill;
+pub use create_workflow::WorkflowDefinitionValidator;
 pub use discovery::SkillDiscoverySkill;
 pub use file_ops::FileOpsSkill;
 pub use git_ops::GitOpsSkill;
@@ -32,7 +33,11 @@ pub struct BuiltinSkills;
 
 impl BuiltinSkills {
     /// Create all built-in skills.
-    pub fn all() -> Vec<Arc<dyn Skill>> {
+    ///
+    /// `workflow_validator` resolves workflow definition content for
+    /// the `create_workflow` skill; it is injected by the composition
+    /// root (no silent fallback).
+    pub fn all(workflow_validator: WorkflowDefinitionValidator) -> Vec<Arc<dyn Skill>> {
         vec![
             Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
             Arc::new(GitOpsSkill::new()),
@@ -40,14 +45,21 @@ impl BuiltinSkills {
             Arc::new(SkillDiscoverySkill::new()),
             Arc::new(crate::CodingAgentSkill::new()),
             Arc::new(crate::SkillCreatorSkill::new()),
-            Arc::new(WorkflowCreatorSkill::new()),
+            Arc::new(WorkflowCreatorSkill::new(workflow_validator)),
         ]
     }
 }
 
 /// Get all built-in skills.
-pub fn builtin_skills() -> Vec<Arc<dyn Skill>> {
-    BuiltinSkills::all()
+pub fn builtin_skills(workflow_validator: WorkflowDefinitionValidator) -> Vec<Arc<dyn Skill>> {
+    BuiltinSkills::all(workflow_validator)
+}
+
+/// Validator accepting any content, for tests that do not exercise
+/// `create_workflow` validate semantics.
+#[cfg(test)]
+fn trivial_validator() -> WorkflowDefinitionValidator {
+    Arc::new(|_| Ok(()))
 }
 
 #[cfg(test)]
@@ -56,13 +68,13 @@ mod extra_tests {
 
     #[test]
     fn test_builtin_skills_all_returns_seven_skills() {
-        let skills = BuiltinSkills::all();
+        let skills = BuiltinSkills::all(trivial_validator());
         assert_eq!(skills.len(), 7);
     }
 
     #[test]
     fn test_builtin_skills_all_have_manifests() {
-        let skills = BuiltinSkills::all();
+        let skills = BuiltinSkills::all(trivial_validator());
         for skill in &skills {
             let m = skill.manifest();
             assert!(
@@ -78,7 +90,7 @@ mod extra_tests {
 
     #[test]
     fn test_builtin_skills_names() {
-        let skills = BuiltinSkills::all();
+        let skills = BuiltinSkills::all(trivial_validator());
         let names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
         assert!(names.iter().any(|n| n == "file_ops"));
         assert!(names.iter().any(|n| n == "git_ops"));
@@ -88,13 +100,13 @@ mod extra_tests {
 
     #[test]
     fn test_builtin_skills_function() {
-        let skills = builtin_skills();
+        let skills = builtin_skills(trivial_validator());
         assert_eq!(skills.len(), 7);
     }
 
     #[test]
     fn test_builtin_skills_all_have_body() {
-        let skills = BuiltinSkills::all();
+        let skills = BuiltinSkills::all(trivial_validator());
         for skill in &skills {
             let body = skill.body();
             assert!(
