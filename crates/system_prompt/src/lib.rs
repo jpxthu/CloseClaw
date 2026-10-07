@@ -30,5 +30,5 @@ pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
 pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
-pub use providers::bootstrap::BootstrapFragmentProvider;
+pub use providers::bootstrap::{BootstrapFragmentProvider, BootstrapListFn, BootstrapLoadFn};
 pub use sections::{Section, SectionCache};

@@ -103,7 +103,10 @@ async fn test_adapter_with_agent(
 /// Build a provider list with the real BootstrapFragmentProvider.
 /// Uses Arc so it can be shared across multiple build calls.
 fn bootstrap_providers() -> Vec<Arc<dyn PromptFragmentProvider>> {
-    vec![Arc::new(BootstrapFragmentProvider::new())]
+    vec![Arc::new(BootstrapFragmentProvider::new(
+        closeclaw_session::bootstrap::loader::bootstrap_file_list,
+        |dir, mode| closeclaw_session::bootstrap::loader::load_bootstrap_files(dir, mode).ok(),
+    ))]
 }
 
 #[tokio::test]

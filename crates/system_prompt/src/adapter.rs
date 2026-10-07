@@ -93,7 +93,12 @@ impl SystemPromptBuilderAdapter {
         skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
     ) -> Self {
         let mut providers: Vec<Arc<dyn PromptFragmentProvider>> =
-            vec![Arc::new(BootstrapFragmentProvider::new())];
+            vec![Arc::new(BootstrapFragmentProvider::new(
+                closeclaw_session::bootstrap::loader::bootstrap_file_list,
+                |dir, mode| {
+                    closeclaw_session::bootstrap::loader::load_bootstrap_files(dir, mode).ok()
+                },
+            ))];
         if let Some(listing) = skill_listing_provider {
             providers.push(Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
                 listing,

@@ -40,6 +40,7 @@ use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
+use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
 use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
@@ -290,7 +291,10 @@ impl Daemon {
             ));
         // Build Provider list from domain crates.
         let mut providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
-            Arc::new(BootstrapFragmentProvider::new()),
+            Arc::new(BootstrapFragmentProvider::new(
+                bootstrap_file_list,
+                |dir, mode| load_bootstrap_files(dir, mode).ok(),
+            )),
             Arc::new(SkillsFragmentProvider::new(skill_provider)),
             Arc::new(MemoryFragmentProvider::new()),
             Arc::new(ToolsFragmentProvider::new(
