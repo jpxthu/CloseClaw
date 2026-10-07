@@ -6,10 +6,9 @@
 //! Migrated from `gateway::system_prompt_inject` — these functions logically
 //! belong to the `system_prompt` module.
 
-use crate::builder::PromptOverrides;
 use crate::sections::Section;
 use crate::workdir;
-use closeclaw_common::system_prompt::ModeTransition;
+use closeclaw_common::system_prompt::{ModeTransition, PromptOverrides};
 use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, RequestContext, SessionMode};
 
 /// Parameters for [`build_dynamic_sections`].

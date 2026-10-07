@@ -1,6 +1,7 @@
 //! Tests for SystemPromptBuilderAdapter.
 
 use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SessionRole, SystemPromptBuilder};
 use std::sync::Arc;
 
@@ -625,8 +626,6 @@ async fn test_adapter_passes_main_role_to_fragment_context() {
 // passes the ToolRegistry reference through WorkspaceBuildConfig
 // into FragmentContext.
 // ------------------------------------------------------------------
-
-use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
 
 type RecordedToolRegistries = Arc<tokio::sync::Mutex<Vec<Option<Arc<dyn ToolRegistryQuery>>>>>;
 

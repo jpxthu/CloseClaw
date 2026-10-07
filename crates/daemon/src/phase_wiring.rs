@@ -278,7 +278,7 @@ impl Daemon {
         let config_watcher = registries::populate_registries(&ctx).await?;
         // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
         // to the Provider-driven pipeline.
-        let adapter_registry: Arc<dyn AgentLookup> = {
+        let agent_lookup: Arc<dyn AgentLookup> = {
             let new_reg = AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
@@ -305,7 +305,7 @@ impl Daemon {
         ];
         providers.sort_by_key(|p| p.priority());
         let prompt_builder_adapter = Arc::new(SystemPromptBuilderAdapter::new_with_providers(
-            adapter_registry,
+            agent_lookup,
             data_dir.to_path_buf(),
             Arc::clone(shared_cache),
             providers,

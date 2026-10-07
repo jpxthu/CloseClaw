@@ -1,7 +1,7 @@
-//! Workdir Context and gitStatus
+//! gitStatus helper re-export
 //!
-//! Re-exports [`WorkdirContext`] and helper functions from
-//! [`closeclaw_common`] for use within the system_prompt crate.
+//! Re-exports `build_git_status_for` from `closeclaw_common` for
+//! use within the system_prompt crate.
 
 pub(crate) use closeclaw_common::tool_trait::build_git_status_for;
 
@@ -41,8 +41,9 @@ mod tests {
 
     #[test]
     fn test_build_git_status_for_non_repo() {
-        let status = build_git_status_for("/tmp");
-        // /tmp is typically not a git repo
+        let dir = std::env::temp_dir();
+        let status = build_git_status_for(&dir.to_string_lossy());
+        // The temp dir is typically not a git repo
         assert!(status.is_none());
     }
 }

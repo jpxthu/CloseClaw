@@ -2,8 +2,6 @@
 //!
 //! Bridges the [`SystemPromptBuilder`] trait (from `closeclaw-common`)
 //! to the Provider-driven [`PromptBuilder`] pipeline.
-//!
-//! Implements Step 1.1 of the SystemPromptBuilder production plan.
 
 use async_trait::async_trait;
 use closeclaw_common::injection_params::InjectionParams;

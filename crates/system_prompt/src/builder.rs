@@ -9,9 +9,6 @@ use closeclaw_common::BootstrapMode;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-/// Re-export the common PromptOverrides type.
-pub use closeclaw_common::system_prompt::PromptOverrides;
-
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 
@@ -262,6 +259,7 @@ mod builder_tests;
 mod tests {
     use super::super::sections::Section;
     use super::*;
+    use closeclaw_common::system_prompt::PromptOverrides;
 
     #[test]
     fn test_prompt_overrides_default() {
