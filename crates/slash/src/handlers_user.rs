@@ -9,8 +9,16 @@ use std::path::PathBuf;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
-use closeclaw_common::permission_op::InitialPermissionSet;
+use closeclaw_common::permission_op::{InitialPermissionSet, UserRegistration};
 use closeclaw_common::slash_router::SlashResult;
+
+/// Local serde mirror of permission's `UserRegistry` on-disk shape
+/// (`{"users": [...]}`), so slash can read `users.json` without
+/// depending on `closeclaw-permission`.
+#[derive(serde::Deserialize)]
+struct UserRegistryFile {
+    users: Vec<UserRegistration>,
+}
 
 /// `/user` — manage user registration (Owner only).
 ///
@@ -47,11 +55,11 @@ impl UserSlashHandler {
             Ok(d) => d,
             Err(_) => return SlashResult::Reply("暂无已注册用户".to_owned()),
         };
-        let registry: closeclaw_permission::UserRegistry = match serde_json::from_str(&data) {
+        let registry: UserRegistryFile = match serde_json::from_str(&data) {
             Ok(r) => r,
             Err(_) => return SlashResult::Reply("解析用户列表失败".to_owned()),
         };
-        let users = registry.list_users();
+        let users = &registry.users;
         if users.is_empty() {
             return SlashResult::Reply("暂无已注册用户".to_owned());
         }
