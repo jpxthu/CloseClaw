@@ -70,3 +70,6 @@ pub mod dispatcher_tests;
 
 #[cfg(test)]
 mod pause_removal_tests;
+
+#[cfg(test)]
+mod dependency_boundary_tests;
