@@ -11,7 +11,7 @@
 //!
 //! The composition root (daemon) supplies the production
 //! implementations wrapping `closeclaw_skills` registries; tests may
-//! use the thin wrappers in [`real_access`] (skills is a
+//! use the thin wrappers in the `real_access` test helper (skills is a
 //! dev-dependency of this crate).
 
 use std::path::PathBuf;

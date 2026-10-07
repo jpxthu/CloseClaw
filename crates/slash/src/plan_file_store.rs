@@ -8,7 +8,7 @@
 //!
 //! The composition root (daemon) supplies the production implementation
 //! wrapping `closeclaw_session::plan_file`; tests may supply a thin
-//! wrapper around the same functions (see [`real_store`]).
+//! wrapper around the same functions (see the `real_store` test helper).
 //!
 //! Mirror types ([`PlanNameFormat`], [`PlanResolveError`],
 //! [`PlanSummary`]) intentionally match their session-side counterparts

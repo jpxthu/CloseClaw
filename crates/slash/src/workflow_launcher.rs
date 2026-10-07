@@ -13,8 +13,9 @@
 //!
 //! The composition root (daemon) supplies the production
 //! implementation assembling `closeclaw_workflow` loader + engine +
-//! message builders; tests may use the thin wrapper in
-//! [`real_launcher`] (workflow is a dev-dependency of this crate).
+//! message builders; tests may use the thin wrapper in the
+//! `real_launcher` test helper (workflow is a dev-dependency of this
+//! crate).
 
 use std::path::Path;
 use thiserror::Error;
