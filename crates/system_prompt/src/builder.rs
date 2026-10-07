@@ -9,9 +9,6 @@ use closeclaw_common::BootstrapMode;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 
-/// Re-export the common PromptOverrides type.
-pub use closeclaw_common::system_prompt::PromptOverrides;
-
 /// Default system prompt fallback
 const DEFAULT_PROMPT: &str = "You are CloseClaw, a helpful AI assistant.";
 
@@ -113,7 +110,9 @@ impl PromptBuilder {
 ///
 /// This function only renders sections and appends the optional `append_section`.
 /// Priority-prompt resolution (override > agent > custom) is handled at the
-/// request stage by [`build_full_system_prompt`] in this module's [`inject`].
+/// request stage by
+/// [`build_full_system_prompt`](crate::inject::build_full_system_prompt)
+/// in [`inject`](crate::inject).
 pub fn build_system_prompt(sections: Vec<Section>, append_section: Option<String>) -> String {
     let rendered = render_sections(sections);
     let base = if rendered.is_empty() {
@@ -133,7 +132,8 @@ fn render_sections(sections: Vec<Section>) -> Vec<String> {
 /// Render a single section to string.
 ///
 /// In the provider-driven pipeline, MemorySection is handled by
-/// [`MemoryFragmentProvider`]. This function is only called for dynamic
+/// `MemoryFragmentProvider` (in the memory crate). This function is only
+/// called for dynamic
 /// sections in `build_from_workspace` and the legacy `build_system_prompt`.
 fn render_section(section: Section) -> String {
     section.render()
@@ -170,18 +170,18 @@ pub struct WorkspaceBuildConfig {
     /// Names of condition skills currently activated in the session.
     ///
     /// Passed through to [`FragmentContext`] so that
-    /// [`SkillsFragmentProvider`] can include activated conditional skills
-    /// in the generated listing. Empty Vec means no activated skills
-    /// (default behavior).
+    /// `SkillsFragmentProvider` (in the skills crate) can include
+    /// activated conditional skills in the generated listing. Empty Vec
+    /// means no activated skills (default behavior).
     pub activated_skills: Vec<String>,
     /// Session role — passed through to [`FragmentContext`] so providers
     /// can gate identity-dependent behaviour (e.g. memory loading,
     /// bootstrap instruction injection).
     pub session_role: SessionRole,
     /// ToolRegistry reference — passed through to [`FragmentContext`]
-    /// so that providers like [`ToolsFragmentProvider`] can query the
-    /// registry at generation time rather than relying on a
-    /// provider-level default.
+    /// so that providers like `ToolsFragmentProvider` (in the tools
+    /// crate) can query the registry at generation time rather than
+    /// relying on a provider-level default.
     pub tool_registry: Option<Arc<dyn ToolRegistryQuery>>,
 }
 
@@ -262,6 +262,7 @@ mod builder_tests;
 mod tests {
     use super::super::sections::Section;
     use super::*;
+    use closeclaw_common::system_prompt::PromptOverrides;
 
     #[test]
     fn test_prompt_overrides_default() {

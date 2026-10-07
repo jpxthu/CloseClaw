@@ -1,7 +1,7 @@
 //! Unit tests for appends partition in `inject`.
 //!
-//! Extracted from `inject_tests.rs` (Step 1.7) to keep file under 900-line
-//! hard limit. Covers Step 1.6 test dimensions:
+//! Extracted from `inject_tests.rs` to keep file under 900-line hard limit.
+//! Covers these test dimensions:
 //! - Dimension 2: Appends independent partition
 //! - Dimension 3: Override path with appends
 //! - SystemPromptDynamicBuilder direct tests

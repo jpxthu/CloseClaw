@@ -3,7 +3,7 @@
 //! Tests ordering guarantees and content correctness of the dynamic
 //! section list.
 //!
-//! Covers Step 1.6 test dimensions:
+//! Covers these test dimensions:
 //! - Boundary: Normal→Normal produces no mode instruction
 //! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
 //! - Mode transition: §6 transition prompts are injected when mode_transition is set
@@ -13,23 +13,20 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::split_static_dynamic;
 use closeclaw_common::system_prompt::ModeTransition;
 use closeclaw_common::PromptOverrides;
-use closeclaw_gateway::session_handler::MessageMetadata;
+use closeclaw_common::RequestContext;
 use std::collections::HashSet;
 
-pub fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-    MessageMetadata {
+pub fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
+    RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
         timestamp: ts,
         chat_name: String::new(),
-        trace_id: None,
-        session_key: None,
-        span_id: None,
     }
 }
 
 /// Helper: build a `DynamicSectionsParams` with defaults for optional fields.
-pub fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+pub fn make_params(meta: &RequestContext, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
@@ -199,14 +196,11 @@ fn test_plan_mode_includes_path_selection_rules() {
 /// not the channel type string.
 #[test]
 fn test_channel_context_renders_actual_chat_name() {
-    let meta = MessageMetadata {
+    let meta = RequestContext {
         sender_id: "ou_sender1".to_string(),
         channel: "feishu".to_string(),
         timestamp: 1700000000,
         chat_name: "Dev Team".to_string(),
-        trace_id: None,
-        session_key: None,
-        span_id: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -229,14 +223,11 @@ fn test_channel_context_renders_actual_chat_name() {
 /// gracefully (fallback path).
 #[test]
 fn test_channel_context_empty_chat_name_fallback() {
-    let meta = MessageMetadata {
+    let meta = RequestContext {
         sender_id: "ou_sender1".to_string(),
         channel: "feishu".to_string(),
         timestamp: 1700000000,
         chat_name: String::new(),
-        trace_id: None,
-        session_key: None,
-        span_id: None,
     };
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
     let channel_ctx = sections
@@ -261,14 +252,11 @@ fn test_channel_context_empty_chat_name_fallback() {
 fn test_channel_context_chat_name_independent_of_channel_type() {
     let channels = ["feishu", "telegram", "discord", "slack"];
     for ch in channels {
-        let meta = MessageMetadata {
+        let meta = RequestContext {
             sender_id: "u1".to_string(),
             channel: ch.to_string(),
             timestamp: 0,
             chat_name: "My Group".to_string(),
-            trace_id: None,
-            session_key: None,
-            span_id: None,
         };
         let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
         let rendered = sections

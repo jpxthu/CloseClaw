@@ -4,18 +4,19 @@
 //! - Static section caching (role, workspace, tools, memory, heartbeat)
 //! - Dynamic section per-request injection
 //!   (channel_context, working_directory, mode_instruction, git_status)
-//! - Workdir context and gitStatus integration
+//! - Workdir-backed dynamic sections (working_directory, git_status)
+//!   resolved via closeclaw-common workdir helpers
 //! - `/system`, `/cd`, `/pwd`, `/git` slash commands
 //!
 //! Issue: #166
 
 pub mod adapter;
 pub mod builder;
-pub mod fragment;
+mod fragment;
 pub mod inject;
 pub mod providers;
 pub mod sections;
-pub mod workdir;
+mod workdir;
 
 #[cfg(test)]
 pub mod test_adapters;
@@ -26,11 +27,7 @@ pub mod inject_tests;
 #[cfg(test)]
 pub mod inject_appends_tests;
 
-pub use builder::{
-    build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
-};
-pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
+pub use builder::{build_from_workspace, build_system_prompt, WorkspaceBuildConfig};
 pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
-pub use providers::bootstrap::BootstrapFragmentProvider;
+pub use providers::bootstrap::{BootstrapFragmentProvider, BootstrapListFn, BootstrapLoadFn};
 pub use sections::{Section, SectionCache};
-pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};

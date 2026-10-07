@@ -1,7 +1,10 @@
-//! Standard [`PromptFragmentProvider`] implementations.
+//! Standard [`PromptFragmentProvider`](closeclaw_common::PromptFragmentProvider)
+//! implementations.
 //!
 //! Each provider contributes one section of the system prompt static layer.
-//! Providers are sorted by [`PromptFragmentProvider::priority`] (lower first)
+//! Providers are sorted by
+//! [`PromptFragmentProvider::priority`](closeclaw_common::PromptFragmentProvider::priority)
+//! (lower first)
 //! and their non-empty outputs are concatenated by the Builder.
 //!
 //! The three domain providers (Tools, Skills, Memory) have been migrated to

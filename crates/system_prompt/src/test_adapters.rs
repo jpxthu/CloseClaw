@@ -6,11 +6,14 @@
 //! registrars via `SessionToolsRegistrar`.
 
 use async_trait::async_trait;
+use std::path::PathBuf;
 use std::sync::Arc;
 
+use closeclaw_common::agent_lookup::AgentLookup;
 use closeclaw_common::permission_types::{
     ApprovalSubmission, CallerInfo, PermissionEvalResponse, PermissionEvaluator, RiskLevel,
 };
+use closeclaw_common::{BootstrapMode, ModelSpec};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
 use closeclaw_permission::engine::engine_types::{
@@ -98,5 +101,50 @@ fn map_risk_level_to_permission(
         RiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
         RiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
         RiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fake AgentLookup for SystemPromptBuilderAdapter tests
+// ---------------------------------------------------------------------------
+
+/// Fake [`AgentLookup`] backed by a fixed agent-ID → [`BootstrapMode`] map.
+///
+/// Lets adapter tests configure bootstrap modes without depending on the
+/// `closeclaw-agent` registry.
+#[derive(Default)]
+pub struct FakeAgentLookup {
+    bootstrap_modes: std::collections::HashMap<String, BootstrapMode>,
+}
+
+impl FakeAgentLookup {
+    /// Create an empty fake — every query returns `None`.
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Register `mode` for `agent_id` (builder style).
+    pub fn with_bootstrap_mode(mut self, agent_id: &str, mode: BootstrapMode) -> Self {
+        self.bootstrap_modes.insert(agent_id.to_string(), mode);
+        self
+    }
+}
+
+#[async_trait]
+impl AgentLookup for FakeAgentLookup {
+    async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
+        None
+    }
+
+    async fn agent_exists(&self, agent_id: &str) -> bool {
+        self.bootstrap_modes.contains_key(agent_id)
+    }
+
+    async fn query_bootstrap_mode(&self, agent_id: &str) -> Option<BootstrapMode> {
+        self.bootstrap_modes.get(agent_id).copied()
+    }
+
+    async fn get_agent_workspace(&self, _agent_id: &str) -> Option<PathBuf> {
+        None
     }
 }

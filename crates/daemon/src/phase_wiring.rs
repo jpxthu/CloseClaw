@@ -22,7 +22,7 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::AuditLogger;
 use closeclaw_common::TaskManager;
 use closeclaw_common::{
-    AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
+    AgentLookup, AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
     SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::providers::MemoryConfigData;
@@ -40,6 +40,7 @@ use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::MemoryFragmentProvider;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
+use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
 use closeclaw_session::run_health::{AnnounceSweepTarget, AnnounceSweeper};
 use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
@@ -277,11 +278,11 @@ impl Daemon {
         let config_watcher = registries::populate_registries(&ctx).await?;
         // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
         // to the Provider-driven pipeline.
-        let adapter_registry = {
+        let agent_lookup: Arc<dyn AgentLookup> = {
             let new_reg = AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
-            Arc::new(tokio::sync::RwLock::new(new_reg))
+            Arc::new(new_reg)
         };
         let skill_provider: Arc<dyn SkillListingProvider> =
             Arc::new(SkillListingProviderWrapper::new(
@@ -290,7 +291,10 @@ impl Daemon {
             ));
         // Build Provider list from domain crates.
         let mut providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
-            Arc::new(BootstrapFragmentProvider::new()),
+            Arc::new(BootstrapFragmentProvider::new(
+                bootstrap_file_list,
+                |dir, mode| load_bootstrap_files(dir, mode).ok(),
+            )),
             Arc::new(SkillsFragmentProvider::new(skill_provider)),
             Arc::new(MemoryFragmentProvider::new()),
             Arc::new(ToolsFragmentProvider::new(
@@ -301,7 +305,7 @@ impl Daemon {
         ];
         providers.sort_by_key(|p| p.priority());
         let prompt_builder_adapter = Arc::new(SystemPromptBuilderAdapter::new_with_providers(
-            adapter_registry,
+            agent_lookup,
             data_dir.to_path_buf(),
             Arc::clone(shared_cache),
             providers,

@@ -1,29 +1,42 @@
-use std::path::PathBuf;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use async_trait::async_trait;
 use closeclaw_common::{BootstrapMode, SessionRole};
-use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
 
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
+
+/// Function that lists the bootstrap file names for a mode, in the
+/// doc-defined fixed order. Injected at construction so this crate keeps
+/// no dependency edge on the session crate (STANDARDS.md 依赖方向允许边表).
+pub type BootstrapListFn = fn(BootstrapMode) -> Vec<&'static str>;
+
+/// Function that loads bootstrap file contents for a mode, returning a
+/// (filename → content) map. `None` means load failure — the fragment is
+/// skipped (previous `error → None` semantics preserved).
+pub type BootstrapLoadFn = fn(&Path, BootstrapMode) -> Option<HashMap<String, String>>;
 
 /// Provider that contributes bootstrap file content (agent profile, workspace
 /// rules, etc.) to the system prompt.
 ///
-/// Bootstrap files are loaded from `bootstrap_dir` using `ctx.bootstrap_mode`.
+/// Bootstrap files are loaded from `bootstrap_dir` using `ctx.bootstrap_mode`
+/// via the lister/loader functions injected at construction time
+/// (dependency inversion — the daemon composition root passes the session
+/// crate implementations).
 ///
-/// MEMORY.md is excluded — it is handled separately by
-/// [`MemoryFragmentProvider`](super::memory::MemoryFragmentProvider).
-pub struct BootstrapFragmentProvider;
-
-impl Default for BootstrapFragmentProvider {
-    fn default() -> Self {
-        Self::new()
-    }
+/// MEMORY.md is excluded — it is handled separately by the memory
+/// crate's `MemoryFragmentProvider`.
+pub struct BootstrapFragmentProvider {
+    list_files: BootstrapListFn,
+    load_files: BootstrapLoadFn,
 }
 
 impl BootstrapFragmentProvider {
-    pub fn new() -> Self {
-        Self
+    pub fn new(list_files: BootstrapListFn, load_files: BootstrapLoadFn) -> Self {
+        Self {
+            list_files,
+            load_files,
+        }
     }
 
     /// Resolve bootstrap mode from context.
@@ -57,12 +70,12 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
         let bootstrap_dir = self.resolve_bootstrap_dir(ctx);
 
         let mode = self.resolve_mode(ctx);
-        let files = load_bootstrap_files(&bootstrap_dir, mode).ok()?;
+        let files = (self.load_files)(&bootstrap_dir, mode)?;
 
-        // Traverse files in the doc-defined fixed order from
-        // `bootstrap_file_list`. MEMORY.md is excluded from the list
-        // (handled by MemoryFragmentProvider). Skip any missing files.
-        let ordered_names = bootstrap_file_list(mode);
+        // Traverse files in the fixed order reported by the injected lister.
+        // MEMORY.md is excluded from the list (handled by
+        // MemoryFragmentProvider). Skip any missing files.
+        let ordered_names = (self.list_files)(mode);
         let mut entries: Vec<(&str, &String)> = Vec::new();
         for name in ordered_names {
             if let Some(body) = files.get(name) {
@@ -94,9 +107,10 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
 
         // Build a cache key from file modification times without loading
         // the full file contents — just iterate the known file list for
-        // the resolved mode. This must use the same resolve_mode() as
-        // generate() so cache dimensions match generation dimensions.
-        let file_names = closeclaw_session::bootstrap::loader::bootstrap_file_list(mode);
+        // the resolved mode as reported by the injected lister. This must
+        // use the same resolve_mode() as generate() so cache dimensions
+        // match generation dimensions.
+        let file_names = (self.list_files)(mode);
         let mut key_parts: Vec<String> = Vec::new();
 
         for name in file_names {
@@ -125,20 +139,29 @@ impl PromptFragmentProvider for BootstrapFragmentProvider {
 mod tests {
     use super::*;
     use closeclaw_common::SessionRole;
+    use closeclaw_session::bootstrap::loader::{bootstrap_file_list, load_bootstrap_files};
     use std::fs;
     use std::thread;
     use std::time::Duration;
 
+    /// Provider wired to the real session loader implementations so the
+    /// fs-backed tests keep their original loading semantics.
+    fn test_provider() -> BootstrapFragmentProvider {
+        BootstrapFragmentProvider::new(bootstrap_file_list, |dir, mode| {
+            load_bootstrap_files(dir, mode).ok()
+        })
+    }
+
     #[test]
     fn test_provider_name_and_priority() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         assert_eq!(provider.name(), "bootstrap");
         assert_eq!(provider.priority(), 1);
     }
 
     #[test]
     fn test_resolve_mode_from_context() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         // Main session: use ctx.bootstrap_mode directly.
         let ctx = FragmentContext {
@@ -159,7 +182,7 @@ mod tests {
 
     #[test]
     fn test_resolve_mode_returns_ctx_value() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         // Main + Minimal → returns Minimal
         let ctx = FragmentContext {
@@ -194,7 +217,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_empty_dir_returns_none_with_full_mode() {
         let tmp = tempfile::tempdir().unwrap();
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -208,7 +231,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_empty_dir_returns_none() {
         let tmp = tempfile::tempdir().unwrap();
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -224,7 +247,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "# Agent Config\nHello").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -249,7 +272,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -280,7 +303,7 @@ mod tests {
         fs::write(tmp.path().join("USER.md"), "user content").unwrap();
         fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -307,7 +330,7 @@ mod tests {
         fs::write(tmp.path().join("SOUL.md"), "soul content").unwrap();
         fs::write(tmp.path().join("TOOLS.md"), "tools content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -334,7 +357,7 @@ mod tests {
         fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
         fs::write(tmp.path().join("MEMORY.md"), "memory content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -353,7 +376,7 @@ mod tests {
     async fn test_cache_key_works_with_valid_workdir() {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -367,7 +390,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -384,7 +407,7 @@ mod tests {
 
     #[test]
     fn test_resolve_bootstrap_dir_uses_workdir() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: "/work/path".to_string(),
             ..FragmentContext::test_default()
@@ -397,7 +420,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_generate_nonexistent_workdir_returns_none() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: "/definitely/does/not/exist".to_string(),
@@ -409,7 +432,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_cache_key_nonexistent_workdir_returns_none() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: "/definitely/does/not/exist".to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -424,7 +447,7 @@ mod tests {
         fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -442,7 +465,7 @@ mod tests {
         // Minimal mode expects AGENTS.md
         fs::write(tmp.path().join("AGENTS.md"), "from workdir").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
@@ -461,7 +484,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         fs::write(tmp.path().join("AGENTS.md"), "content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -477,7 +500,7 @@ mod tests {
 
     #[test]
     fn test_resolve_mode_returns_minimal() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -488,7 +511,7 @@ mod tests {
 
     #[test]
     fn test_resolve_mode_returns_full() {
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
             session_role: SessionRole::Main,
@@ -506,7 +529,7 @@ mod tests {
         // Minimal mode expects AGENTS.md.
         fs::write(tmp.path().join("AGENTS.md"), "minimal content").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let ctx = FragmentContext {
             agent_id: "test-agent".into(),
@@ -522,7 +545,7 @@ mod tests {
     }
 
     // ============================================================
-    // Step 1.2: Cache independence & loading behavior tests
+    // Cache independence & loading behavior tests
     // ============================================================
 
     /// Verify that modifying MEMORY.md does NOT invalidate the bootstrap
@@ -542,7 +565,7 @@ mod tests {
         // bootstrap_file_list(Full)
         fs::write(tmp.path().join("MEMORY.md"), "original memory").unwrap();
 
-        let boot_provider = BootstrapFragmentProvider::new();
+        let boot_provider = test_provider();
         let mem_provider =
             closeclaw_memory::memory_fragment_provider::MemoryFragmentProvider::new();
         let ctx = FragmentContext {
@@ -647,7 +670,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
@@ -668,7 +691,7 @@ mod tests {
     }
 
     // ============================================================
-    // Step 1.2: Four-quadrant session_role × bootstrap_mode tests
+    // Four-quadrant session_role × bootstrap_mode tests
     // ============================================================
 
     /// Main + Full → must include BOOTSTRAP.md and all required files.
@@ -682,7 +705,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
@@ -707,7 +730,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -732,7 +755,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
@@ -757,7 +780,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Minimal,
@@ -781,7 +804,7 @@ mod tests {
         fs::write(tmp.path().join("TOOLS.md"), "tools").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
 
         let sub_full_ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
@@ -813,7 +836,7 @@ mod tests {
         fs::write(tmp.path().join("AGENTS.md"), "agents").unwrap();
         fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap").unwrap();
 
-        let provider = BootstrapFragmentProvider::new();
+        let provider = test_provider();
         let ctx = FragmentContext {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
@@ -828,3 +851,7 @@ mod tests {
         assert!(key.contains("AGENTS.md"));
     }
 }
+
+#[cfg(test)]
+#[path = "bootstrap_injection_tests.rs"]
+mod injection_tests;
