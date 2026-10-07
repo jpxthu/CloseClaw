@@ -11,11 +11,11 @@
 
 pub mod adapter;
 pub mod builder;
-pub mod fragment;
+mod fragment;
 pub mod inject;
 pub mod providers;
 pub mod sections;
-pub mod workdir;
+mod workdir;
 
 #[cfg(test)]
 pub mod test_adapters;
@@ -29,8 +29,6 @@ pub mod inject_appends_tests;
 pub use builder::{
     build_from_workspace, build_system_prompt, PromptOverrides, WorkspaceBuildConfig,
 };
-pub use fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 pub use inject::{DynamicSectionsParams, SystemPromptDynamicBuilder};
 pub use providers::bootstrap::BootstrapFragmentProvider;
 pub use sections::{Section, SectionCache};
-pub use workdir::{build_git_status_for, build_workdir_context, WorkdirContext};

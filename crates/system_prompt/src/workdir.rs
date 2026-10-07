@@ -1,13 +1,14 @@
 //! Workdir Context and gitStatus
 //!
 //! Re-exports [`WorkdirContext`] and helper functions from
-//! [`closeclaw_tools`] for use within the system_prompt crate.
+//! [`closeclaw_common`] for use within the system_prompt crate.
 
-pub use closeclaw_tools::{build_git_status_for, build_workdir_context, WorkdirContext};
+pub(crate) use closeclaw_common::tool_trait::build_git_status_for;
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::tool_trait::build_workdir_context;
 
     #[test]
     fn test_build_workdir_context_with_temp_dir() {
