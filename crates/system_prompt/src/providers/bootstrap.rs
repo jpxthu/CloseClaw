@@ -545,7 +545,7 @@ mod tests {
     }
 
     // ============================================================
-    // Step 1.2: Cache independence & loading behavior tests
+    // Cache independence & loading behavior tests
     // ============================================================
 
     /// Verify that modifying MEMORY.md does NOT invalidate the bootstrap
@@ -691,7 +691,7 @@ mod tests {
     }
 
     // ============================================================
-    // Step 1.2: Four-quadrant session_role × bootstrap_mode tests
+    // Four-quadrant session_role × bootstrap_mode tests
     // ============================================================
 
     /// Main + Full → must include BOOTSTRAP.md and all required files.

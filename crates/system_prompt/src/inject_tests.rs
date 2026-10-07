@@ -3,7 +3,7 @@
 //! Tests ordering guarantees and content correctness of the dynamic
 //! section list.
 //!
-//! Covers Step 1.6 test dimensions:
+//! Covers these test dimensions:
 //! - Boundary: Normal→Normal produces no mode instruction
 //! - Ordering: ChannelContext → WorkingDirectory → ModeInstruction → GitStatus
 //! - Mode transition: §6 transition prompts are injected when mode_transition is set

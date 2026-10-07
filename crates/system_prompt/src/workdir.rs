@@ -14,7 +14,10 @@ mod tests {
     fn test_build_workdir_context_with_temp_dir() {
         let temp = std::env::temp_dir();
         let ctx = build_workdir_context(&temp.to_string_lossy());
-        assert!(ctx.path.contains("tmp") || ctx.path.contains("temp"));
+        // The context path must be the canonicalized absolute form of the
+        // input directory, regardless of where the temp dir actually lives.
+        assert_eq!(ctx.path, temp.canonicalize().unwrap().to_string_lossy());
+        assert!(std::path::Path::new(&ctx.path).is_absolute());
     }
 
     #[test]
