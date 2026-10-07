@@ -7,11 +7,11 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
+use crate::plan_file_store::{PlanFileStore, PlanNameFormat};
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_common::{PlanPhase, PlanState};
-use closeclaw_session::plan_file::{self, PlanIdentifierFormat};
 use tracing;
 
 // ── PlanModeHandler ───────────────────────────────────────────────────────
@@ -24,18 +24,21 @@ use tracing;
 #[derive(Clone)]
 pub struct PlanModeHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
-    identifier_format: PlanIdentifierFormat,
+    identifier_format: PlanNameFormat,
+    plan_store: Arc<dyn PlanFileStore>,
 }
 
 impl PlanModeHandler {
     /// Create a new PlanModeHandler with access to session state.
     pub fn new(
         session_manager: Arc<dyn SlashSessionQuery>,
-        identifier_format: PlanIdentifierFormat,
+        identifier_format: PlanNameFormat,
+        plan_store: Arc<dyn PlanFileStore>,
     ) -> Self {
         Self {
             session_manager,
             identifier_format,
+            plan_store,
         }
     }
 }
@@ -75,7 +78,11 @@ impl SlashHandler for PlanModeHandler {
         }
 
         let plan_file_path = if let Some(ref workdir) = workdir {
-            match plan_file::create_plan_file_with_format(workdir, title, self.identifier_format) {
+            match self.plan_store.create_plan_file_with_format(
+                workdir,
+                title,
+                self.identifier_format,
+            ) {
                 Ok(path) => Some(path),
                 Err(e) => {
                     tracing::warn!(
@@ -152,7 +159,11 @@ pub(crate) fn parse_execute_args(args: &str) -> (String, Option<String>) {
 ///
 /// Failures are logged as warnings but do not propagate — the caller
 /// should continue regardless of whether the touch succeeded.
-fn refresh_plan_access_timestamp(plan_file_path: Option<&Path>, workdir: Option<&Path>) {
+fn refresh_plan_access_timestamp(
+    plan_store: &dyn PlanFileStore,
+    plan_file_path: Option<&Path>,
+    workdir: Option<&Path>,
+) {
     let Some(path) = plan_file_path else {
         return;
     };
@@ -163,7 +174,7 @@ fn refresh_plan_access_timestamp(plan_file_path: Option<&Path>, workdir: Option<
             .map(|wd| wd.join(path))
             .unwrap_or_else(|| path.to_path_buf())
     };
-    if let Err(e) = plan_file::touch_access_timestamp(&abs_path) {
+    if let Err(e) = plan_store.touch_access_timestamp(&abs_path) {
         tracing::warn!(
             plan_file = %abs_path.display(),
             error = %e,
@@ -186,12 +197,19 @@ fn refresh_plan_access_timestamp(plan_file_path: Option<&Path>, workdir: Option<
 #[derive(Clone)]
 pub struct ExecuteHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
+    plan_store: Arc<dyn PlanFileStore>,
 }
 
 impl ExecuteHandler {
     /// Create a new ExecuteHandler with access to session state.
-    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<dyn SlashSessionQuery>,
+        plan_store: Arc<dyn PlanFileStore>,
+    ) -> Self {
+        Self {
+            session_manager,
+            plan_store,
+        }
     }
 
     /// Non-Plan Mode: resolve plan by name, then enter Auto Mode.
@@ -208,7 +226,7 @@ impl ExecuteHandler {
         }
 
         let plan_file_path = match workdir {
-            Some(wd) => match plan_file::resolve_plan_by_name(wd, plan_name) {
+            Some(wd) => match self.plan_store.resolve_plan_by_name(wd, plan_name) {
                 Ok(path) => Some(path),
                 Err(e) => {
                     return SlashResult::Reply(format!("计划文件解析失败：{e}"));
@@ -219,7 +237,7 @@ impl ExecuteHandler {
             }
         };
         // Refresh access timestamp so the plan does not get archived prematurely
-        refresh_plan_access_timestamp(plan_file_path.as_deref(), workdir);
+        refresh_plan_access_timestamp(self.plan_store.as_ref(), plan_file_path.as_deref(), workdir);
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),
@@ -244,7 +262,7 @@ impl ExecuteHandler {
         }
 
         let plan_file_path = match workdir {
-            Some(wd) => match plan_file::resolve_plan_by_name(wd, plan_name) {
+            Some(wd) => match self.plan_store.resolve_plan_by_name(wd, plan_name) {
                 Ok(path) => path,
                 Err(e) => {
                     return SlashResult::Reply(format!("计划文件解析失败：{e}"));
@@ -255,7 +273,7 @@ impl ExecuteHandler {
             }
         };
         // Refresh access timestamp so the plan does not get archived prematurely
-        refresh_plan_access_timestamp(Some(&plan_file_path), workdir);
+        refresh_plan_access_timestamp(self.plan_store.as_ref(), Some(&plan_file_path), workdir);
 
         SlashResult::SetMode {
             mode: "auto".to_owned(),

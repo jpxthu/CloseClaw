@@ -16,6 +16,7 @@ pub mod lifecycle;
 mod metrics;
 pub mod phase_init;
 pub mod phase_wiring;
+pub mod plan_file_store_adapter;
 pub mod registries;
 pub mod shutdown;
 pub(crate) mod shutdown_heartbeat;

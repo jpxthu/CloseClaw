@@ -11,6 +11,7 @@ pub mod handlers_plans_browse;
 pub mod handlers_session;
 pub mod handlers_user;
 pub mod handlers_workflow;
+pub mod plan_file_store;
 pub mod registry;
 pub mod skill_handler;
 
@@ -27,6 +28,7 @@ pub use handlers_plans_browse::PlanBrowseHandler;
 pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, VerboseHandler};
 pub use handlers_user::UserSlashHandler;
 pub use handlers_workflow::WorkflowSlashHandler;
+pub use plan_file_store::{PlanFileStore, PlanNameFormat, PlanResolveError, PlanSummary};
 
 #[cfg(test)]
 mod tests;

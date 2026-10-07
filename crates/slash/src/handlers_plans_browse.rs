@@ -4,9 +4,10 @@ use std::sync::Arc;
 
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
+use crate::plan_file_store::PlanFileStore;
+use crate::plan_file_store::PlanResolveError;
 use closeclaw_common::slash_router::SlashResult;
 use closeclaw_common::SlashSessionQuery;
-use closeclaw_session::plan_file;
 
 /// `/plans` — list or view plans in the workspace.
 ///
@@ -18,12 +19,19 @@ use closeclaw_session::plan_file;
 #[derive(Clone)]
 pub struct PlanBrowseHandler {
     session_manager: Arc<dyn SlashSessionQuery>,
+    plan_store: Arc<dyn PlanFileStore>,
 }
 
 impl PlanBrowseHandler {
     /// Create a new PlanBrowseHandler.
-    pub fn new(session_manager: Arc<dyn SlashSessionQuery>) -> Self {
-        Self { session_manager }
+    pub fn new(
+        session_manager: Arc<dyn SlashSessionQuery>,
+        plan_store: Arc<dyn PlanFileStore>,
+    ) -> Self {
+        Self {
+            session_manager,
+            plan_store,
+        }
     }
 }
 
@@ -65,7 +73,7 @@ impl SlashHandler for PlanBrowseHandler {
 impl PlanBrowseHandler {
     /// List all plans in the workspace, formatted as a summary table.
     fn list_plans(&self, workdir: &std::path::Path) -> SlashResult {
-        let summaries = match plan_file::list_plan_summaries(workdir) {
+        let summaries = match self.plan_store.list_plan_summaries(workdir) {
             Ok(s) => s,
             Err(e) => {
                 return SlashResult::Reply(format!("读取 plan 列表失败：{e}"));
@@ -96,12 +104,12 @@ impl PlanBrowseHandler {
 
     /// View the full content of a single plan by name.
     fn view_plan(&self, workdir: &std::path::Path, name: &str) -> SlashResult {
-        let path = match plan_file::resolve_plan_by_name(workdir, name) {
+        let path = match self.plan_store.resolve_plan_by_name(workdir, name) {
             Ok(p) => p,
-            Err(plan_file::PlanResolveError::NotFound { name }) => {
+            Err(PlanResolveError::NotFound { name }) => {
                 return SlashResult::Reply(format!("未找到名为 \"{name}\" 的 plan。"));
             }
-            Err(plan_file::PlanResolveError::Ambiguous { name, candidates }) => {
+            Err(PlanResolveError::Ambiguous { name, candidates }) => {
                 let list = candidates.join(", ");
                 return SlashResult::Reply(format!(
                     "\"{name}\" 匹配到多个 plan，请提供更精确的名称。候选：{list}"
@@ -110,7 +118,7 @@ impl PlanBrowseHandler {
         };
 
         let full_path = workdir.join(&path);
-        match plan_file::read_plan_content(&full_path) {
+        match self.plan_store.read_plan_content(&full_path) {
             Ok(content) => SlashResult::Reply(content),
             Err(e) => SlashResult::Reply(format!("读取 plan 文件失败：{e}")),
         }
