@@ -3,12 +3,8 @@
 //! Per-skill tests live in `*_tests.rs` files. This file only contains
 //! assertions that span multiple skills or test shared infrastructure.
 
-use crate::builtin::{builtin_skills, BuiltinSkills, WorkflowDefinitionValidator};
-use std::sync::Arc;
-
-fn trivial_validator() -> WorkflowDefinitionValidator {
-    Arc::new(|_| Ok(()))
-}
+use super::trivial_validator;
+use crate::builtin::{builtin_skills, BuiltinSkills};
 
 // ==========================================================================
 // Cross-skill manifest / body assertions

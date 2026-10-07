@@ -55,13 +55,16 @@ pub fn builtin_skills(workflow_validator: WorkflowDefinitionValidator) -> Vec<Ar
     BuiltinSkills::all(workflow_validator)
 }
 
+/// Validator accepting any content, for tests that do not exercise
+/// `create_workflow` validate semantics.
+#[cfg(test)]
+fn trivial_validator() -> WorkflowDefinitionValidator {
+    Arc::new(|_| Ok(()))
+}
+
 #[cfg(test)]
 mod extra_tests {
     use super::*;
-
-    fn trivial_validator() -> WorkflowDefinitionValidator {
-        Arc::new(|_| Ok(()))
-    }
 
     #[test]
     fn test_builtin_skills_all_returns_seven_skills() {
