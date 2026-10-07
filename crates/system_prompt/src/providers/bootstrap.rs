@@ -24,8 +24,8 @@ pub type BootstrapLoadFn = fn(&Path, BootstrapMode) -> Option<HashMap<String, St
 /// (dependency inversion — the daemon composition root passes the session
 /// crate implementations).
 ///
-/// MEMORY.md is excluded — it is handled separately by
-/// [`MemoryFragmentProvider`](super::memory::MemoryFragmentProvider).
+/// MEMORY.md is excluded — it is handled separately by the memory
+/// crate's `MemoryFragmentProvider`.
 pub struct BootstrapFragmentProvider {
     list_files: BootstrapListFn,
     load_files: BootstrapLoadFn,

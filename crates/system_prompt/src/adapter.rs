@@ -1,7 +1,8 @@
 //! SystemPromptBuilder production implementation.
 //!
 //! Bridges the [`SystemPromptBuilder`] trait (from `closeclaw-common`)
-//! to the Provider-driven [`PromptBuilder`] pipeline.
+//! to the Provider-driven [`PromptBuilder`](crate::builder::PromptBuilder)
+//! pipeline.
 
 use async_trait::async_trait;
 use closeclaw_common::injection_params::InjectionParams;
@@ -16,7 +17,8 @@ use crate::sections::SectionCache;
 
 /// Production implementation of [`SystemPromptBuilder`].
 ///
-/// Wraps the existing [`PromptBuilder`] pipeline to implement the
+/// Wraps the existing [`PromptBuilder`](crate::builder::PromptBuilder)
+/// pipeline to implement the
 /// cross-crate trait used by session handlers.
 ///
 /// Holds a shared [`SectionCache`] so that invalidation from any call
@@ -161,9 +163,10 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     ///
     /// Same as [`build_prompt`](Self::build_prompt) but passes the
     /// activated skill set through to the provider pipeline via
-    /// [`FragmentContext::activated_skills`]. This is the SP rebuild
-    /// path: [`SkillsFragmentProvider`] reads the activation set to
-    /// include activated conditional skills in the listing.
+    /// [`FragmentContext::activated_skills`](closeclaw_common::FragmentContext::activated_skills).
+    /// This is the SP rebuild path: `SkillsFragmentProvider` (in the
+    /// skills crate) reads the activation set to include activated
+    /// conditional skills in the listing.
     async fn build_prompt_with_activated(
         &self,
         _session_id: &str,
@@ -187,8 +190,10 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
 
     /// Build a system prompt using the injection parameter contract.
     ///
-    /// Propagates [`ToolRegistryQuery`] from `params.tool_registry`
-    /// through [`WorkspaceBuildConfig`] into [`FragmentContext`],
+    /// Propagates [`ToolRegistryQuery`](closeclaw_common::tool_registry::ToolRegistryQuery)
+    /// from `params.tool_registry`
+    /// through [`WorkspaceBuildConfig`] into
+    /// [`FragmentContext`](closeclaw_common::FragmentContext),
     /// completing the design doc §注入链路的参数契约 for the
     /// System Prompt Builder leg.
     async fn build_prompt_with_params(

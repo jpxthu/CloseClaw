@@ -1,4 +1,4 @@
-//! Step 1.6 injection-contract tests for BootstrapFragmentProvider.
+//! Injection-contract tests for BootstrapFragmentProvider.
 //!
 //! Fake lister/loader fn pointers verify the injected-dependency contract:
 //! lister ordering, loader-failure tolerance, cache_key loader isolation,
@@ -9,7 +9,7 @@ use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 // ============================================================
-// Step 1.6: injection contract tests (fake lister + loader)
+// Injection contract tests (fake lister + loader)
 // ============================================================
 
 fn injection_lister(mode: BootstrapMode) -> Vec<&'static str> {

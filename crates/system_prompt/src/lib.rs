@@ -4,7 +4,8 @@
 //! - Static section caching (role, workspace, tools, memory, heartbeat)
 //! - Dynamic section per-request injection
 //!   (channel_context, working_directory, mode_instruction, git_status)
-//! - Workdir context and gitStatus integration
+//! - Workdir-backed dynamic sections (working_directory, git_status)
+//!   resolved via closeclaw-common workdir helpers
 //! - `/system`, `/cd`, `/pwd`, `/git` slash commands
 //!
 //! Issue: #166
