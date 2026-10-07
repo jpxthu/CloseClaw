@@ -20,6 +20,7 @@ pub mod plan_file_store_adapter;
 pub mod registries;
 pub mod shutdown;
 pub(crate) mod shutdown_heartbeat;
+pub mod skill_access_adapter;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;

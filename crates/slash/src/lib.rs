@@ -13,6 +13,7 @@ pub mod handlers_user;
 pub mod handlers_workflow;
 pub mod plan_file_store;
 pub mod registry;
+pub mod skill_access;
 pub mod skill_handler;
 
 pub use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
@@ -29,6 +30,7 @@ pub use handlers_session::{NewSessionHandler, StatusHandler, StopHandler, Verbos
 pub use handlers_user::UserSlashHandler;
 pub use handlers_workflow::WorkflowSlashHandler;
 pub use plan_file_store::{PlanFileStore, PlanNameFormat, PlanResolveError, PlanSummary};
+pub use skill_access::{BuiltinSkillAccess, DiskSkillAccess, DiskSkillBody, SkillExecuteError};
 
 #[cfg(test)]
 mod tests;

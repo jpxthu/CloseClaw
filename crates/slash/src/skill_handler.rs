@@ -6,11 +6,9 @@
 
 use std::sync::Arc;
 
-use closeclaw_skills::disk::DiskSkillRegistry;
-use closeclaw_skills::BuiltinSkillRegistry;
-
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
+use crate::skill_access::{BuiltinSkillAccess, DiskSkillAccess, DiskSkillBody};
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 
 /// Handler that dispatches `/<skill-name>` to the matching skill.
@@ -18,18 +16,19 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 /// The command names are **not** declared statically — they are injected
 /// at registration time via [`HandlerRegistry::register_named`]. This
 /// allows the handler to dynamically claim any skill name that appears
-/// in the disk or builtin registries.
+/// in the disk or builtin registries (accessed via the
+/// [`DiskSkillAccess`] / [`BuiltinSkillAccess`] ports).
 #[derive(Clone)]
 pub struct SkillSlashHandler {
-    disk_registry: Arc<DiskSkillRegistry>,
-    builtin_registry: Arc<BuiltinSkillRegistry>,
+    disk_registry: Arc<dyn DiskSkillAccess>,
+    builtin_registry: Arc<dyn BuiltinSkillAccess>,
 }
 
 impl SkillSlashHandler {
-    /// Create a new handler backed by the given registries.
+    /// Create a new handler backed by the given skill access ports.
     pub fn new(
-        disk_registry: Arc<DiskSkillRegistry>,
-        builtin_registry: Arc<BuiltinSkillRegistry>,
+        disk_registry: Arc<dyn DiskSkillAccess>,
+        builtin_registry: Arc<dyn BuiltinSkillAccess>,
     ) -> Self {
         Self {
             disk_registry,
@@ -37,7 +36,7 @@ impl SkillSlashHandler {
         }
     }
 
-    /// Return the list of invocable skill names across both registries.
+    /// Return the list of invocable skill names across both ports.
     ///
     /// Used at registration time so the caller can register one entry
     /// per skill name.
@@ -82,23 +81,23 @@ impl SlashHandler for SkillSlashHandler {
     async fn handle(&self, _args: &str, ctx: &SlashContext) -> SlashResult {
         let skill_name = &ctx.command;
 
-        // 1. Look up in DiskSkillRegistry
-        if let Some(skill) = self.disk_registry.get(skill_name) {
-            let body = match skill.load_body() {
-                Ok(b) => b,
+        // 1. Look up in the disk registry (via port)
+        if let Some(loaded) = self.disk_registry.load_by_name(skill_name) {
+            let DiskSkillBody { body, skill_dir } = match loaded {
+                Ok(loaded) => loaded,
                 Err(e) => {
                     return SlashResult::Reply(format!("技能 \"{skill_name}\" 加载失败: {e}"));
                 }
             };
-            let body = Self::substitute_variables(&body, &skill.skill_dir, &ctx.session_id);
+            let body = Self::substitute_variables(&body, &skill_dir, &ctx.session_id);
             return SlashResult::SystemAppend {
                 action: SystemAppendAction::Add(body),
             };
         }
 
-        // 2. Fallback: BuiltinSkillRegistry
-        if let Some(skill) = self.builtin_registry.get(skill_name).await {
-            return match skill.execute(None).await {
+        // 2. Fallback: builtin registry (via port)
+        if let Some(result) = self.builtin_registry.execute_by_name(skill_name).await {
+            return match result {
                 Ok(content) => SlashResult::SystemAppend {
                     action: SystemAppendAction::Add(content),
                 },
@@ -118,10 +117,24 @@ impl SlashHandler for SkillSlashHandler {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
+    use crate::skill_access::SkillExecuteError;
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
+    use closeclaw_skills::disk::DiskSkillRegistry;
+    use closeclaw_skills::BuiltinSkillRegistry;
     use std::path::{Path, PathBuf};
+
+    /// Wrap a real disk registry into the port (dev-dep skills adapter).
+    fn disk_port(registry: Arc<DiskSkillRegistry>) -> Arc<dyn DiskSkillAccess> {
+        Arc::new(RealDiskSkillAccess(registry))
+    }
+
+    /// Wrap a real builtin registry into the port (dev-dep skills adapter).
+    fn builtin_port(registry: Arc<BuiltinSkillRegistry>) -> Arc<dyn BuiltinSkillAccess> {
+        Arc::new(RealBuiltinSkillAccess(registry))
+    }
 
     fn make_disk_skill(name: &str, readme_path: PathBuf, skill_dir: PathBuf) -> DiskSkill {
         DiskSkill {
@@ -183,7 +196,7 @@ mod tests {
     async fn test_invocable_names_empty() {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
         assert!(handler.invocable_names().await.is_empty());
     }
 
@@ -199,7 +212,7 @@ mod tests {
         let skill = make_disk_skill("my-skill", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
         let names = handler.invocable_names().await;
         assert_eq!(names, vec!["my-skill"]);
     }
@@ -242,7 +255,7 @@ mod tests {
         builtin
             .register(Arc::new(BuiltinMockSkill { invocable: true }))
             .await;
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
         let mut names = handler.invocable_names().await;
         names.sort();
         assert_eq!(names, vec!["builtin-skill", "disk-skill"]);
@@ -260,7 +273,7 @@ mod tests {
         let skill = make_disk_skill("test-skill", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("test-skill");
         let result = handler.handle("", &ctx).await;
@@ -301,7 +314,7 @@ mod tests {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin.register(Arc::new(MockSkill)).await;
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("builtin-test");
         let result = handler.handle("", &ctx).await;
@@ -346,7 +359,7 @@ mod tests {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin.register(Arc::new(ExecuteOverrideSkill)).await;
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("exec-override");
         let result = handler.handle("", &ctx).await;
@@ -394,7 +407,7 @@ mod tests {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         builtin.register(Arc::new(ErrorSkill)).await;
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("error-skill");
         let result = handler.handle("", &ctx).await;
@@ -411,7 +424,7 @@ mod tests {
     async fn test_handle_not_found() {
         let disk = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("nonexistent");
         let result = handler.handle("", &ctx).await;
@@ -436,7 +449,7 @@ mod tests {
         let skill = make_disk_skill("sess-test", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("sess-test");
         let result = handler.handle("", &ctx).await;
@@ -464,7 +477,7 @@ mod tests {
         let skill = make_disk_skill("empty-skill", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("empty-skill");
         let result = handler.handle("", &ctx).await;
@@ -493,7 +506,7 @@ mod tests {
         let skill = make_disk_skill("failing-skill", readme.clone(), temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         // Delete the file after registration to simulate load failure.
         std::fs::remove_file(&readme).unwrap();
@@ -527,7 +540,7 @@ mod tests {
         let skill = make_disk_skill("verbatim-skill", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let handler = SkillSlashHandler::new(disk, builtin);
+        let handler = SkillSlashHandler::new(disk_port(disk), builtin_port(builtin));
 
         let ctx = make_ctx("verbatim-skill");
         let result = handler.handle("", &ctx).await;
@@ -560,5 +573,132 @@ mod tests {
                 other
             ),
         }
+    }
+
+    // ── Port error-path tests (mock implementations) ─────────────────────
+
+    /// Disk port reports a body-load failure: the handler replies 加载失败
+    /// and does NOT fall through to a builtin skill with the same name.
+    #[tokio::test]
+    async fn test_port_disk_load_error_does_not_fall_through_to_builtin() {
+        struct FailingDiskAccess;
+
+        impl DiskSkillAccess for FailingDiskAccess {
+            fn user_invocable_names(&self) -> Vec<String> {
+                vec![]
+            }
+            fn load_by_name(&self, _name: &str) -> Option<Result<DiskSkillBody, std::io::Error>> {
+                Some(Err(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "skill file vanished",
+                )))
+            }
+        }
+
+        struct WorkingBuiltinAccess;
+
+        #[async_trait::async_trait]
+        impl BuiltinSkillAccess for WorkingBuiltinAccess {
+            async fn user_invocable_names(&self) -> Vec<String> {
+                vec![]
+            }
+            async fn execute_by_name(
+                &self,
+                _name: &str,
+            ) -> Option<Result<String, SkillExecuteError>> {
+                Some(Ok("builtin body".to_string()))
+            }
+        }
+
+        let handler =
+            SkillSlashHandler::new(Arc::new(FailingDiskAccess), Arc::new(WorkingBuiltinAccess));
+
+        let ctx = make_ctx("failing-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::Reply(msg) => {
+                assert!(msg.contains("加载失败"), "got: {msg}");
+                assert!(msg.contains("failing-skill"), "got: {msg}");
+                assert!(msg.contains("skill file vanished"), "got: {msg}");
+                assert!(!msg.contains("builtin body"), "got: {msg}");
+            }
+            other => panic!("expected Reply (load failure), got {:?}", other),
+        }
+    }
+
+    /// Builtin port reports an execution failure: the handler replies
+    /// 执行失败 carrying the mirror error's Display verbatim.
+    #[tokio::test]
+    async fn test_port_builtin_execute_error() {
+        struct EmptyDiskAccess;
+
+        impl DiskSkillAccess for EmptyDiskAccess {
+            fn user_invocable_names(&self) -> Vec<String> {
+                vec![]
+            }
+            fn load_by_name(&self, _name: &str) -> Option<Result<DiskSkillBody, std::io::Error>> {
+                None
+            }
+        }
+
+        struct FailingBuiltinAccess;
+
+        #[async_trait::async_trait]
+        impl BuiltinSkillAccess for FailingBuiltinAccess {
+            async fn user_invocable_names(&self) -> Vec<String> {
+                vec![]
+            }
+            async fn execute_by_name(
+                &self,
+                _name: &str,
+            ) -> Option<Result<String, SkillExecuteError>> {
+                Some(Err(SkillExecuteError::ExecutionFailed("boom".to_string())))
+            }
+        }
+
+        let handler =
+            SkillSlashHandler::new(Arc::new(EmptyDiskAccess), Arc::new(FailingBuiltinAccess));
+
+        let ctx = make_ctx("error-skill");
+        let result = handler.handle("", &ctx).await;
+        match result {
+            SlashResult::Reply(msg) => {
+                assert_eq!(msg, "技能 \"error-skill\" 执行失败: Execution failed: boom");
+            }
+            other => panic!("expected Reply, got {:?}", other),
+        }
+    }
+
+    /// invocable_names merges the two ports' name lists in port order.
+    #[tokio::test]
+    async fn test_invocable_names_via_ports() {
+        struct DiskWithNames;
+
+        impl DiskSkillAccess for DiskWithNames {
+            fn user_invocable_names(&self) -> Vec<String> {
+                vec!["disk-a".to_string()]
+            }
+            fn load_by_name(&self, _name: &str) -> Option<Result<DiskSkillBody, std::io::Error>> {
+                None
+            }
+        }
+
+        struct BuiltinWithNames;
+
+        #[async_trait::async_trait]
+        impl BuiltinSkillAccess for BuiltinWithNames {
+            async fn user_invocable_names(&self) -> Vec<String> {
+                vec!["builtin-b".to_string()]
+            }
+            async fn execute_by_name(
+                &self,
+                _name: &str,
+            ) -> Option<Result<String, SkillExecuteError>> {
+                None
+            }
+        }
+
+        let handler = SkillSlashHandler::new(Arc::new(DiskWithNames), Arc::new(BuiltinWithNames));
+        assert_eq!(handler.invocable_names().await, vec!["disk-a", "builtin-b"]);
     }
 }
