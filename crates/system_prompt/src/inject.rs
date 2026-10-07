@@ -10,8 +10,7 @@ use crate::builder::PromptOverrides;
 use crate::sections::Section;
 use crate::workdir;
 use closeclaw_common::system_prompt::ModeTransition;
-use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, SessionMode};
-use closeclaw_gateway::session_handler::MessageMetadata;
+use closeclaw_common::{DynamicPromptBuilder, DynamicPromptContext, RequestContext, SessionMode};
 
 /// Parameters for [`build_dynamic_sections`].
 ///
@@ -19,7 +18,7 @@ use closeclaw_gateway::session_handler::MessageMetadata;
 /// sections (ChannelContext, WorkingDirectory, ModeInstruction, GitStatus).
 pub struct DynamicSectionsParams<'a> {
     /// Inbound message metadata (sender, channel, timestamp).
-    pub meta: &'a MessageMetadata,
+    pub meta: &'a RequestContext,
     /// When `Some`, injects a `WorkingDirectory` section and builds git
     /// status for that path.
     pub workdir_path: Option<&'a str>,
@@ -218,16 +217,6 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         &self,
         context: &DynamicPromptContext,
     ) -> (Option<String>, Option<String>) {
-        let meta = MessageMetadata {
-            sender_id: context.ctx.sender_id.clone(),
-            channel: context.ctx.channel.clone(),
-            timestamp: context.ctx.timestamp,
-            chat_name: context.ctx.chat_name.clone(),
-            trace_id: None,
-            session_key: None,
-            span_id: None,
-        };
-
         // Render appends as a numbered list.
         let appends = if context.system_appends.is_empty() {
             None
@@ -258,7 +247,7 @@ impl DynamicPromptBuilder for SystemPromptDynamicBuilder {
         // freshly built from request context.
         let workdir_str = context.workdir.to_str().map(|s| s.to_owned());
         let sections = build_dynamic_sections(&DynamicSectionsParams {
-            meta: &meta,
+            meta: context.ctx,
             workdir_path: workdir_str.as_deref(),
             session_mode: context.session_mode,
             is_compacted: context.is_compacted,
