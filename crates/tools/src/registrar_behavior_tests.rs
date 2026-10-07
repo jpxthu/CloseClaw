@@ -12,7 +12,7 @@ use crate::builtin::skill_tool::SkillTool;
 use crate::test_adapters::{
     ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter, PermissionEngineAdapter,
 };
-use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+use crate::{CoreToolsRegistrar, ToolRegistrar};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::ToolRegistryQuery;
 use closeclaw_config::ConfigManager;
@@ -24,7 +24,7 @@ use closeclaw_permission::engine::engine_types::RuleSet;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::SessionToolsRegistrar;
-use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::{DiskSkillRegistry, SkillsToolsRegistrar};
 use closeclaw_tasks::BackgroundTaskManager;
 use std::sync::Arc;
 use tempfile::TempDir;

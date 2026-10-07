@@ -8,9 +8,7 @@ use crate::{Tool, ToolCallError, ToolFlags, ToolResult};
 use async_trait::async_trait;
 use closeclaw_common::audit_log::{AuditDisposition, AuditLogFilter, AuditLogger};
 use closeclaw_common::tool_trait::ToolContext;
-use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use serde_json::Value;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -26,16 +24,8 @@ pub struct AuditLogTool {
 }
 
 impl AuditLogTool {
-    /// Create a new `AuditLogTool` with the given audit log path.
-    pub fn new(audit_log_path: PathBuf) -> Result<Self, std::io::Error> {
-        let logger = FileAuditLogger::new(audit_log_path)?;
-        Ok(Self {
-            logger: Arc::new(logger),
-        })
-    }
-
-    /// Create with an existing logger (for testing).
-    pub fn with_logger(logger: Arc<dyn AuditLogger>) -> Self {
+    /// Create a new `AuditLogTool` reading through the given logger.
+    pub fn new(logger: Arc<dyn AuditLogger>) -> Self {
         Self { logger }
     }
 }
@@ -151,10 +141,41 @@ mod tests {
     use super::*;
     use closeclaw_common::audit_log::AuditLogEntry;
     use closeclaw_common::permission_types::RiskLevel;
+    use std::sync::Mutex;
 
-    fn make_test_logger(dir: &std::path::Path) -> Arc<dyn AuditLogger> {
-        let path = dir.join("audit.log");
-        Arc::new(FileAuditLogger::new(path).unwrap())
+    /// In-memory `AuditLogger` fake mirroring `FileAuditLogger` semantics:
+    /// filtering via `AuditLogFilter::matches`, newest first.
+    struct MemAuditLogger {
+        entries: Mutex<Vec<AuditLogEntry>>,
+    }
+
+    impl MemAuditLogger {
+        fn new() -> Self {
+            Self {
+                entries: Mutex::new(Vec::new()),
+            }
+        }
+    }
+
+    impl AuditLogger for MemAuditLogger {
+        fn log(&self, entry: &AuditLogEntry) {
+            self.entries.lock().unwrap().push(entry.clone());
+        }
+
+        fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+            let entries = self.entries.lock().unwrap();
+            let mut matched: Vec<AuditLogEntry> = entries
+                .iter()
+                .filter(|e| filter.matches(e))
+                .cloned()
+                .collect();
+            matched.reverse();
+            matched
+        }
+    }
+
+    fn make_test_logger() -> Arc<dyn AuditLogger> {
+        Arc::new(MemAuditLogger::new())
     }
 
     fn write_test_entry(logger: &dyn AuditLogger, agent: &str, ts: &str) {
@@ -172,23 +193,20 @@ mod tests {
 
     #[test]
     fn test_audit_log_tool_name_group() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         assert_eq!(tool.name(), "AuditLog");
         assert_eq!(tool.group(), "meta");
     }
 
     #[test]
     fn test_audit_log_tool_summary_len() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         assert!(tool.summary().len() <= 50);
     }
 
     #[test]
     fn test_audit_log_tool_flags() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         let flags = tool.flags();
         assert!(flags.is_read_only);
         assert!(flags.is_concurrency_safe);
@@ -198,8 +216,7 @@ mod tests {
 
     #[test]
     fn test_audit_log_tool_input_schema_no_required() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         let schema = tool.input_schema();
         let required = schema.pointer("/required").unwrap().as_array().unwrap();
         assert!(required.is_empty());
@@ -207,8 +224,7 @@ mod tests {
 
     #[test]
     fn test_audit_log_tool_input_schema_has_filters() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         let schema = tool.input_schema();
         let props = schema.pointer("/properties").unwrap().as_object().unwrap();
         assert!(props.contains_key("agent_id"));
@@ -219,8 +235,7 @@ mod tests {
 
     #[test]
     fn test_audit_log_tool_detail_mentions_audit() {
-        let dir = tempfile::tempdir().unwrap();
-        let tool = AuditLogTool::new(dir.path().join("audit.log")).unwrap();
+        let tool = AuditLogTool::new(make_test_logger());
         let detail = tool.detail();
         assert!(detail.contains("audit"));
         assert!(detail.contains("Auto Mode"));
@@ -260,9 +275,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_empty() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
-        let tool = AuditLogTool::with_logger(logger);
+        let logger = make_test_logger();
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -280,11 +294,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_returns_entries() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
         write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -303,11 +316,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_with_filter() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
         write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -332,8 +344,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_with_disposition_filter() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         logger.log(&AuditLogEntry {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             agent_id: "a1".to_string(),
@@ -354,7 +365,7 @@ mod tests {
             session_mode: None,
             disposition: AuditDisposition::Rejected,
         });
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -376,8 +387,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_with_time_range_filter() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         logger.log(&AuditLogEntry {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             agent_id: "early".to_string(),
@@ -408,7 +418,7 @@ mod tests {
             session_mode: None,
             disposition: AuditDisposition::Approved,
         });
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -435,8 +445,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_combined_filters() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         logger.log(&AuditLogEntry {
             timestamp: "2026-01-01T00:00:00Z".to_string(),
             agent_id: "a1".to_string(),
@@ -467,7 +476,7 @@ mod tests {
             session_mode: None,
             disposition: AuditDisposition::Rejected,
         });
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,
@@ -495,10 +504,9 @@ mod tests {
 
     #[tokio::test]
     async fn test_audit_log_tool_call_no_entries_matching() {
-        let dir = tempfile::tempdir().unwrap();
-        let logger = make_test_logger(dir.path());
+        let logger = make_test_logger();
         write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
-        let tool = AuditLogTool::with_logger(logger);
+        let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
             workdir: None,

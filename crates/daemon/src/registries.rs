@@ -10,12 +10,13 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsToolsRegistrar};
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
-use closeclaw_tools::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry};
+use closeclaw_tools::{CoreToolsRegistrar, ToolRegistrar, ToolRegistry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -246,7 +247,7 @@ async fn register_standard_registrars(
         .await
         .expect("task_manager must be set on SessionManager before spawn_builtin_tools");
 
-    let core_registrar = CoreToolsRegistrar::new(
+    let mut core_registrar = CoreToolsRegistrar::new(
         Arc::clone(ctx.permission_engine),
         task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.session_manager),
@@ -254,8 +255,21 @@ async fn register_standard_registrars(
         Arc::clone(ctx.approval_flow),
         Arc::clone(ctx.tool_registry)
             as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
-    )
-    .with_audit_log_path(ctx.data_dir.join("logs").join("audit.log"));
+    );
+    let audit_log_path = ctx.data_dir.join("logs").join("audit.log");
+    match FileAuditLogger::new(audit_log_path.clone()) {
+        Ok(logger) => {
+            core_registrar = core_registrar
+                .with_audit_logger(Arc::new(logger) as Arc<dyn closeclaw_common::AuditLogger>);
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                path = %audit_log_path.display(),
+                "failed to create AuditLogTool — skipping"
+            );
+        }
+    }
 
     let session_registrar = build_session_registrar(ctx);
 

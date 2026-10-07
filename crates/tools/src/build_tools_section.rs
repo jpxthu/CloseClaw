@@ -153,7 +153,7 @@ mod tests {
     use super::*;
     use crate::builtin::SkillTool;
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
-    use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+    use crate::{CoreToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
@@ -164,7 +164,7 @@ mod tests {
     use closeclaw_permission::rules::RuleSetBuilder;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_session::tools::SessionToolsRegistrar;
-    use closeclaw_skills::DiskSkillRegistry;
+    use closeclaw_skills::{DiskSkillRegistry, SkillsToolsRegistrar};
     use closeclaw_tasks::BackgroundTaskManager;
     use std::sync::Arc;
     use tempfile::TempDir;

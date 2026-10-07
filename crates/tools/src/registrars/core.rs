@@ -3,9 +3,9 @@
 //! Registers 14 built-in tools that belong to the core domain.
 
 use async_trait::async_trait;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use closeclaw_common::audit_log::AuditLogger;
 use closeclaw_common::TaskManager;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -30,7 +30,7 @@ pub struct CoreToolsRegistrar {
     config_manager: Arc<ConfigManager>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     tool_registry: Arc<dyn ToolRegistryQuery>,
-    audit_log_path: Option<PathBuf>,
+    audit_logger: Option<Arc<dyn AuditLogger>>,
 }
 
 impl CoreToolsRegistrar {
@@ -50,13 +50,13 @@ impl CoreToolsRegistrar {
             config_manager,
             approval_flow,
             tool_registry,
-            audit_log_path: None,
+            audit_logger: None,
         }
     }
 
-    /// Set the audit log path for the `AuditLog` tool.
-    pub fn with_audit_log_path(mut self, path: PathBuf) -> Self {
-        self.audit_log_path = Some(path);
+    /// Set the audit logger for the `AuditLog` tool.
+    pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
+        self.audit_logger = Some(logger);
         self
     }
 }
@@ -99,20 +99,14 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(registry, registered, GitCommitTool::new(), r);
         try_register!(registry, registered, GitPushTool::new(), r);
         try_register!(registry, registered, GitPullTool::new(), r);
-        // audit_log (optional — requires audit_log_path)
-        if let Some(ref path) = self.audit_log_path {
-            match AuditLogTool::new(path.clone()) {
-                Ok(tool) => {
-                    try_register!(registry, registered, tool, r);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        path = %path.display(),
-                        "failed to create AuditLogTool — skipping"
-                    );
-                }
-            }
+        // audit_log (optional — requires an injected audit logger)
+        if let Some(ref logger) = self.audit_logger {
+            try_register!(
+                registry,
+                registered,
+                AuditLogTool::new(Arc::clone(logger)),
+                r
+            );
         }
         // bash
         try_register!(

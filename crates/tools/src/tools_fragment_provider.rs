@@ -324,7 +324,7 @@ mod tests {
                     approval_flow.clone(),
                 ))),
             )),
-            Box::new(crate::SkillsToolsRegistrar::new(vec![Arc::new(
+            Box::new(closeclaw_skills::SkillsToolsRegistrar::new(vec![Arc::new(
                 crate::builtin::SkillTool::new(
                     disk_registry,
                     Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
