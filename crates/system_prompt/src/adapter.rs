@@ -6,24 +6,15 @@
 //! Implements Step 1.1 of the SystemPromptBuilder production plan.
 
 use async_trait::async_trait;
-use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::injection_params::InjectionParams;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_common::AgentLookup;
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SystemPromptBuilder};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::builder::WorkspaceBuildConfig;
 use crate::sections::SectionCache;
-
-#[cfg(test)]
-use crate::providers::bootstrap::BootstrapFragmentProvider;
-#[cfg(test)]
-use closeclaw_common::SkillListingProvider;
-#[cfg(test)]
-use closeclaw_tools::ToolRegistry;
 
 /// Production implementation of [`SystemPromptBuilder`].
 ///
@@ -34,7 +25,7 @@ use closeclaw_tools::ToolRegistry;
 /// site (slash handler, compaction callback) reaches
 /// all session builders.
 pub struct SystemPromptBuilderAdapter {
-    agent_registry: Arc<RwLock<AgentRegistry>>,
+    agent_lookup: Arc<dyn AgentLookup>,
     workspace_dir: PathBuf,
     shared_cache: Arc<std::sync::RwLock<SectionCache>>,
     /// Pre-constructed providers for each build call.
@@ -47,18 +38,18 @@ impl SystemPromptBuilderAdapter {
     /// Create a new adapter with pre-constructed providers.
     ///
     /// # Arguments
-    /// * `agent_registry` — shared agent config registry for bootstrap_mode lookup
+    /// * `agent_lookup` — shared agent lookup for bootstrap_mode query
     /// * `workspace_dir` — root workspace directory; per-agent paths are
     ///   derived as `{workspace_dir}/agents/{agent_id}`
     /// * `providers` — pre-constructed provider list (will be sorted by priority)
     #[cfg(test)]
     pub fn new(
-        agent_registry: Arc<RwLock<AgentRegistry>>,
+        agent_lookup: Arc<dyn AgentLookup>,
         workspace_dir: PathBuf,
         providers: Vec<Arc<dyn PromptFragmentProvider>>,
     ) -> Self {
         Self {
-            agent_registry,
+            agent_lookup,
             workspace_dir,
             shared_cache: Arc::new(std::sync::RwLock::new(SectionCache::new())),
             providers,
@@ -70,50 +61,13 @@ impl SystemPromptBuilderAdapter {
     /// Used when the caller needs to share the cache across multiple
     /// components (e.g. daemon).
     pub fn new_with_providers(
-        agent_registry: Arc<RwLock<AgentRegistry>>,
+        agent_lookup: Arc<dyn AgentLookup>,
         workspace_dir: PathBuf,
         shared_cache: Arc<std::sync::RwLock<SectionCache>>,
         providers: Vec<Arc<dyn PromptFragmentProvider>>,
     ) -> Self {
         Self {
-            agent_registry,
-            workspace_dir,
-            shared_cache,
-            providers,
-        }
-    }
-
-    /// Legacy constructor — kept for test convenience.
-    #[cfg(test)]
-    pub fn new_with_cache(
-        tool_registry: Arc<ToolRegistry>,
-        agent_registry: Arc<RwLock<AgentRegistry>>,
-        workspace_dir: PathBuf,
-        shared_cache: Arc<std::sync::RwLock<SectionCache>>,
-        skill_listing_provider: Option<Arc<dyn SkillListingProvider>>,
-    ) -> Self {
-        let mut providers: Vec<Arc<dyn PromptFragmentProvider>> =
-            vec![Arc::new(BootstrapFragmentProvider::new(
-                closeclaw_session::bootstrap::loader::bootstrap_file_list,
-                |dir, mode| {
-                    closeclaw_session::bootstrap::loader::load_bootstrap_files(dir, mode).ok()
-                },
-            ))];
-        if let Some(listing) = skill_listing_provider {
-            providers.push(Arc::new(closeclaw_skills::SkillsFragmentProvider::new(
-                listing,
-            )));
-        }
-        providers.push(Arc::new(closeclaw_memory::MemoryFragmentProvider::new()));
-        providers.push(Arc::new(closeclaw_tools::ToolsFragmentProvider::new(
-            tool_registry,
-            None,
-            None,
-        )));
-        providers.sort_by_key(|p| p.priority());
-
-        Self {
-            agent_registry,
+            agent_lookup,
             workspace_dir,
             shared_cache,
             providers,
@@ -172,7 +126,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
     ///
     /// Resolution order:
     /// 1. If `bootstrap_mode_override` is `Some`, use it.
-    /// 2. Otherwise, query `agent_registry` for the agent's configured
+    /// 2. Otherwise, query `agent_lookup` for the agent's configured
     ///    bootstrap mode, falling back to `BootstrapMode::Full`.
     /// 3. Construct the workspace path as `{workspace_dir}/agents/{agent_id}`.
     /// 4. Build the static layer via the Provider-driven pipeline.
@@ -259,13 +213,11 @@ impl SystemPromptBuilderAdapter {
     async fn build_prompt_inner(&self, params: &InjectionParams) -> String {
         let bootstrap_mode = match params.bootstrap_mode_override {
             Some(mode) => mode,
-            None => {
-                let guard = self.agent_registry.read().await;
-                guard
-                    .query_bootstrap_mode(&params.agent_id)
-                    .await
-                    .unwrap_or(BootstrapMode::Full)
-            }
+            None => self
+                .agent_lookup
+                .query_bootstrap_mode(&params.agent_id)
+                .await
+                .unwrap_or(BootstrapMode::Full),
         };
 
         let workspace_path = self.workspace_dir.join("agents").join(&params.agent_id);

@@ -22,7 +22,7 @@ use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::AuditLogger;
 use closeclaw_common::TaskManager;
 use closeclaw_common::{
-    AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
+    AgentLookup, AgentToolsConfigQuery, PermissionChecker, PromptFragmentProvider, SessionLookup,
     SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::providers::MemoryConfigData;
@@ -278,11 +278,11 @@ impl Daemon {
         let config_watcher = registries::populate_registries(&ctx).await?;
         // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
         // to the Provider-driven pipeline.
-        let adapter_registry = {
+        let adapter_registry: Arc<dyn AgentLookup> = {
             let new_reg = AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
-            Arc::new(tokio::sync::RwLock::new(new_reg))
+            Arc::new(new_reg)
         };
         let skill_provider: Arc<dyn SkillListingProvider> =
             Arc::new(SkillListingProviderWrapper::new(

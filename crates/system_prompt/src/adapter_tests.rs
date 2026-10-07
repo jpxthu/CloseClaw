@@ -1,14 +1,13 @@
 //! Tests for SystemPromptBuilderAdapter.
 
-use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::system_prompt::PromptOverrides;
 use closeclaw_common::{BootstrapMode, PromptFragmentProvider, SessionRole, SystemPromptBuilder};
 use std::sync::Arc;
-use tokio::sync::RwLock;
 
 use crate::adapter::SystemPromptBuilderAdapter;
 use crate::fragment::{FragmentContext, PromptFragment, SectionType};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
+use crate::test_adapters::FakeAgentLookup;
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -68,36 +67,21 @@ fn test_adapter(
     workspace: &std::path::Path,
     providers: Vec<Arc<dyn PromptFragmentProvider>>,
 ) -> SystemPromptBuilderAdapter {
-    let agent_registry = Arc::new(RwLock::new(AgentRegistry::new()));
-    SystemPromptBuilderAdapter::new(agent_registry, workspace.to_path_buf(), providers)
+    let agent_lookup = Arc::new(FakeAgentLookup::new());
+    SystemPromptBuilderAdapter::new(agent_lookup, workspace.to_path_buf(), providers)
 }
 
-/// Helper to create a test adapter with a pre-populated agent registry.
-async fn test_adapter_with_agent(
+/// Helper to create a test adapter whose fake lookup reports
+/// `bootstrap_mode` for `agent_id`.
+fn test_adapter_with_agent(
     workspace: &std::path::Path,
     agent_id: &str,
     bootstrap_mode: BootstrapMode,
     providers: Vec<Arc<dyn PromptFragmentProvider>>,
 ) -> SystemPromptBuilderAdapter {
-    use closeclaw_agent::config::AgentConfig;
-    use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
-
-    let agent_registry = Arc::new(RwLock::new(AgentRegistry::new()));
-    // Create and populate the agent config.
-    let agent_config = AgentConfig {
-        id: agent_id.to_string(),
-        ..Default::default()
-    };
-    let resolved =
-        ResolvedAgentConfig::from_single(agent_config, ConfigSource::User, "<test>", None).unwrap();
-    // Override bootstrap_mode after resolution.
-    let mut resolved = resolved;
-    resolved.bootstrap_mode = bootstrap_mode;
-    {
-        let reg = agent_registry.write().await;
-        reg.populate(vec![resolved]);
-    }
-    SystemPromptBuilderAdapter::new(agent_registry, workspace.to_path_buf(), providers)
+    let agent_lookup =
+        Arc::new(FakeAgentLookup::new().with_bootstrap_mode(agent_id, bootstrap_mode));
+    SystemPromptBuilderAdapter::new(agent_lookup, workspace.to_path_buf(), providers)
 }
 
 /// Build a provider list with the real BootstrapFragmentProvider.
@@ -292,8 +276,7 @@ async fn test_bootstrap_mode_override_takes_precedence() {
         agent_id,
         BootstrapMode::Minimal,
         bootstrap_providers(),
-    )
-    .await;
+    );
 
     // Override with Full mode — should include BOOTSTRAP.md content.
     let result = adapter
@@ -327,8 +310,7 @@ async fn test_bootstrap_mode_from_registry_when_no_override() {
         agent_id,
         BootstrapMode::Minimal,
         bootstrap_providers(),
-    )
-    .await;
+    );
 
     let result = adapter
         .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
@@ -618,12 +600,12 @@ async fn test_adapter_passes_main_role_to_fragment_context() {
 // into FragmentContext.
 // ------------------------------------------------------------------
 
+use closeclaw_common::tool_registry::{ToolDescriptor, ToolRegistryQuery};
+
+type RecordedToolRegistries = Arc<tokio::sync::Mutex<Vec<Option<Arc<dyn ToolRegistryQuery>>>>>;
+
 struct ToolRegistryRecordingProvider {
-    recorded: std::sync::Arc<
-        tokio::sync::Mutex<
-            Vec<Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>>,
-        >,
-    >,
+    recorded: RecordedToolRegistries,
 }
 
 #[async_trait]
@@ -651,6 +633,56 @@ impl PromptFragmentProvider for ToolRegistryRecordingProvider {
     }
 }
 
+/// Minimal no-op [`ToolRegistryQuery`] fake — the propagation tests only
+/// assert that the registry reference reaches FragmentContext, so every
+/// query returns empty.
+struct FakeToolRegistryQuery;
+
+#[async_trait]
+impl ToolRegistryQuery for FakeToolRegistryQuery {
+    async fn list_tool_names(&self) -> Vec<String> {
+        vec![]
+    }
+
+    async fn get_tool_descriptors(
+        &self,
+        _agent_id: Option<&str>,
+        _agent_tools: Option<&[String]>,
+        _agent_disallowed_tools: Option<&[String]>,
+    ) -> Vec<ToolDescriptor> {
+        vec![]
+    }
+
+    async fn has_tool(&self, _name: &str) -> bool {
+        false
+    }
+
+    async fn get_tool_schema(&self, _name: &str) -> Option<serde_json::Value> {
+        None
+    }
+
+    async fn get_tool_detail(&self, _name: &str) -> Option<ToolDescriptor> {
+        None
+    }
+
+    async fn list_tool_names_by_group(&self, _group: &str) -> Vec<String> {
+        vec![]
+    }
+
+    async fn get_tool_concurrency_safe(&self, _name: &str) -> Option<bool> {
+        None
+    }
+
+    async fn call_tool(
+        &self,
+        name: &str,
+        _args: serde_json::Value,
+        _ctx: &closeclaw_common::ToolContext,
+    ) -> Result<closeclaw_common::ToolResult, closeclaw_common::ToolCallError> {
+        Err(closeclaw_common::ToolCallError::NotFound(name.to_string()))
+    }
+}
+
 /// build_prompt_with_params propagates tool_registry from
 /// InjectionParams through WorkspaceBuildConfig into FragmentContext.
 #[tokio::test]
@@ -663,17 +695,13 @@ async fn test_build_prompt_with_params_propagates_tool_registry() {
     let ws = tmp.path().join("agents").join(agent_id);
     std::fs::create_dir_all(&ws).unwrap();
 
-    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<
-        Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>,
-    >::new()));
+    let recorded: RecordedToolRegistries = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let provider = ToolRegistryRecordingProvider {
         recorded: recorded.clone(),
     };
     let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
 
-    // Create a fake ToolRegistryQuery implementation.
-    let fake_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery> =
-        Arc::new(closeclaw_tools::ToolRegistry::new());
+    let fake_registry: Arc<dyn ToolRegistryQuery> = Arc::new(FakeToolRegistryQuery);
 
     let params = InjectionParams {
         session_id: "session-1".to_string(),
@@ -703,9 +731,7 @@ async fn test_build_prompt_passes_tool_registry_none() {
     let ws = tmp.path().join("agents").join(agent_id);
     std::fs::create_dir_all(&ws).unwrap();
 
-    let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<
-        Option<Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>>,
-    >::new()));
+    let recorded: RecordedToolRegistries = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let provider = ToolRegistryRecordingProvider {
         recorded: recorded.clone(),
     };
