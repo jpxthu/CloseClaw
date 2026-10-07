@@ -177,10 +177,13 @@ enum Section {
     Other,
 }
 
-/// Classifies a section header: `[dependencies]` and
-/// `[target.'…'.dependencies]` are regular dependency sections, a header
-/// ending in `dependencies.<name>` opens the sub-table form of dependency
-/// `<name>`; everything else (dev, build, package, …) stays out of scope.
+/// Classifies a section header. Only two header shapes open a regular
+/// dependency section — `[dependencies]` and `[target.'…'.dependencies]` —
+/// plus their sub-table forms ending in `dependencies.<name>`. The first
+/// segment is whitelisted (`dependencies` or `target`), so look-alike
+/// headers such as `[workspace.dependencies]` or
+/// `[package.metadata.dependencies]` (and their sub-tables) stay out of
+/// scope, as do dev, build, and package sections.
 fn classify_section(header: &str) -> Section {
     let Some(inner) = header
         .strip_prefix('[')
@@ -188,10 +191,10 @@ fn classify_section(header: &str) -> Section {
     else {
         return Section::Other;
     };
-    let mut segments = inner.trim().split('.').map(str::trim).rev();
-    match (segments.next(), segments.next()) {
-        (Some("dependencies"), _) => Section::Regular,
-        (Some(name), Some("dependencies")) => Section::SubTable {
+    let segments: Vec<&str> = inner.trim().split('.').map(str::trim).collect();
+    match segments.as_slice() {
+        ["dependencies"] | ["target", _, "dependencies"] => Section::Regular,
+        ["dependencies", name] | ["target", _, "dependencies", name] => Section::SubTable {
             name: name.trim_matches('"').to_string(),
             keys: Vec::new(),
         },
@@ -514,6 +517,34 @@ tempfile = \"3\"
     let dependencies = parse_regular_dependencies(manifest);
     let names: Vec<&str> = dependencies.iter().map(|(name, _)| name.as_str()).collect();
     assert_eq!(names, vec!["closeclaw-common", "serde"]);
+}
+
+#[test]
+fn test_workspace_dependencies_look_alike_sections_are_not_judged() {
+    let manifest = "\
+[workspace.dependencies]
+closeclaw-session = { path = \"../session\" }
+
+[workspace.dependencies.closeclaw-skills]
+path = \"../skills\"
+
+[package.metadata.dependencies]
+closeclaw-workflow = { path = \"../workflow\" }
+
+[dependencies]
+serde = \"1.0\"
+";
+    let dependencies = parse_regular_dependencies(manifest);
+    assert_eq!(
+        dependencies,
+        vec![("serde".to_string(), "\"1.0\"".to_string())],
+        "look-alike headers ending in .dependencies must stay out of scope; \
+         only the whitelisted [dependencies] section is judged"
+    );
+    assert!(
+        workspace_internal_violations(&as_ref_pairs(&dependencies)).is_empty(),
+        "no look-alike section entry may leak into the violation judgment"
+    );
 }
 
 #[test]
