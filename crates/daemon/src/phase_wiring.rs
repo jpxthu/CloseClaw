@@ -12,6 +12,7 @@ use crate::{
     config_watcher,
     dreaming_scheduler::DreamingScheduler,
     noop_miner_llm, registries,
+    skill_access_adapter::{builtin_skill_access, disk_skill_access},
     trait_adapters::{spawn_target_agent_config, ConfigSpawnBudgetLookup},
     workflow_port_adapter::workflow_definition_validator,
 };
@@ -318,8 +319,8 @@ impl Daemon {
             };
             if let Some(disk_reg) = disk_reg {
                 let skill_handler = Arc::new(SkillSlashHandler::new(
-                    disk_reg,
-                    Arc::clone(builtin_skill_registry),
+                    disk_skill_access(disk_reg),
+                    builtin_skill_access(Arc::clone(builtin_skill_registry)),
                 ));
                 for name in skill_handler.invocable_names().await {
                     slash_registry

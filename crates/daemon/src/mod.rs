@@ -16,12 +16,15 @@ pub mod lifecycle;
 mod metrics;
 pub mod phase_init;
 pub mod phase_wiring;
+pub mod plan_file_store_adapter;
 pub mod registries;
 pub mod shutdown;
 pub(crate) mod shutdown_heartbeat;
+pub mod skill_access_adapter;
 pub mod skill_reload;
 pub mod startup;
 pub mod trait_adapters;
+pub mod workflow_launcher_adapter;
 pub mod workflow_port_adapter;
 #[cfg(test)]
 pub(crate) use closeclaw_config::{ConfigManager, ConfigSection};

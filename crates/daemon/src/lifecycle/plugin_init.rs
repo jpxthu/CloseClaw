@@ -39,6 +39,9 @@ impl Daemon {
         };
 
         let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
+        // Production plan-file store: adapter wrapping closeclaw_session::plan_file,
+        // injected into every handler that reads or writes plan files.
+        let plan_store = crate::plan_file_store_adapter::session_plan_file_store();
         let slash_registry = Arc::new(HandlerRegistry::new());
         let registry_for_return = Arc::clone(&slash_registry);
         slash_registry.register(Arc::new(CompactHandler));
@@ -55,16 +58,23 @@ impl Daemon {
         slash_registry.register(Arc::new(StatusHandler::new(Arc::clone(&sm_query))));
         let plan_handler = Arc::new(PlanModeHandler::new(
             Arc::clone(&sm_query),
-            to_session_identifier_format(closeclaw_config::IdentifierFormat::default()),
+            to_plan_name_format(closeclaw_config::IdentifierFormat::default()),
+            Arc::clone(&plan_store),
         ));
         slash_registry.register(plan_handler.clone() as Arc<dyn closeclaw_common::SlashHandler>);
         slash_registry.register(Arc::new(ModeHandler::with_handlers(
             Arc::clone(&sm_query),
             plan_handler,
         )));
-        slash_registry.register(Arc::new(ExecuteHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(ExecuteHandler::new(
+            Arc::clone(&sm_query),
+            Arc::clone(&plan_store),
+        )));
         slash_registry.register(Arc::new(BackgroundHandler::new(Arc::clone(&sm_query))));
-        slash_registry.register(Arc::new(PlanBrowseHandler::new(Arc::clone(&sm_query))));
+        slash_registry.register(Arc::new(PlanBrowseHandler::new(
+            Arc::clone(&sm_query),
+            plan_store,
+        )));
         slash_registry.register(Arc::new(PermissionSlashHandler));
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));
@@ -82,8 +92,13 @@ impl Daemon {
                 None
             }
         };
+        // Production workflow launcher: adapter assembling the workflow
+        // definition loader, engine, and message builders, injected into
+        // the handler.
+        let workflow_launcher = crate::workflow_launcher_adapter::engine_workflow_launcher();
         slash_registry.register(Arc::new(WorkflowSlashHandler::new(
             Arc::clone(&sm_query),
+            workflow_launcher,
             None,
             global_workflows,
         )));
@@ -97,51 +112,53 @@ impl Daemon {
     }
 }
 
-/// Map the config-side plan identifier format to the session-side enum.
+/// Map the config-side plan identifier format to the slash-side
+/// port enum.
 ///
-/// `closeclaw-session` no longer depends on `closeclaw-config`, so the
-/// config→session mapping lives at the call site (this module).
-fn to_session_identifier_format(
+/// `closeclaw-slash` no longer depends on `closeclaw-config` (nor on
+/// `closeclaw-session`), so the config→slash mapping lives at the call
+/// site (this module); the handler consumes the slash-owned
+/// [`closeclaw_slash::PlanNameFormat`] via the injected
+/// [`crate::plan_file_store_adapter::SessionPlanFileStore`].
+fn to_plan_name_format(
     format: closeclaw_config::IdentifierFormat,
-) -> closeclaw_session::plan_file::PlanIdentifierFormat {
+) -> closeclaw_slash::PlanNameFormat {
     match format {
-        closeclaw_config::IdentifierFormat::Timestamp => {
-            closeclaw_session::plan_file::PlanIdentifierFormat::Timestamp
-        }
+        closeclaw_config::IdentifierFormat::Timestamp => closeclaw_slash::PlanNameFormat::Timestamp,
         closeclaw_config::IdentifierFormat::RandomWords => {
-            closeclaw_session::plan_file::PlanIdentifierFormat::RandomWords
+            closeclaw_slash::PlanNameFormat::RandomWords
         }
     }
 }
 
 #[cfg(test)]
 mod plugin_init_tests {
-    use super::to_session_identifier_format;
+    use super::to_plan_name_format;
     use closeclaw_config::IdentifierFormat;
-    use closeclaw_session::plan_file::PlanIdentifierFormat;
+    use closeclaw_slash::PlanNameFormat;
 
-    /// Every config variant maps to its same-named session variant
+    /// Every config variant maps to its same-named slash port variant
     /// (full variant coverage of the decoupling seam).
     #[test]
     fn test_map_covers_all_config_variants() {
         assert_eq!(
-            to_session_identifier_format(IdentifierFormat::Timestamp),
-            PlanIdentifierFormat::Timestamp
+            to_plan_name_format(IdentifierFormat::Timestamp),
+            PlanNameFormat::Timestamp
         );
         assert_eq!(
-            to_session_identifier_format(IdentifierFormat::RandomWords),
-            PlanIdentifierFormat::RandomWords
+            to_plan_name_format(IdentifierFormat::RandomWords),
+            PlanNameFormat::RandomWords
         );
     }
 
     /// Default path: the handler is wired from `IdentifierFormat::default()`
-    /// (plugin_init call site), which must land on the session enum's own
+    /// (plugin_init call site), which must land on the slash port enum's own
     /// default — both sides agree on Timestamp.
     #[test]
-    fn test_map_default_lands_on_session_default() {
+    fn test_map_default_lands_on_slash_default() {
         assert_eq!(IdentifierFormat::default(), IdentifierFormat::Timestamp);
-        let mapped = to_session_identifier_format(IdentifierFormat::default());
-        assert_eq!(mapped, PlanIdentifierFormat::default());
-        assert_eq!(mapped, PlanIdentifierFormat::Timestamp);
+        let mapped = to_plan_name_format(IdentifierFormat::default());
+        assert_eq!(mapped, PlanNameFormat::default());
+        assert_eq!(mapped, PlanNameFormat::Timestamp);
     }
 }

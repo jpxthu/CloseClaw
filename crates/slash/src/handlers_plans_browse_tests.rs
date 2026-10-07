@@ -8,6 +8,7 @@ use async_trait::async_trait;
 use crate::context::SlashContext;
 use crate::handler::SlashHandler;
 use crate::handlers_plans_browse::PlanBrowseHandler;
+use crate::plan_file_store::real_store::test_store;
 use closeclaw_common::plan_state::PlanState;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::SlashResult;
@@ -132,13 +133,13 @@ fn make_handler(workdirs: std::collections::HashMap<String, PathBuf>) -> PlanBro
     for (sid, wd) in workdirs {
         mock.set_workdir(&sid, wd);
     }
-    PlanBrowseHandler::new(mock as Arc<dyn SlashSessionQuery>)
+    PlanBrowseHandler::new(mock as Arc<dyn SlashSessionQuery>, test_store())
 }
 
 fn make_handler_with_workdir(session_id: &str, workdir: PathBuf) -> PlanBrowseHandler {
     let mock = Arc::new(MockQuery::new());
     mock.set_workdir(session_id, workdir);
-    PlanBrowseHandler::new(mock as Arc<dyn SlashSessionQuery>)
+    PlanBrowseHandler::new(mock as Arc<dyn SlashSessionQuery>, test_store())
 }
 
 /// Create a plan file with content under `{workdir}/plans/{stem}.md`.

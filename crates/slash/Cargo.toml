@@ -9,14 +9,9 @@ license = "MIT"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
-closeclaw-permission = { path = "../permission" }
-closeclaw-tools = { path = "../tools" }
-closeclaw-session = { path = "../session" }
-closeclaw-skills = { path = "../skills" }
-closeclaw-workflow = { path = "../workflow" }
-closeclaw-config = { path = "../config" }
 
 # Serialization
+serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 # Async runtime
@@ -34,6 +29,8 @@ async-trait = "0.1"
 [dev-dependencies]
 tempfile = "3.10"
 filetime = "0.2"
-closeclaw-config = { path = "../config" }
 closeclaw-gateway = { path = "../gateway" }
+closeclaw-session = { path = "../session" }
+closeclaw-skills = { path = "../skills" }
+closeclaw-workflow = { path = "../workflow" }
 serde_yaml = "0.9"
