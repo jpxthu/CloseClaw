@@ -16,7 +16,15 @@ main.rs bin 目标不构成公共 API）：
 - 再导出本 crate 自身定义项（`crate::` / `self::` 源，`crate::common` shim 除外）
   不算二次出口。
 
-已知近似：经 `use closeclaw_common as …` 别名后的再导出不识别。
+已知近似与盲区（未报警不代表合规，兜底靠 review）：
+- 经 `use closeclaw_common as …` 别名后的再导出不识别；
+- 私有 mod 内 common 项被逐名再导出（`pub use hidden::Foo;`）不触发可达性
+  传播（仅跟踪 mod 本体被再导出的情形）；
+- fn 体内语句归入宿主 mod 块（rustc 不容 fn 体内 `pub use`，此处仅记录
+  解析近似，勿依赖）；
+- 宏展开生成的声明（`macro_rules!` 产出及其调用）不扫描；
+- 仅识别 `closeclaw-common` 包名为 common；common 子 crate 若有则不豁免；
+- （common-admission 清单侧）标题混排 / 反引号包裹的条目名不识别。
 """
 
 from __future__ import annotations
@@ -107,9 +115,10 @@ class _ItemScanner:
     inline mod 块边界，排除 `mod tests {}` 等块内语句对后续解析的影响。
     """
 
-    _ITEM_KEYWORDS = frozenset(
-        {"fn", "struct", "enum", "union", "trait", "impl", "const", "static", "macro", "macro_rules"}
-    )
+    _ITEM_KEYWORDS = frozenset({
+        "fn", "struct", "enum", "union", "trait", "impl",
+        "const", "static", "macro", "macro_rules",
+    })
     _STRING_PREFIX = re.compile(r"(?:r|br)(#*)|b|c|cr")
 
     def __init__(self, text: str) -> None:
@@ -376,7 +385,9 @@ class _ItemScanner:
             if nxt == ";":
                 self.i += 1
                 current.file_mods.append(
-                    RawFileMod(name=name, line=stmt_line, pub_plain=is_pub, path_attr=self._path_attr())
+                    RawFileMod(
+                        name=name, line=stmt_line, pub_plain=is_pub, path_attr=self._path_attr()
+                    )
                 )
                 self._reset_pending()
                 return

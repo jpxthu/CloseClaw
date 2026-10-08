@@ -288,7 +288,7 @@ do_deps() (
             fails=1
         fi
     else
-        echo "[SKIP] 未找到 cargo-deny，请先安装：cargo install cargo-deny"
+        echo "[SKIP] cargo deny --version 失败（未安装或不可用），请先安装：cargo install cargo-deny"
     fi
     if cargo machete --version >/dev/null 2>&1; then
         ran=1
@@ -301,7 +301,7 @@ do_deps() (
             fails=1
         fi
     else
-        echo "[SKIP] 未找到 cargo-machete，请先安装：cargo install cargo-machete"
+        echo "[SKIP] cargo machete --version 失败（未安装或不可用），请先安装：cargo install cargo-machete"
     fi
     # 子工具全部缺失 → 整段 SKIP；有跑过的按其结果判定
     if [[ $ran -eq 0 ]]; then

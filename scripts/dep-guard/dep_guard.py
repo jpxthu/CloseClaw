@@ -37,7 +37,6 @@ REPO_ROOT = Path(
         text=True,
     ).strip()
 )
-STANDARDS_PATH = REPO_ROOT / "docs" / "design" / "STANDARDS.md"
 BASELINE_DIR = SCRIPT_DIR / "baselines"
 
 CHECK_IDS = ("dep-edges", "second-exports", "common-admission", "dead-deps")

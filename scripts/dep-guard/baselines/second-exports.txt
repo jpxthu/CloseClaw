@@ -4,6 +4,14 @@
 # 规则：baseline = 现状，只收窄不扩张。消除二次出口（改为私有 use 或移除）后，
 #       须同步删除对应行；baseline 外新增会被 dep-guard 判 FAIL。
 #       随各 P2 解耦 issue 收窄直至归零。
+# 行号漂移处置：条目含行号，代码移动会使同一二次出口的行号变化而判 FAIL——
+#       此属「同步更新」而非扩张：仅更新行号、条目本体不变，随代码变更一并修改本文件。
+# 已知近似盲区（guard 未覆盖、不报警，合规兜底靠 review）：
+#       - 私有 mod 内 common 项被逐名再导出（pub use hidden::Foo;）不触发可达性传播；
+#       - fn 体内 pub use（rustc 本不容许，防御性记录解析近似）；
+#       - 宏展开生成的声明不扫描；
+#       - 仅识别 closeclaw-common 包名，common 子 crate 若有不豁免；
+#       - 标题混排 / 反引号包裹的条目名（common-admission 清单侧）不识别。
 closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::CommunicationCheckResult
 closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::CommunicationConfig
 closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::check_communication_allowed

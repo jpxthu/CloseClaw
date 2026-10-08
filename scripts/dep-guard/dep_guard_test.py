@@ -6,6 +6,7 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import allow_table
 import baseline
@@ -86,7 +87,10 @@ class AllowTableTest(unittest.TestCase):
                 {"common", "platform", "debug_log", "session", "llm", "permission", "config"}
             ),
         )
-        self.assertEqual(table["cli"], frozenset({"common", "platform", "debug_log", "gateway", "config"}))
+        self.assertEqual(
+            table["cli"],
+            frozenset({"common", "platform", "debug_log", "gateway", "config"}),
+        )
         self.assertEqual(table["daemon"], allow_table.ALLOW_ALL)
         self.assertEqual(table[allow_table.ROOT_CRATE], allow_table.ALLOW_ALL)
 
@@ -242,6 +246,43 @@ class RunChecksTest(unittest.TestCase):
         self.assertTrue(runner.called)
         self.assertEqual(results[0].status, dep_guard.STATUS_PASS)
         self.assertEqual(fail_count, 0)
+
+
+class CheckErrorPathTest(unittest.TestCase):
+    """错误路径：解析 / 元数据异常 → 对应项 FAIL（mock 驱动，不触达真实仓库）。"""
+
+    def test_dep_edges_allow_table_error_fails(self) -> None:
+        with mock.patch.object(
+            allow_table,
+            "load_allow_table",
+            side_effect=allow_table.AllowTableError("允许边表解析失败"),
+        ):
+            result = dep_guard.check_dep_edges(Path("."))
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertIn("允许边表解析失败", result.lines[1])
+
+    def test_dep_edges_metadata_error_fails(self) -> None:
+        with (
+            mock.patch.object(allow_table, "load_allow_table", return_value={}),
+            mock.patch.object(
+                dep_edges,
+                "cargo_metadata",
+                side_effect=dep_edges.DepEdgesError("cargo metadata 失败"),
+            ),
+        ):
+            result = dep_guard.check_dep_edges(Path("."))
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertIn("cargo metadata 失败", result.lines[1])
+
+    def test_second_exports_metadata_error_fails(self) -> None:
+        with mock.patch.object(
+            dep_edges,
+            "cargo_metadata",
+            side_effect=dep_edges.DepEdgesError("cargo metadata 失败"),
+        ):
+            result = dep_guard.check_second_exports(Path("."))
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertIn("cargo metadata 失败", result.lines[1])
 
 
 class CliExitCodeTest(unittest.TestCase):

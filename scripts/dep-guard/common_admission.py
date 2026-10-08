@@ -118,6 +118,9 @@ def _collect_node_names(node: second_export.ModNode, names: set[str]) -> None:
         if m and not _is_shared_wrapper(m.group(1), item.text):
             names.add(m.group(1))
     for definition in node.defs:
+        # STANDARDS.md §比对范围仅含 struct / enum / type 别名 / trait，union 不计
+        if definition.kind == "union":
+            continue
         if definition.pub_plain and definition.name:
             names.add(definition.name)
 

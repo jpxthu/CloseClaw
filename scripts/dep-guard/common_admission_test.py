@@ -21,14 +21,19 @@ def _parse(text: str) -> set[str]:
         return common_admission.parse_doc_entries(doc_dir)
 
 
-def _make_crate(files: dict[str, str]) -> Path:
-    """在临时目录构造 crate 树（key 为相对 crate 目录路径），返回 crate 目录。"""
-    tmp = Path(tempfile.mkdtemp())
+def _make_crate(case: unittest.TestCase, files: dict[str, str]) -> Path:
+    """在临时目录构造 crate 树（key 为相对 crate 目录路径），返回 crate 目录。
+
+    临时目录经 case.addCleanup 挂接清理，测试后无残留。
+    """
+    tmp = tempfile.TemporaryDirectory()
+    case.addCleanup(tmp.cleanup)
+    root = Path(tmp.name)
     for rel, content in files.items():
-        path = tmp / rel
+        path = root / rel
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(content, encoding="utf-8")
-    return tmp
+    return root
 
 
 class EntryNamesTest(unittest.TestCase):
@@ -110,21 +115,28 @@ class DocEntriesTest(unittest.TestCase):
 
 class CollectPubItemsTest(unittest.TestCase):
     def test_pub_defs_counted(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n",
             "src/a.rs": "pub struct S;\npub enum E { X }\npub trait T {}\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), {"S", "E", "T"})
 
+    def test_pub_union_excluded(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": "pub mod a;\n",
+            "src/a.rs": "pub union U { x: u8 }\npub struct S;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), {"S"})
+
     def test_private_and_restricted_defs_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n",
             "src/a.rs": "struct P;\npub(crate) struct Q;\npub(super) struct R;\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), set())
 
     def test_cfg_test_mod_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n#[cfg(test)]\npub mod a_tests;\n",
             "src/a.rs": "pub struct S;\n",
             "src/a_tests.rs": "pub struct TestOnly;\n",
@@ -132,27 +144,27 @@ class CollectPubItemsTest(unittest.TestCase):
         self.assertEqual(common_admission.collect_pub_items(crate), {"S"})
 
     def test_path_tests_mod_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": '#[path = "tests.rs"]\nmod tests;\n',
             "src/tests.rs": "pub struct TestOnly;\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), set())
 
     def test_inline_tests_block_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a { pub struct In; }\nmod tests { pub struct Y; }\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), {"In"})
 
     def test_private_mod_items_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "mod hidden { pub struct Hidden; }\npub mod open;\n",
             "src/open.rs": "pub struct Shown;\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), {"Shown"})
 
     def test_type_alias_and_shared_wrapper(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n",
             "src/a.rs": (
                 "pub type Alias = u8;\n"
@@ -166,21 +178,21 @@ class CollectPubItemsTest(unittest.TestCase):
         )
 
     def test_cfg_test_type_alias_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n",
             "src/a.rs": "#[cfg(test)]\npub type TestAlias = u8;\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), set())
 
     def test_fn_const_use_excluded(self) -> None:
-        crate = _make_crate({
+        crate = _make_crate(self, {
             "src/lib.rs": "pub mod a;\n",
             "src/a.rs": "pub fn f() {}\npub const C: u8 = 1;\npub use crate::f;\n",
         })
         self.assertEqual(common_admission.collect_pub_items(crate), set())
 
     def test_missing_lib_entry_fails_loud(self) -> None:
-        crate = _make_crate({"src/other.rs": "pub struct S;\n"})
+        crate = _make_crate(self, {"src/other.rs": "pub struct S;\n"})
         with self.assertRaises(common_admission.CommonAdmissionError):
             common_admission.collect_pub_items(crate)
 
