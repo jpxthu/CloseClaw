@@ -2,6 +2,7 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
+use crate::plan_file_store_adapter::tool_plan_file_access;
 use crate::read_truncation_adapter::read_truncation_provider;
 use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
@@ -305,7 +306,8 @@ async fn register_system_level_tools(registry: &ToolRegistry, ctx: &RegistryCont
     // Mode execution trigger tool
     let mode_tool: Arc<dyn closeclaw_common::Tool> =
         Arc::new(closeclaw_tools::builtin::ModeExecutionTriggerTool::new(
-            Arc::clone(ctx.session_manager),
+            tool_plan_file_access(),
+            Arc::clone(ctx.session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::clone(ctx.confirm_flow),
         ));
     if let Err(e) = registry

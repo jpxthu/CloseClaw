@@ -9,7 +9,6 @@ license = "MIT"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
-closeclaw-session = { path = "../session" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-debug-log = { path = "../debug_log" }
@@ -70,5 +69,6 @@ base64 = "0.22"
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-agent = { path = "../agent" }
 closeclaw-skills = { path = "../skills" }
+closeclaw-session = { path = "../session" }
 tempfile = "3"
 serial_test = "3.4"

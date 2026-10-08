@@ -14,6 +14,7 @@ use closeclaw_session::plan_file as session_plan_file;
 use closeclaw_slash::plan_file_store::{
     PlanFileStore, PlanNameFormat, PlanResolveError, PlanSummary,
 };
+use closeclaw_tools::plan_file_access as tools_plan_file;
 
 /// Map the slash-side identifier format to the session-side enum.
 fn format_to_session(format: PlanNameFormat) -> session_plan_file::PlanIdentifierFormat {
@@ -89,9 +90,48 @@ impl PlanFileStore for SessionPlanFileStore {
     }
 }
 
+/// Map the session-side resolve error to the tools-side mirror,
+/// preserving the `name` / `candidates` payloads (and therefore the
+/// `Display` output) verbatim.
+fn error_to_tools(e: session_plan_file::PlanResolveError) -> tools_plan_file::PlanResolveError {
+    match e {
+        session_plan_file::PlanResolveError::NotFound { name } => {
+            tools_plan_file::PlanResolveError::NotFound { name }
+        }
+        session_plan_file::PlanResolveError::Ambiguous { name, candidates } => {
+            tools_plan_file::PlanResolveError::Ambiguous { name, candidates }
+        }
+    }
+}
+
+/// Production tools-side adapter wrapping the session plan-file
+/// functions for [`closeclaw_tools::builtin::ModeExecutionTriggerTool`].
+pub struct ToolPlanFileAccess;
+
+impl tools_plan_file::PlanFileAccess for ToolPlanFileAccess {
+    fn resolve_plan_by_name(
+        &self,
+        workdir: &Path,
+        name: &str,
+    ) -> Result<PathBuf, tools_plan_file::PlanResolveError> {
+        session_plan_file::resolve_plan_by_name(workdir, name).map_err(error_to_tools)
+    }
+
+    fn touch_access_timestamp(&self, plan_path: &Path) -> Result<(), std::io::Error> {
+        session_plan_file::touch_access_timestamp(plan_path)
+    }
+}
+
+/// Build the production tools-side plan-file access as
+/// `Arc<dyn tools_plan_file::PlanFileAccess>`.
+pub fn tool_plan_file_access() -> Arc<dyn tools_plan_file::PlanFileAccess> {
+    Arc::new(ToolPlanFileAccess)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_tools::plan_file_access::PlanFileAccess;
 
     // ── Enum mapping (正常路径) ────────────────────────────────────────
 
@@ -265,5 +305,82 @@ mod tests {
         let store = session_plan_file_store();
         let tmp = tempfile::TempDir::new().unwrap();
         assert!(store.list_plan_summaries(tmp.path()).unwrap().is_empty());
+    }
+
+    // ── Tools-side adapter (error mapping + real behavior) ───────────
+
+    #[test]
+    fn tools_error_mapping_preserves_payload_and_display() {
+        let session_err = session_plan_file::PlanResolveError::NotFound {
+            name: "missing-plan".to_string(),
+        };
+        let session_display = session_err.to_string();
+        match error_to_tools(session_err) {
+            tools_plan_file::PlanResolveError::NotFound { name } => {
+                assert_eq!(name, "missing-plan");
+            }
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+        let tools_display = tools_plan_file::PlanResolveError::NotFound {
+            name: "missing-plan".to_string(),
+        }
+        .to_string();
+        assert_eq!(tools_display, session_display);
+
+        let session_err = session_plan_file::PlanResolveError::Ambiguous {
+            name: "auth".to_string(),
+            candidates: vec!["auth-login".to_string(), "auth-logout".to_string()],
+        };
+        let session_display = session_err.to_string();
+        match error_to_tools(session_err) {
+            tools_plan_file::PlanResolveError::Ambiguous { name, candidates } => {
+                assert_eq!(name, "auth");
+                assert_eq!(candidates, vec!["auth-login", "auth-logout"]);
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+        let tools_display = tools_plan_file::PlanResolveError::Ambiguous {
+            name: "auth".to_string(),
+            candidates: vec!["auth-login".to_string(), "auth-logout".to_string()],
+        }
+        .to_string();
+        assert_eq!(tools_display, session_display);
+    }
+
+    #[test]
+    fn tools_adapter_resolves_and_maps_errors_verbatim() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let access = ToolPlanFileAccess;
+
+        // Missing plans directory → NotFound with empty name (quirk
+        // preserved verbatim through the adapter).
+        match access.resolve_plan_by_name(tmp.path(), "nonexistent") {
+            Err(tools_plan_file::PlanResolveError::NotFound { name }) => assert_eq!(name, ""),
+            other => panic!("expected NotFound, got {other:?}"),
+        }
+
+        let plans = tmp.path().join("plans");
+        std::fs::create_dir_all(&plans).unwrap();
+        std::fs::write(plans.join("alpha.md"), "# Alpha\n\n- [ ] step1\n").unwrap();
+        let resolved = access
+            .resolve_plan_by_name(tmp.path(), "alpha")
+            .expect("exact resolve");
+        assert_eq!(resolved, PathBuf::from("plans/alpha.md"));
+        assert!(tmp.path().join(&resolved).exists());
+
+        // Touch succeeds on an existing plan file.
+        access
+            .touch_access_timestamp(&tmp.path().join(&resolved))
+            .expect("touch access timestamp");
+    }
+
+    #[test]
+    fn tools_factory_returns_trait_object() {
+        let access = tool_plan_file_access();
+        let tmp = tempfile::TempDir::new().unwrap();
+        match access.resolve_plan_by_name(tmp.path(), "nonexistent") {
+            Err(tools_plan_file::PlanResolveError::NotFound { .. }) => {}
+            other => panic!("expected NotFound, got {other:?}"),
+        }
     }
 }

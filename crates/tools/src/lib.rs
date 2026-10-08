@@ -19,6 +19,7 @@ pub mod dispatcher;
 pub mod file_mutex;
 pub mod media_ref;
 pub mod permission_check;
+pub mod plan_file_access;
 pub mod registrar;
 pub mod registrars;
 pub mod registry;

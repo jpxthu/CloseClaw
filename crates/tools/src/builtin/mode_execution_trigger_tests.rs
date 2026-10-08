@@ -10,6 +10,7 @@
 
 use crate::builtin::plan_exec_confirm::PlanExecMetadata;
 use crate::builtin::PlanExecConfirmFlow;
+use crate::plan_file_access::real_access::real_plan_file_access;
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, WorkdirContext};
 
 use closeclaw_common::SessionMode;
@@ -91,7 +92,11 @@ fn make_tool(
     sm: Arc<SessionManager>,
     cf: Arc<PlanExecConfirmFlow>,
 ) -> crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool {
-    crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, cf)
+    crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(
+        real_plan_file_access(),
+        sm as Arc<dyn closeclaw_common::SessionLookup>,
+        cf,
+    )
 }
 
 /// Create a temp workspace with a plan file so resolve_plan_by_name succeeds.
@@ -526,8 +531,11 @@ async fn test_submit_stores_metadata_in_pending_map() {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
     ));
-    let tool =
-        crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, flow.clone());
+    let tool = crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(
+        real_plan_file_access(),
+        sm,
+        flow.clone(),
+    );
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-meta"), tmp.path());
@@ -576,8 +584,11 @@ async fn test_submit_filters_empty_additional_instruction() {
         Arc::new(|_| {}),
         tokio::runtime::Handle::current(),
     ));
-    let tool =
-        crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(sm, flow.clone());
+    let tool = crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool::new(
+        real_plan_file_access(),
+        sm,
+        flow.clone(),
+    );
 
     let (tmp, plan_name) = setup_workspace_with_plan();
     let ctx = make_ctx_with_workdir(Some("sess-empty-ai"), tmp.path());

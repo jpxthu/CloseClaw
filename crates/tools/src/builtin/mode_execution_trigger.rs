@@ -14,12 +14,12 @@
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 use async_trait::async_trait;
-use closeclaw_gateway::SessionManager;
-use closeclaw_session::plan_file::{resolve_plan_by_name, PlanResolveError};
+use closeclaw_common::SessionLookup;
 use serde_json::{json, Value};
 use std::sync::Arc;
 
 use crate::builtin::plan_exec_confirm::{PlanExecConfirmFlow, PlanExecMetadata};
+use crate::plan_file_access::{PlanFileAccess, PlanResolveError};
 
 /// Natural-language execution trigger tool.
 ///
@@ -28,18 +28,21 @@ use crate::builtin::plan_exec_confirm::{PlanExecConfirmFlow, PlanExecMetadata};
 /// display a user confirmation dialog. On confirmation, the plan
 /// enters Auto Mode for execution.
 pub struct ModeExecutionTriggerTool {
-    session_manager: Arc<SessionManager>,
+    plan_file_access: Arc<dyn PlanFileAccess>,
+    session_lookup: Arc<dyn SessionLookup>,
     confirm_flow: Arc<PlanExecConfirmFlow>,
 }
 
 impl ModeExecutionTriggerTool {
     /// Creates a new `ModeExecutionTriggerTool`.
     pub fn new(
-        session_manager: Arc<SessionManager>,
+        plan_file_access: Arc<dyn PlanFileAccess>,
+        session_lookup: Arc<dyn SessionLookup>,
         confirm_flow: Arc<PlanExecConfirmFlow>,
     ) -> Self {
         Self {
-            session_manager,
+            plan_file_access,
+            session_lookup,
             confirm_flow,
         }
     }
@@ -157,7 +160,7 @@ impl Tool for ModeExecutionTriggerTool {
                     .unwrap_or_else(|| path.to_path_buf())
             };
             if abs_path.exists() {
-                if let Err(e) = closeclaw_session::plan_file::touch_access_timestamp(&abs_path) {
+                if let Err(e) = self.plan_file_access.touch_access_timestamp(&abs_path) {
                     tracing::warn!(
                         plan_file = %effective_path,
                         error = %e,
@@ -223,7 +226,7 @@ impl ModeExecutionTriggerTool {
         &self,
         session_id: &str,
     ) -> Result<closeclaw_common::PlanState, ToolCallError> {
-        self.session_manager
+        self.session_lookup
             .get_plan_state(session_id)
             .await
             .ok_or_else(|| {
@@ -249,7 +252,9 @@ impl ModeExecutionTriggerTool {
         if let Some(name) = plan_name {
             let workdir_path = ctx.workdir.as_ref().map(|w| w.path.as_str()).unwrap_or(".");
             let workdir = std::path::Path::new(workdir_path);
-            return resolve_plan_by_name(workdir, name)
+            return self
+                .plan_file_access
+                .resolve_plan_by_name(workdir, name)
                 .map(|p| p.to_string_lossy().into_owned())
                 .map_err(|e| match e {
                     PlanResolveError::NotFound { name: err_name } => {

@@ -179,12 +179,13 @@ async fn test_mode_execution_trigger_registerable_via_before_freeze() {
     // Register via register_before_freeze (the production pattern).
     let mode_tool: Arc<dyn closeclaw_common::Tool> =
         Arc::new(crate::builtin::ModeExecutionTriggerTool::new(
+            crate::plan_file_access::real_access::real_plan_file_access(),
             Arc::new(SessionManager::new(
                 &GatewayConfig::default(),
                 None,
                 None,
                 ReasoningLevel::default(),
-            )),
+            )) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::new(crate::builtin::PlanExecConfirmFlow::new(
                 Arc::new(SessionManager::new(
                     &GatewayConfig::default(),
