@@ -3,11 +3,10 @@
 //! parse_card_action, identity mapping, and quote/reference handling.
 use super::*;
 use crate::media_store::MediaStore;
+use crate::platforms::feishu::identity_resolver_stub::IdentityResolverStub;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::IMAdapter;
 use closeclaw_common::{IMPlugin, MessageType};
-use closeclaw_config::identity::ConfigIdentityResolver;
-use closeclaw_config::identity::IdentityMapping;
 use serial_test::serial;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -434,12 +433,8 @@ async fn test_parse_inbound_image_type() {
 #[tokio::test]
 async fn test_parse_inbound_with_identity_mapping() {
     let adapter = Arc::new(make_test_adapter());
-    let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
-        platform: "feishu".to_string(),
-        bot_app_id: "test_app_id".to_string(),
-        sender_id: "ou_sender".to_string(),
-        account_id: "mapped_user".to_string(),
-    }]);
+    let resolver =
+        IdentityResolverStub::new(&[("feishu", "test_app_id", "ou_sender", "mapped_user")]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
@@ -450,12 +445,8 @@ async fn test_parse_inbound_with_identity_mapping() {
 async fn test_parse_inbound_without_mapping_fallback() {
     let adapter = Arc::new(make_test_adapter());
     // Resolver has a mapping for a different sender, not ou_sender.
-    let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
-        platform: "feishu".to_string(),
-        bot_app_id: "test_app_id".to_string(),
-        sender_id: "ou_other".to_string(),
-        account_id: "other_user".to_string(),
-    }]);
+    let resolver =
+        IdentityResolverStub::new(&[("feishu", "test_app_id", "ou_other", "other_user")]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();

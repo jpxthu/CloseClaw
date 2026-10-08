@@ -16,45 +16,61 @@ use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
 };
-use closeclaw_config::CredentialsProvider;
 use closeclaw_debug_log::DebugLog;
 use tracing::{info, warn};
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
-use super::config::{load_media_config, load_platforms_config};
+use super::config::load_platforms_config;
 use super::identity;
 use super::process_manager;
 use super::send_helpers;
 use super::{cleaner, FeishuAdapter};
 use crate::media_store::MediaStore;
-use crate::platforms::PlatformEntry;
+use crate::platforms::{MediaConfigSnapshot, PlatformEntry};
 use crate::IMAdapter;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
-    register: |gw, cfg, ms, mc| {
-        let gw = gw.clone();
+    register: |host, cfg, ms, mc, ir, fp| {
+        let host = host.clone();
         let cfg = cfg.to_string();
-        Box::pin(async move { register(&gw, &cfg, ms, mc).await })
+        Box::pin(async move { register(&host, &cfg, ms, mc, ir, fp).await })
     },
 });
 
-/// Register the Feishu plugin with the Gateway.
+/// Resolve the effective Feishu profile: the injected profile wins; the
+/// environment value (read lazily through `env_profile` by the caller) is
+/// the fallback.
+///
+/// Extracted as a seam so tests can exercise both branches without mutating
+/// the process environment (docs/developer/STANDARDS.md §7 forbids env
+/// mutation outside `load_env_file`).
+pub(super) fn resolve_feishu_profile(
+    injected: Option<String>,
+    env_profile: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    injected.or_else(env_profile)
+}
+
+/// Register the Feishu plugin with the host (composition-root ports).
 ///
 /// First checks `{config_dir}/config/platforms.json` for an explicit
 /// enable flag.  If the platform is not listed or disabled the plugin
-/// is silently not registered.  When enabled, credentials are loaded
-/// from `{config_dir}/config/credentials/` (config file first, then
-/// `FEISHU_PROFILE` environment variable as fallback).
+/// is silently not registered.  When enabled, the profile is taken from
+/// the injected `feishu_profile` first, then the `FEISHU_PROFILE`
+/// environment variable as fallback.
 ///
-/// Identity mapping is loaded from `{config_dir}/config/accounts.json`
-/// (if the file exists).  A missing or empty file results in no
-/// mapping — the fallback uses `sender_id` as `account_id`.
+/// The identity resolver is injected by the composition root (loaded
+/// from `{config_dir}/config/accounts.json` there).  A missing /
+/// empty mapping set results in no resolver — the fallback uses
+/// `sender_id` as `account_id`.
 pub async fn register(
-    gateway: &Arc<closeclaw_gateway::Gateway>,
+    host: &crate::ports::GatewayHost,
     config_dir: &str,
     shared_media_store: Option<Arc<MediaStore>>,
-    _shared_media_config: Option<closeclaw_config::MediaConfigData>,
+    media_config: Option<MediaConfigSnapshot>,
+    identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    feishu_profile: Option<String>,
 ) {
     let platforms = load_platforms_config(config_dir);
     if !platforms.is_enabled("feishu") {
@@ -62,21 +78,15 @@ pub async fn register(
         return;
     }
 
-    // Load feishu profile from config credentials first, fallback to env var.
-    let profile = CredentialsProvider::load_from_dir(
-        &std::path::Path::new(config_dir)
-            .join("config")
-            .join("credentials"),
-    )
-    .ok()
-    .and_then(|creds| creds.feishu_profile().map(|p| p.profile.clone()))
-    .or_else(|| std::env::var("FEISHU_PROFILE").ok());
+    // Injected profile first, FEISHU_PROFILE environment variable as fallback.
+    let profile = resolve_feishu_profile(feishu_profile, || std::env::var("FEISHU_PROFILE").ok());
     if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {
-            let media_config = load_media_config(config_dir);
+            let snapshot = media_config.clone().unwrap_or_default();
             Arc::new(
-                MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
+                MediaStore::new(&snapshot.storage_dir.to_string_lossy())
+                    .expect("failed to create media store"),
             )
         });
         let adapter = Arc::new(
@@ -84,19 +94,15 @@ pub async fn register(
                 .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
         );
 
-        // Load identity mapping from config file (best-effort).
-        let identity_resolver: Option<Arc<dyn IdentityResolver>> =
-            identity::load_identity_resolver(config_dir);
-
         let mut plugin = FeishuPlugin::with_identity_resolver(adapter, identity_resolver);
 
-        // Inject DebugLog from Gateway (if configured).
-        if let Some(debug_log) = gateway.get_debug_log() {
+        // Injected DebugLog (configured on the host, if any).
+        if let Some(debug_log) = host.debug_log.clone() {
             plugin.set_debug_log(Arc::new(debug_log));
         }
 
         let plugin: Arc<dyn IMPlugin> = Arc::new(plugin);
-        gateway.register_plugin(plugin).await;
+        host.registrar.register_plugin(plugin).await;
         info!("Feishu plugin registered");
 
         // Spawn long-connection event stream (lark-cli event consume).
@@ -112,7 +118,7 @@ pub async fn register(
         );
         match pm.start().await {
             Ok(()) => {
-                process_manager::start_event_stream(gateway, event_rx);
+                process_manager::start_event_stream(host.enqueuer.clone(), event_rx);
                 info!("Feishu long-connection event stream started");
             }
             Err(e) => {

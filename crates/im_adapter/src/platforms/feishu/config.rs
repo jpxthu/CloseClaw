@@ -1,7 +1,7 @@
 //! Platform configuration loading for the Feishu plugin.
 //!
-//! Loads `platforms.json` (per-platform enablement) and `media.json`
-//! (media storage configuration) from the config directory.
+//! Loads `platforms.json` (per-platform enablement) from the config
+//! directory.
 
 use serde::Deserialize;
 use std::collections::HashMap;
@@ -61,33 +61,6 @@ pub(crate) fn load_platforms_config(config_dir: &str) -> PlatformsConfig {
                 "failed to read platforms.json — all platforms disabled"
             );
             PlatformsConfig::default()
-        }
-    }
-}
-
-/// Load `{config_dir}/config/media.json`.
-///
-/// Returns default config when the file is missing or unparseable.
-pub(crate) fn load_media_config(config_dir: &str) -> closeclaw_config::MediaConfigData {
-    let path = std::path::Path::new(config_dir)
-        .join("config")
-        .join("media.json");
-    match closeclaw_config::MediaConfigData::from_file(&path) {
-        Ok(cfg) => {
-            info!(
-                storage_dir = %cfg.storage_dir,
-                "media config loaded from {}",
-                path.display()
-            );
-            cfg
-        }
-        Err(e) => {
-            warn!(
-                error = %e,
-                path = %path.display(),
-                "failed to load media.json — using defaults"
-            );
-            closeclaw_config::MediaConfigData::default()
         }
     }
 }

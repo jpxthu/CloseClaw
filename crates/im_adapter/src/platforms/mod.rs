@@ -10,4 +10,4 @@ mod registry;
 // Auto-generated module declarations (from build.rs).
 include!(concat!(env!("OUT_DIR"), "/platforms_gen.rs"));
 
-pub use registry::{register_platform_plugins, PlatformEntry, RegisterFn};
+pub use registry::{register_platform_plugins, MediaConfigSnapshot, PlatformEntry, RegisterFn};

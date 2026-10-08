@@ -3,7 +3,9 @@
 //! Verifies that the registrar registers exactly 25 Feishu sub-tools
 //! with the correct names, groups, and deferred flags.
 
-use closeclaw_tools::{ToolContext, ToolRegistrar, ToolRegistry};
+use super::test_registry::TestToolRegistry;
+use closeclaw_common::tool_registry::ToolRegistrar;
+use closeclaw_common::tool_trait::ToolContext;
 
 fn make_ctx() -> ToolContext {
     ToolContext {
@@ -20,7 +22,7 @@ fn make_ctx() -> ToolContext {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_registers_twenty_five_tools() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -33,7 +35,7 @@ async fn test_im_adapter_registrar_registers_twenty_five_tools() {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_tool_names() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -83,7 +85,7 @@ async fn test_im_adapter_registrar_tool_names() {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_tool_groups() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -113,7 +115,7 @@ async fn test_im_adapter_registrar_tool_groups() {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_all_deferred() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -136,7 +138,7 @@ async fn test_im_adapter_registrar_name_and_priority() {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_idempotent_via_conflict() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
 
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
@@ -153,7 +155,7 @@ async fn test_im_adapter_registrar_idempotent_via_conflict() {
 
 #[tokio::test]
 async fn test_im_adapter_registrar_group_counts() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await

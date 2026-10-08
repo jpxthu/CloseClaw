@@ -366,22 +366,23 @@ impl crate::Daemon {
         let common_sh = crate::bridge::common_shutdown_handle(&self.shutdown);
         new_gw.set_shutdown_handle(Arc::clone(&common_sh));
 
-        // Pass MediaStore and MediaConfigData from the old gateway if available.
-        // Re-create MediaStore from config to share the same instance with new gateway.
-        let media_config_path = std::path::Path::new(config_dir)
-            .join("config")
-            .join("media.json");
-        let media_config =
-            closeclaw_config::MediaConfigData::from_file(&media_config_path).unwrap_or_default();
+        // Re-create MediaStore from config to share the same instance with
+        // the new gateway; identity resolver / profile / media config are
+        // assembled at the composition root and injected (issue #3347).
+        let injection = crate::platform_injection::PlatformInjection::load(config_dir);
         let shared_media_store =
-            closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir)
+            closeclaw_im_adapter::media_store::MediaStore::new(&injection.media_config.storage_dir)
                 .ok()
                 .map(std::sync::Arc::new);
+        let media_config_snapshot = injection.media_config_snapshot();
+        let host = crate::gateway_host_adapter::gateway_host(&new_gw);
         closeclaw_im_adapter::platforms::register_platform_plugins(
-            &new_gw,
+            &host,
             config_dir,
             shared_media_store,
-            Some(media_config),
+            Some(media_config_snapshot),
+            injection.identity_resolver,
+            injection.feishu_profile,
         )
         .await;
         info!("platform plugins registered on new gateway");

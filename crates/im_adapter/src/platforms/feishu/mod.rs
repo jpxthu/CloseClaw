@@ -34,6 +34,8 @@ mod feishu_tests;
 mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
+#[cfg(test)]
+mod identity_resolver_stub;
 mod inbound;
 #[cfg(test)]
 mod media_filter_tests;
@@ -47,6 +49,8 @@ mod post_expand;
 pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
+#[cfg(test)]
+mod register_injection_tests;
 mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]

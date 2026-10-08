@@ -18,6 +18,9 @@ mod tools_tests;
 #[cfg(test)]
 mod registrar_tests;
 
+#[cfg(test)]
+mod test_registry;
+
 // im (4)
 pub use im::FeishuImUserGetMessagesTool;
 pub use im::FeishuImUserGetThreadMessagesTool;

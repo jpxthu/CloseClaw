@@ -242,15 +242,10 @@ impl Daemon {
         gateway
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
-        let media_config_path = std::path::Path::new(config_dir).join("config/media.json");
-        let media_config = match closeclaw_config::MediaConfigData::from_file(&media_config_path) {
-            Ok(cfg) => cfg,
-            Err(e) => {
-                warn!(error = %e, path = %media_config_path.display(),
-                    "failed to load media.json — using defaults");
-                closeclaw_config::MediaConfigData::default()
-            }
-        };
+        // Composition-root injections for platform plugins: identity
+        // resolver, feishu profile, media config (issue #3347).
+        let injection = crate::platform_injection::PlatformInjection::load(config_dir);
+        let media_config = injection.media_config.clone();
         let shared_media_store =
             match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
                 Ok(store) => {
@@ -267,11 +262,15 @@ impl Daemon {
                     None
                 }
             };
+        let media_config_snapshot = injection.media_config_snapshot();
+        let host = crate::gateway_host_adapter::gateway_host(&gateway);
         closeclaw_im_adapter::platforms::register_platform_plugins(
-            &gateway,
+            &host,
             config_dir,
             shared_media_store.clone(),
-            Some(media_config.clone()),
+            Some(media_config_snapshot),
+            injection.identity_resolver,
+            injection.feishu_profile,
         )
         .await;
         // Start the periodic media cleanup task.

@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 
+use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 use closeclaw_common::tool_trait::{Tool, ToolFlags};
-use closeclaw_tools::{ToolRegistrar, ToolRegistrarError};
 
 use crate::lazy_tool::{LazyTool, ToolMeta};
 use crate::platforms::feishu::tools::{
@@ -80,7 +80,10 @@ macro_rules! register {
                 flags: feishu_flags(),
             }
         );
-        closeclaw_tools::try_register!($registry, $registered, tool, $r);
+        let tool_name = tool.name().to_string();
+        if closeclaw_common::tool_registry::register_single($registry, tool_name, tool, $r).await? {
+            $registered += 1;
+        }
     }};
 }
 

@@ -10,6 +10,7 @@
 use super::process_manager::{start_event_stream, Event, EventLine};
 use super::*;
 use crate::media_store::MediaStore;
+use crate::ports::test_doubles::wait_enqueued;
 use crate::IMAdapter;
 use closeclaw_common::MessageType;
 use std::sync::Arc;
@@ -26,27 +27,9 @@ fn make_test_adapter() -> FeishuAdapter {
     FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
 }
 
-/// Create a test Gateway with inbound queue started.
-fn make_test_gateway() -> std::sync::Arc<closeclaw_gateway::Gateway> {
-    use closeclaw_gateway::{Gateway, GatewayConfig};
-
-    let config = GatewayConfig {
-        name: "test".to_owned(),
-        rate_limit_per_minute: 0,
-        max_message_size: 0,
-        inbound_queue_capacity: 4,
-        inbound_wal_dir: None,
-        ..Default::default()
-    };
-    let sm = std::sync::Arc::new(closeclaw_gateway::SessionManager::new(
-        &config,
-        None,
-        None,
-        closeclaw_common::ReasoningLevel::default(),
-    ));
-    let gw = std::sync::Arc::new(Gateway::new_for_tests(config, sm));
-    gw.start_inbound_queue();
-    gw
+/// Create a recording inbound-enqueuer double (no real host).
+fn make_enqueuer() -> std::sync::Arc<crate::ports::test_doubles::FakeEnqueuer> {
+    crate::ports::test_doubles::FakeEnqueuer::new()
 }
 
 // ===========================================================================
@@ -336,10 +319,10 @@ async fn test_full_chain_p2p_chat_event_without_chat_type() {
 /// subprocess are still received and enqueued.
 #[tokio::test]
 async fn test_event_stream_survives_event_channel_reconnect() {
-    let gw = make_test_gateway();
+    let enqueuer = make_enqueuer();
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    start_event_stream(&gw, rx);
+    start_event_stream(enqueuer.clone(), rx);
 
     // Simulate first batch of events (before "restart")
     for i in 0..3 {
@@ -382,8 +365,11 @@ async fn test_event_stream_survives_event_channel_reconnect() {
 
     // Drop tx to end the stream
     drop(tx);
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    // No panic = success. Events from both "batches" were enqueued.
+    assert_eq!(
+        wait_enqueued(&enqueuer, 6).await,
+        6,
+        "events from both batches must be enqueued"
+    );
 }
 
 // ===========================================================================
@@ -391,13 +377,13 @@ async fn test_event_stream_survives_event_channel_reconnect() {
 // ===========================================================================
 
 /// Event stream with reaction.created event: parse_inbound returns None,
-/// Gateway discards it. No panic, no crash.
+/// the host drops it downstream. No panic, no crash.
 #[tokio::test]
 async fn test_event_stream_reaction_event_filtered() {
-    let gw = make_test_gateway();
+    let enqueuer = make_enqueuer();
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    start_event_stream(&gw, rx);
+    start_event_stream(enqueuer.clone(), rx);
 
     let event = Event {
         event_type: "im.message.reaction.created_v1".to_string(),
@@ -421,19 +407,23 @@ async fn test_event_stream_reaction_event_filtered() {
     tx.send(EventLine::Event(event)).unwrap();
     drop(tx);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    // No panic = success. Reaction event was enqueued, parse_inbound returns None,
-    // Gateway discards it.
+    // Reaction event is enqueued as-is; parse_inbound returning `None` is
+    // what makes the host drop it downstream. No panic, no crash.
+    assert_eq!(
+        wait_enqueued(&enqueuer, 1).await,
+        1,
+        "non-message event must still be enqueued"
+    );
 }
 
 /// Event stream with card.action.trigger event: parse_inbound returns None,
-/// Gateway discards it. No panic.
+/// the host drops it downstream. No panic.
 #[tokio::test]
 async fn test_event_stream_card_action_filtered() {
-    let gw = make_test_gateway();
+    let enqueuer = make_enqueuer();
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
 
-    start_event_stream(&gw, rx);
+    start_event_stream(enqueuer.clone(), rx);
 
     let event = Event {
         event_type: "card.action.trigger".to_string(),
@@ -455,6 +445,10 @@ async fn test_event_stream_card_action_filtered() {
     tx.send(EventLine::Event(event)).unwrap();
     drop(tx);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-    // No panic = success. Card action was enqueued, parse_inbound returns None.
+    // Card action event is enqueued as-is; parse_inbound returns `None`.
+    assert_eq!(
+        wait_enqueued(&enqueuer, 1).await,
+        1,
+        "card action event must still be enqueued"
+    );
 }

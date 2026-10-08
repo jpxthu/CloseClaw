@@ -4,7 +4,7 @@
 //! "各模块注册的工具一览" table for the `feishu_task` group.
 
 use async_trait::async_trait;
-use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
 const KW_TASK: &str = "[keywords: task todo create update complete assign]";
