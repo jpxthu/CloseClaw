@@ -66,6 +66,16 @@ jobs:
       - name: Run clippy
         run: cargo clippy --all -- -D warnings
 
+      - name: Install cargo-machete
+        uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2
+        with:
+          tool: cargo-machete
+
+      - name: Run dep guard
+        run: |
+          # 解耦治理守卫：依赖方向 / 禁二次出口 / common 准入 / 死依赖（baseline=现状，仅对新增越界报警）
+          bash scripts/periodic-checks.sh --dep-guard
+
       - name: Run tests (nextest)
         run: cargo nextest run --workspace --lib --bins --tests --no-fail-fast
 
