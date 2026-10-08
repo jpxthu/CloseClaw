@@ -49,7 +49,6 @@ pub(crate) fn dreaming_params_from_config(config: &DreamingConfig) -> DreamingPa
             path: config.diary.path.clone(),
         },
         model: config.model.clone(),
-        schedule: config.schedule.clone(),
         scoring: DreamingScoringParams {
             frequency_weight: config.scoring.frequency_weight,
             recency_weight: config.scoring.recency_weight,
@@ -170,7 +169,6 @@ mod tests {
         assert_eq!(params.diary.enabled, Some(false));
         assert_eq!(params.diary.path.as_deref(), Some("custom/diary/"));
         assert_eq!(params.model.as_deref(), Some("dream-model"));
-        assert_eq!(params.schedule.as_deref(), Some("30 4 * * *"));
         assert_eq!(params.scoring.frequency_weight, Some(2.0));
         assert_eq!(params.scoring.recency_weight, Some(0.7));
         assert_eq!(params.scoring.explicitness_weight, Some(1.1));
@@ -188,7 +186,6 @@ mod tests {
         assert_eq!(params.diary.enabled, None);
         assert_eq!(params.diary.path, None);
         assert_eq!(params.model, None);
-        assert_eq!(params.schedule, None);
         assert_eq!(params.scoring, DreamingScoringParams::default());
         assert_eq!(params.threshold, DreamingThresholdParams::default());
         assert_eq!(params.capacity, DreamingCapacityParams::default());

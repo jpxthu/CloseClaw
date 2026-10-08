@@ -219,7 +219,6 @@ fn test_forgetting_params_extension_days_flows_through() {
     let forgetting = ForgettingParams {
         injection_extension_days: Some(30),
     };
-    assert_eq!(forgetting.injection_extension_days, Some(30));
 
     let search = SearchParams {
         enabled: Some(true),

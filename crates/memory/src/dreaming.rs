@@ -129,9 +129,9 @@ impl DreamingPipeline {
         Self {
             scoring: DreamingScoringParams::default(),
             thresholds: Thresholds {
-                absolute: 2.0,
-                relative: 0.3,
-                max_rules: 20,
+                absolute: default_threshold_absolute(),
+                relative: default_threshold_relative(),
+                max_rules: default_capacity_max_rules(),
             },
             config: Arc::new(RwLock::new(DreamingParams::default())),
             model: Arc::new(RwLock::new(None)),

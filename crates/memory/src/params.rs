@@ -91,8 +91,6 @@ pub struct DreamingParams {
     pub diary: DreamingDiaryParams,
     /// Model for lesson distillation and Dream Diary.
     pub model: Option<String>,
-    /// Cron expression for dreaming schedule.
-    pub schedule: Option<String>,
     /// Scoring dimension weights.
     pub scoring: DreamingScoringParams,
     /// Score thresholds for rule promotion.
