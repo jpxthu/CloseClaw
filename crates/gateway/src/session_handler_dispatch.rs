@@ -197,18 +197,10 @@ impl SearcherTriggerDeps {
                 let sm = Arc::clone(&sm);
                 Box::pin(async move {
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let pos_mode = match position.as_str() {
-                            "before_next" => {
-                                closeclaw_session::llm_session::InjectionPosition::BeforeNext
-                            }
-                            _ => closeclaw_session::llm_session::InjectionPosition::AfterCurrent,
-                        };
-                        let injection = closeclaw_session::llm_session::MemoryInjection {
-                            content,
-                            position_mode: pos_mode,
-                            injected_event_ids: event_ids,
-                            task_id: None,
-                        };
+                        let injection =
+                            crate::memory::injection_convert::slot_parts_to_session_injection(
+                                content, &position, event_ids,
+                            );
                         cs.read().await.set_memory_injection(injection);
                     }
                 })
@@ -273,25 +265,38 @@ impl SearcherTriggerDeps {
 
 // ── build_run_searcher helpers ─────────────────────────────────────
 
-/// Convert session message snapshots to LLM session messages.
-fn convert_to_llm_messages(
-    snapshots: &[Snapshot],
-) -> Vec<closeclaw_session::llm_session::SessionMessage> {
-    snapshots
-        .iter()
-        .map(|m| closeclaw_session::llm_session::SessionMessage {
-            role: m.role.clone(),
-            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(m.content.clone())],
-            timestamp: chrono::Utc::now(),
-        })
-        .collect()
-}
-
 /// Deserialize the memory config JSON into a strongly-typed struct.
 fn deserialize_memory_config(
     memory_config: &serde_json::Value,
 ) -> Option<closeclaw_config::agents::MemoryConfig> {
     serde_json::from_value(memory_config.clone()).ok()
+}
+
+/// Map the agent memory config onto the memory crate's search params.
+///
+/// Pure field copy — default-value fallbacks live in `closeclaw-memory`.
+fn search_params_from_memory_config(
+    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+) -> closeclaw_memory::params::SearchParams {
+    let search = &mem_cfg.search;
+    closeclaw_memory::params::SearchParams {
+        enabled: search.enabled,
+        model: search.model.clone(),
+        context_turns: search.context_turns,
+        timeout_ms: search.timeout_ms,
+        max_summary_chars: search.max_summary_chars,
+        min_entity_hits: search.min_entity_hits,
+        top_k_events: search.top_k_events,
+    }
+}
+
+/// Map the agent forgetting config onto the memory crate's forgetting params.
+fn forgetting_params_from_memory_config(
+    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+) -> closeclaw_memory::params::ForgettingParams {
+    closeclaw_memory::params::ForgettingParams {
+        injection_extension_days: mem_cfg.forgetting.injection_extension_days,
+    }
 }
 
 /// Build the active-searcher config from model and memory config.
@@ -302,11 +307,9 @@ fn build_searcher_config(
     mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
 ) -> Option<crate::memory::active_searcher::ActiveSearcherConfig> {
     use crate::memory::active_searcher::ActiveSearcherConfig;
-    ActiveSearcherConfig::from_agent_config(
-        Some(model),
-        mem_cfg.as_ref(),
-        mem_cfg.as_ref().map(|m| &m.forgetting),
-    )
+    let search = mem_cfg.as_ref().map(search_params_from_memory_config);
+    let forgetting = mem_cfg.as_ref().map(forgetting_params_from_memory_config);
+    ActiveSearcherConfig::from_agent_config(Some(model), search.as_ref(), forgetting.as_ref())
 }
 
 /// Execute the searcher pipeline and convert the result.
@@ -315,7 +318,8 @@ async fn run_searcher_pipeline(
     caller: &ActiveSearcherLlmCaller,
 ) -> Option<(String, String, std::collections::HashSet<i64>)> {
     use crate::memory::active_searcher::ActiveSearcher;
-    let llm_messages = convert_to_llm_messages(&input.context_messages);
+    let llm_messages =
+        crate::memory::injection_convert::snapshots_to_internal_messages(&input.context_messages);
     let mem_cfg = deserialize_memory_config(&input.memory_config);
     let config = build_searcher_config(&input.model, &mem_cfg);
     let config = config?;
@@ -332,13 +336,9 @@ async fn run_searcher_pipeline(
         )
         .await?;
 
-    let pos_str = match injection.position_mode {
-        closeclaw_session::llm_session::InjectionPosition::BeforeNext => "before_next".to_string(),
-        closeclaw_session::llm_session::InjectionPosition::AfterCurrent => {
-            "after_current".to_string()
-        }
-    };
-    Some((injection.content, pos_str, injection.injected_event_ids))
+    Some(crate::memory::injection_convert::summary_to_slot_parts(
+        injection,
+    ))
 }
 
 // ── Config loading helper ──────────────────────────────────────────
@@ -687,5 +687,168 @@ impl SessionMessageHandler {
                 "failed to enqueue pending message"
             );
         }
+    }
+}
+
+// ── Mapping helper tests (dependency-alignment regression) ─────────────
+
+#[cfg(test)]
+mod search_mapping_tests {
+    use super::{
+        build_searcher_config, deserialize_memory_config, forgetting_params_from_memory_config,
+        search_params_from_memory_config,
+    };
+    use closeclaw_config::agents::{ForgettingConfig, MemoryConfig, SearchConfig};
+    use closeclaw_memory::params::{
+        default_forgetting_injection_extension_days, default_search_context_turns,
+        default_search_max_summary_chars, default_search_min_entity_hits,
+        default_search_timeout_ms, default_search_top_k_events,
+    };
+
+    fn full_search_config() -> SearchConfig {
+        SearchConfig {
+            enabled: Some(true),
+            model: Some("search-model".to_string()),
+            context_turns: Some(8),
+            timeout_ms: Some(1500),
+            max_summary_chars: Some(300),
+            min_entity_hits: Some(2),
+            top_k_events: Some(4),
+        }
+    }
+
+    #[test]
+    fn test_search_params_mapping_field_equivalence() {
+        let mem_cfg = MemoryConfig {
+            search: full_search_config(),
+            ..Default::default()
+        };
+        let params = search_params_from_memory_config(&mem_cfg);
+        assert_eq!(params.enabled, Some(true));
+        assert_eq!(params.model.as_deref(), Some("search-model"));
+        assert_eq!(params.context_turns, Some(8));
+        assert_eq!(params.timeout_ms, Some(1500));
+        assert_eq!(params.max_summary_chars, Some(300));
+        assert_eq!(params.min_entity_hits, Some(2));
+        assert_eq!(params.top_k_events, Some(4));
+    }
+
+    #[test]
+    fn test_forgetting_params_mapping_field_equivalence() {
+        let mem_cfg = MemoryConfig {
+            forgetting: ForgettingConfig {
+                injection_extension_days: Some(21),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let params = forgetting_params_from_memory_config(&mem_cfg);
+        assert_eq!(
+            params.injection_extension_days,
+            Some(21),
+            "the searcher-consumed forgetting field must be carried over"
+        );
+    }
+
+    #[test]
+    fn test_mapping_with_missing_fields_stays_none() {
+        let params = search_params_from_memory_config(&MemoryConfig::default());
+        assert_eq!(
+            params,
+            Default::default(),
+            "undeclared config fields must stay None; the memory crate owns the default fallbacks"
+        );
+        let forgetting = forgetting_params_from_memory_config(&MemoryConfig::default());
+        assert_eq!(forgetting.injection_extension_days, None);
+    }
+
+    #[test]
+    fn test_build_searcher_config_applies_memory_defaults_for_missing_fields() {
+        let mem_cfg = MemoryConfig {
+            search: SearchConfig {
+                enabled: Some(true),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let config = build_searcher_config("agent-model", &Some(mem_cfg))
+            .expect("enabled search must build a config");
+        assert_eq!(config.timeout_ms, default_search_timeout_ms());
+        assert_eq!(config.max_summary_chars, default_search_max_summary_chars());
+        assert_eq!(config.min_entity_hits, default_search_min_entity_hits());
+        assert_eq!(config.top_k_events, default_search_top_k_events());
+        assert_eq!(config.context_turns, default_search_context_turns());
+        assert_eq!(
+            config.injection_extension_days,
+            default_forgetting_injection_extension_days()
+        );
+        assert_eq!(
+            config.model, "agent-model",
+            "missing search.model must fall back to the agent model"
+        );
+    }
+
+    #[test]
+    fn test_build_searcher_config_carries_explicit_overrides() {
+        let mem_cfg = MemoryConfig {
+            search: full_search_config(),
+            forgetting: ForgettingConfig {
+                injection_extension_days: Some(14),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        let config = build_searcher_config("agent-model", &Some(mem_cfg))
+            .expect("enabled search must build a config");
+        assert_eq!(
+            config.model, "search-model",
+            "explicit search.model wins over the agent model"
+        );
+        assert_eq!(config.timeout_ms, 1500);
+        assert_eq!(config.context_turns, 8);
+        assert_eq!(config.injection_extension_days, 14);
+    }
+
+    #[test]
+    fn test_build_searcher_config_none_when_search_disabled() {
+        let mem_cfg = MemoryConfig {
+            search: SearchConfig {
+                enabled: Some(false),
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+        assert!(
+            build_searcher_config("agent-model", &Some(mem_cfg)).is_none(),
+            "explicitly disabled search must not build a searcher config"
+        );
+    }
+
+    #[test]
+    fn test_build_searcher_config_without_memory_config_uses_defaults() {
+        let config = build_searcher_config("agent-model", &None)
+            .expect("absent memory config keeps search enabled with defaults");
+        assert_eq!(config.timeout_ms, default_search_timeout_ms());
+        assert_eq!(config.context_turns, default_search_context_turns());
+        assert_eq!(
+            config.injection_extension_days,
+            default_forgetting_injection_extension_days()
+        );
+        assert_eq!(config.model, "agent-model");
+    }
+
+    #[test]
+    fn test_deserialize_memory_config_round_trip() {
+        let mem_cfg = MemoryConfig {
+            search: full_search_config(),
+            ..Default::default()
+        };
+        let json = serde_json::to_value(&mem_cfg).expect("serialize memory config");
+        let parsed = deserialize_memory_config(&json).expect("serialized config must deserialize");
+        assert_eq!(
+            parsed.search,
+            full_search_config(),
+            "serde round trip must preserve the search fields"
+        );
     }
 }

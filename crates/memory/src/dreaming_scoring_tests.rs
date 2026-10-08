@@ -3,12 +3,12 @@
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
 use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
-use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingConfig, DreamingDiaryConfig, DreamingScoringConfig,
-    DreamingThresholdConfig,
+use crate::params::{
+    DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
+    DreamingThresholdParams,
 };
-use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
+use crate::storage::DreamingStatus;
+use crate::test_helpers::TestStorage;
 use tempfile::TempDir;
 
 /// Helper to create a MemoryEntry for testing.
@@ -39,8 +39,8 @@ fn make_entry(
 /// Same category entries → negative_signal = 0.0, score unaffected.
 #[test]
 fn test_negative_signal_same_category() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -48,11 +48,11 @@ fn test_negative_signal_same_category() {
             negative_signal_weight: Some(-1.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -81,8 +81,8 @@ fn test_negative_signal_same_category() {
 /// Mixed category entries → negative_signal > 0.0, score reduced.
 #[test]
 fn test_negative_signal_mixed_category() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -90,11 +90,11 @@ fn test_negative_signal_mixed_category() {
             negative_signal_weight: Some(-1.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(-100.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -145,8 +145,8 @@ fn test_negative_signal_mixed_category() {
 /// Single entry group → negative_signal = 0.0.
 #[test]
 fn test_negative_signal_single_entry() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -154,11 +154,11 @@ fn test_negative_signal_single_entry() {
             negative_signal_weight: Some(-1.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -236,9 +236,9 @@ impl DreamingLlmCaller for FailingDiaryLlm {
 async fn test_dream_diary_llm_narrative_success() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -269,9 +269,9 @@ async fn test_dream_diary_llm_narrative_success() {
 async fn test_dream_diary_llm_failure_fallback() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -303,9 +303,9 @@ async fn test_dream_diary_llm_failure_fallback() {
 async fn test_dream_diary_no_llm_fallback() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -328,9 +328,9 @@ async fn test_dream_diary_no_llm_fallback() {
 async fn test_dream_diary_empty_promoted_no_write() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -387,18 +387,15 @@ async fn test_run_once_diary_only_promoted_groups() {
     }
 
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", true, DreamingStatus::Pending);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_dir.to_str().unwrap().to_string()),
         },
-        scoring: DreamingScoringConfig {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
@@ -406,11 +403,11 @@ async fn test_run_once_diary_only_promoted_groups() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -471,8 +468,8 @@ fn test_load_entity_type_weight_active() {
         cross_agent_count: 1,
         score: 0.0,
     }];
-    let pipeline_scoring = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline_scoring = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -480,11 +477,11 @@ fn test_load_entity_type_weight_active() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -510,8 +507,8 @@ fn test_load_entity_type_weight_inactive() {
         [],
     )
     .unwrap();
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -519,11 +516,11 @@ fn test_load_entity_type_weight_inactive() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -554,8 +551,8 @@ fn test_load_entity_type_weight_inactive() {
 #[test]
 fn test_load_entity_type_weight_unknown() {
     let (tmp, _conn) = make_weight_db();
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -563,11 +560,11 @@ fn test_load_entity_type_weight_unknown() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()

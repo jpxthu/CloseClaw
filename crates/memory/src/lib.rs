@@ -13,17 +13,23 @@ pub mod memory_fragment_provider;
 pub mod miner;
 pub mod miner_llm;
 pub mod miner_transcript;
+pub mod params;
+pub mod storage;
 
 #[cfg(test)]
 pub mod test_helpers;
 
-pub use active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-pub use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
+pub use active_searcher::{
+    ActiveSearcher, ActiveSearcherConfig, InjectedMemorySummary, MemorySummaryPosition,
+};
 pub use embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 pub use memory_fragment_provider::MemoryFragmentProvider;
+pub use storage::{CheckpointSnapshot, DreamingStatus, MemoryStorage, StorageError};
 
 #[cfg(test)]
 mod active_searcher_tests;
+#[cfg(test)]
+mod dependency_boundary_tests;
 #[cfg(test)]
 mod dreaming_design_align_tests;
 #[cfg(test)]

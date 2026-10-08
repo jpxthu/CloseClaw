@@ -11,7 +11,4 @@ closeclaw-im-adapter -> closeclaw-config
 closeclaw-im-adapter -> closeclaw-gateway
 closeclaw-im-adapter -> closeclaw-tools
 closeclaw-llm -> closeclaw-session
-closeclaw-memory -> closeclaw-config
-closeclaw-memory -> closeclaw-llm
-closeclaw-memory -> closeclaw-session
 closeclaw-permission -> closeclaw-config

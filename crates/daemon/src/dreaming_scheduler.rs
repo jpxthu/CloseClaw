@@ -30,6 +30,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_config::ConfigSection;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
+use closeclaw_memory::storage::MemoryStorage;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
 /// Errors that can occur during scheduler operations.
@@ -54,6 +55,8 @@ pub enum DreamingSchedulerError {
 /// `tokio::spawn` + `watch::Receiver` for shutdown coordination.
 pub struct DreamingScheduler {
     storage: Arc<dyn PersistenceService>,
+    /// Memory-side narrow storage port (adapter over `storage`).
+    memory_storage: Arc<dyn MemoryStorage>,
     config: Arc<dyn SessionConfigProvider>,
     dreaming_pipeline: Arc<DreamingPipeline>,
     memory_miner: Arc<MemoryMiner>,
@@ -76,6 +79,7 @@ pub struct DreamingScheduler {
 /// without borrowing the scheduler.
 async fn execute_dreaming_cycle(
     storage: &Arc<dyn PersistenceService>,
+    memory_storage: &Arc<dyn MemoryStorage>,
     config: &Arc<dyn SessionConfigProvider>,
     dreaming_pipeline: &Arc<DreamingPipeline>,
     memory_miner: &Arc<MemoryMiner>,
@@ -86,14 +90,14 @@ async fn execute_dreaming_cycle(
     }
 
     // Step 1: Run dreaming pipeline (process already-mined entries)
-    if let Err(e) = dreaming_pipeline.run_once(storage.as_ref()).await {
+    if let Err(e) = dreaming_pipeline.run_once(memory_storage.as_ref()).await {
         error!(%e, "dreaming pipeline failed");
     }
 
     // Step 2: Run mining scan (extract entries from new archived sessions)
     let unmined = storage.list_archived_unmined_sessions().await?;
     for session_id in unmined {
-        mine_archived_session(&session_id, &agents, storage, memory_miner).await;
+        mine_archived_session(&session_id, &agents, storage, memory_storage, memory_miner).await;
     }
 
     // Step 3: Run forgetting cleanup (delete expired events + orphan entities)
@@ -120,6 +124,7 @@ async fn mine_archived_session(
     session_id: &str,
     agents: &[String],
     storage: &Arc<dyn PersistenceService>,
+    memory_storage: &Arc<dyn MemoryStorage>,
     memory_miner: &Arc<MemoryMiner>,
 ) {
     let checkpoint = match storage.load_archived_checkpoint(session_id).await {
@@ -155,8 +160,8 @@ async fn mine_archived_session(
             session_id,
             &raw_transcript,
             agent_id,
-            &checkpoint,
-            storage.as_ref(),
+            &crate::memory_storage_adapter::checkpoint_snapshot(&checkpoint),
+            memory_storage.as_ref(),
         )
         .await
     {
@@ -200,6 +205,7 @@ impl DreamingScheduler {
     /// Create a new `DreamingScheduler`.
     pub fn new(
         storage: Arc<dyn PersistenceService>,
+        memory_storage: Arc<dyn MemoryStorage>,
         config: Arc<dyn SessionConfigProvider>,
         dreaming_pipeline: Arc<DreamingPipeline>,
         memory_miner: Arc<MemoryMiner>,
@@ -208,6 +214,7 @@ impl DreamingScheduler {
         let config_rx = config_manager.subscribe_config_changes();
         Self {
             storage,
+            memory_storage,
             config,
             dreaming_pipeline,
             memory_miner,
@@ -250,10 +257,13 @@ impl DreamingScheduler {
                         return;
                     }
                 };
-                self.dreaming_pipeline
-                    .update_config(memory_config.config.dreaming.clone());
+                self.dreaming_pipeline.update_config(
+                    crate::memory_params_adapter::dreaming_params_from_config(
+                        &memory_config.config.dreaming,
+                    ),
+                );
                 self.memory_miner.update_config(
-                    closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
+                    crate::memory_params_adapter::miner_config_from_memory(&memory_config.config),
                 );
                 self.schedule = memory_config.config.dreaming.schedule.clone();
                 info!("dreaming config reloaded via config manager");
@@ -471,11 +481,12 @@ impl DreamingScheduler {
         // Spawn new task if none active
         if active_task.is_none() {
             let storage = self.storage.clone();
+            let memory_storage = self.memory_storage.clone();
             let config = self.config.clone();
             let pipeline = self.dreaming_pipeline.clone();
             let miner = self.memory_miner.clone();
             *active_task = Some(tokio::spawn(async move {
-                execute_dreaming_cycle(&storage, &config, &pipeline, &miner).await
+                execute_dreaming_cycle(&storage, &memory_storage, &config, &pipeline, &miner).await
             }));
         }
     }
@@ -484,6 +495,7 @@ impl DreamingScheduler {
     pub async fn run_once(&self) -> Result<(), DreamingSchedulerError> {
         execute_dreaming_cycle(
             &self.storage,
+            &self.memory_storage,
             &self.config,
             &self.dreaming_pipeline,
             &self.memory_miner,
@@ -494,7 +506,14 @@ impl DreamingScheduler {
     /// Mine a single archived session: load checkpoint, filter by agent,
     /// format transcript, and invoke the memory miner.
     async fn mine_session(&self, session_id: &str, agents: &[String]) {
-        mine_archived_session(session_id, agents, &self.storage, &self.memory_miner).await
+        mine_archived_session(
+            session_id,
+            agents,
+            &self.storage,
+            &self.memory_storage,
+            &self.memory_miner,
+        )
+        .await
     }
 }
 

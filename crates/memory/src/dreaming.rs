@@ -12,15 +12,14 @@ use std::sync::{Arc, RwLock};
 use rusqlite::params;
 use thiserror::Error;
 
-use closeclaw_config::agents::{
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
+use crate::params::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
     default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
     default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
-    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
+    default_threshold_relative, DreamingParams, DreamingScoringParams,
 };
-use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
-
-use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
+use crate::storage::{DreamingStatus, MemoryStorage, StorageError};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -86,7 +85,7 @@ pub enum EntryCategory {
 #[derive(Debug, Error)]
 pub enum DreamingError {
     #[error("storage error: {0}")]
-    Storage(#[from] PersistenceError),
+    Storage(#[from] StorageError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error("data error: {0}")]
@@ -107,9 +106,9 @@ struct Thresholds {
 
 /// Orchestrates the dreaming pipeline: Light → REM → Deep → LLM consolidation → MEMORY.md.
 pub struct DreamingPipeline {
-    scoring: DreamingScoringConfig,
+    scoring: DreamingScoringParams,
     thresholds: Thresholds,
-    config: Arc<RwLock<DreamingConfig>>,
+    config: Arc<RwLock<DreamingParams>>,
     model: Arc<RwLock<Option<String>>>,
     db_path: Option<PathBuf>,
     memory_md_path: String,
@@ -121,20 +120,20 @@ impl DreamingPipeline {
         self.model.read().unwrap().clone()
     }
 
-    pub fn update_config(&self, config: DreamingConfig) {
+    pub fn update_config(&self, config: DreamingParams) {
         *self.model.write().unwrap() = config.model.clone();
         *self.config.write().unwrap() = config;
     }
 
     pub fn new() -> Self {
         Self {
-            scoring: DreamingScoringConfig::default(),
+            scoring: DreamingScoringParams::default(),
             thresholds: Thresholds {
-                absolute: 2.0,
-                relative: 0.3,
-                max_rules: 20,
+                absolute: default_threshold_absolute(),
+                relative: default_threshold_relative(),
+                max_rules: default_capacity_max_rules(),
             },
-            config: Arc::new(RwLock::new(DreamingConfig::default())),
+            config: Arc::new(RwLock::new(DreamingParams::default())),
             model: Arc::new(RwLock::new(None)),
             db_path: None,
             memory_md_path: default_memory_md_path(),
@@ -142,7 +141,7 @@ impl DreamingPipeline {
         }
     }
 
-    pub fn with_config(config: DreamingConfig) -> Self {
+    pub fn with_config(config: DreamingParams) -> Self {
         let scoring = config.scoring.clone();
         let model = config.model.clone();
         let thresholds = Thresholds {
@@ -186,7 +185,7 @@ impl DreamingPipeline {
     }
 
     /// Execute one full dreaming cycle.
-    pub async fn run_once(&self, storage: &dyn PersistenceService) -> Result<(), DreamingError> {
+    pub async fn run_once(&self, storage: &dyn MemoryStorage) -> Result<(), DreamingError> {
         {
             let cfg = self.config.read().unwrap();
             if !cfg.enabled.unwrap_or(false) {
@@ -262,7 +261,7 @@ impl DreamingPipeline {
     /// Batch-update dreaming status for all given sessions.
     pub(crate) async fn mark_sessions_status(
         &self,
-        storage: &dyn PersistenceService,
+        storage: &dyn MemoryStorage,
         session_ids: &[String],
         status: DreamingStatus,
     ) -> Result<(), DreamingError> {
@@ -275,7 +274,7 @@ impl DreamingPipeline {
     /// Mark all given sessions as `DreamingStatus::Completed`.
     async fn mark_sessions_completed(
         &self,
-        storage: &dyn PersistenceService,
+        storage: &dyn MemoryStorage,
         session_ids: &[String],
     ) -> Result<(), DreamingError> {
         self.mark_sessions_status(storage, session_ids, DreamingStatus::Completed)
@@ -285,7 +284,7 @@ impl DreamingPipeline {
     /// Collect unprocessed entries for a single session from SQLite.
     pub(crate) async fn collect_entries_for_session(
         &self,
-        storage: &dyn PersistenceService,
+        storage: &dyn MemoryStorage,
         session_id: &str,
     ) -> Result<Vec<MemoryEntry>, DreamingError> {
         storage

@@ -405,7 +405,9 @@ fn test_dreaming_pipeline_built_from_config_manager() {
         Some(2.0)
     );
 
-    let pipeline = DreamingPipeline::with_config(memory_config.config.dreaming.clone());
+    let pipeline = DreamingPipeline::with_config(
+        crate::memory_params_adapter::dreaming_params_from_config(&memory_config.config.dreaming),
+    );
 
     // Verify the pipeline was constructed (non-trivial — with_config populates
     // scoring, thresholds, and config fields from the DreamingConfig).
@@ -413,63 +415,74 @@ fn test_dreaming_pipeline_built_from_config_manager() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let storage: std::sync::Arc<dyn closeclaw_session::persistence::PersistenceService> =
         std::sync::Arc::new(crate::test_helpers::TestStorage::default());
+    let memory_storage = crate::memory_storage_adapter::MemoryStorageAdapter::new(storage);
     rt.block_on(async {
-        let result = pipeline.run_once(storage.as_ref()).await;
+        let result = pipeline.run_once(&memory_storage).await;
         // run_once may return Err if DB path is not set, but it should not panic.
         // The key assertion is that the pipeline was built successfully from config.
         let _ = result;
     });
 }
 
-/// Verify that MinerConfig::from_mining_config() derives enabled from
-/// the MiningConfig (not from MinerConfig::default()).
+/// Verify that the daemon mapping helper derives miner `enabled` from
+/// the mining config (not from MinerConfig::default()).
 #[test]
 fn test_miner_config_from_mining_config() {
-    let mining_config_enabled = closeclaw_config::agents::MiningConfig {
-        enabled: Some(true),
+    let memory_config_enabled = closeclaw_config::agents::MemoryConfig {
+        mining: closeclaw_config::agents::MiningConfig {
+            enabled: Some(true),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let miner_cfg =
-        closeclaw_memory::miner::MinerConfig::from_mining_config(&mining_config_enabled);
+    let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_enabled);
     assert!(
         miner_cfg.enabled,
         "MinerConfig should be enabled when MiningConfig.enabled = true"
     );
 
-    let mining_config_disabled = closeclaw_config::agents::MiningConfig {
-        enabled: Some(false),
+    let memory_config_disabled = closeclaw_config::agents::MemoryConfig {
+        mining: closeclaw_config::agents::MiningConfig {
+            enabled: Some(false),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let miner_cfg =
-        closeclaw_memory::miner::MinerConfig::from_mining_config(&mining_config_disabled);
+    let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_disabled);
     assert!(
         !miner_cfg.enabled,
         "MinerConfig should be disabled when MiningConfig.enabled = false"
     );
 
     // When enabled is None, fallback should be false (per config.md).
-    let mining_config_none = closeclaw_config::agents::MiningConfig {
-        enabled: None,
+    let memory_config_none = closeclaw_config::agents::MemoryConfig {
+        mining: closeclaw_config::agents::MiningConfig {
+            enabled: None,
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let miner_cfg = closeclaw_memory::miner::MinerConfig::from_mining_config(&mining_config_none);
+    let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_none);
     assert!(
         !miner_cfg.enabled,
         "MinerConfig.enabled should default to false when unset"
     );
 }
 
-/// Verify that MinerConfig::from_mining_config() respects custom
+/// Verify that the daemon mapping helper respects custom
 /// max_events_per_session and dedup_window_days.
 #[test]
 fn test_miner_config_from_mining_config_custom_values() {
-    let mining_config = closeclaw_config::agents::MiningConfig {
-        enabled: Some(true),
-        max_events_per_session: Some(50),
-        dedup_window_days: Some(60),
+    let memory_config = closeclaw_config::agents::MemoryConfig {
+        mining: closeclaw_config::agents::MiningConfig {
+            enabled: Some(true),
+            max_events_per_session: Some(50),
+            dedup_window_days: Some(60),
+            ..Default::default()
+        },
         ..Default::default()
     };
-    let miner_cfg = closeclaw_memory::miner::MinerConfig::from_mining_config(&mining_config);
+    let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config);
     assert_eq!(miner_cfg.max_events_per_session, 50);
     assert_eq!(miner_cfg.dedup_window_days, 60);
 }

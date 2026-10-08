@@ -3,8 +3,8 @@
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
 use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
+use crate::params::{
+    DreamingCapacityParams, DreamingParams, DreamingScoringParams, DreamingThresholdParams,
 };
 use tempfile::TempDir;
 
@@ -314,8 +314,8 @@ fn test_deep_capacity_limit_considers_existing_rules() {
     // Pre-populate MEMORY.md with 2 rules.
     std::fs::write(&md_path, "- rule1\n- rule2\n").unwrap();
 
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -323,11 +323,11 @@ fn test_deep_capacity_limit_considers_existing_rules() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: Some(5) },
+        capacity: DreamingCapacityParams { max_rules: Some(5) },
         ..Default::default()
     })
     .with_memory_md_path(md_path.to_str().unwrap());
@@ -376,8 +376,8 @@ fn test_deep_capacity_limit_full_drops_all() {
     let content: String = (0..5).map(|i| format!("- rule{}\n", i)).collect();
     std::fs::write(&md_path, &content).unwrap();
 
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -385,11 +385,11 @@ fn test_deep_capacity_limit_full_drops_all() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: Some(5) },
+        capacity: DreamingCapacityParams { max_rules: Some(5) },
         ..Default::default()
     })
     .with_memory_md_path(md_path.to_str().unwrap());
@@ -435,8 +435,8 @@ fn test_deep_capacity_limit_no_existing_file() {
     let md_path = tmp.path().join("MEMORY.md");
     // No file → existing_count = 0.
 
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(10.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -444,11 +444,11 @@ fn test_deep_capacity_limit_no_existing_file() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig { max_rules: Some(3) },
+        capacity: DreamingCapacityParams { max_rules: Some(3) },
         ..Default::default()
     })
     .with_memory_md_path(md_path.to_str().unwrap());

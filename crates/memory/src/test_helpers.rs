@@ -8,25 +8,26 @@ use crate::miner::MiningEventCategory;
 
 use async_trait::async_trait;
 
-use closeclaw_session::persistence::{
-    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
-};
+use crate::storage::{CheckpointSnapshot, DreamingStatus, MemoryStorage, StorageError};
 
-/// Minimal in-memory [`PersistenceService`] for unit tests.
+/// Minimal in-memory [`MemoryStorage`] for unit tests.
 #[derive(Debug, Default)]
 pub struct TestStorage {
     /// Active / general checkpoints.
-    pub checkpoints: Mutex<Vec<SessionCheckpoint>>,
-    /// Archived checkpoints.
-    pub archived: Mutex<Vec<SessionCheckpoint>>,
+    pub checkpoints: Mutex<Vec<CheckpointSnapshot>>,
     /// Tracks which sessions were marked mined.
     pub mined_ids: Mutex<Vec<String>>,
 }
 
 impl TestStorage {
-    /// Insert a checkpoint into the active store.
-    pub fn add_checkpoint(&self, cp: SessionCheckpoint) {
+    /// Insert a checkpoint into the store.
+    pub fn add_checkpoint(&self, cp: CheckpointSnapshot) {
         self.checkpoints.lock().unwrap().push(cp);
+    }
+
+    /// Build and insert a checkpoint snapshot (test convenience).
+    pub fn add(&self, session_id: &str, mined: bool, dreaming_status: DreamingStatus) {
+        self.add_checkpoint(CheckpointSnapshot::new(session_id, mined, dreaming_status));
     }
 
     /// Return a clone of the mined session IDs recorded so far.
@@ -36,19 +37,11 @@ impl TestStorage {
 }
 
 #[async_trait]
-impl PersistenceService for TestStorage {
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
-        self.checkpoints.lock().unwrap().push(checkpoint.clone());
-        Ok(())
-    }
-
+impl MemoryStorage for TestStorage {
     async fn load_checkpoint(
         &self,
         session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+    ) -> Result<Option<CheckpointSnapshot>, StorageError> {
         Ok(self
             .checkpoints
             .lock()
@@ -58,37 +51,12 @@ impl PersistenceService for TestStorage {
             .cloned())
     }
 
-    async fn load_archived_checkpoint(
-        &self,
-        _session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-
-    async fn delete_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .unwrap()
-            .retain(|cp| cp.session_id != session_id);
+    async fn mark_mined(&self, session_id: &str) -> Result<(), StorageError> {
+        self.mined_ids.lock().unwrap().push(session_id.into());
         Ok(())
     }
 
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(self
-            .archived
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|cp| !cp.mined)
-            .map(|cp| cp.session_id.clone())
-            .collect())
-    }
-
-    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
+    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, StorageError> {
         let cps = self.checkpoints.lock().unwrap();
         Ok(cps
             .iter()
@@ -97,16 +65,11 @@ impl PersistenceService for TestStorage {
             .collect())
     }
 
-    async fn mark_mined(&self, session_id: &str) -> Result<(), PersistenceError> {
-        self.mined_ids.lock().unwrap().push(session_id.into());
-        Ok(())
-    }
-
     async fn update_dreaming_status(
         &self,
         session_id: &str,
         status: DreamingStatus,
-    ) -> Result<(), PersistenceError> {
+    ) -> Result<(), StorageError> {
         let mut cps = self.checkpoints.lock().unwrap();
         if let Some(cp) = cps.iter_mut().find(|cp| cp.session_id == session_id) {
             cp.dreaming_status = status;

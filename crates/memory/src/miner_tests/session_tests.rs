@@ -1,8 +1,8 @@
 use crate::miner::{MemoryMiner, MinerConfig};
 use crate::miner_llm::MockMinerLlmCaller;
+use crate::params::TranscriptCleanRules;
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::TranscriptCleanRules;
-use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;
 
@@ -22,9 +22,7 @@ fn lenient_rules() -> TranscriptCleanRules {
 #[tokio::test]
 async fn test_mine_session_skips_when_disabled() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", false, DreamingStatus::default());
 
     let config = MinerConfig {
         enabled: false,
@@ -44,9 +42,7 @@ async fn test_mine_session_skips_when_disabled() {
 #[tokio::test]
 async fn test_mine_session_skips_already_mined() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", true, DreamingStatus::default());
 
     let config = MinerConfig::default();
     let llm = Box::new(MockMinerLlmCaller {
@@ -69,9 +65,7 @@ async fn test_mine_session_skips_already_mined() {
 #[tokio::test]
 async fn test_mine_session_empty_transcript() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", false, DreamingStatus::default());
 
     let config = MinerConfig::default();
     let llm = Box::new(MockMinerLlmCaller {
@@ -111,9 +105,7 @@ async fn test_mine_session_nonexistent_returns_error() {
 #[tokio::test]
 async fn test_mine_session_happy_path() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", false, DreamingStatus::default());
 
     let events = vec![make_event(
         "Test Entity",
@@ -150,9 +142,7 @@ async fn test_mine_session_happy_path() {
 #[tokio::test]
 async fn test_mine_session_respects_max_events_limit() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", false, DreamingStatus::default());
 
     let events: Vec<_> = (0..20)
         .map(|i| {
@@ -188,9 +178,7 @@ async fn test_mine_session_respects_max_events_limit() {
 #[tokio::test]
 async fn test_mine_session_persists_to_sqlite() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", false, DreamingStatus::default());
 
     let events = vec![make_event(
         "persisted event",

@@ -8,8 +8,8 @@
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
 use crate::miner::init_schema;
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
+use crate::params::{
+    DreamingCapacityParams, DreamingParams, DreamingScoringParams, DreamingThresholdParams,
 };
 use tempfile::TempDir;
 
@@ -40,8 +40,8 @@ fn make_entry(
 }
 
 fn make_pipeline_with_db(db_path: &std::path::Path) -> DreamingPipeline {
-    DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -49,11 +49,11 @@ fn make_pipeline_with_db(db_path: &std::path::Path) -> DreamingPipeline {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(-100.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -187,8 +187,8 @@ fn test_boundary_fallback_inactive_type() {
 fn test_negative_base_consistency() {
     let (_tmp, db_path) = make_db();
 
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(2.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -196,11 +196,11 @@ fn test_negative_base_consistency() {
             negative_signal_weight: Some(-3.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(-100.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()

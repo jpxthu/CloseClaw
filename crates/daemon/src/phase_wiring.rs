@@ -468,18 +468,25 @@ impl Daemon {
             .as_deref()
             .unwrap_or("memory/MEMORY.md");
         let dreaming_pipeline = Arc::new(
-            DreamingPipeline::with_config(memory_config.config.dreaming.clone())
-                .with_memory_md_path(md_path),
+            DreamingPipeline::with_config(
+                crate::memory_params_adapter::dreaming_params_from_config(
+                    &memory_config.config.dreaming,
+                ),
+            )
+            .with_memory_md_path(md_path),
         );
         let memory_miner = Arc::new(MemoryMiner::new(
-            closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
+            crate::memory_params_adapter::miner_config_from_memory(&memory_config.config),
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
             Box::new(noop_miner_llm::NoopMinerLlmCaller),
             data_dir.join(db_path),
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));
         let mut dreaming_scheduler = DreamingScheduler::new(
-            storage,
+            Arc::clone(&storage),
+            Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+                Arc::clone(&storage),
+            )),
             dreaming_config_provider,
             dreaming_pipeline,
             memory_miner,

@@ -10,16 +10,16 @@ use std::sync::{Arc, RwLock};
 
 use thiserror::Error;
 
-use closeclaw_config::agents::{
-    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
-    default_mining_dedup_window_days, default_mining_max_events_per_session, MemoryConfig,
-    MiningConfig,
-};
-use closeclaw_session::persistence::{PersistenceError, PersistenceService};
+use crate::storage::{CheckpointSnapshot, MemoryStorage, StorageError};
 
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner_llm::{MinerLlmCaller, MinerLlmError};
 use crate::miner_transcript::clean_transcript;
+use crate::params::{
+    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
+    default_mining_dedup_window_days, default_mining_max_events_per_session, MinerParams,
+    TranscriptCleanRules,
+};
 
 mod miner_sqlite;
 pub(crate) use miner_sqlite::*;
@@ -29,7 +29,7 @@ pub(crate) use miner_sqlite::*;
 pub enum MinerError {
     /// Storage layer error.
     #[error("storage error: {0}")]
-    Storage(#[from] PersistenceError),
+    Storage(#[from] StorageError),
 
     /// An I/O error occurred while reading or writing memory files.
     #[error("io error: {0}")]
@@ -131,7 +131,7 @@ pub struct MinerConfig {
     /// Dedup window in days for recent event lookup.
     pub dedup_window_days: i32,
     /// Transcript clean rules.
-    pub clean_rules: closeclaw_config::agents::TranscriptCleanRules,
+    pub clean_rules: TranscriptCleanRules,
     /// Initial TTL in days for new event `expires_at`. Default 90.
     pub initial_ttl_days: i64,
     /// Days to extend `expires_at` when Miner 1 dedup re-identifies an entity.
@@ -139,52 +139,28 @@ pub struct MinerConfig {
     pub reidentify_extension_days: i64,
 }
 
-impl MinerConfig {
-    /// Create a config from a [`MiningConfig`].
-    ///
-    /// Uses the default `initial_ttl_days` (90). Prefer [`Self::from_memory_config`]
-    /// when the full [`MemoryConfig`] is available.
-    pub fn from_mining_config(config: &MiningConfig) -> Self {
+impl From<MinerParams> for MinerConfig {
+    /// Resolve a [`MinerParams`] into a config with defaults applied:
+    /// `initial_ttl_days` / `reidentify_extension_days` fall back to the
+    /// forgetting defaults (90 / 90); prefer the full [`MinerParams`]
+    /// built from both `mining.*` and the miner-consumed `forgetting.*`
+    /// fields at the assembly point.
+    fn from(params: MinerParams) -> Self {
         Self {
-            enabled: config.enabled.unwrap_or(false),
-            model: config.model.clone(),
-            max_events_per_session: config
+            enabled: params.enabled.unwrap_or(false),
+            model: params.model,
+            max_events_per_session: params
                 .max_events_per_session
                 .unwrap_or_else(default_mining_max_events_per_session)
                 as usize,
-            dedup_window_days: config
+            dedup_window_days: params
                 .dedup_window_days
                 .unwrap_or_else(default_mining_dedup_window_days),
-            clean_rules: config.transcript_clean_rules.clone(),
-            initial_ttl_days: default_forgetting_initial_ttl_days(),
-            reidentify_extension_days: default_forgetting_reidentify_extension_days(),
-        }
-    }
-
-    /// Create a config from a full [`MemoryConfig`].
-    ///
-    /// Reads both `mining` and `forgetting` sections. This is the preferred
-    /// constructor when the caller has access to the complete memory config.
-    pub fn from_memory_config(config: &MemoryConfig) -> Self {
-        Self {
-            enabled: config.mining.enabled.unwrap_or(false),
-            model: config.mining.model.clone(),
-            max_events_per_session: config
-                .mining
-                .max_events_per_session
-                .unwrap_or_else(default_mining_max_events_per_session)
-                as usize,
-            dedup_window_days: config
-                .mining
-                .dedup_window_days
-                .unwrap_or_else(default_mining_dedup_window_days),
-            clean_rules: config.mining.transcript_clean_rules.clone(),
-            initial_ttl_days: config
-                .forgetting
+            clean_rules: params.clean_rules,
+            initial_ttl_days: params
                 .initial_ttl_days
                 .unwrap_or_else(default_forgetting_initial_ttl_days),
-            reidentify_extension_days: config
-                .forgetting
+            reidentify_extension_days: params
                 .reidentify_extension_days
                 .unwrap_or_else(default_forgetting_reidentify_extension_days),
         }
@@ -277,7 +253,7 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        storage: &dyn PersistenceService,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
@@ -311,8 +287,8 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
-        storage: &dyn PersistenceService,
+        checkpoint: &CheckpointSnapshot,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
@@ -349,8 +325,8 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
-        storage: &dyn PersistenceService,
+        _checkpoint: &CheckpointSnapshot,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         let (cleaned, dedup_days) = self.prepare_transcript(raw_transcript)?;
         if cleaned.is_empty() {

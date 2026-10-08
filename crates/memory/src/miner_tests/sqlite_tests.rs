@@ -2,7 +2,7 @@ use crate::miner::{
     load_entity_catalog, load_existing_entities_for_agent, load_recent_events,
     match_entities_by_name, write_to_sqlite, MiningEntity, MiningEventCategory, WriteConfig,
 };
-use closeclaw_config::agents::default_forgetting_initial_ttl_days;
+use crate::params::default_forgetting_initial_ttl_days;
 
 use rusqlite::params;
 use tempfile::TempDir;

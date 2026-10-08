@@ -10,7 +10,7 @@ use std::collections::HashMap;
 use chrono::Utc;
 use rusqlite::params;
 
-use closeclaw_config::agents::{
+use crate::params::{
     default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
 };
 

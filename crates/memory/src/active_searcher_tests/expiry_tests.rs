@@ -1,8 +1,5 @@
-use closeclaw_config::agents::{
-    default_forgetting_injection_extension_days, ForgettingConfig, MemoryConfig,
-};
-
 use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
+use crate::params::{default_forgetting_injection_extension_days, ForgettingParams, SearchParams};
 
 use super::{create_test_db, get_expires_at, insert_event_with_expiry};
 
@@ -177,26 +174,28 @@ fn test_config_injection_extension_days_default() {
 
 #[test]
 fn test_from_agent_config_with_forgetting() {
-    let mut memory = MemoryConfig::default();
-    memory.search.enabled = Some(true);
-    let forgetting = ForgettingConfig {
-        initial_ttl_days: Some(30),
-        reidentify_extension_days: None,
+    let search = SearchParams {
+        enabled: Some(true),
+        ..Default::default()
+    };
+    let forgetting = ForgettingParams {
         injection_extension_days: Some(30),
     };
 
     let config =
-        ActiveSearcherConfig::from_agent_config(Some("model"), Some(&memory), Some(&forgetting));
+        ActiveSearcherConfig::from_agent_config(Some("model"), Some(&search), Some(&forgetting));
     assert!(config.is_some());
     assert_eq!(config.unwrap().injection_extension_days, 30);
 }
 
 #[test]
 fn test_from_agent_config_without_forgetting() {
-    let mut memory = MemoryConfig::default();
-    memory.search.enabled = Some(true);
+    let search = SearchParams {
+        enabled: Some(true),
+        ..Default::default()
+    };
 
-    let config = ActiveSearcherConfig::from_agent_config(Some("model"), Some(&memory), None);
+    let config = ActiveSearcherConfig::from_agent_config(Some("model"), Some(&search), None);
     assert!(config.is_some());
     assert_eq!(
         config.unwrap().injection_extension_days,
@@ -206,26 +205,46 @@ fn test_from_agent_config_without_forgetting() {
 
 #[test]
 fn test_from_agent_config_search_disabled() {
-    let memory = MemoryConfig::default(); // search.enabled = None → default false
+    let search = SearchParams::default(); // enabled = None → default false
 
-    let config = ActiveSearcherConfig::from_agent_config(Some("model"), Some(&memory), None);
+    let config = ActiveSearcherConfig::from_agent_config(Some("model"), Some(&search), None);
     assert!(config.is_none(), "search disabled should return None");
 }
 
+// ── Memory params construction tests (config serde deserialization
+//    moved to the assembly layer; memory constructs types directly) ──────
+
 #[test]
-fn test_config_from_json_with_forgetting() {
-    let json = r#"{
-        "forgetting": {
-            "injectionExtensionDays": 30
-        }
-    }"#;
-    let memory: MemoryConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(memory.forgetting.injection_extension_days, Some(30));
+fn test_forgetting_params_extension_days_flows_through() {
+    let forgetting = ForgettingParams {
+        injection_extension_days: Some(30),
+    };
+
+    let search = SearchParams {
+        enabled: Some(true),
+        ..Default::default()
+    };
+    let config =
+        ActiveSearcherConfig::from_agent_config(None, Some(&search), Some(&forgetting)).unwrap();
+    assert_eq!(config.injection_extension_days, 30);
 }
 
 #[test]
-fn test_config_from_json_defaults() {
-    let json = r#"{}"#;
-    let memory: MemoryConfig = serde_json::from_str(json).unwrap();
-    assert_eq!(memory.forgetting.injection_extension_days, None);
+fn test_forgetting_params_default_is_none() {
+    assert_eq!(ForgettingParams::default().injection_extension_days, None);
+
+    let search = SearchParams {
+        enabled: Some(true),
+        ..Default::default()
+    };
+    let config = ActiveSearcherConfig::from_agent_config(
+        None,
+        Some(&search),
+        Some(&ForgettingParams::default()),
+    )
+    .unwrap();
+    assert_eq!(
+        config.injection_extension_days,
+        default_forgetting_injection_extension_days()
+    );
 }

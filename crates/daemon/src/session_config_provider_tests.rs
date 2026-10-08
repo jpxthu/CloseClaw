@@ -314,9 +314,9 @@ async fn test_archive_sweeper_uses_independent_provider() {
 #[tokio::test]
 async fn test_dreaming_scheduler_uses_independent_provider() {
     use crate::dreaming_scheduler::DreamingScheduler;
-    use closeclaw_config::agents::DreamingConfig;
     use closeclaw_memory::dreaming::DreamingPipeline;
     use closeclaw_memory::miner::MemoryMiner;
+    use closeclaw_memory::params::DreamingParams;
 
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let provider: Arc<dyn SessionConfigProvider> = Arc::new(MockSessionConfigProvider {
@@ -328,7 +328,7 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
     let config_manager =
         Arc::new(ConfigManager::new(tmp.path().join("config")).expect("ConfigManager::new failed"));
 
-    let pipeline = Arc::new(DreamingPipeline::with_config(DreamingConfig {
+    let pipeline = Arc::new(DreamingPipeline::with_config(DreamingParams {
         enabled: Some(true),
         ..Default::default()
     }));
@@ -342,6 +342,9 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
 
     let scheduler = DreamingScheduler::new(
         Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            Arc::clone(&storage),
+        )),
         Arc::clone(&provider),
         pipeline,
         miner,

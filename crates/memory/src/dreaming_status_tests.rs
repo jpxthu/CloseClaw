@@ -4,12 +4,12 @@
 //! and early-return paths when entries are empty.
 
 use crate::dreaming::DreamingPipeline;
-use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingConfig, DreamingDiaryConfig, DreamingScoringConfig,
-    DreamingThresholdConfig,
+use crate::params::{
+    DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
+    DreamingThresholdParams,
 };
-use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
+use crate::storage::{CheckpointSnapshot, DreamingStatus};
+use crate::test_helpers::TestStorage;
 
 use tempfile::TempDir;
 
@@ -18,14 +18,8 @@ use tempfile::TempDir;
 #[tokio::test]
 async fn test_mark_sessions_status_updates_all_sessions() {
     let storage = TestStorage::default();
-    let mut cp1 = SessionCheckpoint::new("s1".into());
-    cp1.mined = true;
-    cp1.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp1);
-    let mut cp2 = SessionCheckpoint::new("s2".into());
-    cp2.mined = true;
-    cp2.dreaming_status = DreamingStatus::InDeep;
-    storage.add_checkpoint(cp2);
+    storage.add_checkpoint(CheckpointSnapshot::new("s1", true, DreamingStatus::Pending));
+    storage.add_checkpoint(CheckpointSnapshot::new("s2", true, DreamingStatus::InDeep));
 
     let pipeline = DreamingPipeline::new();
     // InRem for both.
@@ -85,26 +79,23 @@ async fn test_run_once_full_dreaming_status_transition() {
     }
 
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", true, DreamingStatus::Pending);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             ..Default::default()
         },
-        scoring: DreamingScoringConfig {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -138,13 +129,10 @@ async fn test_run_once_early_return_empty_entries_skips_rem_deep() {
     // Case 1: no db_path → collect_entries returns empty.
     {
         let storage = TestStorage::default();
-        let mut cp = SessionCheckpoint::new("sess-no-db".into());
-        cp.mined = true;
-        cp.dreaming_status = DreamingStatus::Pending;
-        storage.add_checkpoint(cp);
-        let config = DreamingConfig {
+        storage.add("sess-no-db", true, DreamingStatus::Pending);
+        let config = DreamingParams {
             enabled: Some(true),
-            diary: DreamingDiaryConfig {
+            diary: DreamingDiaryParams {
                 enabled: Some(false),
                 ..Default::default()
             },
@@ -175,13 +163,10 @@ async fn test_run_once_early_return_empty_entries_skips_rem_deep() {
             .unwrap();
         }
         let storage = TestStorage::default();
-        let mut cp = SessionCheckpoint::new("sess-no-events".into());
-        cp.mined = true;
-        cp.dreaming_status = DreamingStatus::Pending;
-        storage.add_checkpoint(cp);
-        let config = DreamingConfig {
+        storage.add("sess-no-events", true, DreamingStatus::Pending);
+        let config = DreamingParams {
             enabled: Some(true),
-            diary: DreamingDiaryConfig {
+            diary: DreamingDiaryParams {
                 enabled: Some(false),
                 ..Default::default()
             },

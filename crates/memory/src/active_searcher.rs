@@ -14,7 +14,12 @@ use super::active_searcher_llm::{
     extract_concepts_llm, should_trigger_role, summarize_events_llm, ActiveSearchLlm,
 };
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
-use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
+use crate::params::{
+    default_forgetting_injection_extension_days, default_search_context_turns,
+    default_search_max_summary_chars, default_search_min_entity_hits, default_search_timeout_ms,
+    default_search_top_k_events, ForgettingParams, SearchParams,
+};
+use closeclaw_common::llm_types::InternalMessage;
 
 // ── Errors ───────────────────────────────────────────────────────────────
 
@@ -103,6 +108,57 @@ pub struct EventRecord {
     pub source_session_id: String,
 }
 
+/// Where the injected memory summary should be placed relative to the
+/// current message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemorySummaryPosition {
+    /// Insert the summary immediately after the current (most-recent)
+    /// user message in the assembled list.
+    AfterCurrent,
+    /// Insert the summary just before the next assistant message would
+    /// appear (i.e. at the end of the list).
+    BeforeNext,
+}
+
+/// Memory-side injection payload produced by the active-searcher.
+///
+/// The session slot contract (`MemoryInjection`) is owned by the session
+/// crate; composition layers (gateway) convert this payload into the
+/// slot type at the wiring point.
+#[derive(Debug, Clone)]
+pub struct InjectedMemorySummary {
+    /// Summarised context text to inject.
+    pub content: String,
+    /// Where to place the summary relative to the current message.
+    pub position: MemorySummaryPosition,
+    /// Event IDs already injected this session — used for dedup
+    /// so the same event is never injected twice.
+    pub injected_event_ids: HashSet<i64>,
+}
+
+impl InjectedMemorySummary {
+    /// Create a new payload with the given content and position.
+    /// The `injected_event_ids` set starts empty.
+    pub fn new(content: String, position: MemorySummaryPosition) -> Self {
+        Self {
+            content,
+            position,
+            injected_event_ids: HashSet::new(),
+        }
+    }
+
+    /// Record that `event_id` has been injected so it won't appear
+    /// again in future active-searcher turns.
+    pub fn add_injected_event_id(&mut self, event_id: i64) {
+        self.injected_event_ids.insert(event_id);
+    }
+
+    /// Returns `true` if `event_id` was already injected.
+    pub fn is_event_injected(&self, event_id: i64) -> bool {
+        self.injected_event_ids.contains(&event_id)
+    }
+}
+
 // ── Core searcher ────────────────────────────────────────────────────────
 
 /// Stateless searcher that opens a fresh SQLite connection on each call.
@@ -121,28 +177,37 @@ impl ActiveSearcherConfig {
     /// Build config from agent-level settings.
     ///
     /// Returns `None` if `search.enabled` is `false` in the agent config.
-    /// Priority: `memory.search.*` > defaults.
+    /// Priority: `search.*` params > defaults.
     pub fn from_agent_config(
         agent_model: Option<&str>,
-        memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
-        forgetting: Option<&closeclaw_config::agents::ForgettingConfig>,
+        search: Option<&SearchParams>,
+        forgetting: Option<&ForgettingParams>,
     ) -> Option<Self> {
         // Check search.enabled gate.
-        if let Some(memory) = memory_override {
-            if !memory.search.enabled.unwrap_or(false) {
+        if let Some(search) = search {
+            if !search.enabled.unwrap_or(false) {
                 return None;
             }
         }
-        let search = memory_override.map(|m| &m.search);
         let ext_days = forgetting
             .and_then(|f| f.injection_extension_days)
-            .unwrap_or(closeclaw_config::agents::default_forgetting_injection_extension_days());
+            .unwrap_or_else(default_forgetting_injection_extension_days);
         Some(Self {
-            timeout_ms: search.and_then(|s| s.timeout_ms).unwrap_or(3000),
-            max_summary_chars: search.and_then(|s| s.max_summary_chars).unwrap_or(500),
-            min_entity_hits: search.and_then(|s| s.min_entity_hits).unwrap_or(1),
-            top_k_events: search.and_then(|s| s.top_k_events).unwrap_or(3),
-            context_turns: search.and_then(|s| s.context_turns).unwrap_or(5),
+            timeout_ms: search
+                .and_then(|s| s.timeout_ms)
+                .unwrap_or_else(default_search_timeout_ms),
+            max_summary_chars: search
+                .and_then(|s| s.max_summary_chars)
+                .unwrap_or_else(default_search_max_summary_chars),
+            min_entity_hits: search
+                .and_then(|s| s.min_entity_hits)
+                .unwrap_or_else(default_search_min_entity_hits),
+            top_k_events: search
+                .and_then(|s| s.top_k_events)
+                .unwrap_or_else(default_search_top_k_events),
+            context_turns: search
+                .and_then(|s| s.context_turns)
+                .unwrap_or_else(default_search_context_turns),
             model: search
                 .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))
@@ -423,17 +488,17 @@ impl ActiveSearcher {
         agent_id: &str,
         session_role: &str,
         current_message: &str,
-        context_messages: &[closeclaw_session::llm_session::SessionMessage],
+        context_messages: &[InternalMessage],
         injected_event_ids: &HashSet<i64>,
         llm: &dyn ActiveSearchLlm,
-    ) -> Option<MemoryInjection> {
+    ) -> Option<InjectedMemorySummary> {
         if !should_trigger_role(session_role) {
             return None;
         }
 
         let timeout_duration = std::time::Duration::from_millis(self.config.timeout_ms);
 
-        let result: Result<Result<Option<MemoryInjection>, ActiveSearcherError>, _> =
+        let result: Result<Result<Option<InjectedMemorySummary>, ActiveSearcherError>, _> =
             timeout(timeout_duration, async {
                 // 1. Extract concepts
                 let concepts = extract_concepts_llm(llm, context_messages, current_message).await?;
@@ -473,13 +538,13 @@ impl ActiveSearcher {
 
                 // 6. Determine position mode based on session role
                 let position = if session_role == "user" {
-                    InjectionPosition::AfterCurrent
+                    MemorySummaryPosition::AfterCurrent
                 } else {
-                    InjectionPosition::BeforeNext
+                    MemorySummaryPosition::BeforeNext
                 };
 
                 // 7. Build injection with event IDs for dedup
-                let mut injection = MemoryInjection::new(summary, position);
+                let mut injection = InjectedMemorySummary::new(summary, position);
                 for ev in &events {
                     injection.add_injected_event_id(ev.id);
                 }

@@ -1,13 +1,16 @@
 //! Additional unit tests for DreamingPipeline.
 //!
 //! Complements the inline tests in dreaming.rs with tests that require
-//! mock PersistenceService interactions.
+//! mock MemoryStorage interactions.
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
-use crate::dreaming_llm::PromotedGroupInfo;
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
+use crate::params::{
+    DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
+    DreamingThresholdParams,
+};
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
-use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 use tempfile::TempDir;
 
 /// Dreaming pipeline does not reprocess sessions already marked Completed.
@@ -16,10 +19,7 @@ async fn test_dreaming_does_not_reprocess_completed() {
     let storage = TestStorage::default();
 
     // Session is mined=true but dreaming_status=Completed → should be skipped.
-    let mut cp = SessionCheckpoint::new("sess-already-done".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Completed;
-    storage.add_checkpoint(cp);
+    storage.add("sess-already-done", true, DreamingStatus::Completed);
 
     let pipeline = DreamingPipeline::new();
     let result = pipeline.run_once(&storage).await;
@@ -44,14 +44,11 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     let storage = TestStorage::default();
 
     // mined=true, dreaming_status=Pending → should be processed.
-    let mut cp = SessionCheckpoint::new("sess-pending".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-pending", true, DreamingStatus::Pending);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -82,14 +79,11 @@ async fn test_dreaming_empty_storage_returns_ok() {
 async fn test_dreaming_disabled_skips_processing() {
     let storage = TestStorage::default();
 
-    let mut cp = SessionCheckpoint::new("sess-pending".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-pending", true, DreamingStatus::Pending);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(false),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -169,9 +163,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
     // Enabled: writes file with expected content.
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path.clone()),
         },
@@ -196,9 +190,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
 
     // Disabled: no file created.
     let tmp2 = TempDir::new().unwrap();
-    let config2 = DreamingConfig {
+    let config2 = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             path: Some(tmp2.path().to_str().unwrap().to_string()),
         },
@@ -211,9 +205,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
     // Custom path with nested dir: auto-created.
     let tmp3 = TempDir::new().unwrap();
     let custom = tmp3.path().join("custom/diary");
-    let config3 = DreamingConfig {
+    let config3 = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(custom.to_str().unwrap().to_string()),
         },
@@ -231,9 +225,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
 async fn test_entry_category_and_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -259,10 +253,6 @@ async fn test_entry_category_and_lesson_in_diary() {
     assert!(content.contains("follow user style guide"));
 }
 
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingScoringConfig, DreamingThresholdConfig,
-};
-
 // ── Deep stage: entity type weight + relative gate tests ─────────
 
 /// Deep stage applies entity_type_weight dimension from SQLite entity_types table.
@@ -278,9 +268,9 @@ fn test_deep_entity_type_weight_applied() {
         )
         .unwrap();
     }
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        scoring: DreamingScoringConfig {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
@@ -288,11 +278,11 @@ fn test_deep_entity_type_weight_applied() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -332,8 +322,8 @@ fn test_deep_entity_type_weight_applied() {
 /// Deep stage relative gate: per entity_type, removes groups below relative × top.
 #[test]
 fn test_deep_relative_gate_per_entity_type() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -341,11 +331,11 @@ fn test_deep_relative_gate_per_entity_type() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.5),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -462,7 +452,6 @@ fn test_write_memory_md_appends() {
 
 // ── LLM consolidation tests ────────────────────────────────────────
 
-use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -590,13 +579,10 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
         ).unwrap();
     }
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
-    let config = DreamingConfig {
+    storage.add("sess-1", true, DreamingStatus::Pending);
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             ..Default::default()
         },
@@ -652,9 +638,7 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
              INSERT INTO event_entities (event_id, entity_id) VALUES (1, 1);",
         ).unwrap();
     }
-    let mut cp_unminted = SessionCheckpoint::new("sess-unminted".into());
-    cp_unminted.mined = false;
-    storage.add_checkpoint(cp_unminted);
+    storage.add("sess-unminted", false, DreamingStatus::default());
     let p4 = DreamingPipeline::new().with_db_path(&unminted_db);
     let e4 = p4
         .collect_entries_for_session(&storage, "sess-unminted")
@@ -674,15 +658,12 @@ async fn test_update_config_changes_behavior() {
     let storage = TestStorage::default();
 
     // Session mined + not yet dreamt.
-    let mut cp = SessionCheckpoint::new("sess-reload".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-reload", true, DreamingStatus::Pending);
 
     // Start with dreaming disabled.
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(false),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -703,9 +684,9 @@ async fn test_update_config_changes_behavior() {
     }
 
     // Hot-reload: enable dreaming.
-    let new_config = DreamingConfig {
+    let new_config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     pipeline.update_config(new_config);
@@ -836,19 +817,19 @@ async fn test_verify_and_filter_rules_drops_stale() {
 /// Model extraction, default None, and lifecycle via update_config.
 #[test]
 fn test_model_lifecycle() {
-    let config = DreamingConfig {
+    let config = DreamingParams {
         model: Some("gpt-4o".to_string()),
         ..Default::default()
     };
     let p = DreamingPipeline::with_config(config);
     assert_eq!(p.model().as_deref(), Some("gpt-4o"));
     assert_eq!(DreamingPipeline::default().model(), None);
-    p.update_config(DreamingConfig {
+    p.update_config(DreamingParams {
         model: Some("claude-3.5-sonnet".to_string()),
         ..Default::default()
     });
     assert_eq!(p.model().as_deref(), Some("claude-3.5-sonnet"));
-    p.update_config(DreamingConfig {
+    p.update_config(DreamingParams {
         model: None,
         ..Default::default()
     });
@@ -905,8 +886,8 @@ fn test_rem_cross_agent_detection() {
 /// End-to-end: Light → REM → Deep pipeline flow with entity grouping.
 #[test]
 fn test_e2e_light_rem_deep_pipeline() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.5),
             explicitness_weight: Some(1.0),
@@ -914,11 +895,11 @@ fn test_e2e_light_rem_deep_pipeline() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
