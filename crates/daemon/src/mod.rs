@@ -2,6 +2,7 @@
 //!
 //! Orchestrates all components: Gateway, AgentRegistry, PermissionEngine.
 //! Handles graceful shutdown via ShutdownCoordinator.
+mod agent_permissions_adapter;
 pub mod bridge;
 pub mod chat_rpc;
 pub mod config_helpers;
