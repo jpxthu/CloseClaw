@@ -412,6 +412,19 @@ async fn test_set_workflow_run_erased_sets_run_and_persists() {
     );
 }
 
+/// A mis-typed erased run panics in the type check *before* the session
+/// lookup — a missing session must not mask the caller bug (historical
+/// `SlashSessionQuery::set_workflow_run` ordering).
+#[tokio::test]
+#[should_panic(expected = "set_workflow_run: downcast to WorkflowRun failed")]
+async fn test_set_workflow_run_downcast_panics_before_session_lookup() {
+    let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
+    let result =
+        SlashSessionQuery::set_workflow_run(&sm, "no-such-session", Some(Box::new("not a run")))
+            .await;
+    panic!("mis-typed run must panic, got {result:?}");
+}
+
 /// Phase query reports the active phase and hides completed runs.
 #[tokio::test]
 async fn test_get_active_workflow_run_phase_query() {

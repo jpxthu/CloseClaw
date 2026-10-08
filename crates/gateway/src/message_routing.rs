@@ -227,11 +227,14 @@ impl Gateway {
 /// Inject `message_type` and `unavailable_media` chain dispatcher keys into a
 /// metadata map.
 ///
-/// Single source of truth for the *gateway fallback* branches: the normal
-/// chain path injects the same two keys through the dispatcher inside the
-/// injected [`closeclaw_common::processor::ProcessorChain`]. The serialization
-/// format must stay aligned with the chain dispatcher's copy so the metadata
-/// contract is identical regardless of which path produced the metadata.
+/// Gateway-local copy of the chain dispatcher injection used by the
+/// *gateway fallback* branches (no-registry / chain-error): the normal chain
+/// path injects the same two keys through the dispatcher inside the injected
+/// [`closeclaw_common::processor::ProcessorChain`]. This is an equivalent
+/// local implementation of `inject_chain_dispatcher_keys` in
+/// `crates/processor_chain/src/context.rs` — the gateway does not depend on
+/// that crate, so the serialized shapes must be kept in sync here to keep
+/// the metadata contract identical regardless of which path produced it.
 fn inject_chain_dispatcher_keys(
     metadata: &mut HashMap<String, String>,
     message_type: &MessageType,

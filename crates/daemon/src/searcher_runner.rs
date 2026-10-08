@@ -194,9 +194,13 @@ async fn run_searcher_pipeline(
 
 /// Build the [`SearcherRunner`] injected into the Gateway.
 ///
-/// `caller` is the shared LLM caller of the process; the searcher uses the
-/// narrow `ActiveSearchLlm::complete` surface with an empty model (the model
-/// actually used comes from `SearcherInput::model`).
+/// `caller` is the shared LLM caller of the process. The narrow
+/// `ActiveSearchLlm::complete` surface carries only a prompt, so the model
+/// of the resulting request is decided by the injected caller — here it is
+/// hardcoded to an empty string and left for the unified fallback to resolve
+/// from its configured chain entries. `SearcherInput::model` only feeds the
+/// searcher config (see `build_searcher_config`), not the request's model
+/// field.
 pub fn build_searcher_runner(caller: Arc<dyn closeclaw_common::LlmCaller>) -> SearcherRunner {
     let llm = Arc::new(ActiveSearcherLlmCaller {
         caller,

@@ -44,6 +44,12 @@ enum ExitReason {
 /// `pub(crate)` so unit tests can drive the injection seam directly. The
 /// searcher runner is injected by the composition root as well — cli never
 /// assembles the memory-crate pipeline itself.
+// 7 params exceed the CONTRIBUTING limit of 6 on purpose: the last three are
+// composition-root injection closures (slash router / processor chain /
+// searcher runner) with independent semantics — aggregating them into a
+// struct would blur who assembles what. In-tree precedent:
+// `crates/gateway/src/lib.rs:620` (`dispatch_to_handler`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_gateway(
     config_dir: &std::path::Path,
     agent_id: &str,

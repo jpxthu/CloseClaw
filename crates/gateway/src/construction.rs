@@ -11,7 +11,7 @@ use closeclaw_common::processor::ProcessorChain;
 use closeclaw_config::MediaConfigData;
 use tokio::sync::RwLock;
 
-use crate::default_middlewares::register_default_middlewares;
+use crate::outbound_middleware::register::register_default;
 use crate::outbound_raw_log::OutboundRawLogWriter;
 use crate::RebuildStash;
 use crate::{Gateway, GatewayConfig, SessionManager};
@@ -92,7 +92,7 @@ impl Gateway {
             media_store: std::sync::Mutex::new(None),
             media_config: std::sync::RwLock::new(MediaConfigData::default()),
         };
-        register_default_middlewares(&gw, &gw.config);
+        register_default(&gw, &gw.config);
         gw
     }
 }

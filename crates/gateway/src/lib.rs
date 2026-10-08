@@ -12,7 +12,6 @@ mod debug_log_emitter;
 mod debug_log_emitter_tests;
 #[cfg(test)]
 pub mod debug_log_tests;
-mod default_middlewares;
 #[cfg(test)]
 mod dependency_boundary_tests;
 pub(crate) mod health_check_builders;
