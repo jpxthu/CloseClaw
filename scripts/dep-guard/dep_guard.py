@@ -25,6 +25,7 @@ import click
 import allow_table
 import baseline
 import dep_edges
+import second_export
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
 REPO_ROOT = Path(
@@ -78,8 +79,34 @@ def check_dep_edges(repo_root: Path) -> CheckResult:
     return CheckResult("dep-edges", status, lines)
 
 
+def check_second_exports(repo_root: Path) -> CheckResult:
+    """禁止二次出口：common 项经本 crate 公共路径再暴露。"""
+    lines = ["[second-exports] 禁止二次出口：common 项经公共路径再暴露"]
+    try:
+        data = dep_edges.parse_metadata(dep_edges.cargo_metadata(repo_root))
+        items = second_export.find_second_exports(data)
+    except (dep_edges.DepEdgesError, second_export.SecondExportError) as exc:
+        lines.append(f"  [FAIL] {exc}")
+        return CheckResult("second-exports", STATUS_FAIL, lines)
+
+    base_items = baseline.load_baseline(BASELINE_DIR / "second-exports.txt")
+    diff = baseline.diff_baseline(base_items, items)
+
+    for item in diff.new_items:
+        lines.append(f"  [FAIL] 新增二次出口: {item}")
+    for item in diff.eliminated_items:
+        lines.append(f"  [info] 可收窄 baseline（二次出口已消除）: {item}")
+    status = STATUS_FAIL if diff.has_new else STATUS_PASS
+    lines.append(
+        f"  二次出口 {len(items)} 处 / baseline {len(base_items)} 条 / "
+        f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} → {status}"
+    )
+    return CheckResult("second-exports", status, lines)
+
+
 CHECK_RUNNERS: dict[str, Callable[[Path], CheckResult]] = {
     "dep-edges": check_dep_edges,
+    "second-exports": check_second_exports,
 }
 
 

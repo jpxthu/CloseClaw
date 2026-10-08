@@ -215,8 +215,8 @@ class BaselineTest(unittest.TestCase):
 
 class RunChecksTest(unittest.TestCase):
     def test_unregistered_check_skips(self) -> None:
-        results, fail_count = dep_guard.run_checks(Path("."), "second-exports")
-        self.assertEqual(results[0].check_id, "second-exports")
+        results, fail_count = dep_guard.run_checks(Path("."), "common-admission")
+        self.assertEqual(results[0].check_id, "common-admission")
         self.assertEqual(results[0].status, dep_guard.STATUS_SKIP)
         self.assertEqual(fail_count, 0)
 

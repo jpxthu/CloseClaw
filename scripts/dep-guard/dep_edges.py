@@ -27,6 +27,7 @@ class EdgeData:
     edges: list[Edge]
     dir_to_pkg: dict[str, str]
     root_dir: str
+    dir_to_path: dict[str, str]
 
 
 def cargo_metadata(repo_root: Path) -> dict:
@@ -64,6 +65,7 @@ def parse_metadata(meta: dict) -> EdgeData:
     root_dir = None
     name_to_dir: dict[str, str] = {}
     dir_to_pkg: dict[str, str] = {}
+    dir_to_path: dict[str, str] = {}
     for member_id in member_ids:
         pkg = id_to_pkg.get(member_id)
         if pkg is None:
@@ -73,6 +75,7 @@ def parse_metadata(meta: dict) -> EdgeData:
             root_dir = member_dir
         name_to_dir[pkg["name"]] = member_dir
         dir_to_pkg[member_dir] = pkg["name"]
+        dir_to_path[member_dir] = str(Path(pkg["manifest_path"]).parent)
 
     edges: list[Edge] = []
     for member_id in member_ids:
@@ -86,7 +89,12 @@ def parse_metadata(meta: dict) -> EdgeData:
                 continue
             edges.append(Edge(from_dir, to_dir))
 
-    return EdgeData(edges=edges, dir_to_pkg=dir_to_pkg, root_dir=root_dir or "")
+    return EdgeData(
+        edges=edges,
+        dir_to_pkg=dir_to_pkg,
+        root_dir=root_dir or "",
+        dir_to_path=dir_to_path,
+    )
 
 
 def find_violations(
