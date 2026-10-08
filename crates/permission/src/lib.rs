@@ -3,6 +3,7 @@
 //! Runs as a separate OS process, evaluates access rules for agents.
 
 pub mod actions;
+pub mod agent_permissions;
 pub mod approval;
 pub mod approval_flow;
 pub mod debug_log;
@@ -24,8 +25,14 @@ pub mod user_registry_tests;
 pub mod mock_session_lookup;
 
 #[cfg(test)]
+mod agent_permissions_tests;
+
+#[cfg(test)]
 mod tests;
 
+pub use agent_permissions::{
+    ActionPermission, AgentPermissionProvider, AgentPermissions, PermissionLimits,
+};
 pub use engine::{
     build_audit_log, build_rejection_log, glob_match, is_config_file_path, Action, Caller,
     CommandArgs, Defaults, Effect, FileAuditLogger, FileRejectionLogger, MatchType,
