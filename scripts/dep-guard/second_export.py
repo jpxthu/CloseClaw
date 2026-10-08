@@ -57,12 +57,24 @@ class RawFileMod:
 
 
 @dataclass
+class RawDef:
+    """文件内一条类型 / trait 定义声明（struct / enum / union / trait）。"""
+
+    kind: str
+    name: str
+    line: int
+    pub_plain: bool  # 裸 `pub` 且非 #[cfg(test)]
+    cfg_test: bool
+
+
+@dataclass
 class ModBlock:
     """一次文件扫描得到的模块块（文件根或 inline mod）。"""
 
     name: str
     is_pub: bool
     items: list[RawItem] = field(default_factory=list)
+    defs: list[RawDef] = field(default_factory=list)
     file_mods: list[RawFileMod] = field(default_factory=list)
     children: list["ModBlock"] = field(default_factory=list)
 
@@ -79,6 +91,7 @@ class ModNode:
     inline: bool = False
     children: dict[str, "ModNode"] = field(default_factory=dict)
     items: list[RawItem] = field(default_factory=list)
+    defs: list[RawDef] = field(default_factory=list)
     reachable: bool = False
 
 
@@ -397,6 +410,22 @@ class _ItemScanner:
                     return
             self.i = save
             return
+        if word in ("struct", "enum", "union", "trait"):
+            stmt_line = self.line
+            self._skip_trivia()
+            nxt = self._peek()
+            name = self._read_ident() if (nxt.isalpha() or nxt == "_") else ""
+            current.defs.append(
+                RawDef(
+                    kind=word,
+                    name=name,
+                    line=stmt_line,
+                    pub_plain=self.pub_plain and not self._cfg_test(),
+                    cfg_test=self._cfg_test(),
+                )
+            )
+            self._reset_pending()
+            return
         if word in self._ITEM_KEYWORDS:
             self._reset_pending()
 
@@ -524,10 +553,10 @@ def parse_use_leaves(body: str) -> list[tuple[str, str | None]]:
 # mod 树构建与可达性
 # ---------------------------------------------------------------------------
 
-_MODRS_STEMS = frozenset({"mod", "lib", "main"})
+MODRS_STEMS = frozenset({"mod", "lib", "main"})
 
 
-def _resolve_mod_file(base_dir: Path, fm: RawFileMod) -> Path | None:
+def resolve_mod_file(base_dir: Path, fm: RawFileMod) -> Path | None:
     if fm.path_attr:
         candidate = base_dir / fm.path_attr
         if candidate.is_file():
@@ -550,6 +579,7 @@ def _attach_inline(
     nodes: list[ModNode],
 ) -> None:
     node.items = list(block.items)
+    node.defs = list(block.defs)
     for sub in block.children:
         child = ModNode(
             name=sub.name,
@@ -574,7 +604,7 @@ def _add_file_mod(
     visited: set[str],
     nodes: list[ModNode],
 ) -> None:
-    target = _resolve_mod_file(base_dir, fm)
+    target = resolve_mod_file(base_dir, fm)
     if target is None or str(target) in visited:
         return
     visited.add(str(target))
@@ -620,13 +650,14 @@ def _scan_file(
         parent=parent,
     )
     node.items = list(block.items)
+    node.defs = list(block.defs)
     nodes.append(node)
     if parent is not None:
         parent.children.setdefault(name, node)
 
     host_dir = file_path.parent
     stem = file_path.stem
-    child_base = host_dir / stem if stem not in _MODRS_STEMS else host_dir
+    child_base = host_dir / stem if stem not in MODRS_STEMS else host_dir
     for sub in block.children:
         child = ModNode(
             name=sub.name,
@@ -736,7 +767,7 @@ def _item_source_leaves(item: RawItem) -> list[tuple[str, str | None]]:
     return []
 
 
-def _lib_entry(crate_root: Path) -> Path | None:
+def lib_entry(crate_root: Path) -> Path | None:
     """crate lib 入口文件：Cargo.toml `[lib] path` 优先，缺省 src/lib.rs。"""
     manifest = crate_root / "Cargo.toml"
     try:
@@ -758,9 +789,13 @@ def _lib_entry(crate_root: Path) -> Path | None:
     return candidate if candidate.is_file() else None
 
 
-def crate_second_exports(crate_root: Path, pkg: str) -> list[str]:
-    """扫描单个 crate（crate 根目录）→ baseline 行格式列表。"""
-    entry = _lib_entry(crate_root)
+def crate_mod_nodes(crate_root: Path) -> list[ModNode]:
+    """构建 crate mod 树并完成公共可达性传播，返回全部节点。
+
+    lib 入口缺失时返回空表；cfg(test) 子树不可达，私有 mod 经 `pub use`
+    再导出的近似可达性与二次出口检查共享同一实现。
+    """
+    entry = lib_entry(crate_root)
     if entry is None:
         return []
     nodes: list[ModNode] = []
@@ -778,7 +813,14 @@ def crate_second_exports(crate_root: Path, pkg: str) -> list[str]:
     )
     root.reachable = True
     _propagate(nodes)
+    return nodes
 
+
+def crate_second_exports(crate_root: Path, pkg: str) -> list[str]:
+    """扫描单个 crate（crate 根目录）→ baseline 行格式列表。"""
+    nodes = crate_mod_nodes(crate_root)
+    if not nodes:
+        return []
     found: set[str] = set()
     for node in nodes:
         if not node.reachable:
@@ -794,19 +836,21 @@ def crate_second_exports(crate_root: Path, pkg: str) -> list[str]:
     return sorted(found)
 
 
+def common_crate_dir(edge_data) -> str:
+    """在 workspace 中定位 common crate 目录；找不到时 fail-loud。"""
+    for directory, pkg in edge_data.dir_to_pkg.items():
+        if pkg == COMMON_PKG:
+            return directory
+    raise SecondExportError(f"workspace 中未找到 {COMMON_PKG} crate")
+
+
 def find_second_exports(edge_data) -> list[str]:
     """对 common 之外的每个 workspace crate 扫描，汇总 baseline 行格式列表。
 
     edge_data 为 dep_edges.parse_metadata 的 EdgeData（用于 crate 目录定位
     与包名映射）；找不到 common crate 时 fail-loud。
     """
-    common_dir = None
-    for directory, pkg in edge_data.dir_to_pkg.items():
-        if pkg == COMMON_PKG:
-            common_dir = directory
-            break
-    if common_dir is None:
-        raise SecondExportError(f"workspace 中未找到 {COMMON_PKG} crate")
+    common_dir = common_crate_dir(edge_data)
 
     found: set[str] = set()
     for directory, crate_path in edge_data.dir_to_path.items():

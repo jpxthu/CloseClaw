@@ -24,6 +24,7 @@ import click
 
 import allow_table
 import baseline
+import common_admission
 import dep_edges
 import second_export
 
@@ -104,9 +105,39 @@ def check_second_exports(repo_root: Path) -> CheckResult:
     return CheckResult("second-exports", status, lines)
 
 
+def check_common_admission(repo_root: Path) -> CheckResult:
+    """common 准入一致性：文档条目 ↔ common crate pub 项双向比对。"""
+    lines = ["[common-admission] common 准入一致性：文档清单 ↔ common crate pub 项"]
+    try:
+        data = dep_edges.parse_metadata(dep_edges.cargo_metadata(repo_root))
+        items = common_admission.find_deviations(repo_root, data)
+    except (
+        dep_edges.DepEdgesError,
+        second_export.SecondExportError,
+        common_admission.CommonAdmissionError,
+    ) as exc:
+        lines.append(f"  [FAIL] {exc}")
+        return CheckResult("common-admission", STATUS_FAIL, lines)
+
+    base_items = baseline.load_baseline(BASELINE_DIR / "common-admission.txt")
+    diff = baseline.diff_baseline(base_items, items)
+
+    for item in diff.new_items:
+        lines.append(f"  [FAIL] 新增偏差: {item}")
+    for item in diff.eliminated_items:
+        lines.append(f"  [info] 可收窄 baseline（偏差已消除）: {item}")
+    status = STATUS_FAIL if diff.has_new else STATUS_PASS
+    lines.append(
+        f"  偏差 {len(items)} 条 / baseline {len(base_items)} 条 / "
+        f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} → {status}"
+    )
+    return CheckResult("common-admission", status, lines)
+
+
 CHECK_RUNNERS: dict[str, Callable[[Path], CheckResult]] = {
     "dep-edges": check_dep_edges,
     "second-exports": check_second_exports,
+    "common-admission": check_common_admission,
 }
 
 

@@ -1,0 +1,13 @@
+# common-admission baseline — common 准入一致性偏差（STANDARDS.md「common 准入清单（比对口径）」）
+# 格式：missing-in-doc: <类型/trait 名>（common crate 有 pub 项而文档清单无条目）
+#       missing-in-code: <类型/trait 名>（文档清单有条目而 common crate 无 pub 项）
+#       每行一条、已排序；`#` 开头为注释。
+# 规则：baseline = 现状，只收窄不扩张。消除偏差（补文档条目或移代码归属）后，
+#       须同步删除对应行；baseline 外新增偏差会被 dep-guard 判 FAIL。
+#       随各 P2 解耦 issue 收窄直至归零。
+missing-in-doc: CodeBlockMode
+missing-in-doc: CompactConfig
+missing-in-doc: DefaultStreamingRenderer
+missing-in-doc: ExecutionStepStatus
+missing-in-doc: FileReadCache
+missing-in-doc: LineBuffer
