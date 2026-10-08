@@ -13,117 +13,69 @@ use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::miner::{MinerConfig, MiningEntity, MiningEvent, MiningEventCategory};
 use closeclaw_memory::miner_llm::{MinerLlmCaller, MinerLlmError};
-use closeclaw_session::persistence::{
-    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
-};
+use closeclaw_memory::storage::{CheckpointSnapshot, DreamingStatus, MemoryStorage, StorageError};
 
 // ── Test helpers ─────────────────────────────────────────────────────────
 
-/// In-memory persistence service for integration tests.
+/// In-memory [`MemoryStorage`] fake for integration tests.
 #[derive(Debug, Default)]
 struct TestPersistence {
-    checkpoints: std::sync::Mutex<Vec<SessionCheckpoint>>,
-    archived: std::sync::Mutex<Vec<SessionCheckpoint>>,
-    mined_ids: std::sync::Mutex<Vec<String>>,
+    checkpoints: std::sync::Mutex<Vec<CheckpointSnapshot>>,
     dreaming_statuses: std::sync::Mutex<Vec<(String, DreamingStatus)>>,
 }
 
 impl TestPersistence {
-    fn add_active(&self, cp: SessionCheckpoint) {
+    fn add(&self, cp: CheckpointSnapshot) {
         self.checkpoints.lock().unwrap().push(cp);
-    }
-
-    fn add_archived(&self, cp: SessionCheckpoint) {
-        self.archived.lock().unwrap().push(cp);
-    }
-
-    #[allow(dead_code)]
-    fn mined_ids(&self) -> Vec<String> {
-        self.mined_ids.lock().unwrap().clone()
     }
 }
 
 #[async_trait]
-impl PersistenceService for TestPersistence {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.checkpoints.lock().unwrap().push(cp.clone());
-        Ok(())
-    }
-
+impl MemoryStorage for TestPersistence {
     async fn load_checkpoint(
         &self,
-        sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
+        session_id: &str,
+    ) -> Result<Option<CheckpointSnapshot>, StorageError> {
         Ok(self
             .checkpoints
             .lock()
             .unwrap()
             .iter()
-            .find(|cp| cp.session_id == sid)
+            .find(|cp| cp.session_id == session_id)
             .cloned())
     }
 
-    async fn load_archived_checkpoint(
-        &self,
-        sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self
-            .archived
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|cp| cp.session_id == sid)
-            .cloned())
-    }
-
-    async fn delete_checkpoint(&self, sid: &str) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .unwrap()
-            .retain(|cp| cp.session_id != sid);
+    async fn mark_mined(&self, session_id: &str) -> Result<(), StorageError> {
+        let mut cps = self.checkpoints.lock().unwrap();
+        if let Some(cp) = cps.iter_mut().find(|cp| cp.session_id == session_id) {
+            cp.mined = true;
+        }
         Ok(())
     }
 
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_archived_unmined_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(self
-            .archived
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|cp| !cp.mined)
-            .map(|cp| cp.session_id.clone())
-            .collect())
-    }
-
-    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(self
-            .checkpoints
-            .lock()
-            .unwrap()
+    async fn list_mined_undreamt_sessions(&self) -> Result<Vec<String>, StorageError> {
+        let cps = self.checkpoints.lock().unwrap();
+        Ok(cps
             .iter()
             .filter(|cp| cp.mined && cp.dreaming_status != DreamingStatus::Completed)
             .map(|cp| cp.session_id.clone())
             .collect())
     }
 
-    async fn mark_mined(&self, sid: &str) -> Result<(), PersistenceError> {
-        self.mined_ids.lock().unwrap().push(sid.into());
-        Ok(())
-    }
-
     async fn update_dreaming_status(
         &self,
-        sid: &str,
+        session_id: &str,
         status: DreamingStatus,
-    ) -> Result<(), PersistenceError> {
+    ) -> Result<(), StorageError> {
+        let mut cps = self.checkpoints.lock().unwrap();
+        if let Some(cp) = cps.iter_mut().find(|cp| cp.session_id == session_id) {
+            cp.dreaming_status = status;
+        }
+        drop(cps);
         self.dreaming_statuses
             .lock()
             .unwrap()
-            .push((sid.into(), status));
+            .push((session_id.into(), status));
         Ok(())
     }
 }
@@ -261,30 +213,9 @@ fn test_miner_config() -> MinerConfig {
     }
 }
 
-/// Create an archived, unmined checkpoint with pending messages
-/// formatted as a transcript.
-fn make_archived_checkpoint(
-    session_id: &str,
-    transcript_lines: &[(&str, &str)],
-) -> SessionCheckpoint {
-    let mut cp = SessionCheckpoint::new(session_id.into());
-    cp.mined = false;
-    cp.dreaming_status = DreamingStatus::Pending;
-    cp.agent_id = Some("test-agent".into());
-
-    // Populate outbound_pending with transcript lines.
-    // PendingMessage.message_id stores the role.
-    cp.outbound_pending = transcript_lines
-        .iter()
-        .map(|(role, content)| {
-            closeclaw_session::persistence::PendingMessage::new(
-                role.to_string(),
-                content.to_string(),
-            )
-        })
-        .collect();
-
-    cp
+/// Create an unmined checkpoint snapshot with dreaming pending.
+fn make_unmined_checkpoint(session_id: &str) -> CheckpointSnapshot {
+    CheckpointSnapshot::new(session_id, false, DreamingStatus::Pending)
 }
 
 // ── Tests ────────────────────────────────────────────────────────────────
@@ -309,25 +240,17 @@ async fn test_full_pipeline_transcript_to_memory_md() {
         ("user", "Good, let me know when done"),
         ("assistant", "Tests passed, deploying"),
     ];
-    let cp = make_archived_checkpoint("sess-1", &transcript);
-    storage.add_archived(cp);
-
-    // Also add as active so load_checkpoint works for mine_session.
-    storage.add_active(make_archived_checkpoint("sess-1", &transcript));
+    let checkpoint = make_unmined_checkpoint("sess-1");
+    storage.add(checkpoint.clone());
 
     // Step 1: Mine the session.
-    let archived = storage
-        .load_archived_checkpoint("sess-1")
-        .await
-        .unwrap()
-        .unwrap();
-    let raw_transcript = format_transcript(&archived.outbound_pending);
+    let raw_transcript = format_transcript(&transcript);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-1",
             &raw_transcript,
             "test-agent",
-            &archived,
+            &checkpoint,
             storage.as_ref(),
         )
         .await
@@ -357,15 +280,9 @@ async fn test_full_pipeline_transcript_to_memory_md() {
         .unwrap();
     assert!(entity_count >= 1, "should have at least 1 entity");
 
-    // Step 4: Mark mined and run dreaming.
-    // Move checkpoint to "mined" state so dreaming can process it.
-    storage.add_active({
-        let mut cp = make_archived_checkpoint("sess-1", &transcript);
-        cp.mined = true;
-        cp.dreaming_status = DreamingStatus::Pending;
-        cp
-    });
-
+    // Step 4: Run dreaming.
+    // mark_mined during mining flipped the stored snapshot to mined, so
+    // dreaming picks sess-1 up and transitions it to Completed.
     let result = dreaming.run_once(storage.as_ref()).await;
     assert!(result.is_ok(), "dreaming should succeed: {result:?}");
 
@@ -401,20 +318,17 @@ async fn test_empty_transcript_no_events() {
     let storage = Arc::new(TestPersistence::default());
 
     // Checkpoint with no pending messages (empty transcript).
-    let mut cp = SessionCheckpoint::new("sess-empty".into());
-    cp.mined = false;
-    cp.agent_id = Some("test-agent".into());
-    cp.outbound_pending = Vec::new();
-    storage.add_active(cp.clone());
-    storage.add_archived(cp);
+    let checkpoint = make_unmined_checkpoint("sess-empty");
+    storage.add(checkpoint.clone());
 
-    let archived = storage
-        .load_archived_checkpoint("sess-empty")
-        .await
-        .unwrap()
-        .unwrap();
     let result = miner
-        .mine_session_from_checkpoint("sess-empty", "", "test-agent", &archived, storage.as_ref())
+        .mine_session_from_checkpoint(
+            "sess-empty",
+            "",
+            "test-agent",
+            &checkpoint,
+            storage.as_ref(),
+        )
         .await
         .unwrap();
 
@@ -436,22 +350,16 @@ async fn test_llm_failure_during_mining() {
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
-    let cp = make_archived_checkpoint("sess-fail", &transcript);
-    storage.add_active(cp.clone());
-    storage.add_archived(cp);
+    let checkpoint = make_unmined_checkpoint("sess-fail");
+    storage.add(checkpoint.clone());
 
-    let archived = storage
-        .load_archived_checkpoint("sess-fail")
-        .await
-        .unwrap()
-        .unwrap();
-    let raw_transcript = format_transcript(&archived.outbound_pending);
+    let raw_transcript = format_transcript(&transcript);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-fail",
             &raw_transcript,
             "test-agent",
-            &archived,
+            &checkpoint,
             storage.as_ref(),
         )
         .await;
@@ -523,22 +431,16 @@ async fn test_duplicate_events_deduplicated() {
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello"), ("assistant", "hi")];
-    let cp = make_archived_checkpoint("sess-dup", &transcript);
-    storage.add_active(cp.clone());
-    storage.add_archived(cp);
+    let checkpoint = make_unmined_checkpoint("sess-dup");
+    storage.add(checkpoint.clone());
 
-    let archived = storage
-        .load_archived_checkpoint("sess-dup")
-        .await
-        .unwrap()
-        .unwrap();
-    let raw_transcript = format_transcript(&archived.outbound_pending);
+    let raw_transcript = format_transcript(&transcript);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-dup",
             &raw_transcript,
             "test-agent",
-            &archived,
+            &checkpoint,
             storage.as_ref(),
         )
         .await
@@ -571,23 +473,16 @@ async fn test_already_mined_session_skipped() {
     let storage = Arc::new(TestPersistence::default());
 
     let transcript = vec![("user", "hello")];
-    let mut cp = make_archived_checkpoint("sess-mined", &transcript);
-    cp.mined = true;
-    storage.add_active(cp.clone());
-    storage.add_archived(cp);
+    let checkpoint = CheckpointSnapshot::new("sess-mined", true, DreamingStatus::Pending);
+    storage.add(checkpoint.clone());
 
-    let archived = storage
-        .load_archived_checkpoint("sess-mined")
-        .await
-        .unwrap()
-        .unwrap();
-    let raw_transcript = format_transcript(&archived.outbound_pending);
+    let raw_transcript = format_transcript(&transcript);
     let result = miner
         .mine_session_from_checkpoint(
             "sess-mined",
             &raw_transcript,
             "test-agent",
-            &archived,
+            &checkpoint,
             storage.as_ref(),
         )
         .await
@@ -615,18 +510,11 @@ async fn test_dreaming_no_mined_sessions_noop() {
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
-/// Format pending messages into raw transcript text.
-fn format_transcript(messages: &[closeclaw_session::persistence::PendingMessage]) -> String {
-    messages
+/// Format transcript lines into raw transcript text.
+fn format_transcript(lines: &[(&str, &str)]) -> String {
+    lines
         .iter()
-        .map(|m| {
-            let role = if m.message_id.is_empty() {
-                "unknown"
-            } else {
-                &m.message_id
-            };
-            format!("{role}: {}", m.content)
-        })
+        .map(|(role, content)| format!("{role}: {content}"))
         .collect::<Vec<_>>()
         .join("\n")
 }
