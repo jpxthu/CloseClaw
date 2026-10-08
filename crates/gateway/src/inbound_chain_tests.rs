@@ -2,7 +2,10 @@
 //! `process_inbound_chain` → ProcessedMessage metadata pipeline.
 //!
 //! `message_type` and `unavailable_media` are injected by the chain
-//! dispatcher (single source of truth: `inject_chain_dispatcher_keys`).
+//! dispatcher (`inject_chain_dispatcher_keys` in
+//! `crates/processor_chain/src/context.rs`). Gateway fallback branches use an
+//! equivalent local copy in `message_routing.rs`; the serialized shapes of
+//! both must be kept in sync.
 //! Gateway adds `thread_id`, `media_refs`, `account_id`, `chat_name`,
 //! `trace_id` via `build_extra_metadata`.
 
