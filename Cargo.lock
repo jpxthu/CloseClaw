@@ -886,7 +886,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
- "closeclaw-session",
  "rusqlite",
  "serde_json",
  "serial_test",
