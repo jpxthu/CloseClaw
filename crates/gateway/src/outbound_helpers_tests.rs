@@ -745,7 +745,12 @@ fn make_sentinel_request() -> InboundRequest {
 /// Gateway holding the SessionManager used for setup assertions —
 /// `deliver_batch_result` sources the SessionManager from the Gateway
 /// itself (Step 1.20).
-async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) {
+///
+/// `with_chain` injects the default processor chain — required by the case
+/// that actually reaches `deliver_batch_result` → `send_outbound` →
+/// `process_or_bypass`; the short-circuit cases (send must never run) keep
+/// the chain-less construction.
+async fn deliver_batch_fixture(with_chain: bool) -> (Arc<Gateway>, Arc<SessionManager>, String) {
     let config = GatewayConfig {
         name: "outbound_helpers_deliver_batch".into(),
         rate_limit_per_minute: 100,
@@ -757,11 +762,17 @@ async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) 
         .find_or_create("mock", &make_msg(), None)
         .await
         .expect("session creation must succeed");
-    (
-        Arc::new(Gateway::new_for_tests(config, Arc::clone(&sm))),
-        sm,
-        sid,
-    )
+    let gw = if with_chain {
+        let chain = crate::processor_registry_test_utils::default_registry(&config);
+        Arc::new(Gateway::with_processor_registry(
+            config,
+            Arc::clone(&sm),
+            chain,
+        ))
+    } else {
+        Arc::new(Gateway::new_for_tests(config, Arc::clone(&sm)))
+    };
+    (gw, sm, sid)
 }
 
 /// Streaming-skip branch: streaming turns were already delivered chunk by
@@ -771,7 +782,7 @@ async fn deliver_batch_fixture() -> (Arc<Gateway>, Arc<SessionManager>, String) 
 #[tokio::test]
 async fn test_deliver_batch_result_skips_streaming_turn() {
     let (plugin, tracker) = make_plugin();
-    let (gw, sm, sid) = deliver_batch_fixture().await;
+    let (gw, sm, sid) = deliver_batch_fixture(false).await;
     gw.register_plugin(plugin).await;
     // Session record exists, so the skip can only come from the streaming
     // check — not from a missing channel.
@@ -803,7 +814,7 @@ async fn test_deliver_batch_result_skips_streaming_turn() {
 #[tokio::test]
 async fn test_deliver_batch_result_missing_session_record_returns_without_send() {
     let (plugin, tracker) = make_plugin();
-    let (gw, sm, sid) = deliver_batch_fixture().await;
+    let (gw, sm, sid) = deliver_batch_fixture(false).await;
     gw.register_plugin(plugin).await;
     // Drop the record that carries `channel`; the conversation session
     // stays so the streaming check still resolves (as non-streaming).
@@ -873,7 +884,7 @@ async fn test_deliver_batch_result_swallows_send_outbound_failure() {
     let plugin = Arc::new(UnknownMsgTypePlugin {
         sends: std::sync::atomic::AtomicU32::new(0),
     });
-    let (gw, _sm, sid) = deliver_batch_fixture().await;
+    let (gw, _sm, sid) = deliver_batch_fixture(true).await;
     gw.register_plugin(plugin.clone()).await;
 
     deliver_batch_result(&gw, &sid, "hello", &[ContentBlock::Text("hello".into())]).await;

@@ -210,6 +210,9 @@ impl closeclaw_common::IMPlugin for MockPlugin {
 
 // ── Test helpers ──────────────────────────────────────────────────────────
 
+/// Drain re-delivers through `send_outbound` → `process_or_bypass`, so both
+/// setup helpers inject the default processor chain; the cases that
+/// short-circuit before delivery are unaffected by it.
 async fn setup_with_mock_gateway() -> (Arc<SessionManager>, Arc<Gateway>, Arc<MockPlugin>) {
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = GatewayConfig {
@@ -218,7 +221,8 @@ async fn setup_with_mock_gateway() -> (Arc<SessionManager>, Arc<Gateway>, Arc<Mo
         max_message_size: 65536,
         ..Default::default()
     };
-    let gw = Gateway::new_for_tests(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
     let gw_arc = Arc::new(gw);
     let plugin = Arc::new(MockPlugin::new());
     gw_arc
@@ -238,7 +242,8 @@ async fn setup_with_failing_gateway(
         max_message_size: 65536,
         ..Default::default()
     };
-    let gw = Gateway::new_for_tests(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
     let gw_arc = Arc::new(gw);
     let plugin = Arc::new(MockPlugin::with_fail_after(fail_after));
     gw_arc
