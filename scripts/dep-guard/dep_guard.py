@@ -25,6 +25,7 @@ import click
 import allow_table
 import baseline
 import common_admission
+import dead_deps
 import dep_edges
 import second_export
 
@@ -134,10 +135,40 @@ def check_common_admission(repo_root: Path) -> CheckResult:
     return CheckResult("common-admission", status, lines)
 
 
+def check_dead_deps(repo_root: Path) -> CheckResult:
+    """死依赖：cargo machete 未使用依赖（覆盖外部 crate）。"""
+    lines = ["[dead-deps] 死依赖：cargo machete 未使用依赖（含外部 crate）"]
+    if not dead_deps.machete_available():
+        lines.append("  [SKIP] cargo-machete 不可用（cargo machete --version 失败）")
+        return CheckResult("dead-deps", STATUS_SKIP, lines)
+    try:
+        data = dead_deps.collect_unused(repo_root)
+    except dead_deps.DeadDepsError as exc:
+        lines.append(f"  [FAIL] {exc}")
+        return CheckResult("dead-deps", STATUS_FAIL, lines)
+
+    items = dead_deps.unused_items(data.unused)
+    base_items = baseline.load_baseline(BASELINE_DIR / "dead-deps.txt")
+    diff = baseline.diff_baseline(base_items, items)
+
+    for item in diff.new_items:
+        lines.append(f"  [FAIL] 新增死依赖: {item}")
+    for item in diff.eliminated_items:
+        lines.append(f"  [info] 可收窄 baseline（死依赖已消除）: {item}")
+    status = STATUS_FAIL if diff.has_new else STATUS_PASS
+    lines.append(
+        f"  死依赖 {len(items)} 条 / baseline {len(base_items)} 条 / "
+        f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} "
+        f"（machete {data.source} 解析）→ {status}"
+    )
+    return CheckResult("dead-deps", status, lines)
+
+
 CHECK_RUNNERS: dict[str, Callable[[Path], CheckResult]] = {
     "dep-edges": check_dep_edges,
     "second-exports": check_second_exports,
     "common-admission": check_common_admission,
+    "dead-deps": check_dead_deps,
 }
 
 

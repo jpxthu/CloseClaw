@@ -215,10 +215,13 @@ class BaselineTest(unittest.TestCase):
 
 class RunChecksTest(unittest.TestCase):
     def test_unregistered_check_skips(self) -> None:
-        results, fail_count = dep_guard.run_checks(Path("."), "dead-deps")
-        self.assertEqual(results[0].check_id, "dead-deps")
+        results, fail_count = dep_guard.run_checks(Path("."), "not-a-check")
+        self.assertEqual(results[0].check_id, "not-a-check")
         self.assertEqual(results[0].status, dep_guard.STATUS_SKIP)
         self.assertEqual(fail_count, 0)
+
+    def test_all_check_ids_registered(self) -> None:
+        self.assertEqual(set(dep_guard.CHECK_RUNNERS), set(dep_guard.CHECK_IDS))
 
     def test_only_filter_selects_one(self) -> None:
         class FakeRunner:
