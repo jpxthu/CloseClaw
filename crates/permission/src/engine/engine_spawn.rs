@@ -1,7 +1,7 @@
 //! Permission Engine - Agent spawn permission validation.
 
 use super::engine_types::{PermissionRequestBody, Subject};
-use closeclaw_config::agents::AgentPermissions;
+use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -178,9 +178,9 @@ impl super::engine_eval::PermissionEngine {
             );
             permissions.insert(
                 dim.to_string(),
-                closeclaw_config::agents::ActionPermission {
+                ActionPermission {
                     allowed,
-                    limits: closeclaw_config::agents::PermissionLimits::default(),
+                    limits: PermissionLimits::default(),
                 },
             );
         }

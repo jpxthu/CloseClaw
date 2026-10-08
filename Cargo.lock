@@ -904,7 +904,6 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
- "closeclaw-config",
  "closeclaw-debug-log",
  "hex",
  "rand 0.8.5",

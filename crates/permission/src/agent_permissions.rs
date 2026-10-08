@@ -1,11 +1,11 @@
 //! Agent permission domain types and the configuration port.
 //!
 //! Permission-owned mirror of the agent permission model (previously
-//! consumed from `closeclaw_config::agents`): the engine evaluates
-//! spawn-chain intersections and full-denial checks against these
-//! self-held types. Concrete loading of `permissions.json` stays on the
-//! config side; the composition root (daemon) adapts the config provider
-//! to [`AgentPermissionProvider`].
+//! consumed from the config crate's `agents` module): the engine
+//! evaluates spawn-chain intersections and full-denial checks against
+//! these self-held types. Concrete loading of `permissions.json` stays
+//! on the config side; the composition root (daemon) adapts the config
+//! provider to [`AgentPermissionProvider`].
 
 use std::collections::HashMap;
 

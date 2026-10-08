@@ -2,9 +2,8 @@
 
 use super::engine_types::RuleSet;
 use super::engine_types::{Action, Effect, Subject};
+use crate::agent_permissions::{AgentPermissionProvider, AgentPermissions};
 use closeclaw_common::SessionLookup;
-use closeclaw_config::agents::AgentPermissionProvider;
-use closeclaw_config::agents::AgentPermissions;
 use std::collections::HashMap;
 
 /// Extract AgentOnly + Deny subjects from parent agent, replacing agent with child_agent_id.

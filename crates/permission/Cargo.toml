@@ -7,7 +7,6 @@ license = "MIT"
 
 [dependencies]
 closeclaw-common = { path = "../common" }
-closeclaw-config = { path = "../config" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 tokio = { version = "=1.35.0", features = ["full"] }

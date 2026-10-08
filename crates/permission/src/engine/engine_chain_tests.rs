@@ -4,9 +4,9 @@ use super::engine_eval::PermissionEngine;
 use super::engine_test_providers::HashMapProvider;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
 use crate::actions::ActionBuilder;
+use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits};
 use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::{RuleBuilder, RuleSetBuilder};
-use closeclaw_config::agents::{ActionPermission, AgentPermissions, PermissionLimits};
 
 // -------------------------------------------------------------------------
 // Test helpers

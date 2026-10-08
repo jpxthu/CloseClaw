@@ -2,7 +2,7 @@
 
 use std::collections::HashMap;
 
-use closeclaw_config::agents::{AgentPermissionProvider, AgentPermissions};
+use crate::agent_permissions::{AgentPermissionProvider, AgentPermissions};
 
 /// A simple in-memory [`AgentPermissionProvider`] backed by a
 /// `HashMap<String, AgentPermissions>`, useful in unit tests.
