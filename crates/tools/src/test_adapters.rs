@@ -11,11 +11,8 @@ use std::sync::Arc;
 use closeclaw_common::permission_types::{
     ApprovalSubmission, CallerInfo, PermissionEvalResponse, PermissionEvaluator, RiskLevel,
 };
-use closeclaw_config::agents::{
-    AgentPermissionProvider as ConfigAgentPermissionProvider,
-    AgentPermissions as ConfigAgentPermissions, LazyAgentPermissions,
-};
 use closeclaw_config::ConfigManager;
+use closeclaw_gateway::agent_permissions_bridge::ConfigAgentPermissionsProviderAdapter;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
@@ -25,56 +22,11 @@ use closeclaw_permission::engine::engine_types::{
 };
 use closeclaw_permission::is_config_file_path;
 use closeclaw_permission::PermissionEngine;
-use closeclaw_permission::{
-    ActionPermission, AgentPermissionProvider, AgentPermissions, PermissionLimits,
-};
 
 use crate::permission_port::{
     PermCaller, PermMessageDirection, PermRequestBody, PermRiskLevel, PermVerdict,
     ToolPermissionCheck,
 };
-
-/// Map a config-side [`ConfigAgentPermissions`] to the permission-domain
-/// [`AgentPermissions`], field by field (`agent_id` / `permissions`
-/// (`allowed` + limits' `commands` / `paths` / `timeout_ms`) /
-/// `inherited_from`).
-fn to_permission_agent_permissions(p: &ConfigAgentPermissions) -> AgentPermissions {
-    AgentPermissions {
-        agent_id: p.agent_id.clone(),
-        permissions: p
-            .permissions
-            .iter()
-            .map(|(dim, action)| {
-                (
-                    dim.clone(),
-                    ActionPermission {
-                        allowed: action.allowed,
-                        limits: PermissionLimits {
-                            commands: action.limits.commands.clone(),
-                            paths: action.limits.paths.clone(),
-                            timeout_ms: action.limits.timeout_ms,
-                        },
-                    },
-                )
-            })
-            .collect(),
-        inherited_from: p.inherited_from.clone(),
-    }
-}
-
-/// Expose the config-side lazy permission loader as the permission-side
-/// [`AgentPermissionProvider`] port for test wiring.
-struct ConfigAgentPermissionsProviderAdapter {
-    inner: Arc<LazyAgentPermissions>,
-}
-
-impl AgentPermissionProvider for ConfigAgentPermissionsProviderAdapter {
-    fn get(&self, agent_id: &str) -> Option<AgentPermissions> {
-        ConfigAgentPermissionProvider::get(self.inner.as_ref(), agent_id)
-            .as_ref()
-            .map(to_permission_agent_permissions)
-    }
-}
 
 /// Wrapper around `Arc<tokio::sync::RwLock<PermissionEngine>>` implementing
 /// [`PermissionEvaluator`].
@@ -293,9 +245,8 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         body: &PermRequestBody,
     ) -> PermVerdict {
         let request = PermissionRequest::Bare(map_body_to_permission(body));
-        let agent_perms = ConfigAgentPermissionsProviderAdapter {
-            inner: self.config_manager.agent_permissions(),
-        };
+        let agent_perms =
+            ConfigAgentPermissionsProviderAdapter::new(self.config_manager.agent_permissions());
         if let Some(sid) = session_id {
             // Resolve the real user_id from the session checkpoint.
             let user_id = self.session_manager.get_sender_id(sid).await;
