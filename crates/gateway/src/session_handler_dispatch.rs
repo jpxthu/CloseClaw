@@ -208,10 +208,9 @@ impl SearcherTriggerDeps {
                 let sm = Arc::clone(&sm);
                 Box::pin(async move {
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let injection =
-                            crate::injection_convert::slot_parts_to_session_injection(
-                                content, &position, event_ids,
-                            );
+                        let injection = crate::injection_convert::slot_parts_to_session_injection(
+                            content, &position, event_ids,
+                        );
                         cs.read().await.set_memory_injection(injection);
                     }
                 })

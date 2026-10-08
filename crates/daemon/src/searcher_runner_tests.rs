@@ -173,7 +173,10 @@ fn test_deserialize_memory_config_round_trip() {
 
 // ── Snapshot → internal message conversion ────────────────────────────────
 
-fn snapshot(role: &str, content: &str) -> closeclaw_session::active_searcher::SessionMessageSnapshot {
+fn snapshot(
+    role: &str,
+    content: &str,
+) -> closeclaw_session::active_searcher::SessionMessageSnapshot {
     closeclaw_session::active_searcher::SessionMessageSnapshot {
         role: role.to_string(),
         content: content.to_string(),
