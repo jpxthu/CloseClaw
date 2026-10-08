@@ -202,6 +202,22 @@ async fn test_invoke_llm_consumes_memory_injection_after_current() {
     assert!(session.take_memory_injection().is_none());
 }
 
+// ── empty slot: event-id ops are no-ops ──────────────────────────────────
+
+#[test]
+fn test_empty_slot_event_id_ops_noop() {
+    let session = ConversationSession::new("s4b".into(), "gpt-4o".into(), tmp_path());
+
+    // slot empty initially
+    assert!(session.take_memory_injection().is_none());
+    assert!(!session.is_event_injected(42));
+
+    // recording an event ID against an empty slot is a no-op
+    session.add_injected_event_id(42);
+    assert!(!session.is_event_injected(42));
+    assert!(session.take_memory_injection().is_none());
+}
+
 // ── invoke_llm consumes memory_injection (BeforeNext) ───────────────────
 
 #[tokio::test]

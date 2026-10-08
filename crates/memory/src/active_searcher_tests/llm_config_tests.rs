@@ -1,8 +1,8 @@
 use std::collections::HashSet;
 
-use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig, ActiveSearcherError};
+use crate::active_searcher::ActiveSearcher;
+use crate::active_searcher::{ActiveSearcherConfig, ActiveSearcherError, MemorySummaryPosition};
 use crate::active_searcher_llm::ActiveSearchLlm;
-use closeclaw_session::llm_session::InjectionPosition;
 
 use super::{create_test_db, insert_entity, insert_event, link_event_entity};
 
@@ -94,7 +94,7 @@ async fn test_run_full_pipeline_mock() {
     assert!(result.is_some(), "pipeline should produce an injection");
     let injection = result.unwrap();
     assert!(!injection.content.is_empty(), "content should not be empty");
-    assert_eq!(injection.position_mode, InjectionPosition::AfterCurrent);
+    assert_eq!(injection.position, MemorySummaryPosition::AfterCurrent);
     assert_eq!(injection.injected_event_ids.len(), 2);
 }
 

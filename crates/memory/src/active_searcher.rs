@@ -19,7 +19,7 @@ use crate::params::{
     default_search_max_summary_chars, default_search_min_entity_hits, default_search_timeout_ms,
     default_search_top_k_events, ForgettingParams, SearchParams,
 };
-use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
+use closeclaw_common::llm_types::InternalMessage;
 
 // ── Errors ───────────────────────────────────────────────────────────────
 
@@ -106,6 +106,57 @@ pub struct EventRecord {
     pub timestamp: i64,
     /// Source session that produced this event.
     pub source_session_id: String,
+}
+
+/// Where the injected memory summary should be placed relative to the
+/// current message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MemorySummaryPosition {
+    /// Insert the summary immediately after the current (most-recent)
+    /// user message in the assembled list.
+    AfterCurrent,
+    /// Insert the summary just before the next assistant message would
+    /// appear (i.e. at the end of the list).
+    BeforeNext,
+}
+
+/// Memory-side injection payload produced by the active-searcher.
+///
+/// The session slot contract (`MemoryInjection`) is owned by the session
+/// crate; composition layers (gateway) convert this payload into the
+/// slot type at the wiring point.
+#[derive(Debug, Clone)]
+pub struct InjectedMemorySummary {
+    /// Summarised context text to inject.
+    pub content: String,
+    /// Where to place the summary relative to the current message.
+    pub position: MemorySummaryPosition,
+    /// Event IDs already injected this session — used for dedup
+    /// so the same event is never injected twice.
+    pub injected_event_ids: HashSet<i64>,
+}
+
+impl InjectedMemorySummary {
+    /// Create a new payload with the given content and position.
+    /// The `injected_event_ids` set starts empty.
+    pub fn new(content: String, position: MemorySummaryPosition) -> Self {
+        Self {
+            content,
+            position,
+            injected_event_ids: HashSet::new(),
+        }
+    }
+
+    /// Record that `event_id` has been injected so it won't appear
+    /// again in future active-searcher turns.
+    pub fn add_injected_event_id(&mut self, event_id: i64) {
+        self.injected_event_ids.insert(event_id);
+    }
+
+    /// Returns `true` if `event_id` was already injected.
+    pub fn is_event_injected(&self, event_id: i64) -> bool {
+        self.injected_event_ids.contains(&event_id)
+    }
 }
 
 // ── Core searcher ────────────────────────────────────────────────────────
@@ -437,17 +488,17 @@ impl ActiveSearcher {
         agent_id: &str,
         session_role: &str,
         current_message: &str,
-        context_messages: &[closeclaw_session::llm_session::SessionMessage],
+        context_messages: &[InternalMessage],
         injected_event_ids: &HashSet<i64>,
         llm: &dyn ActiveSearchLlm,
-    ) -> Option<MemoryInjection> {
+    ) -> Option<InjectedMemorySummary> {
         if !should_trigger_role(session_role) {
             return None;
         }
 
         let timeout_duration = std::time::Duration::from_millis(self.config.timeout_ms);
 
-        let result: Result<Result<Option<MemoryInjection>, ActiveSearcherError>, _> =
+        let result: Result<Result<Option<InjectedMemorySummary>, ActiveSearcherError>, _> =
             timeout(timeout_duration, async {
                 // 1. Extract concepts
                 let concepts = extract_concepts_llm(llm, context_messages, current_message).await?;
@@ -487,13 +538,13 @@ impl ActiveSearcher {
 
                 // 6. Determine position mode based on session role
                 let position = if session_role == "user" {
-                    InjectionPosition::AfterCurrent
+                    MemorySummaryPosition::AfterCurrent
                 } else {
-                    InjectionPosition::BeforeNext
+                    MemorySummaryPosition::BeforeNext
                 };
 
                 // 7. Build injection with event IDs for dedup
-                let mut injection = MemoryInjection::new(summary, position);
+                let mut injection = InjectedMemorySummary::new(summary, position);
                 for ev in &events {
                     injection.add_injected_event_id(ev.id);
                 }

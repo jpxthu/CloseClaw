@@ -3,9 +3,8 @@ use std::collections::HashSet;
 use crate::active_searcher::ActiveSearcherError;
 use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
 use crate::active_searcher_llm::{build_concept_extraction_prompt, ActiveSearchLlm};
-use chrono::Utc;
+use closeclaw_common::llm_types::InternalMessage;
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_session::llm_session::SessionMessage;
 
 use super::{create_test_db, insert_entity};
 
@@ -16,10 +15,11 @@ use super::{create_test_db, insert_entity};
 /// and scenario characteristics; also includes message content.
 #[test]
 fn test_concept_extraction_prompt_coverage() {
-    let messages = vec![SessionMessage {
+    let messages = vec![InternalMessage {
         role: "assistant".into(),
-        content_blocks: vec![ContentBlock::Text("context info".into())],
-        timestamp: Utc::now(),
+        content: String::new(),
+        content_blocks: Some(vec![ContentBlock::Text("context info".into())]),
+        tool_call_id: None,
     }];
     let prompt = build_concept_extraction_prompt(&messages, "current msg");
     let lower = prompt.to_lowercase();

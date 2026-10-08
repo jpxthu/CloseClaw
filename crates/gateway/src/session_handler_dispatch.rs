@@ -197,18 +197,10 @@ impl SearcherTriggerDeps {
                 let sm = Arc::clone(&sm);
                 Box::pin(async move {
                     if let Some(cs) = sm.get_conversation_session(&sid).await {
-                        let pos_mode = match position.as_str() {
-                            "before_next" => {
-                                closeclaw_session::llm_session::InjectionPosition::BeforeNext
-                            }
-                            _ => closeclaw_session::llm_session::InjectionPosition::AfterCurrent,
-                        };
-                        let injection = closeclaw_session::llm_session::MemoryInjection {
-                            content,
-                            position_mode: pos_mode,
-                            injected_event_ids: event_ids,
-                            task_id: None,
-                        };
+                        let injection =
+                            crate::memory::injection_convert::slot_parts_to_session_injection(
+                                content, &position, event_ids,
+                            );
                         cs.read().await.set_memory_injection(injection);
                     }
                 })
@@ -273,20 +265,6 @@ impl SearcherTriggerDeps {
 
 // ── build_run_searcher helpers ─────────────────────────────────────
 
-/// Convert session message snapshots to LLM session messages.
-fn convert_to_llm_messages(
-    snapshots: &[Snapshot],
-) -> Vec<closeclaw_session::llm_session::SessionMessage> {
-    snapshots
-        .iter()
-        .map(|m| closeclaw_session::llm_session::SessionMessage {
-            role: m.role.clone(),
-            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(m.content.clone())],
-            timestamp: chrono::Utc::now(),
-        })
-        .collect()
-}
-
 /// Deserialize the memory config JSON into a strongly-typed struct.
 fn deserialize_memory_config(
     memory_config: &serde_json::Value,
@@ -340,7 +318,8 @@ async fn run_searcher_pipeline(
     caller: &ActiveSearcherLlmCaller,
 ) -> Option<(String, String, std::collections::HashSet<i64>)> {
     use crate::memory::active_searcher::ActiveSearcher;
-    let llm_messages = convert_to_llm_messages(&input.context_messages);
+    let llm_messages =
+        crate::memory::injection_convert::snapshots_to_internal_messages(&input.context_messages);
     let mem_cfg = deserialize_memory_config(&input.memory_config);
     let config = build_searcher_config(&input.model, &mem_cfg);
     let config = config?;
@@ -357,13 +336,9 @@ async fn run_searcher_pipeline(
         )
         .await?;
 
-    let pos_str = match injection.position_mode {
-        closeclaw_session::llm_session::InjectionPosition::BeforeNext => "before_next".to_string(),
-        closeclaw_session::llm_session::InjectionPosition::AfterCurrent => {
-            "after_current".to_string()
-        }
-    };
-    Some((injection.content, pos_str, injection.injected_event_ids))
+    Some(crate::memory::injection_convert::summary_to_slot_parts(
+        injection,
+    ))
 }
 
 // ── Config loading helper ──────────────────────────────────────────

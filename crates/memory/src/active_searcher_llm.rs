@@ -5,8 +5,8 @@
 
 use async_trait::async_trait;
 
+use closeclaw_common::llm_types::InternalMessage;
 use closeclaw_common::processor::ContentBlock;
-use closeclaw_session::llm_session::SessionMessage;
 
 use super::active_searcher::ActiveSearcherError;
 
@@ -37,7 +37,7 @@ pub trait ActiveSearchLlm: Send + Sync {
 /// Message: [current message]
 /// ```
 pub(crate) fn build_concept_extraction_prompt(
-    messages: &[SessionMessage],
+    messages: &[InternalMessage],
     current_message: &str,
 ) -> String {
     let mut ctx = String::new();
@@ -45,6 +45,8 @@ pub(crate) fn build_concept_extraction_prompt(
         let role = &msg.role;
         let text: String = msg
             .content_blocks
+            .as_deref()
+            .unwrap_or_default()
             .iter()
             .filter_map(|b| match b {
                 ContentBlock::Text(t) => Some(t.as_str()),
@@ -119,7 +121,7 @@ pub(crate) fn parse_concepts(raw: &str) -> Vec<String> {
 /// Builds the prompt, calls the LLM, and parses the JSON array.
 pub(crate) async fn extract_concepts_llm(
     caller: &dyn ActiveSearchLlm,
-    context_messages: &[SessionMessage],
+    context_messages: &[InternalMessage],
     current_message: &str,
 ) -> Result<Vec<String>, ActiveSearcherError> {
     let prompt = build_concept_extraction_prompt(context_messages, current_message);

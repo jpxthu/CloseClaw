@@ -18,8 +18,9 @@ pub mod params;
 #[cfg(test)]
 pub mod test_helpers;
 
-pub use active_searcher::{ActiveSearcher, ActiveSearcherConfig};
-pub use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
+pub use active_searcher::{
+    ActiveSearcher, ActiveSearcherConfig, InjectedMemorySummary, MemorySummaryPosition,
+};
 pub use embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 pub use memory_fragment_provider::MemoryFragmentProvider;
 
