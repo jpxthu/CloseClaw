@@ -375,8 +375,9 @@ impl crate::Daemon {
                 .ok()
                 .map(std::sync::Arc::new);
         let media_config_snapshot = injection.media_config_snapshot();
+        let host = crate::gateway_host_adapter::gateway_host(&new_gw);
         closeclaw_im_adapter::platforms::register_platform_plugins(
-            &new_gw,
+            &host,
             config_dir,
             shared_media_store,
             Some(media_config_snapshot),

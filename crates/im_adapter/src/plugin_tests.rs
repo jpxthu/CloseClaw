@@ -541,32 +541,10 @@ mod tests {
     // mod.rs 定义下沉 re-export 路径回归（contributing-audit D 节清零）
     // =====================================================================
 
-    /// Create a test Gateway (no real I/O — registration only checks
-    /// `platforms.json` before touching the gateway).
-    fn make_test_gateway() -> Arc<closeclaw_gateway::Gateway> {
-        use closeclaw_gateway::{Gateway, GatewayConfig};
-
-        let config = GatewayConfig {
-            name: "test".to_owned(),
-            rate_limit_per_minute: 0,
-            max_message_size: 0,
-            inbound_queue_capacity: 4,
-            inbound_wal_dir: None,
-            ..Default::default()
-        };
-        let sm = Arc::new(closeclaw_gateway::SessionManager::new(
-            &config,
-            None,
-            None,
-            closeclaw_common::ReasoningLevel::default(),
-        ));
-        Arc::new(Gateway::new_for_tests(config, sm))
-    }
-
     /// `register_platform_plugins` stays reachable via the historical
     /// `closeclaw_im_adapter::platforms::` path after its definition was
     /// moved from `platforms/mod.rs` down to `platforms/registry.rs`, with
-    /// its arguments covering the Gateway handle, config dir, optional
+    /// its arguments covering the injected host ports, config dir, optional
     /// MediaStore, and the composition-root injections (media-config
     /// snapshot / identity resolver / platform profile), and no
     /// re-registration side effects when the platform is disabled by
@@ -575,16 +553,24 @@ mod tests {
     #[tokio::test]
     async fn test_register_platform_plugins_reexport_path_and_signature() {
         use crate::platforms::register_platform_plugins;
+        use crate::ports::GatewayHost;
 
         let tmp = tempfile::TempDir::new().expect("tmp dir");
         let config_dir = tmp.path().to_str().expect("utf-8 temp path");
-        let gw = make_test_gateway();
+        let enqueuer = crate::ports::test_doubles::FakeEnqueuer::new();
+        let registrar = crate::ports::test_doubles::FakeRegistrar::new();
+        let host = GatewayHost {
+            enqueuer: enqueuer.clone(),
+            registrar: registrar.clone(),
+            debug_log: None,
+        };
 
         // Signature check via call: compiles and runs with unchanged args.
-        register_platform_plugins(&gw, config_dir, None, None, None, None).await;
+        register_platform_plugins(&host, config_dir, None, None, None, None).await;
 
         // Empty config dir → no platform enabled → no plugin registered.
-        assert!(gw.get_all_plugins().await.is_empty());
+        assert!(registrar.registered().is_empty());
+        assert!(enqueuer.payloads().is_empty());
     }
 
     /// `FeishuPlugin`/`FeishuAdapter`/`build_text` keep their historical

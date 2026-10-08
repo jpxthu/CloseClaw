@@ -6,8 +6,6 @@ use super::event_dedup::EventDeduplicator;
 use super::FeishuAdapter;
 use crate::media_store::MediaStore;
 use crate::IMAdapter;
-use closeclaw_gateway::Message;
-use std::collections::HashMap;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -81,21 +79,7 @@ async fn test_parse_inbound_empty_text() {
 #[tokio::test]
 async fn test_error_cases() {
     let a = FeishuAdapter::new("test_profile".into(), make_test_media_store());
-    let msg = Message {
-        id: "1".into(),
-        from: "a".into(),
-        to: "b".into(),
-        content: "hi".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-        reply_ref: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    assert!(a.send_message(&msg, None).await.is_err());
+    assert!(a.send_message("b", "hi", None).await.is_err());
 }
 
 // ===========================================================================

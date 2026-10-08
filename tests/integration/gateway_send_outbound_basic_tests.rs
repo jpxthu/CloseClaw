@@ -405,7 +405,8 @@ async fn test_feishu_adapter_send_card_json_default() {
         }
         async fn send_message(
             &self,
-            _: &Message,
+            _: &str,
+            _: &str,
             _: Option<&str>,
         ) -> Result<(), LocalAdapterError> {
             Err(LocalAdapterError::InvalidPayload("x".into()))

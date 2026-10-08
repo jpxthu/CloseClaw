@@ -263,8 +263,9 @@ impl Daemon {
                 }
             };
         let media_config_snapshot = injection.media_config_snapshot();
+        let host = crate::gateway_host_adapter::gateway_host(&gateway);
         closeclaw_im_adapter::platforms::register_platform_plugins(
-            &gateway,
+            &host,
             config_dir,
             shared_media_store.clone(),
             Some(media_config_snapshot),

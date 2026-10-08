@@ -554,25 +554,25 @@ impl ProcessManager {
 }
 
 // ===========================================================================
-// Event stream → Gateway integration
+// Event stream → host inbound queue integration
 // ===========================================================================
 
 /// Spawn a long-running task that reads parsed events from the
 /// [`ProcessManager`] event channel and enqueues them into the
-/// Gateway's inbound queue.
+/// host's inbound queue (injected `InboundEnqueuer` port).
 ///
 /// Each [`EventLine::Event`] is serialized back to raw JSON bytes and
-/// wrapped in an [`InboundRequest`] with `platform="feishu"`. Non-event
-/// lines (parse errors) and enqueue failures are logged and skipped.
+/// wrapped in an `InboundPayload` with `platform="feishu"`. Non-event
+/// lines (parse errors) and enqueue failures are logged and skipped —
+/// a rejected enqueue never panics.
 ///
 /// Group chat filtering is deferred to `parse_inbound` (returns `None`
-/// for group events, which the gateway discards).
+/// for group events, which the host discards).
 ///
 pub(crate) fn start_event_stream(
-    gateway: &std::sync::Arc<closeclaw_gateway::Gateway>,
+    enqueuer: std::sync::Arc<dyn crate::ports::InboundEnqueuer>,
     mut event_rx: mpsc::UnboundedReceiver<EventLine>,
 ) {
-    let gateway = gateway.clone();
     tokio::spawn(async move {
         tracing::info!("feishu long-connection event stream started");
         while let Some(event_line) = event_rx.recv().await {
@@ -592,14 +592,14 @@ pub(crate) fn start_event_stream(
                     let timestamp_hex = format!("{:x}", chrono::Utc::now().timestamp_millis());
                     let uuid_no_hyphens = uuid::Uuid::new_v4().simple().to_string();
                     let trace_id = format!("feishu_{}_{}", timestamp_hex, uuid_no_hyphens);
-                    let req = closeclaw_gateway::inbound_queue::InboundRequest {
+                    let payload = crate::ports::InboundPayload {
                         platform: "feishu".to_string(),
                         raw_payload,
                         peer_id: String::new(),
                         trace_id,
                         span_id: None,
                     };
-                    if let Err(e) = gateway.enqueue_inbound(req).await {
+                    if let Err(e) = enqueuer.enqueue(payload).await {
                         tracing::warn!(
                             event_type = %event.event_type,
                             event_id = %event.event_id,

@@ -42,11 +42,11 @@ impl Default for MediaConfigSnapshot {
 
 /// Registration function type for platform plugins.
 ///
-/// Receives the Gateway handle, the configuration directory path,
+/// Receives the injected host ports, the configuration directory path,
 /// an optional shared MediaStore, the injected media-config snapshot,
 /// the injected identity resolver, and the injected platform profile.
 pub type RegisterFn = fn(
-    &Arc<closeclaw_gateway::Gateway>,
+    &crate::ports::GatewayHost,
     &str,
     Option<std::sync::Arc<crate::media_store::MediaStore>>,
     Option<MediaConfigSnapshot>,
@@ -62,21 +62,21 @@ pub type RegisterFn = fn(
 pub struct PlatformEntry {
     /// Platform identifier (e.g. `"feishu"`).
     pub name: &'static str,
-    /// Registration function.  Receives the Gateway handle and the
+    /// Registration function.  Receives the injected host ports and the
     /// configuration directory path.
     pub register: RegisterFn,
 }
 
 inventory::collect!(PlatformEntry);
 
-/// Register all platform IM plugins with the Gateway.
+/// Register all platform IM plugins with the host.
 ///
 /// Iterates over every [`PlatformEntry`] collected by [`inventory`] and
 /// calls its `register` function.  Plugins that do **not** belong in
 /// `platforms/` (e.g. `TerminalPlugin`) are registered explicitly elsewhere
 /// (design doc: "不在 `platforms/` 下的插件通过显式注册").
 pub async fn register_platform_plugins(
-    gateway: &Arc<closeclaw_gateway::Gateway>,
+    host: &crate::ports::GatewayHost,
     config_dir: &str,
     media_store: Option<std::sync::Arc<crate::media_store::MediaStore>>,
     media_config: Option<MediaConfigSnapshot>,
@@ -85,7 +85,7 @@ pub async fn register_platform_plugins(
 ) {
     for entry in inventory::iter::<PlatformEntry> {
         (entry.register)(
-            gateway,
+            host,
             config_dir,
             media_store.clone(),
             media_config.clone(),

@@ -9,9 +9,7 @@
 use super::*;
 use crate::error::AdapterError;
 use crate::IMAdapter;
-use closeclaw_gateway::Message;
 use serial_test::serial;
-use std::collections::HashMap;
 use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -65,21 +63,7 @@ async fn test_send_message_cli_error_returns_err() {
     let tmp = TempDir::new().unwrap();
     let cli = create_error_mock_cli(&tmp, 99999);
     let adapter = make_adapter_with_cli(&cli);
-    let msg = Message {
-        id: "1".into(),
-        from: "a".into(),
-        to: "oc_target_chat".into(),
-        content: "hello".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-        reply_ref: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    let result = adapter.send_message(&msg, None).await;
+    let result = adapter.send_message("oc_target_chat", "hello", None).await;
     assert!(
         result.is_err(),
         "send_message should return Err on CLI error"
@@ -118,21 +102,7 @@ async fn test_send_card_non_capability_error_returns_err_no_fallback() {
 #[tokio::test]
 async fn test_send_message_command_not_found_returns_err() {
     let adapter = make_adapter_with_cli("nonexistent_command_xyz");
-    let msg = Message {
-        id: "1".into(),
-        from: "a".into(),
-        to: "oc_target_chat".into(),
-        content: "hello".into(),
-        channel: "feishu".into(),
-        timestamp: 0,
-        metadata: HashMap::new(),
-        thread_id: None,
-        reply_ref: None,
-        platform: None,
-        dsl_result: None,
-        content_blocks: None,
-    };
-    let result = adapter.send_message(&msg, None).await;
+    let result = adapter.send_message("oc_target_chat", "hello", None).await;
     assert!(
         result.is_err(),
         "send_message should return Err when command not found"

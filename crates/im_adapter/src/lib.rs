@@ -14,6 +14,7 @@ pub mod normalized_tests;
 pub mod platforms;
 #[cfg(test)]
 pub mod plugin_tests;
+pub mod ports;
 #[cfg(test)]
 pub mod streaming_tests;
 pub mod tool_registrar;
@@ -22,7 +23,6 @@ pub use error::AdapterError;
 pub use tool_registrar::ImAdapterToolsRegistrar;
 
 use async_trait::async_trait;
-use closeclaw_gateway::Message;
 
 /// IM Adapter trait - implemented by each messaging platform.
 #[async_trait]
@@ -51,11 +51,13 @@ pub trait IMAdapter: Send + Sync {
 
     /// Send message to IM platform.
     ///
-    /// `root_id` optionally directs the message into a specific thread/topic
-    /// (e.g. Feishu `root_id` query parameter).
+    /// `to` is the target chat, `content` the plain-text body, and
+    /// `root_id` optionally directs the message into a specific
+    /// thread/topic (e.g. Feishu `root_id` query parameter).
     async fn send_message(
         &self,
-        message: &Message,
+        to: &str,
+        content: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError>;
 

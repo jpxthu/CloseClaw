@@ -832,7 +832,6 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-debug-log",
- "closeclaw-gateway",
  "dirs",
  "futures",
  "inventory",

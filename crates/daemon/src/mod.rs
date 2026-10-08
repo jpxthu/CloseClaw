@@ -12,6 +12,7 @@ pub mod confirm_notify;
 mod daemon_struct;
 pub mod dreaming_scheduler;
 mod env_file;
+mod gateway_host_adapter;
 pub mod gateway_restart;
 pub mod lifecycle;
 mod memory_params_adapter;

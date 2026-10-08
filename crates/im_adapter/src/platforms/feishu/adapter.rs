@@ -3,7 +3,6 @@ use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
-use closeclaw_gateway::Message;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -906,14 +905,14 @@ impl IMAdapter for FeishuAdapter {
     /// Send a text message via lark-cli subprocess.
     async fn send_message(
         &self,
-        message: &Message,
+        to: &str,
+        content: &str,
         root_id: Option<&str>,
     ) -> Result<(), AdapterError> {
         let reply_ref = root_id.map(|id| super::send_helpers::ReplyTarget::Thread {
             root_id: id.to_string(),
         });
-        self.send_msg(&message.to, "text", &message.content, reply_ref.as_ref())
-            .await
+        self.send_msg(to, "text", content, reply_ref.as_ref()).await
     }
 
     /// Send an interactive card via lark-cli subprocess.

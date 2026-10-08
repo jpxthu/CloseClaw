@@ -31,14 +31,14 @@ use crate::IMAdapter;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
-    register: |gw, cfg, ms, mc, ir, fp| {
-        let gw = gw.clone();
+    register: |host, cfg, ms, mc, ir, fp| {
+        let host = host.clone();
         let cfg = cfg.to_string();
-        Box::pin(async move { register(&gw, &cfg, ms, mc, ir, fp).await })
+        Box::pin(async move { register(&host, &cfg, ms, mc, ir, fp).await })
     },
 });
 
-/// Register the Feishu plugin with the Gateway.
+/// Register the Feishu plugin with the host (composition-root ports).
 ///
 /// First checks `{config_dir}/config/platforms.json` for an explicit
 /// enable flag.  If the platform is not listed or disabled the plugin
@@ -51,7 +51,7 @@ inventory::submit!(PlatformEntry {
 /// empty mapping set results in no resolver — the fallback uses
 /// `sender_id` as `account_id`.
 pub async fn register(
-    gateway: &Arc<closeclaw_gateway::Gateway>,
+    host: &crate::ports::GatewayHost,
     config_dir: &str,
     shared_media_store: Option<Arc<MediaStore>>,
     media_config: Option<MediaConfigSnapshot>,
@@ -82,13 +82,13 @@ pub async fn register(
 
         let mut plugin = FeishuPlugin::with_identity_resolver(adapter, identity_resolver);
 
-        // Inject DebugLog from Gateway (if configured).
-        if let Some(debug_log) = gateway.get_debug_log() {
+        // Injected DebugLog (configured on the host, if any).
+        if let Some(debug_log) = host.debug_log.clone() {
             plugin.set_debug_log(Arc::new(debug_log));
         }
 
         let plugin: Arc<dyn IMPlugin> = Arc::new(plugin);
-        gateway.register_plugin(plugin).await;
+        host.registrar.register_plugin(plugin).await;
         info!("Feishu plugin registered");
 
         // Spawn long-connection event stream (lark-cli event consume).
@@ -104,7 +104,7 @@ pub async fn register(
         );
         match pm.start().await {
             Ok(()) => {
-                process_manager::start_event_stream(gateway, event_rx);
+                process_manager::start_event_stream(host.enqueuer.clone(), event_rx);
                 info!("Feishu long-connection event stream started");
             }
             Err(e) => {
