@@ -259,21 +259,16 @@ impl ToolExecutor for ToolRegistryExecutor {
                                     };
                                 }
                             }
-                            if op == "write" {
-                                let config_manager = &perm_deps.2;
-                                let data_root = config_manager.config_dir();
-                                if closeclaw_permission::is_config_file_path(data_root, path) {
-                                    match check_config_write_permission(perm_deps, &ctx, path).await
-                                    {
-                                        Ok(Some(denied)) => return denied,
-                                        Ok(None) => {}
-                                        Err(e) => {
-                                            return closeclaw_common::tool_trait::ToolResult {
-                                                data: serde_json::json!({ "error": e.to_string() }),
-                                                new_messages: vec![],
-                                                context_modifier: None,
-                                            };
-                                        }
+                            if op == "write" && perm_deps.is_config_file(path) {
+                                match check_config_write_permission(perm_deps, &ctx, path).await {
+                                    Ok(Some(denied)) => return denied,
+                                    Ok(None) => {}
+                                    Err(e) => {
+                                        return closeclaw_common::tool_trait::ToolResult {
+                                            data: serde_json::json!({ "error": e.to_string() }),
+                                            new_messages: vec![],
+                                            context_modifier: None,
+                                        };
                                     }
                                 }
                             }

@@ -164,10 +164,32 @@ fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
     )))
 }
 
+/// Port over a deny-all approval flow (hard-deny path).
+fn deny_all_port() -> PermDeps {
+    crate::test_adapters::real_permission_port(
+        deny_all_engine(),
+        make_session_manager(),
+        make_config_manager(),
+        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
+            Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
+            Arc::new(|_| {}),
+            Arc::new(|_: &str| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+            std::env::temp_dir(),
+            RuleSet::default(),
+        ))),
+    )
+}
+
 fn make_tool(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> BashTool {
-    BashTool::new(
+    BashTool::new(perm_port(perm), make_bg_manager())
+}
+
+/// Bundle the real permission components behind the tools-owned port.
+fn perm_port(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> PermDeps {
+    crate::test_adapters::real_permission_port(
         perm,
-        make_bg_manager(),
         make_session_manager(),
         make_config_manager(),
         make_approval_flow(),
@@ -326,21 +348,7 @@ async fn test_bash_brace_expansion_routes_to_approval() {
 /// Uncertain command with deny-all approval flow is blocked.
 #[tokio::test]
 async fn test_bash_uncertain_deny_flow_blocked() {
-    let tool = BashTool::new(
-        deny_all_engine(),
-        make_bg_manager(),
-        make_session_manager(),
-        make_config_manager(),
-        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
-            Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_: &str| {}),
-            tokio::runtime::Handle::current(),
-            HeartbeatApprovalMode::default(),
-            std::env::temp_dir(),
-            RuleSet::default(),
-        ))),
-    );
+    let tool = BashTool::new(deny_all_port(), make_bg_manager());
     let result = tool
         .call(
             json!({ "command": "echo $'hello'" }),
@@ -377,21 +385,7 @@ async fn test_bash_trusted_command_normal_execution() {
 /// Malicious command with deny-all approval flow still blocked (owner notified or not).
 #[tokio::test]
 async fn test_bash_malicious_deny_flow_still_blocked() {
-    let tool = BashTool::new(
-        deny_all_engine(),
-        make_bg_manager(),
-        make_session_manager(),
-        make_config_manager(),
-        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
-            Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_: &str| {}),
-            tokio::runtime::Handle::current(),
-            HeartbeatApprovalMode::default(),
-            std::env::temp_dir(),
-            RuleSet::default(),
-        ))),
-    );
+    let tool = BashTool::new(deny_all_port(), make_bg_manager());
     let result = tool
         .call(
             json!({ "command": "IFS=x; eval echo pwned" }),

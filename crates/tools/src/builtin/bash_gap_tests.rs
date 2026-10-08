@@ -55,13 +55,13 @@ fn make_tool() -> BashTool {
         std::env::temp_dir(),
         RuleSet::default(),
     )));
-    BashTool::new(
+    let permission_check: PermDeps = crate::test_adapters::real_permission_port(
         perm,
-        bg_manager,
         session_manager,
         config_manager,
         approval_flow,
-    )
+    );
+    BashTool::new(permission_check, bg_manager)
 }
 
 fn ctx_with_workdir(path: &str, has_git: bool) -> PromptGenerationContext {

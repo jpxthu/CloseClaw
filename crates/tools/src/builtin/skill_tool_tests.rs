@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use super::super::skill_tool::SkillTool;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::{Tool, ToolCallError, ToolContext};
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
@@ -11,6 +12,18 @@ mod tests {
     use closeclaw_skills::BuiltinSkillRegistry;
     use std::sync::Arc;
     use tempfile::TempDir;
+
+    /// Build a `SkillTool` from real registries via the test-side
+    /// thin port wrappers.
+    fn skill_tool_from(
+        registry: Arc<DiskSkillRegistry>,
+        builtin: Arc<BuiltinSkillRegistry>,
+    ) -> SkillTool {
+        SkillTool::new(
+            Arc::new(RealDiskSkillAccess(registry)),
+            Arc::new(RealBuiltinSkillAccess(builtin)),
+        )
+    }
 
     fn new_ctx() -> ToolContext {
         ToolContext {
@@ -56,7 +69,7 @@ mod tests {
 
         let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(registry, Arc::new(BuiltinSkillRegistry::new()));
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -87,7 +100,7 @@ mod tests {
 
         let skill = make_skill("testskill", readme_path);
         let registry = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(registry, Arc::new(BuiltinSkillRegistry::new()));
 
         let result = tool
             .call(serde_json::json!({"skill_name": "testskill"}), &new_ctx())
@@ -124,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(registry, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -136,7 +149,7 @@ mod tests {
     #[tokio::test]
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
-        let tool = SkillTool::new(registry, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(registry, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -174,7 +187,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("my_builtin".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "my_builtin"}), &new_ctx())
             .await
@@ -203,7 +216,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("shared".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "shared"}), &new_ctx())
             .await
@@ -268,7 +281,7 @@ mod tests {
             std::path::PathBuf::from("/home/user/.closeclaw/skills/my-skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
             .await
@@ -287,7 +300,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
         let result = tool
             .call(serde_json::json!({"skill_name": "test"}), &ctx)
@@ -304,7 +317,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
             .await
@@ -320,7 +333,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/my-skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let ctx = new_ctx_with_session(Some("s-999".to_string()));
         let result = tool
             .call(serde_json::json!({"skill_name": "test"}), &ctx)
@@ -340,7 +353,7 @@ mod tests {
             std::path::PathBuf::from("/tmp/skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "test"}), &new_ctx())
             .await
@@ -379,7 +392,7 @@ mod tests {
             skill_dir: nonexistent,
         };
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "broken"}), &new_ctx())
             .await;
@@ -401,7 +414,7 @@ mod tests {
         std::fs::write(&readme_path, content).unwrap();
         let skill = make_skill("emoji", readme_path);
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
-        let tool = SkillTool::new(disk, Arc::new(BuiltinSkillRegistry::new()));
+        let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
             .call(serde_json::json!({"skill_name": "emoji"}), &new_ctx())
             .await
@@ -451,7 +464,7 @@ mod tests {
         builtin
             .register(Arc::new(FailingBuiltinSkill("failing".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "failing"}), &new_ctx())
             .await;
@@ -475,7 +488,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("no_args".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "no_args"}), &new_ctx())
             .await
@@ -495,7 +508,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("with_args".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(
                 serde_json::json!({

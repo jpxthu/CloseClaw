@@ -152,8 +152,9 @@ pub async fn build_tools_section(
 mod tests {
     use super::*;
     use crate::builtin::SkillTool;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
-    use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+    use crate::{CoreToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
     use closeclaw_config::ConfigManager;
     use closeclaw_gateway::SpawnController;
@@ -164,7 +165,7 @@ mod tests {
     use closeclaw_permission::rules::RuleSetBuilder;
     use closeclaw_session::persistence::ReasoningLevel;
     use closeclaw_session::tools::SessionToolsRegistrar;
-    use closeclaw_skills::DiskSkillRegistry;
+    use closeclaw_skills::{DiskSkillRegistry, SkillsToolsRegistrar};
     use closeclaw_tasks::BackgroundTaskManager;
     use std::sync::Arc;
     use tempfile::TempDir;
@@ -249,13 +250,17 @@ mod tests {
         tool_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
         let task_manager = Arc::new(BackgroundTaskManager::new());
+        let permission_check: crate::permission_check::PermDeps =
+            crate::test_adapters::real_permission_port(
+                permission_engine.clone(),
+                session_manager.clone(),
+                config_manager.clone(),
+                approval_flow.clone(),
+            );
         vec![
             Box::new(CoreToolsRegistrar::new(
-                permission_engine.clone(),
+                permission_check,
                 task_manager as Arc<dyn closeclaw_common::TaskManager>,
-                session_manager.clone(),
-                config_manager,
-                approval_flow.clone(),
                 tool_registry,
             )),
             Box::new(SessionToolsRegistrar::new(
@@ -270,8 +275,10 @@ mod tests {
                 ))),
             )),
             Box::new(SkillsToolsRegistrar::new(vec![Arc::new(SkillTool::new(
-                disk_registry,
-                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                Arc::new(RealDiskSkillAccess(disk_registry)),
+                Arc::new(RealBuiltinSkillAccess(Arc::new(
+                    closeclaw_skills::BuiltinSkillRegistry::new(),
+                ))),
             ))])),
         ]
     }

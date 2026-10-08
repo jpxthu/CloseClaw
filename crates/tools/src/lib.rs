@@ -19,10 +19,13 @@ pub mod dispatcher;
 pub mod file_mutex;
 pub mod media_ref;
 pub mod permission_check;
+pub mod permission_port;
+pub mod plan_file_access;
 pub mod registrar;
 pub mod registrars;
 pub mod registry;
 pub mod security;
+pub mod skill_access;
 pub mod tool_types;
 pub mod tools_fragment_provider;
 pub mod workdir_context;
@@ -30,9 +33,11 @@ pub mod workdir_context;
 #[cfg(test)]
 pub(crate) mod test_adapters;
 
+#[cfg(test)]
+mod dependency_boundary_tests;
+
 pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
-pub use registrars::skills::SkillsToolsRegistrar;
 pub use registry::ToolRegistryImpl;
 pub use tool_types::{ToolError, ToolSummary};
 /// Type alias for backward compatibility.

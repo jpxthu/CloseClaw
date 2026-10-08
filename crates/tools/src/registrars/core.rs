@@ -3,19 +3,17 @@
 //! Registers 14 built-in tools that belong to the core domain.
 
 use async_trait::async_trait;
-use std::path::PathBuf;
 use std::sync::Arc;
 
+use closeclaw_common::audit_log::AuditLogger;
 use closeclaw_common::TaskManager;
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
+use crate::builtin::read_truncator::{ReadTruncationProvider, TruncationConfig};
 use crate::builtin::{
     AuditLogTool, BashTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
+use crate::permission_check::PermDeps;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistryQuery};
@@ -24,39 +22,41 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolReg
 ///
 /// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (14 tools).
 pub struct CoreToolsRegistrar {
-    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    permission_check: PermDeps,
     task_manager: Arc<dyn TaskManager>,
-    session_manager: Arc<SessionManager>,
-    config_manager: Arc<ConfigManager>,
-    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     tool_registry: Arc<dyn ToolRegistryQuery>,
-    audit_log_path: Option<PathBuf>,
+    audit_logger: Option<Arc<dyn AuditLogger>>,
+    read_truncation: ReadTruncationProvider,
 }
 
 impl CoreToolsRegistrar {
     /// Create a new `CoreToolsRegistrar` with the required dependencies.
     pub fn new(
-        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+        permission_check: PermDeps,
         task_manager: Arc<dyn TaskManager>,
-        session_manager: Arc<SessionManager>,
-        config_manager: Arc<ConfigManager>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         tool_registry: Arc<dyn ToolRegistryQuery>,
     ) -> Self {
         Self {
-            permission_engine,
+            permission_check,
             task_manager,
-            session_manager,
-            config_manager,
-            approval_flow,
             tool_registry,
-            audit_log_path: None,
+            audit_logger: None,
+            read_truncation: Arc::new(TruncationConfig::default),
         }
     }
 
-    /// Set the audit log path for the `AuditLog` tool.
-    pub fn with_audit_log_path(mut self, path: PathBuf) -> Self {
-        self.audit_log_path = Some(path);
+    /// Set the audit logger for the `AuditLog` tool.
+    pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
+        self.audit_logger = Some(logger);
+        self
+    }
+
+    /// Set the Read tool truncation config provider.
+    ///
+    /// Invoked on every Read call so config hot-reloads take effect.
+    /// When not set, default truncation thresholds are used.
+    pub fn with_read_truncation(mut self, provider: ReadTruncationProvider) -> Self {
+        self.read_truncation = provider;
         self
     }
 }
@@ -80,7 +80,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(
             registry,
             registered,
-            ReadTool::new(self.config_manager.clone()),
+            ReadTool::new(Arc::clone(&self.read_truncation)),
             r
         );
         try_register!(registry, registered, WriteTool::new(), r);
@@ -99,31 +99,22 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(registry, registered, GitCommitTool::new(), r);
         try_register!(registry, registered, GitPushTool::new(), r);
         try_register!(registry, registered, GitPullTool::new(), r);
-        // audit_log (optional — requires audit_log_path)
-        if let Some(ref path) = self.audit_log_path {
-            match AuditLogTool::new(path.clone()) {
-                Ok(tool) => {
-                    try_register!(registry, registered, tool, r);
-                }
-                Err(e) => {
-                    tracing::warn!(
-                        error = %e,
-                        path = %path.display(),
-                        "failed to create AuditLogTool — skipping"
-                    );
-                }
-            }
+        // audit_log (optional — requires an injected audit logger)
+        if let Some(ref logger) = self.audit_logger {
+            try_register!(
+                registry,
+                registered,
+                AuditLogTool::new(Arc::clone(logger)),
+                r
+            );
         }
         // bash
         try_register!(
             registry,
             registered,
             BashTool::new(
-                self.permission_engine.clone(),
-                self.task_manager.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
+                Arc::clone(&self.permission_check),
+                Arc::clone(&self.task_manager),
             ),
             r
         );

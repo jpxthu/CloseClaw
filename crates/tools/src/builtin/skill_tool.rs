@@ -1,15 +1,17 @@
 //! Built-in tool — SkillTool
 //!
-//! Invokes a disk-based skill by looking it up in the [`DiskSkillRegistry`],
-//! reading its SKILL.md file, and returning the content as a meta message
-//! to be injected into the agent context.
+//! Invokes a disk-based skill by looking it up via the
+//! [`DiskSkillAccess`] port, reading its SKILL.md body, and returning
+//! the content as a meta message to be injected into the agent
+//! context; builtin skills are executed via the [`BuiltinSkillAccess`]
+//! port.
 
+use crate::skill_access::{BuiltinSkillAccess, DiskSkillAccess, DiskSkillData, SkillExecuteError};
 use crate::{Tool, ToolCallError, ToolContext, ToolFlags, ToolMessage, ToolResult};
-use closeclaw_skills::disk::DiskSkillRegistry;
-use closeclaw_skills::BuiltinSkillRegistry;
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::path::Path;
 use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
@@ -18,29 +20,23 @@ use std::sync::Arc;
 
 /// Tool that loads and executes a disk-based or builtin skill.
 ///
-/// When called, `SkillTool` first looks up the named skill in the
-/// [`DiskSkillRegistry`]. If not found, it falls back to the
-/// [`BuiltinSkillRegistry`].
+/// When called, `SkillTool` first looks up the named skill via the
+/// [`DiskSkillAccess`] port. If not found, it falls back to the
+/// [`BuiltinSkillAccess`] port.
 ///
 /// - **Disk skill**: injects the skill body (loaded via `load_body()`) as a meta message into the
 ///   agent context.
-/// - **Builtin skill**: loads the skill body via `body()` and injects the
-///   prompt instructions as a meta message.
+/// - **Builtin skill**: executes the skill and injects the
+///   result as a meta message.
 pub struct SkillTool {
-    registry: Arc<DiskSkillRegistry>,
-    builtin_registry: Arc<BuiltinSkillRegistry>,
+    disk: Arc<dyn DiskSkillAccess>,
+    builtin: Arc<dyn BuiltinSkillAccess>,
 }
 
 impl SkillTool {
-    /// Creates a new `SkillTool` backed by the given registries.
-    pub fn new(
-        registry: Arc<DiskSkillRegistry>,
-        builtin_registry: Arc<BuiltinSkillRegistry>,
-    ) -> Self {
-        Self {
-            registry,
-            builtin_registry,
-        }
+    /// Creates a new `SkillTool` backed by the given skill access ports.
+    pub fn new(disk: Arc<dyn DiskSkillAccess>, builtin: Arc<dyn BuiltinSkillAccess>) -> Self {
+        Self { disk, builtin }
     }
 
     /// Handle a disk-based skill lookup.
@@ -50,13 +46,13 @@ impl SkillTool {
     async fn call_disk_skill(
         &self,
         skill_name: &str,
-        skill: &closeclaw_skills::disk::types::DiskSkill,
+        skill: Result<DiskSkillData, std::io::Error>,
         ctx: &ToolContext,
     ) -> Result<ToolResult, ToolCallError> {
-        let body_str = skill.load_body().map_err(|e| {
+        let skill = skill.map_err(|e| {
             ToolCallError::ExecutionFailed(format!("failed to load skill body: {}", e))
         })?;
-        let body = Self::substitute_variables(&body_str, skill, ctx);
+        let body = Self::substitute_variables(&skill.body, &skill.skill_dir, ctx);
 
         Ok(ToolResult {
             data: serde_json::json!({
@@ -77,14 +73,10 @@ impl SkillTool {
     /// - `${SKILL_DIR}` → absolute path to the skill directory
     /// - `${SESSION_ID}` → current session ID from ToolContext
     /// - Unrecognized `${...}` patterns remain unchanged
-    fn substitute_variables(
-        body: &str,
-        skill: &closeclaw_skills::disk::types::DiskSkill,
-        ctx: &ToolContext,
-    ) -> String {
+    fn substitute_variables(body: &str, skill_dir: &Path, ctx: &ToolContext) -> String {
         let mut result = body.to_string();
 
-        let skill_dir_str = skill.skill_dir.to_string_lossy().to_string();
+        let skill_dir_str = skill_dir.to_string_lossy().to_string();
         result = result.replace("${SKILL_DIR}", &skill_dir_str);
 
         if let Some(ref session_id) = ctx.session_id {
@@ -96,20 +88,15 @@ impl SkillTool {
 
     /// Handle a builtin skill lookup.
     ///
-    /// Calls the skill's `execute()` method and injects the result as a
-    /// meta-message in native mode.
+    /// Injects the execution result as a meta-message in native mode.
     async fn call_builtin_skill(
         &self,
         skill_name: &str,
-        skill: Arc<dyn closeclaw_skills::Skill>,
-        args: &Value,
+        execution: Result<String, SkillExecuteError>,
     ) -> Result<ToolResult, ToolCallError> {
-        let body = skill
-            .execute(args.get("args").cloned())
-            .await
-            .map_err(|e| {
-                ToolCallError::ExecutionFailed(format!("skill execution failed: {}", e))
-            })?;
+        let body = execution.map_err(|e| {
+            ToolCallError::ExecutionFailed(format!("skill execution failed: {}", e))
+        })?;
         Ok(ToolResult {
             data: serde_json::json!({
                 "skill_name": skill_name,
@@ -182,13 +169,17 @@ impl Tool for SkillTool {
             .to_string();
 
         // --- Unified routing: Disk first, Builtin fallback ---
-        if let Some(skill) = self.registry.get(&skill_name) {
+        if let Some(skill) = self.disk.load_by_name(&skill_name) {
             return self.call_disk_skill(&skill_name, skill, ctx).await;
         }
 
         // Fallback: Builtin skill registry
-        if let Some(skill) = self.builtin_registry.get(&skill_name).await {
-            return self.call_builtin_skill(&skill_name, skill, &args).await;
+        if let Some(execution) = self
+            .builtin
+            .execute_by_name(&skill_name, args.get("args").cloned())
+            .await
+        {
+            return self.call_builtin_skill(&skill_name, execution).await;
         }
 
         Err(ToolCallError::NotFound(skill_name))
@@ -198,12 +189,26 @@ impl Tool for SkillTool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::ToolContext;
     use closeclaw_skills::disk::types::{
         DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
     };
+    use closeclaw_skills::disk::DiskSkillRegistry;
     use closeclaw_skills::BuiltinSkillRegistry;
     use std::sync::Arc;
+
+    /// Build a `SkillTool` from real registries via the test-side
+    /// thin port wrappers.
+    fn skill_tool_from(
+        registry: Arc<DiskSkillRegistry>,
+        builtin: Arc<BuiltinSkillRegistry>,
+    ) -> SkillTool {
+        SkillTool::new(
+            Arc::new(RealDiskSkillAccess(registry)),
+            Arc::new(RealBuiltinSkillAccess(builtin)),
+        )
+    }
 
     #[allow(dead_code)]
     fn make_skill(name: &str, readme_path: std::path::PathBuf) -> DiskSkill {
@@ -265,7 +270,7 @@ mod tests {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let reg = ToolRegistry::new();
-        reg.register(SkillTool::new(registry, builtin))
+        reg.register(skill_tool_from(registry, builtin))
             .await
             .unwrap();
 
@@ -308,7 +313,7 @@ mod tests {
     fn test_skill_tool_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(registry, builtin);
+        let tool = skill_tool_from(registry, builtin);
         assert_eq!(tool.name(), "SkillTool");
     }
 
@@ -316,7 +321,7 @@ mod tests {
     fn test_skill_tool_flags() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(registry, builtin);
+        let tool = skill_tool_from(registry, builtin);
         assert!(tool.flags().is_deferred_by_default);
     }
 
@@ -328,7 +333,7 @@ mod tests {
     async fn test_call_skill_not_found() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(registry, builtin);
+        let tool = skill_tool_from(registry, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "nonexistent"}), &new_ctx())
             .await;
@@ -341,7 +346,7 @@ mod tests {
     async fn test_call_missing_skill_name() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let tool = SkillTool::new(registry, builtin);
+        let tool = skill_tool_from(registry, builtin);
         let result = tool.call(serde_json::json!({}), &new_ctx()).await;
         assert!(result.is_err());
         let err = result.unwrap_err();
@@ -379,7 +384,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("my_builtin".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "my_builtin"}), &new_ctx())
             .await
@@ -409,7 +414,7 @@ mod tests {
         builtin
             .register(Arc::new(MockBuiltinSkill("shared".into())))
             .await;
-        let tool = SkillTool::new(disk, builtin);
+        let tool = skill_tool_from(disk, builtin);
         let result = tool
             .call(serde_json::json!({"skill_name": "shared"}), &new_ctx())
             .await
@@ -433,7 +438,7 @@ mod tests {
         );
         let ctx = new_ctx();
         let body_str = "Read files in ${SKILL_DIR}";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(
             result,
             "Read files in /home/user/.closeclaw/skills/my-skill"
@@ -449,7 +454,7 @@ mod tests {
         );
         let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
         let body_str = "Session: ${SESSION_ID}";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(result, "Session: sess-abc-123");
     }
 
@@ -462,7 +467,7 @@ mod tests {
         );
         let ctx = new_ctx();
         let body_str = "Hello ${UNKNOWN_VAR}";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(result, "Hello ${UNKNOWN_VAR}");
     }
 
@@ -475,7 +480,7 @@ mod tests {
         );
         let ctx = new_ctx();
         let body_str = "Plain text without variables";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(result, "Plain text without variables");
     }
 
@@ -488,7 +493,7 @@ mod tests {
         );
         let ctx = new_ctx_with_session(Some("s-999".to_string()));
         let body_str = "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(
             result,
             "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
@@ -504,7 +509,7 @@ mod tests {
         );
         let ctx = new_ctx_with_session(None);
         let body_str = "Session: ${SESSION_ID}";
-        let result = SkillTool::substitute_variables(body_str, &skill, &ctx);
+        let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         // session_id is None → placeholder remains unchanged
         assert_eq!(result, "Session: ${SESSION_ID}");
     }

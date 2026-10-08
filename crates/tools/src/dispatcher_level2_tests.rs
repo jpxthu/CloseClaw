@@ -23,6 +23,18 @@ use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use tokio::sync::Mutex as TokioMutex;
 
+use crate::test_adapters::real_permission_port;
+
+/// Bundle the real permission components behind the tools-owned port.
+fn to_perm_deps(
+    perm: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    sm: Arc<SessionManager>,
+    cm: Arc<ConfigManager>,
+    af: Arc<TokioMutex<ApprovalFlow>>,
+) -> PermDeps {
+    real_permission_port(perm, sm, cm, af)
+}
+
 // ---------------------------------------------------------------------------
 // Test tools
 // ---------------------------------------------------------------------------
@@ -238,7 +250,7 @@ fn make_l2_perm_deps(rules: Vec<Rule>) -> PermDeps {
         std::env::temp_dir(),
         closeclaw_permission::RuleSet::default(),
     )));
-    (perm, sm, cm, af)
+    to_perm_deps(perm, sm, cm, af)
 }
 
 /// Build PermDeps with deny-all approval flow for hard denial tests.
@@ -288,7 +300,7 @@ fn make_l2_perm_deps_deny(rules: Vec<Rule>) -> PermDeps {
         std::env::temp_dir(),
         closeclaw_permission::RuleSet::default(),
     )));
-    (perm, sm, cm, af)
+    to_perm_deps(perm, sm, cm, af)
 }
 
 /// Allow rule for command execution.
@@ -590,7 +602,7 @@ fn make_deny_all_perm_deps() -> PermDeps {
         std::env::temp_dir(),
         closeclaw_permission::RuleSet::default(),
     )));
-    (perm, sm, cm, af)
+    to_perm_deps(perm, sm, cm, af)
 }
 
 /// A tool with group="workflow" for testing permission exemption.

@@ -9,10 +9,12 @@
 
 use super::*;
 use crate::builtin::skill_tool::SkillTool;
+use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
 use crate::test_adapters::{
-    ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter, PermissionEngineAdapter,
+    real_permission_port, ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter,
+    PermissionEngineAdapter,
 };
-use crate::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar};
+use crate::{CoreToolsRegistrar, ToolRegistrar};
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::ToolRegistryQuery;
 use closeclaw_config::ConfigManager;
@@ -24,7 +26,7 @@ use closeclaw_permission::engine::engine_types::RuleSet;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::SessionToolsRegistrar;
-use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::{DiskSkillRegistry, SkillsToolsRegistrar};
 use closeclaw_tasks::BackgroundTaskManager;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -102,14 +104,17 @@ fn make_standard_registrars(
     let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
     let task_manager = Arc::new(BackgroundTaskManager::new());
     let approval_flow = test_approval_flow(&session_manager);
+    let permission_check: crate::permission_check::PermDeps = real_permission_port(
+        permission_engine.clone(),
+        session_manager.clone(),
+        config_manager.clone(),
+        approval_flow.clone(),
+    );
 
     vec![
         Box::new(CoreToolsRegistrar::new(
-            permission_engine.clone(),
+            permission_check,
             task_manager as Arc<dyn closeclaw_common::TaskManager>,
-            session_manager.clone(),
-            config_manager,
-            approval_flow.clone(),
             tool_registry,
         )),
         Box::new(SessionToolsRegistrar::new(
@@ -123,8 +128,10 @@ fn make_standard_registrars(
             ))),
         )),
         Box::new(SkillsToolsRegistrar::new(vec![Arc::new(SkillTool::new(
-            disk_registry,
-            Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+            Arc::new(RealDiskSkillAccess(disk_registry)),
+            Arc::new(RealBuiltinSkillAccess(Arc::new(
+                closeclaw_skills::BuiltinSkillRegistry::new(),
+            ))),
         ))])),
     ]
 }
@@ -176,12 +183,13 @@ async fn test_mode_execution_trigger_registerable_via_before_freeze() {
     // Register via register_before_freeze (the production pattern).
     let mode_tool: Arc<dyn closeclaw_common::Tool> =
         Arc::new(crate::builtin::ModeExecutionTriggerTool::new(
+            crate::plan_file_access::real_access::real_plan_file_access(),
             Arc::new(SessionManager::new(
                 &GatewayConfig::default(),
                 None,
                 None,
                 ReasoningLevel::default(),
-            )),
+            )) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::new(crate::builtin::PlanExecConfirmFlow::new(
                 Arc::new(SessionManager::new(
                     &GatewayConfig::default(),
@@ -213,8 +221,10 @@ async fn test_mode_execution_trigger_registerable_via_before_freeze() {
 async fn test_skills_registrar_only_registers_skills_group() {
     let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
     let skill_tool = SkillTool::new(
-        disk_registry,
-        Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+        Arc::new(RealDiskSkillAccess(disk_registry)),
+        Arc::new(RealBuiltinSkillAccess(Arc::new(
+            closeclaw_skills::BuiltinSkillRegistry::new(),
+        ))),
     );
     let skill_group = skill_tool.group().to_string();
 

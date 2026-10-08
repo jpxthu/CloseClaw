@@ -2,6 +2,10 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
+use crate::plan_file_store_adapter::tool_plan_file_access;
+use crate::read_truncation_adapter::read_truncation_provider;
+use crate::tool_permission_adapter::tool_permission_check;
+use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
@@ -10,12 +14,13 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
+use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
-use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsToolsRegistrar};
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use closeclaw_tools::builtin::SkillTool;
-use closeclaw_tools::{CoreToolsRegistrar, SkillsToolsRegistrar, ToolRegistrar, ToolRegistry};
+use closeclaw_tools::{CoreToolsRegistrar, ToolRegistrar, ToolRegistry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tokio::sync::watch;
@@ -246,22 +251,40 @@ async fn register_standard_registrars(
         .await
         .expect("task_manager must be set on SessionManager before spawn_builtin_tools");
 
-    let core_registrar = CoreToolsRegistrar::new(
+    let tool_permission = tool_permission_check(
         Arc::clone(ctx.permission_engine),
-        task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),
+    );
+
+    let mut core_registrar = CoreToolsRegistrar::new(
+        tool_permission,
+        task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.tool_registry)
             as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     )
-    .with_audit_log_path(ctx.data_dir.join("logs").join("audit.log"));
+    .with_read_truncation(read_truncation_provider(Arc::clone(ctx.config_manager)));
+    let audit_log_path = ctx.data_dir.join("logs").join("audit.log");
+    match FileAuditLogger::new(audit_log_path.clone()) {
+        Ok(logger) => {
+            core_registrar = core_registrar
+                .with_audit_logger(Arc::new(logger) as Arc<dyn closeclaw_common::AuditLogger>);
+        }
+        Err(e) => {
+            tracing::warn!(
+                error = %e,
+                path = %audit_log_path.display(),
+                "failed to create AuditLogTool — skipping"
+            );
+        }
+    }
 
     let session_registrar = build_session_registrar(ctx);
 
     let skill_tool: Arc<dyn closeclaw_common::Tool> = Arc::new(SkillTool::new(
-        Arc::clone(disk_reg),
-        Arc::clone(ctx.builtin_registry),
+        tool_disk_skill_access(Arc::clone(disk_reg)),
+        tool_builtin_skill_access(Arc::clone(ctx.builtin_registry)),
     ));
     let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
@@ -288,7 +311,8 @@ async fn register_system_level_tools(registry: &ToolRegistry, ctx: &RegistryCont
     // Mode execution trigger tool
     let mode_tool: Arc<dyn closeclaw_common::Tool> =
         Arc::new(closeclaw_tools::builtin::ModeExecutionTriggerTool::new(
-            Arc::clone(ctx.session_manager),
+            tool_plan_file_access(),
+            Arc::clone(ctx.session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::clone(ctx.confirm_flow),
         ));
     if let Err(e) = registry

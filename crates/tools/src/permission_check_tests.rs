@@ -1,23 +1,32 @@
 //! Unit tests for the permission_check module.
 
 use super::*;
+use crate::permission_port::PermMessageDirection;
+use crate::test_adapters::real_permission_port;
 use crate::{ToolCallError, ToolContext};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
+use closeclaw_permission::approval_flow::{
+    ApprovalFlow, ApprovalNotification, HeartbeatApprovalMode,
+};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
-    Action, Effect, MatchType, Rule, RuleSet, Subject,
+    Action, Effect, MatchType, MessageDirection, Rule, RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use std::sync::Arc;
+use tokio::sync::Mutex as TokioMutex;
+
+type ApprovalMutex = TokioMutex<ApprovalFlow>;
 
 // ---------------------------------------------------------------------------
 // Test helpers
 // ---------------------------------------------------------------------------
 
-fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
+pub(crate) fn make_engine_with_rules(
+    rules: Vec<Rule>,
+) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     let rs = RuleSetBuilder::new()
         .rules(rules)
         .defaults(Defaults {
@@ -50,15 +59,26 @@ pub(crate) fn make_sm() -> Arc<SessionManager> {
     ))
 }
 
-fn make_cm() -> Arc<ConfigManager> {
+pub(crate) fn make_cm() -> Arc<ConfigManager> {
     let tmp = tempfile::TempDir::new().unwrap();
     Arc::new(
         ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
     )
 }
 
+/// Bundle the real engine / session manager / config manager / approval
+/// flow behind the tools-owned permission port.
+pub(crate) fn make_port(
+    engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    sm: Arc<SessionManager>,
+    cm: Arc<ConfigManager>,
+    flow: Arc<ApprovalMutex>,
+) -> PermDeps {
+    real_permission_port(engine, sm, cm, flow)
+}
+
 /// Standard approval flow — enqueues denials (approval-pending path).
-fn make_af() -> Arc<ApprovalMutex> {
+pub(crate) fn make_af() -> Arc<ApprovalMutex> {
     Arc::new(TokioMutex::new(ApprovalFlow::new(
         Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
         Arc::new(|_| {}),
@@ -81,6 +101,28 @@ pub(crate) fn make_af_deny() -> Arc<ApprovalMutex> {
         std::env::temp_dir(),
         RuleSet::default(),
     )))
+}
+
+/// Standard approval flow with a capturing owner-notification callback so
+/// route tests can observe whether (and how often) the flow was contacted.
+pub(crate) fn make_af_capturing() -> (
+    Arc<ApprovalMutex>,
+    Arc<std::sync::Mutex<Vec<ApprovalNotification>>>,
+) {
+    let notifications: Arc<std::sync::Mutex<Vec<ApprovalNotification>>> = Arc::default();
+    let sink = Arc::clone(&notifications);
+    let flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
+        Arc::clone(&make_sm()) as Arc<dyn closeclaw_common::SessionLookup>,
+        Arc::new(move |n: ApprovalNotification| {
+            sink.lock().unwrap().push(n);
+        }),
+        Arc::new(|_: &str| {}),
+        tokio::runtime::Handle::current(),
+        HeartbeatApprovalMode::default(),
+        std::env::temp_dir(),
+        RuleSet::default(),
+    )));
+    (flow, notifications)
 }
 
 // ---------------------------------------------------------------------------
@@ -169,7 +211,7 @@ fn make_deps_with_shared_sm(
     sm: Arc<SessionManager>,
     flow: Arc<ApprovalMutex>,
 ) -> PermDeps {
-    (make_engine_with_rules(rules), sm, make_cm(), flow)
+    make_port(make_engine_with_rules(rules), sm, make_cm(), flow)
 }
 
 fn make_ctx_with_session(agent: &str, session_id: &str) -> ToolContext {
@@ -186,7 +228,7 @@ fn make_ctx_with_session(agent: &str, session_id: &str) -> ToolContext {
 }
 
 fn make_deps(rules: Vec<Rule>) -> PermDeps {
-    (
+    make_port(
         make_engine_with_rules(rules),
         make_sm(),
         make_cm(),
@@ -196,7 +238,7 @@ fn make_deps(rules: Vec<Rule>) -> PermDeps {
 
 /// Like `make_deps` but uses a deny-all approval flow.
 fn make_deps_deny(rules: Vec<Rule>) -> PermDeps {
-    (
+    make_port(
         make_engine_with_rules(rules),
         make_sm(),
         make_cm(),
@@ -218,7 +260,7 @@ fn make_deps_with_message_deny(rules: Vec<Rule>) -> PermDeps {
         })
         .build()
         .unwrap();
-    (
+    make_port(
         Arc::new(tokio::sync::RwLock::new(
             PermissionEngine::new_with_default_data_root(rs),
         )),
@@ -228,7 +270,7 @@ fn make_deps_with_message_deny(rules: Vec<Rule>) -> PermDeps {
     )
 }
 
-fn make_ctx(agent: &str) -> ToolContext {
+pub(crate) fn make_ctx(agent: &str) -> ToolContext {
     make_ctx_with_session(agent, "")
 }
 
@@ -454,7 +496,7 @@ async fn test_network_denied_wrong_host() {
 async fn test_message_permission_allowed() {
     let deps = make_deps(vec![allow_message_rule("agent-a")]);
     let ctx = make_ctx("agent-a");
-    let result = check_message_permission(&deps, &ctx, MessageDirection::Both, "chat_1").await;
+    let result = check_message_permission(&deps, &ctx, PermMessageDirection::Both, "chat_1").await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none(), "allowed → None");
 }
@@ -463,7 +505,7 @@ async fn test_message_permission_allowed() {
 async fn test_message_permission_denied() {
     let deps = make_deps_with_message_deny(vec![]);
     let ctx = make_ctx("agent-a");
-    let result = check_message_permission(&deps, &ctx, MessageDirection::Send, "chat_1").await;
+    let result = check_message_permission(&deps, &ctx, PermMessageDirection::Send, "chat_1").await;
     assert!(result.is_err());
 }
 
@@ -571,292 +613,47 @@ async fn test_level1_pass_level2_denied() {
 }
 
 // ---------------------------------------------------------------------------
-// is_sub_agent behavior tests
-// ---------------------------------------------------------------------------
-
-/// Insert a root session (depth=0) and a child session (depth=1) into the
-/// SessionManager so that `is_session_sub_agent` can resolve depths.
-async fn setup_sessions_with_depth(sm: &SessionManager, root_id: &str, child_id: &str) {
-    use closeclaw_session::llm_session::ConversationSession;
-    use std::path::PathBuf;
-    use std::sync::Arc;
-    use tokio::sync::RwLock;
-
-    // Insert root session (depth=0)
-    sm.sessions.write().await.insert(
-        root_id.to_string(),
-        closeclaw_gateway::Session {
-            id: root_id.to_string(),
-            agent_id: "agent-a".to_string(),
-            channel: "test".to_string(),
-            created_at: 0,
-            depth: 0,
-        },
-    );
-    let cs_root = ConversationSession::new(
-        root_id.to_string(),
-        "test-model".to_string(),
-        PathBuf::from("/tmp"),
-    );
-    sm.conversation_sessions
-        .write()
-        .await
-        .insert(root_id.to_string(), Arc::new(RwLock::new(cs_root)));
-
-    // Insert child session (depth=1)
-    sm.sessions.write().await.insert(
-        child_id.to_string(),
-        closeclaw_gateway::Session {
-            id: child_id.to_string(),
-            agent_id: "child-agent".to_string(),
-            channel: "test".to_string(),
-            created_at: 0,
-            depth: 1,
-        },
-    );
-    let cs_child = ConversationSession::new(
-        child_id.to_string(),
-        "test-model".to_string(),
-        PathBuf::from("/tmp"),
-    );
-    sm.conversation_sessions
-        .write()
-        .await
-        .insert(child_id.to_string(), Arc::new(RwLock::new(cs_child)));
-}
-
-/// Build PermDeps using a shared SessionManager so that session state
-/// set up via `setup_sessions_with_depth` is visible to the permission
-/// check functions.
-fn make_deps_with_sm(
-    rules: Vec<Rule>,
-    sm: Arc<SessionManager>,
-    flow: Arc<ApprovalMutex>,
-) -> PermDeps {
-    (make_engine_with_rules(rules), sm, make_cm(), flow)
-}
-
-/// Root session (depth=0) denial routes through approval flow → returns
-/// a ToolResult with approval-pending status, NOT PermissionDenied.
-#[tokio::test]
-async fn test_root_session_denial_goes_through_approval_flow() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-session", "child-session").await;
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-
-    let ctx = ToolContext {
-        agent_id: "agent-a".to_string(),
-        workdir: None,
-        session_id: Some("root-session".to_string()),
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
-    // Root session → is_sub_agent=false → approval flow enqueues → Ok(Some(...))
-    assert!(
-        result.is_ok(),
-        "Root session denial should route to approval flow"
-    );
-    assert!(
-        result.unwrap().is_some(),
-        "Root session should get approval-pending result"
-    );
-}
-
-/// Child session (depth=1) denial is silent → returns
-/// PermissionDenied (approval flow returns None for sub-agents).
-#[tokio::test]
-async fn test_child_session_denial_is_silent() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-session", "child-session").await;
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-
-    let ctx = ToolContext {
-        agent_id: "agent-a".to_string(),
-        workdir: None,
-        session_id: Some("child-session".to_string()),
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
-    // Child session → is_sub_agent=true → silent deny → PermissionDenied
-    match result {
-        Err(ToolCallError::PermissionDenied(reason)) => {
-            assert!(!reason.is_empty());
-        }
-        other => panic!("Child session should get PermissionDenied, got {:?}", other),
-    }
-}
-
-/// session_id=None → is_sub_agent=false → routes through approval flow.
-#[tokio::test]
-async fn test_none_session_id_not_sub_agent() {
-    let sm = make_sm();
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-    let ctx = make_ctx("agent-a");
-    // ctx.session_id is None by default from make_ctx
-    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
-    // None session → is_sub_agent=false → approval flow enqueues
-    assert!(
-        result.is_ok(),
-        "None session_id should route to approval flow"
-    );
-    assert!(result.unwrap().is_some());
-}
-
-/// session_id="" → is_sub_agent=false → routes through approval flow.
-#[tokio::test]
-async fn test_empty_session_id_not_sub_agent() {
-    let sm = make_sm();
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-    let ctx = ToolContext {
-        agent_id: "agent-a".to_string(),
-        workdir: None,
-        session_id: Some(String::new()),
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = check_tool_permission(&deps, &ctx, "bash", "call", None).await;
-    // Empty session_id → is_sub_agent=false → approval flow enqueues
-    assert!(
-        result.is_ok(),
-        "Empty session_id should route to approval flow"
-    );
-    assert!(result.unwrap().is_some());
-}
-
-/// Child session (depth=1) denial for file op is also silent.
-#[tokio::test]
-async fn test_child_session_file_op_denial_is_silent() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-session", "child-session").await;
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-
-    let ctx = ToolContext {
-        agent_id: "agent-a".to_string(),
-        workdir: None,
-        session_id: Some("child-session".to_string()),
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
-    // Child session → silent deny → PermissionDenied
-    assert!(
-        result.is_err(),
-        "Child session file op should be silently denied"
-    );
-}
-
-/// Child session (depth=1) command denial is also silent.
-#[tokio::test]
-async fn test_child_session_command_denial_is_silent() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-session", "child-session").await;
-    let flow = make_af();
-    let deps = make_deps_with_sm(vec![], sm, flow);
-
-    let ctx = ToolContext {
-        agent_id: "agent-a".to_string(),
-        workdir: None,
-        session_id: Some("child-session".to_string()),
-        call_id: None,
-        session: None,
-        session_mode: None,
-        manual_background_signal: None,
-        media_store: None,
-    };
-    let result = check_command_permission(&deps, &ctx, "ls", &["-la".to_string()], None).await;
-    // Child session → silent deny → Denied variant
-    assert!(
-        matches!(result, CommandPermissionResult::Denied(_)),
-        "Child session command should be silently denied"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// is_session_sub_agent direct regression tests
-// ---------------------------------------------------------------------------
-
-/// is_session_sub_agent returns false for empty session_id.
-/// (Non-regression: this behavior was already covered by
-/// test_empty_session_id_not_sub_agent above.)
-#[tokio::test]
-async fn test_is_session_sub_agent_empty_session_id() {
-    let sm = make_sm();
-    assert!(!is_session_sub_agent(&sm, "").await);
-}
-
-/// is_session_sub_agent returns false for a non-existent session_id.
-/// get_session_depth returns None → is_some_and evaluates to false.
-#[tokio::test]
-async fn test_is_session_sub_agent_nonexistent_session() {
-    let sm = make_sm();
-    assert!(!is_session_sub_agent(&sm, "does-not-exist").await);
-}
-
-/// is_session_sub_agent returns false for a root session (depth=0).
-#[tokio::test]
-async fn test_is_session_sub_agent_depth_zero() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-0", "child-0").await;
-    assert!(!is_session_sub_agent(&sm, "root-0").await);
-}
-
-/// is_session_sub_agent returns true for a child session (depth=1).
-#[tokio::test]
-async fn test_is_session_sub_agent_depth_positive() {
-    let sm = make_sm();
-    setup_sessions_with_depth(&sm, "root-1", "child-1").await;
-    assert!(is_session_sub_agent(&sm, "child-1").await);
-}
-
-// ---------------------------------------------------------------------------
 // is_config_file tests
 // ---------------------------------------------------------------------------
 
-#[test]
-fn test_is_config_file_in_config_dir() {
+#[tokio::test]
+async fn test_is_config_file_in_config_dir() {
     let cm = make_cm();
+    let deps = make_port(
+        make_engine_with_rules(vec![]),
+        make_sm(),
+        Arc::clone(&cm),
+        make_af(),
+    );
     let data_root = cm.config_dir();
     let path = data_root
         .join("agents/a1/permissions.json")
         .to_string_lossy()
         .into_owned();
-    assert!(is_config_file(&cm, &path));
+    assert!(deps.is_config_file(&path));
 }
 
-#[test]
-fn test_is_config_file_in_workspace() {
+#[tokio::test]
+async fn test_is_config_file_in_workspace() {
     let cm = make_cm();
+    let deps = make_port(
+        make_engine_with_rules(vec![]),
+        make_sm(),
+        Arc::clone(&cm),
+        make_af(),
+    );
     let data_root = cm.config_dir();
     let path = data_root
         .join("workspaces/a1/u1/file.txt")
         .to_string_lossy()
         .into_owned();
-    assert!(!is_config_file(&cm, &path));
+    assert!(!deps.is_config_file(&path));
 }
 
-#[test]
-fn test_is_config_file_normal_file() {
-    let cm = make_cm();
-    assert!(!is_config_file(&cm, "/tmp/regular/file.txt"));
+#[tokio::test]
+async fn test_is_config_file_normal_file() {
+    let deps = make_deps(vec![]);
+    assert!(!deps.is_config_file("/tmp/regular/file.txt"));
 }
 
 // Step 1.3: Real User ID in permission check functions

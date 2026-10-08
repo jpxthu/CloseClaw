@@ -142,6 +142,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use closeclaw_permission::engine::engine_types::RuleSet;
 
@@ -303,13 +304,17 @@ mod tests {
                 RuleSet::default(),
             ),
         ));
-        let registrars: Vec<Box<dyn crate::ToolRegistrar>> = vec![
-            Box::new(crate::CoreToolsRegistrar::new(
+        let permission_check: crate::permission_check::PermDeps =
+            crate::test_adapters::real_permission_port(
                 permission_engine.clone(),
-                task_manager as Arc<dyn closeclaw_common::TaskManager>,
                 session_manager.clone(),
                 cfg_mgr.clone(),
                 approval_flow.clone(),
+            );
+        let registrars: Vec<Box<dyn crate::ToolRegistrar>> = vec![
+            Box::new(crate::CoreToolsRegistrar::new(
+                permission_check,
+                task_manager as Arc<dyn closeclaw_common::TaskManager>,
                 Arc::clone(&registry)
                     as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
             )),
@@ -324,10 +329,12 @@ mod tests {
                     approval_flow.clone(),
                 ))),
             )),
-            Box::new(crate::SkillsToolsRegistrar::new(vec![Arc::new(
+            Box::new(closeclaw_skills::SkillsToolsRegistrar::new(vec![Arc::new(
                 crate::builtin::SkillTool::new(
-                    disk_registry,
-                    Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                    Arc::new(RealDiskSkillAccess(disk_registry)),
+                    Arc::new(RealBuiltinSkillAccess(Arc::new(
+                        closeclaw_skills::BuiltinSkillRegistry::new(),
+                    ))),
                 ),
             )])),
         ];
