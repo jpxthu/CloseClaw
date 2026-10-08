@@ -12,6 +12,7 @@ use closeclaw_common::permission_types::{
     ApprovalSubmission, CallerInfo, PermissionEvalResponse, PermissionEvaluator, RiskLevel,
 };
 use closeclaw_config::ConfigManager;
+use closeclaw_gateway::agent_permissions_bridge::ConfigAgentPermissionsProviderAdapter;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
@@ -244,7 +245,8 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         body: &PermRequestBody,
     ) -> PermVerdict {
         let request = PermissionRequest::Bare(map_body_to_permission(body));
-        let agent_perms = self.config_manager.agent_permissions();
+        let agent_perms =
+            ConfigAgentPermissionsProviderAdapter::new(self.config_manager.agent_permissions());
         if let Some(sid) = session_id {
             // Resolve the real user_id from the session checkpoint.
             let user_id = self.session_manager.get_sender_id(sid).await;
@@ -264,12 +266,7 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
             };
             let engine = self.engine.read().await;
             let response = engine
-                .evaluate_with_chain(
-                    upgraded,
-                    self.session_manager.as_ref(),
-                    sid,
-                    agent_perms.as_ref(),
-                )
+                .evaluate_with_chain(upgraded, self.session_manager.as_ref(), sid, &agent_perms)
                 .await;
             verdict_from_permission(response)
         } else {

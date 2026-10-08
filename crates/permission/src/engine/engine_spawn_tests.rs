@@ -6,10 +6,10 @@ use super::engine_types::{
     Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
 use crate::actions::ActionBuilder;
+use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits};
 use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::RuleBuilder;
 use crate::rules::RuleSetBuilder;
-use closeclaw_config::agents::{ActionPermission, AgentPermissions, PermissionLimits};
 use std::collections::HashMap;
 
 fn make_engine() -> PermissionEngine {
@@ -40,9 +40,9 @@ fn make_allowed_perms(agent_id: &str) -> AgentPermissions {
         .map(|&dim| {
             (
                 dim.to_string(),
-                closeclaw_config::agents::ActionPermission {
+                ActionPermission {
                     allowed: true,
-                    limits: closeclaw_config::agents::PermissionLimits::default(),
+                    limits: PermissionLimits::default(),
                 },
             )
         })
@@ -149,9 +149,9 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
     ] {
         user_perms_map.insert(
             dim.to_string(),
-            closeclaw_config::agents::ActionPermission {
+            ActionPermission {
                 allowed: *dim != "exec",
-                limits: closeclaw_config::agents::PermissionLimits::default(),
+                limits: PermissionLimits::default(),
             },
         );
     }

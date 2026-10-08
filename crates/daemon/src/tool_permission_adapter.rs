@@ -33,6 +33,8 @@ use closeclaw_tools::permission_port::{
 };
 use tokio::sync::Mutex as TokioMutex;
 
+use crate::agent_permissions_adapter::AgentPermissionsAdapter;
+
 /// Map a tools mirror message direction to the permission-side enum.
 fn message_direction_to_permission(direction: &PermMessageDirection) -> MessageDirection {
     match direction {
@@ -159,7 +161,7 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
         body: &PermRequestBody,
     ) -> PermVerdict {
         let request = PermissionRequest::Bare(body_to_permission(body));
-        let agent_perms = self.config_manager.agent_permissions();
+        let agent_perms = AgentPermissionsAdapter::new(self.config_manager.agent_permissions());
         if let Some(sid) = session_id {
             // Resolve the real user_id from the session checkpoint.
             let user_id = self.session_manager.get_sender_id(sid).await;
@@ -179,12 +181,7 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
             };
             let engine = self.permission_engine.read().await;
             let response = engine
-                .evaluate_with_chain(
-                    upgraded,
-                    self.session_manager.as_ref(),
-                    sid,
-                    agent_perms.as_ref(),
-                )
+                .evaluate_with_chain(upgraded, self.session_manager.as_ref(), sid, &agent_perms)
                 .await;
             verdict_from_permission(response)
         } else {

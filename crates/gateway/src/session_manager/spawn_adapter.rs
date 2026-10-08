@@ -10,14 +10,18 @@
 
 use std::sync::Arc;
 
+use crate::agent_permissions_bridge::{
+    to_permission_agent_permissions, ConfigAgentPermissionsProviderAdapter,
+};
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
-use closeclaw_config::agents::{AgentPermissionProvider, AgentPermissions};
+use closeclaw_config::agents::AgentPermissionProvider as ConfigAgentPermissionProvider;
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_helpers::{
     collect_chain_deny_subjects, collect_chain_effective_permissions,
 };
 use closeclaw_permission::engine::engine_types::Subject;
+use closeclaw_permission::AgentPermissions;
 use closeclaw_session::spawn::context::SpawnCreationContext;
 use closeclaw_session::spawn::controller::SpawnContext;
 
@@ -167,7 +171,13 @@ impl PermissionChecker for GatewayPermissionChecker {
         parent_session_id: &str,
     ) -> Result<(), SpawnPermissionError> {
         // Resolve child permissions — early return if none configured.
-        let child_perms = match self.config_manager.agent_permissions().get(child_agent_id) {
+        let child_perms = match self
+            .config_manager
+            .agent_permissions()
+            .get(child_agent_id)
+            .as_ref()
+            .map(to_permission_agent_permissions)
+        {
             Some(p) => p,
             None => return Ok(()),
         };
@@ -177,10 +187,11 @@ impl PermissionChecker for GatewayPermissionChecker {
             Some(id) => id,
             None => return Ok(()),
         };
-        let agent_perms = self.config_manager.agent_permissions();
+        let agent_perms =
+            ConfigAgentPermissionsProviderAdapter::new(self.config_manager.agent_permissions());
         let parent_perms = match collect_chain_effective_permissions(
             &*self.session_manager,
-            agent_perms.as_ref(),
+            &agent_perms,
             parent_session_id,
             &parent_agent_id,
         )
