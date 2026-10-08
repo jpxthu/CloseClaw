@@ -7,6 +7,7 @@
 use crate::llm_session::ConversationSession;
 use crate::persistence::SessionCheckpoint;
 use crate::workflow_port::real_engine_port::test_port;
+use crate::workflow_port::WorkflowRunDecodeError;
 use crate::workflow_recovery::rebuild_workflow_context_append;
 use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
 
@@ -69,7 +70,7 @@ fn write_workflow_definition(dir: &std::path::Path, name: &str) {
 // ── active_workflow_run_phase: port requirement ───────────────────────────
 
 #[test]
-fn test_active_workflow_run_phase_without_port_is_none() {
+fn test_active_workflow_run_phase_without_port_is_ok_none() {
     // No port injected → the stored Value cannot be decoded here; the query
     // degrades to "no active run" instead of naming workflow types.
     let mut session = ConversationSession::new(
@@ -78,14 +79,14 @@ fn test_active_workflow_run_phase_without_port_is_none() {
         std::path::PathBuf::from("unused-workdir"),
     );
     session.set_workflow_run(Some(make_run(Phase::Executing)));
-    assert_eq!(session.active_workflow_run_phase(), None);
+    assert_eq!(session.active_workflow_run_phase(), Ok(None));
 }
 
 // ── active_workflow_run_phase ─────────────────────────────────────────────
 
 #[test]
 fn test_active_workflow_run_phase_no_run_is_none() {
-    assert_eq!(make_session().active_workflow_run_phase(), None);
+    assert_eq!(make_session().active_workflow_run_phase(), Ok(None));
 }
 
 #[test]
@@ -93,8 +94,8 @@ fn test_active_workflow_run_phase_active_is_debug_string() {
     let mut session = make_session();
     session.set_workflow_run(Some(make_run(Phase::Executing)));
     assert_eq!(
-        session.active_workflow_run_phase().as_deref(),
-        Some("Executing")
+        session.active_workflow_run_phase(),
+        Ok(Some("Executing".to_string()))
     );
 }
 
@@ -104,8 +105,20 @@ fn test_active_workflow_run_phase_complete_is_none() {
     session.set_workflow_run(Some(make_run(Phase::Complete)));
     assert_eq!(
         session.active_workflow_run_phase(),
-        None,
+        Ok(None),
         "completed runs must not count as active (one-run-per-session rule)"
+    );
+}
+
+/// A malformed stored value surfaces as `Err` for the caller to log —
+/// the session must not emit the gateway-owned warn itself.
+#[test]
+fn test_active_workflow_run_phase_undecodable_run_is_err() {
+    let mut session = make_session();
+    session.set_workflow_run_value(Some(serde_json::json!({ "not": "a run" })));
+    assert_eq!(
+        session.active_workflow_run_phase(),
+        Err(WorkflowRunDecodeError)
     );
 }
 
@@ -130,7 +143,7 @@ fn test_active_workflow_definition_name_no_run() {
     let cp = SessionCheckpoint::new("sid".to_string());
     assert_eq!(
         cp.active_workflow_definition_name(test_port().as_ref()),
-        None
+        Ok(None)
     );
 }
 
@@ -140,7 +153,7 @@ fn test_active_workflow_definition_name_complete_run_is_none() {
     seed_run(&mut cp, make_run(Phase::Complete));
     assert_eq!(
         cp.active_workflow_definition_name(test_port().as_ref()),
-        None
+        Ok(None)
     );
 }
 
@@ -150,7 +163,7 @@ fn test_active_workflow_definition_name_active_run() {
     seed_run(&mut cp, make_run(Phase::Verifying));
     assert_eq!(
         cp.active_workflow_definition_name(test_port().as_ref()),
-        Some("Test WF".to_string())
+        Ok(Some("Test WF".to_string()))
     );
 }
 
@@ -160,8 +173,20 @@ fn test_active_workflow_definition_name_empty_name_still_reported() {
     seed_run(&mut cp, make_run_named("", Phase::Executing));
     assert_eq!(
         cp.active_workflow_definition_name(test_port().as_ref()),
-        Some("".to_string()),
+        Ok(Some("".to_string())),
         "an empty name must be reported so callers can warn"
+    );
+}
+
+/// A malformed stored value surfaces as `Err` for the caller to log —
+/// the session must not emit the gateway-owned warn itself.
+#[test]
+fn test_active_workflow_definition_name_undecodable_run_is_err() {
+    let mut cp = SessionCheckpoint::new("sid".to_string());
+    cp.workflow_run = Some(serde_json::json!({ "not": "a run" }));
+    assert_eq!(
+        cp.active_workflow_definition_name(test_port().as_ref()),
+        Err(WorkflowRunDecodeError)
     );
 }
 

@@ -196,7 +196,19 @@ impl SessionManager {
         };
 
         // No active run (absent or already Complete) → nothing to re-inject.
-        let Some(definition_name) = cp.active_workflow_definition_name(port.as_ref()) else {
+        // A malformed run value is logged here (gateway target) and skipped
+        // — consistent with the phase query in `session_lookup_impl`.
+        let definition_name = match cp.active_workflow_definition_name(port.as_ref()) {
+            Ok(name) => name,
+            Err(_) => {
+                tracing::warn!(
+                    session_id = %session_id,
+                    "failed to decode checkpoint workflow_run, skipping context re-injection"
+                );
+                return;
+            }
+        };
+        let Some(definition_name) = definition_name else {
             return;
         };
 

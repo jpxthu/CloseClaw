@@ -15,7 +15,9 @@
 use std::path::PathBuf;
 
 use crate::persistence::SessionCheckpoint;
-use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunInfo};
+use crate::workflow_port::{
+    WorkflowGoalHint, WorkflowPhase, WorkflowPort, WorkflowRunDecodeError, WorkflowRunInfo,
+};
 
 /// Prefix marker for workflow recovery notification in `system_injection_appends`.
 pub const WORKFLOW_RECOVERY_PREFIX: &str = "__workflow_recovery__:";
@@ -160,23 +162,25 @@ impl SessionCheckpoint {
     /// Definition name of the stored active workflow run, decoded through
     /// `port` so no workflow type surfaces outside the session crate.
     ///
-    /// Returns `None` when no run is stored, the run has completed, or the
-    /// stored value cannot be decoded (logged). An empty string means the
-    /// run was persisted without a definition name — callers must treat it
-    /// as unusable.
-    pub fn active_workflow_definition_name(&self, port: &dyn WorkflowPort) -> Option<String> {
-        let state = self.workflow_run.as_ref()?;
+    /// Returns `Ok(None)` when no run is stored or the run has completed,
+    /// and `Err` when the stored value cannot be decoded — the caller owns
+    /// the failure logging (target semantics stay with the caller's
+    /// module). An empty string means the run was persisted without a
+    /// definition name — callers must treat it as unusable.
+    pub fn active_workflow_definition_name(
+        &self,
+        port: &dyn WorkflowPort,
+    ) -> Result<Option<String>, WorkflowRunDecodeError> {
+        let Some(state) = self.workflow_run.as_ref() else {
+            return Ok(None);
+        };
         let Some(info) = port.run_info(state) else {
-            tracing::warn!(
-                session_id = %self.session_id,
-                "failed to decode checkpoint workflow_run, skipping context re-injection"
-            );
-            return None;
+            return Err(WorkflowRunDecodeError);
         };
         if info.phase == WorkflowPhase::Complete {
-            return None;
+            return Ok(None);
         }
-        Some(info.definition_name)
+        Ok(Some(info.definition_name))
     }
 }
 

@@ -9,7 +9,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
 use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 // ── Mock persistence service ─────────────────────────────────────────────────
@@ -360,6 +360,68 @@ fn count_workflow_contexts(appends: &[String]) -> usize {
         .count()
 }
 
+// ── Warn capture (log target / message parity with master) ──────────────────
+
+/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
+/// subscriber writes into it while the caller keeps a handle for reading
+/// the captured bytes back.
+#[derive(Clone, Default)]
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for VecWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
+    type Writer = VecWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Install a thread-local WARN-level fmt subscriber (target kept — the
+/// assertions below check the master log target verbatim) writing into an
+/// in-memory buffer; returns the guard with the buffer handle.
+///
+/// File-local copy of the `capture_warn_logs` mechanism (issue #3102).
+/// Caller tests **must** carry `#[serial_test::serial]`: installing the
+/// subscriber registers WARN callsites in the process-global tracing
+/// callsite-interest cache, and concurrent registration on the same
+/// callsite can drop events.
+fn warn_capture_guard() -> (tracing::subscriber::DefaultGuard, Arc<Mutex<Vec<u8>>>) {
+    let buffer = VecWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    (guard, buffer.0)
+}
+
+fn captured_logs(buffer: &Arc<Mutex<Vec<u8>>>) -> String {
+    String::from_utf8(buffer.lock().unwrap().clone()).unwrap()
+}
+
+/// Store a checkpoint whose `workflow_run` value is not a decodable run.
+async fn seed_malformed_workflow_checkpoint(persistence: &Arc<MockPersistence>, session_id: &str) {
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.agent_id = Some("agent-x".to_string());
+    cp.workflow_run = Some(serde_json::json!({ "not": "a run" }));
+    cp.touch();
+    persistence
+        .checkpoints
+        .write()
+        .await
+        .insert(session_id.to_string(), cp);
+}
+
 /// Erased `set_workflow_run` stores the run on the session and persists it.
 #[tokio::test]
 async fn test_set_workflow_run_erased_sets_run_and_persists() {
@@ -567,4 +629,70 @@ async fn test_reinject_workflow_context_after_compact_skips_inactive_runs() {
             "{sid} should not receive workflow context"
         );
     }
+}
+
+/// A malformed stored run makes the phase query degrade to `None` with a
+/// warn emitted from the gateway (master-verbatim target + message), not
+/// from the session crate.
+#[tokio::test]
+#[serial_test::serial]
+async fn test_phase_query_decode_failure_warns_from_gateway_target() {
+    let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
+    let session_id = "wf-phase-undecodable";
+    register_conv_session(&sm, session_id).await;
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    cs.write()
+        .await
+        .set_workflow_run_value(Some(serde_json::json!({ "not": "a run" })));
+
+    let (guard, buffer) = warn_capture_guard();
+    let phase = sm.get_active_workflow_run_phase(session_id).await;
+    drop(guard);
+
+    assert_eq!(phase, None, "an undecodable run reports no active phase");
+    let logs = captured_logs(&buffer);
+    assert!(
+        logs.contains("closeclaw_gateway::session_manager::session_lookup_impl"),
+        "warn must be emitted from the gateway target: {logs}"
+    );
+    assert!(
+        logs.contains("failed to decode workflow_run value, skipping phase lookup"),
+        "warn message must match master verbatim: {logs}"
+    );
+    assert!(logs.contains("session_id"), "field must be kept: {logs}");
+}
+
+/// A malformed checkpoint run makes compaction re-injection stop with a
+/// warn emitted from the gateway (master-verbatim target + message), not
+/// from the session crate.
+#[tokio::test]
+#[serial_test::serial]
+async fn test_reinject_decode_failure_warns_from_gateway_target() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+    let session_id = "wf-reinject-undecodable";
+    register_conv_session(&sm, session_id).await;
+    seed_malformed_workflow_checkpoint(&persistence, session_id).await;
+
+    let (guard, buffer) = warn_capture_guard();
+    sm.reinject_workflow_context_after_compact(session_id).await;
+    drop(guard);
+
+    let logs = captured_logs(&buffer);
+    assert!(
+        logs.contains("closeclaw_gateway::session_manager::compaction_helpers"),
+        "warn must be emitted from the gateway target: {logs}"
+    );
+    assert!(
+        logs.contains("failed to decode checkpoint workflow_run, skipping context re-injection"),
+        "warn message must match master verbatim: {logs}"
+    );
+    assert!(logs.contains("session_id"), "field must be kept: {logs}");
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    assert_eq!(
+        count_workflow_contexts(&cs.read().await.system_appends()),
+        0,
+        "an undecodable run must not re-inject context"
+    );
 }

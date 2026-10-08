@@ -103,7 +103,18 @@ impl SlashSessionQuery for SessionManager {
     async fn get_active_workflow_run_phase(&self, session_id: &str) -> Option<String> {
         let cs = get_cs(self, session_id).await?;
         let guard = cs.read().await;
-        guard.active_workflow_run_phase()
+        match guard.active_workflow_run_phase() {
+            Ok(phase) => phase,
+            Err(_) => {
+                // A malformed run value is logged here (gateway target)
+                // and skipped — consistent with compaction_helpers.
+                tracing::warn!(
+                    session_id = %session_id,
+                    "failed to decode workflow_run value, skipping phase lookup"
+                );
+                None
+            }
+        }
     }
 
     async fn invalidate_static_cache(&self) {

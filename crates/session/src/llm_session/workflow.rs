@@ -5,7 +5,7 @@ use closeclaw_common::processor::ContentBlock;
 use std::sync::Arc;
 
 use crate::workflow_handler::JumpResult;
-use crate::workflow_port::WorkflowPhase;
+use crate::workflow_port::{WorkflowPhase, WorkflowRunDecodeError};
 
 use super::ConversationSession;
 
@@ -58,23 +58,25 @@ impl ConversationSession {
     ///
     /// The stored `Value` is decoded through the injected [`WorkflowPort`],
     /// so no workflow type surfaces outside the session crate. Returns
-    /// `None` when no run is stored, the run has completed, no port is
-    /// injected, or the stored value cannot be decoded (logged) — callers
-    /// use this to enforce the one-workflow-per-session constraint.
-    pub fn active_workflow_run_phase(&self) -> Option<String> {
-        let state = self.workflow_run.as_ref()?;
-        let port = self.workflow_port.as_ref()?;
+    /// `Ok(None)` when no run is stored, the run has completed, or no port
+    /// is injected, and `Err` when the stored value cannot be decoded —
+    /// the caller owns the failure logging (target semantics stay with
+    /// the caller's module). Callers use this to enforce the
+    /// one-workflow-per-session constraint.
+    pub fn active_workflow_run_phase(&self) -> Result<Option<String>, WorkflowRunDecodeError> {
+        let Some(state) = self.workflow_run.as_ref() else {
+            return Ok(None);
+        };
+        let Some(port) = self.workflow_port.as_ref() else {
+            return Ok(None);
+        };
         let Some(phase) = port.run_phase(state) else {
-            tracing::warn!(
-                session_id = %self.session_id,
-                "failed to decode workflow_run value, skipping phase lookup"
-            );
-            return None;
+            return Err(WorkflowRunDecodeError);
         };
         if phase == WorkflowPhase::Complete {
-            return None;
+            return Ok(None);
         }
-        Some(format!("{:?}", phase))
+        Ok(Some(format!("{:?}", phase)))
     }
 
     /// Returns `true` when a workflow context append is already present in
