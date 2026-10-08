@@ -9,6 +9,7 @@
 
 use super::*;
 use crate::builtin::skill_tool::SkillTool;
+use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
 use crate::test_adapters::{
     ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter, PermissionEngineAdapter,
 };
@@ -123,8 +124,10 @@ fn make_standard_registrars(
             ))),
         )),
         Box::new(SkillsToolsRegistrar::new(vec![Arc::new(SkillTool::new(
-            disk_registry,
-            Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+            Arc::new(RealDiskSkillAccess(disk_registry)),
+            Arc::new(RealBuiltinSkillAccess(Arc::new(
+                closeclaw_skills::BuiltinSkillRegistry::new(),
+            ))),
         ))])),
     ]
 }
@@ -213,8 +216,10 @@ async fn test_mode_execution_trigger_registerable_via_before_freeze() {
 async fn test_skills_registrar_only_registers_skills_group() {
     let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
     let skill_tool = SkillTool::new(
-        disk_registry,
-        Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+        Arc::new(RealDiskSkillAccess(disk_registry)),
+        Arc::new(RealBuiltinSkillAccess(Arc::new(
+            closeclaw_skills::BuiltinSkillRegistry::new(),
+        ))),
     );
     let skill_group = skill_tool.group().to_string();
 

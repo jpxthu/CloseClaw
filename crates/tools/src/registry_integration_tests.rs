@@ -5,6 +5,7 @@
 //! to keep that file under the 1 000-line limit.
 
 use super::*;
+use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
 use closeclaw_common::tool_registry::ToolRegistry as _;
 use closeclaw_common::ToolRegistryQuery;
 use std::sync::Arc;
@@ -20,8 +21,12 @@ async fn test_index_builder_skill_tool_eager_skill_creator_deferred() {
     let reg = ToolRegistry::new();
     // SkillTool — is_deferred_by_default = true (Step 1.1)
     let skill_tool = crate::builtin::skill_tool::SkillTool::new(
-        Arc::new(DiskSkillRegistry::new(vec![])),
-        Arc::new(BuiltinSkillRegistry::new()),
+        Arc::new(RealDiskSkillAccess(Arc::new(DiskSkillRegistry::new(
+            vec![],
+        )))),
+        Arc::new(RealBuiltinSkillAccess(
+            Arc::new(BuiltinSkillRegistry::new()),
+        )),
     );
     reg.register(skill_tool).await.unwrap();
     // SkillCreatorTool — is_deferred_by_default = true (Step 1.2)
@@ -69,8 +74,12 @@ async fn test_registry_has_skill_tool_and_skill_creator() {
 
     let reg = ToolRegistry::new();
     let skill_tool = crate::builtin::skill_tool::SkillTool::new(
-        Arc::new(DiskSkillRegistry::new(vec![])),
-        Arc::new(BuiltinSkillRegistry::new()),
+        Arc::new(RealDiskSkillAccess(Arc::new(DiskSkillRegistry::new(
+            vec![],
+        )))),
+        Arc::new(RealBuiltinSkillAccess(
+            Arc::new(BuiltinSkillRegistry::new()),
+        )),
     );
     reg.register(skill_tool).await.unwrap();
     let creator_tool = closeclaw_skills::SkillCreatorTool::new();

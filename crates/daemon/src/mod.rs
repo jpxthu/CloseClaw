@@ -24,6 +24,7 @@ pub(crate) mod shutdown_heartbeat;
 pub mod skill_access_adapter;
 pub mod skill_reload;
 pub mod startup;
+pub mod tool_skill_access_adapter;
 pub mod trait_adapters;
 pub mod workflow_launcher_adapter;
 pub mod workflow_port_adapter;

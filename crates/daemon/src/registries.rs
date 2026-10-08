@@ -3,6 +3,7 @@
 
 use crate::config_watcher;
 use crate::read_truncation_adapter::read_truncation_provider;
+use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
@@ -276,8 +277,8 @@ async fn register_standard_registrars(
     let session_registrar = build_session_registrar(ctx);
 
     let skill_tool: Arc<dyn closeclaw_common::Tool> = Arc::new(SkillTool::new(
-        Arc::clone(disk_reg),
-        Arc::clone(ctx.builtin_registry),
+        tool_disk_skill_access(Arc::clone(disk_reg)),
+        tool_builtin_skill_access(Arc::clone(ctx.builtin_registry)),
     ));
     let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
     let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();

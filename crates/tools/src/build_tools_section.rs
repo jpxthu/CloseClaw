@@ -152,6 +152,7 @@ pub async fn build_tools_section(
 mod tests {
     use super::*;
     use crate::builtin::SkillTool;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use crate::{CoreToolsRegistrar, ToolRegistrar};
     use closeclaw_agent::registry::AgentRegistry;
@@ -270,8 +271,10 @@ mod tests {
                 ))),
             )),
             Box::new(SkillsToolsRegistrar::new(vec![Arc::new(SkillTool::new(
-                disk_registry,
-                Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                Arc::new(RealDiskSkillAccess(disk_registry)),
+                Arc::new(RealBuiltinSkillAccess(Arc::new(
+                    closeclaw_skills::BuiltinSkillRegistry::new(),
+                ))),
             ))])),
         ]
     }

@@ -142,6 +142,7 @@ impl PromptFragmentProvider for ToolsFragmentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
     use crate::test_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
     use closeclaw_permission::engine::engine_types::RuleSet;
 
@@ -326,8 +327,10 @@ mod tests {
             )),
             Box::new(closeclaw_skills::SkillsToolsRegistrar::new(vec![Arc::new(
                 crate::builtin::SkillTool::new(
-                    disk_registry,
-                    Arc::new(closeclaw_skills::BuiltinSkillRegistry::new()),
+                    Arc::new(RealDiskSkillAccess(disk_registry)),
+                    Arc::new(RealBuiltinSkillAccess(Arc::new(
+                        closeclaw_skills::BuiltinSkillRegistry::new(),
+                    ))),
                 ),
             )])),
         ];

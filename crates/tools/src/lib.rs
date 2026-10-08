@@ -23,6 +23,7 @@ pub mod registrar;
 pub mod registrars;
 pub mod registry;
 pub mod security;
+pub mod skill_access;
 pub mod tool_types;
 pub mod tools_fragment_provider;
 pub mod workdir_context;
