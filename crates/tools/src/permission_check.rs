@@ -8,43 +8,33 @@
 //! 2. **Domain dimension** — is the specific operation (FileOp / CommandExec)
 //!    allowed?
 //!
-//! If either level returns `Denied`, the denial is routed through
-//! [`ApprovalFlow`] for owner approval.
+//! If either level returns `Denied`, the denial is routed through the
+//! approval flow (via the [`ToolPermissionCheck`] port for the
+//! submission).
+//!
+//! All engine / session / config interaction goes through the
+//! tools-owned port; the composition root (daemon) supplies the
+//! production implementation wrapping the real permission engine.
 
 use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
+#[cfg(test)]
+use crate::permission_port::PermMessageDirection;
+use crate::permission_port::{
+    PermCaller, PermRequestBody, PermRiskLevel, PermVerdict, ToolPermissionCheck,
+};
 use crate::{ToolCallError, ToolResult};
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
-#[cfg(test)]
-use closeclaw_permission::engine::engine_types::{
-    Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
-#[cfg(not(test))]
-use closeclaw_permission::engine::engine_types::{
-    Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
-};
-#[cfg(test)]
-use closeclaw_permission::is_config_file_path;
-use closeclaw_permission::PermissionResponse as PR;
 
 use std::sync::Arc;
-use tokio::sync::Mutex as TokioMutex;
 
 use crate::builtin::approval_utils;
 
-type PermEngine = tokio::sync::RwLock<PermissionEngine>;
-type ApprovalMutex = TokioMutex<ApprovalFlow>;
-
-/// Bundled permission dependencies shared across all built-in tools.
-pub type PermDeps = (
-    Arc<PermEngine>,
-    Arc<SessionManager>,
-    Arc<ConfigManager>,
-    Arc<ApprovalMutex>,
-);
+/// Bundled permission port shared across all built-in tools.
+///
+/// Replaces the former concrete `(PermissionEngine, SessionManager,
+/// ConfigManager, ApprovalFlow)` tuple with the tools-owned
+/// [`ToolPermissionCheck`] port; the composition root (daemon) supplies
+/// the production implementation.
+pub type PermDeps = Arc<dyn ToolPermissionCheck>;
 
 /// Result of a command-level permission check.
 #[derive(Debug)]
@@ -59,16 +49,16 @@ pub(crate) enum CommandPermissionResult {
     Denied(String),
 }
 
-/// Context for routing a `Denied` permission response through the
+/// Context for routing a `Denied` permission verdict through the
 /// approval flow.
 ///
 /// Bundles the submission context shared by [`route_denial`] and
 /// [`route_command_denial`] so both take three arguments instead of
 /// seven.
 pub(crate) struct DenialRequest<'a> {
-    pub(crate) caller: &'a Caller,
-    pub(crate) body: &'a PermissionRequestBody,
-    pub(crate) risk_level: RiskLevel,
+    pub(crate) caller: &'a PermCaller,
+    pub(crate) body: &'a PermRequestBody,
+    pub(crate) risk_level: PermRiskLevel,
     pub(crate) session_id: &'a str,
     pub(crate) is_sub_agent: bool,
 }
@@ -76,9 +66,9 @@ pub(crate) struct DenialRequest<'a> {
 impl<'a> DenialRequest<'a> {
     /// Bundle the submission context for one denied response.
     pub(crate) fn new(
-        caller: &'a Caller,
-        body: &'a PermissionRequestBody,
-        risk_level: RiskLevel,
+        caller: &'a PermCaller,
+        body: &'a PermRequestBody,
+        risk_level: PermRiskLevel,
         session_id: &'a str,
         is_sub_agent: bool,
     ) -> Self {
@@ -92,25 +82,18 @@ impl<'a> DenialRequest<'a> {
     }
 }
 
-/// Route a `Denied` response through the approval flow.
+/// Route a `Denied` verdict through the approval flow.
 ///
 /// On success returns `Ok(Some(ToolResult))` with approval-pending status.
 /// If the approval flow rejects the submission (sub-agent / duplicate),
 /// returns `Err(PermissionDenied)`.
 async fn route_denial(
-    response: &PR,
+    verdict: &PermVerdict,
     request: DenialRequest<'_>,
-    approval_flow: &Arc<ApprovalMutex>,
+    port: &PermDeps,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let DenialRequest {
-        caller,
-        body,
-        risk_level,
-        session_id,
-        is_sub_agent,
-    } = request;
-    let (reason, existing_request_id) = match response {
-        PR::Denied {
+    let (reason, existing_request_id) = match verdict {
+        PermVerdict::Denied {
             reason,
             approval_request_id,
             ..
@@ -126,8 +109,15 @@ async fn route_denial(
             context_modifier: None,
         }));
     }
-    let mut flow = approval_flow.lock().await;
-    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
+    if let Some(request_id) = port
+        .submit_denial(
+            request.caller,
+            request.body,
+            request.risk_level,
+            request.session_id,
+            request.is_sub_agent,
+        )
+        .await
     {
         return Ok(Some(ToolResult {
             data: approval_utils::build_approval_pending(request_id),
@@ -138,24 +128,17 @@ async fn route_denial(
     Err(ToolCallError::PermissionDenied(reason))
 }
 
-/// Route a `Denied` response for command-level checks.
+/// Route a `Denied` verdict for command-level checks.
 ///
 /// Returns `PendingApproval` if the approval flow accepted the request,
 /// or `Denied` if the flow rejected it (caller should sandbox the command).
 async fn route_command_denial(
-    response: &PR,
+    verdict: &PermVerdict,
     request: DenialRequest<'_>,
-    approval_flow: &Arc<ApprovalMutex>,
+    port: &PermDeps,
 ) -> CommandPermissionResult {
-    let DenialRequest {
-        caller,
-        body,
-        risk_level,
-        session_id,
-        is_sub_agent,
-    } = request;
-    let (reason, existing_request_id) = match response {
-        PR::Denied {
+    let (reason, existing_request_id) = match verdict {
+        PermVerdict::Denied {
             reason,
             approval_request_id,
             ..
@@ -171,8 +154,15 @@ async fn route_command_denial(
             context_modifier: None,
         });
     }
-    let mut flow = approval_flow.lock().await;
-    if let Some(request_id) = flow.submit_denial(caller, body, risk_level, session_id, is_sub_agent)
+    if let Some(request_id) = port
+        .submit_denial(
+            request.caller,
+            request.body,
+            request.risk_level,
+            request.session_id,
+            request.is_sub_agent,
+        )
+        .await
     {
         return CommandPermissionResult::PendingApproval(ToolResult {
             data: approval_utils::build_approval_pending(request_id),
@@ -183,71 +173,37 @@ async fn route_command_denial(
     CommandPermissionResult::Denied(reason)
 }
 
-/// Evaluate a permission request through the engine, optionally using
-/// chain evaluation when a session is present.
+/// Evaluate one permission request through the port and route a denial
+/// through the approval flow.
 ///
-/// Returns the response together with the resolved `user_id` (if any)
-/// so that callers can pass it to the approval flow without duplicating
-/// the session lookup.
-async fn evaluate_permission(
-    perm: &Arc<PermEngine>,
-    session_manager: &Arc<SessionManager>,
-    config_manager: &Arc<ConfigManager>,
-    session_id: Option<&str>,
-    request: PermissionRequest,
-) -> (PermissionResponse, Option<String>) {
-    let agent_perms = config_manager.agent_permissions();
-    if let Some(sid) = session_id {
-        // Resolve the real user_id from the session checkpoint.
-        let user_id = session_manager.get_sender_id(sid).await;
-        // Upgrade Bare → WithCaller when user_id is available.
-        let upgraded = match user_id {
-            Some(ref uid) => {
-                let caller = Caller {
-                    user_id: uid.clone(),
-                    agent: request.agent_id().to_string(),
-                };
-                request.with_caller(caller)
-            }
-            None => request,
-        };
-        let engine = perm.read().await;
-        let response = engine
-            .evaluate_with_chain(
-                upgraded,
-                session_manager.as_ref(),
-                sid,
-                agent_perms.as_ref(),
+/// Shared tail of every first/second-level check: builds the caller
+/// (user id filled in by the port when the session sender resolves),
+/// evaluates, and on `Denied` resolves sub-agent status and routes.
+async fn evaluate_and_route(
+    port: &PermDeps,
+    ctx: &crate::ToolContext,
+    body: PermRequestBody,
+) -> Result<Option<ToolResult>, ToolCallError> {
+    let mut caller = PermCaller {
+        user_id: String::new(),
+        agent: ctx.agent_id.clone(),
+    };
+    let verdict = port
+        .evaluate(ctx.session_id.as_deref(), &mut caller, &body)
+        .await;
+    match &verdict {
+        PermVerdict::Allowed => Ok(None),
+        PermVerdict::Denied { risk_level, .. } => {
+            let sid = ctx.session_id.as_deref().unwrap_or("");
+            let is_sub_agent = port.is_session_sub_agent(sid).await;
+            route_denial(
+                &verdict,
+                DenialRequest::new(&caller, &body, *risk_level, sid, is_sub_agent),
+                port,
             )
-            .await;
-        (response, user_id)
-    } else {
-        let response = perm.read().await.evaluate(request, None);
-        (response, None)
+            .await
+        }
     }
-}
-
-/// Determine whether the given session belongs to a sub-agent (depth > 0).
-///
-/// Returns `false` when the session id is empty or the depth cannot be
-/// resolved (e.g. session not found), which is the safe default.
-pub(crate) async fn is_session_sub_agent(
-    session_manager: &Arc<SessionManager>,
-    session_id: &str,
-) -> bool {
-    if session_id.is_empty() {
-        return false;
-    }
-    session_manager
-        .get_session_depth(session_id)
-        .await
-        .is_some_and(|depth| depth > 0)
-}
-
-#[cfg(test)]
-pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool {
-    let data_root = config_manager.config_dir();
-    is_config_file_path(data_root, path)
 }
 
 /// First-level check: verify the agent is allowed to invoke the given tool.
@@ -259,48 +215,18 @@ pub(crate) fn is_config_file(config_manager: &ConfigManager, path: &str) -> bool
 /// When `debug_ctx` is provided, emits a `tool.permission` event at
 /// [`LogLevel::Info`] with the check result.
 pub(crate) async fn check_tool_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
     skill: &str,
     method: &str,
     debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::ToolCall {
+    let body = PermRequestBody::ToolCall {
         agent: ctx.agent_id.clone(),
         skill: skill.to_string(),
         method: method.to_string(),
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    let result = match response {
-        PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::ToolCall {
-                agent: ctx.agent_id.clone(),
-                skill: skill.to_string(),
-                method: method.to_string(),
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
-            route_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
-            )
-            .await
-        }
     };
+    let result = evaluate_and_route(port, ctx, body).await;
     if let Some(dc) = debug_ctx {
         let permitted = result.as_ref().ok().and_then(|r| r.as_ref()).is_none();
         emit_tool_event(ToolsEmitEventParams {
@@ -327,48 +253,18 @@ pub(crate) async fn check_tool_permission(
 ///
 /// When `debug_ctx` is provided, emits a `tool.permission` event.
 pub(crate) async fn check_file_op_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
     path: &str,
     op: &str,
     debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+    let body = PermRequestBody::FileOp {
         agent: ctx.agent_id.clone(),
         path: path.to_string(),
         op: op.to_string(),
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    let result = match response {
-        PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::FileOp {
-                agent: ctx.agent_id.clone(),
-                path: path.to_string(),
-                op: op.to_string(),
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
-            route_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
-            )
-            .await
-        }
     };
+    let result = evaluate_and_route(port, ctx, body).await;
     if let Some(dc) = debug_ctx {
         let permitted = result.as_ref().ok().and_then(|r| r.as_ref()).is_none();
         emit_tool_event(ToolsEmitEventParams {
@@ -394,91 +290,32 @@ pub(crate) async fn check_file_op_permission(
 /// in the given direction to/from the specified target.
 #[cfg(test)]
 pub(crate) async fn check_message_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
-    direction: MessageDirection,
+    direction: PermMessageDirection,
     target: &str,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::MessageSend {
+    let body = PermRequestBody::MessageSend {
         agent: ctx.agent_id.clone(),
-        direction: direction.clone(),
+        direction,
         target: target.to_string(),
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    match response {
-        PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::MessageSend {
-                agent: ctx.agent_id.clone(),
-                direction,
-                target: target.to_string(),
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
-            route_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
-            )
-            .await
-        }
-    }
+    };
+    evaluate_and_route(port, ctx, body).await
 }
 
 /// Second-level check for config write operations (ConfigWrite dimension).
 ///
 /// Validates whether the agent is allowed to write the given config file.
 pub(crate) async fn check_config_write_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
     config_file: &str,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::ConfigWrite {
+    let body = PermRequestBody::ConfigWrite {
         agent: ctx.agent_id.clone(),
         config_file: config_file.to_string(),
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    match response {
-        PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::ConfigWrite {
-                agent: ctx.agent_id.clone(),
-                config_file: config_file.to_string(),
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
-            route_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
-            )
-            .await
-        }
-    }
+    };
+    evaluate_and_route(port, ctx, body).await
 }
 
 /// Second-level check for network operations (NetOp dimension).
@@ -490,47 +327,17 @@ pub(crate) async fn check_config_write_permission(
 /// This function is reserved for future dedicated network tools that perform direct I/O
 /// (e.g., an HTTP client tool) and need explicit network permission checks.
 pub async fn check_network_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
     host: &str,
-    port: u16,
+    port_number: u16,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::NetOp {
+    let body = PermRequestBody::NetOp {
         agent: ctx.agent_id.clone(),
         host: host.to_string(),
-        port,
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    match response {
-        PR::Allowed { .. } => Ok(None),
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::NetOp {
-                agent: ctx.agent_id.clone(),
-                host: host.to_string(),
-                port,
-            };
-            let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
-            route_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
-            )
-            .await
-        }
-    }
+        port: port_number,
+    };
+    evaluate_and_route(port, ctx, body).await
 }
 
 /// Second-level check for command execution (CommandExec dimension).
@@ -543,44 +350,33 @@ pub async fn check_network_permission(
 ///
 /// When `debug_ctx` is provided, emits a `tool.permission` event.
 pub(crate) async fn check_command_permission(
-    deps: &PermDeps,
+    port: &PermDeps,
     ctx: &crate::ToolContext,
     cmd: &str,
     args: &[String],
     debug_ctx: Option<ToolsDebugLogContext<'_>>,
 ) -> CommandPermissionResult {
-    let (perm, session_manager, config_manager, approval_flow) = deps;
-    let request = PermissionRequest::Bare(PermissionRequestBody::CommandExec {
+    let body = PermRequestBody::CommandExec {
         agent: ctx.agent_id.clone(),
         cmd: cmd.to_string(),
         args: args.to_vec(),
-    });
-    let (response, user_id) = evaluate_permission(
-        perm,
-        session_manager,
-        config_manager,
-        ctx.session_id.as_deref(),
-        request,
-    )
-    .await;
-    let result = match response {
-        PR::Allowed { .. } => CommandPermissionResult::Permitted,
-        PR::Denied { risk_level, .. } => {
-            let caller = Caller {
-                user_id: user_id.unwrap_or_default(),
-                agent: ctx.agent_id.clone(),
-            };
-            let body = PermissionRequestBody::CommandExec {
-                agent: ctx.agent_id.clone(),
-                cmd: cmd.to_string(),
-                args: args.to_vec(),
-            };
+    };
+    let mut caller = PermCaller {
+        user_id: String::new(),
+        agent: ctx.agent_id.clone(),
+    };
+    let verdict = port
+        .evaluate(ctx.session_id.as_deref(), &mut caller, &body)
+        .await;
+    let result = match &verdict {
+        PermVerdict::Allowed => CommandPermissionResult::Permitted,
+        PermVerdict::Denied { risk_level, .. } => {
             let sid = ctx.session_id.as_deref().unwrap_or("");
-            let is_sub_agent = is_session_sub_agent(session_manager, sid).await;
+            let is_sub_agent = port.is_session_sub_agent(sid).await;
             route_command_denial(
-                &response,
-                DenialRequest::new(&caller, &body, risk_level, sid, is_sub_agent),
-                approval_flow,
+                &verdict,
+                DenialRequest::new(&caller, &body, *risk_level, sid, is_sub_agent),
+                port,
             )
             .await
         }
@@ -606,6 +402,10 @@ pub(crate) async fn check_command_permission(
 #[cfg(test)]
 #[path = "permission_check_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "permission_check_subagent_tests.rs"]
+mod subagent_tests;
 
 #[cfg(test)]
 #[path = "permission_check_route_tests.rs"]

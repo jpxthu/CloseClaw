@@ -249,14 +249,19 @@ mod tests {
         approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         tool_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     ) -> Vec<Box<dyn ToolRegistrar>> {
+        use crate::test_adapters::ToolPermissionCheckAdapter;
         let task_manager = Arc::new(BackgroundTaskManager::new());
+        let permission_check: crate::permission_check::PermDeps =
+            Arc::new(ToolPermissionCheckAdapter {
+                engine: permission_engine.clone(),
+                session_manager: session_manager.clone(),
+                config_manager: config_manager.clone(),
+                approval_flow: approval_flow.clone(),
+            });
         vec![
             Box::new(CoreToolsRegistrar::new(
-                permission_engine.clone(),
+                permission_check,
                 task_manager as Arc<dyn closeclaw_common::TaskManager>,
-                session_manager.clone(),
-                config_manager,
-                approval_flow.clone(),
                 tool_registry,
             )),
             Box::new(SessionToolsRegistrar::new(

@@ -561,6 +561,7 @@ async fn test_build_pending_call_no_file_path() {
 // ---------------------------------------------------------------------------
 
 use crate::permission_check::PermDeps;
+use crate::test_adapters::ToolPermissionCheckAdapter;
 use closeclaw_common::tool_trait::{ToolCallError, ToolContext, ToolResult};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -848,7 +849,12 @@ fn make_perm_deps(rules: Vec<Rule>) -> PermDeps {
         std::env::temp_dir(),
         RuleSet::default(),
     )));
-    (perm, sm, cm, af)
+    Arc::new(ToolPermissionCheckAdapter {
+        engine: perm,
+        session_manager: sm,
+        config_manager: cm,
+        approval_flow: af,
+    }) as PermDeps
 }
 
 /// Allow rule for a tool group.

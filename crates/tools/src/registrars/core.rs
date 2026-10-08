@@ -7,16 +7,13 @@ use std::sync::Arc;
 
 use closeclaw_common::audit_log::AuditLogger;
 use closeclaw_common::TaskManager;
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
 use crate::builtin::read_truncator::{ReadTruncationProvider, TruncationConfig};
 use crate::builtin::{
     AuditLogTool, BashTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
+use crate::permission_check::PermDeps;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistryQuery};
@@ -25,11 +22,8 @@ use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolReg
 ///
 /// Covers `file_ops`, `meta`, `git_ops`, and `bash` groups (14 tools).
 pub struct CoreToolsRegistrar {
-    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    permission_check: PermDeps,
     task_manager: Arc<dyn TaskManager>,
-    session_manager: Arc<SessionManager>,
-    config_manager: Arc<ConfigManager>,
-    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     tool_registry: Arc<dyn ToolRegistryQuery>,
     audit_logger: Option<Arc<dyn AuditLogger>>,
     read_truncation: ReadTruncationProvider,
@@ -38,19 +32,13 @@ pub struct CoreToolsRegistrar {
 impl CoreToolsRegistrar {
     /// Create a new `CoreToolsRegistrar` with the required dependencies.
     pub fn new(
-        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+        permission_check: PermDeps,
         task_manager: Arc<dyn TaskManager>,
-        session_manager: Arc<SessionManager>,
-        config_manager: Arc<ConfigManager>,
-        approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
         tool_registry: Arc<dyn ToolRegistryQuery>,
     ) -> Self {
         Self {
-            permission_engine,
+            permission_check,
             task_manager,
-            session_manager,
-            config_manager,
-            approval_flow,
             tool_registry,
             audit_logger: None,
             read_truncation: Arc::new(TruncationConfig::default),
@@ -125,11 +113,8 @@ impl ToolRegistrar for CoreToolsRegistrar {
             registry,
             registered,
             BashTool::new(
-                self.permission_engine.clone(),
-                self.task_manager.clone(),
-                self.session_manager.clone(),
-                self.config_manager.clone(),
-                self.approval_flow.clone(),
+                Arc::clone(&self.permission_check),
+                Arc::clone(&self.task_manager),
             ),
             r
         );

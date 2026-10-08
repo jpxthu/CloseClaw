@@ -4,6 +4,7 @@
 use crate::config_watcher;
 use crate::plan_file_store_adapter::tool_plan_file_access;
 use crate::read_truncation_adapter::read_truncation_provider;
+use crate::tool_permission_adapter::tool_permission_check;
 use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
@@ -250,12 +251,16 @@ async fn register_standard_registrars(
         .await
         .expect("task_manager must be set on SessionManager before spawn_builtin_tools");
 
-    let mut core_registrar = CoreToolsRegistrar::new(
+    let tool_permission = tool_permission_check(
         Arc::clone(ctx.permission_engine),
-        task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.session_manager),
         Arc::clone(ctx.config_manager),
         Arc::clone(ctx.approval_flow),
+    );
+
+    let mut core_registrar = CoreToolsRegistrar::new(
+        tool_permission,
+        task_manager as Arc<dyn closeclaw_common::TaskManager>,
         Arc::clone(ctx.tool_registry)
             as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     )

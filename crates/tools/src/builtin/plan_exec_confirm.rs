@@ -1,10 +1,10 @@
 //! Independent confirmation flow for plan execution.
 //!
-//! Replaces the plan-exec metadata that was previously embedded in
-//! [`ApprovalFlow`](closeclaw_permission::approval_flow::ApprovalFlow).
-//! The confirmation flow is a standalone component that manages the
-//! lifecycle of plan-execution confirmations — submit, confirm, cancel,
-//! clear — without writing to the permission audit log.
+//! Replaces the plan-exec metadata that was previously embedded in the
+//! permission crate's `ApprovalFlow`. The confirmation flow is a
+//! standalone component that manages the lifecycle of plan-execution
+//! confirmations — submit, confirm, cancel, clear — without writing to
+//! the permission audit log.
 //!
 //! # Confirmation lifecycle
 //!

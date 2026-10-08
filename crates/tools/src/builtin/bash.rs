@@ -11,21 +11,15 @@
 //! file under the CONTRIBUTING.md 500-line hard cap.
 use crate::bash::CommandSandbox;
 use crate::permission_check::PermDeps;
+use crate::permission_port::{PermCaller, PermRequestBody, PermRiskLevel};
 use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use async_trait::async_trait;
 use closeclaw_common::ToolExecState;
-use closeclaw_config::ConfigManager;
-use closeclaw_gateway::SessionManager;
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
-use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody};
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
-use tokio::sync::Mutex as TokioMutex;
 
 use super::bash_kill::{
     build_auto_background_result, build_background_result, build_manual_background_result,
@@ -53,40 +47,26 @@ const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 
 /// Shell command execution tool with timeout, output control, and auto-backgroundize.
 pub struct BashTool {
-    permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    permission_check: PermDeps,
     bg_manager: Arc<dyn closeclaw_common::TaskManager>,
-    session_manager: Arc<SessionManager>,
-    config_manager: Arc<ConfigManager>,
-    approval_flow: Arc<TokioMutex<ApprovalFlow>>,
 }
 
 impl BashTool {
-    /// Creates a new `BashTool` backed by the given permission engine,
-    /// background task manager, config manager, and approval flow.
+    /// Creates a new `BashTool` backed by the given permission check
+    /// port and background task manager.
     pub fn new(
-        permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+        permission_check: PermDeps,
         bg_manager: Arc<dyn closeclaw_common::TaskManager>,
-        session_manager: Arc<SessionManager>,
-        config_manager: Arc<ConfigManager>,
-        approval_flow: Arc<TokioMutex<ApprovalFlow>>,
     ) -> Self {
         Self {
-            permission_engine,
+            permission_check,
             bg_manager,
-            session_manager,
-            config_manager,
-            approval_flow,
         }
     }
 
-    /// Bundle permission dependencies into a [`PermDeps`] tuple.
+    /// Bundle permission dependencies into a [`PermDeps`] port handle.
     fn perm_deps(&self) -> PermDeps {
-        (
-            Arc::clone(&self.permission_engine),
-            Arc::clone(&self.session_manager),
-            Arc::clone(&self.config_manager),
-            Arc::clone(&self.approval_flow),
-        )
+        Arc::clone(&self.permission_check)
     }
 }
 
@@ -501,8 +481,8 @@ fn analyze_security(command: &str) -> Result<ParseResult, ToolCallError> {
 
 /// Submit a trust-level denial to the approval flow and optionally notify the owner.
 ///
-/// Builds a [`Caller`] and [`PermissionRequestBody`] from the tool context, then
-/// calls `submit_denial()` on the approval flow. Returns the request ID if the
+/// Builds a [`PermCaller`] and [`PermRequestBody`] from the tool context, then
+/// submits the denial through the permission port. Returns the request ID if the
 /// approval flow accepted the request (i.e. owner was notified / queued), or
 /// `None` if hard-denied (sub-agent or duplicate).
 ///
@@ -515,24 +495,21 @@ async fn submit_trust_level_denial(
     deps: &PermDeps,
     ctx: &ToolContext,
     command: &str,
-    risk: RiskLevel,
+    risk: PermRiskLevel,
 ) -> Option<String> {
-    let (_, session_mgr, _, approval_flow) = deps;
-    let caller = Caller {
+    let caller = PermCaller {
         user_id: String::new(),
         agent: ctx.agent_id.clone(),
     };
-    let body = PermissionRequestBody::CommandExec {
+    let body = PermRequestBody::CommandExec {
         agent: ctx.agent_id.clone(),
         cmd: command.to_string(),
         args: vec![],
     };
     let sid = ctx.session_id.as_deref().unwrap_or("");
-    let is_sub_agent = crate::permission_check::is_session_sub_agent(session_mgr, sid).await;
-    let mut flow = approval_flow.lock().await;
-    let request_id = flow.submit_denial(&caller, &body, risk, sid, is_sub_agent);
-    drop(flow);
-    request_id
+    let is_sub_agent = deps.is_session_sub_agent(sid).await;
+    deps.submit_denial(&caller, &body, risk, sid, is_sub_agent)
+        .await
 }
 
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
@@ -556,7 +533,7 @@ async fn route_trust_level(
 ) -> Result<TrustDecision, ToolCallError> {
     match trust_level {
         TrustLevel::Malicious => {
-            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
+            submit_trust_level_denial(deps, ctx, command, PermRiskLevel::Critical).await;
             Ok(TrustDecision::Blocked(format!(
                 "Blocked: malicious command detected — {}",
                 reason.unwrap_or_else(|| "unknown reason".into())
@@ -565,7 +542,7 @@ async fn route_trust_level(
         TrustLevel::Uncertain => {
             let r = reason.unwrap_or_else(|| "untrusted syntax".into());
             if let Some(request_id) =
-                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
+                submit_trust_level_denial(deps, ctx, command, PermRiskLevel::High).await
             {
                 Ok(TrustDecision::ApprovalPending(ToolResult {
                     data: crate::builtin::approval_utils::build_approval_pending(request_id),
