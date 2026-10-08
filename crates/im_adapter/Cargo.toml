@@ -11,7 +11,6 @@ closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-debug-log = { path = "../debug_log" }
 closeclaw-gateway = { path = "../gateway" }
-closeclaw-tools = { path = "../tools" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }

@@ -4,7 +4,7 @@
 //! "各模块注册的工具一览" table for the `feishu_doc` group.
 
 use async_trait::async_trait;
-use closeclaw_tools::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
+use closeclaw_common::tool_trait::{Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 use serde_json::Value;
 
 const KW_DOC: &str = "[keywords: doc document create edit content block]";

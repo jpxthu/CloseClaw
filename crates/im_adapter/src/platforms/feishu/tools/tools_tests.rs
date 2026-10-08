@@ -1,5 +1,7 @@
+use super::test_registry::TestToolRegistry;
 use super::*;
-use closeclaw_tools::{Tool, ToolContext, ToolRegistrar, ToolRegistry};
+use closeclaw_common::tool_registry::ToolRegistrar;
+use closeclaw_common::tool_trait::{Tool, ToolContext};
 
 fn make_ctx() -> ToolContext {
     ToolContext {
@@ -117,7 +119,7 @@ fn test_all_tools_deferred() {
 
 #[tokio::test]
 async fn test_register_tools_populates_registry() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -153,7 +155,7 @@ async fn test_register_tools_populates_registry() {
 
 #[tokio::test]
 async fn test_register_tools_no_duplicates() {
-    let registry = ToolRegistry::new();
+    let registry = TestToolRegistry::new();
     crate::ImAdapterToolsRegistrar::new()
         .register(&registry)
         .await
@@ -294,7 +296,7 @@ async fn test_feishu_doc_create_returns_not_implemented() {
     let result = tool.call(serde_json::json!({}), &ctx).await;
     assert!(matches!(
         result,
-        Err(closeclaw_tools::ToolCallError::NotImplemented)
+        Err(closeclaw_common::ToolCallError::NotImplemented)
     ));
 }
 
@@ -305,7 +307,7 @@ async fn test_feishu_doc_edit_returns_not_implemented() {
     let result = tool.call(serde_json::json!({}), &ctx).await;
     assert!(matches!(
         result,
-        Err(closeclaw_tools::ToolCallError::NotImplemented)
+        Err(closeclaw_common::ToolCallError::NotImplemented)
     ));
 }
 
@@ -316,6 +318,6 @@ async fn test_feishu_doc_read_returns_not_implemented() {
     let result = tool.call(serde_json::json!({}), &ctx).await;
     assert!(matches!(
         result,
-        Err(closeclaw_tools::ToolCallError::NotImplemented)
+        Err(closeclaw_common::ToolCallError::NotImplemented)
     ));
 }

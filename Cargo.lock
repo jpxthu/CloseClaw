@@ -834,7 +834,6 @@ dependencies = [
  "closeclaw-config",
  "closeclaw-debug-log",
  "closeclaw-gateway",
- "closeclaw-tools",
  "dirs",
  "futures",
  "inventory",
