@@ -34,6 +34,8 @@ mod feishu_tests;
 mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
+#[cfg(test)]
+mod identity_resolver_stub;
 mod inbound;
 #[cfg(test)]
 mod media_filter_tests;

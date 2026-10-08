@@ -5,12 +5,11 @@
 //! This is the core behavioral contract of the `(platform, bot_app_id,
 //! sender_id)` triple key.
 
+use super::identity_resolver_stub::IdentityResolverStub;
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use closeclaw_common::IMPlugin;
-use closeclaw_config::identity::ConfigIdentityResolver;
-use closeclaw_config::identity::IdentityMapping;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -99,19 +98,9 @@ fn make_webhook_from_event(event: &FeishuEvent) -> Vec<u8> {
 #[tokio::test]
 async fn test_parse_inbound_isolation_different_header_app_id() {
     let adapter = Arc::new(make_test_adapter());
-    let resolver = ConfigIdentityResolver::new(vec![
-        IdentityMapping {
-            platform: "feishu".to_string(),
-            bot_app_id: "app_x".to_string(),
-            sender_id: "ou_alice".to_string(),
-            account_id: "alice_via_x".to_string(),
-        },
-        IdentityMapping {
-            platform: "feishu".to_string(),
-            bot_app_id: "app_y".to_string(),
-            sender_id: "ou_alice".to_string(),
-            account_id: "alice_via_y".to_string(),
-        },
+    let resolver = IdentityResolverStub::new(&[
+        ("feishu", "app_x", "ou_alice", "alice_via_x"),
+        ("feishu", "app_y", "ou_alice", "alice_via_y"),
     ]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
 
@@ -149,12 +138,7 @@ async fn test_parse_inbound_isolation_different_header_app_id() {
 #[tokio::test]
 async fn test_parse_inbound_header_app_id_not_in_resolver_fallback() {
     let adapter = Arc::new(make_test_adapter());
-    let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
-        platform: "feishu".to_string(),
-        bot_app_id: "known_app".to_string(),
-        sender_id: "ou_alice".to_string(),
-        account_id: "alice_known".to_string(),
-    }]);
+    let resolver = IdentityResolverStub::new(&[("feishu", "known_app", "ou_alice", "alice_known")]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
 
     // Message arrives at unknown_app → no match → fallback to sender_id
@@ -176,12 +160,12 @@ async fn test_parse_inbound_header_app_id_not_in_resolver_fallback() {
 async fn test_parse_inbound_adapter_app_id_used_as_fallback() {
     let adapter = Arc::new(make_test_adapter());
     // Mapping uses adapter's app_id ("test_app_id") as bot_app_id.
-    let resolver = ConfigIdentityResolver::new(vec![IdentityMapping {
-        platform: "feishu".to_string(),
-        bot_app_id: "test_app_id".to_string(),
-        sender_id: "ou_alice".to_string(),
-        account_id: "alice_via_adapter_app".to_string(),
-    }]);
+    let resolver = IdentityResolverStub::new(&[(
+        "feishu",
+        "test_app_id",
+        "ou_alice",
+        "alice_via_adapter_app",
+    )]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
 
     // Event with header app_id matching adapter's app_id

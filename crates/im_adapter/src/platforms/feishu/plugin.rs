@@ -16,26 +16,25 @@ use closeclaw_common::{
     AdapterError as CommonAdapterError, CardActionEvent, IMPlugin, NormalizedMessage,
     RenderedOutput,
 };
-use closeclaw_config::CredentialsProvider;
 use closeclaw_debug_log::DebugLog;
 use tracing::{info, warn};
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
-use super::config::{load_media_config, load_platforms_config};
+use super::config::load_platforms_config;
 use super::identity;
 use super::process_manager;
 use super::send_helpers;
 use super::{cleaner, FeishuAdapter};
 use crate::media_store::MediaStore;
-use crate::platforms::PlatformEntry;
+use crate::platforms::{MediaConfigSnapshot, PlatformEntry};
 use crate::IMAdapter;
 
 inventory::submit!(PlatformEntry {
     name: "feishu",
-    register: |gw, cfg, ms, mc| {
+    register: |gw, cfg, ms, mc, ir, fp| {
         let gw = gw.clone();
         let cfg = cfg.to_string();
-        Box::pin(async move { register(&gw, &cfg, ms, mc).await })
+        Box::pin(async move { register(&gw, &cfg, ms, mc, ir, fp).await })
     },
 });
 
@@ -43,18 +42,21 @@ inventory::submit!(PlatformEntry {
 ///
 /// First checks `{config_dir}/config/platforms.json` for an explicit
 /// enable flag.  If the platform is not listed or disabled the plugin
-/// is silently not registered.  When enabled, credentials are loaded
-/// from `{config_dir}/config/credentials/` (config file first, then
-/// `FEISHU_PROFILE` environment variable as fallback).
+/// is silently not registered.  When enabled, the profile is taken from
+/// the injected `feishu_profile` first, then the `FEISHU_PROFILE`
+/// environment variable as fallback.
 ///
-/// Identity mapping is loaded from `{config_dir}/config/accounts.json`
-/// (if the file exists).  A missing or empty file results in no
-/// mapping — the fallback uses `sender_id` as `account_id`.
+/// The identity resolver is injected by the composition root (loaded
+/// from `{config_dir}/config/accounts.json` there).  A missing /
+/// empty mapping set results in no resolver — the fallback uses
+/// `sender_id` as `account_id`.
 pub async fn register(
     gateway: &Arc<closeclaw_gateway::Gateway>,
     config_dir: &str,
     shared_media_store: Option<Arc<MediaStore>>,
-    _shared_media_config: Option<closeclaw_config::MediaConfigData>,
+    media_config: Option<MediaConfigSnapshot>,
+    identity_resolver: Option<Arc<dyn IdentityResolver>>,
+    feishu_profile: Option<String>,
 ) {
     let platforms = load_platforms_config(config_dir);
     if !platforms.is_enabled("feishu") {
@@ -62,31 +64,21 @@ pub async fn register(
         return;
     }
 
-    // Load feishu profile from config credentials first, fallback to env var.
-    let profile = CredentialsProvider::load_from_dir(
-        &std::path::Path::new(config_dir)
-            .join("config")
-            .join("credentials"),
-    )
-    .ok()
-    .and_then(|creds| creds.feishu_profile().map(|p| p.profile.clone()))
-    .or_else(|| std::env::var("FEISHU_PROFILE").ok());
+    // Injected profile first, FEISHU_PROFILE environment variable as fallback.
+    let profile = feishu_profile.or_else(|| std::env::var("FEISHU_PROFILE").ok());
     if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {
-            let media_config = load_media_config(config_dir);
+            let snapshot = media_config.clone().unwrap_or_default();
             Arc::new(
-                MediaStore::new(&media_config.storage_dir).expect("failed to create media store"),
+                MediaStore::new(&snapshot.storage_dir.to_string_lossy())
+                    .expect("failed to create media store"),
             )
         });
         let adapter = Arc::new(
             FeishuAdapter::new(profile.clone(), media_store)
                 .with_workspace_dir(Some(std::path::PathBuf::from(config_dir))),
         );
-
-        // Load identity mapping from config file (best-effort).
-        let identity_resolver: Option<Arc<dyn IdentityResolver>> =
-            identity::load_identity_resolver(config_dir);
 
         let mut plugin = FeishuPlugin::with_identity_resolver(adapter, identity_resolver);
 

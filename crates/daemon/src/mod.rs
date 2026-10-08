@@ -21,6 +21,7 @@ pub mod outbound_raw_log;
 pub mod phase_init;
 pub mod phase_wiring;
 pub mod plan_file_store_adapter;
+mod platform_injection;
 pub mod processor_registry;
 pub mod read_truncation_adapter;
 pub mod registries;

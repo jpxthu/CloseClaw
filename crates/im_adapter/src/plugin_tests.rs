@@ -566,10 +566,12 @@ mod tests {
     /// `register_platform_plugins` stays reachable via the historical
     /// `closeclaw_im_adapter::platforms::` path after its definition was
     /// moved from `platforms/mod.rs` down to `platforms/registry.rs`, with
-    /// an unchanged signature (Gateway handle + config dir + optional
-    /// MediaStore/MediaConfigData) and no re-registration side effects when
-    /// the platform is disabled by `platforms.json` (missing file → empty
-    /// config → all platforms disabled → feishu `register()` exits early).
+    /// its arguments covering the Gateway handle, config dir, optional
+    /// MediaStore, and the composition-root injections (media-config
+    /// snapshot / identity resolver / platform profile), and no
+    /// re-registration side effects when the platform is disabled by
+    /// `platforms.json` (missing file → empty config → all platforms
+    /// disabled → feishu `register()` exits early).
     #[tokio::test]
     async fn test_register_platform_plugins_reexport_path_and_signature() {
         use crate::platforms::register_platform_plugins;
@@ -579,7 +581,7 @@ mod tests {
         let gw = make_test_gateway();
 
         // Signature check via call: compiles and runs with unchanged args.
-        register_platform_plugins(&gw, config_dir, None, None).await;
+        register_platform_plugins(&gw, config_dir, None, None, None, None).await;
 
         // Empty config dir → no platform enabled → no plugin registered.
         assert!(gw.get_all_plugins().await.is_empty());
