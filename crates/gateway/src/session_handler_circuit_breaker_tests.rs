@@ -5,7 +5,7 @@
 //! and that the notification is deduplicated and properly reset.
 
 use super::*;
-use crate::session_handler::{ActiveSearcherLlmCaller, MessageMetadata};
+use crate::session_handler::MessageMetadata;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::types::ContentBlock;
@@ -72,11 +72,7 @@ fn handler_with_channel(
         Arc::clone(sm),
         ufc.clone(),
         tx,
-        Arc::new(ActiveSearcherLlmCaller {
-            caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc))
-                as Arc<dyn closeclaw_common::LlmCaller>,
-            model: String::new(),
-        }),
+        None,
         closeclaw_session::compaction::CompactConfig::default(),
     );
     (handler, rx, cooldown_dir)
@@ -307,7 +303,7 @@ async fn test_streaming_path_persists_user_message_before_compact() {
     let sm = make_sm();
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
     let config = make_config();
-    let gw = Arc::new(crate::Gateway::new(config, Arc::clone(&sm)));
+    let gw = Arc::new(crate::Gateway::new_for_tests(config, Arc::clone(&sm)));
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockStreamingPlugin);
     gw.register_plugin(plugin.clone()).await;
 

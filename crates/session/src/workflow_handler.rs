@@ -85,6 +85,14 @@ impl WorkflowHandler {
         &self.definition
     }
 
+    /// Returns the engine port this handler decodes through.
+    ///
+    /// Lets session-side run-state queries reuse the port when only a
+    /// handler (not the session-level port) has been installed.
+    pub fn port(&self) -> &Arc<dyn WorkflowPort> {
+        &self.port
+    }
+
     /// Take the pending notification (if any), clearing it.
     pub fn take_notification(&mut self) -> Option<WorkflowNotification> {
         self.pending_notification.take()

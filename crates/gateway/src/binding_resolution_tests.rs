@@ -33,7 +33,7 @@ fn make_gw(bindings: HashMap<String, String>) -> Gateway {
         None,
         ReasoningLevel::default(),
     ));
-    Gateway::new(config, sm)
+    Gateway::new_for_tests(config, sm)
 }
 
 /// Shared mock plugin that captures all sent messages.

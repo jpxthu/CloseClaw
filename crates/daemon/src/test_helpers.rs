@@ -517,7 +517,7 @@ pub(crate) fn make_dispatch_context(config: GatewayConfig) -> ChatContext {
         None,
         closeclaw_common::ReasoningLevel::default(),
     ));
-    let gateway = Arc::new(Gateway::new(config, sessions));
+    let gateway = Arc::new(Gateway::new_for_tests(config, sessions));
     let rpc_plugin = Arc::new(RpcTerminalPlugin::new());
     ChatContext {
         gateway,

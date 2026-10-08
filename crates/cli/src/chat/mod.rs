@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
+use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::{ReasoningLevel, SlashRouter, SlashSessionQuery};
 use closeclaw_gateway::{
     Gateway, GatewayConfig, HandleResult, SessionManager, SessionMessageHandler,
@@ -40,13 +41,25 @@ enum ExitReason {
 /// 3. Initialize LLM call chain for Session/LLM integration.
 /// 4. Loop: read user input → process through Gateway → render output.
 ///
-/// `pub(crate)` so unit tests can drive the injection seam directly.
+/// `pub(crate)` so unit tests can drive the injection seam directly. The
+/// searcher runner is injected by the composition root as well — cli never
+/// assembles the memory-crate pipeline itself.
+// 7 params exceed the CONTRIBUTING limit of 6 on purpose: the last three are
+// composition-root injection closures (slash router / processor chain /
+// searcher runner) with independent semantics — aggregating them into a
+// struct would blur who assembles what. In-tree precedent:
+// `crates/gateway/src/lib.rs:620` (`dispatch_to_handler`).
+#[allow(clippy::too_many_arguments)]
 pub(crate) async fn build_gateway(
     config_dir: &std::path::Path,
     agent_id: &str,
     _llm_registry: &Arc<closeclaw_llm::LLMRegistry>,
     fallback_client: &Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
     build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
+    build_processor_chain: impl FnOnce(&GatewayConfig) -> Arc<dyn ProcessorChain>,
+    build_searcher_runner: impl FnOnce(
+        Arc<dyn closeclaw_common::LlmCaller>,
+    ) -> closeclaw_gateway::SearcherRunner,
 ) -> anyhow::Result<(
     Arc<Gateway>,
     tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
@@ -74,27 +87,36 @@ pub(crate) async fn build_gateway(
         .set_llm_caller(llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
         .await;
 
-    let gateway = Arc::new(Gateway::new(gateway_config, Arc::clone(&session_manager)));
+    // The processor chain is assembled by the composition root (root crate)
+    // and injected here as a common `ProcessorChain` trait object.
+    let processor_chain = build_processor_chain(&gateway_config);
+    // CLI chat builds its `GatewayConfig` with `raw_log_dir` unset, so the
+    // simplified outbound raw-log write is disabled by construction and the
+    // composition root has nothing to inject here.
+    let gateway = Arc::new(Gateway::new(
+        gateway_config,
+        Arc::clone(&session_manager),
+        processor_chain,
+        None,
+    ));
     gateway.set_self_ref(Arc::clone(&gateway));
 
     // ── SessionMessageHandler setup ────────────────────────────────
     let (output_tx, output_rx) =
         tokio::sync::mpsc::channel::<(String, Vec<closeclaw_common::ContentBlock>)>(64);
 
-    let active_searcher_llm_caller = Arc::new(
-        closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-            caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-                Arc::clone(fallback_client),
-            )) as Arc<dyn closeclaw_common::LlmCaller>,
-            model: String::new(),
-        },
-    );
+    // The active-searcher pipeline is assembled by the composition root
+    // (root crate, delegating to the daemon-side single implementation) and
+    // injected here as the gateway-local `SearcherRunner` seam.
+    let searcher_runner = build_searcher_runner(Arc::new(
+        closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(Arc::clone(fallback_client)),
+    ));
 
     let session_handler = Arc::new(SessionMessageHandler::new(
         Arc::clone(&session_manager),
         Arc::clone(fallback_client),
         output_tx,
-        active_searcher_llm_caller,
+        Some(searcher_runner),
         closeclaw_common::CompactConfig::default(),
     ));
     gateway.set_session_handler(session_handler);
@@ -114,12 +136,17 @@ pub(crate) async fn build_gateway(
 
 /// Run the interactive chat REPL.
 ///
-/// `build_slash_router` is supplied by the composition root (root crate),
-/// which owns the concrete slash handler set — cli only consumes the
-/// resulting `SlashRouter` trait object.
+/// `build_slash_router`, `build_processor_chain` and `build_searcher_runner`
+/// are supplied by the composition root (root crate), which owns the concrete
+/// slash handler set, the default processor chain and the active-searcher
+/// pipeline — cli only consumes the resulting trait objects.
 pub async fn run_chat(
     agent_id: &str,
     build_slash_router: impl FnOnce(Arc<dyn SlashSessionQuery>) -> Arc<dyn SlashRouter>,
+    build_processor_chain: impl FnOnce(&GatewayConfig) -> Arc<dyn ProcessorChain>,
+    build_searcher_runner: impl FnOnce(
+        Arc<dyn closeclaw_common::LlmCaller>,
+    ) -> closeclaw_gateway::SearcherRunner,
 ) -> anyhow::Result<()> {
     let config_dir = dirs::home_dir()
         .map(|h| h.join(".closeclaw"))
@@ -146,6 +173,8 @@ pub async fn run_chat(
         &llm_registry,
         &fallback_client,
         build_slash_router,
+        build_processor_chain,
+        build_searcher_runner,
     )
     .await?;
 

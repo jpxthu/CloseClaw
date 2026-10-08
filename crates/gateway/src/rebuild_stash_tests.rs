@@ -220,7 +220,7 @@ async fn test_take_stashed_empty_returns_empty_vec() {
 #[tokio::test]
 async fn test_rebuild_mode_no_wal_still_stashes() {
     // Gateway with inbound_wal_dir=None (no WAL configured).
-    let gw = Gateway::new(
+    let gw = Gateway::new_for_tests(
         GatewayConfig {
             name: "no-wal-test".into(),
             inbound_queue_capacity: 1,
@@ -264,7 +264,7 @@ async fn test_rebuild_stash_wal_appended() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let handle = gw.start_inbound_queue();
     handle.try_send(queued(make_request("fill"))).unwrap();
 
@@ -413,7 +413,7 @@ fn make_gateway_with_capacity(capacity: usize) -> Arc<Gateway> {
         None,
         ReasoningLevel::default(),
     ));
-    Arc::new(Gateway::new(config, sm))
+    Arc::new(Gateway::new_for_tests(config, sm))
 }
 
 fn make_request(content: &str) -> InboundRequest {

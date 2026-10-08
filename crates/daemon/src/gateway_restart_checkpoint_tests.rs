@@ -106,7 +106,7 @@ async fn checkpoint_manager_accessible_from_session_manager() {
     );
 
     // Inject into a new Gateway — simulates build_new_gateway.
-    let new_gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     new_gw.set_checkpoint_manager(injected_cm.unwrap());
 
     // Gateway has checkpoint_manager set — the setter succeeded.
@@ -131,7 +131,7 @@ async fn build_new_gateway_no_checkpoint_manager_does_not_panic() {
     assert!(cm_result.is_none(), "no checkpoint_manager should be None");
 
     // Build Gateway without checkpoint_manager — no panic.
-    let _gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let _gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
 }
 
 /// Full restart flow: Gateway with checkpoint_manager, after restart
@@ -150,11 +150,11 @@ async fn checkpoint_manager_survives_gateway_restart() {
     sm.set_checkpoint_manager(cm.clone()).await;
 
     // Old gateway
-    let old_gw = closeclaw_gateway::Gateway::new(config.clone(), Arc::clone(&sm));
+    let old_gw = closeclaw_gateway::Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
     old_gw.set_checkpoint_manager(cm.clone());
 
     // Simulate restart: build new gateway from same SessionManager
-    let new_gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(injected) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(injected);
     }
@@ -183,7 +183,7 @@ async fn build_new_gateway_injects_checkpoint_manager_from_sm() {
     sm.set_checkpoint_manager(cm).await;
 
     // Exact code path from gateway_restart.rs build_new_gateway:
-    let new_gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
         // Injection succeeded.
@@ -208,7 +208,7 @@ async fn build_new_gateway_skips_injection_when_no_checkpoint_manager() {
     ));
     // No checkpoint_manager set — build_new_gateway defensive branch.
 
-    let new_gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
     } else {
@@ -233,12 +233,12 @@ async fn e2e_restart_injects_cm_and_new_gw_has_it() {
     sm.set_checkpoint_manager(cm).await;
 
     // Old gateway with cm
-    let old_gw = closeclaw_gateway::Gateway::new(config.clone(), Arc::clone(&sm));
+    let old_gw = closeclaw_gateway::Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
     old_gw.set_checkpoint_manager(sm.checkpoint_manager().await.unwrap());
     assert!(old_gw.has_checkpoint_manager());
 
     // Simulate restart: build new gateway, inject cm from sm
-    let new_gw = closeclaw_gateway::Gateway::new(config, Arc::clone(&sm));
+    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
     }

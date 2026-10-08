@@ -77,7 +77,9 @@ async fn test_streaming_receiving_transition() {
     let session_id = "sess-rcv-1";
     let (sm, _) = setup_receiving_test(session_id, LlmState::Requesting).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
-    let gw = crate::Gateway::new(streaming_config(), Arc::clone(&sm));
+    let config = streaming_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     // Before streaming: should be Requesting.
@@ -126,7 +128,9 @@ async fn test_streaming_receiving_set_only_once() {
     let session_id = "sess-rcv-2";
     let (sm, _) = setup_receiving_test(session_id, LlmState::Requesting).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
-    let gw = crate::Gateway::new(streaming_config(), Arc::clone(&sm));
+    let config = streaming_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -191,7 +195,9 @@ async fn test_non_streaming_no_receiving() {
     let session_id = "sess-rcv-3";
     let (sm, _) = setup_receiving_test(session_id, LlmState::Requesting).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
-    let gw = crate::Gateway::new(streaming_config(), Arc::clone(&sm));
+    let config = streaming_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let result = gw
@@ -222,7 +228,9 @@ async fn test_streaming_error_first_event_sets_receiving() {
     let session_id = "sess-rcv-err";
     let (sm, _) = setup_receiving_test(session_id, LlmState::Requesting).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(ThinkingIndicatorMock::new("mock"));
-    let gw = crate::Gateway::new(streaming_config(), Arc::clone(&sm));
+    let config = streaming_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![Ok(StreamEvent::Error {

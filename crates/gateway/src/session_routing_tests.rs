@@ -204,7 +204,7 @@ async fn make_gw(channel: &str) -> (crate::Gateway, Arc<CapturingPlugin>) {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let capturing: Arc<CapturingPlugin> = Arc::new(CapturingPlugin::new(channel));
     let plugin: Arc<dyn IMPlugin> = capturing.clone() as Arc<dyn IMPlugin>;
     gw.register_plugin(plugin).await;
@@ -250,7 +250,7 @@ async fn make_gw_with_failing_resolve(channel: &str) -> (crate::Gateway, Arc<Cap
         Some(PathBuf::from("/proc")),
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let capturing: Arc<CapturingPlugin> = Arc::new(CapturingPlugin::new(channel));
     let plugin: Arc<dyn IMPlugin> = capturing.clone() as Arc<dyn IMPlugin>;
     gw.register_plugin(plugin).await;

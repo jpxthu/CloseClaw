@@ -83,6 +83,15 @@ pub struct WorkflowRunInfo {
     pub last_history_step_name: Option<String>,
 }
 
+/// Error returned when a stored workflow-run value cannot be decoded
+/// through the [`WorkflowPort`].
+///
+/// Carries no payload: the port reports decode failure only as `None`.
+/// Callers own the failure logging (target semantics stay with the
+/// caller's module — mirrors `rebuild_workflow_context_append`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WorkflowRunDecodeError;
+
 /// Session-owned port over the workflow state machine engine.
 ///
 /// Method signatures intentionally use only `serde_json::Value` /

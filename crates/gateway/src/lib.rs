@@ -6,11 +6,14 @@ pub mod approval;
 #[cfg(test)]
 pub mod approval_tests;
 pub mod card_action;
+mod construction;
 mod debug_log_emitter;
 #[cfg(test)]
 mod debug_log_emitter_tests;
 #[cfg(test)]
 pub mod debug_log_tests;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
@@ -29,9 +32,11 @@ mod inbound_queue_tests;
 pub(crate) mod inbound_wal;
 #[cfg(test)]
 mod inbound_wal_tests;
+pub mod injection_convert;
+#[cfg(test)]
+mod injection_convert_tests;
 pub mod llm_caller_impl;
 mod media_routing;
-mod memory;
 pub mod message;
 mod message_routing;
 pub mod outbound;
@@ -51,6 +56,9 @@ mod outbound_helpers;
 #[cfg(test)]
 mod outbound_helpers_tests;
 pub mod outbound_middleware;
+pub mod outbound_raw_log;
+#[cfg(test)]
+mod outbound_raw_log_seam_tests;
 #[cfg(test)]
 mod outbound_streaming_checkpoint_tests;
 #[cfg(test)]
@@ -61,7 +69,8 @@ mod outbound_streaming_error_tests;
 mod outbound_tests;
 #[cfg(test)]
 mod outbound_writeahead_integration_tests;
-mod processor_registry_builder;
+#[cfg(test)]
+mod processor_registry_test_utils;
 #[cfg(test)]
 mod receiving_transition_tests;
 mod resolve_session;
@@ -135,7 +144,7 @@ use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
 pub use outbound::{OutboundMeta, SendOutboundIds};
 pub(crate) use rebuild_stash::RebuildStash;
-pub use session_handler::{HandleResult, SessionMessageHandler};
+pub use session_handler::{HandleResult, SearcherRunner, SessionMessageHandler};
 pub use session_manager::{SessionManager, SpawnController};
 pub use shutdown_handle::ShutdownHandle;
 use std::collections::HashMap;
@@ -148,6 +157,9 @@ pub struct Gateway {
     plugins: RwLock<HashMap<String, Arc<dyn closeclaw_common::IMPlugin>>>,
     session_manager: Arc<SessionManager>,
     processor_registry: std::sync::RwLock<Option<Arc<dyn ProcessorChain>>>,
+    /// Simplified-path outbound raw-log writer injected by the composition
+    /// root; `None` skips the write (bypass / test construction).
+    outbound_raw_log: Option<Arc<dyn outbound_raw_log::OutboundRawLogWriter>>,
     checkpoint_manager: std::sync::RwLock<Option<Arc<CheckpointManager<dyn PersistenceService>>>>,
     session_handler: std::sync::OnceLock<Arc<SessionMessageHandler>>,
     approval_flow: RwLock<Option<Arc<tokio::sync::Mutex<ApprovalFlow>>>>,
@@ -171,45 +183,6 @@ pub struct Gateway {
 /// Result of inbound pre-validation gates.
 pub(crate) use media_routing::InboundValidation;
 impl Gateway {
-    /// Create a new Gateway with the given config and a shared SessionManager.
-    pub fn new(config: GatewayConfig, session_manager: Arc<SessionManager>) -> Self {
-        let registry = build_processor_registry(&config);
-        Self::with_processor_registry(config, session_manager, Arc::new(registry))
-    }
-
-    /// Create a new Gateway with the given config, SessionManager and ProcessorRegistry.
-    pub fn with_processor_registry(
-        config: GatewayConfig,
-        session_manager: Arc<SessionManager>,
-        registry: Arc<dyn ProcessorChain>,
-    ) -> Self {
-        let gw = Self {
-            config,
-            plugins: RwLock::new(HashMap::new()),
-            session_manager,
-            processor_registry: std::sync::RwLock::new(Some(registry)),
-            checkpoint_manager: std::sync::RwLock::new(None),
-            session_handler: std::sync::OnceLock::new(),
-            approval_flow: RwLock::new(None),
-            plan_confirm_handler: RwLock::new(None),
-            slash_dispatcher: RwLock::new(None),
-            permission_engine: RwLock::new(None),
-            inbound_tx: std::sync::Mutex::new(None),
-            self_ref: std::sync::Mutex::new(None),
-            shutdown_handle: std::sync::Mutex::new(None),
-            outbound_middlewares: std::sync::RwLock::new(Vec::new()),
-            config_dir: RwLock::new(None),
-            metrics_emitter: std::sync::RwLock::new(None),
-            debug_log: std::sync::RwLock::new(None),
-            inbound_wal: std::sync::Mutex::new(None),
-            rebuild_stash: Arc::new(RebuildStash::new()),
-            media_store: std::sync::Mutex::new(None),
-            media_config: std::sync::RwLock::new(MediaConfigData::default()),
-        };
-        register_default_middlewares(&gw, &gw.config);
-        gw
-    }
-
     /// Enter or exit rebuild mode on the shared stash buffer.
     pub fn set_rebuild_mode(&self, enabled: bool) {
         self.rebuild_stash.set_rebuild_mode(enabled);
@@ -920,10 +893,6 @@ impl Gateway {
     }
 }
 
-/// Build a [`ProcessorRegistry`] with the standard inbound/outbound chains.
-pub use processor_registry_builder::build_processor_registry;
-/// Register the built-in outbound middlewares on a [`Gateway`].
-use processor_registry_builder::register_default_middlewares;
 #[cfg(test)]
 mod anthropic_reasoning_chain_tests;
 #[cfg(test)]

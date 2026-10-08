@@ -151,7 +151,7 @@ async fn test_simplified_path_skips_middleware() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
@@ -209,7 +209,7 @@ async fn test_queue_full_rejection_emits_debug_event() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.set_debug_log(debug_log).await;
 
     let gw = Arc::new(gw);
@@ -286,7 +286,7 @@ async fn test_batch_middleware_rejection_does_not_notify_user() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
@@ -317,7 +317,7 @@ async fn test_batch_middleware_failed_does_not_notify_user() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
@@ -348,7 +348,7 @@ async fn test_streaming_preflight_rejection_sends_notification() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
@@ -387,7 +387,7 @@ async fn test_batch_send_failure_notifies_user() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     let plugin = Arc::new(CaptureSendPlugin::new("mock"));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;

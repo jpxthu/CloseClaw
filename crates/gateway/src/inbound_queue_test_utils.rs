@@ -73,7 +73,7 @@ pub fn make_gateway() -> Arc<Gateway> {
         None,
         ReasoningLevel::default(),
     ));
-    Arc::new(Gateway::new(config, sm))
+    Arc::new(Gateway::new_for_tests(config, sm))
 }
 
 // ── Shared debug-log helpers ─────────────────────────────────────────────────

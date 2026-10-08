@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use crate::outbound::SendOutboundIds;
+use crate::outbound_middleware::runner::run_middleware_chain;
 use crate::Gateway;
 use crate::GatewayError;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -492,10 +493,7 @@ impl Gateway {
         let middlewares = self.get_outbound_middlewares().await;
         if !middlewares.is_empty() {
             let mctx = Gateway::make_middleware_ctx("", channel, chat_id);
-            if let Err(e) =
-                closeclaw_processor_chain::run_middleware_chain(&middlewares, &mctx, &rendered)
-                    .await
-            {
+            if let Err(e) = run_middleware_chain(&middlewares, &mctx, &rendered).await {
                 return log_middleware_rejection(e, chat_id).await;
             }
         }

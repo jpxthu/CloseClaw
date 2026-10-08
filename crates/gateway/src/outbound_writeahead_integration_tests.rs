@@ -128,7 +128,10 @@ async fn test_writeahead_failure_message_not_sent() {
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw_config = test_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&sm), chain)
+        .with_checkpoint_manager(cm);
 
     let (plugin, entered, _ok, texts) = SyncPlugin::new();
     gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
@@ -186,7 +189,8 @@ async fn test_multiple_outbound_pending_ops_all_cleared() {
 
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);
@@ -273,7 +277,8 @@ async fn test_mixed_op_types_drain_preserves_non_outbound() {
 
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(SimpleTrackPlugin {
         texts: Arc::new(Mutex::new(Vec::new())),
@@ -384,7 +389,8 @@ async fn test_crash_restart_drain_delivers_message() {
     // Phase 2: "restart" — set up SessionManager with the persisted checkpoint.
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);
@@ -490,7 +496,7 @@ async fn test_cache_entry_without_pending_op_not_drained() {
 
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let gw = crate::Gateway::new_for_tests(gw_config, Arc::clone(&mgr));
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);
@@ -569,7 +575,8 @@ async fn test_repeated_drain_idempotent() {
 
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);
@@ -659,7 +666,8 @@ async fn test_stop_kill_mixed_ops_drain_only_outbound() {
 
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);
@@ -750,7 +758,8 @@ async fn test_send_failure_op_remains_then_drain_succeeds() {
     // Phase 2: "restart" and drain with a working plugin.
     let mgr = Arc::new(make_test_mgr(None));
     let gw_config = test_config();
-    let gw = crate::Gateway::new(gw_config, Arc::clone(&mgr));
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&mgr), chain);
 
     let plugin_texts: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let texts_clone = Arc::clone(&plugin_texts);

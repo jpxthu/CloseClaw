@@ -110,7 +110,7 @@ async fn make_gw_with_recording_storage() -> (Arc<Gateway>, Arc<RecordingPersist
         None,
         ReasoningLevel::default(),
     ));
-    (Arc::new(Gateway::new(config, sm)), storage)
+    (Arc::new(Gateway::new_for_tests(config, sm)), storage)
 }
 
 async fn make_gw_with_failing_storage() -> Arc<Gateway> {
@@ -121,7 +121,7 @@ async fn make_gw_with_failing_storage() -> Arc<Gateway> {
         None,
         ReasoningLevel::default(),
     ));
-    Arc::new(Gateway::new(config, sm))
+    Arc::new(Gateway::new_for_tests(config, sm))
 }
 
 async fn register_cs(gw: &Gateway, session_id: &str) {

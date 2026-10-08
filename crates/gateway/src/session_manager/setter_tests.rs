@@ -90,7 +90,7 @@ async fn test_set_output_tx_replaces_previous() {
 async fn test_set_gateway_ref_does_not_panic() {
     let mgr = make_test_mgr(None);
     let session_manager = Arc::new(mgr);
-    let gw = Arc::new(crate::Gateway::new(
+    let gw = Arc::new(crate::Gateway::new_for_tests(
         test_config(),
         Arc::clone(&session_manager),
     ));
@@ -105,7 +105,7 @@ async fn test_set_gateway_ref_does_not_panic() {
 async fn test_get_gateway_ref_after_set() {
     let mgr = make_test_mgr(None);
     let session_manager = Arc::new(mgr);
-    let gw = Arc::new(crate::Gateway::new(
+    let gw = Arc::new(crate::Gateway::new_for_tests(
         test_config(),
         Arc::clone(&session_manager),
     ));
@@ -141,7 +141,7 @@ async fn test_get_gateway_ref_before_set_is_none() {
 async fn test_get_gateway_ref_returns_none_after_drop() {
     let mgr = make_test_mgr(None);
     let session_manager = Arc::new(mgr);
-    let gw = Arc::new(crate::Gateway::new(
+    let gw = Arc::new(crate::Gateway::new_for_tests(
         test_config(),
         Arc::clone(&session_manager),
     ));
@@ -170,13 +170,13 @@ async fn test_set_gateway_ref_replaces_previous() {
     let mgr = make_test_mgr(None);
     let session_manager = Arc::new(mgr);
 
-    let gw1 = Arc::new(crate::Gateway::new(
+    let gw1 = Arc::new(crate::Gateway::new_for_tests(
         test_config(),
         Arc::clone(&session_manager),
     ));
     session_manager.set_gateway_ref(Arc::clone(&gw1)).await;
 
-    let gw2 = Arc::new(crate::Gateway::new(
+    let gw2 = Arc::new(crate::Gateway::new_for_tests(
         test_config(),
         Arc::clone(&session_manager),
     ));

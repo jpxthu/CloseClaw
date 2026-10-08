@@ -35,7 +35,7 @@ async fn test_arrived_event_emitted_on_successful_enqueue() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let _handle = gw.start_inbound_queue();
@@ -110,7 +110,7 @@ async fn test_queue_full_no_arrived_event() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let handle = gw.start_inbound_queue();
@@ -160,7 +160,7 @@ async fn test_queue_dequeued_event_still_emitted() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let _handle = gw.start_inbound_queue();

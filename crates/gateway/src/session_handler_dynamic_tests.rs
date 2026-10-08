@@ -1,6 +1,5 @@
 use super::session_handler::MessageMetadata;
 use super::*;
-use crate::session_handler::ActiveSearcherLlmCaller;
 use closeclaw_common::system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, split_static_dynamic, DynamicSectionsParams,
 };
@@ -18,16 +17,11 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile:
             cooldown_dir.path().join("llm_cooldowns.json"),
         )),
     ));
-    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
-            as Arc<dyn closeclaw_common::LlmCaller>,
-        model: String::new(),
-    });
     (
         SessionMessageHandler::new_no_output(
             sm,
             ufc,
-            fallback_llm_caller,
+            None,
             closeclaw_session::compaction::CompactConfig::default(),
         ),
         cooldown_dir,

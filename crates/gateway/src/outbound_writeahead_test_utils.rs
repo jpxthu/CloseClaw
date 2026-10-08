@@ -320,6 +320,12 @@ pub(crate) async fn register_session(mgr: &SessionManager, session_id: &str, cha
     );
 }
 
+/// Build a `Gateway` wired to `persist` with a synchronized [`SyncPlugin`].
+///
+/// Injects the default processor chain — required by cases that drive the
+/// full outbound chain path (`send_outbound` → `process_or_bypass`); there is
+/// no chain-less variant because every caller of this helper exercises that
+/// path.
 pub(crate) async fn setup_gw_with_persist(
     persist: Arc<SnapshotMockPersist>,
     session_id: &str,
@@ -341,7 +347,10 @@ pub(crate) async fn setup_gw_with_persist(
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw_config = test_config();
+    let chain = crate::processor_registry_test_utils::default_registry(&gw_config);
+    let gw = crate::Gateway::with_processor_registry(gw_config, Arc::clone(&sm), chain)
+        .with_checkpoint_manager(cm);
 
     let (plugin, entered, ok, texts) = SyncPlugin::new();
     gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)

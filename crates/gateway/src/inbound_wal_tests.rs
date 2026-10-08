@@ -519,7 +519,7 @@ async fn test_shutdown_wal_preserves_unfinished_entries() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.start_inbound_queue();
 
     // After start_inbound_queue returns, replay is done synchronously and the
@@ -571,7 +571,7 @@ async fn test_consumer_processes_and_cleans_wal() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let plugin = Arc::new(SendCapturePlugin::new());
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
@@ -661,7 +661,7 @@ async fn test_wal_dir_none_no_files_created() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
 
     // Start queue — no WAL directory should be created.
     gw.start_inbound_queue();

@@ -132,7 +132,8 @@ fn test_streaming_nothing_filtered_at_full() {
 use closeclaw_common::processor::ProcessedMessage;
 
 /// Build an outbound registry with VerbosityFilter + DslParser.
-/// Mirrors the chain produced by `build_processor_registry` for default config.
+/// Mirrors the composition-root default outbound chain
+/// (`closeclaw-daemon::processor_registry`).
 fn build_full_outbound_chain() -> closeclaw_processor_chain::ProcessorRegistry {
     let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(
@@ -401,7 +402,8 @@ pub(crate) async fn setup_streaming_gw(
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
     gw
 }
@@ -646,7 +648,8 @@ async fn test_thinking_indicator_sends_on_block_start() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -747,7 +750,8 @@ async fn test_thinking_indicator_suppressed_at_off() {
     let mock = ThinkingIndicatorMock::new("mock");
     let calls_ref = mock.thinking_calls.clone();
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -840,7 +844,8 @@ async fn test_thinking_indicator_stops_on_block_end() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -882,8 +887,20 @@ async fn test_thinking_indicator_stops_on_block_end() {
 
 #[tokio::test]
 async fn test_process_outbound_raw_log_only_fail_open() {
-    // A non-existent directory triggers a write error in OutboundRawLogProcessor.
+    // The composition-root-injected raw-log writer fails the write.
     // The function must still return Ok with the original content_blocks.
+    struct FailingRawLogWriter;
+
+    #[async_trait::async_trait]
+    impl crate::outbound_raw_log::OutboundRawLogWriter for FailingRawLogWriter {
+        async fn write(
+            &self,
+            _snapshot: crate::outbound_raw_log::OutboundRawLogSnapshot,
+        ) -> Result<(), String> {
+            Err("processor `outbound_raw_log` failed".to_string())
+        }
+    }
+
     let config = GatewayConfig {
         name: "test-rawlog-fail-open".to_string(),
         rate_limit_per_minute: 100,
@@ -897,7 +914,12 @@ async fn test_process_outbound_raw_log_only_fail_open() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new(config, sm);
+    let gw = Gateway::new(
+        config,
+        sm,
+        Arc::new(closeclaw_processor_chain::ProcessorRegistry::new()),
+        Some(Arc::new(FailingRawLogWriter)),
+    );
 
     let blocks = vec![ContentBlock::Text("hello world".into())];
     let result = gw

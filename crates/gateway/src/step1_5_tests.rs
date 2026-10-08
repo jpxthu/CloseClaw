@@ -431,20 +431,15 @@ async fn test_gateway_delegates_llm_to_session_layer() {
         Arc::new(crate::llm_caller_impl::FallbackLlmCaller(ufc.clone()));
     // Set LLM caller on SessionManager so ConversationSession gets it at creation.
     sm.set_llm_caller(llm_caller).await;
-    let fallback_llm_caller = Arc::new(crate::session_handler::ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(Arc::clone(&ufc)))
-            as Arc<dyn closeclaw_common::LlmCaller>,
-        model: String::new(),
-    });
     let handler = Arc::new(
         crate::session_handler::SessionMessageHandler::new_no_output(
             Arc::clone(&sm),
             ufc,
-            fallback_llm_caller,
+            None,
             closeclaw_session::compaction::CompactConfig::default(),
         ),
     );
-    let gw = crate::Gateway::new(config, sm).with_session_handler(handler);
+    let gw = crate::Gateway::new_for_tests(config, sm).with_session_handler(handler);
     assert!(
         gw.has_session_handler().await,
         "session_handler should be configured for delegation"
@@ -515,7 +510,7 @@ async fn test_permission_check_after_handler_before_execute() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
@@ -559,7 +554,7 @@ async fn test_permission_denied_handler_still_invoked() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {

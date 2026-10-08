@@ -176,7 +176,24 @@ fn test_config() -> GatewayConfig {
     }
 }
 
+/// Chain-less construction — only for the simplified-path cases, which never
+/// reach `process_or_bypass`.
 async fn make_gw(session_id: &str, channel: &str, plugin: Arc<dyn IMPlugin>) -> Gateway {
+    make_gw_inner(session_id, channel, plugin, false).await
+}
+
+/// Injects the default processor chain — for cases that directly drive the
+/// full outbound chain path (`send_outbound` → `process_or_bypass`).
+async fn make_gw_with_chain(session_id: &str, channel: &str, plugin: Arc<dyn IMPlugin>) -> Gateway {
+    make_gw_inner(session_id, channel, plugin, true).await
+}
+
+async fn make_gw_inner(
+    session_id: &str,
+    channel: &str,
+    plugin: Arc<dyn IMPlugin>,
+    with_chain: bool,
+) -> Gateway {
     let config = test_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -194,7 +211,12 @@ async fn make_gw(session_id: &str, channel: &str, plugin: Arc<dyn IMPlugin>) -> 
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = if with_chain {
+        let chain = crate::processor_registry_test_utils::default_registry(&config);
+        Gateway::with_processor_registry(config, Arc::clone(&sm), chain)
+    } else {
+        Gateway::new_for_tests(config, Arc::clone(&sm))
+    };
     gw.register_plugin(plugin).await;
     gw
 }
@@ -214,7 +236,7 @@ async fn make_gw(session_id: &str, channel: &str, plugin: Arc<dyn IMPlugin>) -> 
 #[tokio::test]
 async fn test_batch_send_failure_sends_notification() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
-    let gw = make_gw("s1", "mock", mock.clone()).await;
+    let gw = make_gw_with_chain("s1", "mock", mock.clone()).await;
     let result = gw
         .send_outbound(
             "s1",
@@ -263,7 +285,7 @@ async fn test_batch_send_failure_sends_notification() {
 #[tokio::test]
 async fn test_batch_send_failure_no_outbound_history() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
-    let gw = make_gw("s2", "mock", mock.clone()).await;
+    let gw = make_gw_with_chain("s2", "mock", mock.clone()).await;
     let result = gw
         .send_outbound(
             "s2",
@@ -296,7 +318,7 @@ async fn test_batch_send_failure_no_outbound_history() {
 #[tokio::test]
 async fn test_batch_send_failure_notification_also_fails() {
     let plugin: Arc<dyn IMPlugin> = Arc::new(MockPlugin::always_fail());
-    let gw = make_gw("s3", "mock", plugin).await;
+    let gw = make_gw_with_chain("s3", "mock", plugin).await;
     let result = gw
         .send_outbound("s3", "mock", "original", vec![], SendOutboundIds::default())
         .await;
@@ -312,7 +334,7 @@ async fn test_batch_send_failure_notification_also_fails() {
 #[tokio::test]
 async fn test_batch_send_failure_interactive_msg_type() {
     let mock = Arc::new(MockPlugin::fail_then_ok());
-    let gw = make_gw("s4", "mock", mock.clone()).await;
+    let gw = make_gw_with_chain("s4", "mock", mock.clone()).await;
 
     let result = gw
         .send_outbound(
@@ -422,7 +444,7 @@ async fn test_middleware_rejection_still_works() {
     }
 
     let mock = Arc::new(MockPlugin::always_ok());
-    let gw = make_gw("s9", "mock", mock.clone()).await;
+    let gw = make_gw_with_chain("s9", "mock", mock.clone()).await;
     gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let result = gw
@@ -476,7 +498,7 @@ async fn test_middleware_rejection_before_batch_send() {
 
     let mock = Arc::new(MockPlugin::always_fail());
     let plugin: Arc<dyn IMPlugin> = mock.clone();
-    let gw = make_gw("s10", "mock", plugin).await;
+    let gw = make_gw_with_chain("s10", "mock", plugin).await;
     gw.add_outbound_middleware(Arc::new(RejectMiddleware));
 
     let result = gw
@@ -526,7 +548,7 @@ async fn test_no_plugin_uses_fallback_not_batch_failure() {
         },
     );
     // Do NOT register any plugin.
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
 
     let result = gw
         .send_outbound(

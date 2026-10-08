@@ -1,8 +1,9 @@
 //! Tests for Gateway construction and processor registry wiring.
 //!
-//! Verifies that `Gateway::new` and `Gateway::with_processor_registry`
-//! behave correctly, and that `build_processor_registry` produces valid
-//! processor chains.
+//! Verifies that `Gateway::new` (injected chain), `Gateway::new_for_tests`
+//! (chain-less convenience) and `Gateway::with_processor_registry` behave
+//! correctly. The default-chain assembly itself lives in the composition
+//! root (`closeclaw-daemon`) and is covered there.
 
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::middleware::MiddlewareContext;
@@ -11,9 +12,12 @@ use std::sync::Arc;
 
 // ── Gateway::new ────────────────────────────────────────────────────────────
 
-/// Gateway::new must auto-build a processor registry from config.
+/// Gateway::new must store the chain injected by the composition root.
 #[test]
-fn test_gateway_new_has_processor_registry() {
+fn test_gateway_new_stores_injected_processor_chain() {
+    use closeclaw_processor_chain::registry::ProcessorRegistry;
+    use closeclaw_processor_chain::session_router::SessionRouter;
+
     let config = GatewayConfig {
         name: "test-new-gw".to_string(),
         ..Default::default()
@@ -24,15 +28,36 @@ fn test_gateway_new_has_processor_registry() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
-    let (inbound, outbound) = gw.processor_registry_len();
-    assert!(
-        inbound > 0,
-        "Gateway::new should auto-build inbound processors"
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(SessionRouter::new()));
+    let (expected_inbound, expected_outbound) = (registry.inbound_len(), registry.outbound_len());
+    let gw = crate::Gateway::new(config, sm, Arc::new(registry), None);
+    assert_eq!(
+        gw.processor_registry_len(),
+        (expected_inbound, expected_outbound),
+        "Gateway::new must keep the injected chain untouched"
     );
-    assert!(
-        outbound > 0,
-        "Gateway::new should auto-build outbound processors"
+}
+
+/// Gateway::new_for_tests (chain-less convenience) must take the bypass
+/// path — no processor chain installed.
+#[test]
+fn test_gateway_new_for_tests_has_no_processor_chain() {
+    let config = GatewayConfig {
+        name: "test-no-chain-gw".to_string(),
+        ..Default::default()
+    };
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    let gw = crate::Gateway::new_for_tests(config, sm);
+    assert_eq!(
+        gw.processor_registry_len(),
+        (0, 0),
+        "chain-less convenience constructor installs no chain"
     );
 }
 
@@ -62,31 +87,16 @@ fn test_gateway_with_processor_registry_stores_it() {
     assert_eq!(outbound, 0, "empty registry should have 0 outbound");
 }
 
-// ── build_processor_registry ────────────────────────────────────────────────
-
-/// build_processor_registry must return a registry with non-zero inbound
-/// and outbound chains for default config.
-#[test]
-fn test_build_processor_registry_returns_valid_registry() {
-    let config = GatewayConfig {
-        name: "test-build-registry".to_string(),
-        ..Default::default()
-    };
-    let registry = crate::build_processor_registry(&config);
-    assert!(
-        registry.inbound_len() > 0,
-        "build_processor_registry should produce inbound processors"
-    );
-    assert!(
-        registry.outbound_len() > 0,
-        "build_processor_registry should produce outbound processors"
-    );
-}
+// ── populated registry reflection ───────────────────────────────────────────
 
 /// Gateway::with_processor_registry with a populated registry must reflect
 /// the registry's chain counts.
 #[test]
 fn test_gateway_with_processor_registry_reflects_chain_counts() {
+    use closeclaw_processor_chain::registry::ProcessorRegistry;
+    use closeclaw_processor_chain::session_router::SessionRouter;
+    use closeclaw_processor_chain::verbosity_filter::VerbosityFilter;
+
     let config = GatewayConfig {
         name: "test-populated-registry".to_string(),
         ..Default::default()
@@ -97,18 +107,20 @@ fn test_gateway_with_processor_registry_reflects_chain_counts() {
         None,
         ReasoningLevel::default(),
     ));
-    let registry = crate::build_processor_registry(&config);
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(SessionRouter::new()));
+    registry.register(Arc::new(VerbosityFilter));
     let expected_inbound = registry.inbound_len();
     let expected_outbound = registry.outbound_len();
     let gw = crate::Gateway::with_processor_registry(config, sm, Arc::new(registry));
     let (inbound, outbound) = gw.processor_registry_len();
     assert_eq!(
         inbound, expected_inbound,
-        "Gateway should reflect build_processor_registry inbound count"
+        "Gateway should reflect the injected registry inbound count"
     );
     assert_eq!(
         outbound, expected_outbound,
-        "Gateway should reflect build_processor_registry outbound count"
+        "Gateway should reflect the injected registry outbound count"
     );
 }
 
@@ -127,7 +139,7 @@ async fn test_gateway_new_registers_default_middlewares() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
     let mws = gw.get_outbound_middlewares().await;
     assert_eq!(mws.len(), 2, "expected 2 default middlewares");
     assert_eq!(mws[0].name(), "audit");
@@ -186,7 +198,7 @@ async fn test_rate_limit_config_custom_value_passthrough() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
     let mws = gw.get_outbound_middlewares().await;
     let rate_mw = mws.iter().find(|m| m.name() == "rate_limit").unwrap();
 
@@ -218,7 +230,7 @@ async fn test_rate_limit_config_zero_fallback_to_default() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
     let mws = gw.get_outbound_middlewares().await;
     let rate_mw = mws.iter().find(|m| m.name() == "rate_limit").unwrap();
 
@@ -249,7 +261,7 @@ async fn test_rate_limit_config_default_unset_uses_30() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new(config, sm);
+    let gw = crate::Gateway::new_for_tests(config, sm);
     let mws = gw.get_outbound_middlewares().await;
     let rate_mw = mws.iter().find(|m| m.name() == "rate_limit").unwrap();
 

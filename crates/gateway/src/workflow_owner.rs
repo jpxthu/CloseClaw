@@ -72,12 +72,9 @@ impl Gateway {
             return None;
         }
         // Clone to release the lock before the owner check and content matching.
-        // Value → WorkflowRun conversion at the gateway boundary.
-        let paused_reason = cs_read
-            .workflow_run_value()
-            .and_then(|v| serde_json::from_value::<closeclaw_workflow::run::WorkflowRun>(v).ok())
-            .map(|r| r.paused_reason)
-            .unwrap_or_default();
+        // The session decodes the stored run through its port — no workflow
+        // type surfaces in the gateway.
+        let paused_reason = cs_read.workflow_paused_reason();
         drop(cs_read);
         let owner_id = self.session_manager.get_sender_id(session_id).await;
         if sender_id.is_none_or(|sid| owner_id.as_ref().is_none_or(|o| o != sid)) {

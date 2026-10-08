@@ -256,7 +256,7 @@ async fn test_cross_step_git_all_subcommands_route_to_exec() {
         None,
         closeclaw_session::persistence::ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
 
     // Register a real WorkdirHandler.
     let registry = closeclaw_slash::HandlerRegistry::new();

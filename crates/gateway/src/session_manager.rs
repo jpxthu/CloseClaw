@@ -708,8 +708,13 @@ impl SessionManager {
         Ok(())
     }
 
-    /// Set the active workflow run (serialized `Value` checkpoint form;
-    /// Value↔WorkflowRun conversion lives at the gateway boundary) and persist.
+    /// Set the active workflow run (serialized `Value` checkpoint form)
+    /// and persist.
+    ///
+    /// The slash/daemon producer boxes the serialized run; the session
+    /// decodes it through its injected workflow port. The gateway only
+    /// downcasts the erased handle and writes the value through — no
+    /// `Value`↔`WorkflowRun` conversion happens here.
     pub async fn set_workflow_run(
         &self,
         session_id: &str,

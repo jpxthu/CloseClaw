@@ -44,9 +44,12 @@ pub struct MessageContext {
 /// Injects `message_type` and `unavailable_media` chain dispatcher keys
 /// into a metadata map.
 ///
-/// This is the single source of truth for serializing these two fields.
-/// All injection points (chain dispatcher, fallback branches) call this
-/// function to avoid format drift.
+/// Chain-dispatcher path injections (e.g. [`MessageContext::from_normalized`])
+/// call this function to serialize these two fields. Gateway fallback branches
+/// (no-registry / chain error) do not call it: they use an equivalent local
+/// copy in `crates/gateway/src/message_routing.rs`, since gateway does not
+/// depend on this crate. The serialized shapes of both copies must be kept in
+/// sync to avoid format drift.
 pub fn inject_chain_dispatcher_keys(
     metadata: &mut HashMap<String, String>,
     message_type: &closeclaw_common::im_plugin::MessageType,

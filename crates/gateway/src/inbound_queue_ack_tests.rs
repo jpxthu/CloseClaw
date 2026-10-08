@@ -88,7 +88,7 @@ async fn test_enqueue_concurrent_no_blocking() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     let _handle = gw.start_inbound_queue();
 
     // Enqueue 3 messages concurrently — each should return without blocking.

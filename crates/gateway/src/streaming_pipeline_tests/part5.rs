@@ -257,7 +257,7 @@ async fn test_incremental_no_registry_all_blocks_pass_through() {
         ReasoningLevel::default(),
     ));
     // Gateway::new → processor_registry is None (no chain configured).
-    let gw = crate::Gateway::new(config, Arc::clone(&sm));
+    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
     gw.register_plugin(plugin.clone()).await;
     let msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();

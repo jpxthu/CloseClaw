@@ -399,7 +399,8 @@ async fn setup_resolve_test(
             Arc::clone(&persist) as Arc<dyn PersistenceService>
         ),
     );
-    let gw = crate::Gateway::new(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw =
+        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
 
     // Insert a conversation session with a workflow handler.
     let mut cs = make_session_with_reason(phase, 3, paused_reason);

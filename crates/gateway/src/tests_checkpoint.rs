@@ -1,11 +1,15 @@
-//! Tests for `SessionManager::save_checkpoint_after_compact`.
+//! Tests for `SessionManager::save_checkpoint_after_compact` and the
+//! workflow-state accessors it exposes (erased run storage, phase query,
+//! post-compaction workflow context re-injection).
 
 use crate::{GatewayConfig, SessionManager};
+use closeclaw_common::{BootstrapMode, ModelSpec, SlashSessionQuery};
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
+use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
 
 // ── Mock persistence service ─────────────────────────────────────────────────
@@ -122,11 +126,13 @@ async fn make_sm_with_storage(persistence: Arc<MockPersistence>) -> SessionManag
 }
 
 async fn register_conv_session(sm: &SessionManager, session_id: &str) {
-    let cs = ConversationSession::new(
+    let mut cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
         PathBuf::from("/tmp"),
     );
+    // Workflow state queries decode the stored Value through this port.
+    cs.set_workflow_port(crate::test_support_workflow_port::test_port::test_port());
     let arc = Arc::new(RwLock::new(cs));
     sm.conversation_sessions
         .write()
@@ -244,4 +250,449 @@ async fn test_save_checkpoint_after_compact_no_storage_returns_silently() {
 
     // Act: should not panic when storage is None
     sm.save_checkpoint_after_compact("any-session").await;
+}
+
+// ── Workflow state access (erased run, phase query, compaction reinject) ──
+
+/// Agent registry mock that resolves a fixed per-agent workspace, so the
+/// workflow definition lookup hits the tempdir first (level 1).
+struct WorkspaceRegistry {
+    workspace: PathBuf,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::AgentLookup for WorkspaceRegistry {
+    async fn get_agent_model(&self, _agent_id: &str) -> Option<ModelSpec> {
+        None
+    }
+    async fn agent_exists(&self, _agent_id: &str) -> bool {
+        true
+    }
+    async fn query_bootstrap_mode(&self, _agent_id: &str) -> Option<BootstrapMode> {
+        None
+    }
+    async fn get_agent_workspace(&self, _agent_id: &str) -> Option<PathBuf> {
+        Some(self.workspace.clone())
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::AgentSkillsQuery for WorkspaceRegistry {
+    fn get_agent_skills(&self, _agent_id: &str) -> Option<Vec<String>> {
+        None
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::AgentToolsConfigQuery for WorkspaceRegistry {
+    async fn get_agent_tools_config(
+        &self,
+        _agent_id: &str,
+    ) -> Option<closeclaw_common::AgentToolsConfig> {
+        None
+    }
+}
+
+impl closeclaw_common::AgentRegistryQuery for WorkspaceRegistry {}
+
+fn make_workflow_run(phase: Phase) -> WorkflowRun {
+    WorkflowRun {
+        workflow_id: "test-wf".to_string(),
+        definition_name: "Test WF".to_string(),
+        definition_version: "0.1".to_string(),
+        current_step: 0,
+        phase,
+        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
+        step_history: vec![],
+        step_data: serde_yaml::Value::Null,
+        pending_goal_hint: GoalHint::default(),
+        pending_verify: PendingVerify::default(),
+        paused_reason: String::new(),
+    }
+}
+
+/// Write `<dir>/workflows/Test WF/SKILL.md` with a one-step definition.
+fn write_workflow_definition(dir: &std::path::Path) {
+    let wf_dir = dir.join("workflows").join("Test WF");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    let yaml = concat!(
+        "id: test-wf\n",
+        "name: Test WF\n",
+        "description: A test workflow\n",
+        "steps:\n",
+        "  - id: 0\n",
+        "    name: Step 0\n",
+        "    goal: Do first thing\n",
+        "    verify:\n",
+        "      - Check output\n",
+        "    transitions:\n",
+        "      - action: complete\n",
+    );
+    std::fs::write(
+        wf_dir.join("SKILL.md"),
+        format!("---\n{yaml}---\n\nBody.\n"),
+    )
+    .unwrap();
+}
+
+/// Store a checkpoint carrying `run` (optionally bound to an agent).
+async fn seed_workflow_checkpoint(
+    persistence: &Arc<MockPersistence>,
+    session_id: &str,
+    run: WorkflowRun,
+    agent_id: Option<&str>,
+) {
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.agent_id = agent_id.map(str::to_string);
+    cp.workflow_run = Some(serde_json::to_value(run).unwrap());
+    cp.touch();
+    persistence
+        .checkpoints
+        .write()
+        .await
+        .insert(session_id.to_string(), cp);
+}
+
+fn count_workflow_contexts(appends: &[String]) -> usize {
+    appends
+        .iter()
+        .filter(|a| a.starts_with("--- WORKFLOW ---"))
+        .count()
+}
+
+// ── Warn capture (log target / message parity with master) ──────────────────
+
+/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
+/// subscriber writes into it while the caller keeps a handle for reading
+/// the captured bytes back.
+#[derive(Clone, Default)]
+struct VecWriter(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for VecWriter {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
+    type Writer = VecWriter;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Install a thread-local WARN-level fmt subscriber (target kept — the
+/// assertions below check the master log target verbatim) writing into an
+/// in-memory buffer; returns the guard with the buffer handle.
+///
+/// File-local copy of the `capture_warn_logs` mechanism (issue #3102).
+/// Caller tests **must** carry `#[serial_test::serial]`: installing the
+/// subscriber registers WARN callsites in the process-global tracing
+/// callsite-interest cache, and concurrent registration on the same
+/// callsite can drop events.
+fn warn_capture_guard() -> (tracing::subscriber::DefaultGuard, Arc<Mutex<Vec<u8>>>) {
+    let buffer = VecWriter::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_max_level(tracing::Level::WARN)
+        .with_ansi(false)
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    (guard, buffer.0)
+}
+
+fn captured_logs(buffer: &Arc<Mutex<Vec<u8>>>) -> String {
+    String::from_utf8(buffer.lock().unwrap().clone()).unwrap()
+}
+
+/// Store a checkpoint whose `workflow_run` value is not a decodable run.
+async fn seed_malformed_workflow_checkpoint(persistence: &Arc<MockPersistence>, session_id: &str) {
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.agent_id = Some("agent-x".to_string());
+    cp.workflow_run = Some(serde_json::json!({ "not": "a run" }));
+    cp.touch();
+    persistence
+        .checkpoints
+        .write()
+        .await
+        .insert(session_id.to_string(), cp);
+}
+
+/// Erased `set_workflow_run` stores the run on the session and persists it.
+#[tokio::test]
+async fn test_set_workflow_run_erased_sets_run_and_persists() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+    let session_id = "wf-set-1";
+
+    register_conv_session(&sm, session_id).await;
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    cs.write().await.set_checkpoint_storage(persistence.clone());
+    let mut cp = SessionCheckpoint::new(session_id.to_string());
+    cp.touch();
+    persistence
+        .checkpoints
+        .write()
+        .await
+        .insert(session_id.to_string(), cp);
+
+    let run = make_workflow_run(Phase::Executing);
+    let erased = serde_json::to_value(&run).unwrap();
+    let result = SlashSessionQuery::set_workflow_run(&sm, session_id, Some(Box::new(erased))).await;
+    assert!(
+        result.is_ok(),
+        "set_workflow_run should succeed: {result:?}"
+    );
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    let stored = cs
+        .read()
+        .await
+        .workflow_run_value()
+        .expect("run should be stored on the session");
+    assert_eq!(
+        serde_json::from_value::<WorkflowRun>(stored).unwrap().phase,
+        Phase::Executing
+    );
+
+    let saved = persistence
+        .checkpoints
+        .read()
+        .await
+        .get(session_id)
+        .cloned()
+        .expect("checkpoint should be persisted");
+    let persisted = serde_json::from_value::<WorkflowRun>(saved.workflow_run.unwrap()).unwrap();
+    assert_eq!(
+        persisted.phase,
+        Phase::Executing,
+        "workflow run should reach the persisted checkpoint"
+    );
+}
+
+/// A mis-typed erased run panics in the type check *before* the session
+/// lookup — a missing session must not mask the caller bug (historical
+/// `SlashSessionQuery::set_workflow_run` ordering).
+#[tokio::test]
+#[should_panic(expected = "set_workflow_run: downcast to WorkflowRun failed")]
+async fn test_set_workflow_run_downcast_panics_before_session_lookup() {
+    let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
+    let result =
+        SlashSessionQuery::set_workflow_run(&sm, "no-such-session", Some(Box::new("not a run")))
+            .await;
+    panic!("mis-typed run must panic, got {result:?}");
+}
+
+/// Phase query reports the active phase and hides completed runs.
+#[tokio::test]
+async fn test_get_active_workflow_run_phase_query() {
+    let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
+    let session_id = "wf-phase-1";
+    register_conv_session(&sm, session_id).await;
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    cs.write().await.set_workflow_run_value(Some(
+        serde_json::to_value(make_workflow_run(Phase::Executing)).unwrap(),
+    ));
+    assert_eq!(
+        sm.get_active_workflow_run_phase(session_id)
+            .await
+            .as_deref(),
+        Some("Executing")
+    );
+
+    cs.write().await.set_workflow_run_value(Some(
+        serde_json::to_value(make_workflow_run(Phase::Complete)).unwrap(),
+    ));
+    assert_eq!(
+        sm.get_active_workflow_run_phase(session_id).await,
+        None,
+        "a completed run must not block a new workflow"
+    );
+
+    assert_eq!(
+        sm.get_active_workflow_run_phase("no-such-session").await,
+        None
+    );
+}
+
+/// Missing workflow context after compaction → definition reloaded and
+/// context re-injected exactly once.
+#[tokio::test]
+async fn test_reinject_workflow_context_after_compact_injects_missing_context() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+    let session_id = "wf-reinject-1";
+    register_conv_session(&sm, session_id).await;
+
+    let workspace = tempfile::tempdir().unwrap();
+    write_workflow_definition(workspace.path());
+    sm.set_agent_registry(Arc::new(WorkspaceRegistry {
+        workspace: workspace.path().to_path_buf(),
+    }))
+    .await;
+
+    seed_workflow_checkpoint(
+        &persistence,
+        session_id,
+        make_workflow_run(Phase::Executing),
+        Some("agent-x"),
+    )
+    .await;
+
+    sm.reinject_workflow_context_after_compact(session_id).await;
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    let appends = cs.read().await.system_appends();
+    assert_eq!(
+        count_workflow_contexts(&appends),
+        1,
+        "workflow context should be re-injected once"
+    );
+    assert!(
+        appends.iter().any(|a| a.contains("Test WF")),
+        "context should carry the reloaded definition: {appends:?}"
+    );
+}
+
+/// Context already present → no duplicate injection.
+#[tokio::test]
+async fn test_reinject_workflow_context_after_compact_skips_existing_context() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+    let session_id = "wf-reinject-2";
+    register_conv_session(&sm, session_id).await;
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    cs.write()
+        .await
+        .add_system_injection_append("--- WORKFLOW ---\nexisting".to_string());
+
+    seed_workflow_checkpoint(
+        &persistence,
+        session_id,
+        make_workflow_run(Phase::Executing),
+        Some("agent-x"),
+    )
+    .await;
+
+    sm.reinject_workflow_context_after_compact(session_id).await;
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    let appends = cs.read().await.system_appends();
+    assert_eq!(
+        count_workflow_contexts(&appends),
+        1,
+        "existing context must not be duplicated"
+    );
+    assert!(
+        appends.iter().any(|a| a == "--- WORKFLOW ---\nexisting"),
+        "the pre-existing context should be untouched"
+    );
+}
+
+/// Completed run / empty definition name → no injection.
+#[tokio::test]
+async fn test_reinject_workflow_context_after_compact_skips_inactive_runs() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+
+    let completed_id = "wf-reinject-complete";
+    register_conv_session(&sm, completed_id).await;
+    seed_workflow_checkpoint(
+        &persistence,
+        completed_id,
+        make_workflow_run(Phase::Complete),
+        Some("agent-x"),
+    )
+    .await;
+    sm.reinject_workflow_context_after_compact(completed_id)
+        .await;
+
+    let empty_name_id = "wf-reinject-empty-name";
+    register_conv_session(&sm, empty_name_id).await;
+    let mut run = make_workflow_run(Phase::Executing);
+    run.definition_name = String::new();
+    seed_workflow_checkpoint(&persistence, empty_name_id, run, Some("agent-x")).await;
+    sm.reinject_workflow_context_after_compact(empty_name_id)
+        .await;
+
+    for sid in [completed_id, empty_name_id] {
+        let cs = sm.get_conversation_session(sid).await.unwrap();
+        let appends = cs.read().await.system_appends();
+        assert_eq!(
+            count_workflow_contexts(&appends),
+            0,
+            "{sid} should not receive workflow context"
+        );
+    }
+}
+
+/// A malformed stored run makes the phase query degrade to `None` with a
+/// warn emitted from the gateway (master-verbatim target + message), not
+/// from the session crate.
+#[tokio::test]
+#[serial_test::serial]
+async fn test_phase_query_decode_failure_warns_from_gateway_target() {
+    let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
+    let session_id = "wf-phase-undecodable";
+    register_conv_session(&sm, session_id).await;
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    cs.write()
+        .await
+        .set_workflow_run_value(Some(serde_json::json!({ "not": "a run" })));
+
+    let (guard, buffer) = warn_capture_guard();
+    let phase = sm.get_active_workflow_run_phase(session_id).await;
+    drop(guard);
+
+    assert_eq!(phase, None, "an undecodable run reports no active phase");
+    let logs = captured_logs(&buffer);
+    assert!(
+        logs.contains("closeclaw_gateway::session_manager::session_lookup_impl"),
+        "warn must be emitted from the gateway target: {logs}"
+    );
+    assert!(
+        logs.contains("failed to decode workflow_run value, skipping phase lookup"),
+        "warn message must match master verbatim: {logs}"
+    );
+    assert!(logs.contains("session_id"), "field must be kept: {logs}");
+}
+
+/// A malformed checkpoint run makes compaction re-injection stop with a
+/// warn emitted from the gateway (master-verbatim target + message), not
+/// from the session crate.
+#[tokio::test]
+#[serial_test::serial]
+async fn test_reinject_decode_failure_warns_from_gateway_target() {
+    let persistence = Arc::new(MockPersistence::default());
+    let sm = make_sm_with_storage(persistence.clone()).await;
+    let session_id = "wf-reinject-undecodable";
+    register_conv_session(&sm, session_id).await;
+    seed_malformed_workflow_checkpoint(&persistence, session_id).await;
+
+    let (guard, buffer) = warn_capture_guard();
+    sm.reinject_workflow_context_after_compact(session_id).await;
+    drop(guard);
+
+    let logs = captured_logs(&buffer);
+    assert!(
+        logs.contains("closeclaw_gateway::session_manager::compaction_helpers"),
+        "warn must be emitted from the gateway target: {logs}"
+    );
+    assert!(
+        logs.contains("failed to decode checkpoint workflow_run, skipping context re-injection"),
+        "warn message must match master verbatim: {logs}"
+    );
+    assert!(logs.contains("session_id"), "field must be kept: {logs}");
+
+    let cs = sm.get_conversation_session(session_id).await.unwrap();
+    assert_eq!(
+        count_workflow_contexts(&cs.read().await.system_appends()),
+        0,
+        "an undecodable run must not re-inject context"
+    );
 }

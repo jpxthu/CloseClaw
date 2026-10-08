@@ -341,9 +341,16 @@ impl crate::Daemon {
     /// Create a new Gateway and inject all shared dependencies.
     async fn build_new_gateway(&self, config_dir: &str) -> Arc<closeclaw_gateway::Gateway> {
         let gw_config = self.load_gateway_config(config_dir).await;
+        // Restart reassembles the processor chain here (composition root)
+        // and injects it as a common `ProcessorChain` trait object.
+        let processor_chain = crate::processor_registry::build_processor_chain(&gw_config);
+        // Same for the simplified-path outbound raw-log writer.
+        let outbound_raw_log = crate::outbound_raw_log::build_outbound_raw_log_writer(&gw_config);
         let new_gw = Arc::new(closeclaw_gateway::Gateway::new(
             gw_config,
             Arc::clone(&self.session_manager),
+            processor_chain,
+            outbound_raw_log,
         ));
         new_gw.set_self_ref(Arc::clone(&new_gw));
 
@@ -418,20 +425,17 @@ impl crate::Daemon {
         new_gw: &Arc<closeclaw_gateway::Gateway>,
     ) -> Arc<crate::chat_rpc::RpcTerminalPlugin> {
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
-        let active_searcher = Arc::new(
-            closeclaw_gateway::session_handler::ActiveSearcherLlmCaller {
-                caller: Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-                    Arc::clone(&self.fallback_client),
-                )) as Arc<dyn closeclaw_common::LlmCaller>,
-                model: String::new(),
-            },
-        );
+        let searcher_runner = crate::searcher_runner::build_searcher_runner(Arc::new(
+            closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(Arc::clone(
+                &self.fallback_client,
+            )),
+        ));
         let session_handler = Arc::new(
             closeclaw_gateway::SessionMessageHandler::new(
                 Arc::clone(&self.session_manager),
                 Arc::clone(&self.fallback_client),
                 output_tx,
-                active_searcher,
+                Some(searcher_runner),
                 closeclaw_common::CompactConfig::default(),
             )
             .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),

@@ -36,7 +36,6 @@ use closeclaw_llm::{
 };
 use serde_json::json;
 
-use crate::session_handler::ActiveSearcherLlmCaller;
 use crate::session_handler_reasoning::resolve_before_llm_call;
 use crate::{Gateway, GatewayConfig, SessionManager, SessionMessageHandler};
 use closeclaw_common::llm_types::{InternalMessage, SystemBlock, ToolDefinition};
@@ -187,7 +186,7 @@ async fn make_wired_sm(
     );
 
     // Real Gateway + handler with knowledge (daemon composition-root wiring).
-    let gw = Gateway::new(test_config(), sm.clone());
+    let gw = Gateway::new_for_tests(test_config(), sm.clone());
     let provider: Arc<dyn closeclaw_llm::provider::Provider> = Arc::new(StubProvider::new());
     let client = Arc::new(UnifiedChatClient::new(
         provider,
@@ -207,17 +206,11 @@ async fn make_wired_sm(
             cooldown_tmp.path().join("llm_cooldowns.json"),
         )),
     ));
-    let active_searcher = Arc::new(ActiveSearcherLlmCaller {
-        caller: Arc::new(crate::llm_caller_impl::FallbackLlmCaller(
-            fallback_client.clone(),
-        )) as Arc<dyn LlmCaller>,
-        model: String::new(),
-    });
     let handler = Arc::new(
         SessionMessageHandler::new_no_output(
             sm.clone(),
             fallback_client,
-            active_searcher,
+            None,
             closeclaw_common::CompactConfig::default(),
         )
         .with_model_knowledge(kb),

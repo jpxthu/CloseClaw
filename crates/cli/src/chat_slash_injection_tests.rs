@@ -103,6 +103,32 @@ impl SlashHandler for RecordingHandler {
     }
 }
 
+/// The default CLI chat processor chain — the same inbound/outbound set the
+/// composition root injects in production for a `GatewayConfig` with
+/// `raw_log_dir = None`. Assembled from the cli crate's dev-dependency on
+/// `closeclaw-processor-chain`, so the tests drive the seam with a real
+/// chain instead of the composition root's single implementation.
+///
+/// Cross-reference: the default chain is assembled in three copies that must
+/// be kept in sync whenever a processor is added, removed or reordered:
+/// - `crates/daemon/src/processor_registry.rs` (production composition root)
+/// - `crates/gateway/src/processor_registry_test_utils.rs` (`default_registry`,
+///   gateway unit tests)
+/// - this function (`chat_processor_chain`)
+pub(crate) fn chat_processor_chain() -> Arc<dyn closeclaw_common::processor::ProcessorChain> {
+    use closeclaw_processor_chain::content_normalizer::ContentNormalizer;
+    use closeclaw_processor_chain::session_router::SessionRouter;
+    use closeclaw_processor_chain::verbosity_filter::VerbosityFilter;
+    use closeclaw_processor_chain::{DslParser, ProcessorRegistry};
+
+    let mut registry = ProcessorRegistry::new();
+    registry.register(Arc::new(SessionRouter::new()));
+    registry.register(Arc::new(ContentNormalizer::new()));
+    registry.register(Arc::new(VerbosityFilter));
+    registry.register(Arc::new(DslParser));
+    Arc::new(registry)
+}
+
 /// Build the inbound message used by the injection-path tests.
 fn slash_input(content: &str) -> NormalizedMessage {
     NormalizedMessage {
@@ -146,7 +172,8 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
         None,
         ReasoningLevel::default(),
     ));
-    let gateway = closeclaw_gateway::Gateway::new(config, session_manager);
+    let gateway =
+        closeclaw_gateway::Gateway::new(config, session_manager, chat_processor_chain(), None);
     gateway.set_slash_dispatcher(router).await;
 
     let processed = gateway.process_inbound_chain(&slash_input("/stop")).await;
@@ -211,6 +238,7 @@ struct InjectionFixture {
     sent: Arc<Mutex<Vec<String>>>,
     sm_query_slot: Arc<Mutex<Option<Arc<dyn SlashSessionQuery>>>>,
     closure_calls: Arc<AtomicUsize>,
+    chain_calls: Arc<AtomicUsize>,
 }
 
 async fn build_injection_fixture() -> InjectionFixture {
@@ -219,13 +247,19 @@ async fn build_injection_fixture() -> InjectionFixture {
     let sent = Arc::new(Mutex::new(Vec::<String>::new()));
     let sm_query_slot: Arc<Mutex<Option<Arc<dyn SlashSessionQuery>>>> = Arc::new(Mutex::new(None));
     let closure_calls = Arc::new(AtomicUsize::new(0));
+    let chain_calls = Arc::new(AtomicUsize::new(0));
 
     let llm_registry = Arc::new(closeclaw_llm::LLMRegistry::new());
     let fallback_client = closeclaw_llm::call_chain::build_fallback_client(&llm_registry).await;
 
     let router_received = Arc::clone(&received);
-    let (gateway, output_rx) =
-        crate::chat::build_gateway(tmp.path(), "test-agent", &llm_registry, &fallback_client, {
+    let chain_calls_for_closure = Arc::clone(&chain_calls);
+    let (gateway, output_rx) = crate::chat::build_gateway(
+        tmp.path(),
+        "test-agent",
+        &llm_registry,
+        &fallback_client,
+        {
             let sm_query_slot = Arc::clone(&sm_query_slot);
             let closure_calls = Arc::clone(&closure_calls);
             move |sm_query| {
@@ -237,9 +271,15 @@ async fn build_injection_fixture() -> InjectionFixture {
                     router_received,
                 )
             }
-        })
-        .await
-        .expect("build_gateway must succeed");
+        },
+        move |_config| {
+            chain_calls_for_closure.fetch_add(1, AtomicOrdering::SeqCst);
+            chat_processor_chain()
+        },
+        |_caller| closeclaw_gateway::SearcherRunner::new(|_input| Box::pin(async { None })),
+    )
+    .await
+    .expect("build_gateway must succeed");
 
     InjectionFixture {
         gateway,
@@ -249,6 +289,7 @@ async fn build_injection_fixture() -> InjectionFixture {
         sent,
         sm_query_slot,
         closure_calls,
+        chain_calls,
     }
 }
 
@@ -274,6 +315,25 @@ async fn test_slash_router_injection_installed_on_gateway() {
     assert!(
         fx.gateway.has_slash_dispatcher().await,
         "the router returned by the injected closure must be installed on the Gateway"
+    );
+}
+
+/// Processor-chain injection seam: `build_gateway` invokes the injected
+/// assembly closure exactly once and installs the returned chain on the
+/// Gateway — the cli crate itself never builds concrete processors.
+#[tokio::test]
+async fn test_processor_chain_injection_installed_on_gateway() {
+    let fx = build_injection_fixture().await;
+
+    assert_eq!(
+        fx.chain_calls.load(AtomicOrdering::SeqCst),
+        1,
+        "the injected processor-chain assembly closure must be called exactly once"
+    );
+    let (inbound, outbound) = fx.gateway.processor_registry_len();
+    assert!(
+        inbound > 0 && outbound > 0,
+        "the injected chain must be installed, got ({inbound}, {outbound})"
     );
 }
 
@@ -360,7 +420,12 @@ async fn test_slash_input_without_dispatcher_does_not_panic() {
         None,
         ReasoningLevel::default(),
     ));
-    let gateway = closeclaw_gateway::Gateway::new(config, Arc::clone(&session_manager));
+    let gateway = closeclaw_gateway::Gateway::new(
+        config,
+        Arc::clone(&session_manager),
+        chat_processor_chain(),
+        None,
+    );
     assert!(
         !gateway.has_slash_dispatcher().await,
         "precondition: no slash dispatcher injected"

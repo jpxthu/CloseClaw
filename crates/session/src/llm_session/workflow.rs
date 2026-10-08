@@ -5,7 +5,7 @@ use closeclaw_common::processor::ContentBlock;
 use std::sync::Arc;
 
 use crate::workflow_handler::JumpResult;
-use crate::workflow_port::WorkflowPhase;
+use crate::workflow_port::{WorkflowPhase, WorkflowRunDecodeError};
 
 use super::ConversationSession;
 
@@ -52,6 +52,37 @@ impl ConversationSession {
     /// Returns the injected [`crate::workflow_port::WorkflowPort`], if any.
     pub fn workflow_port(&self) -> Option<Arc<dyn crate::workflow_port::WorkflowPort>> {
         self.workflow_port.clone()
+    }
+
+    /// Returns the phase of the active workflow run as a string.
+    ///
+    /// The stored `Value` is decoded through the injected [`WorkflowPort`],
+    /// so no workflow type surfaces outside the session crate. Returns
+    /// `Ok(None)` when no run is stored, the run has completed, or no port
+    /// is injected, and `Err` when the stored value cannot be decoded —
+    /// the caller owns the failure logging (target semantics stay with
+    /// the caller's module). Callers use this to enforce the
+    /// one-workflow-per-session constraint.
+    pub fn active_workflow_run_phase(&self) -> Result<Option<String>, WorkflowRunDecodeError> {
+        let Some(state) = self.workflow_run.as_ref() else {
+            return Ok(None);
+        };
+        let Some(port) = self.workflow_port.as_ref() else {
+            return Ok(None);
+        };
+        let Some(phase) = port.run_phase(state) else {
+            return Err(WorkflowRunDecodeError);
+        };
+        if phase == WorkflowPhase::Complete {
+            return Ok(None);
+        }
+        Ok(Some(format!("{:?}", phase)))
+    }
+
+    /// Returns `true` when a workflow context append is already present in
+    /// the merged system append list.
+    pub fn has_workflow_context(&self) -> bool {
+        crate::workflow_recovery::has_workflow_context_marker(&self.system_appends())
     }
 
     pub fn workflow_handler(&self) -> Option<&crate::workflow_handler::WorkflowHandler> {

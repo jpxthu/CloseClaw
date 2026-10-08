@@ -173,10 +173,32 @@ fn test_config() -> GatewayConfig {
     }
 }
 
+/// Chain-less construction — for cases that never reach the outbound chain
+/// (no plugin → fallback path, or the simplified path only).
 async fn make_gw(
     session_id: &str,
     channel: &str,
     plugin: Option<Arc<dyn closeclaw_common::IMPlugin>>,
+) -> Gateway {
+    make_gw_inner(session_id, channel, plugin, false).await
+}
+
+/// Injects the default processor chain — for cases that directly drive the
+/// full outbound chain path (`send_outbound` / `send_outbound_to_chat` →
+/// `process_or_bypass`).
+async fn make_gw_with_chain(
+    session_id: &str,
+    channel: &str,
+    plugin: Option<Arc<dyn closeclaw_common::IMPlugin>>,
+) -> Gateway {
+    make_gw_inner(session_id, channel, plugin, true).await
+}
+
+async fn make_gw_inner(
+    session_id: &str,
+    channel: &str,
+    plugin: Option<Arc<dyn closeclaw_common::IMPlugin>>,
+    with_chain: bool,
 ) -> Gateway {
     let config = test_config();
     let sm = Arc::new(SessionManager::new(
@@ -195,7 +217,12 @@ async fn make_gw(
             depth: 0,
         },
     );
-    let gw = Gateway::new(config, Arc::clone(&sm));
+    let gw = if with_chain {
+        let chain = crate::processor_registry_test_utils::default_registry(&config);
+        Gateway::with_processor_registry(config, Arc::clone(&sm), chain)
+    } else {
+        Gateway::new_for_tests(config, Arc::clone(&sm))
+    };
     if let Some(p) = plugin {
         gw.register_plugin(p).await;
     }
@@ -247,7 +274,7 @@ async fn test_send_outbound_simplified_no_plugin_returns_ok() {
 
 #[tokio::test]
 async fn test_send_outbound_send_fails_fallback_plain_text() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s4",
         "mock",
         Some(Arc::new(FailingSendMock {
@@ -269,7 +296,7 @@ async fn test_send_outbound_send_fails_fallback_plain_text() {
 
 #[tokio::test]
 async fn test_send_outbound_to_chat_send_fails_fallback() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s5",
         "mock",
         Some(Arc::new(FailingSendMock {
@@ -301,7 +328,7 @@ async fn test_send_outbound_simplified_send_failure_propagates() {
 
 #[tokio::test]
 async fn test_send_outbound_double_failure_returns_error() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s7",
         "mock",
         Some(Arc::new(AlwaysFailMock {
@@ -322,7 +349,7 @@ async fn test_send_outbound_double_failure_returns_error() {
 
 #[tokio::test]
 async fn test_send_outbound_to_chat_double_failure_returns_error() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s8",
         "mock",
         Some(Arc::new(AlwaysFailMock {
@@ -394,7 +421,7 @@ async fn test_no_plugin_to_chat_exercises_fallback_path() {
 
 #[tokio::test]
 async fn test_send_outbound_plugin_works_normally() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s12",
         "mock",
         Some(Arc::new(SuccessMock {
@@ -420,7 +447,7 @@ async fn test_send_outbound_plugin_works_normally() {
 
 #[tokio::test]
 async fn test_send_outbound_to_chat_plugin_works_normally() {
-    let gw = make_gw(
+    let gw = make_gw_with_chain(
         "s13",
         "mock",
         Some(Arc::new(SuccessMock {

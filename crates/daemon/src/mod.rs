@@ -17,11 +17,14 @@ pub mod lifecycle;
 mod memory_params_adapter;
 mod memory_storage_adapter;
 mod metrics;
+pub mod outbound_raw_log;
 pub mod phase_init;
 pub mod phase_wiring;
 pub mod plan_file_store_adapter;
+pub mod processor_registry;
 pub mod read_truncation_adapter;
 pub mod registries;
+pub mod searcher_runner;
 pub mod shutdown;
 pub(crate) mod shutdown_heartbeat;
 pub mod skill_access_adapter;
@@ -62,6 +65,10 @@ mod lifecycle_tests;
 mod llm_components;
 mod llm_init;
 mod noop_miner_llm;
+#[cfg(test)]
+mod outbound_raw_log_tests;
+#[cfg(test)]
+mod processor_registry_tests;
 #[cfg(test)]
 mod session_config_provider_tests;
 #[cfg(test)]

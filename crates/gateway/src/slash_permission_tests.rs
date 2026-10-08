@@ -262,7 +262,7 @@ async fn test_clear_without_callback_no_panic() {
             Arc::new(tokio::sync::RwLock::new(cs)),
         );
     }
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
     gw.set_slash_dispatcher(Arc::new(ActionRouter {
         action: SystemAppendAction::Clear,
     }))
@@ -303,7 +303,7 @@ async fn test_callback_called_on_clear() {
         let mut conv = sm.conversation_sessions.write().await;
         conv.insert("sess-cb".to_owned(), Arc::new(tokio::sync::RwLock::new(cs)));
     }
-    let gw = Arc::new(Gateway::new(config, sm));
+    let gw = Arc::new(Gateway::new_for_tests(config, sm));
 
     let call_count = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&call_count);

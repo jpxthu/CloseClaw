@@ -168,7 +168,7 @@ fn make_session_manager() -> Arc<SessionManager> {
 }
 
 fn make_gw() -> crate::Gateway {
-    crate::Gateway::new(make_config(), make_session_manager())
+    crate::Gateway::new_for_tests(make_config(), make_session_manager())
 }
 
 async fn install_handler(gw: &crate::Gateway, handler: Arc<dyn PlanConfirmationHandler>) {

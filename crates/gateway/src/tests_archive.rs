@@ -267,7 +267,7 @@ async fn make_gateway_with_storage(
         None,
         ReasoningLevel::default(),
     ));
-    let gateway = crate::Gateway::new(config, Arc::clone(&session_manager));
+    let gateway = crate::Gateway::new_for_tests(config, Arc::clone(&session_manager));
     (gateway, session_manager)
 }
 
@@ -472,7 +472,7 @@ async fn test_no_storage_no_restore() {
         None,
         ReasoningLevel::default(),
     ));
-    let gateway = crate::Gateway::new(config, Arc::clone(&session_manager));
+    let gateway = crate::Gateway::new_for_tests(config, Arc::clone(&session_manager));
     let adapter = Arc::new(MockAdapter::new());
     gateway
         .register_adapter(
