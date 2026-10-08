@@ -628,11 +628,13 @@ async fn setup_gw_with_persist_and_debug(
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new_for_tests(config, Arc::clone(&sm)).with_checkpoint_manager(Arc::new(
-        closeclaw_session::checkpoint_manager::CheckpointManager::new(
-            Arc::clone(&persist) as Arc<dyn PersistenceService>
-        ),
-    ));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain)
+        .with_checkpoint_manager(Arc::new(
+            closeclaw_session::checkpoint_manager::CheckpointManager::new(
+                Arc::clone(&persist) as Arc<dyn PersistenceService>
+            ),
+        ));
     gw.set_debug_log(make_debug_log(temp_dir).await).await;
     gw.register_plugin(Arc::new(plugin)).await;
     create_session(&sm, session_id).await;

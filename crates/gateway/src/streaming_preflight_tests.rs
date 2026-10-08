@@ -215,7 +215,8 @@ async fn setup_gw(session_id: &str, plugin: Arc<dyn IMPlugin>) -> crate::Gateway
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new_for_tests(config, sm);
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, sm, chain);
     gw.register_plugin(plugin).await;
     gw
 }

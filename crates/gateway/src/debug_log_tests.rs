@@ -678,8 +678,13 @@ impl closeclaw_common::IMPlugin for DiscordMockPlugin {
 }
 
 /// Setup Gateway with DebugLog and a mock feishu plugin.
+///
+/// `with_chain` injects the default processor chain — required by cases that
+/// drive the full outbound chain path (`send_outbound` → `process_or_bypass`);
+/// inbound-only cases keep the chain-less construction.
 async fn setup_gw_with_feishu_mock(
     temp_dir: &TempDir,
+    with_chain: bool,
 ) -> (crate::Gateway, Arc<SessionManager>, Arc<FeishuMockPlugin>) {
     let config = make_config();
     let ws = temp_dir.path().join("ws");
@@ -689,7 +694,12 @@ async fn setup_gw_with_feishu_mock(
         Some(ws),
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let gw = if with_chain {
+        let chain = crate::processor_registry_test_utils::default_registry(&config);
+        crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain)
+    } else {
+        crate::Gateway::new_for_tests(config, Arc::clone(&sm))
+    };
     let debug_log = make_debug_log(temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let plugin = Arc::new(FeishuMockPlugin::new());
@@ -704,7 +714,7 @@ async fn setup_gw_with_feishu_mock(
 #[tokio::test]
 async fn test_inbound_parsed_event_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let (gw, _sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir).await;
+    let (gw, _sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir, false).await;
 
     let trace_id = "trace-inbound-parsed-001";
     let payload = serde_json::json!({
@@ -802,7 +812,7 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
 #[tokio::test]
 async fn test_outbound_feishu_events_emitted() {
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let (gw, sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir).await;
+    let (gw, sm, _plugin) = setup_gw_with_feishu_mock(&temp_dir, true).await;
 
     // Create a session mapped to a chat_id.
     let session_id = "sess-outbound-feishu-001";
@@ -892,7 +902,8 @@ async fn test_outbound_non_feishu_no_feishu_events() {
         None,
         ReasoningLevel::default(),
     ));
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     let debug_log = make_debug_log(&temp_dir).await;
     gw.set_debug_log(debug_log).await;
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(DiscordMockPlugin);
