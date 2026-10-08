@@ -14,6 +14,7 @@ pub mod miner;
 pub mod miner_llm;
 pub mod miner_transcript;
 pub mod params;
+pub mod storage;
 
 #[cfg(test)]
 pub mod test_helpers;
@@ -23,6 +24,7 @@ pub use active_searcher::{
 };
 pub use embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 pub use memory_fragment_provider::MemoryFragmentProvider;
+pub use storage::{CheckpointSnapshot, DreamingStatus, MemoryStorage, StorageError};
 
 #[cfg(test)]
 mod active_searcher_tests;

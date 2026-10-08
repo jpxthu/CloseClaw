@@ -342,6 +342,9 @@ async fn test_dreaming_scheduler_uses_independent_provider() {
 
     let scheduler = DreamingScheduler::new(
         Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            Arc::clone(&storage),
+        )),
         Arc::clone(&provider),
         pipeline,
         miner,

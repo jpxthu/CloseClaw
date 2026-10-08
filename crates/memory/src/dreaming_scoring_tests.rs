@@ -7,8 +7,8 @@ use crate::params::{
     DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
     DreamingThresholdParams,
 };
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 use tempfile::TempDir;
 
 /// Helper to create a MemoryEntry for testing.
@@ -387,10 +387,7 @@ async fn test_run_once_diary_only_promoted_groups() {
     }
 
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", true, DreamingStatus::Pending);
 
     let config = DreamingParams {
         enabled: Some(true),

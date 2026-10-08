@@ -1,13 +1,16 @@
 //! Additional unit tests for DreamingPipeline.
 //!
 //! Complements the inline tests in dreaming.rs with tests that require
-//! mock PersistenceService interactions.
+//! mock MemoryStorage interactions.
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
-use crate::dreaming_llm::PromotedGroupInfo;
-use crate::params::{DreamingDiaryParams, DreamingParams};
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
+use crate::params::{
+    DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
+    DreamingThresholdParams,
+};
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 use tempfile::TempDir;
 
 /// Dreaming pipeline does not reprocess sessions already marked Completed.
@@ -16,10 +19,7 @@ async fn test_dreaming_does_not_reprocess_completed() {
     let storage = TestStorage::default();
 
     // Session is mined=true but dreaming_status=Completed → should be skipped.
-    let mut cp = SessionCheckpoint::new("sess-already-done".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Completed;
-    storage.add_checkpoint(cp);
+    storage.add("sess-already-done", true, DreamingStatus::Completed);
 
     let pipeline = DreamingPipeline::new();
     let result = pipeline.run_once(&storage).await;
@@ -44,10 +44,7 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     let storage = TestStorage::default();
 
     // mined=true, dreaming_status=Pending → should be processed.
-    let mut cp = SessionCheckpoint::new("sess-pending".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-pending", true, DreamingStatus::Pending);
 
     let config = DreamingParams {
         enabled: Some(true),
@@ -82,10 +79,7 @@ async fn test_dreaming_empty_storage_returns_ok() {
 async fn test_dreaming_disabled_skips_processing() {
     let storage = TestStorage::default();
 
-    let mut cp = SessionCheckpoint::new("sess-pending".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-pending", true, DreamingStatus::Pending);
 
     let config = DreamingParams {
         enabled: Some(false),
@@ -258,8 +252,6 @@ async fn test_entry_category_and_lesson_in_diary() {
     assert!(content.contains("verify before deploying"));
     assert!(content.contains("follow user style guide"));
 }
-
-use crate::params::{DreamingCapacityParams, DreamingScoringParams, DreamingThresholdParams};
 
 // ── Deep stage: entity type weight + relative gate tests ─────────
 
@@ -460,7 +452,6 @@ fn test_write_memory_md_appends() {
 
 // ── LLM consolidation tests ────────────────────────────────────────
 
-use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError};
 use async_trait::async_trait;
 use std::sync::Arc;
 
@@ -588,10 +579,7 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
         ).unwrap();
     }
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-1".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-1", true, DreamingStatus::Pending);
     let config = DreamingParams {
         enabled: Some(true),
         diary: DreamingDiaryParams {
@@ -650,9 +638,7 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
              INSERT INTO event_entities (event_id, entity_id) VALUES (1, 1);",
         ).unwrap();
     }
-    let mut cp_unminted = SessionCheckpoint::new("sess-unminted".into());
-    cp_unminted.mined = false;
-    storage.add_checkpoint(cp_unminted);
+    storage.add("sess-unminted", false, DreamingStatus::default());
     let p4 = DreamingPipeline::new().with_db_path(&unminted_db);
     let e4 = p4
         .collect_entries_for_session(&storage, "sess-unminted")
@@ -672,10 +658,7 @@ async fn test_update_config_changes_behavior() {
     let storage = TestStorage::default();
 
     // Session mined + not yet dreamt.
-    let mut cp = SessionCheckpoint::new("sess-reload".into());
-    cp.mined = true;
-    cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    storage.add("sess-reload", true, DreamingStatus::Pending);
 
     // Start with dreaming disabled.
     let config = DreamingParams {

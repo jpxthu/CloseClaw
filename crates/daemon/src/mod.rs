@@ -14,6 +14,7 @@ mod env_file;
 pub mod gateway_restart;
 pub mod lifecycle;
 pub mod memory_params_adapter;
+pub mod memory_storage_adapter;
 mod metrics;
 pub mod phase_init;
 pub mod phase_wiring;

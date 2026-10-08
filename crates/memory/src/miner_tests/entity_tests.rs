@@ -5,8 +5,8 @@ use crate::miner::{
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::params::default_forgetting_initial_ttl_days;
 use crate::params::TranscriptCleanRules;
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;
 
@@ -48,12 +48,8 @@ fn test_mining_event_category_display() {
 #[tokio::test]
 async fn test_per_agent_isolation_different_agent_ids() {
     let storage = TestStorage::default();
-    let mut cp_a = SessionCheckpoint::new("sess-a".into());
-    cp_a.mined = false;
-    storage.add_checkpoint(cp_a);
-    let mut cp_b = SessionCheckpoint::new("sess-b".into());
-    cp_b.mined = false;
-    storage.add_checkpoint(cp_b);
+    storage.add("sess-a", false, DreamingStatus::default());
+    storage.add("sess-b", false, DreamingStatus::default());
 
     let events_a = vec![make_event("Entity From A", MiningEventCategory::Error)];
     let entities_a = vec![vec![make_entity("Entity From A", "subject")]];
@@ -124,9 +120,7 @@ async fn test_per_agent_isolation_different_agent_ids() {
 #[tokio::test]
 async fn test_per_agent_empty_agent_id_no_panic() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-empty".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-empty", false, DreamingStatus::default());
 
     let events = vec![make_event("Empty Agent", MiningEventCategory::Decision)];
     let entities = vec![vec![make_entity("Empty Agent", "action")]];

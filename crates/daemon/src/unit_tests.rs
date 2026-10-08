@@ -415,8 +415,9 @@ fn test_dreaming_pipeline_built_from_config_manager() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     let storage: std::sync::Arc<dyn closeclaw_session::persistence::PersistenceService> =
         std::sync::Arc::new(crate::test_helpers::TestStorage::default());
+    let memory_storage = crate::memory_storage_adapter::MemoryStorageAdapter::new(storage);
     rt.block_on(async {
-        let result = pipeline.run_once(storage.as_ref()).await;
+        let result = pipeline.run_once(&memory_storage).await;
         // run_once may return Err if DB path is not set, but it should not panic.
         // The key assertion is that the pipeline was built successfully from config.
         let _ = result;

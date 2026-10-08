@@ -10,7 +10,7 @@ use std::sync::{Arc, RwLock};
 
 use thiserror::Error;
 
-use closeclaw_session::persistence::{PersistenceError, PersistenceService};
+use crate::storage::{CheckpointSnapshot, MemoryStorage, StorageError};
 
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner_llm::{MinerLlmCaller, MinerLlmError};
@@ -29,7 +29,7 @@ pub(crate) use miner_sqlite::*;
 pub enum MinerError {
     /// Storage layer error.
     #[error("storage error: {0}")]
-    Storage(#[from] PersistenceError),
+    Storage(#[from] StorageError),
 
     /// An I/O error occurred while reading or writing memory files.
     #[error("io error: {0}")]
@@ -253,7 +253,7 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        storage: &dyn PersistenceService,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
@@ -287,8 +287,8 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
-        storage: &dyn PersistenceService,
+        checkpoint: &CheckpointSnapshot,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         if !self.config.read().unwrap().enabled {
             return Ok(MineResult {
@@ -325,8 +325,8 @@ impl MemoryMiner {
         session_id: &str,
         raw_transcript: &str,
         agent_id: &str,
-        _checkpoint: &closeclaw_session::persistence::SessionCheckpoint,
-        storage: &dyn PersistenceService,
+        _checkpoint: &CheckpointSnapshot,
+        storage: &dyn MemoryStorage,
     ) -> Result<MineResult, MinerError> {
         let (cleaned, dedup_days) = self.prepare_transcript(raw_transcript)?;
         if cleaned.is_empty() {

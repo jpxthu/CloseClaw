@@ -2,8 +2,8 @@ use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner::{load_entity_type_thresholds, MemoryMiner, MinerConfig, MiningEntity};
 use crate::miner_llm::MockMinerLlmCaller;
 use crate::params::TranscriptCleanRules;
+use crate::storage::DreamingStatus;
 use crate::test_helpers::TestStorage;
-use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;
 
@@ -52,9 +52,7 @@ fn test_load_entity_type_thresholds_excludes_inactive() {
 #[tokio::test]
 async fn test_mine_session_filters_high_threshold_entity() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-ht".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-ht", false, DreamingStatus::default());
     // Pre-populate DB with an existing time entity.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("ht.db");
@@ -98,9 +96,7 @@ async fn test_mine_session_filters_high_threshold_entity() {
 #[tokio::test]
 async fn test_mine_session_keeps_low_threshold_entity() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-lt".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-lt", false, DreamingStatus::default());
     let events = vec![make_event(
         "Rust language basics",
         crate::miner::MiningEventCategory::Error,
@@ -134,9 +130,7 @@ async fn test_mine_session_keeps_low_threshold_entity() {
 #[tokio::test]
 async fn test_mine_session_boundary_at_threshold_keeps_entity() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-bt".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-bt", false, DreamingStatus::default());
     let events = vec![make_event(
         "Rust language basics",
         crate::miner::MiningEventCategory::Error,
@@ -170,9 +164,7 @@ async fn test_mine_session_boundary_at_threshold_keeps_entity() {
 #[tokio::test]
 async fn test_mine_session_all_entities_filtered() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-all".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-all", false, DreamingStatus::default());
     let events = vec![make_event("X", crate::miner::MiningEventCategory::Error)];
     let entities = vec![vec![
         make_entity("January 2025", "time"),
@@ -299,9 +291,7 @@ fn test_partial_overlap_mid_range() {
 #[tokio::test]
 async fn test_action_type_threshold_filtering() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-action".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-action", false, DreamingStatus::default());
     // Pre-populate DB with an existing action entity.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("action.db");
@@ -356,9 +346,7 @@ async fn test_action_type_threshold_filtering() {
 #[tokio::test]
 async fn test_tags_type_threshold_filtering() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-tags".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-tags", false, DreamingStatus::default());
     let events = vec![make_event(
         "Rust language basics",
         crate::miner::MiningEventCategory::Error,
@@ -393,9 +381,7 @@ async fn test_tags_type_threshold_filtering() {
 #[tokio::test]
 async fn test_time_type_threshold_filtering() {
     let storage = TestStorage::default();
-    let mut cp = SessionCheckpoint::new("sess-time".into());
-    cp.mined = false;
-    storage.add_checkpoint(cp);
+    storage.add("sess-time", false, DreamingStatus::default());
     // Pre-populate DB with an existing time entity.
     let tmp = TempDir::new().unwrap();
     let db_path = tmp.path().join("time.db");

@@ -483,7 +483,10 @@ impl Daemon {
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));
         let mut dreaming_scheduler = DreamingScheduler::new(
-            storage,
+            Arc::clone(&storage),
+            Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+                Arc::clone(&storage),
+            )),
             dreaming_config_provider,
             dreaming_pipeline,
             memory_miner,

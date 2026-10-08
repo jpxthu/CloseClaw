@@ -77,7 +77,10 @@ fn make_scheduler(
         ConfigManager::new(root.join("config")).expect("failed to create test ConfigManager"),
     );
     DreamingScheduler::new(
-        storage,
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
         config,
         Arc::new(DreamingPipeline::new()),
         Arc::new(MemoryMiner::new(
@@ -380,7 +383,16 @@ fn make_config_change_scheduler(
 ) -> DreamingScheduler {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    DreamingScheduler::new(storage, config, pipeline, miner, config_manager)
+    DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
 }
 
 /// Setup: populate the Memory section cache with dreaming/mining enabled.
@@ -460,15 +472,19 @@ async fn run_once_and_get_status(
     pipeline: &DreamingPipeline,
     session_id: &str,
 ) -> Result<DreamingStatus, DreamingError> {
-    let storage = TestStorage::default();
+    let session_storage = Arc::new(TestStorage::default());
     let mut cp = SessionCheckpoint::new(session_id.to_string());
     cp.mined = true;
     cp.dreaming_status = DreamingStatus::Pending;
-    storage.add_checkpoint(cp);
+    session_storage.add_checkpoint(cp);
 
-    pipeline.run_once(&storage).await?;
+    let memory_storage = crate::memory_storage_adapter::MemoryStorageAdapter::new(Arc::clone(
+        &session_storage,
+    )
+        as Arc<dyn PersistenceService>);
+    pipeline.run_once(&memory_storage).await?;
 
-    let cps = storage.checkpoints.lock().unwrap();
+    let cps = session_storage.checkpoints.lock().unwrap();
     let cp = cps
         .iter()
         .find(|c| c.session_id == session_id)
@@ -642,7 +658,16 @@ async fn test_immediate_hook_triggers_mining() {
             .into_owned(),
     ));
 
-    let scheduler = DreamingScheduler::new(storage, config, pipeline, miner, config_manager);
+    let scheduler = DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    );
 
     let result = scheduler.run_once().await;
     assert!(
