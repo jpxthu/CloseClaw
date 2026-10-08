@@ -9,8 +9,8 @@
 # 默认配置来自 .config/nextest.toml（slow-timeout 5s / retries 1），
 # CLI 参数可覆盖（详见该文件注释）。
 #
-# 工具（cargo-llvm-cov / cargo-deny / cargo-machete / miri / TSAN）缺失时
-# 打印安装提示并将该段记为 SKIP，不算失败。
+# 工具（python3 / cargo-llvm-cov / cargo-deny / cargo-machete / miri / TSAN）
+# 缺失时打印安装提示并将该段记为 SKIP，不算失败。
 #
 # 小范围实测：NEXTEST_EXTRA_ARGS 可透传 nextest 过滤参数，例如
 #   NEXTEST_EXTRA_ARGS="-E test(test_exec_)" scripts/periodic-checks.sh --slow
@@ -50,8 +50,9 @@ usage() {
   --doctest   文档测试（cargo test --workspace --doc --no-fail-fast）
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
   --deps      依赖检查（cargo-deny check + cargo-machete）
+  --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
-  --all       = --slow --flaky --doctest --coverage --deps（不含 --heavy）
+  --all       = --slow --flaky --doctest --coverage --deps --dep-guard（不含 --heavy）
   --help, -h  打印本用法
 
 说明:
@@ -274,7 +275,9 @@ do_coverage() (
 do_deps() (
     set -u
     local fails=0 ran=0
-    if command -v cargo-deny >/dev/null 2>&1; then
+    # 功能性探测（cargo <子命令> --version）：cargo 子命令可能装在 $CARGO_HOME/bin
+    # 而 PATH 不含该目录，command -v 会探测不到造成假 SKIP（同 miri 探测做法）
+    if cargo deny --version >/dev/null 2>&1; then
         ran=1
         local rc=0
         cargo deny check || rc=$?
@@ -285,9 +288,9 @@ do_deps() (
             fails=1
         fi
     else
-        echo "[SKIP] 未找到 cargo-deny，请先安装：cargo install cargo-deny"
+        echo "[SKIP] cargo deny --version 失败（未安装或不可用），请先安装：cargo install cargo-deny"
     fi
-    if command -v cargo-machete >/dev/null 2>&1; then
+    if cargo machete --version >/dev/null 2>&1; then
         ran=1
         local rc=0
         cargo machete || rc=$?
@@ -298,13 +301,30 @@ do_deps() (
             fails=1
         fi
     else
-        echo "[SKIP] 未找到 cargo-machete，请先安装：cargo install cargo-machete"
+        echo "[SKIP] cargo machete --version 失败（未安装或不可用），请先安装：cargo install cargo-machete"
     fi
     # 子工具全部缺失 → 整段 SKIP；有跑过的按其结果判定
     if [[ $ran -eq 0 ]]; then
         return 77
     fi
     return "$fails"
+)
+
+# ---------- --dep-guard：解耦治理守卫（scripts/dep-guard，四项检查） ----------
+do_dep_guard() (
+    set -u
+    command -v python3 >/dev/null 2>&1 || { echo "[SKIP] 未找到 python3，请先安装 python3"; return 77; }
+    local guard
+    guard="$(dirname "${BASH_SOURCE[0]}")/dep-guard/dep_guard.py"
+    local rc=0
+    # dep_guard 自身汇总四项结果，退出码 = FAIL 项数（明细见上方输出）
+    python3 "$guard" check || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "[FAIL] dep-guard 存在新增越界（FAIL 项数 $rc），明细见上方"
+        return "$rc"
+    fi
+    echo "[ok] dep-guard 四项检查完成"
+    return 0
 )
 
 # ---------- --heavy：miri + TSAN（默认跳过，显式传入） ----------
@@ -352,23 +372,24 @@ do_heavy() (
 )
 
 # ---------- 参数解析 ----------
-RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_HEAVY=0
+RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_DEP_GUARD=0 RUN_HEAVY=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --slow)     RUN_SLOW=1 ;;
-        --flaky)    RUN_FLAKY=1 ;;
-        --doctest)  RUN_DOCTEST=1 ;;
-        --coverage) RUN_COVERAGE=1 ;;
-        --deps)     RUN_DEPS=1 ;;
-        --heavy)    RUN_HEAVY=1 ;;
-        --all)      RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1 ;;
-        --help|-h)  usage; exit 0 ;;
-        *)          echo "未知选项: $1"; echo ""; usage; exit 1 ;;
+        --slow)       RUN_SLOW=1 ;;
+        --flaky)      RUN_FLAKY=1 ;;
+        --doctest)    RUN_DOCTEST=1 ;;
+        --coverage)   RUN_COVERAGE=1 ;;
+        --deps)       RUN_DEPS=1 ;;
+        --dep-guard)  RUN_DEP_GUARD=1 ;;
+        --heavy)      RUN_HEAVY=1 ;;
+        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1 ;;
+        --help|-h)    usage; exit 0 ;;
+        *)            echo "未知选项: $1"; echo ""; usage; exit 1 ;;
     esac
     shift
 done
 
-if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_HEAVY)) -eq 0 ]]; then
+if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_HEAVY)) -eq 0 ]]; then
     usage
     exit 1
 fi
@@ -383,6 +404,7 @@ if [[ $RUN_FLAKY -eq 1 ]]; then    run_section "--flaky 不稳定用例检查" d
 if [[ $RUN_DOCTEST -eq 1 ]]; then  run_section "--doctest 文档测试" do_doctest; fi
 if [[ $RUN_COVERAGE -eq 1 ]]; then run_section "--coverage 覆盖率" do_coverage; fi
 if [[ $RUN_DEPS -eq 1 ]]; then     run_section "--deps 依赖检查" do_deps; fi
+if [[ $RUN_DEP_GUARD -eq 1 ]]; then run_section "--dep-guard 依赖治理守卫" do_dep_guard; fi
 if [[ $RUN_HEAVY -eq 1 ]]; then    run_section "--heavy 重型检查（miri/TSAN）" do_heavy; fi
 
 # ---------- 汇总表 ----------
