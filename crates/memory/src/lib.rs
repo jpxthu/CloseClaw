@@ -29,6 +29,8 @@ pub use storage::{CheckpointSnapshot, DreamingStatus, MemoryStorage, StorageErro
 #[cfg(test)]
 mod active_searcher_tests;
 #[cfg(test)]
+mod dependency_boundary_tests;
+#[cfg(test)]
 mod dreaming_design_align_tests;
 #[cfg(test)]
 mod dreaming_gap_fix_tests;
