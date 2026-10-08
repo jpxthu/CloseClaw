@@ -14,6 +14,11 @@ use super::active_searcher_llm::{
     extract_concepts_llm, should_trigger_role, summarize_events_llm, ActiveSearchLlm,
 };
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
+use crate::params::{
+    default_forgetting_injection_extension_days, default_search_context_turns,
+    default_search_max_summary_chars, default_search_min_entity_hits, default_search_timeout_ms,
+    default_search_top_k_events, ForgettingParams, SearchParams,
+};
 use closeclaw_session::llm_session::{InjectionPosition, MemoryInjection};
 
 // ── Errors ───────────────────────────────────────────────────────────────
@@ -121,28 +126,37 @@ impl ActiveSearcherConfig {
     /// Build config from agent-level settings.
     ///
     /// Returns `None` if `search.enabled` is `false` in the agent config.
-    /// Priority: `memory.search.*` > defaults.
+    /// Priority: `search.*` params > defaults.
     pub fn from_agent_config(
         agent_model: Option<&str>,
-        memory_override: Option<&closeclaw_config::agents::MemoryConfig>,
-        forgetting: Option<&closeclaw_config::agents::ForgettingConfig>,
+        search: Option<&SearchParams>,
+        forgetting: Option<&ForgettingParams>,
     ) -> Option<Self> {
         // Check search.enabled gate.
-        if let Some(memory) = memory_override {
-            if !memory.search.enabled.unwrap_or(false) {
+        if let Some(search) = search {
+            if !search.enabled.unwrap_or(false) {
                 return None;
             }
         }
-        let search = memory_override.map(|m| &m.search);
         let ext_days = forgetting
             .and_then(|f| f.injection_extension_days)
-            .unwrap_or(closeclaw_config::agents::default_forgetting_injection_extension_days());
+            .unwrap_or_else(default_forgetting_injection_extension_days);
         Some(Self {
-            timeout_ms: search.and_then(|s| s.timeout_ms).unwrap_or(3000),
-            max_summary_chars: search.and_then(|s| s.max_summary_chars).unwrap_or(500),
-            min_entity_hits: search.and_then(|s| s.min_entity_hits).unwrap_or(1),
-            top_k_events: search.and_then(|s| s.top_k_events).unwrap_or(3),
-            context_turns: search.and_then(|s| s.context_turns).unwrap_or(5),
+            timeout_ms: search
+                .and_then(|s| s.timeout_ms)
+                .unwrap_or_else(default_search_timeout_ms),
+            max_summary_chars: search
+                .and_then(|s| s.max_summary_chars)
+                .unwrap_or_else(default_search_max_summary_chars),
+            min_entity_hits: search
+                .and_then(|s| s.min_entity_hits)
+                .unwrap_or_else(default_search_min_entity_hits),
+            top_k_events: search
+                .and_then(|s| s.top_k_events)
+                .unwrap_or_else(default_search_top_k_events),
+            context_turns: search
+                .and_then(|s| s.context_turns)
+                .unwrap_or_else(default_search_context_turns),
             model: search
                 .and_then(|s| s.model.clone())
                 .or_else(|| agent_model.map(|m| m.to_string()))

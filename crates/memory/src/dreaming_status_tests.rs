@@ -4,11 +4,11 @@
 //! and early-return paths when entries are empty.
 
 use crate::dreaming::DreamingPipeline;
-use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingConfig, DreamingDiaryConfig, DreamingScoringConfig,
-    DreamingThresholdConfig,
+use crate::params::{
+    DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
+    DreamingThresholdParams,
 };
+use crate::test_helpers::TestStorage;
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 
 use tempfile::TempDir;
@@ -90,21 +90,21 @@ async fn test_run_once_full_dreaming_status_transition() {
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             ..Default::default()
         },
-        scoring: DreamingScoringConfig {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -142,9 +142,9 @@ async fn test_run_once_early_return_empty_entries_skips_rem_deep() {
         cp.mined = true;
         cp.dreaming_status = DreamingStatus::Pending;
         storage.add_checkpoint(cp);
-        let config = DreamingConfig {
+        let config = DreamingParams {
             enabled: Some(true),
-            diary: DreamingDiaryConfig {
+            diary: DreamingDiaryParams {
                 enabled: Some(false),
                 ..Default::default()
             },
@@ -179,9 +179,9 @@ async fn test_run_once_early_return_empty_entries_skips_rem_deep() {
         cp.mined = true;
         cp.dreaming_status = DreamingStatus::Pending;
         storage.add_checkpoint(cp);
-        let config = DreamingConfig {
+        let config = DreamingParams {
             enabled: Some(true),
-            diary: DreamingDiaryConfig {
+            diary: DreamingDiaryParams {
                 enabled: Some(false),
                 ..Default::default()
             },

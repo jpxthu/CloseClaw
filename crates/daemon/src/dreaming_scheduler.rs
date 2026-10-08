@@ -250,10 +250,13 @@ impl DreamingScheduler {
                         return;
                     }
                 };
-                self.dreaming_pipeline
-                    .update_config(memory_config.config.dreaming.clone());
+                self.dreaming_pipeline.update_config(
+                    crate::memory_params_adapter::dreaming_params_from_config(
+                        &memory_config.config.dreaming,
+                    ),
+                );
                 self.memory_miner.update_config(
-                    closeclaw_memory::miner::MinerConfig::from_memory_config(&memory_config.config),
+                    crate::memory_params_adapter::miner_config_from_memory(&memory_config.config),
                 );
                 self.schedule = memory_config.config.dreaming.schedule.clone();
                 info!("dreaming config reloaded via config manager");

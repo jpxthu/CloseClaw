@@ -1,8 +1,8 @@
 use crate::embedding::{cosine_similarity, EntityEmbedder, NgramEmbedder};
 use crate::miner::{load_entity_type_thresholds, MemoryMiner, MinerConfig, MiningEntity};
 use crate::miner_llm::MockMinerLlmCaller;
+use crate::params::TranscriptCleanRules;
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::TranscriptCleanRules;
 use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;

@@ -1,7 +1,7 @@
 use crate::miner::{MemoryMiner, MinerConfig};
 use crate::miner_llm::MockMinerLlmCaller;
+use crate::params::TranscriptCleanRules;
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::TranscriptCleanRules;
 use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;

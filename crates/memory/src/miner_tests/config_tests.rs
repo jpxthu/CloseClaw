@@ -1,8 +1,8 @@
 use crate::miner::{MemoryMiner, MinerConfig};
 use crate::miner_llm::MockMinerLlmCaller;
-use closeclaw_config::agents::{
-    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
-    ForgettingConfig, MemoryConfig, MiningConfig,
+use crate::params::{
+    default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days, MinerParams,
+    TranscriptCleanRules,
 };
 
 fn make_miner(config: MinerConfig) -> MemoryMiner {
@@ -11,22 +11,22 @@ fn make_miner(config: MinerConfig) -> MemoryMiner {
     crate::miner::MemoryMiner::new(config, llm.clone(), llm, tmp.path().join("db"), "memory.md")
 }
 
-// ── MinerConfig from_mining_config tests ───────────────────────────────
+// ── MinerConfig from MinerParams tests ─────────────────────────────────
 
 #[test]
-fn test_miner_config_from_mining_config() {
-    let mc = MiningConfig {
+fn test_miner_config_from_params() {
+    let params = MinerParams {
         enabled: Some(true),
         max_events_per_session: Some(15),
         dedup_window_days: Some(60),
-        transcript_clean_rules: closeclaw_config::agents::TranscriptCleanRules {
+        clean_rules: TranscriptCleanRules {
             min_turns: Some(3),
             min_owner_msgs: Some(4),
             format: Some("plain".to_string()),
         },
         ..Default::default()
     };
-    let config = MinerConfig::from_mining_config(&mc);
+    let config = MinerConfig::from(params);
     assert!(config.enabled);
     assert_eq!(config.max_events_per_session, 15);
     assert_eq!(config.dedup_window_days, 60);
@@ -34,38 +34,38 @@ fn test_miner_config_from_mining_config() {
 }
 
 #[test]
-fn test_miner_config_defaults() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
+fn test_miner_config_from_default_params() {
+    let params = MinerParams::default();
+    let config = MinerConfig::from(params);
     assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
 }
 
 #[test]
-fn test_miner_config_from_mining_config_copies_model() {
-    let mc = MiningConfig {
+fn test_miner_config_from_params_copies_model() {
+    let params = MinerParams {
         model: Some("gpt-4o-mini".to_string()),
         ..Default::default()
     };
-    let config = MinerConfig::from_mining_config(&mc);
+    let config = MinerConfig::from(params);
     assert_eq!(config.model.as_deref(), Some("gpt-4o-mini"));
 }
 
 #[test]
-fn test_miner_config_from_mining_config_none_model() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
+fn test_miner_config_from_params_none_model() {
+    let params = MinerParams::default();
+    let config = MinerConfig::from(params);
     assert_eq!(config.model, None);
 }
 
 #[test]
-fn test_miner_config_from_mining_config_empty_string_model() {
-    let mc = MiningConfig {
+fn test_miner_config_from_params_empty_string_model() {
+    let params = MinerParams {
         model: Some(String::new()),
         ..Default::default()
     };
-    let config = MinerConfig::from_mining_config(&mc);
+    let config = MinerConfig::from(params);
     assert_eq!(config.model.as_deref(), Some(""));
 }
 
@@ -78,9 +78,9 @@ fn test_miner_config_default_model_is_none() {
 // ── MinerConfig default value tests ────────────────────────────────────
 
 #[test]
-fn test_miner_config_from_mining_config_reidentify_default() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
+fn test_miner_config_from_params_reidentify_default() {
+    let params = MinerParams::default();
+    let config = MinerConfig::from(params);
     assert_eq!(
         config.reidentify_extension_days,
         default_forgetting_reidentify_extension_days()
@@ -88,9 +88,9 @@ fn test_miner_config_from_mining_config_reidentify_default() {
 }
 
 #[test]
-fn test_miner_config_from_mining_config_none_values() {
-    let mc = MiningConfig::default();
-    let config = MinerConfig::from_mining_config(&mc);
+fn test_miner_config_from_params_none_values() {
+    let params = MinerParams::default();
+    let config = MinerConfig::from(params);
     assert!(!config.enabled);
     assert_eq!(config.max_events_per_session, 10);
     assert_eq!(config.dedup_window_days, 30);
@@ -108,26 +108,20 @@ fn test_miner_config_default_values() {
     );
 }
 
-// ── MinerConfig from_memory_config tests ──────────────────────────────
+// ── MinerConfig forgetting-fields tests ───────────────────────────────
 
 #[test]
-fn test_miner_config_from_memory_config() {
-    let mc = MemoryConfig {
-        mining: MiningConfig {
-            enabled: Some(true),
-            model: Some("gpt-4o-mini".to_string()),
-            max_events_per_session: Some(5),
-            dedup_window_days: Some(14),
-            ..Default::default()
-        },
-        forgetting: ForgettingConfig {
-            initial_ttl_days: Some(60),
-            reidentify_extension_days: Some(45),
-            injection_extension_days: Some(10),
-        },
+fn test_miner_config_from_params_with_forgetting() {
+    let params = MinerParams {
+        enabled: Some(true),
+        model: Some("gpt-4o-mini".to_string()),
+        max_events_per_session: Some(5),
+        dedup_window_days: Some(14),
+        initial_ttl_days: Some(60),
+        reidentify_extension_days: Some(45),
         ..Default::default()
     };
-    let config = MinerConfig::from_memory_config(&mc);
+    let config = MinerConfig::from(params);
     assert!(config.enabled);
     assert_eq!(config.model.as_deref(), Some("gpt-4o-mini"));
     assert_eq!(config.max_events_per_session, 5);
@@ -137,9 +131,9 @@ fn test_miner_config_from_memory_config() {
 }
 
 #[test]
-fn test_miner_config_from_memory_config_default_forgetting() {
-    let mc = MemoryConfig::default();
-    let config = MinerConfig::from_memory_config(&mc);
+fn test_miner_config_from_params_default_forgetting() {
+    let params = MinerParams::default();
+    let config = MinerConfig::from(params);
     assert_eq!(
         config.initial_ttl_days,
         default_forgetting_initial_ttl_days()
@@ -151,16 +145,13 @@ fn test_miner_config_from_memory_config_default_forgetting() {
 }
 
 #[test]
-fn test_miner_config_from_memory_config_none_forgetting() {
-    let mc = MemoryConfig {
-        forgetting: ForgettingConfig {
-            initial_ttl_days: None,
-            reidentify_extension_days: None,
-            ..Default::default()
-        },
+fn test_miner_config_from_params_none_forgetting() {
+    let params = MinerParams {
+        initial_ttl_days: None,
+        reidentify_extension_days: None,
         ..Default::default()
     };
-    let config = MinerConfig::from_memory_config(&mc);
+    let config = MinerConfig::from(params);
     assert_eq!(
         config.initial_ttl_days,
         default_forgetting_initial_ttl_days()

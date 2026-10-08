@@ -4,7 +4,7 @@
 //! context markers, and other noise that must be stripped before passing to
 //! the LLM extraction stage. This module provides [`clean_transcript`].
 
-use closeclaw_config::agents::{
+use crate::params::{
     default_transcript_format, default_transcript_min_owner_msgs, default_transcript_min_turns,
     TranscriptCleanRules,
 };

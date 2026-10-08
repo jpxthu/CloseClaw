@@ -1,5 +1,5 @@
 use crate::miner_transcript::clean_transcript;
-use closeclaw_config::agents::TranscriptCleanRules;
+use crate::params::TranscriptCleanRules;
 
 /// Lenient rules: 1 turn, 1 owner message, md format.
 fn lenient_rules() -> TranscriptCleanRules {

@@ -5,8 +5,8 @@
 
 use crate::dreaming::{DreamingPipeline, EntityGroup, EntryCategory, MemoryEntry};
 use crate::dreaming_llm::PromotedGroupInfo;
+use crate::params::{DreamingDiaryParams, DreamingParams};
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::{DreamingConfig, DreamingDiaryConfig};
 use closeclaw_session::persistence::{DreamingStatus, SessionCheckpoint};
 use tempfile::TempDir;
 
@@ -49,9 +49,9 @@ async fn test_dreaming_processes_mined_undreamt_sessions() {
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -87,9 +87,9 @@ async fn test_dreaming_disabled_skips_processing() {
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
 
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(false),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -169,9 +169,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
     // Enabled: writes file with expected content.
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path.clone()),
         },
@@ -196,9 +196,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
 
     // Disabled: no file created.
     let tmp2 = TempDir::new().unwrap();
-    let config2 = DreamingConfig {
+    let config2 = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             path: Some(tmp2.path().to_str().unwrap().to_string()),
         },
@@ -211,9 +211,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
     // Custom path with nested dir: auto-created.
     let tmp3 = TempDir::new().unwrap();
     let custom = tmp3.path().join("custom/diary");
-    let config3 = DreamingConfig {
+    let config3 = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(custom.to_str().unwrap().to_string()),
         },
@@ -231,9 +231,9 @@ async fn test_dream_diary_enabled_disabled_and_dir() {
 async fn test_entry_category_and_lesson_in_diary() {
     let tmp = TempDir::new().unwrap();
     let diary_path = tmp.path().to_str().unwrap().to_string();
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(true),
             path: Some(diary_path),
         },
@@ -259,9 +259,7 @@ async fn test_entry_category_and_lesson_in_diary() {
     assert!(content.contains("follow user style guide"));
 }
 
-use closeclaw_config::agents::{
-    DreamingCapacityConfig, DreamingScoringConfig, DreamingThresholdConfig,
-};
+use crate::params::{DreamingCapacityParams, DreamingScoringParams, DreamingThresholdParams};
 
 // ── Deep stage: entity type weight + relative gate tests ─────────
 
@@ -278,9 +276,9 @@ fn test_deep_entity_type_weight_applied() {
         )
         .unwrap();
     }
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        scoring: DreamingScoringConfig {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(1.0),
             explicitness_weight: Some(1.0),
@@ -288,11 +286,11 @@ fn test_deep_entity_type_weight_applied() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -332,8 +330,8 @@ fn test_deep_entity_type_weight_applied() {
 /// Deep stage relative gate: per entity_type, removes groups below relative × top.
 #[test]
 fn test_deep_relative_gate_per_entity_type() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.0),
             explicitness_weight: Some(0.0),
@@ -341,11 +339,11 @@ fn test_deep_relative_gate_per_entity_type() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.5),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()
@@ -594,9 +592,9 @@ async fn test_collect_entries_sqlite_and_edge_cases() {
     cp.mined = true;
     cp.dreaming_status = DreamingStatus::Pending;
     storage.add_checkpoint(cp);
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig {
+        diary: DreamingDiaryParams {
             enabled: Some(false),
             ..Default::default()
         },
@@ -680,9 +678,9 @@ async fn test_update_config_changes_behavior() {
     storage.add_checkpoint(cp);
 
     // Start with dreaming disabled.
-    let config = DreamingConfig {
+    let config = DreamingParams {
         enabled: Some(false),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     let pipeline = DreamingPipeline::with_config(config);
@@ -703,9 +701,9 @@ async fn test_update_config_changes_behavior() {
     }
 
     // Hot-reload: enable dreaming.
-    let new_config = DreamingConfig {
+    let new_config = DreamingParams {
         enabled: Some(true),
-        diary: DreamingDiaryConfig::default(),
+        diary: DreamingDiaryParams::default(),
         ..Default::default()
     };
     pipeline.update_config(new_config);
@@ -836,19 +834,19 @@ async fn test_verify_and_filter_rules_drops_stale() {
 /// Model extraction, default None, and lifecycle via update_config.
 #[test]
 fn test_model_lifecycle() {
-    let config = DreamingConfig {
+    let config = DreamingParams {
         model: Some("gpt-4o".to_string()),
         ..Default::default()
     };
     let p = DreamingPipeline::with_config(config);
     assert_eq!(p.model().as_deref(), Some("gpt-4o"));
     assert_eq!(DreamingPipeline::default().model(), None);
-    p.update_config(DreamingConfig {
+    p.update_config(DreamingParams {
         model: Some("claude-3.5-sonnet".to_string()),
         ..Default::default()
     });
     assert_eq!(p.model().as_deref(), Some("claude-3.5-sonnet"));
-    p.update_config(DreamingConfig {
+    p.update_config(DreamingParams {
         model: None,
         ..Default::default()
     });
@@ -905,8 +903,8 @@ fn test_rem_cross_agent_detection() {
 /// End-to-end: Light → REM → Deep pipeline flow with entity grouping.
 #[test]
 fn test_e2e_light_rem_deep_pipeline() {
-    let pipeline = DreamingPipeline::with_config(DreamingConfig {
-        scoring: DreamingScoringConfig {
+    let pipeline = DreamingPipeline::with_config(DreamingParams {
+        scoring: DreamingScoringParams {
             frequency_weight: Some(1.0),
             recency_weight: Some(0.5),
             explicitness_weight: Some(1.0),
@@ -914,11 +912,11 @@ fn test_e2e_light_rem_deep_pipeline() {
             negative_signal_weight: Some(0.0),
             ..Default::default()
         },
-        threshold: DreamingThresholdConfig {
+        threshold: DreamingThresholdParams {
             absolute: Some(0.0),
             relative: Some(0.0),
         },
-        capacity: DreamingCapacityConfig {
+        capacity: DreamingCapacityParams {
             max_rules: Some(100),
         },
         ..Default::default()

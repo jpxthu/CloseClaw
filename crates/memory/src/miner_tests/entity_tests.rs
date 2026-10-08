@@ -3,9 +3,9 @@ use crate::miner::{
     MemoryMiner, MinerConfig, MiningEntity, MiningEventCategory, WriteConfig,
 };
 use crate::miner_llm::MockMinerLlmCaller;
+use crate::params::default_forgetting_initial_ttl_days;
+use crate::params::TranscriptCleanRules;
 use crate::test_helpers::TestStorage;
-use closeclaw_config::agents::default_forgetting_initial_ttl_days;
-use closeclaw_config::agents::TranscriptCleanRules;
 use closeclaw_session::persistence::SessionCheckpoint;
 
 use tempfile::TempDir;

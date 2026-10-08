@@ -353,7 +353,7 @@ fn make_disabled_pipeline_and_miner(
     memory_md_path: &std::path::Path,
 ) -> (Arc<DreamingPipeline>, Arc<MemoryMiner>) {
     let pipeline = Arc::new(DreamingPipeline::with_config(
-        closeclaw_config::agents::DreamingConfig {
+        closeclaw_memory::params::DreamingParams {
             enabled: Some(false),
             ..Default::default()
         },

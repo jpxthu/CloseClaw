@@ -237,7 +237,7 @@ fn setup_with_config(
         memory_md_path.to_str().unwrap(),
     );
 
-    let dreaming_config = closeclaw_config::agents::DreamingConfig {
+    let dreaming_config = closeclaw_memory::params::DreamingParams {
         enabled: Some(true),
         ..Default::default()
     };
@@ -252,7 +252,7 @@ fn setup_with_config(
 fn test_miner_config() -> MinerConfig {
     MinerConfig {
         enabled: true,
-        clean_rules: closeclaw_config::agents::TranscriptCleanRules {
+        clean_rules: closeclaw_memory::params::TranscriptCleanRules {
             min_turns: Some(1),
             min_owner_msgs: Some(1),
             format: Some("md".to_string()),

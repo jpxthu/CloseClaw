@@ -294,6 +294,33 @@ fn deserialize_memory_config(
     serde_json::from_value(memory_config.clone()).ok()
 }
 
+/// Map the agent memory config onto the memory crate's search params.
+///
+/// Pure field copy — default-value fallbacks live in `closeclaw-memory`.
+fn search_params_from_memory_config(
+    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+) -> closeclaw_memory::params::SearchParams {
+    let search = &mem_cfg.search;
+    closeclaw_memory::params::SearchParams {
+        enabled: search.enabled,
+        model: search.model.clone(),
+        context_turns: search.context_turns,
+        timeout_ms: search.timeout_ms,
+        max_summary_chars: search.max_summary_chars,
+        min_entity_hits: search.min_entity_hits,
+        top_k_events: search.top_k_events,
+    }
+}
+
+/// Map the agent forgetting config onto the memory crate's forgetting params.
+fn forgetting_params_from_memory_config(
+    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+) -> closeclaw_memory::params::ForgettingParams {
+    closeclaw_memory::params::ForgettingParams {
+        injection_extension_days: mem_cfg.forgetting.injection_extension_days,
+    }
+}
+
 /// Build the active-searcher config from model and memory config.
 ///
 /// Returns `None` if `search.enabled` is `false` in the agent config.
@@ -302,11 +329,9 @@ fn build_searcher_config(
     mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
 ) -> Option<crate::memory::active_searcher::ActiveSearcherConfig> {
     use crate::memory::active_searcher::ActiveSearcherConfig;
-    ActiveSearcherConfig::from_agent_config(
-        Some(model),
-        mem_cfg.as_ref(),
-        mem_cfg.as_ref().map(|m| &m.forgetting),
-    )
+    let search = mem_cfg.as_ref().map(search_params_from_memory_config);
+    let forgetting = mem_cfg.as_ref().map(forgetting_params_from_memory_config);
+    ActiveSearcherConfig::from_agent_config(Some(model), search.as_ref(), forgetting.as_ref())
 }
 
 /// Execute the searcher pipeline and convert the result.

@@ -190,25 +190,22 @@ fn test_active_searcher_config_defaults() {
 
 // ── from_agent_config tests ─────────────────────────────────────────────
 
-use closeclaw_config::agents::{MemoryConfig, SearchConfig};
+use crate::params::SearchParams;
 
 /// Full search config: all fields specified → all fields correct.
 #[test]
 fn test_from_agent_config_full_search_config() {
-    let memory = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(true),
-            model: Some("claude-opus".into()),
-            timeout_ms: Some(9999),
-            max_summary_chars: Some(8000),
-            min_entity_hits: Some(5),
-            top_k_events: Some(20),
-            context_turns: Some(7),
-        },
-        ..MemoryConfig::default()
+    let search = SearchParams {
+        enabled: Some(true),
+        model: Some("claude-opus".into()),
+        timeout_ms: Some(9999),
+        max_summary_chars: Some(8000),
+        min_entity_hits: Some(5),
+        top_k_events: Some(20),
+        context_turns: Some(7),
     };
 
-    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None);
+    let config = ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&search), None);
     let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "claude-opus");
@@ -222,17 +219,14 @@ fn test_from_agent_config_full_search_config() {
 /// Partial search config: only model and timeout_ms → other fields use defaults.
 #[test]
 fn test_from_agent_config_partial_search_config() {
-    let memory = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(true),
-            model: Some("deepseek-r1".into()),
-            timeout_ms: Some(12000),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
+    let search = SearchParams {
+        enabled: Some(true),
+        model: Some("deepseek-r1".into()),
+        timeout_ms: Some(12000),
+        ..Default::default()
     };
 
-    let config = ActiveSearcherConfig::from_agent_config(None, Some(&memory), None);
+    let config = ActiveSearcherConfig::from_agent_config(None, Some(&search), None);
     let config = config.expect("search should be enabled");
 
     assert_eq!(config.model, "deepseek-r1");
@@ -257,21 +251,17 @@ fn test_from_agent_config_no_override() {
 /// Search config values flow through correctly.
 #[test]
 fn test_from_agent_config_search_config_values() {
-    let memory = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(true),
-            timeout_ms: Some(4000),
-            max_summary_chars: Some(800),
-            min_entity_hits: Some(2),
-            top_k_events: Some(5),
-            context_turns: Some(8),
-            model: Some("search-model".into()),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
+    let search = SearchParams {
+        enabled: Some(true),
+        timeout_ms: Some(4000),
+        max_summary_chars: Some(800),
+        min_entity_hits: Some(2),
+        top_k_events: Some(5),
+        context_turns: Some(8),
+        model: Some("search-model".into()),
     };
     let config =
-        ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).unwrap();
+        ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&search), None).unwrap();
     assert_eq!(config.timeout_ms, 4000);
     assert_eq!(config.max_summary_chars, 800);
     assert_eq!(config.min_entity_hits, 2);
@@ -283,28 +273,22 @@ fn test_from_agent_config_search_config_values() {
 /// search.model > agent_model.
 #[test]
 fn test_from_agent_config_model_priority() {
-    let memory = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(true),
-            model: Some("search-model".into()),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
+    let search = SearchParams {
+        enabled: Some(true),
+        model: Some("search-model".into()),
+        ..Default::default()
     };
     let config =
-        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&memory), None).unwrap();
+        ActiveSearcherConfig::from_agent_config(Some("agent-model"), Some(&search), None).unwrap();
     assert_eq!(config.model, "search-model");
 }
 
 /// Search disabled → from_agent_config returns None.
 #[test]
 fn test_from_agent_config_search_disabled() {
-    let memory = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(false),
-            ..Default::default()
-        },
-        ..MemoryConfig::default()
+    let search = SearchParams {
+        enabled: Some(false),
+        ..Default::default()
     };
-    assert!(ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&memory), None).is_none());
+    assert!(ActiveSearcherConfig::from_agent_config(Some("gpt-4o"), Some(&search), None).is_none());
 }

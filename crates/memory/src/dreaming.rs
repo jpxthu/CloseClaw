@@ -12,15 +12,14 @@ use std::sync::{Arc, RwLock};
 use rusqlite::params;
 use thiserror::Error;
 
-use closeclaw_config::agents::{
+use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
+use crate::params::{
     default_capacity_max_rules, default_diary_path, default_memory_md_path,
     default_scoring_cross_agent, default_scoring_explicitness, default_scoring_frequency,
     default_scoring_negative_signal, default_scoring_recency, default_threshold_absolute,
-    default_threshold_relative, DreamingConfig, DreamingScoringConfig,
+    default_threshold_relative, DreamingParams, DreamingScoringParams,
 };
 use closeclaw_session::persistence::{DreamingStatus, PersistenceError, PersistenceService};
-
-use crate::dreaming_llm::{DreamingLlmCaller, DreamingLlmError, PromotedGroupInfo};
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -107,9 +106,9 @@ struct Thresholds {
 
 /// Orchestrates the dreaming pipeline: Light → REM → Deep → LLM consolidation → MEMORY.md.
 pub struct DreamingPipeline {
-    scoring: DreamingScoringConfig,
+    scoring: DreamingScoringParams,
     thresholds: Thresholds,
-    config: Arc<RwLock<DreamingConfig>>,
+    config: Arc<RwLock<DreamingParams>>,
     model: Arc<RwLock<Option<String>>>,
     db_path: Option<PathBuf>,
     memory_md_path: String,
@@ -121,20 +120,20 @@ impl DreamingPipeline {
         self.model.read().unwrap().clone()
     }
 
-    pub fn update_config(&self, config: DreamingConfig) {
+    pub fn update_config(&self, config: DreamingParams) {
         *self.model.write().unwrap() = config.model.clone();
         *self.config.write().unwrap() = config;
     }
 
     pub fn new() -> Self {
         Self {
-            scoring: DreamingScoringConfig::default(),
+            scoring: DreamingScoringParams::default(),
             thresholds: Thresholds {
                 absolute: 2.0,
                 relative: 0.3,
                 max_rules: 20,
             },
-            config: Arc::new(RwLock::new(DreamingConfig::default())),
+            config: Arc::new(RwLock::new(DreamingParams::default())),
             model: Arc::new(RwLock::new(None)),
             db_path: None,
             memory_md_path: default_memory_md_path(),
@@ -142,7 +141,7 @@ impl DreamingPipeline {
         }
     }
 
-    pub fn with_config(config: DreamingConfig) -> Self {
+    pub fn with_config(config: DreamingParams) -> Self {
         let scoring = config.scoring.clone();
         let model = config.model.clone();
         let thresholds = Thresholds {

@@ -13,6 +13,7 @@ pub mod memory_fragment_provider;
 pub mod miner;
 pub mod miner_llm;
 pub mod miner_transcript;
+pub mod params;
 
 #[cfg(test)]
 pub mod test_helpers;
