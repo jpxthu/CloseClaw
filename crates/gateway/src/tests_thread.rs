@@ -223,13 +223,15 @@ async fn setup_with_thread_id(
     let mock_storage = Arc::new(MockPersistService {
         checkpoint: Mutex::new(Some(checkpoint)),
     });
+    let config = make_config();
     let sm = Arc::new(SessionManager::new(
-        &make_config(),
+        &config,
         Some(mock_storage),
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");
@@ -329,13 +331,15 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
     let mock_storage = Arc::new(MockPersistService {
         checkpoint: Mutex::new(Some(checkpoint)),
     });
+    let config = make_config();
     let sm = Arc::new(SessionManager::new(
-        &make_config(),
+        &config,
         Some(mock_storage),
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin_for_stream) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");
@@ -473,13 +477,15 @@ async fn test_send_outbound_streaming_forwards_block_delta_index() {
     let mock_storage = Arc::new(MockPersistService {
         checkpoint: Mutex::new(Some(checkpoint)),
     });
+    let config = make_config();
     let sm = Arc::new(SessionManager::new(
-        &make_config(),
+        &config,
         Some(mock_storage),
         None,
         ReasoningLevel::default(),
     ));
-    let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
     let msg = make_message("agent-1", "hello");
