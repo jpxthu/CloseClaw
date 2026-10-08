@@ -2,6 +2,7 @@
 //! and ConfigHotReload during daemon startup.
 
 use crate::config_watcher;
+use crate::read_truncation_adapter::read_truncation_provider;
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
 use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
@@ -255,7 +256,8 @@ async fn register_standard_registrars(
         Arc::clone(ctx.approval_flow),
         Arc::clone(ctx.tool_registry)
             as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
-    );
+    )
+    .with_read_truncation(read_truncation_provider(Arc::clone(ctx.config_manager)));
     let audit_log_path = ctx.data_dir.join("logs").join("audit.log");
     match FileAuditLogger::new(audit_log_path.clone()) {
         Ok(logger) => {

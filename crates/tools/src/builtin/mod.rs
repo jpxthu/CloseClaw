@@ -35,6 +35,7 @@ pub use git_ops::{GitCommitTool, GitLogTool, GitPullTool, GitPushTool, GitStatus
 pub use mode_execution_trigger::ModeExecutionTriggerTool;
 pub use permission::PermissionQueryTool;
 pub use plan_exec_confirm::{CreateChildSessionFn, PlanExecConfirmFlow, PlanExecNotification};
+pub use read_truncator::{ReadTruncationProvider, TruncationConfig};
 pub use search::ToolSearchTool;
 pub use skill_tool::SkillTool;
 pub use workflow_tools::{

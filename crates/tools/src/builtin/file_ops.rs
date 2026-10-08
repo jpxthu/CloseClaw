@@ -8,18 +8,14 @@ use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
 use std::path::Path;
-use std::sync::Arc;
 
 use closeclaw_common::ReadRange;
-use closeclaw_config::ConfigManager;
 
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 // ---------------------------------------------------------------------------
 // Shared types
 // ---------------------------------------------------------------------------
-
-type ConfigMgr = Arc<ConfigManager>;
 
 /// Extract a required string argument from `args`, returning an error if missing.
 fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError> {
@@ -98,12 +94,16 @@ async fn list_dir(path: &str) -> Result<ToolResult, ToolCallError> {
 // ---------------------------------------------------------------------------
 
 pub struct ReadTool {
-    config_manager: ConfigMgr,
+    truncation: super::read_truncator::ReadTruncationProvider,
 }
 
 impl ReadTool {
-    pub fn new(cm: ConfigMgr) -> Self {
-        Self { config_manager: cm }
+    /// Create a `ReadTool` with the given truncation config provider.
+    ///
+    /// The provider is invoked on every Read call so config hot-reloads
+    /// take effect immediately.
+    pub fn new(truncation: super::read_truncator::ReadTruncationProvider) -> Self {
+        Self { truncation }
     }
 }
 
@@ -272,7 +272,7 @@ impl Tool for ReadTool {
         if let Some(cached) = check_dedup_cache(ctx, &path, mtime, offset, limit) {
             return Ok(cached);
         }
-        read_and_truncate(&path, offset, limit, mtime, ctx, &self.config_manager).await
+        read_and_truncate(&path, offset, limit, mtime, ctx, &self.truncation).await
     }
 }
 
@@ -731,7 +731,7 @@ async fn read_and_truncate(
     limit: Option<usize>,
     mtime: Option<std::time::SystemTime>,
     ctx: &ToolContext,
-    config_manager: &ConfigManager,
+    truncation: &super::read_truncator::ReadTruncationProvider,
 ) -> Result<ToolResult, ToolCallError> {
     // --- Image file path ---
     if super::read_image::is_image_file(path) {
@@ -758,7 +758,7 @@ async fn read_and_truncate(
     // --- Text file path ---
     let raw = std::fs::read_to_string(path)
         .map_err(|e| ToolCallError::ExecutionFailed(format!("{path}: {e}")))?;
-    let config = super::read_truncator::TruncationConfig::from_config(config_manager);
+    let config = (truncation)();
     let result = super::read_truncator::truncate_lines(&raw, offset, limit, &config);
     let truncation_msg = super::read_truncator::format_truncation_message(&result, offset);
     let mut output = result.content;

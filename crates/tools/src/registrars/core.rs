@@ -12,6 +12,7 @@ use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 
+use crate::builtin::read_truncator::{ReadTruncationProvider, TruncationConfig};
 use crate::builtin::{
     AuditLogTool, BashTool, EditTool, GitCommitTool, GitLogTool, GitPullTool, GitPushTool,
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
@@ -31,6 +32,7 @@ pub struct CoreToolsRegistrar {
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     tool_registry: Arc<dyn ToolRegistryQuery>,
     audit_logger: Option<Arc<dyn AuditLogger>>,
+    read_truncation: ReadTruncationProvider,
 }
 
 impl CoreToolsRegistrar {
@@ -51,12 +53,22 @@ impl CoreToolsRegistrar {
             approval_flow,
             tool_registry,
             audit_logger: None,
+            read_truncation: Arc::new(TruncationConfig::default),
         }
     }
 
     /// Set the audit logger for the `AuditLog` tool.
     pub fn with_audit_logger(mut self, logger: Arc<dyn AuditLogger>) -> Self {
         self.audit_logger = Some(logger);
+        self
+    }
+
+    /// Set the Read tool truncation config provider.
+    ///
+    /// Invoked on every Read call so config hot-reloads take effect.
+    /// When not set, default truncation thresholds are used.
+    pub fn with_read_truncation(mut self, provider: ReadTruncationProvider) -> Self {
+        self.read_truncation = provider;
         self
     }
 }
@@ -80,7 +92,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
         try_register!(
             registry,
             registered,
-            ReadTool::new(self.config_manager.clone()),
+            ReadTool::new(Arc::clone(&self.read_truncation)),
             r
         );
         try_register!(registry, registered, WriteTool::new(), r);

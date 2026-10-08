@@ -8,11 +8,8 @@ use tempfile::TempDir;
 // Test helpers
 // ---------------------------------------------------------------------------
 
-pub(crate) fn make_cm() -> ConfigMgr {
-    let tmp = TempDir::new().unwrap();
-    Arc::new(
-        ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed"),
-    )
+pub(crate) fn make_truncation() -> crate::builtin::ReadTruncationProvider {
+    std::sync::Arc::new(crate::builtin::read_truncator::TruncationConfig::default)
 }
 
 pub(crate) fn make_ctx(agent: &str) -> ToolContext {
@@ -34,7 +31,7 @@ pub(crate) fn make_ctx(agent: &str) -> ToolContext {
 
 #[tokio::test]
 async fn test_read_name_group_summary() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     assert_eq!(tool.name(), "Read");
     assert_eq!(tool.group(), "file_ops");
     assert!(tool.summary().len() <= 50);
@@ -82,7 +79,7 @@ async fn test_ls_name_group_summary() {
 
 #[tokio::test]
 async fn test_read_input_schema_has_path() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let schema = tool.input_schema();
     let props = schema.pointer("/properties").unwrap().as_object().unwrap();
     assert!(props.contains_key("path"));
@@ -122,7 +119,7 @@ async fn test_read_allowed_with_rules() {
     let tmp = TempDir::new().unwrap();
     let file = tmp.path().join("test.txt");
     std::fs::write(&file, "hello").unwrap();
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let args = serde_json::json!({ "path": file.to_str().unwrap() });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(result.is_ok());
@@ -196,7 +193,7 @@ async fn test_ls_allowed_with_rules() {
 /// `generate_prompt` must return context-aware output for empty context.
 #[tokio::test]
 async fn test_read_generate_prompt_empty_context() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let ctx = PromptGenerationContext::default();
     let prompt = tool.generate_prompt(&ctx);
     // Empty context: no workdir, no combination suggestions
@@ -214,7 +211,7 @@ async fn test_read_generate_prompt_empty_context() {
 /// Workdir context changes the prompt output.
 #[tokio::test]
 async fn test_read_generate_prompt_includes_workdir() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let no_workdir = PromptGenerationContext::default();
     let with_workdir = PromptGenerationContext {
         agent_id: "test-agent".into(),
@@ -249,7 +246,7 @@ async fn test_read_generate_prompt_includes_workdir() {
 /// Git branch and recent_changes are reflected in the prompt.
 #[tokio::test]
 async fn test_read_generate_prompt_includes_git_info() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let no_git = PromptGenerationContext {
         agent_id: "test-agent".into(),
         workdir: Some(WorkdirContext {
@@ -289,7 +286,7 @@ async fn test_read_generate_prompt_includes_git_info() {
 /// Prompt includes combination suggestions when Write and Bash are available.
 #[tokio::test]
 async fn test_read_generate_prompt_combination_suggestions() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let ctx = PromptGenerationContext {
         available_tool_names: vec!["Read".into(), "Write".into(), "Bash".into()],
         ..Default::default()
@@ -308,7 +305,7 @@ async fn test_read_generate_prompt_combination_suggestions() {
 /// Full context produces a comprehensive prompt.
 #[tokio::test]
 async fn test_read_generate_prompt_full_context() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let full_ctx = PromptGenerationContext {
         agent_id: "agent-1".into(),
         workdir: Some(WorkdirContext {
@@ -337,7 +334,7 @@ async fn test_read_generate_prompt_full_context() {
 
 #[tokio::test]
 async fn test_read_missing_path_arg() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let result = tool.call(serde_json::json!({}), &make_ctx("a")).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
 }
@@ -402,7 +399,7 @@ async fn test_write_overwrite_file() {
 /// per the design doc ("Read 工具标记为只读工具和并发安全工具").
 #[tokio::test]
 async fn test_read_flags_read_only_and_concurrency_safe() {
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let flags = tool.flags();
     assert!(flags.is_read_only, "ReadTool must be read-only");
     assert!(
@@ -425,7 +422,7 @@ async fn assert_image_ignores_offset_limit(
     let raw = buf.into_inner();
     let path = tmp.path().join(format!("photo.{ext}"));
     std::fs::write(&path, &raw).unwrap();
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let args = serde_json::json!({ "path": path.to_str().unwrap(), "offset": 50, "limit": 2 });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(result.is_ok());
@@ -490,7 +487,7 @@ async fn test_read_relative_path_resolves_against_workdir() {
     );
 
     // Wiring: ReadTool::call applies the resolution end-to-end.
-    let tool = ReadTool::new(make_cm());
+    let tool = ReadTool::new(make_truncation());
     let args = serde_json::json!({ "path": "../../../bootstrap_marker.txt" });
     let result = tool.call(args, &ctx).await.expect("workdir-based read");
     let content = result.data["content"].as_str().unwrap_or_default();
