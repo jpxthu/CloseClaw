@@ -335,7 +335,7 @@ tempfile = \"3\"
 }
 
 #[test]
-fn test_parser_joins_multi_line_inline_tables() {
+fn test_multi_line_inline_table_is_parsed_and_judged() {
     let manifest = "\
 [dependencies]
 closeclaw-common = {
