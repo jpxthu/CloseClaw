@@ -33,6 +33,9 @@ pub mod workdir_context;
 #[cfg(test)]
 pub(crate) mod test_adapters;
 
+#[cfg(test)]
+mod dependency_boundary_tests;
+
 pub use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError};
 pub use registrars::core::CoreToolsRegistrar;
 pub use registry::ToolRegistryImpl;
