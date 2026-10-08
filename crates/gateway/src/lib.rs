@@ -71,6 +71,8 @@ mod outbound_tests;
 #[cfg(test)]
 mod outbound_writeahead_integration_tests;
 #[cfg(test)]
+mod processor_registry_test_utils;
+#[cfg(test)]
 mod receiving_transition_tests;
 mod resolve_session;
 pub mod session_handler;
@@ -113,8 +115,6 @@ mod streaming_preflight_tests;
 pub mod sweeper;
 #[cfg(test)]
 mod sweeper_tests;
-#[cfg(test)]
-mod test_processor_registry;
 #[cfg(test)]
 mod test_support_workflow_port;
 #[cfg(test)]

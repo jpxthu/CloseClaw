@@ -389,7 +389,7 @@ async fn test_raw_log_dir_configured_pipeline_runs() {
         None,
         ReasoningLevel::default(),
     ));
-    let chain = crate::test_processor_registry::default_registry(&config);
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
     let gw = crate::Gateway::with_processor_registry(config, sm, chain);
     let session_id = "rawlog-test";
 

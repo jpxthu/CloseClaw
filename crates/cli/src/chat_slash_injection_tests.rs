@@ -108,6 +108,13 @@ impl SlashHandler for RecordingHandler {
 /// `raw_log_dir = None`. Assembled from the cli crate's dev-dependency on
 /// `closeclaw-processor-chain`, so the tests drive the seam with a real
 /// chain instead of the composition root's single implementation.
+///
+/// Cross-reference: the default chain is assembled in three copies that must
+/// be kept in sync whenever a processor is added, removed or reordered:
+/// - `crates/daemon/src/processor_registry.rs` (production composition root)
+/// - `crates/gateway/src/processor_registry_test_utils.rs` (`default_registry`,
+///   gateway unit tests)
+/// - this function (`chat_processor_chain`)
 pub(crate) fn chat_processor_chain() -> Arc<dyn closeclaw_common::processor::ProcessorChain> {
     use closeclaw_processor_chain::content_normalizer::ContentNormalizer;
     use closeclaw_processor_chain::session_router::SessionRouter;

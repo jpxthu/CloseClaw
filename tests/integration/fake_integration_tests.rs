@@ -5,13 +5,18 @@
 
 #[cfg(feature = "fake-llm")]
 mod tests {
+    // This module intentionally exercises the deprecated `FallbackClient`
+    // (the five-layer bypass) against `FakeProvider`; the legacy path under
+    // test is exactly what the deprecation warns about.
+    #![allow(deprecated)]
+
     use std::sync::Arc;
     use std::time::Duration;
 
     use closeclaw_llm::fake::{FakeProvider, Scenario, SharedState};
     use closeclaw_llm::fallback::{FallbackClient, ModelEntry};
     use closeclaw_llm::provider::Provider;
-    use closeclaw_llm::types::{InternalMessage, InternalRequest, RawContentBlock};
+    use closeclaw_llm::types::{InternalMessage, InternalRequest};
     use closeclaw_llm::{ChatRequest, LLMRegistry, Message};
     use closeclaw_session::persistence::ReasoningLevel;
 
@@ -243,10 +248,11 @@ mod tests {
             .expect("delay scenario should succeed");
         let elapsed = start.elapsed();
 
-        let content = match &resp.content_blocks[0] {
-            RawContentBlock::Text(s) => s.clone(),
-            other => panic!("Expected Text block, got: {:?}", other),
-        };
+        // `Provider::send` returns the raw OpenAI wire-format JSON; the
+        // Protocol layer (not the provider) parses it into `InternalResponse`.
+        let content = resp["choices"][0]["message"]["content"]
+            .as_str()
+            .expect("content should be a plain string");
         assert_eq!(content, "delayed-ok");
         // Delay is 2 seconds; allow some tolerance (at least 1.8s)
         assert!(

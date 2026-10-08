@@ -4,6 +4,13 @@
 //! chains from the [`GatewayConfig`]. The Gateway itself only consumes the
 //! resulting `Arc<dyn ProcessorChain>` (common trait) — it never references
 //! concrete processors.
+//!
+//! Cross-reference: the default chain is assembled in three copies that must
+//! be kept in sync whenever a processor is added, removed or reordered:
+//! - this file (production composition root)
+//! - `crates/gateway/src/processor_registry_test_utils.rs` (gateway unit tests)
+//! - `crates/cli/src/chat_slash_injection_tests.rs` (`chat_processor_chain`,
+//!   the `raw_log_dir = None` case)
 
 use std::sync::Arc;
 

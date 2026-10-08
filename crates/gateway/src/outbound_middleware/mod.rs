@@ -13,3 +13,5 @@ pub(crate) mod runner;
 pub(crate) mod audit_tests;
 #[cfg(test)]
 pub(crate) mod rate_limit_tests;
+#[cfg(test)]
+pub(crate) mod runner_tests;

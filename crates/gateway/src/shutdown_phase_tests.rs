@@ -202,7 +202,7 @@ async fn test_close_outbound_clears_processor_registry() {
         None,
         ReasoningLevel::default(),
     ));
-    let chain = crate::test_processor_registry::default_registry(&config);
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
     let gw = crate::Gateway::with_processor_registry(config, sm, chain);
 
     let (i, o) = gw.processor_registry_len();

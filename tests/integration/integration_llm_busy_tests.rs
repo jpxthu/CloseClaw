@@ -20,14 +20,11 @@ use std::time::Duration;
 
 use closeclaw_common::llm_caller::LlmCaller;
 use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
-use closeclaw_gateway::session_handler::{
-    ActiveSearcherLlmCaller, HandleResult, SessionMessageHandler,
-};
+use closeclaw_gateway::session_handler::{HandleResult, SessionMessageHandler};
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{GatewayConfig, Message};
 use closeclaw_llm::client::UnifiedChatClient;
 use closeclaw_llm::fake::{FakeProvider, Scenario};
-use closeclaw_llm::fallback::FallbackClient;
 use closeclaw_llm::interpreter::InterpreterRegistry;
 use closeclaw_llm::plugin::PluginPipeline;
 use closeclaw_llm::protocol::OpenAiProtocol;
@@ -72,21 +69,14 @@ async fn build_handler(
     // Set the session-level LLM caller BEFORE find_or_create.
     sm.set_llm_caller(llm_caller).await;
 
-    // The legacy FallbackClient is still held by the handler for the
-    // compaction path; these tests never trigger compaction, so an empty
-    // chain is sufficient.
-    let registry = Arc::new(closeclaw_llm::LLMRegistry::new());
-    let fallback = Arc::new(FallbackClient::from_strings(registry, vec![]));
-
-    let fallback_llm_caller = Arc::new(ActiveSearcherLlmCaller {
-        client: unified,
-        model: "fake-model".to_string(),
-    });
-
+    // `new_no_output`'s third parameter is the composition-root-injected
+    // `SearcherRunner` seam (the memory-crate pipeline lives behind it).
+    // These tests only drive the busy/pending state machine and never
+    // trigger the active searcher, so no runner is attached.
     SessionMessageHandler::new_no_output(
         sm,
-        fallback,
-        fallback_llm_caller,
+        unified,
+        None,
         closeclaw_session::compaction::CompactConfig::default(),
     )
 }

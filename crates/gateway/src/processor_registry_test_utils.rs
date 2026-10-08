@@ -4,6 +4,12 @@
 //! (`closeclaw-daemon::processor_registry`) for the
 //! `raw_log_dir = None` / `Some(..)` cases, so gateway unit tests can inject
 //! the same chain production installs without reaching the composition root.
+//!
+//! Cross-reference: the default chain is assembled in three copies that must
+//! be kept in sync whenever a processor is added, removed or reordered:
+//! - `crates/daemon/src/processor_registry.rs` (production composition root)
+//! - `crates/cli/src/chat_slash_injection_tests.rs` (`chat_processor_chain`)
+//! - this file (`default_registry`, gateway unit tests)
 
 use std::sync::Arc;
 
