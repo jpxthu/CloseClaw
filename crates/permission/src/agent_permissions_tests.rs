@@ -383,6 +383,48 @@ fn intersect_all_eight_dimensions_checked() {
     }
 }
 
+// --- intersect: per-dimension sweep (all eight dimensions) ---
+
+#[test]
+fn intersect_deny_and_absent_rules_hold_for_each_dimension() {
+    for dim in [
+        "exec",
+        "file_read",
+        "file_write",
+        "network",
+        "spawn",
+        "tool_call",
+        "config_write",
+        "message",
+    ] {
+        // allow ∩ deny = deny
+        let child = make_perms("child", &[]);
+        let parent = make_perms("parent", &[dim]);
+        assert!(
+            !child.intersect(&parent).permissions[dim].allowed,
+            "allow ∩ deny must be deny for dimension: {dim}"
+        );
+        // child allow ∩ parent absent = deny
+        let child = make_perms("child", &[dim]);
+        let parent = AgentPermissions {
+            agent_id: "parent".to_string(),
+            permissions: HashMap::new(),
+            inherited_from: None,
+        };
+        assert!(
+            !child.intersect(&parent).permissions[dim].allowed,
+            "allow ∩ absent must be deny for dimension: {dim}"
+        );
+        // allow ∩ allow = allow
+        let child = make_perms("child", &[dim]);
+        let parent = make_perms("parent", &[dim]);
+        assert!(
+            child.intersect(&parent).permissions[dim].allowed,
+            "allow ∩ allow must be allow for dimension: {dim}"
+        );
+    }
+}
+
 // --- intersect: message dimension ---
 
 #[test]
