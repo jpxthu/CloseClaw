@@ -25,7 +25,7 @@ pub struct PromotedGroupInfo {
 
 /// Abstract LLM caller for lesson consolidation.
 ///
-/// In production, wrap a real [`Provider`][closeclaw_llm::Provider];
+/// In production, wrap a real LLM provider client;
 /// in tests, provide a mock that returns fixed strings.
 #[async_trait]
 pub trait DreamingLlmCaller: Send + Sync {

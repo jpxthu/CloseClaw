@@ -4,7 +4,7 @@ use crate::active_searcher::ActiveSearcherError;
 use crate::active_searcher::{ActiveSearcher, ActiveSearcherConfig};
 use crate::active_searcher_llm::{build_concept_extraction_prompt, ActiveSearchLlm};
 use chrono::Utc;
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_session::llm_session::SessionMessage;
 
 use super::{create_test_db, insert_entity};

@@ -9,7 +9,6 @@ license = "MIT"
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
-closeclaw-llm = { path = "../llm" }
 closeclaw-session = { path = "../session" }
 
 # Async runtime

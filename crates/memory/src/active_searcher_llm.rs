@@ -5,7 +5,7 @@
 
 use async_trait::async_trait;
 
-use closeclaw_llm::types::ContentBlock;
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_session::llm_session::SessionMessage;
 
 use super::active_searcher::ActiveSearcherError;
