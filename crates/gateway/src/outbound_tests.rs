@@ -402,7 +402,8 @@ pub(crate) async fn setup_streaming_gw(
             depth: 0,
         },
     );
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
     gw
 }
@@ -647,7 +648,8 @@ async fn test_thinking_indicator_sends_on_block_start() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -748,7 +750,8 @@ async fn test_thinking_indicator_suppressed_at_off() {
     let mock = ThinkingIndicatorMock::new("mock");
     let calls_ref = mock.thinking_calls.clone();
     let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(mock);
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin)).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
@@ -841,7 +844,8 @@ async fn test_thinking_indicator_stops_on_block_end() {
         .write()
         .await
         .insert(session_id.to_string(), cs_arc);
-    let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let chain = crate::processor_registry_test_utils::default_registry(&config);
+    let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(plugin.clone()).await;
 
     let events: Vec<Result<StreamEvent, crate::GatewayError>> = vec![
