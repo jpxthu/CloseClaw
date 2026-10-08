@@ -201,7 +201,7 @@ def main() -> int:
     default=None,
     help="只执行指定检查项（默认全部）。",
 )
-def check_cmd(only: str | None) -> int:
+def check_cmd(only: str | None) -> None:
     """执行检查并汇总；退出码 = FAIL 项数。"""
     results, fail_count = run_checks(REPO_ROOT, only)
     for result in results:
@@ -209,7 +209,8 @@ def check_cmd(only: str | None) -> int:
             print(line)
     print("汇总: " + " ".join(f"{result.check_id}={result.status}" for result in results))
     print(f"FAIL 项数: {fail_count}")
-    return 1 if fail_count else 0
+    # click group 的 standalone 模式不透传子命令返回值，须显式 ctx.exit。
+    click.get_current_context().exit(fail_count)
 
 
 if __name__ == "__main__":

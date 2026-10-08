@@ -244,5 +244,39 @@ class RunChecksTest(unittest.TestCase):
         self.assertEqual(fail_count, 0)
 
 
+class CliExitCodeTest(unittest.TestCase):
+    """CLI 退出码 = FAIL 项数（click group 须显式 ctx.exit 透传）。"""
+
+    def _invoke_check(self, statuses: dict[str, str]) -> int:
+        from click.testing import CliRunner
+
+        def make_runner(check_id: str, status: str):
+            return lambda repo_root: dep_guard.CheckResult(check_id, status, [])
+
+        originals = dict(dep_guard.CHECK_RUNNERS)
+        dep_guard.CHECK_RUNNERS.update(
+            {check_id: make_runner(check_id, status) for check_id, status in statuses.items()}
+        )
+        try:
+            result = CliRunner().invoke(dep_guard.main, ["check"])
+        finally:
+            dep_guard.CHECK_RUNNERS.clear()
+            dep_guard.CHECK_RUNNERS.update(originals)
+        return result.exit_code
+
+    def test_exit_code_equals_fail_count(self) -> None:
+        statuses = {
+            "dep-edges": dep_guard.STATUS_FAIL,
+            "second-exports": dep_guard.STATUS_PASS,
+            "common-admission": dep_guard.STATUS_FAIL,
+            "dead-deps": dep_guard.STATUS_SKIP,
+        }
+        self.assertEqual(self._invoke_check(statuses), 2)
+
+    def test_exit_code_zero_when_no_fail(self) -> None:
+        statuses = {check_id: dep_guard.STATUS_PASS for check_id in dep_guard.CHECK_IDS}
+        self.assertEqual(self._invoke_check(statuses), 0)
+
+
 if __name__ == "__main__":
     unittest.main()
