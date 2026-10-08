@@ -153,7 +153,12 @@ mod tests {
     /// correct mappings.
     #[test]
     fn identity_resolver_loads_accounts_json() {
-        let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_aaa","account_id":"user1"},{"platform":"feishu","sender_id":"ou_bbb","account_id":"user2"}]}"#;
+        let json = r#"{
+            "accounts": [
+                {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "user1"},
+                {"platform": "feishu", "sender_id": "ou_bbb", "account_id": "user2"}
+            ]
+        }"#;
         let dir = setup_config_dir(Some(json));
         let resolver = build_identity_resolver(dir.path().to_str().unwrap());
         assert!(resolver.is_some());
@@ -196,7 +201,12 @@ mod tests {
     /// Cross-platform isolation: a feishu mapping does not affect discord.
     #[test]
     fn identity_resolver_cross_platform_isolation() {
-        let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_aaa","account_id":"user1"},{"platform":"discord","sender_id":"12345","account_id":"user2"}]}"#;
+        let json = r#"{
+            "accounts": [
+                {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "user1"},
+                {"platform": "discord", "sender_id": "12345", "account_id": "user2"}
+            ]
+        }"#;
         let dir = setup_config_dir(Some(json));
         let resolver = build_identity_resolver(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(
@@ -214,7 +224,13 @@ mod tests {
     /// Several senders on different platforms may map to one account.
     #[test]
     fn identity_resolver_many_to_one() {
-        let json = r#"{"accounts":[{"platform":"feishu","sender_id":"ou_aaa","account_id":"alice"},{"platform":"discord","sender_id":"99","account_id":"alice"},{"platform":"slack","sender_id":"U001","account_id":"alice"}]}"#;
+        let json = r#"{
+            "accounts": [
+                {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "alice"},
+                {"platform": "discord", "sender_id": "99", "account_id": "alice"},
+                {"platform": "slack", "sender_id": "U001", "account_id": "alice"}
+            ]
+        }"#;
         let dir = setup_config_dir(Some(json));
         let resolver = build_identity_resolver(dir.path().to_str().unwrap()).unwrap();
         assert_eq!(

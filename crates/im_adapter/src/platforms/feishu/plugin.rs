@@ -38,18 +38,6 @@ inventory::submit!(PlatformEntry {
     },
 });
 
-/// Register the Feishu plugin with the host (composition-root ports).
-///
-/// First checks `{config_dir}/config/platforms.json` for an explicit
-/// enable flag.  If the platform is not listed or disabled the plugin
-/// is silently not registered.  When enabled, the profile is taken from
-/// the injected `feishu_profile` first, then the `FEISHU_PROFILE`
-/// environment variable as fallback.
-///
-/// The identity resolver is injected by the composition root (loaded
-/// from `{config_dir}/config/accounts.json` there).  A missing /
-/// empty mapping set results in no resolver — the fallback uses
-/// `sender_id` as `account_id`.
 /// Resolve the effective Feishu profile: the injected profile wins; the
 /// environment value (read lazily through `env_profile` by the caller) is
 /// the fallback.
@@ -64,6 +52,18 @@ pub(super) fn resolve_feishu_profile(
     injected.or_else(env_profile)
 }
 
+/// Register the Feishu plugin with the host (composition-root ports).
+///
+/// First checks `{config_dir}/config/platforms.json` for an explicit
+/// enable flag.  If the platform is not listed or disabled the plugin
+/// is silently not registered.  When enabled, the profile is taken from
+/// the injected `feishu_profile` first, then the `FEISHU_PROFILE`
+/// environment variable as fallback.
+///
+/// The identity resolver is injected by the composition root (loaded
+/// from `{config_dir}/config/accounts.json` there).  A missing /
+/// empty mapping set results in no resolver — the fallback uses
+/// `sender_id` as `account_id`.
 pub async fn register(
     host: &crate::ports::GatewayHost,
     config_dir: &str,

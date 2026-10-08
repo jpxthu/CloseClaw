@@ -96,6 +96,7 @@ pub(crate) mod test_doubles {
     pub(crate) struct FakeEnqueuer {
         payloads: Mutex<Vec<InboundPayload>>,
         fail_reason: Option<String>,
+        attempts: Mutex<usize>,
     }
 
     impl FakeEnqueuer {
@@ -104,6 +105,7 @@ pub(crate) mod test_doubles {
             Arc::new(Self {
                 payloads: Mutex::new(Vec::new()),
                 fail_reason: None,
+                attempts: Mutex::new(0),
             })
         }
 
@@ -112,6 +114,7 @@ pub(crate) mod test_doubles {
             Arc::new(Self {
                 payloads: Mutex::new(Vec::new()),
                 fail_reason: Some(reason.to_string()),
+                attempts: Mutex::new(0),
             })
         }
 
@@ -122,11 +125,17 @@ pub(crate) mod test_doubles {
                 .expect("payloads lock poisoned")
                 .clone()
         }
+
+        /// Number of `enqueue` calls observed so far (failed ones included).
+        pub(crate) fn attempts(&self) -> usize {
+            *self.attempts.lock().expect("attempts lock poisoned")
+        }
     }
 
     #[async_trait]
     impl InboundEnqueuer for FakeEnqueuer {
         async fn enqueue(&self, payload: InboundPayload) -> Result<(), EnqueueError> {
+            *self.attempts.lock().expect("attempts lock poisoned") += 1;
             if let Some(reason) = &self.fail_reason {
                 return Err(EnqueueError::new(reason.clone()));
             }
@@ -139,15 +148,29 @@ pub(crate) mod test_doubles {
     }
 
     /// Records every plugin registered through it.
+    ///
+    /// The `park` variant parks forever inside [`PluginRegistrar::register_plugin`]
+    /// so a registration future can never advance past registration (used by
+    /// end-to-end registration tests to avoid spawning the real `lark-cli`).
     pub(crate) struct FakeRegistrar {
         registered: Mutex<Vec<Arc<dyn IMPlugin>>>,
+        park: bool,
     }
 
     impl FakeRegistrar {
-        /// Start with an empty registry.
+        /// Start with an empty registry; registrations complete normally.
         pub(crate) fn new() -> Arc<Self> {
             Arc::new(Self {
                 registered: Mutex::new(Vec::new()),
+                park: false,
+            })
+        }
+
+        /// Start with an empty registry; every registration parks forever.
+        pub(crate) fn parking() -> Arc<Self> {
+            Arc::new(Self {
+                registered: Mutex::new(Vec::new()),
+                park: true,
             })
         }
 
@@ -167,6 +190,31 @@ pub(crate) mod test_doubles {
                 .lock()
                 .expect("registered lock poisoned")
                 .push(plugin);
+            if self.park {
+                std::future::pending::<()>().await;
+            }
         }
+    }
+
+    /// Poll until `enqueuer` recorded at least `min_count` payloads
+    /// (3-second cap) and return the recorded snapshot.
+    pub(crate) async fn wait_payloads(
+        enqueuer: &FakeEnqueuer,
+        min_count: usize,
+    ) -> Vec<InboundPayload> {
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        loop {
+            let payloads = enqueuer.payloads();
+            if payloads.len() >= min_count || tokio::time::Instant::now() >= deadline {
+                return payloads;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        }
+    }
+
+    /// Poll until `enqueuer` recorded at least `min_count` payloads
+    /// (3-second cap) and return the recorded count.
+    pub(crate) async fn wait_enqueued(enqueuer: &FakeEnqueuer, min_count: usize) -> usize {
+        wait_payloads(enqueuer, min_count).await.len()
     }
 }

@@ -601,21 +601,7 @@ fn test_format_detection_cli_preferred_over_webhook() {
 // ===========================================================================
 // start_event_stream tests
 // ===========================================================================
-use crate::ports::test_doubles::FakeEnqueuer;
-use crate::ports::InboundPayload;
-
-/// Poll until at least `min_count` payloads are enqueued (or 3s elapse) and
-/// return the recorded snapshot.
-async fn wait_payloads(enqueuer: &FakeEnqueuer, min_count: usize) -> Vec<InboundPayload> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
-        let payloads = enqueuer.payloads();
-        if payloads.len() >= min_count || tokio::time::Instant::now() >= deadline {
-            return payloads;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-}
+use crate::ports::test_doubles::{wait_payloads, FakeEnqueuer};
 
 /// Build an `im.message.receive_v1` event with the given event id.
 fn message_event(event_id: &str) -> Event {
@@ -734,9 +720,17 @@ async fn test_start_event_stream_enqueue_failure_does_not_panic() {
         .unwrap();
     drop(tx);
 
-    // Let the stream drain: a rejected enqueue must neither panic nor stop
-    // the loop (both events are consumed).
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    // Both events must reach the (failing) enqueuer: the loop keeps
+    // consuming after the first Err instead of stopping or panicking.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+    while enqueuer.attempts() < 2 && tokio::time::Instant::now() < deadline {
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+    assert_eq!(
+        enqueuer.attempts(),
+        2,
+        "the stream must attempt both enqueues after a rejection"
+    );
     assert!(
         enqueuer.payloads().is_empty(),
         "failing enqueuer records nothing"

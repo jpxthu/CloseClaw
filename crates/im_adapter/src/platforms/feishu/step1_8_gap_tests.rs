@@ -10,6 +10,7 @@
 use super::process_manager::{start_event_stream, Event, EventLine};
 use super::*;
 use crate::media_store::MediaStore;
+use crate::ports::test_doubles::wait_enqueued;
 use crate::IMAdapter;
 use closeclaw_common::MessageType;
 use std::sync::Arc;
@@ -29,22 +30,6 @@ fn make_test_adapter() -> FeishuAdapter {
 /// Create a recording inbound-enqueuer double (no real host).
 fn make_enqueuer() -> std::sync::Arc<crate::ports::test_doubles::FakeEnqueuer> {
     crate::ports::test_doubles::FakeEnqueuer::new()
-}
-
-/// Poll until the enqueuer recorded at least `min_count` payloads
-/// (3-second cap) and return the recorded count.
-async fn wait_enqueued(
-    enqueuer: &crate::ports::test_doubles::FakeEnqueuer,
-    min_count: usize,
-) -> usize {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
-    loop {
-        let count = enqueuer.payloads().len();
-        if count >= min_count || tokio::time::Instant::now() >= deadline {
-            return count;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
 }
 
 // ===========================================================================

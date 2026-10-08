@@ -1,4 +1,4 @@
-//! Identity mapping and error conversion helpers for the Feishu plugin.
+//! Error conversion helpers for the Feishu plugin.
 
 use closeclaw_common::AdapterError as CommonAdapterError;
 
