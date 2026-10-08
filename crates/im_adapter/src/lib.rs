@@ -3,6 +3,8 @@
 //! This crate unifies IMPlugin, IMAdapter, NormalizedMessage, AdapterError,
 //! and RenderedOutput under a single entry point.
 
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub mod error;
 pub mod lazy_tool;
 #[cfg(test)]

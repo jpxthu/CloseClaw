@@ -50,6 +50,20 @@ inventory::submit!(PlatformEntry {
 /// from `{config_dir}/config/accounts.json` there).  A missing /
 /// empty mapping set results in no resolver — the fallback uses
 /// `sender_id` as `account_id`.
+/// Resolve the effective Feishu profile: the injected profile wins; the
+/// environment value (read lazily through `env_profile` by the caller) is
+/// the fallback.
+///
+/// Extracted as a seam so tests can exercise both branches without mutating
+/// the process environment (docs/developer/STANDARDS.md §7 forbids env
+/// mutation outside `load_env_file`).
+pub(super) fn resolve_feishu_profile(
+    injected: Option<String>,
+    env_profile: impl FnOnce() -> Option<String>,
+) -> Option<String> {
+    injected.or_else(env_profile)
+}
+
 pub async fn register(
     host: &crate::ports::GatewayHost,
     config_dir: &str,
@@ -65,7 +79,7 @@ pub async fn register(
     }
 
     // Injected profile first, FEISHU_PROFILE environment variable as fallback.
-    let profile = feishu_profile.or_else(|| std::env::var("FEISHU_PROFILE").ok());
+    let profile = resolve_feishu_profile(feishu_profile, || std::env::var("FEISHU_PROFILE").ok());
     if let Some(profile) = profile {
         // Use shared MediaStore from daemon if available, otherwise create one.
         let media_store = shared_media_store.unwrap_or_else(|| {

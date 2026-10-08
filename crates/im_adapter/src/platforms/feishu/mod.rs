@@ -49,6 +49,8 @@ mod post_expand;
 pub(crate) mod process_manager;
 #[cfg(test)]
 mod process_manager_tests;
+#[cfg(test)]
+mod register_injection_tests;
 mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]
