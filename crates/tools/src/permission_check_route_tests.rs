@@ -6,6 +6,7 @@ use super::tests::{
     make_af_capturing, make_af_deny, make_cm, make_engine_with_rules, make_port, make_sm,
 };
 use super::*;
+use closeclaw_permission::engine::engine_risk::RiskLevel;
 
 // ---------------------------------------------------------------------------
 // route_denial / route_command_denial behavior tests (Step 1.2)
@@ -75,7 +76,6 @@ async fn test_route_denial_flow_accept_returns_approval_pending() {
         "data is the approval-pending payload for the submitted request"
     );
     assert_eq!(notes[0].caller.user_id, "ou_owner");
-    use closeclaw_permission::engine::engine_risk::RiskLevel;
     assert_eq!(
         notes[0].risk_level,
         RiskLevel::High,
@@ -247,7 +247,6 @@ async fn test_route_command_denial_flow_accept_returns_pending() {
         approval_utils::build_approval_pending(notes[0].request_id.clone()),
         "data is the approval-pending payload for the submitted request"
     );
-    use closeclaw_permission::engine::engine_risk::RiskLevel;
     assert_eq!(
         notes[0].risk_level,
         RiskLevel::High,

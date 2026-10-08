@@ -166,11 +166,11 @@ fn make_approval_flow() -> Arc<TokioMutex<ApprovalFlow>> {
 
 /// Port over a deny-all approval flow (hard-deny path).
 fn deny_all_port() -> PermDeps {
-    Arc::new(crate::test_adapters::ToolPermissionCheckAdapter {
-        engine: deny_all_engine(),
-        session_manager: make_session_manager(),
-        config_manager: make_config_manager(),
-        approval_flow: Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
+    crate::test_adapters::real_permission_port(
+        deny_all_engine(),
+        make_session_manager(),
+        make_config_manager(),
+        Arc::new(TokioMutex::new(ApprovalFlow::new_deny_all(
             Arc::clone(&make_session_manager()) as Arc<dyn closeclaw_common::SessionLookup>,
             Arc::new(|_| {}),
             Arc::new(|_: &str| {}),
@@ -179,7 +179,7 @@ fn deny_all_port() -> PermDeps {
             std::env::temp_dir(),
             RuleSet::default(),
         ))),
-    })
+    )
 }
 
 fn make_tool(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> BashTool {
@@ -188,12 +188,12 @@ fn make_tool(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> BashTool {
 
 /// Bundle the real permission components behind the tools-owned port.
 fn perm_port(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> PermDeps {
-    Arc::new(crate::test_adapters::ToolPermissionCheckAdapter {
-        engine: perm,
-        session_manager: make_session_manager(),
-        config_manager: make_config_manager(),
-        approval_flow: make_approval_flow(),
-    })
+    crate::test_adapters::real_permission_port(
+        perm,
+        make_session_manager(),
+        make_config_manager(),
+        make_approval_flow(),
+    )
 }
 
 fn make_ctx() -> ToolContext {

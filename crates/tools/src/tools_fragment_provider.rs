@@ -305,12 +305,12 @@ mod tests {
             ),
         ));
         let permission_check: crate::permission_check::PermDeps =
-            Arc::new(crate::test_adapters::ToolPermissionCheckAdapter {
-                engine: permission_engine.clone(),
-                session_manager: session_manager.clone(),
-                config_manager: cfg_mgr.clone(),
-                approval_flow: approval_flow.clone(),
-            });
+            crate::test_adapters::real_permission_port(
+                permission_engine.clone(),
+                session_manager.clone(),
+                cfg_mgr.clone(),
+                approval_flow.clone(),
+            );
         let registrars: Vec<Box<dyn crate::ToolRegistrar>> = vec![
             Box::new(crate::CoreToolsRegistrar::new(
                 permission_check,

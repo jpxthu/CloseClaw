@@ -11,7 +11,8 @@ use super::*;
 use crate::builtin::skill_tool::SkillTool;
 use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
 use crate::test_adapters::{
-    ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter, PermissionEngineAdapter,
+    real_permission_port, ApprovalFlowAdapter, ConfigSpawnBudgetLookupAdapter,
+    PermissionEngineAdapter,
 };
 use crate::{CoreToolsRegistrar, ToolRegistrar};
 use closeclaw_agent::registry::AgentRegistry;
@@ -98,19 +99,17 @@ fn test_spawn_deps() -> (
 fn make_standard_registrars(
     tool_registry: Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
 ) -> Vec<Box<dyn ToolRegistrar>> {
-    use crate::test_adapters::ToolPermissionCheckAdapter;
     let disk_registry = Arc::new(DiskSkillRegistry::new(vec![]));
     let permission_engine = test_permission_engine();
     let (spawn_controller, session_manager, config_manager, agent_registry) = test_spawn_deps();
     let task_manager = Arc::new(BackgroundTaskManager::new());
     let approval_flow = test_approval_flow(&session_manager);
-    let permission_check: crate::permission_check::PermDeps =
-        Arc::new(ToolPermissionCheckAdapter {
-            engine: permission_engine.clone(),
-            session_manager: session_manager.clone(),
-            config_manager: config_manager.clone(),
-            approval_flow: approval_flow.clone(),
-        });
+    let permission_check: crate::permission_check::PermDeps = real_permission_port(
+        permission_engine.clone(),
+        session_manager.clone(),
+        config_manager.clone(),
+        approval_flow.clone(),
+    );
 
     vec![
         Box::new(CoreToolsRegistrar::new(

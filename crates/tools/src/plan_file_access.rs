@@ -75,6 +75,11 @@ pub(crate) mod real_access {
     /// Map a session-side resolve error to the tools-side mirror,
     /// preserving the payload (and therefore the `Display` output)
     /// verbatim.
+    ///
+    /// NOTE: this mapping must stay in sync variant-by-variant with the
+    /// daemon's production mapping (`closeclaw_daemon::
+    /// plan_file_store_adapter::error_to_tools`); new `PlanResolveError`
+    /// variants added on either side require updating both.
     pub(crate) fn resolve_error_to_mirror(
         e: closeclaw_session::plan_file::PlanResolveError,
     ) -> super::PlanResolveError {

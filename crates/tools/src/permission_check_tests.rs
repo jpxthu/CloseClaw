@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::permission_port::PermMessageDirection;
-use crate::test_adapters::ToolPermissionCheckAdapter;
+use crate::test_adapters::real_permission_port;
 use crate::{ToolCallError, ToolContext};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
@@ -74,12 +74,7 @@ pub(crate) fn make_port(
     cm: Arc<ConfigManager>,
     flow: Arc<ApprovalMutex>,
 ) -> PermDeps {
-    Arc::new(ToolPermissionCheckAdapter {
-        engine,
-        session_manager: sm,
-        config_manager: cm,
-        approval_flow: flow,
-    }) as PermDeps
+    real_permission_port(engine, sm, cm, flow)
 }
 
 /// Standard approval flow — enqueues denials (approval-pending path).

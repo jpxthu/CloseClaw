@@ -10,14 +10,6 @@ use closeclaw_config::{ConfigManager, ConfigSection};
 use closeclaw_tools::builtin::{ReadTruncationProvider, TruncationConfig};
 use std::sync::Arc;
 
-/// Default maximum number of lines returned per Read call.
-#[cfg(test)]
-const DEFAULT_MAX_LINES: usize = 2000;
-
-/// Default maximum byte size (50 KB) returned per Read call.
-#[cfg(test)]
-const DEFAULT_MAX_BYTES: usize = 51_200;
-
 /// Build a [`ReadTruncationProvider`] backed by `ConfigManager`.
 ///
 /// The returned closure re-resolves the truncation config on every
@@ -77,8 +69,8 @@ mod tests {
         let cfg = truncation_config(&cm);
         assert_eq!(cfg.max_tokens, 5000);
         // Other values remain default
-        assert_eq!(cfg.max_lines, DEFAULT_MAX_LINES);
-        assert_eq!(cfg.max_bytes, DEFAULT_MAX_BYTES);
+        assert_eq!(cfg.max_lines, TruncationConfig::default().max_lines);
+        assert_eq!(cfg.max_bytes, TruncationConfig::default().max_bytes);
     }
 
     #[test]
@@ -86,35 +78,35 @@ mod tests {
         let (_tmp, cm) = make_config_manager(None);
         let cfg = truncation_config(&cm);
         // Falls back to default
-        assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+        assert_eq!(cfg.max_tokens, TruncationConfig::default().max_tokens);
     }
 
     #[test]
     fn test_truncation_config_invalid_zero_tokens() {
         let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": 0}}"#));
         let cfg = truncation_config(&cm);
-        assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+        assert_eq!(cfg.max_tokens, TruncationConfig::default().max_tokens);
     }
 
     #[test]
     fn test_truncation_config_invalid_negative_tokens() {
         let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": -1}}"#));
         let cfg = truncation_config(&cm);
-        assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+        assert_eq!(cfg.max_tokens, TruncationConfig::default().max_tokens);
     }
 
     #[test]
     fn test_truncation_config_invalid_non_number_tokens() {
         let (_tmp, cm) = make_config_manager(Some(r#"{"read": {"max_tokens": "abc"}}"#));
         let cfg = truncation_config(&cm);
-        assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+        assert_eq!(cfg.max_tokens, TruncationConfig::default().max_tokens);
     }
 
     #[test]
     fn test_truncation_config_missing_read_section() {
         let (_tmp, cm) = make_config_manager(Some(r#"{}"#));
         let cfg = truncation_config(&cm);
-        assert_eq!(cfg.max_tokens, DEFAULT_MAX_BYTES / 4);
+        assert_eq!(cfg.max_tokens, TruncationConfig::default().max_tokens);
     }
 
     /// The provider re-reads the section on every invocation — a

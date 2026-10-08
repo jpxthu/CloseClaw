@@ -103,6 +103,11 @@ pub(crate) mod real_access {
     /// Map a skills-side execute error to the tools-side mirror,
     /// preserving the payload (and therefore the `Display` output)
     /// verbatim.
+    ///
+    /// NOTE: this mapping must stay in sync variant-by-variant with the
+    /// daemon's production mapping (`closeclaw_daemon::
+    /// tool_skill_access_adapter::execute_error_to_tools`); new
+    /// `SkillError` variants added on either side require updating both.
     pub(crate) fn execute_error_to_mirror(e: SkillError) -> SkillExecuteError {
         match e {
             SkillError::NotFound(name) => SkillExecuteError::NotFound(name),

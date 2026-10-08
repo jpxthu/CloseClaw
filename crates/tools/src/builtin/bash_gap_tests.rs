@@ -55,12 +55,12 @@ fn make_tool() -> BashTool {
         std::env::temp_dir(),
         RuleSet::default(),
     )));
-    let permission_check: PermDeps = Arc::new(crate::test_adapters::ToolPermissionCheckAdapter {
-        engine: perm,
+    let permission_check: PermDeps = crate::test_adapters::real_permission_port(
+        perm,
         session_manager,
         config_manager,
         approval_flow,
-    });
+    );
     BashTool::new(permission_check, bg_manager)
 }
 

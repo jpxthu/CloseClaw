@@ -15,6 +15,7 @@ use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_risk::assess_risk_level;
+use closeclaw_permission::engine::engine_risk::RiskLevel as EngineRiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
@@ -88,24 +89,22 @@ impl ApprovalSubmission for ApprovalFlowAdapter {
 }
 
 /// Map permission crate's `RiskLevel` to common crate's `RiskLevel`.
-fn map_risk_level(level: closeclaw_permission::engine::engine_risk::RiskLevel) -> RiskLevel {
+fn map_risk_level(level: EngineRiskLevel) -> RiskLevel {
     match level {
-        closeclaw_permission::engine::engine_risk::RiskLevel::Low => RiskLevel::Low,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Medium => RiskLevel::Medium,
-        closeclaw_permission::engine::engine_risk::RiskLevel::High => RiskLevel::High,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Critical => RiskLevel::Critical,
+        EngineRiskLevel::Low => RiskLevel::Low,
+        EngineRiskLevel::Medium => RiskLevel::Medium,
+        EngineRiskLevel::High => RiskLevel::High,
+        EngineRiskLevel::Critical => RiskLevel::Critical,
     }
 }
 
 /// Map common crate's `RiskLevel` to permission crate's `RiskLevel`.
-fn map_risk_level_to_permission(
-    level: RiskLevel,
-) -> closeclaw_permission::engine::engine_risk::RiskLevel {
+fn map_risk_level_to_permission(level: RiskLevel) -> EngineRiskLevel {
     match level {
-        RiskLevel::Low => closeclaw_permission::engine::engine_risk::RiskLevel::Low,
-        RiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
-        RiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
-        RiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
+        RiskLevel::Low => EngineRiskLevel::Low,
+        RiskLevel::Medium => EngineRiskLevel::Medium,
+        RiskLevel::High => EngineRiskLevel::High,
+        RiskLevel::Critical => EngineRiskLevel::Critical,
     }
 }
 
@@ -128,6 +127,23 @@ pub struct ToolPermissionCheckAdapter {
     pub config_manager: Arc<ConfigManager>,
     /// Approval flow for denial submission.
     pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+}
+
+/// Unified test constructor: bundle the real permission components into
+/// a [`ToolPermissionCheckAdapter`] behind the tools-owned
+/// [`ToolPermissionCheck`] port ([`crate::permission_check::PermDeps`]).
+pub(crate) fn real_permission_port(
+    engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    session_manager: Arc<SessionManager>,
+    config_manager: Arc<ConfigManager>,
+    approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+) -> crate::permission_check::PermDeps {
+    Arc::new(ToolPermissionCheckAdapter {
+        engine,
+        session_manager,
+        config_manager,
+        approval_flow,
+    })
 }
 
 fn map_body_to_permission(body: &PermRequestBody) -> PermissionRequestBody {
@@ -180,25 +196,26 @@ fn map_message_direction_to_permission(direction: &PermMessageDirection) -> Mess
     }
 }
 
-fn map_risk_level_to_perm(
-    level: closeclaw_permission::engine::engine_risk::RiskLevel,
-) -> PermRiskLevel {
+/// Map the permission engine's `RiskLevel` to the tools mirror
+/// [`PermRiskLevel`] (kept distinct from the common↔permission mappers
+/// above, which cover the inter-agent evaluation surface).
+fn map_engine_risk_to_perm(level: EngineRiskLevel) -> PermRiskLevel {
     match level {
-        closeclaw_permission::engine::engine_risk::RiskLevel::Low => PermRiskLevel::Low,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Medium => PermRiskLevel::Medium,
-        closeclaw_permission::engine::engine_risk::RiskLevel::High => PermRiskLevel::High,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Critical => PermRiskLevel::Critical,
+        EngineRiskLevel::Low => PermRiskLevel::Low,
+        EngineRiskLevel::Medium => PermRiskLevel::Medium,
+        EngineRiskLevel::High => PermRiskLevel::High,
+        EngineRiskLevel::Critical => PermRiskLevel::Critical,
     }
 }
 
-fn map_perm_risk_to_permission(
-    level: PermRiskLevel,
-) -> closeclaw_permission::engine::engine_risk::RiskLevel {
+/// Map the tools mirror [`PermRiskLevel`] to the permission engine's
+/// `RiskLevel`.
+fn map_perm_risk_to_engine(level: PermRiskLevel) -> EngineRiskLevel {
     match level {
-        PermRiskLevel::Low => closeclaw_permission::engine::engine_risk::RiskLevel::Low,
-        PermRiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
-        PermRiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
-        PermRiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
+        PermRiskLevel::Low => EngineRiskLevel::Low,
+        PermRiskLevel::Medium => EngineRiskLevel::Medium,
+        PermRiskLevel::High => EngineRiskLevel::High,
+        PermRiskLevel::Critical => EngineRiskLevel::Critical,
     }
 }
 
@@ -212,7 +229,7 @@ fn verdict_from_permission(response: PermissionResponse) -> PermVerdict {
             ..
         } => PermVerdict::Denied {
             reason,
-            risk_level: map_risk_level_to_perm(risk_level),
+            risk_level: map_engine_risk_to_perm(risk_level),
             approval_request_id,
         },
     }
@@ -277,7 +294,7 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         flow.submit_denial(
             &permission_caller,
             &map_body_to_permission(body),
-            map_perm_risk_to_permission(risk_level),
+            map_perm_risk_to_engine(risk_level),
             session_id,
             is_sub_agent,
         )

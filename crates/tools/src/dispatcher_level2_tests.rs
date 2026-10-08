@@ -23,7 +23,7 @@ use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_permission::Defaults;
 use tokio::sync::Mutex as TokioMutex;
 
-use crate::test_adapters::ToolPermissionCheckAdapter;
+use crate::test_adapters::real_permission_port;
 
 /// Bundle the real permission components behind the tools-owned port.
 fn to_perm_deps(
@@ -32,12 +32,7 @@ fn to_perm_deps(
     cm: Arc<ConfigManager>,
     af: Arc<TokioMutex<ApprovalFlow>>,
 ) -> PermDeps {
-    Arc::new(ToolPermissionCheckAdapter {
-        engine: perm,
-        session_manager: sm,
-        config_manager: cm,
-        approval_flow: af,
-    }) as PermDeps
+    real_permission_port(perm, sm, cm, af)
 }
 
 // ---------------------------------------------------------------------------

@@ -18,12 +18,12 @@ fn test_permission_check() -> PermDeps {
 }
 
 fn perm_port(perm: Arc<tokio::sync::RwLock<PermissionEngine>>) -> PermDeps {
-    Arc::new(crate::test_adapters::ToolPermissionCheckAdapter {
-        engine: perm,
-        session_manager: test_session_manager(),
-        config_manager: test_config_manager(),
-        approval_flow: correct_approval_flow(),
-    })
+    crate::test_adapters::real_permission_port(
+        perm,
+        test_session_manager(),
+        test_config_manager(),
+        correct_approval_flow(),
+    )
 }
 
 fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {

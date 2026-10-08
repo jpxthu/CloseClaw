@@ -23,7 +23,6 @@ type ApprovalMutex = TokioMutex<ApprovalFlow>;
 /// SessionManager so that `is_session_sub_agent` can resolve depths.
 async fn setup_sessions_with_depth(sm: &SessionManager, root_id: &str, child_id: &str) {
     use closeclaw_session::llm_session::ConversationSession;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use tokio::sync::RwLock;
 
@@ -41,7 +40,7 @@ async fn setup_sessions_with_depth(sm: &SessionManager, root_id: &str, child_id:
     let cs_root = ConversationSession::new(
         root_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     sm.conversation_sessions
         .write()
@@ -62,7 +61,7 @@ async fn setup_sessions_with_depth(sm: &SessionManager, root_id: &str, child_id:
     let cs_child = ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     sm.conversation_sessions
         .write()
