@@ -12,7 +12,7 @@
 | [cli](cli.md) | 终端对话、daemon 管理、配置向导 | ✅
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
 | [config](config.md) | 多文件配置结构、安全写入、热重载、凭据隔离 | ✅
-| [daemon](daemon.md) | 系统启动、优雅/强制关闭、后台任务生命周期 | ✅
+| [daemon](daemon.md) | 系统启动、优雅/强制关闭、系统级后台任务生命周期 | ✅
 | [debug_log](debug_log.md) | 调试日志框架：链路追踪、分级过滤、存储轮转、隐私脱敏 | ✅
 | [fake_llm](fake_llm.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试 | ✅
 | [gateway](gateway.md) | 多平台消息接入、斜杠指令分派、出站统一处理 | ✅
