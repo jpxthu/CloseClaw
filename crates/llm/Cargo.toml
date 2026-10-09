@@ -13,7 +13,6 @@ test-helpers = []
 # Internal crates
 closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
-closeclaw-session = { path = "../session" }
 
 # Async runtime
 tokio = { version = "=1.35.0", features = ["full"] }
@@ -52,6 +51,7 @@ async-stream = "0.3.6"
 anyhow = "1.0"
 mockito = "1.2"
 tempfile = "3"
+toml = "1"
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("server", "chat-legacy"))'] }

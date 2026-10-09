@@ -127,7 +127,7 @@ pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
     use serde_json::Map;
 
     fn make_request() -> InternalRequest {

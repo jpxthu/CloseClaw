@@ -168,7 +168,7 @@ impl PluginPipeline {
 mod tests {
     use super::*;
     use crate::types::{ContentBlock, ContentBlockType, UnifiedUsage};
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 

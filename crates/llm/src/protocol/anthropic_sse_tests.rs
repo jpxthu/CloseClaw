@@ -7,7 +7,7 @@ use super::{
 };
 use crate::protocol::test_support::make_sse_chunk_with_event;
 use crate::types::InternalRequest;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 use futures::StreamExt;
 
 fn make_request() -> InternalRequest {

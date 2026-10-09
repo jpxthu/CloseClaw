@@ -4,7 +4,7 @@ use reqwest::header::{HeaderMap, CONTENT_TYPE};
 
 use crate::protocol::{AnthropicProtocol, ChatProtocol};
 use crate::types::{InternalMessage, InternalRequest, RawContentBlock, ToolDefinition};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn make_request() -> InternalRequest {
     InternalRequest {

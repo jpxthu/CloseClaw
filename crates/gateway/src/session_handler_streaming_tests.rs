@@ -9,9 +9,8 @@
 use closeclaw_common::im_plugin::{AdapterError, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::{IMPlugin, StreamDone, StreamingSink};
-use closeclaw_llm::ChatSession;
 use closeclaw_llm::LLMError;
-use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };

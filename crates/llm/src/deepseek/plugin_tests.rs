@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::types::InternalRequest;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn make_request(level: ReasoningLevel) -> InternalRequest {
     InternalRequest {

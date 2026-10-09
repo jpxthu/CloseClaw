@@ -258,7 +258,7 @@ mod tests {
 
     // ── InternalRequest serde roundtrip tests ────────────────────────────────
 
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
 
     #[test]
     fn test_internal_request_basic_roundtrip() {

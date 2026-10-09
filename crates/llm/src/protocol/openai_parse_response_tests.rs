@@ -2,7 +2,7 @@
 //! - extracted to stay under the 1000-line file limit.
 use super::{ChatProtocol, InternalRequest, OpenAiProtocol};
 use crate::types::RawContentBlock;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn make_request() -> InternalRequest {
     InternalRequest {

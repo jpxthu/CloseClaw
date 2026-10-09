@@ -8,7 +8,7 @@ use std::sync::Arc;
 use crate::provider::Provider;
 use crate::types::{InternalMessage, InternalRequest};
 use crate::{LLMRegistry, StubProvider};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn stub_provider() -> Arc<dyn Provider> {
     Arc::new(StubProvider::new())

@@ -14,7 +14,7 @@ fn parse_provider_json_anthropic(v: serde_json::Value) -> InternalResponse {
         .expect("test: parse_response should succeed")
 }
 use crate::{ModelLister, Provider};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 // --- Provider trait tests ---
 

@@ -5,7 +5,7 @@
 //! 前缀稳定性原则: static → dynamic → history).
 
 use super::{ChatProtocol, InternalMessage, InternalRequest, OpenAiProtocol};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn make_request() -> InternalRequest {
     InternalRequest {

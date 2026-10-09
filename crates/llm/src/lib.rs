@@ -19,7 +19,6 @@ mod fallback_tests;
 pub mod glm;
 pub mod http_client;
 pub mod knowledge;
-pub mod llm_caller;
 pub mod minimax;
 pub mod model_cache;
 pub mod model_discovery;
@@ -53,6 +52,8 @@ pub mod client;
 #[cfg(test)]
 mod client_test;
 pub mod debug_log;
+#[cfg(test)]
+mod dependency_boundary_tests;
 pub mod interpreter;
 #[cfg(test)]
 mod interpreter_mimo_tests;
@@ -95,7 +96,6 @@ pub use volcengine::VolcEngineProvider;
 pub use stub::StubProvider;
 
 pub use client::UnifiedChatClient;
-pub use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 pub use interpreter::{
     AnthropicInterpreter, DeepSeekInterpreter, DefaultInterpreter, GlmInterpreter,
     InterpreterRegistry, MimoInterpreter, MinimaxInterpreter, ModelInterpreter,

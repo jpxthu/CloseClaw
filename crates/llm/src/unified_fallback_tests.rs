@@ -41,7 +41,7 @@ fn mock_entry(provider_id: &str, model_id: &str) -> ChainEntry {
 
 fn make_request(model: &str) -> InternalRequest {
     use crate::types::InternalMessage;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
 
     InternalRequest {
         model: model.to_string(),

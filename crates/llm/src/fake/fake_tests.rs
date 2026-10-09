@@ -2,7 +2,7 @@ use super::super::provider::{Provider, ProviderError};
 use super::super::types::{InternalMessage, InternalRequest, ProtocolId, RawContentBlock};
 use super::fake_scenario::DeliveryConfig;
 use super::*;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 use std::time::{Duration, Instant};
 
 /// Extract the assistant text content from a raw JSON response.
