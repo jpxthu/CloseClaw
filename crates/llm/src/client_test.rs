@@ -19,7 +19,7 @@ use crate::types::{
     InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage, StreamEvent,
     UnifiedResponse, UnifiedUsage,
 };
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 use crate::client::UnifiedChatClient;
 

@@ -9,7 +9,7 @@
 
 use crate::plugin::ModelPlugin;
 use crate::types::InternalRequest;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 /// Anthropic capabilities table.
 /// Only `High` is natively supported; Off maps to `Low` (minimum available).

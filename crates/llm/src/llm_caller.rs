@@ -16,7 +16,7 @@ use crate::streaming::{StreamDone, StreamingSink};
 use crate::types::{ContentDelta, InternalMessage, InternalRequest, StreamEvent, UnifiedResponse};
 use crate::LLMError;
 
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 /// Trait for extracting metadata needed by LLM calls without depending
 /// on the gateway crate's `MessageMetadata`.

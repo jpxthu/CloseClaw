@@ -2,7 +2,7 @@
 
 use super::*;
 use crate::types::{InternalMessage, ToolDefinition};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 
 fn make_request(level: ReasoningLevel) -> InternalRequest {
     InternalRequest {
@@ -509,7 +509,7 @@ fn test_pipeline_glm_plugin_runs_for_any_model() {
     use crate::glm::plugin::GlmPlugin;
     use crate::plugin::PluginPipeline;
     use crate::types::InternalRequest;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
 
     let pipeline = PluginPipeline::new().add(Box::new(GlmPlugin));
 
@@ -543,7 +543,7 @@ fn test_pipeline_deepseek_plugin_runs_for_any_model() {
     use crate::deepseek::plugin::DeepSeekPlugin;
     use crate::plugin::PluginPipeline;
     use crate::types::InternalRequest;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
 
     let pipeline = PluginPipeline::new().add(Box::new(DeepSeekPlugin));
 

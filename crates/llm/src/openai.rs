@@ -188,7 +188,7 @@ impl Provider for OpenAIProvider {
 mod tests {
     use super::*;
     use crate::types::InternalMessage;
-    use closeclaw_session::persistence::ReasoningLevel;
+    use closeclaw_common::ReasoningLevel;
     use mockito::Server;
 
     // Re-export for test use

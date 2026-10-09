@@ -3,7 +3,7 @@
 use super::*;
 use crate::provider::Provider;
 use crate::types::{InternalMessage, InternalRequest};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 use serde_json::json;
 
 // -------------------------------------------------------------------------

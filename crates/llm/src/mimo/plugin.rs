@@ -11,7 +11,7 @@
 
 use crate::plugin::ModelPlugin;
 use crate::types::InternalRequest;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 use serde_json::json;
 
 /// Plugin that enriches MiMo requests with provider-specific parameters.

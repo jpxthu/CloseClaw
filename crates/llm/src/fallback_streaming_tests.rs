@@ -7,7 +7,7 @@ use crate::fallback::ModelEntry;
 use crate::fallback_tests::{isolated_client, mock_provider_client, mock_provider_headers};
 use crate::provider::Provider;
 use crate::types::{InternalMessage, InternalRequest, ProtocolId, RawSseChunk};
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_common::ReasoningLevel;
 use futures::StreamExt;
 use std::sync::Arc;
 use tokio::sync::mpsc;

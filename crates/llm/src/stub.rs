@@ -169,7 +169,7 @@ mod tests {
             system_blocks: None,
             tools: None,
             session_id: None,
-            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+            reasoning_level: closeclaw_common::ReasoningLevel::default(),
             turn_count: None,
         };
 
@@ -206,7 +206,7 @@ mod tests {
             tools: None,
             system_blocks: None,
             session_id: None,
-            reasoning_level: closeclaw_session::persistence::ReasoningLevel::default(),
+            reasoning_level: closeclaw_common::ReasoningLevel::default(),
             turn_count: None,
         };
 
