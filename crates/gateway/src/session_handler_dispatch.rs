@@ -21,7 +21,7 @@ use crate::session_manager::SessionManager;
 use crate::HandleResult;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_llm::session_state::LlmState;
-use closeclaw_llm::ChatSession;
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::PendingMessage;
 
 // ── Active-searcher trigger helpers ─────────────────────────────────
