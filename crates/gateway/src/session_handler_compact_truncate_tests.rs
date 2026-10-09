@@ -10,8 +10,7 @@ use closeclaw_common::ContentBlock;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::compaction::CompactConfig;
-use closeclaw_session::llm_session::ChatSession;
-use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::ReasoningLevel;
 use std::sync::Arc;
 

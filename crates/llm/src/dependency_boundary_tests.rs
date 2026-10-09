@@ -103,8 +103,8 @@ fn test_only_allowed_workspace_crates_are_declared_as_internal_deps() {
     assert_eq!(
         internal,
         vec!["closeclaw-common", "closeclaw-debug-log"],
-        "llm must depend on exactly the allowed workspace crates: \
-         closeclaw-common and closeclaw-debug-log"
+        "llm internal workspace deps must be exactly \
+         [closeclaw-common, closeclaw-debug-log] (pinned dependency surface)"
     );
 }
 
