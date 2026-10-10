@@ -26,8 +26,8 @@ use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use crate::validators::{CredentialProviderSet, CrossRefData};
 
 /// Snapshot of all config sections at a point in time, broadcast via
-/// `ConfigManager` after each successful reload so downstream components
-/// (e.g. `SessionManager`) can swap to the latest config lock-free.
+/// `ConfigManager` after each successful reload. Readers need no
+/// `ConfigManager` lock: the map is cloned under the sections RwLock.
 pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 
 // ---------------------------------------------------------------------------
