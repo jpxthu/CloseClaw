@@ -8,7 +8,7 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
-use closeclaw_common::agent_config::ResolvedAgentConfig;
+use closeclaw_common::ResolvedAgentConfig;
 use tracing::info;
 
 use crate::agents::{

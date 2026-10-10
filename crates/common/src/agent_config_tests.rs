@@ -1,8 +1,7 @@
 //! Tests for the agent config type family (serde / Default / effective_*).
 //!
 //! Migrated from `closeclaw_config::agents::config_types` alongside the type
-//! definitions in `agent_config.rs` (issue #3344); regression coverage for
-//! the migration added in Step 1.7.
+//! definitions in `agent_config.rs` (issue #3344).
 
 use super::*;
 use crate::{BootstrapMode, MemoryConfig};
@@ -17,7 +16,8 @@ fn test_subagents_config_timeout_serialize() {
     };
     let json = serde_json::to_string(&config).unwrap();
     assert!(json.contains("\"timeout\""));
-    assert!(json.contains("120"));
+    let round_tripped: SubagentsConfig = serde_json::from_str(&json).unwrap();
+    assert_eq!(round_tripped.timeout, Some(120));
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn test_effective_disallowed_tools_empty_none_non_empty_some() {
 // ── Resolved product carries no source marker (issue #3344) ───────
 
 // Compile-level confirmation: `source` / `ConfigSource` were removed from
-// the resolved product (Step 1.5 field alignment against
+// the resolved product (field alignment against
 // docs/design/common/shared-types.md). Exhaustive destructuring without
 // `..` fails to compile (E0027, "pattern does not mention field") if a
 // `source` field — or any field outside the authoritative schema — is

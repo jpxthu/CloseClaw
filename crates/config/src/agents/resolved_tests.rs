@@ -4,8 +4,9 @@
 //! maxChildren) from the design doc alignment plan.
 
 use crate::agents::config_types::AgentConfig;
-use closeclaw_common::agent_config::SubagentsConfig;
-use closeclaw_common::{BootstrapMode, HookConfig, HookParams, HookType, ModelSpec};
+use closeclaw_common::{
+    BootstrapMode, HookConfig, HookParams, HookType, ModelSpec, SubagentsConfig,
+};
 
 use super::{from_single, merge};
 

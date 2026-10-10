@@ -25,7 +25,8 @@ use closeclaw_config::agents::{AgentConfig, AgentsConfigProvider};
 /// Creates a [`ResolvedAgentConfig`] for testing purposes.
 ///
 /// Given an agent `id` and an optional `parent_id`, builds a default
-/// [`AgentConfig`] and returns a fully resolved configuration suitable for [`SharedAgentRegistry::populate`].
+/// [`AgentConfig`] and returns a fully resolved configuration suitable
+/// for [`SharedAgentRegistry::populate`].
 fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfig {
     let cfg = AgentConfig {
         id: id.to_string(),

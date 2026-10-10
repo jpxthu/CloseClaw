@@ -4,13 +4,12 @@
 //! crate dropped its `closeclaw-config` dependency (issue #3344): these
 //! types are defined here, so their behavioral tests live here too.
 
-#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+#![allow(deprecated)] // default_child_agent is deprecated; tests cover its parsing
 
 use std::collections::HashMap;
 
 use super::*;
-use closeclaw_common::agent_config::SubagentsConfig;
-use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_common::{BootstrapMode, ModelSpec, SubagentsConfig};
 use tempfile::TempDir;
 
 #[test]

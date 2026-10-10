@@ -37,8 +37,7 @@ use std::path::PathBuf;
 
 use crate::agents::config_types::AgentConfig;
 use crate::ConfigError;
-use closeclaw_common::agent_config::{ResolvedAgentConfig, SubagentsConfig};
-use closeclaw_common::{BootstrapMode, MemoryConfig};
+use closeclaw_common::{BootstrapMode, MemoryConfig, ResolvedAgentConfig, SubagentsConfig};
 
 /// Return project's Vec if non-empty, otherwise fall back to user's.
 ///

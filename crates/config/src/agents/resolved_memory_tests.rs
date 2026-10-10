@@ -4,15 +4,13 @@ use crate::agents::config_types::AgentConfig;
 
 use super::{from_single, merge};
 
-use closeclaw_common::agent_config::SubagentsConfig;
-
 // ------------------------------------------------------------------
 // MemoryConfig field-level merge: merge_overrides
 // ------------------------------------------------------------------
 
 use closeclaw_common::{
     DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
-    MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig,
+    MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig, SubagentsConfig,
 };
 
 /// Build a global MemoryConfig with non-default values.

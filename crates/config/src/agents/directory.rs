@@ -13,8 +13,7 @@ use tracing::warn;
 use crate::agents::config_types::AgentConfig;
 use crate::agents::resolved::{from_single, merge};
 use crate::ConfigError;
-use closeclaw_common::agent_config::ResolvedAgentConfig;
-use closeclaw_common::MemoryConfig;
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig};
 
 /// Loads agent configurations from user-level and optional project-level
 /// directories, filtered by a registration list.

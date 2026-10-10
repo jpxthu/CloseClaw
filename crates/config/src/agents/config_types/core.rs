@@ -1,13 +1,14 @@
 //! Agent configuration types — config.json and permissions.json structures
 //! for per-agent config files.
 //!
-//! Migrated from `closeclaw-common::agent_config`.
-//! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
+//! The shared resolved-config type family migrated to `closeclaw_common`
+//! (issue #3344); this crate keeps the raw `AgentConfig` and construction
+//! logic.
+//! Design: `docs/design/agent/agent-config.md`
 
 use serde::{Deserialize, Serialize};
 
-use closeclaw_common::agent_config::SubagentsConfig;
-use closeclaw_common::{BootstrapMode, HookConfig, MemoryConfig, ModelSpec};
+use closeclaw_common::{BootstrapMode, HookConfig, MemoryConfig, ModelSpec, SubagentsConfig};
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
 ///

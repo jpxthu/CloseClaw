@@ -125,7 +125,7 @@ pub struct ResolvedAgentConfig {
 impl ResolvedAgentConfig {
     /// Check whether a list is a wildcard (empty or `["*"]`), meaning
     /// "no filtering — allow all".
-    pub fn is_wildcard_list(list: &[String]) -> bool {
+    fn is_wildcard_list(list: &[String]) -> bool {
         list.is_empty() || list == ["*"]
     }
     /// Return the effective skills whitelist.
