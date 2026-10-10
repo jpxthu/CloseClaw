@@ -857,3 +857,56 @@ fn test_merge_subagents_model_project_none_falls_back_to_user() {
         Some(ModelSpec::single("claude-3"))
     );
 }
+
+// ------------------------------------------------------------------
+// noBootstrap parsing (issue #3344 field alignment)
+// ------------------------------------------------------------------
+
+#[test]
+fn test_no_bootstrap_undeclared_defaults_false() {
+    // config.json without `noBootstrap` → raw None, resolved false
+    // (normal path: bootstrap files load per bootstrap_mode).
+    let config: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    assert_eq!(config.no_bootstrap, None);
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert!(!resolved.no_bootstrap);
+}
+
+#[test]
+fn test_no_bootstrap_explicit_true_resolves_true() {
+    // Explicit `noBootstrap: true` → resolved true (explicit declaration
+    // boundary: sessions run without bootstrap files).
+    let config: AgentConfig =
+        serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    assert_eq!(config.no_bootstrap, Some(true));
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_project_true_overrides_user_none() {
+    // Two-level merge wiring: project's Some(true) wins over user None.
+    let project: AgentConfig =
+        serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    let user = make_user_config();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_project_none_falls_back_to_user_true() {
+    // Two-level merge wiring: project None → user's Some(true) applies.
+    let project: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let user: AgentConfig = serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_undeclared_both_levels_false() {
+    // Two-level merge wiring: None at both levels → resolved default false.
+    let project: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let user: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(!resolved.no_bootstrap);
+}

@@ -375,3 +375,92 @@ fn test_default_forgetting_values() {
     assert_eq!(default_forgetting_reidentify_extension_days(), 90);
     assert_eq!(default_forgetting_injection_extension_days(), 7);
 }
+
+// ── MemoryStorageConfig tests ───────────────────────────────────────
+
+#[test]
+fn test_memory_storage_config_camel_case_roundtrip() {
+    let json = r#"{
+        "dbPath": "memory/agent-a.db",
+        "memoryMdPath": "memory/MEMORY.md"
+    }"#;
+    let config: MemoryStorageConfig = serde_json::from_str(json).unwrap();
+    assert_eq!(config.db_path.as_deref(), Some("memory/agent-a.db"));
+    assert_eq!(config.memory_md_path.as_deref(), Some("memory/MEMORY.md"));
+    let serialized = serde_json::to_string(&config).unwrap();
+    assert!(serialized.contains("\"dbPath\""));
+    assert!(serialized.contains("\"memoryMdPath\""));
+}
+
+// ── MemoryConfig::merge_overrides field-level semantics ────────────
+
+#[test]
+fn test_memory_config_merge_overrides_field_level() {
+    // Agent-declared fields override global; undeclared (None) fields
+    // inherit the global value — across every subsystem at once.
+    let global = MemoryConfig {
+        storage: MemoryStorageConfig {
+            db_path: Some("memory/global.db".to_string()),
+            memory_md_path: Some("memory/MEMORY.md".to_string()),
+        },
+        mining: MiningConfig {
+            enabled: Some(true),
+            max_events_per_session: Some(10),
+            ..Default::default()
+        },
+        dreaming: DreamingConfig {
+            schedule: Some("0 3 * * *".to_string()),
+            threshold: DreamingThresholdConfig {
+                absolute: Some(2.0),
+                relative: None,
+            },
+            ..Default::default()
+        },
+        search: SearchConfig {
+            timeout_ms: Some(3000),
+            top_k_events: Some(3),
+            ..Default::default()
+        },
+        forgetting: ForgettingConfig {
+            initial_ttl_days: Some(90),
+            ..Default::default()
+        },
+    };
+    let agent = MemoryConfig {
+        storage: MemoryStorageConfig {
+            db_path: Some("memory/agent-a.db".to_string()),
+            memory_md_path: None,
+        },
+        mining: MiningConfig {
+            enabled: Some(false),
+            max_events_per_session: None,
+            ..Default::default()
+        },
+        dreaming: DreamingConfig {
+            schedule: None,
+            threshold: DreamingThresholdConfig {
+                absolute: None,
+                relative: Some(0.3),
+            },
+            ..Default::default()
+        },
+        search: SearchConfig {
+            timeout_ms: None,
+            top_k_events: Some(5),
+            ..Default::default()
+        },
+        forgetting: ForgettingConfig::default(),
+    };
+    let merged = global.merge_overrides(&agent);
+    // Agent overrides win where declared…
+    assert_eq!(merged.storage.db_path.as_deref(), Some("memory/agent-a.db"));
+    assert_eq!(merged.mining.enabled, Some(false));
+    assert_eq!(merged.dreaming.threshold.relative, Some(0.3));
+    assert_eq!(merged.search.top_k_events, Some(5));
+    // …global values survive where the agent left the field undeclared.
+    assert_eq!(merged.mining.max_events_per_session, Some(10));
+    assert_eq!(merged.dreaming.schedule.as_deref(), Some("0 3 * * *"));
+    assert_eq!(merged.dreaming.threshold.absolute, Some(2.0));
+    assert_eq!(merged.search.timeout_ms, Some(3000));
+    assert_eq!(merged.forgetting.initial_ttl_days, Some(90));
+}
