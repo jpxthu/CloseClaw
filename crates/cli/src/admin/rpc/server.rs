@@ -11,9 +11,9 @@ use tokio::net::{UnixListener, UnixStream};
 use crate::admin::rpc::protocol::{
     AdminRequest, AdminResponse, AgentInfo, AgentInfoResult, SkillInfo,
 };
-use closeclaw_agent::config::AgentConfig;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::{ModelSpec, SkillRegistryQuery};
+use closeclaw_config::agents::AgentConfig;
 use closeclaw_config::manager::write_atomically;
 use closeclaw_config::ConfigManager;
 

@@ -6,9 +6,8 @@ pub mod types;
 pub use fetch::*;
 pub use types::*;
 
-use closeclaw_agent::config::AgentConfig;
 use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{AgentsConfig, AgentsConfigProvider};
+use closeclaw_config::agents::{AgentConfig, AgentsConfig, AgentsConfigProvider};
 use closeclaw_config::providers::{
     credentials::{AnyProviderCredentials, ApiKeyCredentials},
     models::{ModelDefinition, ModelsConfigData, ProviderConfig},

@@ -10,9 +10,9 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 // Test imports — from the library crate
 // ---------------------------------------------------------------------------
-use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
-use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
+use closeclaw_common::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::{AgentConfig, AgentsConfigProvider};
 
 // ---------------------------------------------------------------------------
 // Helper builders
@@ -33,7 +33,7 @@ fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfi
         parent_id: parent_id.map(String::from),
         ..Default::default()
     };
-    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, ConfigSource::User, "<test>", None).unwrap()
 }
 
 #[tokio::test]

@@ -15,7 +15,7 @@ use super::{
     build_searcher_config, deserialize_memory_config, forgetting_params_from_memory_config,
     search_params_from_memory_config, snapshots_to_internal_messages, summary_to_slot_parts,
 };
-use closeclaw_config::agents::{ForgettingConfig, MemoryConfig, SearchConfig};
+use closeclaw_common::{ForgettingConfig, MemoryConfig, SearchConfig};
 use closeclaw_memory::params::{
     default_forgetting_injection_extension_days, default_search_context_turns,
     default_search_max_summary_chars, default_search_min_entity_hits, default_search_timeout_ms,

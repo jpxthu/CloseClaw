@@ -28,11 +28,11 @@ use tokio::sync::RwLock;
 fn test_resolved_config(
     id: &str,
     workspace: Option<PathBuf>,
-) -> closeclaw_config::agents::ResolvedAgentConfig {
-    use closeclaw_config::agents::SubagentsConfig;
-    use closeclaw_config::agents::{ConfigSource, MemoryConfig};
+) -> closeclaw_common::ResolvedAgentConfig {
+    use closeclaw_common::SubagentsConfig;
+    use closeclaw_common::{ConfigSource, MemoryConfig};
 
-    closeclaw_config::agents::ResolvedAgentConfig {
+    closeclaw_common::ResolvedAgentConfig {
         id: id.to_string(),
         name: id.to_string(),
         parent_id: None,

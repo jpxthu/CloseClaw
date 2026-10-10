@@ -10,9 +10,8 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::{ConfigSource, ResolvedAgentConfig, SubagentsConfig};
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
-use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
 
 use super::controller::{
     AgentSpawnBudget, SpawnBudgetLookup, SpawnContext, SpawnController, SpawnTargetAgentConfig,
