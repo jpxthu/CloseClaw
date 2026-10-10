@@ -6,7 +6,7 @@
 
 ## 架构
 
-共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、卡片事件、compaction 结果、LLM 请求结构族、Agent 通信权限、权限评估与审批载荷、hook 配置、关停状态、四维执行状态、媒体错误、工具/斜杠/会话/LLM 契约载荷与辅助类型等）不参与此方向流，其类型内流动路径见 [shared-types](shared-types.md) 各类型数据流节，完整的共享类型清单见 [shared-types](shared-types.md)。
+共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、卡片事件、compaction 结果、LLM 请求结构族、Agent 通信权限、权限评估与审批载荷、hook 配置、Agent 配置档案（ResolvedAgentConfig）、关停状态、四维执行状态、媒体错误、工具/斜杠/会话/LLM 契约载荷与辅助类型等）不参与此方向流，其类型内流动路径见 [shared-types](shared-types.md) 各类型数据流节，完整的共享类型清单见 [shared-types](shared-types.md)。
 
 - **入站类型**：从外部消息进入系统，经处理后进入 LLM 对话（或经 Gateway 路由到斜杠指令流程）
 - **出站类型**：LLM 或斜杠指令产出，经处理后发送到外部
@@ -71,6 +71,7 @@ IM Adapter 发送
 - **[UnifiedResponse / UnifiedUsage](shared-types.md#unifiedresponse--unifiedusage)**：非流式 LLM 调用的统一响应，其 ContentBlock[] 即上图的出站起点；usage 由 [RunningStats](shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds) 累加。
 - **[RenderedOutput](shared-types.md#renderedoutput)**：IMPlugin 渲染产出的平台原生消息结构 → [Gateway 中间件] → IMPlugin 发送。渲染与发送之间的中间件插入点为批量模式；流式模式下中间件为渲染前的一次性预检（pre-flight）。
 - **[StreamingOutput](shared-types.md#streamingoutput)**：流式渲染单批产出（完整文本行 + 本批完成的非文本块），流式发送链路中由平台组装为 RenderedOutput 后发送。
+- **[ContentSegment](shared-types.md#contentsegment--内容段落解析)**：平台无关的内容段解析产出（Markdown / Hr / CodeBlock），批量渲染路径中由 im_adapter（飞书平台渲染）、cli（TerminalRenderer）消费。
 
 ### 跨方向类型
 

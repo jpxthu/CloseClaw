@@ -19,15 +19,19 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 | `platform` | string | 平台标识，如 `"feishu"`、`"terminal"` |
 | `sender_id` | string | 发送者的平台内 ID |
 | `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同（如私聊的「对方用户 + 话题」组合、群聊的群 ID） |
+| `thread_id` | string? | 话题/线程 ID（支持线程的平台上用于线程回复）；不参与 session_key 计算 |
 | `reply_ref` | string? | 出站定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用（如话题根消息标识），用于把回复投递回原会话位置。不参与 session 路由。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
 | `account_id` | string | CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到。参与 session 路由 |
+| `chat_name` | string | 聊天/群名称（如飞书群标题），由 Adapter 从平台元数据填充，可为空 |
+| `trace_id` | string | 分布式追踪标识，webhook 到达时生成，用于调试日志链路串联 |
+| `message_id` | string | 平台消息标识（飞书顶层消息 ID等），由 Adapter 解析时填入，可为空 |
 | `content` | string | 消息文本内容。纯媒体消息时可为空 |
 | `message_type` | enum | 消息类型：text / image / file / audio / post。post 为含内嵌媒体的富文本消息——展开文本入 content，内嵌媒体入 media_refs |
 | `media_refs` | list(MediaRef) | 消息携带的媒体引用列表。Adapter 在入站解析时完成媒体落盘并填充，下游一律以引用消费，不接触平台下载地址与凭证。落盘与消费机制见 [im_adapter media-store](../im_adapter/media-store.md) |
 | `unavailable_media` | list(string) | 消息引用但未能获得的媒体资源标识列表（下载失败或超出大小上限）。由 Adapter 在入站解析时填充；失败媒体不进入 media_refs、仅记录于此。非空时 Gateway 按媒体不可得处理（提示用户、不进入对话），见 [im_adapter media-store](../im_adapter/media-store.md) |
 | `timestamp` | int | 消息发送时间（毫秒级 Unix 时间戳） |
 
-**机器人身份（app_id）**：机器人自身标识（app_id）不属于 NormalizedMessage 字段。IM Adapter 在入站解析时单独提取 app_id，不经归一化结构传递，直接交给 Gateway 用于 Agent 路由（选择处理该机器人消息的 Agent）。
+**机器人身份（接收方机器人应用）**：接收方机器人应用标识（bot_app_id）不进入 NormalizedMessage 的字段表。IM Adapter 在入站解析时单独提取，用于 Agent 路由（选择处理该机器人消息的 Agent），并作为 `account_id` 身份映射键的一部分（见 [core-traits IdentityResolver](core-traits.md#identityresolver)）。
 
 **引用/回复消息处理**：IM Adapter 在解析被引用的消息时，将其内容渲染为 markdown blockquote（`> 引用内容`），截断至 500 字符（超出追加 `...`），拼接在 `content` 字段之前（对 text 与 post 消息均适用）。不传递独立的引用消息字段——LLM 在对话文本中直接看到 blockquote。
 
@@ -70,11 +74,13 @@ CardActionEvent 是用户与消息内嵌交互控件（按钮、选择器等）�
 
 `account_id` 为可选的原因：部分平台交互事件不携带租户/账号上下文，此时留空；填值时的解析方式与会话隔离语义同 [NormalizedMessage §身份映射](#normalizedmessage)。
 
+> **平台现状**：当前各 IM 平台（如飞书）将卡片交互事件列为暂缓——不进入消息通路、仅记录调试日志；启用时按本节设计接入（见 [im_adapter 飞书 · 事件分流](../im_adapter/platforms/feishu.md)）。
+
 ### ContentBlock
 
 ContentBlock 是跨模块传递的结构化内容单元。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。流式场景下，同一份内容以 [StreamEvent](#streamevent) 增量事件形式传递，完整块由消费方按事件边界组装。
 
-ContentBlock 共 7 种变体，按语义和渲染策略分为两类：
+ContentBlock 共 7 种变体，按语义和渲染策略分为两类（变体来源：LLM 协议层归一化产出 Text/Thinking/ToolUse/ToolResult 四种，详见 [llm protocol-mapping](../llm/protocol-mapping.md)；Image/Audio/File 三种不由 LLM 产出，用于非流式路径的媒体交付）：
 
 **文本类变体**：
 
@@ -242,7 +248,7 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本；非 text 消息跳过标准化，此格为原样内容的 Text 包装，后续由 Gateway 按媒体可得性分型路由，见下方数据流），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
-| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识）、`message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做分型路由判断）和 `unavailable_media`（不可得媒体资源标识列表，JSON 序列化，同样复制，供 Gateway 做媒体可得性判断）；出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化）。metadata 字段的复制均发生在链调度构建 ProcessedMessage 时——各 Processor 不修改 NormalizedMessage 字段，复制不构成对消息的修改 |
+| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识，用于日志追踪）、`trace_id`（IM Adapter 入站生成、随消息流转）、`platform` / `sender_id` / `peer_id`（SessionRouter 写入的稳定路由键组成部分）、`message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做分型路由判断）和 `unavailable_media`（不可得媒体资源标识列表，JSON 序列化，同样复制，供 Gateway 做媒体可得性判断）；出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化）。metadata 字段的复制均发生在链调度构建 ProcessedMessage 时——各 Processor 不修改 NormalizedMessage 字段，复制不构成对消息的修改 |
 
 入站和出站不区分类型——同一个 ProcessedMessage 结构，内容形态和 metadata 字段按方向不同而不同。
 
@@ -267,7 +273,7 @@ SlashResult 共 10 种变体：
 
 **执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。高危指令（Exec、Git 写操作）的权限校验由 Gateway 在触发执行前经 Permission 引擎完成（校验通过方继续，拒绝则返回权限错误），不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
 
-**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（如 `/perm register`）同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——新用户注册的载荷结构见 [UserRegistration / UserCreationRequest / InitialPermissionSet](#userregistration--usercreationrequest--initialpermissionset)。
+**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（如 `/perm <subcmd>` 系列（allow-file/deny-file/allow-cmd/deny-cmd））同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——新用户注册的载荷结构见 [UserRegistration / UserCreationRequest / InitialPermissionSet](#userregistration--usercreationrequest--initialpermissionset)。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
@@ -315,6 +321,8 @@ FragmentContext 是 PromptFragmentProvider 片段生成时的输入上下文，�
 | `session_role` | enum | Session 角色：SessionRole::Main（主 Agent Session）或 SessionRole::Sub（子 Session）。长期记忆（MEMORY.md）与自定义引导指令（BOOTSTRAP.md）按此角色门控加载，与身份加载模式无关 |
 | `bootstrap_mode` | enum | 身份加载模式，取值来自 agent 配置的 `bootstrapMode`：BootstrapMode::Minimal（精简）或 BootstrapMode::Full（完整），仅在主 Agent Session 决定是否注入自定义引导指令（BOOTSTRAP.md）。子 Session 不据此注入可选内容 |
 | `bootstrap_dir` | string | bootstrap 文件所在目录，BootstrapFragmentProvider 按此查找 bootstrap 文件。值来源于 agent 配置的 agentDir 字段 |
+| `activated_skills` | list(string) | 当前 session 已条件激活的技能名列表，由 Session 模块在 SP 重建时按值传入，SkillsFragmentProvider 据此把已激活条件技能纳入清单（仅 SP 重建路径有效） |
+| `tool_registry` | ToolRegistryQuery? | 供需要工具信息的 Provider（如 ToolsFragmentProvider）直接查询的工具注册表引用；来自 InjectionParams，缺省回退 Provider 默认 |
 
 Session 角色（主/子）在主 Session 创建 / spawn 子 Session 时确定，由 SessionManager 在触发构建时同 agent_id 一并传给 Builder 写入 FragmentContext。身份加载模式（bootstrap_mode）是 agent 配置的静态属性；两者正交——主 Agent Session 精简模式下 session_role 仍为 Main。
 
@@ -330,7 +338,7 @@ PromptFragment 是单个 PromptFragmentProvider 产出的静态层片段。
 
 ### RenderedOutput
 
-RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。流式场景下渲染以增量方式进行：StreamingRenderer 每处理完一批事件产出一个 StreamingOutput（见 [core-traits StreamingRenderer](core-traits.md#streamingrenderer)），平台将其组装为整条 RenderedOutput 后发送，不再单独定义平台消息结构。
+RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构。渲染产出数据，发送执行副作用——Gateway 在两步之间插入中间件（审计、频率限制等）。流式场景下渲染以增量方式进行：StreamingRenderer 每处理完一批事件产出一个 StreamingOutput（见 [core-traits StreamingRenderer](core-traits.md#streamingrenderer)），平台按本批内容渲染或增量更新平台消息（不预先组装为最终整条消息），不再单独定义平台消息结构。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -341,14 +349,14 @@ RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构�
 
 #### StreamingOutput
 
-StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投递的文本内容列表（完整文本行或强制输出时的行内片段），加本批内累积完整的非文本块。被 common 内 IMPlugin trait 的流式方法签名直接引用，gateway 在流式出站管线中消费——满足共享类型准入条件。
+StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投递的文本内容列表（完整文本行或强制输出时的行内片段），加本批内累积完整的非文本块。被 common 的 [StreamingRenderer](core-traits.md#streamingrenderer) 处理单批事件产出、各平台插件持有并委托调用；其流式发送逻辑将本批内容组装为 RenderedOutput 后经 IMPlugin 的发送能力投递（不经 IMPlugin 的渲染方法），gateway 在流式出站管线中传递该结构——满足共享类型准入条件。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `text_messages` | list(string) | 本批输出的文本内容：行边界达成的完整文本行，或触发强制输出（缓冲超阈值/超时）时的行内片段。缓冲与阈值规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md) |
 | `render_blocks` | ContentBlock[] | 本批内累积完整的非文本块（Thinking/ToolUse），等待全块就绪的渲染策略在此交付 |
 
-StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式发送完成，不进入 Session 或日志持久化。行缓冲和分批规则见 [im_adapter streaming-render](../im_adapter/streaming-render.md)。
+StreamingOutput 是渲染过程的中间产物，生命周期止于本次流式发送完成，不进入 Session 或日志持久化。行缓冲/阈值/分批的默认规则由 [StreamingRenderer 默认实现](core-traits.md#streamingrenderer)（位于 common）提供，平台差异化渲染策略见 [im_adapter streaming-render](../im_adapter/streaming-render.md)。
 
 ### ContentSegment / 内容段落解析
 
@@ -489,7 +497,7 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 - **ChildSessionState**：子 Session 状态——Running / Completed / Terminated / Errored。
 - **ChildCompletionStatus**：子 Session 完成状态（announce 时对 ChildSessionState 的快照）——Completed / Errored / Terminated。
 - **SessionActivityDimensions**：四维活跃快照（`llm_active` / `foreground_tool_active` / `background_tool_active` / `child_active`）。
-- **SessionExecStatus**：整体执行状态——Idle / Waiting / Busy。Idle 与 Busy 由四维标志派生；Waiting 是同为四维全 false 的特殊态，仅由 `sessions_yield` 主动让出 turn 产生。
+- **SessionExecStatus**：整体执行状态——Idle / Waiting / Busy。Idle 与 Busy 由四维标志派生；Waiting 是 `llm_active` 与 `foreground_tool_active` 均为 false（后台任务 / 子 Session 仍可活跃）的特殊态，仅由 `sessions_yield` 主动让出 turn 产生。
 
 状态模型与流转规则见 [session session-execution](../session/session-execution.md)。
 
@@ -592,12 +600,53 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 ### ModelSpec
 
-agent 模型规格——主模型 + 回退模型列表。纯值数据，无单一领域归属，被 agent、cli 等 2+ 模块消费（作为 agent 配置的模型字段、[AgentLookup](core-traits.md#agentlookup) 的模型查询返回类型、以及 [AgentConfigInfo](#agentconfiginfo) 的子 Agent 模型覆盖字段）。
+agent 模型规格——主模型 + 回退模型列表。纯值数据，无单一领域归属，被 config（作为 agent 配置的模型字段产出）与 cli（agent info 管理协议）等 2+ 模块消费（也作为 [AgentLookup](core-traits.md#agentlookup) 的模型查询返回类型、[AgentConfigInfo](#agentconfiginfo) 的子 Agent 模型覆盖字段）。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `primary` | string | 主模型标识，始终最先尝试 |
 | `fallback` | list(string) | 回退模型标识列表，主模型不可用时按序尝试（实际回退选择逻辑在 LLM 层） |
+
+### ResolvedAgentConfig / SubagentsConfig / MemoryConfig
+
+Agent 配置档案是 Agent 模块的核心数据对象（语义与需求见 [agent §F1/F6](../../requirements/agent.md)）：Config 模块按注册清单加载各 Agent 的 `config.json`、补齐默认值后产出 **ResolvedAgentConfig**，交由 Daemon 填充 AgentRegistry 作为运行时只读查询数据源，被 Session / Permission / System Prompt / Tools / Skills / Gateway / Daemon 等多个下游模块消费。因被 2+ 模块消费、无单一领域归属，其类型在此唯一定义；字段与 `config.json` 原始字段的对应关系、加载流程见 [agent/agent-config.md](../agent/agent-config.md)。
+
+**ResolvedAgentConfig 字段**：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `id` | string | Agent 唯一标识 |
+| `name` | string | 显示名称，未配置时回退 `id` |
+| `parent_id` | string? | 父 Agent ID（创建时写入、运行时不变；`null` 表示无父 Agent） |
+| `model` | [ModelSpec](#modelspec)? | 默认模型与回退列表 |
+| `workspace` | string? | 工作目录 |
+| `agent_dir` | string? | Bootstrap 文件所在目录 |
+| `bootstrap_mode` | [BootstrapMode](#会话注入辅助类型) | 身份加载模式 |
+| `no_bootstrap` | bool | 是否声明不使用任何 Bootstrap 文件（见 [agent §F1](../../requirements/agent.md)、[system_prompt §F8](../../requirements/system_prompt.md)） |
+| `skills` | list(string) | 技能白名单，`["*"]` 或空表示不限制 |
+| `tools` | list(string) | 工具白名单，`["*"]` 或空表示不限制 |
+| `disallowed_tools` | list(string) | 工具黑名单，与白名单交集时黑名单优先 |
+| `subagents` | SubagentsConfig | 子 Session 创建控制参数 |
+| `memory` | MemoryConfig? | 记忆子系统 per-agent 覆盖，未声明为 `null`（回退全局默认） |
+| `hooks` | list([HookConfig](#hookconfig--hookparams--hooktype)) | run-health hook 审查配置 |
+| `parallel_tool_calls` | bool | 是否允许并行工具调用 |
+
+ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析（默认值补齐），但不含运行时派生能力（权限过滤后的工具清单、运行模式决定的工具范围等由下游消费模块按需派生，见 [agent-registry §架构](../agent/agent-registry.md)）。`tools` / `skills` 保留静态字面值（`["*"]` 即字面 `["*"]`，不展开为具体工具名）。
+
+**SubagentsConfig 字段**（子 Session 创建控制，由 agent 配置定义、session 的 spawn 流程消费）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `allow_agents` | list(string) | 允许 spawn 的目标 Agent ID 白名单；`["*"]` 表示不限制，空数组表示禁止 spawn 任何子 Session（见 [agent §F9](../../requirements/agent.md)） |
+| `require_agent_id` | bool? | spawn 时是否必须显式指定 agentId，默认 `false` |
+| `max_spawn_depth` | int? | 本 Agent 允许的最大子孙层级数（0 表示禁止 spawn） |
+| `max_children` | int? | 最大并发活跃子 Session 数 |
+| `timeout` | int? | 子 Session 硬超时（秒），未指定回退全局默认 |
+| `timeout_warning` | int? | 子 Session 超时预警时长（秒），未指定回退全局默认 |
+| `timeout_notify_interval_ratio` | float? | 预警后循环通知间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
+| `model` | [ModelSpec](#modelspec)? | 子 Session 默认模型覆盖 |
+
+**MemoryConfig**：记忆子系统的 per-agent 覆盖结构（字段级覆盖全局 `memory.json`）。作为 ResolvedAgentConfig 的 `memory` 字段类型在此收录；其字段结构与默认值以 [memory/config](../memory/config.md) 为权威定义，本文档不重复。
 
 ### 消息/内容辅助类型
 
@@ -671,7 +720,7 @@ Processor Chain 入站
   → 产出 ProcessedMessage
   ↓
 Gateway 路由
-  → SessionManager 查找/创建 session → LLM 对话 / SlashDispatcher
+  → SessionManager 以稳定路由键（platform + sender_id + peer_id + account_id）查找/创建 session → LLM 对话 / SlashDispatcher（session_key 仅作日志追踪，不参与路由查找）
 ```
 
 NormalizedMessage 仅用于入站方向。出站方向使用 ContentBlock[]（LLM 输出）和 [ProcessedMessage](#processedmessage)（经 Processor Chain 处理后的中间结构），与 NormalizedMessage 无关。
@@ -749,7 +798,7 @@ ProcessedMessage {
   metadata: { session_key: "{timestamp}-{hash}", message_type: "<原始 message_type>", unavailable_media: "<不可得媒体资源标识列表 JSON>" }
 }
   ↓
-Gateway — 先检查 message_type：含媒体消息做媒体可得性校验（不可得 → 提示「该消息内容无法获取」经简化出站路径发送、流程结束；可得 → 按类型构造上下文形态后与文本同链路继续，形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；对话消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传给 SessionManager
+Gateway — 先检查 message_type：含媒体消息做媒体可得性校验（不可得 → 提示「该消息内容无法获取」经简化出站路径发送、流程结束；可得 → 按类型构造上下文形态后与文本同链路继续，形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；对话消息从 content_blocks[0] 取 Text 内容做路由决策（/ 开头 → 斜杠指令；否则 → LLM 对话），从 metadata 取 session_key 传入 SessionManager（仅作日志追踪；SessionManager 以稳定路由键 platform+sender_id+peer_id+account_id 做查找）
 ```
 
 出站方向：
@@ -1134,7 +1183,7 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 ### ProcessedMessage
 
 - **生产者**：Processor Chain 入站（ContentNormalizer 包装标准化文本为 ContentBlock::Text + SessionRouter 写 session_key 到 metadata）、Processor Chain 出站（DslParser 处理 ContentBlock[] + 写 dsl_result 到 metadata）
-- **消费者**：Gateway（入站：消费 content_blocks + metadata.session_key 做路由决策 + metadata.message_type 做分型路由判断；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
+- **消费者**：Gateway（入站：消费 content_blocks 做路由决策（session_key 用于日志追踪，路由查找用稳定路由键）+ metadata.message_type 做分型路由判断；出站：消费 content_blocks + metadata.dsl_result 做出站日志后传给 IM Adapter）、IM Adapter（消费 content_blocks + metadata.dsl_result 渲染为平台格式并发送）、CLI TerminalRenderer（同 IM Adapter，渲染为 ANSI 终端文本）
 - **无关**：NormalizedMessage（入站方向的上游产物，经 Processor Chain 处理后产出 ProcessedMessage，两者是不同的两个结构）、Session（Gateway 通过 ProcessedMessage 中的 session_key 找到 Session，但 Session 不直接操作 ProcessedMessage）、LLM Provider（不接触 ProcessedMessage，只产出 ContentBlock[]）
 
 ### SlashResult
@@ -1259,6 +1308,12 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **生产者**：config（agent 配置解析产出）
 - **消费者**：system_prompt、gateway、daemon（经 AgentLookup / AgentRegistryQuery 查询模型规格）、cli（agent info 管理协议）、以及经 [AgentConfigInfo](#agentconfiginfo) 读取子 Agent 模型覆盖（子会话管理工具）
 - **无关**：IM Adapter、Processor Chain、LLM Provider（回退链由 daemon 装配，不经 common 传递）
+
+### ResolvedAgentConfig / SubagentsConfig / MemoryConfig
+
+- **生产者**：config（按注册清单加载 `config.json`、补齐默认值产出 ResolvedAgentConfig）
+- **消费者**：agent（AgentRegistry 以 `agent_id` 为键存储并提供只读查询）、daemon（装配填充注册表）、gateway（经 AgentRegistry 查询）、session / permission / system_prompt / tools / skills（经 AgentRegistry 查询消费配置字段）
+- **无关**：LLM Provider、IM Adapter、Processor Chain
 
 ### 会话/工具/斜杠/LLM 等辅助契约类型
 

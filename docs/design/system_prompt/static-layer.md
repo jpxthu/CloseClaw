@@ -71,7 +71,7 @@ SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清
 
 当所有 Section 渲染结果为空时，使用默认 prompt："You are CloseClaw, a helpful AI assistant."。
 
-当 session 没有对应 workspace 目录时，不加载 bootstrap 文件，MemorySection 同样跳过（MEMORY.md 属于 workspace 文件），SkillsSection 正常加载（技能来源不受 workspace 影响），静态层包含 ToolsSection 和 SkillsSection。
+静态层各 Section 的加载判据相互独立：**Bootstrap 文件**由 Agent 配置的 `agentDir` 目录存在性、身份加载模式（仅主 Agent Session）与是否声明 `noBootstrap` 共同决定——当 `agentDir` 目录缺失、或 Agent 声明 `noBootstrap=true` 时，按需求 [system_prompt §F8](../../requirements/system_prompt.md)「无 Bootstrap 文件的 Session」运行（不加载任何 Bootstrap 文件与长期记忆）；**MemorySection** 由 workspace 目录（agent+user 组合）存在性决定——workspace 缺失时跳过（MEMORY.md 属于 workspace 文件）；**SkillsSection** 不受 workspace 影响，正常加载，静态层包含 ToolsSection 和 SkillsSection。
 
 ## 数据流
 
@@ -81,7 +81,7 @@ SkillsSection 从 SkillRegistry 获取当前可用技能并渲染为格式化清
 3. ToolRegistry 生成工具分组索引
 4. SkillRegistry 渲染技能清单（user-invocable + 已激活的条件技能）
 5. 主 Agent Session 读取 MEMORY.md（命中缓存则跳过）；子 Session 跳过（与身份模式无关）
-6. 组装静态层：bootstrap 文件 + ToolsSection + SkillsSection + MemorySection（子 Session 不含 MemorySection 与 BOOTSTRAP.md；无 workspace 目录时不含 bootstrap 和 MemorySection，详见兜底与变体）
+6. 组装静态层：bootstrap 文件 + ToolsSection + SkillsSection + MemorySection（子 Session 不含 MemorySection 与 BOOTSTRAP.md；`agentDir` 目录缺失或声明 `noBootstrap` 时不加载 bootstrap，无 workspace 目录时不含 MemorySection，详见兜底与变体）
 7. 写入 ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
 ```
 

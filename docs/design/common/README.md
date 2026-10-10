@@ -7,7 +7,7 @@
 
 ## 架构
 
-common 不是业务模块——它以跨模块共享的数据结构与接口契约为核心，不含业务逻辑。消费 common 的模块通过其共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。
+common 不是业务模块——它以跨模块共享的数据结构与接口契约为核心，不含业务逻辑。消费 common 的模块通过其共享类型和 trait 进行解耦交互，避免业务模块间的直接类型依赖和循环引用。common 不含业务执行逻辑——可执行工具函数、调度器、互斥机制等属领域逻辑，应在各自领域 crate 实现。
 
 ```
 common/
@@ -25,7 +25,7 @@ common 本身不参与运行时数据流。它定义的数据结构在业务模�
 > 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
-- **下游**：所有消费 common 中类型或 trait 的模块（通过引用 common 中定义的类型和 trait 进行交互）
+- **下游**：所有消费 common 中类型或 trait 的模块（通过引用 common 中定义的类型和 trait 进行交互）——完整清单见 [core-traits §模块关系](core-traits.md#模块关系)（system_prompt / tools / session / skills / agent / tasks / memory / im_adapter / gateway / cli / slash / permission / processor_chain / daemon / config / llm）
 - **无关**：无。platform、debug_log、fake_llm 不依赖 common（不作为下游），也无与「跨模块共享定义」名称/功能易混的关系
 - **子文件**：[shared-types](shared-types.md)（共享类型的完整定义与数据流）、[core-traits](core-traits.md)（跨模块 DI trait 全集，按领域分组）、[data-flow](data-flow.md)（共享类型主链路方向级流动总览）。共享类型的权威清单见 `shared-types.md`
 

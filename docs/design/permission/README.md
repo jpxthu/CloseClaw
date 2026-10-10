@@ -147,7 +147,7 @@ IM/CLI 入站 ────┤
 
 ### 子 Agent 权限继承
 
-父 Agent 发起 spawn 时，子 Agent 实际权限 = 子 Agent 自身权限 ∩ 父 Agent 权限 ∩ 继承的 User 权限。权限沿 spawn 链路只能变窄不能变宽。子 Agent 被 Deny 时静默返回，不进入审批。
+父 Session 发起 spawn 时，子 Session 实际权限 = 目标 Agent 配置权限 ∩ 父 Session 实际权限 ∩ 继承的 User 上下文权限。权限沿 spawn 链路只能变窄不能变宽。子 Session 被 Deny 时静默返回，不进入审批。
 
 ## 数据流
 

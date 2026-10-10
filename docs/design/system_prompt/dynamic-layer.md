@@ -6,7 +6,7 @@
 
 ## 架构
 
-动态层由四个 Section 组成，每次 API 请求时由 ConversationSession 直接构建（不走 System Prompt Builder）：
+动态层由四个 Section 组成，每次 API 请求时经注入的 [DynamicPromptBuilder](../common/core-traits.md#dynamicpromptbuilder)（common trait）构建（不构成静态层 System Prompt Builder 的一部分）：
 
 | Section | 内容 | 来源 |
 |---------|------|------|
@@ -52,5 +52,5 @@ API 请求到达
 
 ### 无关
 
-- **System Prompt Builder**：动态层不走 Builder 构建路径，由 ConversationSession 直接组装。
+- **System Prompt Builder**：动态层不走静态层 Builder 构建路径，经 [DynamicPromptBuilder](../common/core-traits.md#dynamicpromptbuilder) 接口组装。
 - **SessionCheckpoint**：动态层不持久化，恢复 session 时不恢复动态层。
