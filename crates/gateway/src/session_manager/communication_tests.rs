@@ -29,8 +29,8 @@ fn test_resolved_config(
     id: &str,
     workspace: Option<PathBuf>,
 ) -> closeclaw_common::ResolvedAgentConfig {
+    use closeclaw_common::MemoryConfig;
     use closeclaw_common::SubagentsConfig;
-    use closeclaw_common::{ConfigSource, MemoryConfig};
 
     closeclaw_common::ResolvedAgentConfig {
         id: id.to_string(),
@@ -48,7 +48,7 @@ fn test_resolved_config(
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::Merged,
+        no_bootstrap: false,
     }
 }
 

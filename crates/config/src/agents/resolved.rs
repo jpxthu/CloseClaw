@@ -1,7 +1,7 @@
 //! Construction logic for the resolved agent configuration after
 //! two-level merge.
 //!
-//! The [`ResolvedAgentConfig`] / [`SubagentsConfig`] / [`ConfigSource`]
+//! The [`ResolvedAgentConfig`] / [`SubagentsConfig`]
 //! types themselves live in `closeclaw_common::agent_config`; this module
 //! owns the config-crate construction rules that turn raw [`AgentConfig`]
 //! files into a resolved form that downstream modules (Session, Tool
@@ -10,8 +10,9 @@
 //!
 //! # Merge rules
 //!
-//! - `Option` fields: project's `Some` wins, otherwise fall back to the
-//!   user value, otherwise fall back to the field's own default.
+//! - `Option` fields (including `no_bootstrap`): project's `Some` wins,
+//!   otherwise fall back to the user value, otherwise fall back to the
+//!   field's own default.
 //! - `Vec` fields (`skills`, `tools`, `disallowed_tools`, `allow_agents`):
 //!   project's non-empty value replaces the user's; otherwise the user
 //!   value is kept; otherwise the field's default applies.
@@ -36,7 +37,7 @@ use std::path::PathBuf;
 
 use crate::agents::config_types::AgentConfig;
 use crate::ConfigError;
-use closeclaw_common::agent_config::{ConfigSource, ResolvedAgentConfig, SubagentsConfig};
+use closeclaw_common::agent_config::{ResolvedAgentConfig, SubagentsConfig};
 use closeclaw_common::{BootstrapMode, MemoryConfig};
 
 /// Return project's Vec if non-empty, otherwise fall back to user's.
@@ -52,9 +53,9 @@ fn override_if_non_empty<T>(project: Vec<T>, user: Vec<T>) -> Vec<T> {
     }
 }
 
-/// Convert a single `AgentConfig` into a resolved form, tagging it
-/// with the given `source` level. The `path` argument is used purely
-/// for error reporting when `id` validation fails.
+/// Convert a single `AgentConfig` into a resolved form. The `path`
+/// argument is used purely for error reporting when `id` validation
+/// fails.
 ///
 /// If `global_memory` is provided, the agent's memory config is merged
 /// on top of the global defaults (agent fields override global fields).
@@ -68,7 +69,6 @@ fn override_if_non_empty<T>(project: Vec<T>, user: Vec<T>) -> Vec<T> {
 /// empty after the fallback chain.
 pub fn from_single(
     config: AgentConfig,
-    source: ConfigSource,
     path: &str,
     global_memory: Option<&MemoryConfig>,
 ) -> Result<ResolvedAgentConfig, ConfigError> {
@@ -96,6 +96,7 @@ pub fn from_single(
         workspace: config.workspace.map(PathBuf::from),
         agent_dir: config.agent_dir.map(PathBuf::from),
         bootstrap_mode: config.bootstrap_mode.unwrap_or(BootstrapMode::Full),
+        no_bootstrap: config.no_bootstrap.unwrap_or(false),
         skills: config.skills,
         tools: config.tools,
         disallowed_tools: config.disallowed_tools,
@@ -104,15 +105,13 @@ pub fn from_single(
         memory_configured,
         hooks: config.hooks,
         parallel_tool_calls: config.parallel_tool_calls,
-        source,
     })
 }
 
 /// Merge project-level and user-level configs into a resolved form.
 ///
 /// Project fields take precedence over user fields; see the module
-/// documentation for the full rule set. The resulting `source` is
-/// always [`ConfigSource::Merged`]. The `path` argument is used
+/// documentation for the full rule set. The `path` argument is used
 /// purely for error reporting when `id` validation fails.
 ///
 /// Memory config follows a three-layer merge: `global_memory` (base)
@@ -163,6 +162,7 @@ pub fn merge(
             .bootstrap_mode
             .or(user.bootstrap_mode)
             .unwrap_or(BootstrapMode::Full),
+        no_bootstrap: project.no_bootstrap.or(user.no_bootstrap).unwrap_or(false),
         skills: override_if_non_empty(project.skills, user.skills),
         tools: override_if_non_empty(project.tools, user.tools),
         disallowed_tools: override_if_non_empty(project.disallowed_tools, user.disallowed_tools),
@@ -182,7 +182,6 @@ pub fn merge(
                 None => after_user,
             }
         },
-        source: ConfigSource::Merged,
     })
 }
 

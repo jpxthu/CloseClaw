@@ -738,7 +738,7 @@ fn make_test_config_manager() -> Arc<closeclaw_config::manager::ConfigManager> {
                 hooks: vec![],
                 parallel_tool_calls: true,
                 memory_configured: false,
-                source: closeclaw_common::ConfigSource::Merged,
+                no_bootstrap: false,
             },
         );
     }

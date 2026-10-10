@@ -13,7 +13,7 @@ use tracing::warn;
 use crate::agents::config_types::AgentConfig;
 use crate::agents::resolved::{from_single, merge};
 use crate::ConfigError;
-use closeclaw_common::agent_config::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_common::agent_config::ResolvedAgentConfig;
 use closeclaw_common::MemoryConfig;
 
 /// Loads agent configurations from user-level and optional project-level
@@ -88,8 +88,8 @@ impl AgentDirectoryProvider {
         let global_memory = self.global_memory.as_ref();
         let resolved = match (project_config, user_config) {
             (Some(proj), Some(usr)) => merge(proj, usr, id, global_memory)?,
-            (Some(proj), None) => from_single(proj, ConfigSource::Project, id, global_memory)?,
-            (None, Some(usr)) => from_single(usr, ConfigSource::User, id, global_memory)?,
+            (Some(proj), None) => from_single(proj, id, global_memory)?,
+            (None, Some(usr)) => from_single(usr, id, global_memory)?,
             (None, None) => {
                 warn!("Agent '{}' in registry but no config.json found", id);
                 return Ok(None);

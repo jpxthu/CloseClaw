@@ -108,7 +108,6 @@ fn test_user_only_load() {
     let entry = provider.get("alpha").expect("alpha should be loaded");
     assert_eq!(entry.id, "alpha");
     assert_eq!(entry.name, "Alpha Agent");
-    assert_eq!(entry.source, ConfigSource::User);
 }
 
 #[serial_test::serial]
@@ -129,7 +128,6 @@ fn test_project_only_load() {
     let entry = provider.get("beta").expect("beta should be loaded");
     assert_eq!(entry.id, "beta");
     assert_eq!(entry.name, "Beta Agent");
-    assert_eq!(entry.source, ConfigSource::Project);
 }
 
 #[serial_test::serial]
@@ -151,7 +149,6 @@ fn test_merge_project_overrides_user() {
     let entry = provider.get("gamma").expect("gamma should be loaded");
     // Project name wins.
     assert_eq!(entry.name, "Project Name");
-    assert_eq!(entry.source, ConfigSource::Merged);
 }
 
 #[serial_test::serial]
@@ -273,7 +270,6 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
     assert_eq!(entry.name, "Iota Project");
     // Project-level default skills=["*"] overrides user-level skills.
     assert_eq!(entry.skills, vec!["*".to_string()]);
-    assert_eq!(entry.source, ConfigSource::Merged);
 }
 
 #[serial_test::serial]
@@ -477,7 +473,6 @@ fn test_project_config_parse_error_falls_back_to_user() {
         .get("mixed")
         .expect("agent should load from user config");
     assert_eq!(entry.name, "User Name");
-    assert_eq!(entry.source, ConfigSource::User);
 }
 
 /// Both user and project config.json have invalid JSON → agent skipped entirely.

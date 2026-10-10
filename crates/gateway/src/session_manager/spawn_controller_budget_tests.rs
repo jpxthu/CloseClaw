@@ -6,7 +6,7 @@ use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::SpawnError;
 use closeclaw_common::SubagentsConfig;
 use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_common::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -65,7 +65,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::User,
+        no_bootstrap: false,
     }
 }
 async fn setup_parent_session(mgr: &SessionManager, agent_id: &str) -> String {

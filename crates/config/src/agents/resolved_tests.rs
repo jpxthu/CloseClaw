@@ -4,7 +4,7 @@
 //! maxChildren) from the design doc alignment plan.
 
 use crate::agents::config_types::AgentConfig;
-use closeclaw_common::agent_config::{ConfigSource, SubagentsConfig};
+use closeclaw_common::agent_config::SubagentsConfig;
 use closeclaw_common::{BootstrapMode, HookConfig, HookParams, HookType, ModelSpec};
 
 use super::{from_single, merge};
@@ -354,7 +354,7 @@ fn test_from_single_resolves_bootstrap_mode_default() {
         bootstrap_mode: None,
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Full);
 }
 
@@ -370,7 +370,7 @@ fn test_from_single_fills_subagent_defaults() {
         },
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(false));
     assert_eq!(resolved.subagents.max_spawn_depth, Some(1));
     assert_eq!(resolved.subagents.max_children, Some(5));
@@ -389,7 +389,7 @@ fn test_from_single_preserves_explicit_values() {
         },
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(resolved.subagents.require_agent_id, Some(true));
     assert_eq!(resolved.subagents.max_spawn_depth, Some(3));
@@ -422,7 +422,7 @@ fn test_from_single_preserves_hooks() {
         hooks: hooks.clone(),
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.hooks.len(), 2);
     assert_eq!(resolved.hooks[0].hook_type, HookType::PlanCheck);
     assert_eq!(resolved.hooks[0].enabled, true);
@@ -437,7 +437,7 @@ fn test_from_single_empty_hooks_default() {
         hooks: vec![],
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert!(resolved.hooks.is_empty());
 }
 
@@ -518,7 +518,7 @@ fn test_resolved_config_name_fallback_to_id() {
         name: None,
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-x");
     assert_eq!(resolved.name, "agent-x");
 }
@@ -531,7 +531,7 @@ fn test_resolved_config_name_empty_string_fallback() {
         name: Some("".to_string()),
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-y");
     assert_eq!(resolved.name, "agent-y");
 }
@@ -553,7 +553,6 @@ fn test_resolved_config_merge_name_fallback() {
     let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.id, "agent-z");
     assert_eq!(resolved.name, "agent-z");
-    assert_eq!(resolved.source, ConfigSource::Merged);
 }
 
 // ------------------------------------------------------------------
@@ -707,7 +706,7 @@ fn test_resolved_config_no_permissions_field() {
         id: "test-agent".to_string(),
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.id, "test-agent");
 
     // Verify merge path also works without a permissions field (no panic).
@@ -722,7 +721,6 @@ fn test_resolved_config_no_permissions_field() {
     };
     let merged = merge(project, user, "<test>", None).unwrap();
     assert_eq!(merged.id, "test-agent");
-    assert_eq!(merged.source, ConfigSource::Merged);
 
     // Verify default field values on resolved config.
     assert_eq!(merged.skills, vec!["*"]); // default from AgentConfig::default()

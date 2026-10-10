@@ -4,7 +4,7 @@ use crate::agents::config_types::AgentConfig;
 
 use super::{from_single, merge};
 
-use closeclaw_common::agent_config::{ConfigSource, SubagentsConfig};
+use closeclaw_common::agent_config::SubagentsConfig;
 
 // ------------------------------------------------------------------
 // MemoryConfig field-level merge: merge_overrides
@@ -356,7 +356,7 @@ fn test_from_single_with_memory_config() {
         }),
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.memory.search.enabled, Some(true));
     assert_eq!(resolved.memory.search.timeout_ms, Some(10000));
 }
@@ -368,7 +368,7 @@ fn test_from_single_without_memory_uses_default() {
         memory: None,
         ..Default::default()
     };
-    let resolved = from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.memory, MemoryConfig::default());
 }
 
@@ -387,8 +387,7 @@ fn test_from_single_merge_consistency_subagent_defaults() {
         subagents: SubagentsConfig::default(),
         ..Default::default()
     };
-    let from_single_result =
-        from_single(single_config, ConfigSource::User, "<test>", None).unwrap();
+    let from_single_result = from_single(single_config, "<test>", None).unwrap();
 
     // merge path: project has empty id (so user id wins), all subagent fields None
     let project_config = AgentConfig {
@@ -440,7 +439,6 @@ fn test_from_single_merge_consistency_explicit_values() {
             subagents: subagents.clone(),
             ..Default::default()
         },
-        ConfigSource::User,
         "<test>",
         None,
     )

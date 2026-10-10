@@ -36,6 +36,11 @@ pub struct AgentConfig {
     /// Bootstrap file loading mode.
     #[serde(default)]
     pub bootstrap_mode: Option<BootstrapMode>,
+    /// Whether the agent explicitly declares no bootstrap files
+    /// (`noBootstrap` in config.json). When `true`, the agent's sessions
+    /// run as "sessions without bootstrap files".
+    #[serde(default)]
+    pub no_bootstrap: Option<bool>,
     /// Available skill names; `["*"]` means all skills are available.
     #[serde(default = "default_all")]
     pub skills: Vec<String>,
@@ -78,6 +83,7 @@ impl Default for AgentConfig {
             workspace: None,
             agent_dir: None,
             bootstrap_mode: None,
+            no_bootstrap: None,
             skills: default_all(),
             tools: default_all(),
             disallowed_tools: Vec::new(),

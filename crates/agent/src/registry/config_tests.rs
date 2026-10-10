@@ -1,6 +1,6 @@
 use crate::registry::AgentRegistry;
 use closeclaw_common::{AgentConfigLookup, AgentLookup, AgentSkillsQuery, AgentToolsConfigQuery};
-use closeclaw_common::{BootstrapMode, ConfigSource, MemoryConfig, ModelSpec};
+use closeclaw_common::{BootstrapMode, MemoryConfig, ModelSpec};
 use closeclaw_common::{ResolvedAgentConfig, SubagentsConfig};
 
 // ---- Construction tests ----
@@ -35,6 +35,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
+        no_bootstrap: false,
         skills: vec![],
         tools: vec![],
         disallowed_tools: vec![],
@@ -43,7 +44,6 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         memory_configured: false,
         hooks: Vec::new(),
         parallel_tool_calls: true,
-        source: ConfigSource::User,
     }
 }
 

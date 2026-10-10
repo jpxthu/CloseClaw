@@ -16,7 +16,7 @@ use std::sync::Arc;
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use closeclaw_common::SubagentsConfig;
 use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_common::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_session::persistence::ReasoningLevel;
 
@@ -86,7 +86,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::User,
+        no_bootstrap: false,
     }
 }
 

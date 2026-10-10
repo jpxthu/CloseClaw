@@ -5,7 +5,7 @@
 //! combined `AgentRegistryQuery` trait is usable through `Arc<dyn ...>`.
 
 use crate::registry::AgentRegistry;
-use closeclaw_common::{AgentLookup, AgentRegistryQuery, BootstrapMode, ConfigSource};
+use closeclaw_common::{AgentLookup, AgentRegistryQuery, BootstrapMode};
 use closeclaw_common::{MemoryConfig, ModelSpec, ResolvedAgentConfig, SubagentsConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -20,6 +20,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
+        no_bootstrap: false,
         skills: vec![],
         tools: vec![],
         disallowed_tools: vec![],
@@ -28,7 +29,6 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         memory_configured: false,
         hooks: Vec::new(),
         parallel_tool_calls: true,
-        source: ConfigSource::User,
     }
 }
 

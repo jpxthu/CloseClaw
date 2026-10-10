@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_common::ResolvedAgentConfig;
 use closeclaw_common::{ModelSpec, SkillRegistryQuery};
 use closeclaw_config::agents::AgentConfig;
 
@@ -406,7 +406,7 @@ fn make_full_config() -> ResolvedAgentConfig {
         memory: Some(closeclaw_common::MemoryConfig::default()),
         ..AgentConfig::default()
     };
-    closeclaw_config::agents::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, "test", None).unwrap()
 }
 
 /// Helper: build a ResolvedAgentConfig with all fields at defaults.
@@ -415,7 +415,7 @@ fn make_default_config() -> ResolvedAgentConfig {
         id: "default-agent".to_string(),
         ..AgentConfig::default()
     };
-    closeclaw_config::agents::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, "test", None).unwrap()
 }
 
 /// Populate the test context's registry with the given configs.
@@ -514,8 +514,7 @@ fn test_dispatch_agent_info_name_not_queried() {
         name: Some("Display Name".to_string()),
         ..AgentConfig::default()
     };
-    let resolved =
-        closeclaw_config::agents::from_single(cfg, ConfigSource::User, "test", None).unwrap();
+    let resolved = closeclaw_config::agents::from_single(cfg, "test", None).unwrap();
     populate_registry(&ctx, vec![resolved]);
 
     // Querying by the display name should fail

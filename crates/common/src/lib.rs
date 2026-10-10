@@ -98,7 +98,7 @@ pub mod trace_id;
 pub mod turn;
 pub mod verbosity;
 
-pub use agent_config::{ConfigSource, ResolvedAgentConfig, SubagentsConfig};
+pub use agent_config::{ResolvedAgentConfig, SubagentsConfig};
 pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
 pub use agent_query::{AgentSkillsQuery, AgentToolsConfig, AgentToolsConfigQuery};
 pub use audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};

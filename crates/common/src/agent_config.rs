@@ -16,17 +16,6 @@ use serde::{Deserialize, Serialize};
 
 use crate::{BootstrapMode, HookConfig, MemoryConfig, ModelSpec};
 
-/// Configuration source level.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum ConfigSource {
-    /// Loaded from user-level config only.
-    User,
-    /// Loaded from project-level config only.
-    Project,
-    /// Merged from both levels (project fields override user fields).
-    Merged,
-}
-
 /// Sub-agent spawn control configuration.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -113,6 +102,10 @@ pub struct ResolvedAgentConfig {
     pub workspace: Option<PathBuf>,
     pub agent_dir: Option<PathBuf>,
     pub bootstrap_mode: BootstrapMode,
+    /// Whether the agent config explicitly declares no bootstrap files
+    /// (config.json `noBootstrap`; defaults to `false`, meaning bootstrap
+    /// files load normally per `bootstrap_mode`).
+    pub no_bootstrap: bool,
     pub skills: Vec<String>,
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
@@ -127,8 +120,6 @@ pub struct ResolvedAgentConfig {
     /// Whether parallel tool calls are enabled for this agent.
     /// When `false`, all tool calls are executed serially.
     pub parallel_tool_calls: bool,
-    /// Which configuration level this was resolved from.
-    pub source: ConfigSource,
 }
 
 impl ResolvedAgentConfig {

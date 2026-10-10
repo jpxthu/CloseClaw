@@ -12,7 +12,7 @@ use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
 use closeclaw_common::BootstrapMode;
 use closeclaw_common::SubagentsConfig;
-use closeclaw_common::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig};
 use serial_test::serial;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -41,7 +41,7 @@ fn test_resolved_config(
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::Merged,
+        no_bootstrap: false,
     }
 }
 

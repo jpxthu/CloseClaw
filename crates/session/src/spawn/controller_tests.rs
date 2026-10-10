@@ -10,8 +10,8 @@
 
 use std::sync::Arc;
 
-use closeclaw_common::{ConfigSource, ResolvedAgentConfig, SubagentsConfig};
 use closeclaw_common::{PermissionChecker, SpawnPermissionError};
+use closeclaw_common::{ResolvedAgentConfig, SubagentsConfig};
 
 use super::controller::{
     AgentSpawnBudget, SpawnBudgetLookup, SpawnContext, SpawnController, SpawnTargetAgentConfig,
@@ -148,7 +148,7 @@ fn make_agent_config(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfi
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::User,
+        no_bootstrap: false,
     }
 }
 
