@@ -5,11 +5,9 @@
 //! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
 
 mod core;
-mod memory_types;
 mod permissions;
 
 pub use core::*;
-pub use memory_types::*;
 pub use permissions::*;
 
 #[cfg(test)]

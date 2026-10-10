@@ -9,9 +9,9 @@ use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
-use crate::agents::MemoryConfig;
 use crate::providers::ConfigError;
 use crate::ConfigProvider;
+use closeclaw_common::MemoryConfig;
 
 /// Wrapper around [`MemoryConfig`] that implements the [`ConfigProvider`] trait.
 ///

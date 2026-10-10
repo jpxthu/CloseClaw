@@ -6,8 +6,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use super::MemoryConfig;
-use closeclaw_common::{BootstrapMode, HookConfig, ModelSpec};
+use closeclaw_common::{BootstrapMode, HookConfig, MemoryConfig, ModelSpec};
 
 /// Agent's own configuration (stored as config.json in the agent's directory).
 ///

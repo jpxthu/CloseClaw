@@ -8,7 +8,7 @@ use super::{ConfigSource, ResolvedAgentConfig};
 // MemoryConfig field-level merge: merge_overrides
 // ------------------------------------------------------------------
 
-use crate::agents::config_types::{
+use closeclaw_common::{
     DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
     MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig,
 };

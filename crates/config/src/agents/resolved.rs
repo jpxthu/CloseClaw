@@ -31,9 +31,9 @@
 
 use std::path::PathBuf;
 
-use crate::agents::config_types::{AgentConfig, MemoryConfig, SubagentsConfig};
+use crate::agents::config_types::{AgentConfig, SubagentsConfig};
 use crate::ConfigError;
-use closeclaw_common::{BootstrapMode, HookConfig, ModelSpec};
+use closeclaw_common::{BootstrapMode, HookConfig, MemoryConfig, ModelSpec};
 
 /// Configuration source level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -76,7 +76,7 @@ pub struct ResolvedAgentConfig {
     pub tools: Vec<String>,
     pub disallowed_tools: Vec<String>,
     pub subagents: SubagentsConfig,
-    pub memory: crate::agents::config_types::MemoryConfig,
+    pub memory: MemoryConfig,
     /// Whether the agent config explicitly set a `memory` field.
     /// When `false`, the `memory` value is inherited from global defaults
     /// and `agent info` should report `null` per the design doc.

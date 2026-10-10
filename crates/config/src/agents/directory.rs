@@ -10,9 +10,10 @@ use std::path::PathBuf;
 
 use tracing::warn;
 
-use crate::agents::config_types::{AgentConfig, MemoryConfig};
+use crate::agents::config_types::AgentConfig;
 use crate::agents::resolved::{ConfigSource, ResolvedAgentConfig};
 use crate::ConfigError;
+use closeclaw_common::MemoryConfig;
 
 /// Loads agent configurations from user-level and optional project-level
 /// directories, filtered by a registration list.
