@@ -9,7 +9,7 @@ use crate::{BootstrapMode, MemoryConfig};
 // ── SubagentsConfig timeout tests ─────────────────────────────────
 
 #[test]
-fn test_subagents_config_timeout_serialize() {
+fn test_subagents_config_timeout_roundtrip() {
     let config = SubagentsConfig {
         timeout: Some(120),
         ..Default::default()
