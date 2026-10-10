@@ -465,7 +465,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### StreamingRenderer
 
-**用途**：LLM [StreamEvent](shared-types.md#streamevent) 流的增量渲染接口。trait 定义与默认实现（DefaultStreamingRenderer / LineBuffer）位于 common，实现方为 common 自身；im_adapter、cli 各平台适配器作为消费方持有并委托调用、按需覆盖差异化渲染行为（见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)），逐事件处理事件流、产出增量 [StreamingOutput](shared-types.md#streamingoutput)。
+**用途**：LLM [StreamEvent](shared-types.md#streamevent) 流的增量渲染接口。trait 定义与默认实现位于 common，实现方为 common 自身；im_adapter、cli 各平台适配器作为消费方持有并委托调用、按需覆盖差异化渲染行为（见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)），逐事件处理事件流、产出增量 [StreamingOutput](shared-types.md#streamingoutput)。
 
 **接口契约**：
 
@@ -474,6 +474,14 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 事件处理 | 处理单个 StreamEvent 返回增量输出 |
 | 刷新 | MessageEnd 时清空残留缓冲内容 |
 | 超时检查 | 超时则强制输出缓冲内容（默认返回空） |
+
+**默认实现与配套原语**（平台无关，随本 trait 位于 common）：
+
+- **DefaultStreamingRenderer**：本 trait 的默认实现，承载平台无关的增量渲染逻辑——逐事件处理事件流、行缓冲切分、产出增量 [StreamingOutput](shared-types.md#streamingoutput)。实现方为 common 自身；im_adapter、cli 等平台适配器持有并委托调用，并可在其上覆盖差异化渲染行为（平台差异见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。
+- **LineBuffer**：默认实现持有的行缓冲原语——以句末标点 / 换行为边界切分 Text 块输出单元，并执行缓冲阈值与超时强制输出（规则见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。平台无关，随默认实现位于 common。
+- **CodeBlockMode**：流式渲染的代码块模式开关（文本模式 / 代码模式）——文本模式按句末标点切分并受阈值 / 超时约束，代码模式累计至代码块闭合再整块输出；由消费方经默认实现设定。
+
+**归属判定**：三者为流式渲染原语的组成部分，被 im_adapter 等平台适配器消费，且与 StreamingRenderer 默认实现强耦合（移出将使 common 反向依赖平台适配器）——平台无单一领域归属，随本 trait 定义于 common。
 
 ### 消息处理链与出站中间件
 

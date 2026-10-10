@@ -414,7 +414,9 @@ PlanState 描述当前规划所处阶段：
 
 compaction（对话历史压缩）操作的产出与错误。CompactionResult 描述一次压缩的结果——是否执行、压缩前后 token/字符数、承载摘要的边界消息、是否自动触发，以及供 Gateway 回发的可读描述；CompactionError 是压缩失败的错误（LLM 调用失败、会话未找到、摘要解析失败、无消息可压缩、所需 handler 不可用）。两者经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 的压缩方法在 session（产出）与 Gateway（消费）之间传递，故收录 common。
 
-**边界**：本题只承载跨 trait 边界的压缩产出与错误。压缩的触发条件、保留区、熔断与摘要格式等行为语义，以及压缩相关配置（阈值、保留区比例、熔断次数、摘要模型，按 Agent 配置）均归 session 模块，设计定义见 [session compact-process](../session/compact-process.md) 与 [session lifecycle](../session/session-lifecycle.md)。
+**边界**：本题只承载跨 trait 边界的压缩产出与错误。压缩的触发条件、保留区、熔断与摘要格式等**行为语义**归 session 模块，设计定义见 [session compact-process](../session/compact-process.md) 与 [session lifecycle](../session/session-lifecycle.md)；压缩配置的**跨模块共享数据结构** CompactConfig 定义于 common（见下）。
+
+- **CompactConfig**：压缩相关配置的共享数据结构（按 Agent 配置的压缩阈值、保留区、熔断、摘要模型等项；逐项语义与默认值见 [session compact-process](../session/compact-process.md)）。被 session（执行压缩）、gateway、config（解析与校验）、cli、daemon 多模块消费；因 cli、config 等消费方按 [STANDARDS 依赖方向允许边表](../STANDARDS.md)不依赖 session，该数据结构随 common 定义（配置的行为语义仍归 session）。
 
 ### ReasoningLevel / AgentRole / SessionMode
 
@@ -696,6 +698,7 @@ ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析�
 - **ToolCallError**：工具执行错误。
 - **PromptGenerationContext** / **WorkdirContext**：`generate_prompt` / workdir 上下文构建的输入。
 - **ReadRange** / **ToolProgress**：文件读取范围与工具进度快照，为 [ToolSession](core-traits.md#toolsession) 契约载荷。
+- **FileReadCache**：文件读取去重缓存的载荷——记录 per-turn 已读文件的 mtime 与已读范围，供同一轮内重复读取判定文件是否变更（去重语义见 [tools read-tool](../tools/read-tool.md)）。为 [ToolSession](core-traits.md#toolsession) 契约的文件读取载荷：session（实现方）产出、tools（消费方）经契约读取，跨 2+ 模块消费，故收录 common。
 - **PendingToolCall** / **ToolCallDispatcher**：多工具并行调度的调用描述与调度器（gateway 与 tools 共用）；**DispatchGroup** 为调度分组枚举。其执行抽象 ToolExecutor 为 DI trait，见 [core-traits](core-traits.md#toolexecutor)。
 - **FileMutexMap**：同文件并发写的按路径互斥映射（gateway 与 tools 共用）；**TryAcquireResult** 为其非阻塞获取结果。
 
