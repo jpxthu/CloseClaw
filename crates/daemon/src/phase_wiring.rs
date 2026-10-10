@@ -18,6 +18,7 @@ use crate::{
 };
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_cli::admin::{admin_socket_path, AdminContext, AdminServer};
+use closeclaw_common::memory_config::default_dreaming_schedule;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::AuditLogger;
 use closeclaw_common::TaskManager;
@@ -28,7 +29,7 @@ use closeclaw_common::{
 use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;
-use closeclaw_config::{agents::default_dreaming_schedule, ConfigSection};
+use closeclaw_config::ConfigSection;
 use closeclaw_debug_log::DebugLog;
 use closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker;
 use closeclaw_gateway::session_manager::{ChildSessionConfig, SpawnMode};

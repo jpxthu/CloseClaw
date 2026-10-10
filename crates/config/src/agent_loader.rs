@@ -8,11 +8,11 @@ use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 
+use closeclaw_common::agent_config::ResolvedAgentConfig;
 use tracing::info;
 
 use crate::agents::{
     strip_jsonc_comments, AgentDirectoryProvider, AgentsConfig, LazyAgentPermissions,
-    ResolvedAgentConfig,
 };
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection};
 

@@ -274,7 +274,7 @@ pub struct ConfigManager {
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (from two-level directories).
-    pub agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
+    pub agents: RwLock<HashMap<String, closeclaw_common::agent_config::ResolvedAgentConfig>>,
     /// Lazy-loaded agent permissions (accessed on demand via get()).
     pub agent_permissions: Arc<LazyAgentPermissions>,
     /// Optional project root for loading agents.json.
