@@ -4,11 +4,9 @@
 //! (AgentLookup + AgentSkillsQuery + AgentToolsConfigQuery) and that the
 //! combined `AgentRegistryQuery` trait is usable through `Arc<dyn ...>`.
 
-use crate::config::MemoryConfig;
-use crate::config::SubagentsConfig;
 use crate::registry::AgentRegistry;
-use closeclaw_common::{AgentLookup, AgentRegistryQuery, BootstrapMode, ModelSpec};
-use closeclaw_config::agents::{ConfigSource, ResolvedAgentConfig};
+use closeclaw_common::{AgentLookup, AgentRegistryQuery, BootstrapMode, ConfigSource};
+use closeclaw_common::{MemoryConfig, ModelSpec, ResolvedAgentConfig, SubagentsConfig};
 use std::path::PathBuf;
 use std::sync::Arc;
 

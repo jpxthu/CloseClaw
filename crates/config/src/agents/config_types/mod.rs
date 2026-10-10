@@ -11,4 +11,7 @@ pub use core::*;
 pub use permissions::*;
 
 #[cfg(test)]
+mod agent_config_tests;
+
+#[cfg(test)]
 mod tests;

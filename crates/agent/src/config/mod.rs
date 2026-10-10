@@ -1,21 +1,17 @@
-//! Agent Configuration - config.json and permissions.json structures for per-agent config files.
+//! Agent Configuration — re-exports of common config types used by the
+//! agent crate (communication rules, bootstrap mode) plus `AgentType`.
 //!
-//! Design: `docs/agent/MULTI_AGENT_ARCHITECTURE.md`
+//! Raw per-agent config structures (`AgentConfig`, permissions family)
+//! live in the config crate; resolved/shared config types live in
+//! `closeclaw_common`.
 
 pub use closeclaw_common::communication::{
     check_communication_allowed, CommunicationCheckResult, CommunicationConfig,
 };
 pub use closeclaw_common::BootstrapMode;
-pub use closeclaw_config::agents::{
-    ActionPermission, AgentConfig, AgentPermissions, MemoryConfig, PermissionLimits,
-    SubagentsConfig,
-};
 
 pub mod agent_type;
 pub use agent_type::{AgentType, AgentTypeError};
 
 #[cfg(test)]
 mod config_tests;
-
-#[cfg(test)]
-mod config_intersect_tests;
