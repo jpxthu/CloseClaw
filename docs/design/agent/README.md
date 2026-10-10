@@ -47,15 +47,15 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 核心组件：
 
 - **AgentRegistry**：运行时配置查询入口，以 agent_id 为键提供 ResolvedAgentConfig 的只读查找。启动时由 Daemon 填充，运行时只读查询。详见 [agent-registry.md](agent-registry.md)。
-- **Agent 配置档案**：每个 agent 对应一个独立的配置目录（`agents/<id>/`），目录下存放 `config.json` 和 `permissions.json`。配置定义能力边界（模型、工具、workspace、spawn 控制、跨 agent 交互权限），权限独立存储。存储支持项目级和用户级两级优先级，字段级覆盖合并。详见 [agent-config.md](agent-config.md)。
+- **Agent 配置档案**：每个 agent 对应一个独立的配置目录（`agents/<id>/`），目录下存放 `config.json` 和 `permissions.json`。配置定义能力边界（模型、工具、workspace、spawn 控制、跨 agent 交互权限），权限独立存储。详见 [agent-config.md](agent-config.md)。
 - **Agent 能力模型**：Agent 能力由配置字段组合决定（详见 agent-config.md → Agent 能力模型）。初始 Agent 由 CLI 配置向导在首次运行时创建（默认 ID `master`），其他 agent 由用户通过配置文件自定义。
-- **权限基线**：Agent 的 `permissions.json` 定义该 agent 的权限基线，由 Permission 模块在 spawn 时沿链路计算继承权限——子 agent 的实际权限只能收窄，不能放宽。权限热更新独立于 agent 核心配置：修改 permissions.json 不影响 config.json 加载，反之亦然。每次操作前重新评估权限，变更即时生效。权限文件缺失时 agent 正常加载，使用系统默认权限。详见 [agent-permissions.md](agent-permissions.md)。
+- **权限基线**：Agent 的 `permissions.json` 定义该 agent 的权限基线，由 Permission 模块在 spawn 时沿链路计算继承权限——子 Session 的实际权限只能收窄，不能放宽。权限热更新独立于 agent 核心配置：修改 permissions.json 不影响 config.json 加载，反之亦然。每次操作前重新评估权限，变更即时生效。权限文件缺失时 agent 正常加载，使用系统默认权限。详见 [agent-permissions.md](agent-permissions.md)。
 
 子功能文档：
 
 | 文档 | 内容 |
 |------|------|
-| `agent-config.md` | Agent JSON 配置档案：字段定义、存储位置、加载优先级、字段级合并 |
+| `agent-config.md` | Agent JSON 配置档案：字段定义、存储位置、加载流程 |
 | `agent-registry.md` | AgentRegistry 运行时配置查询入口：populate / get / reload 接口、数据流 |
 | `agent-spawn.md` | Spawn 机制、Fork 模式、Steer/Kill、Announce 回传、Depth 追踪、通信配置（spawn_tree 运行时拓扑见 session/spawn-tree.md） |
 | `agent-permissions.md` | 权限沿 spawn 链路继承、workspace 路径授权 |
@@ -69,7 +69,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 ### Session 创建时读取 Agent 配置
 
 1. Gateway/Daemon 确定目标 agent ID，从 AgentRegistry 获取 ResolvedAgentConfig
-2. Session 模块分发各字段到对应子系统：
+2. Session 模块分发各字段到对应子系统（以下为**静态配置分发**，各消费模块可在此基础上做派生计算）：
    - model → 设置 session 默认模型
    - workspace → 设置 session 工作目录
    - bootstrapMode → 决定 bootstrap 文件加载集
@@ -78,20 +78,15 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
    - tools/disallowedTools → 过滤 tool 注册表
    - subagents → 注入 session 的 spawn 控制上下文
    - memory → 覆盖 MemoryMiner 配置（可选，未指定时用全局默认）
-3. Permission 独立加载 permissions.json，获取 Agent 权限基线（与步骤 2 的 config 字段加载路径并行，互不影响）
+3. Permission 侧按 agent 配置目录延迟加载 permissions.json（在权限评估 `evaluate()` 时加载，与步骤 2 的 config 字段加载路径并行，互不影响）
 4. 以上步骤完成后 Session 创建结束
 
 ### Spawn 控制流
 
 1. 父 session 调用 sessions_spawn 工具（由 Session 模块注册到 ToolRegistry）
-2. Session 模块触发 SpawnValidator 执行前置检查：
-   - depth 检查
-   - 并发检查
-   - requireAgentId 检查
-   - agentId 解析
-   - 白名单检查
-3. 前置检查通过后，经 tools 模块触发 PermissionEngine 权限检查
-4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task 到 system prompt、过滤工具集）
+2. SpawnValidator（common trait，子会话创建组件实现）执行前置检查：depth / 并发 / requireAgentId / agentId 解析 / 白名单 / 目标 Agent 已注册且配置可加载
+3. 前置检查通过后，SpawnValidator 的权限校验步经 PermissionChecker 边界完成权限判定（权限引擎执行继承计算）
+4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task 到 system prompt、按静态白名单派生工具集）
 5. 子 session 执行 task
 6. 子 session 完成，结果通过 announce 机制入队到父 session
 7. 父 session 下一轮 turn 处理 announce
@@ -104,7 +99,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 
 | 模块 | 调用关系 |
 |------|---------|
-| Config | 扫描 agent 配置目录，加载并合并所有 agent 配置档案，产出 ResolvedAgentConfig 供 Daemon 填充注册表 |
+| Config | 扫描 agent 配置目录，加载所有 agent 配置档案并补齐默认值，产出 ResolvedAgentConfig 供 Daemon 填充注册表 |
 | Gateway/Daemon | 查询注册表获取目标 agent 的完整配置，以 agent 配置为输入触发 session 创建 |
 | Session | 驱动 spawn 编排：注册 sessions_spawn 工具、触发 SpawnValidator 前置检查、经 SpawnController 创建子 session（详见 agent-spawn.md） |
 
@@ -116,14 +111,12 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 | Permission | 读取权限基线配置，在 spawn 时与其他维度共同计算继承权限 |
 | System Prompt | 读取 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，加载身份人格定义（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup) 按 agent_id 查询） |
 | Skills Registry | 通过 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) 接口按 agent 的 skills 白名单过滤技能列表 |
-| Tools Registry | 通过 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 接口按 agent 的 tools/disallowedTools 过滤工具列表 |
-| AgentRegistry | 接收 Config 填充的 ResolvedAgentConfig，以 agent_id 为键提供只读查询（实现 [AgentRegistryQuery](../common/core-traits.md#agentregistryquery)——合并 [AgentLookup](../common/core-traits.md#agentlookup) / [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) / [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery)，并另实现 [AgentConfigLookup](../common/core-traits.md#agentconfiglookup)） |
+| Tools Registry | 通过 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 接口按 agent 的 tools/disallowedTools 过滤工具列表（静态白名单/黑名单；权限过滤、运行模式适配等派生视图由 ToolsRegistry 计算） |
 
 ### 无关（无调用关系、名称或功能易混淆）
 
 | 模块 | 说明 |
 |------|------|
-| Card | 卡片渲染由 renderer 处理 |
 | IM Adapter | 消息路由由 gateway 处理 |
 | LLM Provider | agent 模块不直接调用 LLM |
 | Processor Chain / Renderer | 消息出站处理与 agent 模块无关 |
@@ -131,7 +124,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 
 ### 共享类型
 
-Agent 模块产出的配置数据由 Config 模块加载为 `ResolvedAgentConfig`，被 Session/Permission 等多个模块消费。共享类型定义见 [agent-config.md](agent-config.md) §配置字段。
+Agent 模块产出的配置数据由 Config 模块加载为 [ResolvedAgentConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)，被 Session/Permission 等多个模块消费。共享类型定义见 [common/shared-types](../common/shared-types.md)。
 
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：AgentRegistryQuery、AgentLookup、AgentConfigLookup、AgentSkillsQuery、AgentToolsConfigQuery）
 </tool_result>

@@ -10,7 +10,7 @@ Workflow 定义描述一个多步骤流程的结构化信息，供 Engine 读取
 
 Workflow 定义文件按优先级查找，与技能隔离同维度（多 Agent 隔离，详见 [skills](../skills/skill-definition.md)）：
 
-1. Agent 专属目录下的 `workflows/` 目录
+1. Agent 专属目录（`agents/<agent_id>/workflows/`，per-Agent、对其全部 User 共享，与技能隔离同维度，见 [skills 多 Agent 隔离](../../requirements/skills.md)）下的 `workflows/` 目录
 2. 全局 `workflows/` 目录
 3. 系统内置
 
@@ -71,7 +71,7 @@ complete：Workflow 结束，目标 phase 为 complete。
 
 Engine 按优先级查找定义文件：
 
-1. Agent 专属目录下的 `workflows/<name>/SKILL.md`
+1. Agent 专属目录（`agents/<agent_id>/workflows/`，per-Agent、全 User 共享）下的 `workflows/<name>/SKILL.md`
 2. 全局 `workflows/<name>/SKILL.md`
 3. 系统内置
 

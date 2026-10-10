@@ -96,7 +96,7 @@ Daemon 作为组合根，创建并持有下表全部组件（含 ConfigManager�
 6. **层 6**（依赖层 5）：Admin RPC Server（启动 Unix domain socket 管理服务，承载 CLI 的管理接入：一是接收 CLI Admin 命令（agent/skill 查询，命令面见 [cli/admin.md](../cli/admin.md)）；二是接纳 CLI Chat 经该连接接入的 terminal 渠道——terminal 插件注册、消息链路与启动存活检测（不可达则 CLI Chat 报错退出、不自动拉起 daemon，见 [cli/chat.md](../cli/chat.md)））
 7. 全部完成后**进入消息循环**
 
-**LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，Daemon 无法组装 LlmCaller），系统仍正常启动，不静默丢弃用户消息——Daemon 未向会话注入 LlmCaller 时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 在层 2 LLM Registry 就绪后由 Daemon 构造、层 4 注入 SessionManager 并接管至各会话；补齐 LLM 配置属重启类变更（见 [config 需求 §F7](../../requirements/config.md)），需完整重启系统以重走启动路径——配置触发的网关重启仅重建 Gateway 及因持有其引用而需随之重建的下游组件、会话层不动，无法重新完成会话层的 LlmCaller 接线。
+**LLM 能力缺失时的行为**：若启动时 LLM 能力不可用（如 models.json 缺失、未配置任何可用模型/供应商，Daemon 无法组装 LlmCaller），系统仍正常启动，不静默丢弃用户消息——Daemon 未向会话注入 LlmCaller 时，收到需 LLM 处理的消息以明确错误回复告知用户 LLM 未就绪，而非假装处理或丢失消息。LlmCaller 在层 2 LLM Registry 就绪后由 Daemon 构造、层 4 注入 SessionManager 并接管至各会话；补齐 LLM 配置属重启类变更（见 [config 需求 §F7](../../requirements/config.md)），由 Daemon 择机重启后生效（重启重建 LLM Registry 与 LlmCaller 接线，会话对话状态保留）。
 
 ### 关闭路径
 

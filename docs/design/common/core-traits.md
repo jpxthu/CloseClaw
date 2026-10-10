@@ -45,14 +45,14 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### ToolRegistryQuery
 
-**用途**：工具注册中心的只读查询接口。Tools 模块的 ToolRegistry 实现，Gateway 的 SessionManager 与 system_prompt 的 System Prompt Builder 消费——按 agent 工具白名单/黑名单查询可用工具清单与描述。
+**用途**：工具注册中心的只读查询接口。Tools 模块的 ToolRegistry 实现，Gateway 的 SessionManager 与 system_prompt 的 System Prompt Builder 消费——查询可用工具清单与描述；按 agent 白/黑名单过滤时，名单由消费方经 [AgentToolsConfigQuery](#agenttoolsconfigquery) 取得后作为参数传入（trait 内按传入名单过滤，不直接依赖 agent）。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
 | 工具名列表 | 返回所有已注册工具名 |
-| 工具描述查询 | 按 agent 白名单/黑名单过滤，返回工具描述（供 system prompt 生成） |
+| 工具描述查询 | 返回工具描述（供 system prompt 生成）；按 agent 白/黑名单过滤时，名单由消费方经 [AgentToolsConfigQuery](#agenttoolsconfigquery) 取得后作为参数传入 |
 | 工具存在性 | 按名查询工具是否存在 |
 | 工具 schema | 按名返回工具的 JSON Schema |
 | 工具详情 | 按名返回完整 ToolDescriptor（含摘要） |
@@ -73,7 +73,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 参数模式 | `input_schema`：JSON Schema 格式，直接暴露为 API schema |
 | 运行时标记 | `flags`：标识工具是否只读、是否破坏性、是否昂贵、是否默认延迟加载、是否并发安全 |
 
-工具注册编排和 Tool trait 的实现规范详见 [tools 模块](../tools/README.md)。
+工具注册编排和 Tool trait 的实现规范详见 [tools 模块](../tools/README.md)。运行时标记（只读/破坏性/昂贵/默认延迟加载/并发安全）的消费路径——多工具调度分组、索引危险度标签等——详见 [tools multi-tool-calls](../tools/multi-tool-calls.md)。
 
 ### 工具执行
 
@@ -135,17 +135,17 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 构建 | 给定 session_id、agent_id、优先级覆盖项（override/agent/custom）与 bootstrap 模式覆盖，返回渲染后的 system prompt 字符串 |
-| 缓存失效 | workspace 文件、工具或技能变化时失效已缓存的 section |
+| 缓存失效 | 文件变更（bootstrap/MEMORY.md，按 Section）、工具定义变更（ToolsSection）、技能注册中心变更（SkillsSection）、`/clear` 与 `/system clear`（全部失效）、Session 恢复与 compaction 回调（强制重建全部）；详见 [system_prompt/static-layer](../system_prompt/static-layer.md) |
 
 #### DynamicPromptBuilder
 
-**用途**：动态提示词构建接口。system_prompt crate 实现，由 Gateway 注入 session——在请求时生成 `system_static` / `system_dynamic` 两部分，避免对 session crate 的反向依赖。
+**用途**：动态提示词构建接口。system_prompt crate 实现，由 Gateway 注入 session——在每次请求时生成动态层 `system_dynamic`，避免对 session crate 的反向依赖。静态层由 [SystemPromptBuilder](#systempromptbuilder) 单独构建，二者不构成统一 Builder（动态层构建口径见 [system_prompt/dynamic-layer](../system_prompt/dynamic-layer.md)）。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 构建 | 给定 DynamicPromptContext（会话状态、请求元数据、模式、覆盖项等），返回 `(system_static, system_dynamic)`，任一可为 None |
+| 构建 | 给定 DynamicPromptContext（会话状态、请求元数据、模式、覆盖项等），返回动态层 `system_dynamic` 字符串；返回 None 表示动态层不注入 |
 
 ### Agent 能力查询
 
@@ -276,7 +276,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SlashSessionQuery
 
-**用途**：供斜杠指令 handler 查询会话状态的接口。Gateway 的 SessionManager 实现，slash handler 消费——查计划状态、推送待处理消息、重建系统提示词、读写会话状态，打破 slash → gateway 的依赖。
+**用途**：供斜杠指令 handler 查询会话状态的接口。Gateway 的 SessionManager 实现，slash handler 消费——查计划状态、推送待处理消息、重建系统提示词、读写会话状态，打破 slash → gateway 的依赖。与 [SessionLookup](#sessionlookup) 的部分字段重叠是分层选择：SessionLookup 面向 permission/slash 的通用只读查询，SlashSessionQuery 面向 slash handler 的读写；两者均由 Gateway SessionManager 同一实例实现。
 
 **接口契约**：
 
@@ -285,13 +285,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 计划状态 | 读取/更新会话的 PlanState |
 | 待处理消息 | 向统一消息队列推送一条待处理消息（排队规则见 [session 统一消息队列](../session/session-execution.md#统一消息队列)） |
 | 后台触发 | 触发会话的手动后台执行 |
-| workflow 状态 | 设置并持久化 workflow run（类型擦除，避免依赖 workflow crate） |
+| workflow 状态 | 设置并持久化 workflow run、查询当前活跃 workflow phase（类型擦除，避免依赖 workflow crate） |
 | 系统提示词 | 失效静态层缓存、重建会话 system prompt、追加 system append |
 | 会话状态查询 | model、reasoning、verbosity、mode、workdir、LLM busy、token 统计、缓存断裂通知、子会话句柄数 |
 
 #### SlashEffectExecutor
 
-**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置模式/推理深度/信息展示等级、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。
+**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置模式/推理深度/信息展示等级、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。被 [SlashResultExecutor](#slashresultexecutor) 按变体调用以完成各变体的原子副作用（经 SideEffectContext.executor 持有）。
 
 **接口契约**：
 
@@ -306,7 +306,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SlashResultExecutor
 
-**用途**：SlashResult 的扩展执行 trait。为 SlashResult 实现，Gateway 构造 SideEffectContext 后调用 `execute()` 触发副作用分发与回复。
+**用途**：SlashResult 的扩展执行 trait。为 SlashResult 实现，Gateway 构造 SideEffectContext 后调用 `execute()` 触发副作用分发与回复。内部依 SideEffectContext.executor 持有 [SlashEffectExecutor](#slasheffectexecutor)，按 SlashResult 变体分发调用对应原子能力并回发 ReplyAction。
 
 **接口契约**：
 
@@ -341,7 +341,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### PermissionChecker
 
-**用途**：子 agent 生成权限校验接口。Gateway 实现（包装 PermissionEngine），session 消费——校验子 agent 是否可在父会话下 spawn，避免 session → permission 循环依赖。
+**用途**：子 Session 生成权限校验接口。Gateway 实现（包装 PermissionEngine），session 消费——校验子 Session 是否可在父会话下 spawn，避免 session → permission 循环依赖。
 
 **接口契约**：
 
@@ -357,7 +357,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 提交审批 | 提交拒绝的 agent 间请求（携带 [CallerInfo](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) + [RiskLevel](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)），返回 request_id；被拒（子 agent 或重复）返回 None |
+| 提交审批 | 提交拒绝的 agent 间请求（携带 [CallerInfo](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) + [RiskLevel](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)），返回 request_id；被拒（子 Session 或重复）返回 None |
 
 > **共享句柄别名**：上述 trait 以 `Arc<dyn Trait>` 形式跨模块传递时以类型别名暴露——SharedPermissionEvaluator、SharedApprovalSubmission（带互斥包装）。别名与对应 trait 同属 common。
 
@@ -376,7 +376,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SessionLookup
 
-**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID、计划状态，并向统一消息队列推送待处理消息，避免直接依赖 gateway。
+**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID、计划状态，并向统一消息队列推送待处理消息，避免直接依赖 gateway。与 [SlashSessionQuery](#slashsessionquery) 的重叠为分层选择（见该节）。
 
 **接口契约**：
 
@@ -406,8 +406,8 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 agent 解析与 allowlist，返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
-| 权限校验 | 前置校验通过后执行，校验子 agent 是否可在父会话下生成（权限判定语义见 [permission 模块](../permission/README.md)），返回 Ok 或 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的权限变体（权限被拒） |
+| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 Agent 解析与 allowlist、目标 Agent 已注册且配置可加载（见 [agent §F9](../requirements/agent.md)），返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
+| 权限校验 | 前置校验通过后执行，校验子 Session 是否可在父会话下生成（权限判定语义见 [permission 模块](../permission/README.md)），返回 Ok 或 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的权限变体（权限被拒） |
 
 两步统一返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)：前置校验失败为其各前置变体，权限被拒为 `Permission` 变体。权限校验步经 [PermissionChecker](#permissionchecker) 的权限引擎边界完成（载荷复用既有的 [SpawnPermissionError](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）：SpawnValidator 是子会话生成的高层门面，PermissionChecker 是权限引擎边界的窄接口。
 
@@ -434,7 +434,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | waiting 状态 | 进入/退出 active waiting、查询是否 waiting |
 | 文件读取 | 记录/查询文件 mtime 与 per-turn 读取去重缓存 |
 | 进度上报 | 上报工具实时执行进度（默认空） |
-| 子会话 | 注册/注销子会话状态、查询是否有子会话运行 |
+| 子会话 | 注册/注销工具调用期间活跃的子会话状态（与 spawn_tree 内存表、四维 child_active 维度联动，见 [session/spawn-tree](../session/spawn-tree.md)）、查询是否有子会话运行 |
 | 手动后台 | 返回手动后台化通知信号（不支持时返回 None） |
 
 ### LLM 调用与流式渲染
@@ -453,7 +453,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### StreamingSink
 
-**用途**：平台无关的流式输出 sink。各传输实现（飞书卡片更新、CLI stdout 等），session 持有 handle 并推送增量文本、完成通知（携带 model + usage）、错误通知。
+**用途**：平台无关的流式输出 sink。各平台传输实现（如飞书卡片更新、CLI stdout）持有并推送增量文本、完成通知（携带 model + usage）、错误通知；具体实现随各平台适配器，见 [im_adapter streaming-render](../im_adapter/streaming-render.md)、[cli renderer](../cli/renderer.md)。
 
 **接口契约**：
 
@@ -531,7 +531,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### MetricsEmitter
 
-**用途**：运营指标上报接口。DI trait（归属 gateway 领域），默认 NoopMetricsEmitter 为零成本空操作，gateway、daemon 消费。指标后端只需实现此 trait，无需改动调用点。
+**用途**：运营指标上报接口。common DI trait，具体实现由 gateway 提供（默认实现 NoopMetricsEmitter 为零成本空操作），gateway、daemon 消费。指标后端只需实现此 trait，无需改动调用点。
 
 **接口契约**：
 
@@ -597,9 +597,9 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
-  - **im_adapter**（实现 ToolRegistrar、IMPlugin、MediaStoreAccess；消费 IdentityResolver、StreamingRenderer）
+  - **im_adapter**（实现 ToolRegistrar、IMPlugin、MediaStoreAccess；消费 IdentityResolver、StreamingRenderer、StreamingSink）
   - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、PlanConfirmationHandler、TaskManager、AgentRegistryQuery）
-  - **cli**（实现 IMPlugin；消费 StreamingRenderer）
+  - **cli**（实现 IMPlugin；消费 StreamingRenderer、StreamingSink）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（实现 AuditLogger；消费 SessionLookup、SessionModeQuery）
   - **processor_chain**（实现 ProcessorChain）

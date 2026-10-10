@@ -14,7 +14,7 @@
 - 出站定向字段：reply_ref（出站定向引用，可选。由插件按平台语义填入——如飞书话题的根消息 ID、顶层消息的消息 ID。不参与 session 路由与 session_key 计算，仅用于出站时定向投递到原会话位置）
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
-- 运行时快照：pending_messages（transcript，含消息列表）、session_mode（对话模式：normal/plan/auto）、mode_state（推理步骤状态）
+- 运行时快照：pending_messages（transcript，含消息列表）、session_mode（对话模式：normal/plan/auto）、mode_state（模式的推理步骤状态）、plan_state（Plan Mode 规划阶段状态 [PlanState](../common/shared-types.md#planstate)，mode 模块管理）
 - 工作流状态：workflow_run（workflow 模块的 WorkflowRun，随 checkpoint 持久化的附加状态；进入 workflow 模式时写入、退出时清空，恢复语义见 [workflow/session-integration.md](../workflow/session-integration.md)）
 - 出站交付记录：outbound_pending（记录每条出站消息含过滤后内容与 dsl_result、发送标记 sent；未发送成功的条目崩溃/停止后重投递，需求 [session F7](../../requirements/session.md)）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
