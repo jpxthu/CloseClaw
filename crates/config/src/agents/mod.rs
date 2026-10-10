@@ -20,9 +20,15 @@ pub use permission_provider::{
     AgentPermissionProvider, LazyAgentPermissions, NoopPermissionProvider,
 };
 pub use provider::AgentsConfigProvider;
-pub use resolved::{ConfigSource, ResolvedAgentConfig};
+pub use resolved::{from_single, merge};
 pub use types::AgentsConfig;
 pub use validation::validate_agents_config;
+
+// TEMPORARY (issue #3344): ResolvedAgentConfig / SubagentsConfig / ConfigSource
+// migrated to `closeclaw_common::agent_config`. This re-export keeps the
+// legacy `closeclaw_config::agents::*` paths compiling while consumers are
+// migrated one by one; removed in the wrap-up step (零二次出口终态).
+pub use closeclaw_common::agent_config::{ConfigSource, ResolvedAgentConfig, SubagentsConfig};
 
 // TEMPORARY (issue #3344): the memory config type family migrated to
 // `closeclaw_common::memory_config`. These re-exports keep the legacy
