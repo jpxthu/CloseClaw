@@ -115,7 +115,7 @@ impl SessionManager {
     pub(crate) async fn get_agent_config(
         &self,
         agent_id: &str,
-    ) -> Option<closeclaw_config::agents::ResolvedAgentConfig> {
+    ) -> Option<closeclaw_common::ResolvedAgentConfig> {
         let config_manager = self.config_manager.read().await;
         let cm = config_manager.as_ref()?;
         let agents = cm.agents.read().unwrap();

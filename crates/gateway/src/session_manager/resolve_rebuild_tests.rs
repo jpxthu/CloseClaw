@@ -722,7 +722,7 @@ fn make_test_config_manager() -> Arc<closeclaw_config::manager::ConfigManager> {
         let mut agents = cm.agents.write().unwrap();
         agents.insert(
             "agent-b".into(),
-            closeclaw_config::agents::ResolvedAgentConfig {
+            closeclaw_common::ResolvedAgentConfig {
                 id: "agent-b".into(),
                 name: "agent-b".into(),
                 parent_id: None,
@@ -733,12 +733,12 @@ fn make_test_config_manager() -> Arc<closeclaw_config::manager::ConfigManager> {
                 skills: vec!["skill-a".into(), "skill-b".into()],
                 tools: vec![],
                 disallowed_tools: vec![],
-                subagents: closeclaw_config::agents::SubagentsConfig::default(),
-                memory: closeclaw_config::agents::MemoryConfig::default(),
+                subagents: closeclaw_common::SubagentsConfig::default(),
+                memory: closeclaw_common::MemoryConfig::default(),
                 hooks: vec![],
                 parallel_tool_calls: true,
                 memory_configured: false,
-                source: closeclaw_config::agents::ConfigSource::Merged,
+                no_bootstrap: false,
             },
         );
     }

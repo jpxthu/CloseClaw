@@ -12,10 +12,10 @@
 #       - 宏展开生成的声明不扫描；
 #       - 仅识别 closeclaw-common 包名，common 子 crate 若有不豁免；
 #       - 标题混排 / 反引号包裹的条目名（common-admission 清单侧）不识别。
-closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::CommunicationCheckResult
-closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::CommunicationConfig
-closeclaw-agent: src/config/mod.rs:5 closeclaw_common::communication::check_communication_allowed
-closeclaw-agent: src/config/mod.rs:8 closeclaw_common::BootstrapMode
+closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::CommunicationCheckResult
+closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::CommunicationConfig
+closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::check_communication_allowed
+closeclaw-agent: src/config/mod.rs:11 closeclaw_common::BootstrapMode
 closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentSkillsQuery
 closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentToolsConfig
 closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentToolsConfigQuery

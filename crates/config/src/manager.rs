@@ -15,20 +15,20 @@ use tokio::sync::broadcast;
 use tracing::{error, info, warn};
 use uuid::Uuid;
 
+use closeclaw_common::ResolvedAgentConfig;
+
+use crate::agents::LazyAgentPermissions;
 use crate::backup::SafeBackupManager;
 use crate::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
-use crate::validators::{CredentialProviderSet, CrossRefData};
-
-/// Snapshot of all config sections at a point in time.
-///
-/// Broadcast via `ConfigManager` on every successful reload so that
-/// downstream components (e.g. `SessionManager`) can swap to the
-/// latest config without holding a lock on `ConfigManager`.
-pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
-use crate::agents::LazyAgentPermissions;
 use crate::manager_models::ModelsConfigCache;
 use crate::providers::{ConfigProvider, CredentialsProvider, ModelsConfigData};
 use crate::session::{JsonSessionConfigProvider, SessionConfigProvider};
+use crate::validators::{CredentialProviderSet, CrossRefData};
+
+/// Snapshot of all config sections at a point in time, broadcast via
+/// `ConfigManager` after each successful reload. Readers need no
+/// `ConfigManager` lock: the map is cloned under the sections RwLock.
+pub type ConfigSnapshot = Arc<HashMap<ConfigSection, serde_json::Value>>;
 
 // ---------------------------------------------------------------------------
 // Error types
@@ -274,7 +274,7 @@ pub struct ConfigManager {
     /// Loaded session config provider (from config/session.json).
     pub session_provider: RwLock<Option<Arc<dyn SessionConfigProvider>>>,
     /// Resolved agent configurations (from two-level directories).
-    pub agents: RwLock<HashMap<String, crate::agents::ResolvedAgentConfig>>,
+    pub agents: RwLock<HashMap<String, ResolvedAgentConfig>>,
     /// Lazy-loaded agent permissions (accessed on demand via get()).
     pub agent_permissions: Arc<LazyAgentPermissions>,
     /// Optional project root for loading agents.json.

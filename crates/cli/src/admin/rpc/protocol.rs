@@ -8,8 +8,7 @@
 //! [4-byte big-endian length (u32)][JSON frame bytes]
 //! ```
 
-use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_config::agents::{MemoryConfig, SubagentsConfig};
+use closeclaw_common::{BootstrapMode, MemoryConfig, ModelSpec, SubagentsConfig};
 use serde::{Deserialize, Serialize};
 
 /// Information about a registered agent (summary for list).
@@ -228,7 +227,7 @@ mod tests {
 
     #[test]
     fn test_agent_info_response_serialization() {
-        use closeclaw_config::agents::SubagentsConfig;
+        use closeclaw_common::SubagentsConfig;
         let resp = AdminResponse::AgentInfoResult(Box::new(AgentInfoResult {
             id: "agent1".to_string(),
             name: "Agent One".to_string(),

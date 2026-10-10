@@ -617,7 +617,6 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "closeclaw-common",
- "closeclaw-config",
  "dashmap",
  "serde",
  "serde_json",

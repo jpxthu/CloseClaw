@@ -15,9 +15,9 @@ use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_common::SpawnError;
+use closeclaw_common::SubagentsConfig;
 use closeclaw_common::{BootstrapMode, ModelSpec};
-use closeclaw_config::agents::SubagentsConfig;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -92,7 +92,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::User,
+        no_bootstrap: false,
     }
 }
 
@@ -196,8 +196,6 @@ async fn test_validate_passes() {
         .expect("validate should succeed for a legal request");
 
     assert_eq!(result.agent_id, "child");
-    // Full target config (incl. source) now asserted from the config store.
-    assert_eq!(cm.agents()["child"].source, ConfigSource::User);
     // parent.max_spawn_depth=2, child.max_spawn_depth=1 (default)
     // effective_max = min(1, 2-1) = 1
     assert_eq!(result.effective_max_spawn_depth, 1);

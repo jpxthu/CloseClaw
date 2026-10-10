@@ -5,7 +5,7 @@ use crate::admin::rpc::protocol::AgentInfoResult;
 use crate::admin::{admin_socket_path, AdminClient, AdminRequest, AdminResponse};
 use crate::args::AgentAction;
 use anyhow::Result;
-use closeclaw_config::agents::{MemoryConfig, SubagentsConfig};
+use closeclaw_common::{MemoryConfig, SubagentsConfig};
 use std::path::PathBuf;
 
 pub async fn handle_agent(action: AgentAction, json: bool) -> Result<()> {

@@ -20,7 +20,7 @@ pub use permission_provider::{
     AgentPermissionProvider, LazyAgentPermissions, NoopPermissionProvider,
 };
 pub use provider::AgentsConfigProvider;
-pub use resolved::{ConfigSource, ResolvedAgentConfig};
+pub use resolved::{from_single, merge};
 pub use types::AgentsConfig;
 pub use validation::validate_agents_config;
 

@@ -163,7 +163,7 @@ impl SpawnBudgetLookup for ConfigSpawnBudgetLookup {
 /// definition shared by [`ConfigSpawnBudgetLookup::spawn_target_config`]
 /// and the phase-wiring child-session callback.
 pub(super) fn spawn_target_agent_config(
-    cfg: &closeclaw_config::agents::ResolvedAgentConfig,
+    cfg: &closeclaw_common::ResolvedAgentConfig,
 ) -> SpawnTargetAgentConfig {
     SpawnTargetAgentConfig {
         id: cfg.id.clone(),

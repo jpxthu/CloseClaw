@@ -13,10 +13,8 @@ use crate::{GatewayConfig, Message, SessionManager};
 use closeclaw_common::{
     BootstrapMode, ModelSpec, PermissionChecker, SpawnError, SpawnPermissionError,
 };
-use closeclaw_config::agents::{
-    ActionPermission, AgentPermissions, ConfigSource, MemoryConfig, PermissionLimits,
-    ResolvedAgentConfig, SubagentsConfig,
-};
+use closeclaw_common::{MemoryConfig, ResolvedAgentConfig, SubagentsConfig};
+use closeclaw_config::agents::{ActionPermission, AgentPermissions, PermissionLimits};
 use closeclaw_config::ConfigManager;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
@@ -84,7 +82,7 @@ fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
         hooks: Vec::new(),
         parallel_tool_calls: true,
         memory_configured: false,
-        source: ConfigSource::User,
+        no_bootstrap: false,
     }
 }
 

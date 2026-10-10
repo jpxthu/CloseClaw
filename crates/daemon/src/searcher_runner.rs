@@ -123,7 +123,7 @@ pub(crate) fn summary_to_slot_parts(
 /// Deserialize the memory config JSON into a strongly-typed struct.
 pub(crate) fn deserialize_memory_config(
     memory_config: &serde_json::Value,
-) -> Option<closeclaw_config::agents::MemoryConfig> {
+) -> Option<closeclaw_common::MemoryConfig> {
     serde_json::from_value(memory_config.clone()).ok()
 }
 
@@ -131,7 +131,7 @@ pub(crate) fn deserialize_memory_config(
 ///
 /// Pure field copy — default-value fallbacks live in `closeclaw-memory`.
 pub(crate) fn search_params_from_memory_config(
-    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+    mem_cfg: &closeclaw_common::MemoryConfig,
 ) -> closeclaw_memory::params::SearchParams {
     let search = &mem_cfg.search;
     closeclaw_memory::params::SearchParams {
@@ -147,7 +147,7 @@ pub(crate) fn search_params_from_memory_config(
 
 /// Map the agent forgetting config onto the memory crate's forgetting params.
 pub(crate) fn forgetting_params_from_memory_config(
-    mem_cfg: &closeclaw_config::agents::MemoryConfig,
+    mem_cfg: &closeclaw_common::MemoryConfig,
 ) -> closeclaw_memory::params::ForgettingParams {
     closeclaw_memory::params::ForgettingParams {
         injection_extension_days: mem_cfg.forgetting.injection_extension_days,
@@ -159,7 +159,7 @@ pub(crate) fn forgetting_params_from_memory_config(
 /// Returns `None` if `search.enabled` is `false` in the agent config.
 pub(crate) fn build_searcher_config(
     model: &str,
-    mem_cfg: &Option<closeclaw_config::agents::MemoryConfig>,
+    mem_cfg: &Option<closeclaw_common::MemoryConfig>,
 ) -> Option<closeclaw_memory::active_searcher::ActiveSearcherConfig> {
     use closeclaw_memory::active_searcher::ActiveSearcherConfig;
     let search = mem_cfg.as_ref().map(search_params_from_memory_config);

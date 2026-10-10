@@ -805,8 +805,7 @@ fn test_env_write_uses_raw_key() {
 #[test]
 fn test_agent_info_json_output_all_fields() {
     use closeclaw_cli::admin::rpc::protocol::{AdminResponse, AgentInfoResult};
-    use closeclaw_common::ModelSpec;
-    use closeclaw_config::agents::{MemoryConfig, SubagentsConfig};
+    use closeclaw_common::{MemoryConfig, ModelSpec, SubagentsConfig};
 
     let info = AgentInfoResult {
         id: "cli-test-agent".to_string(),

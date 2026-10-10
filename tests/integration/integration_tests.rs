@@ -10,9 +10,9 @@ use std::sync::Arc;
 // ---------------------------------------------------------------------------
 // Test imports — from the library crate
 // ---------------------------------------------------------------------------
-use closeclaw::agent::config::AgentConfig;
 use closeclaw::agent::registry::{create_registry, SharedAgentRegistry};
-use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgentConfig};
+use closeclaw_common::ResolvedAgentConfig;
+use closeclaw_config::agents::{AgentConfig, AgentsConfigProvider};
 
 // ---------------------------------------------------------------------------
 // Helper builders
@@ -25,15 +25,15 @@ use closeclaw_config::agents::{AgentsConfigProvider, ConfigSource, ResolvedAgent
 /// Creates a [`ResolvedAgentConfig`] for testing purposes.
 ///
 /// Given an agent `id` and an optional `parent_id`, builds a default
-/// [`AgentConfig`], wraps it with [`ConfigSource::User`], and returns
-/// a fully resolved configuration suitable for [`SharedAgentRegistry::populate`].
+/// [`AgentConfig`] and returns a fully resolved configuration suitable
+/// for [`SharedAgentRegistry::populate`].
 fn make_resolved_config(id: &str, parent_id: Option<&str>) -> ResolvedAgentConfig {
     let cfg = AgentConfig {
         id: id.to_string(),
         parent_id: parent_id.map(String::from),
         ..Default::default()
     };
-    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "<test>", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, "<test>", None).unwrap()
 }
 
 #[tokio::test]

@@ -1,16 +1,16 @@
 //! Tests for `ResolvedAgentConfig` memory config merge.
 
-use crate::agents::config_types::{AgentConfig, SubagentsConfig};
+use crate::agents::config_types::AgentConfig;
 
-use super::{ConfigSource, ResolvedAgentConfig};
+use super::{from_single, merge};
 
 // ------------------------------------------------------------------
 // MemoryConfig field-level merge: merge_overrides
 // ------------------------------------------------------------------
 
-use crate::agents::config_types::{
+use closeclaw_common::{
     DreamingCapacityConfig, DreamingConfig, DreamingScoringConfig, DreamingThresholdConfig,
-    MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig,
+    MemoryConfig, MemoryStorageConfig, MiningConfig, SearchConfig, SubagentsConfig,
 };
 
 /// Build a global MemoryConfig with non-default values.
@@ -354,8 +354,7 @@ fn test_from_single_with_memory_config() {
         }),
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.memory.search.enabled, Some(true));
     assert_eq!(resolved.memory.search.timeout_ms, Some(10000));
 }
@@ -367,8 +366,7 @@ fn test_from_single_without_memory_uses_default() {
         memory: None,
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.memory, MemoryConfig::default());
 }
 
@@ -387,9 +385,7 @@ fn test_from_single_merge_consistency_subagent_defaults() {
         subagents: SubagentsConfig::default(),
         ..Default::default()
     };
-    let from_single_result =
-        ResolvedAgentConfig::from_single(single_config, ConfigSource::User, "<test>", None)
-            .unwrap();
+    let from_single_result = from_single(single_config, "<test>", None).unwrap();
 
     // merge path: project has empty id (so user id wins), all subagent fields None
     let project_config = AgentConfig {
@@ -402,8 +398,7 @@ fn test_from_single_merge_consistency_subagent_defaults() {
         subagents: SubagentsConfig::default(),
         ..Default::default()
     };
-    let merge_result =
-        ResolvedAgentConfig::merge(project_config, user_config, "<test>", None).unwrap();
+    let merge_result = merge(project_config, user_config, "<test>", None).unwrap();
 
     // Subagent defaults must be identical across both paths
     assert_eq!(
@@ -436,19 +431,18 @@ fn test_from_single_merge_consistency_explicit_values() {
         ..Default::default()
     };
 
-    let from_single_result = ResolvedAgentConfig::from_single(
+    let from_single_result = from_single(
         AgentConfig {
             id: "explicit-agent".to_string(),
             subagents: subagents.clone(),
             ..Default::default()
         },
-        ConfigSource::User,
         "<test>",
         None,
     )
     .unwrap();
 
-    let merge_result = ResolvedAgentConfig::merge(
+    let merge_result = merge(
         AgentConfig {
             id: String::new(),
             subagents: SubagentsConfig::default(),
@@ -500,7 +494,7 @@ fn test_merge_project_timeout_overrides_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.timeout, Some(60));
 }
 
@@ -522,7 +516,7 @@ fn test_merge_project_timeout_none_falls_back_to_user() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.timeout, Some(120));
 }
 
@@ -544,6 +538,6 @@ fn test_merge_both_timeout_none_remains_none() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert!(resolved.subagents.timeout.is_none());
 }

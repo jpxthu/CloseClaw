@@ -1,8 +1,9 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::ResolvedAgentConfig;
 use closeclaw_common::{ModelSpec, SkillRegistryQuery};
-use closeclaw_config::agents::{AgentConfig, ConfigSource, ResolvedAgentConfig};
+use closeclaw_config::agents::AgentConfig;
 
 use crate::admin::rpc::protocol::{AdminRequest, AdminResponse, AgentInfoResult};
 use crate::admin::rpc::server::{
@@ -391,7 +392,7 @@ fn make_full_config() -> ResolvedAgentConfig {
         skills: vec!["skill-a".to_string(), "skill-b".to_string()],
         tools: vec!["read".to_string(), "write".to_string()],
         disallowed_tools: vec!["dangerous".to_string()],
-        subagents: closeclaw_config::agents::SubagentsConfig {
+        subagents: closeclaw_common::SubagentsConfig {
             allow_agents: vec!["child-a".to_string()],
             require_agent_id: Some(true),
             max_spawn_depth: Some(3),
@@ -402,10 +403,10 @@ fn make_full_config() -> ResolvedAgentConfig {
             default_child_agent: None,
             model: Some(ModelSpec::single("gpt-4o-mini")),
         },
-        memory: Some(closeclaw_config::agents::MemoryConfig::default()),
+        memory: Some(closeclaw_common::MemoryConfig::default()),
         ..AgentConfig::default()
     };
-    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, "test", None).unwrap()
 }
 
 /// Helper: build a ResolvedAgentConfig with all fields at defaults.
@@ -414,7 +415,7 @@ fn make_default_config() -> ResolvedAgentConfig {
         id: "default-agent".to_string(),
         ..AgentConfig::default()
     };
-    ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap()
+    closeclaw_config::agents::from_single(cfg, "test", None).unwrap()
 }
 
 /// Populate the test context's registry with the given configs.
@@ -513,7 +514,7 @@ fn test_dispatch_agent_info_name_not_queried() {
         name: Some("Display Name".to_string()),
         ..AgentConfig::default()
     };
-    let resolved = ResolvedAgentConfig::from_single(cfg, ConfigSource::User, "test", None).unwrap();
+    let resolved = closeclaw_config::agents::from_single(cfg, "test", None).unwrap();
     populate_registry(&ctx, vec![resolved]);
 
     // Querying by the display name should fail
@@ -533,7 +534,7 @@ fn test_dispatch_agent_info_name_not_queried() {
 /// Protocol roundtrip: AgentInfoResult serde field names are camelCase.
 #[test]
 fn test_agent_info_result_camelcase_fields() {
-    use closeclaw_config::agents::SubagentsConfig;
+    use closeclaw_common::SubagentsConfig;
     let info = AgentInfoResult {
         id: "test".to_string(),
         name: "Test".to_string(),

@@ -428,8 +428,8 @@ fn test_dreaming_pipeline_built_from_config_manager() {
 /// the mining config (not from MinerConfig::default()).
 #[test]
 fn test_miner_config_from_mining_config() {
-    let memory_config_enabled = closeclaw_config::agents::MemoryConfig {
-        mining: closeclaw_config::agents::MiningConfig {
+    let memory_config_enabled = closeclaw_common::MemoryConfig {
+        mining: closeclaw_common::MiningConfig {
             enabled: Some(true),
             ..Default::default()
         },
@@ -441,8 +441,8 @@ fn test_miner_config_from_mining_config() {
         "MinerConfig should be enabled when MiningConfig.enabled = true"
     );
 
-    let memory_config_disabled = closeclaw_config::agents::MemoryConfig {
-        mining: closeclaw_config::agents::MiningConfig {
+    let memory_config_disabled = closeclaw_common::MemoryConfig {
+        mining: closeclaw_common::MiningConfig {
             enabled: Some(false),
             ..Default::default()
         },
@@ -455,8 +455,8 @@ fn test_miner_config_from_mining_config() {
     );
 
     // When enabled is None, fallback should be false (per config.md).
-    let memory_config_none = closeclaw_config::agents::MemoryConfig {
-        mining: closeclaw_config::agents::MiningConfig {
+    let memory_config_none = closeclaw_common::MemoryConfig {
+        mining: closeclaw_common::MiningConfig {
             enabled: None,
             ..Default::default()
         },
@@ -473,8 +473,8 @@ fn test_miner_config_from_mining_config() {
 /// max_events_per_session and dedup_window_days.
 #[test]
 fn test_miner_config_from_mining_config_custom_values() {
-    let memory_config = closeclaw_config::agents::MemoryConfig {
-        mining: closeclaw_config::agents::MiningConfig {
+    let memory_config = closeclaw_common::MemoryConfig {
+        mining: closeclaw_common::MiningConfig {
             enabled: Some(true),
             max_events_per_session: Some(50),
             dedup_window_days: Some(60),

@@ -1,12 +1,14 @@
-//! Tests for `ResolvedAgentConfig::merge` — field-level override semantics.
+//! Tests for `merge` — field-level override semantics.
 //!
 //! Covers Gap 3 (requireAgentId) and Gap 4 (bootstrapMode, maxSpawnDepth,
 //! maxChildren) from the design doc alignment plan.
 
-use crate::agents::config_types::{AgentConfig, SubagentsConfig};
-use closeclaw_common::{BootstrapMode, HookConfig, HookParams, HookType};
+use crate::agents::config_types::AgentConfig;
+use closeclaw_common::{
+    BootstrapMode, HookConfig, HookParams, HookType, ModelSpec, SubagentsConfig,
+};
 
-use super::{ConfigSource, ResolvedAgentConfig};
+use super::{from_single, merge};
 
 // ------------------------------------------------------------------
 // Helper
@@ -39,7 +41,7 @@ fn test_merge_project_bootstrap_mode_overrides_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Full);
 }
 
@@ -56,7 +58,7 @@ fn test_merge_project_bootstrap_mode_minimal_overrides_user_full() {
         bootstrap_mode: Some(BootstrapMode::Minimal),
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Minimal);
 }
 
@@ -69,7 +71,7 @@ fn test_merge_project_bootstrap_mode_none_falls_back_to_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Minimal);
 }
 
@@ -86,7 +88,7 @@ fn test_merge_both_bootstrap_mode_none_uses_default() {
         bootstrap_mode: None,
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Full);
 }
 
@@ -106,7 +108,7 @@ fn test_merge_project_require_agent_id_false_overrides_user_true() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(false));
 }
 
@@ -129,7 +131,7 @@ fn test_merge_project_require_agent_id_true_overrides_user_false() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(true));
 }
 
@@ -145,7 +147,7 @@ fn test_merge_project_require_agent_id_none_falls_back_to_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(true));
 }
 
@@ -168,7 +170,7 @@ fn test_merge_both_require_agent_id_none_uses_default() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(false));
 }
 
@@ -188,7 +190,7 @@ fn test_merge_project_max_spawn_depth_overrides_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_spawn_depth, Some(1));
 }
 
@@ -204,7 +206,7 @@ fn test_merge_project_max_spawn_depth_zero_overrides_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_spawn_depth, Some(0));
 }
 
@@ -220,7 +222,7 @@ fn test_merge_project_max_spawn_depth_none_falls_back_to_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_spawn_depth, Some(3));
 }
 
@@ -243,7 +245,7 @@ fn test_merge_both_max_spawn_depth_none_uses_default() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_spawn_depth, Some(1));
 }
 
@@ -263,7 +265,7 @@ fn test_merge_project_max_children_overrides_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_children, Some(5));
 }
 
@@ -279,7 +281,7 @@ fn test_merge_project_max_children_zero_overrides_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_children, Some(0));
 }
 
@@ -295,7 +297,7 @@ fn test_merge_project_max_children_none_falls_back_to_user() {
         ..Default::default()
     };
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_children, Some(10));
 }
 
@@ -318,7 +320,7 @@ fn test_merge_both_max_children_none_uses_default() {
         },
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.max_children, Some(5));
 }
 
@@ -333,7 +335,7 @@ fn test_merge_old_json_without_optional_fields() {
     let json = r#"{"id":"old-agent"}"#;
     let project: AgentConfig = serde_json::from_str(json).unwrap();
     let user = make_user_config();
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
 
     // All should fall back to user values
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Minimal);
@@ -353,8 +355,7 @@ fn test_from_single_resolves_bootstrap_mode_default() {
         bootstrap_mode: None,
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Full);
 }
 
@@ -370,8 +371,7 @@ fn test_from_single_fills_subagent_defaults() {
         },
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.subagents.require_agent_id, Some(false));
     assert_eq!(resolved.subagents.max_spawn_depth, Some(1));
     assert_eq!(resolved.subagents.max_children, Some(5));
@@ -390,8 +390,7 @@ fn test_from_single_preserves_explicit_values() {
         },
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(resolved.subagents.require_agent_id, Some(true));
     assert_eq!(resolved.subagents.max_spawn_depth, Some(3));
@@ -424,8 +423,7 @@ fn test_from_single_preserves_hooks() {
         hooks: hooks.clone(),
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.hooks.len(), 2);
     assert_eq!(resolved.hooks[0].hook_type, HookType::PlanCheck);
     assert_eq!(resolved.hooks[0].enabled, true);
@@ -440,8 +438,7 @@ fn test_from_single_empty_hooks_default() {
         hooks: vec![],
         ..Default::default()
     };
-    let resolved =
-        ResolvedAgentConfig::from_single(config, ConfigSource::User, "<test>", None).unwrap();
+    let resolved = from_single(config, "<test>", None).unwrap();
     assert!(resolved.hooks.is_empty());
 }
 
@@ -465,7 +462,7 @@ fn test_merge_project_hooks_override_user() {
         }],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     // Project's non-empty hooks should override user's.
     assert_eq!(resolved.hooks.len(), 1);
     assert_eq!(resolved.hooks[0].hook_type, HookType::ProgressCheck);
@@ -487,7 +484,7 @@ fn test_merge_project_hooks_empty_falls_back_to_user() {
         }],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     // Empty project falls back to user.
     assert_eq!(resolved.hooks.len(), 1);
     assert_eq!(resolved.hooks[0].hook_type, HookType::LoopCheck);
@@ -505,6 +502,412 @@ fn test_merge_both_hooks_empty_default() {
         hooks: vec![],
         ..Default::default()
     };
-    let resolved = ResolvedAgentConfig::merge(project, user, "<test>", None).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
     assert!(resolved.hooks.is_empty());
+}
+
+// ------------------------------------------------------------------
+// Name fallback: None / Some("") → resolved id
+// (migrated from closeclaw_agent::config::config_tests, issue #3344)
+// ------------------------------------------------------------------
+
+#[test]
+fn test_resolved_config_name_fallback_to_id() {
+    // `name = None` → resolved `name` must equal `id`.
+    let config = AgentConfig {
+        id: "agent-x".to_string(),
+        name: None,
+        ..Default::default()
+    };
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert_eq!(resolved.id, "agent-x");
+    assert_eq!(resolved.name, "agent-x");
+}
+
+#[test]
+fn test_resolved_config_name_empty_string_fallback() {
+    // `name = Some("")` → resolved `name` must equal `id`.
+    let config = AgentConfig {
+        id: "agent-y".to_string(),
+        name: Some("".to_string()),
+        ..Default::default()
+    };
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert_eq!(resolved.id, "agent-y");
+    assert_eq!(resolved.name, "agent-y");
+}
+
+#[test]
+fn test_resolved_config_merge_name_fallback() {
+    // Both project and user have no usable name → merged name falls back to
+    // the resolved `id`. Project.name is `None`, user.name is `Some("")`.
+    let project = AgentConfig {
+        id: "agent-z".to_string(),
+        name: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "agent-z".to_string(),
+        name: Some("".to_string()),
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.id, "agent-z");
+    assert_eq!(resolved.name, "agent-z");
+}
+
+// ------------------------------------------------------------------
+// Vec fields: project `["*"]` overrides user; empty project falls
+// back to user (skills / tools / allow_agents)
+// ------------------------------------------------------------------
+
+#[test]
+fn test_merge_skills_star_overrides_user() {
+    // Project-level ["*"] should override user-level specific list.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["specific-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level skills"
+    );
+}
+
+#[test]
+fn test_merge_tools_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["*".to_string()],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level tools"
+    );
+}
+
+#[test]
+fn test_merge_allow_agents_star_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["*".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["*".to_string()],
+        "project-level [\"*\"] should override user-level allow_agents"
+    );
+}
+
+#[test]
+fn test_merge_skills_empty_project_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        skills: vec!["user-skill".to_string()],
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.skills,
+        vec!["user-skill".to_string()],
+        "empty project skills should fall back to user skills"
+    );
+}
+
+#[test]
+fn test_merge_tools_empty_project_falls_back_to_user() {
+    // Project-level tools is empty vec → fall back to user-level tools.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec![],
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        tools: vec!["read".to_string(), "grep".to_string()],
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.tools,
+        vec!["read", "grep"],
+        "empty project tools should fall back to user tools"
+    );
+}
+
+#[test]
+fn test_merge_allow_agents_empty_project_falls_back_to_user() {
+    // Project-level allow_agents is empty vec → fall back to user-level.
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec![],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            allow_agents: vec!["agent-a".to_string()],
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.subagents.allow_agents,
+        vec!["agent-a"],
+        "empty project allow_agents should fall back to user allow_agents"
+    );
+}
+
+// ------------------------------------------------------------------
+// Resolved construction works without a permissions field
+// ------------------------------------------------------------------
+
+#[test]
+fn test_resolved_config_no_permissions_field() {
+    // Verify that ResolvedAgentConfig can be constructed without a permissions field.
+    let config = AgentConfig {
+        id: "test-agent".to_string(),
+        ..Default::default()
+    };
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert_eq!(resolved.id, "test-agent");
+
+    // Verify merge path also works without a permissions field (no panic).
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("gpt-4o")),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        ..Default::default()
+    };
+    let merged = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(merged.id, "test-agent");
+
+    // Verify default field values on resolved config.
+    assert_eq!(merged.skills, vec!["*"]); // default from AgentConfig::default()
+    assert_eq!(merged.tools, vec!["*"]); // default from AgentConfig::default()
+    assert!(merged.disallowed_tools.is_empty());
+}
+
+// ------------------------------------------------------------------
+// Model merge semantics (project overrides user / fallback to user)
+// ------------------------------------------------------------------
+
+#[test]
+fn test_merge_model_project_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("gpt-4o")),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("claude-3")),
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_merge_model_project_with_fallback_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()],
+        )),
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("deepseek")),
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.model,
+        Some(ModelSpec::with_fallback(
+            "gpt-4o",
+            vec!["claude-3".to_string()]
+        ))
+    );
+}
+
+#[test]
+fn test_merge_model_project_none_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: Some(ModelSpec::single("claude-3")),
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.model, Some(ModelSpec::single("claude-3")));
+}
+
+#[test]
+fn test_merge_model_both_none() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        model: None,
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.model, None);
+}
+
+#[test]
+fn test_merge_subagents_model_project_overrides_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::single("gpt-4o")),
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::with_fallback(
+                "claude-3",
+                vec!["gemini".to_string()],
+            )),
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(resolved.subagents.model, Some(ModelSpec::single("gpt-4o")));
+}
+
+#[test]
+fn test_merge_subagents_model_project_none_falls_back_to_user() {
+    let project = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: None,
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let user = AgentConfig {
+        id: "test-agent".to_string(),
+        subagents: SubagentsConfig {
+            model: Some(ModelSpec::single("claude-3")),
+            timeout: None,
+            ..Default::default()
+        },
+        ..Default::default()
+    };
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert_eq!(
+        resolved.subagents.model,
+        Some(ModelSpec::single("claude-3"))
+    );
+}
+
+// ------------------------------------------------------------------
+// noBootstrap parsing (issue #3344 field alignment)
+// ------------------------------------------------------------------
+
+#[test]
+fn test_no_bootstrap_undeclared_defaults_false() {
+    // config.json without `noBootstrap` → raw None, resolved false
+    // (normal path: bootstrap files load per bootstrap_mode).
+    let config: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    assert_eq!(config.no_bootstrap, None);
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert!(!resolved.no_bootstrap);
+}
+
+#[test]
+fn test_no_bootstrap_explicit_true_resolves_true() {
+    // Explicit `noBootstrap: true` → resolved true (explicit declaration
+    // boundary: sessions run without bootstrap files).
+    let config: AgentConfig =
+        serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    assert_eq!(config.no_bootstrap, Some(true));
+    let resolved = from_single(config, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_project_true_overrides_user_none() {
+    // Two-level merge wiring: project's Some(true) wins over user None.
+    let project: AgentConfig =
+        serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    let user = make_user_config();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_project_none_falls_back_to_user_true() {
+    // Two-level merge wiring: project None → user's Some(true) applies.
+    let project: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let user: AgentConfig = serde_json::from_str(r#"{"id":"agent-a","noBootstrap":true}"#).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(resolved.no_bootstrap);
+}
+
+#[test]
+fn test_merge_no_bootstrap_undeclared_both_levels_false() {
+    // Two-level merge wiring: None at both levels → resolved default false.
+    let project: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let user: AgentConfig = serde_json::from_str(r#"{"id":"agent-a"}"#).unwrap();
+    let resolved = merge(project, user, "<test>", None).unwrap();
+    assert!(!resolved.no_bootstrap);
 }

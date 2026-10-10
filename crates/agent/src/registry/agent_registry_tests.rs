@@ -4,10 +4,9 @@
 //! `reload` lifecycle, simulating daemon startup fill, runtime query,
 //! and config hot-reload.
 
-use crate::config::SubagentsConfig;
 use crate::registry::create_registry;
-use closeclaw_common::BootstrapMode;
-use closeclaw_config::agents::{ConfigSource, MemoryConfig, ResolvedAgentConfig};
+use closeclaw_common::{BootstrapMode, MemoryConfig};
+use closeclaw_common::{ResolvedAgentConfig, SubagentsConfig};
 
 /// Helper: build a minimal `ResolvedAgentConfig` for E2E tests.
 fn make_config(id: &str) -> ResolvedAgentConfig {
@@ -19,6 +18,7 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         workspace: None,
         agent_dir: None,
         bootstrap_mode: BootstrapMode::Full,
+        no_bootstrap: false,
         skills: vec![],
         tools: vec![],
         disallowed_tools: vec![],
@@ -27,7 +27,6 @@ fn make_config(id: &str) -> ResolvedAgentConfig {
         memory_configured: false,
         hooks: vec![],
         parallel_tool_calls: true,
-        source: ConfigSource::User,
     }
 }
 

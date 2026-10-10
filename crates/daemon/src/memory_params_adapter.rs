@@ -7,7 +7,7 @@
 //! the memory crate (`closeclaw_memory::params`), so this module performs
 //! pure field copies — no defaulting logic here.
 
-use closeclaw_config::agents::{DreamingConfig, MemoryConfig};
+use closeclaw_common::{DreamingConfig, MemoryConfig};
 use closeclaw_memory::params::{
     DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
     DreamingThresholdParams, MinerParams, TranscriptCleanRules,
@@ -69,7 +69,7 @@ pub(crate) fn dreaming_params_from_config(config: &DreamingConfig) -> DreamingPa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_config::agents::{ForgettingConfig, MiningConfig};
+    use closeclaw_common::{ForgettingConfig, MiningConfig};
     use closeclaw_memory::params::{
         default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
         default_mining_dedup_window_days, default_mining_max_events_per_session,
@@ -83,7 +83,7 @@ mod tests {
                 model: Some("gpt-4o-mini".to_string()),
                 max_events_per_session: Some(20),
                 dedup_window_days: Some(14),
-                transcript_clean_rules: closeclaw_config::agents::TranscriptCleanRules {
+                transcript_clean_rules: closeclaw_common::TranscriptCleanRules {
                     min_turns: Some(3),
                     min_owner_msgs: Some(4),
                     format: Some("plain".to_string()),
@@ -144,24 +144,24 @@ mod tests {
     fn test_dreaming_params_from_config_maps_all_fields() {
         let config = DreamingConfig {
             enabled: Some(true),
-            diary: closeclaw_config::agents::DreamingDiaryConfig {
+            diary: closeclaw_common::DreamingDiaryConfig {
                 enabled: Some(false),
                 path: Some("custom/diary/".to_string()),
             },
             model: Some("dream-model".to_string()),
             schedule: Some("30 4 * * *".to_string()),
-            scoring: closeclaw_config::agents::DreamingScoringConfig {
+            scoring: closeclaw_common::DreamingScoringConfig {
                 frequency_weight: Some(2.0),
                 recency_weight: Some(0.7),
                 explicitness_weight: Some(1.1),
                 cross_agent_weight: Some(1.4),
                 negative_signal_weight: Some(-0.8),
             },
-            threshold: closeclaw_config::agents::DreamingThresholdConfig {
+            threshold: closeclaw_common::DreamingThresholdConfig {
                 absolute: Some(3.0),
                 relative: Some(0.5),
             },
-            capacity: closeclaw_config::agents::DreamingCapacityConfig { max_rules: Some(8) },
+            capacity: closeclaw_common::DreamingCapacityConfig { max_rules: Some(8) },
         };
 
         let params = dreaming_params_from_config(&config);
