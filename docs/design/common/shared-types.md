@@ -650,6 +650,19 @@ ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析�
 
 **MemoryConfig**：记忆子系统的 per-agent 覆盖结构（字段级覆盖全局 `memory.json`）。作为 ResolvedAgentConfig 的 `memory` 字段类型在此收录；其字段结构与默认值以 [memory/config](../memory/config.md) 为权威定义，本文档不重复。
 
+MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见上述权威定义）：
+
+- **MemoryStorageConfig**：`storage` 字段类型
+- **MiningConfig**：`mining` 字段类型
+- **TranscriptCleanRules**：`mining.transcript_clean_rules` 字段类型
+- **DreamingConfig**：`dreaming` 字段类型
+- **DreamingScoringConfig**：`dreaming.scoring` 字段类型
+- **DreamingThresholdConfig**：`dreaming.threshold` 字段类型
+- **DreamingCapacityConfig**：`dreaming.capacity` 字段类型
+- **DreamingDiaryConfig**：`dreaming.diary` 字段类型
+- **SearchConfig**：`search` 字段类型
+- **ForgettingConfig**：`forgetting` 字段类型
+
 ### 消息/内容辅助类型
 
 - **ContentBlockType**：ContentBlock 的块类型分类枚举（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），用作 [StreamEvent](#streamevent) 的 `block_type` 与流式渲染的分类。
