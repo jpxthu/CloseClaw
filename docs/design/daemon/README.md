@@ -73,7 +73,7 @@ Daemon 作为组合根，创建并持有下表全部组件（含 ConfigManager�
    - SqliteStorage（初始化持久化存储）
 2. **层 2**（依赖层 1）：
    - SessionConfigProvider（ConfigManager 加载后作为独立组件暴露，提供 per-agent 的 idle/purge 阈值与扫描间隔等会话配置，供 ArchiveSweeper、AnnounceSweeper、SessionManager 消费）
-   - MemoryConfigProvider（ConfigManager 加载后作为独立组件暴露，提供记忆子系统配置（含 dreaming.schedule），供 DreamingScheduler 消费）
+   - MemoryConfigProvider（ConfigManager 加载后作为独立组件暴露，提供记忆子系统配置（含 `dreaming.schedule`，字段语义与默认值见 [memory/config](../memory/config.md)），供 DreamingScheduler 消费）
    - AgentRegistry（创建空注册表 → ConfigManager 加载 agent 配置 → populate 填充）
    - Config Hot Reload（spawn 后台任务，监听配置文件变更，触发增量重载；重载校验失败时保留旧配置运行并经 IM 通知 Owner——出站通道为运行时引用，IM Adapters 就绪后接线，不构成启动依赖，详见 [config/hot-reload.md](../config/hot-reload.md)）
    - SkillRegistry（创建注册表骨架，加载 bundled skills）
@@ -133,7 +133,7 @@ graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ConfigManager | 启动时加载各配置文件，合并为各组件所需的数据结构 |
 | SqliteStorage | 启动时初始化持久化存储 |
 | SessionConfigProvider | 启动时加载 session.json，提供给各后台扫描任务（ArchiveSweeper、AnnounceSweeper）和 SessionManager |
-| MemoryConfigProvider | 启动时加载 memory.json，提供给 DreamingScheduler（记忆子系统配置，含 dreaming.schedule） |
+| MemoryConfigProvider | 启动时加载 memory.json，提供给 DreamingScheduler（记忆子系统配置，含 `dreaming.schedule`，字段语义与默认值见 [memory/config](../memory/config.md)） |
 | Permission Engine | 启动时加载全局默认策略，Agent 维度规则延迟加载 |
 | PlanArchiveSweeper | 启动时 spawn 后台任务，定时扫描「全部步骤终态」的 plan，将最后访问超过配置天数的自动归档到 workspace/plans/archive/（终态定义与归档规则见 [mode/README.md](../mode/README.md)） |
 | AgentRegistry | 启动时创建 agent 注册表，从 ConfigManager 加载结果填充。Daemon 持有其所有权 |
