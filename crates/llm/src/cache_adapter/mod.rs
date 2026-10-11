@@ -423,9 +423,9 @@ mod tests {
     // Appends partition tests
     // ------------------------------------------------------------------
 
-    // Appends are appended after dynamic content with cache: false.
     // ------------------------------------------------------------------
-    // Two-partition model (appends merged into dynamic)
+    // Two-partition model (appends merged into dynamic): appends are
+    // appended after dynamic content with cache: false.
     // ------------------------------------------------------------------
 
     /// Static + dynamic-with-appends: appends are merged into the dynamic

@@ -110,7 +110,7 @@ async fn test_outbound_and_independent_from_inbound() {
     let tmp = TempDir::new().unwrap();
     let config = RawLogConfig::new(true, Some(tmp.path().to_path_buf()));
 
-    let inbound = super::super::raw_log_processor::RawLogProcessor::new(config.clone());
+    let inbound = super::raw_log_processor::RawLogProcessor::new(config.clone());
     let outbound = OutboundRawLogProcessor::new(config);
 
     let msg = NormalizedMessage {

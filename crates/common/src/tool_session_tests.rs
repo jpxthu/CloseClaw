@@ -135,8 +135,8 @@ async fn test_tool_session_register_multiple_handles() {
 
     assert_eq!(session.handle_count(), 5);
     let handles = session.registered_handles();
-    for (i, (call_id, _)) in handles.iter().enumerate() {
-        assert_eq!(call_id, &format!("call_{}", i));
+    for (i, handle) in handles.iter().enumerate() {
+        assert_eq!(handle.0, format!("call_{}", i));
     }
 }
 

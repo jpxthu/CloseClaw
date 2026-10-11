@@ -193,7 +193,7 @@ fn test_sandbox_state_crashed_debug() {
 }
 
 #[test]
-fn test_sandbox_state_crashed_clone() {
+fn test_sandbox_state_crashed_copy_preserves_equality() {
     let state = SandboxState::Crashed {
         exit_code: Some(42),
     };
