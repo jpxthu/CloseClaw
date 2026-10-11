@@ -34,7 +34,7 @@ fn test_clone_messages_from() {
     let mut child_session = ConversationSession::new("child_1".into(), "gpt-4o".into(), tmp_path());
     assert_eq!(child_session.messages().len(), 0);
 
-    child_session.clone_messages_from(&source_session.messages());
+    child_session.clone_messages_from(source_session.messages());
 
     assert_eq!(child_session.messages().len(), 2);
     assert_eq!(child_session.messages()[0].role, "assistant");

@@ -14,14 +14,14 @@ mod tests {
     fn test_estimate_tokens_english() {
         // "hello" = 5 chars * 0.25 = 1.25 -> ceil = 2
         let tokens = estimate_tokens("hello", 0.25);
-        assert!(tokens >= 2 && tokens <= 5, "expected 2-5, got {}", tokens);
+        assert!((2..=5).contains(&tokens), "expected 2-5, got {}", tokens);
     }
 
     #[test]
     fn test_estimate_tokens_chinese() {
         // "你好" = 2 chars * 0.25 = 0.5 -> ceil = 1
         let tokens = estimate_tokens("你好", 0.25);
-        assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
+        assert!((1..=4).contains(&tokens), "expected 1-4, got {}", tokens);
     }
 
     #[test]
@@ -33,7 +33,7 @@ mod tests {
     fn test_estimate_tokens_emoji() {
         // "🎉🎊🔥" = 3 chars * 0.25 = 0.75 -> ceil = 1
         let tokens = estimate_tokens("🎉🎊🔥", 0.25);
-        assert!(tokens >= 1 && tokens <= 4, "expected 1-4, got {}", tokens);
+        assert!((1..=4).contains(&tokens), "expected 1-4, got {}", tokens);
     }
 
     #[test]

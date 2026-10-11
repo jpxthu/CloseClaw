@@ -543,7 +543,7 @@ async fn test_file_change_and_conditional_activation_same_turn() {
     // Turn 2 should inject the base listing diff (skill_c added,
     // skill_b removed) but NOT rs_helper (deferred)
     assert!(
-        tools2.len() >= 1,
+        !tools2.is_empty(),
         "should inject base listing diff on activation turn"
     );
     assert!(

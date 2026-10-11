@@ -51,8 +51,7 @@ impl PersistenceService for MockStorage {
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
         if *self.fail_on_save.lock().unwrap() {
-            return Err(PersistenceError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(PersistenceError::Io(std::io::Error::other(
                 "mock save failure",
             )));
         }

@@ -145,11 +145,11 @@ async fn test_graceful_stop_pending_tool_calls_no_running_tools_returns_complete
     assert_eq!(pending.len(), 2, "must have 2 pending tool calls");
 
     // Verify no running tools (check tool_states directly).
-    let guard = cs.read().await;
-    let tool_states = guard.tool_states.read().expect("lock");
-    assert!(tool_states.is_empty(), "must have no running tools");
-    drop(tool_states);
-    drop(guard);
+    {
+        let guard = cs.read().await;
+        let tool_states = guard.tool_states.read().expect("lock");
+        assert!(tool_states.is_empty(), "must have no running tools");
+    }
 
     // graceful_stop must return Completed (not TimedOut or infinite loop).
     let result = cs
@@ -198,11 +198,11 @@ async fn test_graceful_stop_pending_tool_calls_with_running_tools_waits() {
         );
     }
 
-    let guard = cs.read().await;
-    let tool_states = guard.tool_states.read().expect("lock");
-    assert!(!tool_states.is_empty(), "must have running tools");
-    drop(tool_states);
-    drop(guard);
+    {
+        let guard = cs.read().await;
+        let tool_states = guard.tool_states.read().expect("lock");
+        assert!(!tool_states.is_empty(), "must have running tools");
+    }
 
     // grace_timeout short enough that it times out (running tool never completes).
     let result = cs
