@@ -7,7 +7,7 @@
 
 ## 架构
 
-CLI 模块分为两个子系统。CLI Chat 以 platform="terminal" 注册到 Gateway 的 Plugin Registry，走完整出入站链路（实现实体 TerminalPlugin 包含 TerminalAdapter（入站解析）与 TerminalRenderer（出站渲染）两个组件）；Chat 依赖 daemon 已运行——启动时连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`，不自动拉起。CLI Admin 绕过消息链路，命令分为本地操作（不经 daemon）与 daemon RPC（经 daemon 管理接口 / Admin RPC Server）两类。
+CLI 模块分为两个子系统。CLI Chat 以 platform="terminal" 注册到 Gateway 的 Plugin Registry，走完整出入站链路（实现实体 TerminalPlugin 包含 TerminalAdapter（入站解析）与 TerminalRenderer（出站渲染）两个组件，并持有 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）用于流式路径）；Chat 依赖 daemon 已运行——启动时连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`，不自动拉起。CLI Admin 绕过消息链路，命令分为本地操作（不经 daemon）与 daemon RPC（经 daemon 管理接口 / Admin RPC Server）两类。
 
 ```
 closeclaw <command>
@@ -16,7 +16,7 @@ closeclaw <command>
 │   └── closeclaw chat
 │       └── TerminalPlugin（实现 IM 插件接口，以 terminal 渠道注册）
 │           ├── 入站：stdin → TerminalAdapter → NormalizedMessage →（经 Processor Chain 入站处理后交由 Gateway 路由）
-│           └── 出站：（Gateway Processor Chain 出站产出 ContentBlock[]）→ TerminalRenderer → RenderedOutput → TerminalPlugin 发送 → stdout
+│           └── 出站：（Gateway 取 Processor Chain 出站处理后的 ContentBlock[]）→ TerminalRenderer → RenderedOutput → TerminalPlugin 发送 → stdout
 │
 └── Admin 层（消息链路外）
     ├── closeclaw run          — 启动 daemon
@@ -49,20 +49,20 @@ CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差
 
 0. 启动检查：连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`（不自动拉起）
 1. stdin 输入，TerminalAdapter 解析为 NormalizedMessage（terminal 渠道专用字段值见 chat.md）
-2. Processor Chain 入站处理后，消息进入 Gateway 路由，按内容分流：
+2. Processor Chain 入站处理后，消息进入 Gateway：先做 Session 解析（渠道/绑定确定 Agent、会话路由键定位 Session，含忙碌入队、归档恢复等分支，见 [gateway 入站路径](../gateway/README.md)），再按内容分流：
    - 审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）→ Gateway 硬拦截走权限审批流，不进 SlashDispatcher
-   - 其他以 `/` 开头 → SlashDispatcher → SlashHandler/SlashResult → ContentBlock[]
+   - 其他以 `/` 开头 → SlashDispatcher → SlashHandler 返回 SlashResult → Gateway 经 SideEffectContext 触发执行 → ContentBlock[]
    - 普通文本 → Session → LLM → ContentBlock[]
 3. ContentBlock[] 经 Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）到达 TerminalPlugin
-4. TerminalPlugin 先渲染后发送：TerminalRenderer 渲染 → RenderedOutput（按终端能力为 ANSI 或纯文本），随后 Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等，通过后才发送），再由 TerminalPlugin 发送 → stdout
+4. TerminalPlugin 先渲染后发送：先经 platform 模块获取终端能力信息，调用 TerminalRenderer 渲染 → RenderedOutput（按终端能力为 ANSI 或纯文本），随后 Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等，通过后才发送），再由 TerminalPlugin 发送 → stdout
 
-> **流式路径**：LLM 流式输出时不走上述批量路径——增量阶段开始前 Gateway 先执行一次 pre-flight 出站中间件检查（被拒则终止流式并发送拒绝通知）；随后 [StreamEvent](../common/shared-types.md#streamevent) 事件流经统一预处理（VerbosityFilter 按块边界过滤 → DslParser 透传）后，TerminalPlugin 委托 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）逐事件产出 [StreamingOutput](../common/shared-types.md#streamingoutput) 增量输出，逐片写入 stdout；流式结束后由 Gateway 在收尾阶段调度 DslParser 完整解析与 OutboundRawLog 出站日志。详见 [CLI Chat](chat.md) 与 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：LLM 流式输出时不走上述批量路径——增量阶段开始前 Gateway 先执行一次 pre-flight 出站中间件检查（被拒则终止流式并发送拒绝通知）；随后 [StreamEvent](../common/shared-types.md#streamevent) 事件流经统一预处理（VerbosityFilter 按块边界过滤 → DslParser 透传）后，TerminalPlugin 委托 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）逐事件产出 [StreamingOutput](../common/shared-types.md#streamingoutput) 增量输出，逐片写入 stdout；流式结束后由 Gateway 在收尾阶段调度 Processor Chain 完成 DslParser 完整解析与 OutboundRawLog 出站日志。详见 [CLI Chat](chat.md) 与 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ### Admin 层
 
 1. `closeclaw <command> [args]` 输入，参数解析后由对应 handler 函数执行
 2. 按命令类型分派执行：
-   - 本地操作（run 启动 daemon、stop 终止 daemon 进程、config 读/写配置、rule 校验/列出规则，不经 daemon）
+   - 本地操作（run 启动 daemon、stop 终止 daemon 进程、config 配置向导/校验、rule 校验/列出规则，不经 daemon）
    - daemon RPC（agent/skill 等远程查询调用，经管理接口发往 daemon；依赖 daemon 已运行，不可达时报错退出）
 3. 两类命令的结果均落到 stdout（状态提示）、文件写入或进程管理副作用
 

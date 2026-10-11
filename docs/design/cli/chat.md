@@ -6,7 +6,7 @@ CLI Chat 是 terminal 消息渠道的对话交互功能，通过 `closeclaw` 二
 
 ## 架构
 
-CLI Chat 的实现实体是 TerminalPlugin（IMPlugin trait 的 terminal 渠道实现），包含 TerminalAdapter（入站解析）和 TerminalRenderer（出站渲染）两个组件；TerminalPlugin 无特殊生命周期需求（IMPlugin 的 init/shutdown 为空实现）。启动时先连接 daemon 管理接口做存活检测（不可达则报错退出，见 §数据流）。
+CLI Chat 的实现实体是 TerminalPlugin（IMPlugin trait 的 terminal 渠道实现），包含 TerminalAdapter（入站解析）和 TerminalRenderer（出站渲染）两个组件，并持有 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）用于流式路径（见 §数据流「流式路径」）；TerminalPlugin 无特殊生命周期需求（IMPlugin 的 init/shutdown 为空实现）。启动时先连接 daemon 管理接口做存活检测（不可达则报错退出，见 §数据流）。
 
 入站链路：
 
@@ -56,7 +56,7 @@ TerminalRenderer 接收 ContentBlock[]（定义见 [common ContentBlock](../comm
 
 0. 启动检查：连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`（不自动拉起）
 1. stdin 读取用户输入（按行切分，stdin 结束时 EOF 终止），TerminalAdapter 解析并封装 NormalizedMessage（内部含空内容过滤，空内容不产出 NormalizedMessage）。终端字段取值见上文架构节；stdin 结束（EOF / Ctrl+D）时 chat 正常退出
-2. Processor Chain 入站依次执行：RawLog 记录原始输入 → SessionRouter 计算会话路由键 → ContentNormalizer 文本标准化（规则见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）
+2. Processor Chain 入站依次执行：RawLog 记录原始输入 → SessionRouter 计算 session_key（消息级标识，写入 metadata）→ ContentNormalizer 文本标准化（规则见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）
 3. 处理后消息进入 Gateway：先做 Session 解析（渠道/绑定确定 Agent、会话路由键定位 Session，含忙碌入队、归档恢复等分支，见 [gateway 入站路径](../gateway/README.md)），再按内容分流：
    - 审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）→ Gateway 硬拦截走权限审批流，不进 SlashDispatcher
    - 其他 `/` 开头 → SlashDispatcher（与飞书等渠道共享同一套）→ ContentBlock[]
@@ -69,7 +69,7 @@ TerminalRenderer 接收 ContentBlock[]（定义见 [common ContentBlock](../comm
 
 ## 模块关系
 
-- **上游**：操作系统 stdin（用户输入）、Gateway（通过 IMPlugin trait 调用 TerminalPlugin 出站）、daemon（启动时经管理接口做存活检测）
+- **上游**：操作系统 stdin（用户输入）、Gateway（通过 IMPlugin trait 调用 TerminalPlugin 出站）、daemon（启动时经管理接口做存活检测）、platform 模块（提供终端能力检测结果，供 TerminalPlugin 渲染时获取）
 - **下游**：Gateway（消费经 Processor Chain 产出的 ProcessedMessage 做入站路由，并调度出站链路）、stdout（TerminalPlugin.send() 输出渲染结果）
 - **与模块内其他子功能**：使用 TerminalRenderer 完成出站渲染，renderer 文档定义详细的块类型渲染规则
 - **无关**：CLI Admin（Admin 命令不走消息链路，不经过 TerminalPlugin）、IM Adapter 的具体平台实现（terminal 渠道与其平级）
