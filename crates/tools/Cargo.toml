@@ -72,4 +72,4 @@ closeclaw-skills = { path = "../skills" }
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-test-support = { path = "../test_support" }
 tempfile = "3"
-serial_test = "3.4"
+serial_test.workspace = true

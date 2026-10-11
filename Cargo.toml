@@ -30,6 +30,9 @@ edition = "2021"
 license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
 
+[workspace.dependencies]
+serial_test = "3.4"
+
 [package]
 name = "closeclaw"
 version = "0.1.0"
@@ -107,7 +110,7 @@ dirs = "5"
 # Testing
 proptest = "=1.4"
 tempfile = "3.10"
-serial_test = "3.4"
+serial_test.workspace = true
 filetime = "0.2"
 mockito = "1.2"
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)

@@ -49,7 +49,7 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
 tempfile = "3.10"
-serial_test = "3.4"
+serial_test.workspace = true
 filetime = "0.2"
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter"] }
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).

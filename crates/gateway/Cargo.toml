@@ -64,7 +64,7 @@ closeclaw-test-support = { path = "../test_support" }
 closeclaw-workflow = { path = "../workflow" }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
 tempfile = "3.10"
-serial_test = "3.4"
+serial_test.workspace = true
 serde_yaml = "0.9"
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
