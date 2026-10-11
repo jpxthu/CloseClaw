@@ -715,9 +715,13 @@ fn test_archiver_rename_failure_returns_error() {
 
     // Cleanup: restore permissions so tempfile can delete
     let mut p = fs::metadata(&dest).unwrap().permissions();
+    // Restoring writability is intentional cleanup so TempDir can delete.
+    #[allow(clippy::permissions_set_readonly_false)]
     p.set_readonly(false);
     fs::set_permissions(&dest, p).unwrap();
     let mut dp = fs::metadata(&archive_dir).unwrap().permissions();
+    // Restoring writability is intentional cleanup so TempDir can delete.
+    #[allow(clippy::permissions_set_readonly_false)]
     dp.set_readonly(false);
     fs::set_permissions(&archive_dir, dp).unwrap();
 }
@@ -749,9 +753,13 @@ fn test_archiver_rename_io_error_does_not_panic() {
 
     // Cleanup: restore permissions so tempfile can delete
     let mut p = fs::metadata(&dest).unwrap().permissions();
+    // Restoring writability is intentional cleanup so TempDir can delete.
+    #[allow(clippy::permissions_set_readonly_false)]
     p.set_readonly(false);
     fs::set_permissions(&dest, p).unwrap();
     let mut dp = fs::metadata(&archive_dir).unwrap().permissions();
+    // Restoring writability is intentional cleanup so TempDir can delete.
+    #[allow(clippy::permissions_set_readonly_false)]
     dp.set_readonly(false);
     fs::set_permissions(&archive_dir, dp).unwrap();
 }

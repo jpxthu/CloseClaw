@@ -17,12 +17,13 @@ mod tests {
 
     type BoxFuture<T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'static>>;
 
+    /// Return future of the `get_agent_config` dependency closure.
+    type AgentConfigFuture = BoxFuture<Result<(Option<String>, Option<serde_json::Value>), String>>;
+
     /// Build default noop dependencies for testing.
     fn noop_deps() -> SearcherDependencies {
         SearcherDependencies {
-            get_agent_config: Box::new(|_id: String| -> BoxFuture<
-                Result<(Option<String>, Option<serde_json::Value>), String>,
-            > {
+            get_agent_config: Box::new(|_id: String| -> AgentConfigFuture {
                 Box::pin(async move { Ok((Some("test-model".to_string()), None)) })
             }),
             get_context_messages: Box::new(
@@ -30,22 +31,18 @@ mod tests {
                     Box::pin(async { (Vec::new(), 20) })
                 },
             ),
-            get_injected_event_ids: Box::new(
-                |_sid: String| -> BoxFuture<HashSet<i64>> { Box::pin(async { HashSet::new() }) },
-            ),
+            get_injected_event_ids: Box::new(|_sid: String| -> BoxFuture<HashSet<i64>> {
+                Box::pin(async { HashSet::new() })
+            }),
             set_memory_injection: Box::new(
                 |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                     Box::pin(async {})
                 },
             ),
-            run_searcher: Box::new(|_input: SearcherInput| {
-                Box::pin(async { None })
+            run_searcher: Box::new(|_input: SearcherInput| Box::pin(async { None })),
+            begin_searcher_session: Box::new(|_sid: String, _aid: String, _role: String| {
+                Box::pin(async { Some("test-searcher-session".to_string()) })
             }),
-            begin_searcher_session: Box::new(
-                |_sid: String, _aid: String, _role: String| {
-                    Box::pin(async { Some("test-searcher-session".to_string()) })
-                },
-            ),
             end_searcher_session: Box::new(|_sid: String, _status: SearcherSessionStatus| {}),
         }
     }
@@ -115,9 +112,9 @@ mod tests {
 
         let seen = Arc::clone(&seen_position);
         let mut deps = noop_deps();
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > { Box::pin(async { Ok((Some("m".to_string()), None)) }) });
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
+            Box::pin(async { Ok((Some("m".to_string()), None)) })
+        });
         deps.set_memory_injection = Box::new(
             move |sid: String,
                   content: String,
@@ -167,9 +164,9 @@ mod tests {
 
         let seen = Arc::clone(&seen_position);
         let mut deps = noop_deps();
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > { Box::pin(async { Ok((Some("m".to_string()), None)) }) });
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
+            Box::pin(async { Ok((Some("m".to_string()), None)) })
+        });
         deps.set_memory_injection = Box::new(
             move |sid: String,
                   content: String,
@@ -226,9 +223,9 @@ mod tests {
 
         let ran = Arc::clone(&task_ran);
         let mut deps = noop_deps();
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > { Box::pin(async { Err("agent not found".to_string()) }) });
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
+            Box::pin(async { Err("agent not found".to_string()) })
+        });
         deps.set_memory_injection = Box::new(
             |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
                 Box::pin(async {
@@ -411,9 +408,7 @@ mod tests {
         let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         // Return memory_config with a very short timeout.
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > {
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             let cfg = serde_json::json!({
                 "search": { "timeout_ms": 1 }
             });
@@ -630,9 +625,7 @@ mod tests {
 
         let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > {
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             let cfg = serde_json::json!({ "search": { "timeout_ms": 1 } });
             Box::pin(async move { Ok((Some("m".into()), Some(cfg))) })
         });
@@ -666,9 +659,7 @@ mod tests {
 
         let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
-        deps.get_agent_config = Box::new(|_aid: String| -> BoxFuture<
-            Result<(Option<String>, Option<serde_json::Value>), String>,
-        > {
+        deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Err("not found".into()) })
         });
         deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {

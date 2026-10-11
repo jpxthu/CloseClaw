@@ -10,6 +10,10 @@ use tempfile::TempDir;
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
+// Test fixture: the 8 positional args mirror MemoryEntry field order so call
+// sites read as a straight struct construction; an args struct would lengthen
+// all 9 call sites (several inside closures) with no behavioral gain.
+#[allow(clippy::too_many_arguments)]
 fn make_entry_with_timestamps(
     category: EntryCategory,
     body: &str,
@@ -321,7 +325,6 @@ fn test_deep_capacity_limit_considers_existing_rules() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -383,7 +386,6 @@ fn test_deep_capacity_limit_full_drops_all() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -442,7 +444,6 @@ fn test_deep_capacity_limit_no_existing_file() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),

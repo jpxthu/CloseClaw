@@ -201,7 +201,7 @@ async fn test_task_content_forwarded() {
     assert!(
         appends
             .iter()
-            .any(|s| s == &"## Task\nRun unit tests and report results"),
+            .any(|s| s == "## Task\nRun unit tests and report results"),
         "task text must be in system_appends, got: {:?}",
         appends
     );

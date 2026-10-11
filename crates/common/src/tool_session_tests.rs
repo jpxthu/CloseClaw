@@ -42,7 +42,7 @@ struct FailingKillHandle;
 
 impl KillHandle for FailingKillHandle {
     fn kill(&self) -> io::Result<()> {
-        Err(io::Error::new(io::ErrorKind::Other, "kill failed"))
+        Err(io::Error::other("kill failed"))
     }
 }
 
@@ -135,8 +135,8 @@ async fn test_tool_session_register_multiple_handles() {
 
     assert_eq!(session.handle_count(), 5);
     let handles = session.registered_handles();
-    for i in 0..5 {
-        assert_eq!(handles[i].0, format!("call_{}", i));
+    for (i, handle) in handles.iter().enumerate() {
+        assert_eq!(handle.0, format!("call_{}", i));
     }
 }
 

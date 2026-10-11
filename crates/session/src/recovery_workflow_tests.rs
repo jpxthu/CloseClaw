@@ -539,7 +539,7 @@ mod tests {
         // The version mismatch check is: if wf.version != wf_run.definition_version,
         // then check if step_num >= wf.steps.len(). Since step 0 < 1, it won't block.
         // So we should still get 2 messages.
-        assert!(cp.recovery_workflow_messages.len() >= 1);
+        assert!(!cp.recovery_workflow_messages.is_empty());
         assert!(cp.recovery_workflow_messages[0].starts_with("[workflow recovered]"));
     }
 

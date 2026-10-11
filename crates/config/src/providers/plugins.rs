@@ -189,8 +189,8 @@ mod tests {
         assert!(config.enabled);
         assert_eq!(config.allow.len(), 2);
         assert_eq!(config.allow[0], "minimax");
-        assert_eq!(config.entries["minimax"].enabled, true);
-        assert_eq!(config.entries["feishu"].enabled, false);
+        assert!(config.entries["minimax"].enabled);
+        assert!(!config.entries["feishu"].enabled);
         assert_eq!(
             config.installs["openclaw-lark"].source.as_deref(),
             Some("archive")

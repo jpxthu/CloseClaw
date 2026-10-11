@@ -245,8 +245,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_compact_resets_consecutive_failures() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut svc = CompactionService::new(config);
 
         // Trip the circuit breaker.
@@ -275,8 +277,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_compact_failure_preserves_circuit_breaker() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut svc = CompactionService::new(config);
 
         svc.record_failure();

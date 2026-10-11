@@ -583,7 +583,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::FinalPlan,
             plan_file_path: "/workspace/plan.md".into(),
-            ..Default::default()
         };
         let mut cp = make_checkpoint("plan-sqlite-rt", SessionStatus::Active);
         cp.plan_state = Some(plan);
@@ -621,7 +620,6 @@ mod tests {
         let plan1 = PlanState {
             phase: PlanPhase::Research,
             plan_file_path: String::new(),
-            ..Default::default()
         };
         let mut cp = make_checkpoint("plan-update-sqlite", SessionStatus::Active);
         cp.plan_state = Some(plan1);
@@ -631,7 +629,6 @@ mod tests {
         let plan2 = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: "/tmp/p.md".into(),
-            ..Default::default()
         };
         cp.plan_state = Some(plan2);
         storage.save_checkpoint(&cp).await.unwrap();

@@ -426,7 +426,7 @@ fn test_from_single_preserves_hooks() {
     let resolved = from_single(config, "<test>", None).unwrap();
     assert_eq!(resolved.hooks.len(), 2);
     assert_eq!(resolved.hooks[0].hook_type, HookType::PlanCheck);
-    assert_eq!(resolved.hooks[0].enabled, true);
+    assert!(resolved.hooks[0].enabled);
     assert_eq!(resolved.hooks[1].hook_type, HookType::LoopCheck);
     assert_eq!(resolved.hooks[1].params.loop_check_repetition_threshold, 5);
 }

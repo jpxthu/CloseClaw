@@ -172,7 +172,7 @@ async fn test_preserves_metadata_from_non_excluded() {
         Some("dsl_val")
     );
     assert!(
-        result.metadata.get("skip_me").is_none(),
+        !result.metadata.contains_key("skip_me"),
         "VerbosityFilter metadata should not appear"
     );
 }

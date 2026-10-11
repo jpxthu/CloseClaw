@@ -539,7 +539,6 @@ mod tests {
             global_dir: Some(global),
             agent_skills_dir: Some(agent),
             project_root: Some(project),
-            ..Default::default()
         };
 
         let skills = scan_all_skills(&config);

@@ -178,7 +178,7 @@ mod tests {
         for i in 0..3 {
             writer.write(&TestEntry {
                 name: format!("e{}", i),
-                value: i as i32,
+                value: i,
             });
         }
 
@@ -201,7 +201,7 @@ mod tests {
         for i in 0..5 {
             writer.write(&TestEntry {
                 name: format!("e{}", i),
-                value: i as i32,
+                value: i,
             });
         }
 

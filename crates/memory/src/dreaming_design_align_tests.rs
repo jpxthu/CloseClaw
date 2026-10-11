@@ -47,7 +47,6 @@ fn make_pipeline_with_db(db_path: &std::path::Path) -> DreamingPipeline {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(-100.0),
@@ -194,7 +193,6 @@ fn test_negative_base_consistency() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-3.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(-100.0),

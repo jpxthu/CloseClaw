@@ -276,7 +276,6 @@ fn test_deep_entity_type_weight_applied() {
             explicitness_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -329,7 +328,6 @@ fn test_deep_relative_gate_per_entity_type() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -893,7 +891,6 @@ fn test_e2e_light_rem_deep_pipeline() {
             explicitness_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),

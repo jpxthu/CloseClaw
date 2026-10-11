@@ -278,10 +278,11 @@ async fn test_streaming_normal_path() {
     while let Some(event) = stream.next().await {
         let ev = event.unwrap();
         match ev {
-            crate::types::StreamEvent::BlockDelta { delta, .. } => {
-                if let crate::types::ContentDelta::Text { text } = delta {
-                    texts.push(text);
-                }
+            crate::types::StreamEvent::BlockDelta {
+                delta: crate::types::ContentDelta::Text { text },
+                ..
+            } => {
+                texts.push(text);
             }
             crate::types::StreamEvent::BlockStart { .. }
             | crate::types::StreamEvent::BlockEnd { .. } => {}
@@ -381,10 +382,11 @@ async fn test_streaming_timeout_falls_through() {
     while let Some(event) = stream.next().await {
         let ev = event.unwrap();
         match ev {
-            crate::types::StreamEvent::BlockDelta { delta, .. } => {
-                if let crate::types::ContentDelta::Text { text } = delta {
-                    texts.push(text);
-                }
+            crate::types::StreamEvent::BlockDelta {
+                delta: crate::types::ContentDelta::Text { text },
+                ..
+            } => {
+                texts.push(text);
             }
             crate::types::StreamEvent::MessageEnd { .. } => break,
             _ => {}
@@ -422,10 +424,11 @@ async fn test_streaming_chain_traversal() {
     while let Some(event) = stream.next().await {
         let ev = event.unwrap();
         match ev {
-            crate::types::StreamEvent::BlockDelta { delta, .. } => {
-                if let crate::types::ContentDelta::Text { text } = delta {
-                    texts.push(text);
-                }
+            crate::types::StreamEvent::BlockDelta {
+                delta: crate::types::ContentDelta::Text { text },
+                ..
+            } => {
+                texts.push(text);
             }
             crate::types::StreamEvent::MessageEnd { .. } => break,
             _ => {}

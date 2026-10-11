@@ -30,7 +30,7 @@ fn test_body_contains_frontmatter_guide() {
 
 #[test]
 fn test_default() {
-    let skill = SkillCreatorSkill::default();
+    let skill = SkillCreatorSkill;
     assert_eq!(skill.manifest().name, "skill_creator");
 }
 

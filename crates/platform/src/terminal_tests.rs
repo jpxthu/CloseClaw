@@ -17,12 +17,12 @@ fn test_terminal_info_debug() {
 }
 
 #[test]
-fn test_terminal_info_clone() {
+fn test_terminal_info_copy_preserves_equality() {
     let info = TerminalInfo {
         ansi: false,
         width: 80,
     };
-    let cloned = info.clone();
+    let cloned = info; // Copy, not clone
     assert_eq!(info, cloned);
 }
 
