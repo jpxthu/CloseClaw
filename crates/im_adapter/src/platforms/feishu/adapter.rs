@@ -172,7 +172,7 @@ struct ResourceResp {
 /// All platform communication goes through lark-cli subprocess commands.
 /// Credentials are managed by lark-cli via profile — the adapter only
 /// stores the profile name and delegates auth to the CLI.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct FeishuAdapter {
     /// lark-cli profile name for credential delegation.
     pub(crate) profile: String,
@@ -193,6 +193,27 @@ pub struct FeishuAdapter {
     /// fields; the critical section is synchronous (no awaits) but the lock
     /// is acquired in an async context.
     event_dedup: Arc<Mutex<EventDeduplicator>>,
+}
+
+/// Hand-written `Debug` for credential isolation: per feishu design doc
+/// 「凭证管理」, Feishu credentials must never appear in any log. Only
+/// deterministic, safe fields are printed; payload-bearing or
+/// environment-dependent fields (event metadata, media store, HTTP client,
+/// event dedup) are replaced with fixed placeholders. Follows the workspace
+/// hand-written `Debug` convention (`crates/common/src/tool_trait.rs`,
+/// `crates/llm/src/client.rs`).
+impl std::fmt::Debug for FeishuAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FeishuAdapter")
+            .field("profile", &self.profile)
+            .field("cli_command", &self.cli_command)
+            .field("workspace_dir", &self.workspace_dir)
+            .field("last_metadata", &"<event metadata>")
+            .field("media_store", &"<media store>")
+            .field("http_client", &"<http client>")
+            .field("event_dedup", &"<event dedup>")
+            .finish()
+    }
 }
 
 /// Return type for `extract_message_content` / `parse_content_with_fallback`.
