@@ -157,15 +157,19 @@ mod tests {
 
     #[test]
     fn test_non_default_config() {
-        let mut config = MediaConfigData::default();
-        config.retention_days = 14;
+        let config = MediaConfigData {
+            retention_days: 14,
+            ..Default::default()
+        };
         assert!(!config.is_default());
     }
 
     #[test]
     fn test_validate_empty_storage_dir() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = String::new();
+        let config = MediaConfigData {
+            storage_dir: String::new(),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -176,8 +180,10 @@ mod tests {
 
     #[test]
     fn test_validate_whitespace_only_storage_dir() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = "   ".to_string();
+        let config = MediaConfigData {
+            storage_dir: "   ".to_string(),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -188,8 +194,10 @@ mod tests {
 
     #[test]
     fn test_validate_null_byte_storage_dir() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = "/tmp/media\0secret".to_string();
+        let config = MediaConfigData {
+            storage_dir: "/tmp/media\0secret".to_string(),
+            ..Default::default()
+        };
         let result = config.validate();
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -203,36 +211,46 @@ mod tests {
 
     #[test]
     fn test_validate_valid_relative_path() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = "./media".to_string();
+        let config = MediaConfigData {
+            storage_dir: "./media".to_string(),
+            ..Default::default()
+        };
         config.validate().expect("relative path should be valid");
     }
 
     #[test]
     fn test_validate_valid_absolute_path() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = "/var/data/media".to_string();
+        let config = MediaConfigData {
+            storage_dir: "/var/data/media".to_string(),
+            ..Default::default()
+        };
         config.validate().expect("absolute path should be valid");
     }
 
     #[test]
     fn test_validate_valid_tilde_path() {
-        let mut config = MediaConfigData::default();
-        config.storage_dir = "~/.closeclaw/media".to_string();
+        let config = MediaConfigData {
+            storage_dir: "~/.closeclaw/media".to_string(),
+            ..Default::default()
+        };
         config.validate().expect("tilde path should be valid");
     }
 
     #[test]
     fn test_retention_days_zero_is_valid() {
-        let mut config = MediaConfigData::default();
-        config.retention_days = 0;
+        let config = MediaConfigData {
+            retention_days: 0,
+            ..Default::default()
+        };
         config.validate().expect("retention_days=0 should be valid");
     }
 
     #[test]
     fn test_image_threshold_zero_is_valid() {
-        let mut config = MediaConfigData::default();
-        config.image_content_threshold_bytes = 0;
+        let config = MediaConfigData {
+            image_content_threshold_bytes: 0,
+            ..Default::default()
+        };
         config.validate().expect("threshold=0 should be valid");
     }
 

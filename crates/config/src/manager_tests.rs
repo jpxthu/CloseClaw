@@ -670,7 +670,7 @@ fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
     fs::create_dir_all(&backup_dir).unwrap();
     let filename = section.filename();
     let stem = filename.split('.').next().unwrap_or(filename);
-    let ext = filename.split('.').last().unwrap_or("json");
+    let ext = filename.split('.').next_back().unwrap_or("json");
     let ts = chrono::Local::now().format("%Y%m%d_%H%M%S_%f");
     let backup_name = format!("{}.{}.{}", stem, ts, ext);
     fs::write(backup_dir.join(backup_name), content).unwrap();
