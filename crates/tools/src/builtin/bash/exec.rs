@@ -334,7 +334,6 @@ fn spawn_bg_monitor(
     let s = Arc::clone(session);
     let cid = call_id.to_string();
     tokio::spawn(async move {
-        let task_id = task_id;
         loop {
             tokio::time::sleep(std::time::Duration::from_millis(200)).await;
             match bg.get_task(&task_id).await {
