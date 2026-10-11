@@ -3,9 +3,13 @@
 //! duplicated definitions; the direct test suites moved here so tests
 //! and definition live in the same module).
 //!
-//! Two suites share this module:
-//! - the six `test_parse_owner_target_*` core cases (migrated from the
-//!   `config_watcher` test module where they predated the merge)
+//! Three suites share this module:
+//! - the `test_parse_owner_target_*` core cases (six migrated from
+//!   `config_reload_tests.rs`)
+//! - the two early-exit cases from issue #3250: `get_section_value`
+//!   returning `None` (System section never loaded) and the
+//!   `SystemConfigData` deserialization miss (malformed `commands`
+//!   type) — both silently degrade to `None`
 //! - the nine whitespace-dimension cases (issue #3251, migrated from
 //!   `config_watcher_owner_target_tests.rs`)
 //!
@@ -21,10 +25,11 @@
 //!
 //! Non-whitespace dimensions (missing `commands` / missing
 //! `owner_display` / no colon / pre-fix empty segments) are covered by
-//! the six `test_parse_owner_target_*` cases in this same module.
+//! the `test_parse_owner_target_*` cases in this same module.
 
 use super::reload::parse_owner_target;
 use crate::test_helpers::load_system_config_manager;
+use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_config::providers::SystemConfigData;
 use tempfile::TempDir;
 
@@ -50,15 +55,23 @@ fn parse_owner_target_from(
 // parse_owner_target coverage matrix — case × input × branch hit
 // (definition: `reload.rs::parse_owner_target`, the single source since
 // the issue #3241 merge; branch arms are named semantically so the
-// matrix survives line drift. The last two rows were added by
-// issue #3243.)
+// matrix survives line drift.)
 //
 // test_parse_owner_target_valid                 "feishu:oc_xxx123"  Some (happy path)
 // test_parse_owner_target_not_configured        {"version":"1.0"}   `commands?` arm
 // test_parse_owner_target_invalid_format        "no-colon-here"     format guard: parts.len() != 2
-// test_parse_owner_target_empty_parts           ":oc_xxx"           format guard: platform empty after trim
+// test_parse_owner_target_empty_parts           ":oc_xxx"
+//     → format guard: platform empty after trim
 // test_parse_owner_target_owner_display_missing {"commands":{}}     `owner_display?` arm
-// test_parse_owner_target_empty_second_part     "feishu:"           format guard: chat_id empty after trim
+// test_parse_owner_target_empty_second_part     "feishu:"
+//     → format guard: chat_id empty after trim
+// test_parse_owner_target_section_not_loaded    (System never reloaded)
+//     → `get_section_value` None arm
+// test_parse_owner_target_malformed_commands_type {"commands":"oops"}
+//     → `from_value(..).ok()` miss arm
+// (The `owner_display_missing` / `empty_second_part` rows were added
+// by issue #3243; the last two rows are the issue #3250 early-exit
+// arms.)
 // ---------------------------------------------------------------------------
 
 /// parse_owner_target correctly parses a valid owner_display value.
@@ -167,6 +180,67 @@ fn test_parse_owner_target_empty_second_part() {
             }
         }),
         "reload system.json with empty target part succeeds",
+    );
+    assert_eq!(result, None);
+}
+
+/// parse_owner_target returns None when the System section was never
+/// loaded into the manager (`get_section_value` miss — the not-loaded
+/// leg of issue #3250): a fresh manager over a config dir with no
+/// reload at all has an empty section cache, so the chain short-circuits
+/// on `get_section_value(..)?` before any deserialization or field
+/// access.
+#[test]
+fn test_parse_owner_target_section_not_loaded() {
+    let tmp = TempDir::new().unwrap();
+    let cm = ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new");
+
+    // Self-proof before the call: the System section is absent from the
+    // cache and the section is *not* blocked, so the None asserted below
+    // necessarily comes from the `get_section_value` not-loaded miss,
+    // not from a blocked section — without this, a changed block
+    // default could keep the test green while it silently stops
+    // covering the target leg.
+    assert!(
+        cm.get_section_value(ConfigSection::System).is_none(),
+        "System section must be absent from the cache before any reload"
+    );
+    assert!(
+        !cm.is_blocked(ConfigSection::System),
+        "System section must not be blocked in the not-loaded case"
+    );
+
+    assert_eq!(parse_owner_target(&cm), None);
+}
+
+/// parse_owner_target returns None when the System section holds a
+/// `commands` field of the wrong type (`{"commands": "oops"}` — the
+/// deserialization-miss leg of issue #3250): `reload_section` only
+/// JSON-parses the file, so the malformed section value lands in the
+/// cache and the chain must bail on the
+/// `serde_json::from_value(..).ok()?` arm — malformed config silently
+/// degrades to "not configured" instead of failing the reload path.
+#[test]
+fn test_parse_owner_target_malformed_commands_type() {
+    // Self-proof before the helper call: `commands` as a plain string
+    // fails SystemConfigData deserialization (the field is a typed
+    // struct), so the None asserted below necessarily comes from the
+    // `.ok()?` deserialization miss, not from the `commands?` or
+    // `owner_display?` early returns — without this, a serde change
+    // (e.g. an untagged string fallback) could keep the test green
+    // while it silently stops covering the target branch.
+    let payload = serde_json::json!({ "commands": "oops" });
+    assert!(
+        serde_json::from_value::<SystemConfigData>(payload.clone()).is_err(),
+        "`commands` as a string must fail SystemConfigData deserialization"
+    );
+
+    // The reload itself must succeed: the file is valid JSON and the
+    // daemon reload path passes no validator, so the malformed value
+    // really reaches parse_owner_target through the section cache.
+    let result = parse_owner_target_from(
+        payload,
+        "reload system.json with malformed commands type succeeds",
     );
     assert_eq!(result, None);
 }
