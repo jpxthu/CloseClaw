@@ -364,9 +364,9 @@ mod tests {
     /// the caller to use.
     async fn start_ipc_server(
         engine: Arc<RwLock<crate::PermissionEngine>>,
-        path: &std::path::PathBuf,
+        path: &std::path::Path,
     ) {
-        let server_channel = IpcChannel::new(path.clone());
+        let server_channel = IpcChannel::new(path.to_path_buf());
         let engine_clone = engine.clone();
         tokio::spawn(async move {
             let _ = server_channel.serve(engine_clone).await;

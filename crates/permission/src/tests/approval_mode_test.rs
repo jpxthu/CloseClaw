@@ -228,7 +228,7 @@ fn test_approve_nonexistent_request_id() {
         },
     );
     assert!(result.is_ok());
-    assert_eq!(result.unwrap(), false);
+    assert!(!result.unwrap());
 }
 
 #[test]
@@ -241,7 +241,7 @@ fn test_deny_behavior_unchanged() {
         .enqueue(
             EnqueueRequest {
                 request: body,
-                caller: caller,
+                caller,
                 operation_desc: "op".to_string(),
                 risk_level: RiskLevel::Low,
                 session_resume: "resume".to_string(),

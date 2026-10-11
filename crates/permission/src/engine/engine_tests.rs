@@ -186,14 +186,12 @@ fn test_subject_user_and_agent() {
     let caller = Caller {
         user_id: "alice".to_string(),
         agent: "test-agent".to_string(),
-        ..Default::default()
     };
     assert!(subject.matches(&caller));
 
     let caller_wrong_user = Caller {
         user_id: "bob".to_string(),
         agent: "test-agent".to_string(),
-        ..Default::default()
     };
     assert!(!subject.matches(&caller_wrong_user));
 }

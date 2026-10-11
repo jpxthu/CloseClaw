@@ -197,7 +197,7 @@ fn test_sandbox_state_crashed_clone() {
     let state = SandboxState::Crashed {
         exit_code: Some(42),
     };
-    let cloned = state.clone();
+    let cloned = state;
     assert_eq!(state, cloned);
 }
 
