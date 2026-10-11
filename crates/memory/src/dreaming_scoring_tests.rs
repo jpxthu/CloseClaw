@@ -46,7 +46,6 @@ fn test_negative_signal_same_category() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -88,7 +87,6 @@ fn test_negative_signal_mixed_category() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(-100.0),
@@ -152,7 +150,6 @@ fn test_negative_signal_single_entry() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(-1.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -401,7 +398,6 @@ async fn test_run_once_diary_only_promoted_groups() {
             explicitness_weight: Some(1.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -475,7 +471,6 @@ fn test_load_entity_type_weight_active() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -514,7 +509,6 @@ fn test_load_entity_type_weight_inactive() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
@@ -558,7 +552,6 @@ fn test_load_entity_type_weight_unknown() {
             explicitness_weight: Some(0.0),
             cross_agent_weight: Some(0.0),
             negative_signal_weight: Some(0.0),
-            ..Default::default()
         },
         threshold: DreamingThresholdParams {
             absolute: Some(0.0),
