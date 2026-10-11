@@ -3,7 +3,7 @@ name = "closeclaw-skills"
 version = "0.1.0"
 edition.workspace = true
 description = "Skills system for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 # Internal crates
@@ -33,8 +33,8 @@ glob = "0.3"
 
 
 [dev-dependencies]
-closeclaw-workflow = { path = "../workflow" }
 closeclaw-permission = { path = "../permission" }
+closeclaw-workflow = { path = "../workflow" }
 tempfile = "3"
 serial_test = "3.4"
 filetime = "0.2"

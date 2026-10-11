@@ -3,7 +3,7 @@ name = "closeclaw-memory"
 version = "0.1.0"
 edition.workspace = true
 description = "Long-term memory for CloseClaw agents"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 # Internal crates

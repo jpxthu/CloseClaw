@@ -3,7 +3,7 @@ name = "closeclaw-tools"
 version = "0.1.0"
 edition.workspace = true
 description = "Tools system for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 # Internal crates
@@ -63,13 +63,13 @@ image = "0.25"
 base64 = "0.22"
 
 [dev-dependencies]
-closeclaw-tasks = { path = "../tasks" }
 closeclaw-agent = { path = "../agent" }
-closeclaw-skills = { path = "../skills" }
-closeclaw-session = { path = "../session" }
 closeclaw-config = { path = "../config" }
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-permission = { path = "../permission" }
+closeclaw-session = { path = "../session" }
+closeclaw-skills = { path = "../skills" }
+closeclaw-tasks = { path = "../tasks" }
 closeclaw-test-support = { path = "../test_support" }
 tempfile = "3"
 serial_test = "3.4"

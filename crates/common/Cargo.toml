@@ -1,9 +1,9 @@
 [package]
 name = "closeclaw-common"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 description = "Shared types and utilities for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 async-trait = "0.1"

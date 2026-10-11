@@ -3,7 +3,7 @@ name = "closeclaw-permission"
 version = "0.1.0"
 edition.workspace = true
 description = "Permission engine for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 closeclaw-common = { path = "../common" }
