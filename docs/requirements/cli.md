@@ -8,15 +8,15 @@ CLI 模块满足 Owner 通过命令行终端与 CloseClaw 交互的需求——�
 
 ### F1. 终端对话
 
-Owner 可以在终端中与 Agent 进行文本对话。
+Owner 可以在终端中与 Agent 进行文本对话。此功能需 daemon 已运行。
 
-- 对话以 `closeclaw chat` 启动，在同一个终端进程中持续与 Agent 交互。此功能需 daemon 已运行。
+- 对话以 `closeclaw chat` 启动，在同一个终端进程中持续与 Agent 交互
 
 - 通过 `--agent-id` 参数指定目标 Agent，不同 Agent 的对话保持独立、互不干扰
 
 - 终端对话支持与其他 IM 渠道（如飞书、Discord）完全一致的斜杠指令体系
 
-- 终端渠道的调用者默认为 Owner，无需额外鉴权
+- 终端对话的调用者默认为 Owner，无需额外认证
 
 - 使用 `/stop` 结束当前对话
 
@@ -29,15 +29,15 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 #### 样式渲染
 
-- **ANSI 渲染策略**：根据终端能力渲染格式化输出。终端能力检测与降级逻辑详见 [platform §F3](platform.md)（终端能力自适应）
+- **ANSI 渲染策略**：终端输出的渲染与降级策略详见 [platform §F3](platform.md)（终端能力自适应）
 
 - **Markdown 转 ANSI**：普通文本中的 Markdown 格式标记（标题、粗体、斜体、引用、链接、分割线）渲染为对应的 ANSI 样式
 
-- **列表标记保留**：列表无对应 ANSI 样式，保留原始 Markdown 标记（无序 `- ` 或 `* `、有序 `1. `）原样输出
+- **列表标记保留**：列表无对应 ANSI 样式，保留原始 Markdown 标记（无序 `- ` 或 `* `、有序 `1. `）输出
 
 #### 特殊内容呈现
 
-- **代码块高亮**：代码块语法高亮遵循 [im_adapter §F5](im_adapter.md)（代码块语法高亮），终端附加行号显示，覆盖常见编程语言，未知语言回退为纯文本输出
+- **代码块高亮**：代码块语法高亮遵循 [im_adapter §F5](im_adapter.md)（代码块语法高亮），终端附加行号显示，支持常见编程语言，未知语言回退为纯文本输出
 
 - **Thinking 折叠**：Agent 的思考过程以折叠块形式展示，有首尾边界标记，不打断对话阅读流
 
@@ -59,7 +59,9 @@ Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - 使用 `closeclaw run` 启动 daemon
 
-- 使用 `closeclaw run --config-dir <dir>` 指定 daemon 使用的配置目录，默认为标准配置目录；该参数支持在同一台机器上运行多个互不干扰的 CloseClaw 实例
+- 使用 `closeclaw run --config-dir <dir>` 指定 daemon 使用的配置目录，默认为标准配置目录
+
+- 借助 `--config-dir` 可在同一台机器上运行多个互不干扰的 CloseClaw 实例
 
 - 使用 `closeclaw stop` 停止 daemon
 
@@ -91,7 +93,7 @@ Owner 可以通过 CLI 管理 CloseClaw 的配置文件。
 
 - 首次配置时引导创建初始 Agent，创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）
 
-- 支持通过 `--yes` 跳过确认提示，非交互写入配置
+- 支持通过 `--yes` 跳过确认提示
 
 #### 配置校验
 
@@ -120,13 +122,16 @@ Owner 可以通过 CLI 查询 Skill 列表。此功能需 daemon 已运行。
 
 ### F7. 权限规则查看
 
-Owner 可以通过 CLI 查看权限规则——包括校验规则的语法和列出已有规则。
+Owner 可以通过 CLI 查看权限规则——包括校验规则语法和列出已有规则。
 
-> **交叉引用**：CLI 提供规则语法校验与列表入口（只读）；权限规则的修改通过斜杠指令完成。详见 [permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：CLI 提供校验规则语法与列表入口（只读）；权限规则的修改通过斜杠指令完成。详见 [permission §F6](permission.md)（权限配置管理）。
 
 ### F8. 跨平台支持
 
-> **交叉引用**：CLI 的跨平台一致性详见 [platform §F5](platform.md)（系统差异隔离）及本文档非功能需求。
+Owner 可以在受支持的操作系统上使用行为一致的 CLI。
+
+> **交叉引用**：CLI 的跨平台一致性详见 [platform §F5](platform.md)（系统差异隔离）。
+> **交叉引用**：CLI 跨平台相关的用户期望详见[非功能需求](#非功能需求)。
 
 ## 非功能需求
 
