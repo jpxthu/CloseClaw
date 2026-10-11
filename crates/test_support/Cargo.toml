@@ -11,4 +11,4 @@ toml = "1"
 
 [dev-dependencies]
 # Synthetic manifests for the boundary guard unit tests (system temp dir)
-tempfile = "3"
+tempfile.workspace = true

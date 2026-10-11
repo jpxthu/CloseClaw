@@ -20,7 +20,7 @@ tokio = { version = "=1.35.0", features = ["full"] }
 chrono = "0.4"
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Error handling
 thiserror = "2.0"
@@ -28,14 +28,14 @@ anyhow = "1.0"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json.workspace = true
 serde_yaml = "0.9"
 
 # Async trait
 async-trait = "0.1"
 
 # Temp files (for tests)
-tempfile = "3"
+tempfile.workspace = true
 
 # Home directory resolution
 dirs = "5"

@@ -19,19 +19,19 @@ async-trait = "0.1"
 thiserror = "2.0"
 
 # Serialization
-serde_json = "1.0"
+serde_json.workspace = true
 
 # Date/time
 chrono = { version = "0.4", features = ["serde"] }
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # SQLite for active searcher (bundled to avoid system SQLite dependency)
 rusqlite = { version = "0.31", features = ["bundled"] }
 
 [dev-dependencies]
-tempfile = "3.10"
+tempfile.workspace = true
 serial_test.workspace = true
 
 # Manifest parsing for dependency boundary tests

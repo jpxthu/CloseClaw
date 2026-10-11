@@ -94,10 +94,10 @@ futures = "0.3"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json.workspace = true
 
 # Logging - pinned to older versions
-tracing = "=0.1.43"
+tracing.workspace = true
 tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
 
 # Error handling
@@ -146,7 +146,7 @@ dirs = "5"
 [dev-dependencies]
 # Testing
 proptest = "=1.4"
-tempfile = "3.10"
+tempfile.workspace = true
 serial_test.workspace = true
 filetime = "0.2"
 mockito = "1.2"

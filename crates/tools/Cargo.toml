@@ -20,7 +20,7 @@ dashmap = "5"
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde_json.workspace = true
 serde_yaml = "0.9"
 
 # Error handling
@@ -30,7 +30,7 @@ thiserror = "2.0"
 async-trait = "0.1"
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Glob pattern matching
 glob = "0.3"
@@ -71,5 +71,5 @@ closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-test-support = { path = "../test_support" }
-tempfile = "3"
+tempfile.workspace = true
 serial_test.workspace = true
