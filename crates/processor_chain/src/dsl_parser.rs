@@ -468,8 +468,8 @@ mod tests {
             },
             ContentBlock::Text("More text\n::button[label:Y;action:b;value:2]".to_string()),
         ];
-        let result_convenience = DslParser::default().parse_content_blocks(&blocks);
-        let result_manual = DslParser::default().parse_content_blocks(&blocks);
+        let result_convenience = DslParser.parse_content_blocks(&blocks);
+        let result_manual = DslParser.parse_content_blocks(&blocks);
         assert_eq!(result_convenience, result_manual);
     }
 

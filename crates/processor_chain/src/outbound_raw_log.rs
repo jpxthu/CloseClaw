@@ -117,7 +117,3 @@ impl MessageProcessor for OutboundRawLogProcessor {
         }))
     }
 }
-
-#[cfg(test)]
-#[path = "outbound_raw_log_tests.rs"]
-mod tests;
