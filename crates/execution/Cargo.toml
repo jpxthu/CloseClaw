@@ -6,7 +6,7 @@ description = "Plan execution engine: scheduling, retry, and sub-agent orchestra
 license.workspace = true
 
 [dev-dependencies]
-tokio = { version = "=1.35.0", features = ["rt", "macros", "time"] }
+tokio.workspace = true
 tempfile.workspace = true
 
 [dependencies]
@@ -16,4 +16,4 @@ serde_json.workspace = true
 thiserror = "2.0"
 async-trait = "0.1"
 tracing.workspace = true
-tokio = { version = "=1.35.0", features = ["process", "time"] }
+tokio.workspace = true

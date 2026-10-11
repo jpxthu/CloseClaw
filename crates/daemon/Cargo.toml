@@ -14,17 +14,17 @@ path = "src/mod.rs"
 
 [dependencies]
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 
 # Time
-chrono = "0.4"
+chrono.workspace = true
 
 # Logging
 tracing.workspace = true
 
 # Error handling
 thiserror = "2.0"
-anyhow = "1.0"
+anyhow.workspace = true
 
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
@@ -68,4 +68,4 @@ closeclaw-workflow = { path = "../workflow" }
 libc = "0.2"
 serial_test.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }

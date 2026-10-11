@@ -6,10 +6,10 @@ description = "Background task management for CloseClaw"
 license.workspace = true
 
 [dependencies]
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 async-trait = "0.1"
 tracing.workspace = true
 serde_json.workspace = true
@@ -20,4 +20,4 @@ closeclaw-debug-log = { path = "../debug_log" }
 tempfile.workspace = true
 serde_json.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }

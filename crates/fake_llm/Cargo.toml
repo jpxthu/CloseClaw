@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 # Async runtime (pinned to match workspace)
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 
 # HTTP server
 axum = "0.7"
@@ -18,11 +18,11 @@ serde_json.workspace = true
 
 # Logging (pinned to match workspace)
 tracing.workspace = true
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing-subscriber.workspace = true
 
 # Error handling
 thiserror = "2.0"
-anyhow = "1.0"
+anyhow.workspace = true
 
 # Stream trait for SSE delivery
 futures-core = "0.3"
@@ -32,5 +32,5 @@ clap = { version = "4.4", features = ["derive"] }
 
 [dev-dependencies]
 tempfile.workspace = true
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+reqwest.workspace = true
 futures = "0.3"

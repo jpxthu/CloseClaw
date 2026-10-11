@@ -85,7 +85,7 @@ fake-llm = ["closeclaw-llm/fake-llm"]
 
 [dependencies]
 # Async runtime - pinned to older version to avoid edition2024 issues
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 # Cancellation tokens with native parent/child derivation (used for cascade stop)
 # The `sync` module (containing `CancellationToken`) is always available; no
 # extra feature flags are required.
@@ -98,10 +98,10 @@ serde_json.workspace = true
 
 # Logging - pinned to older versions
 tracing.workspace = true
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing-subscriber.workspace = true
 
 # Error handling
-anyhow = "1.0"
+anyhow.workspace = true
 
 # Linux system APIs (seccomp, landlock)
 libc = "0.2"
@@ -109,7 +109,7 @@ libc = "0.2"
 terminal_size = "0.4"
 
 # Date/time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # Async trait (for IMAdapter)
 async-trait = "0.1"
@@ -155,7 +155,7 @@ closeclaw-fake-llm = { path = "crates/fake_llm" }
 rusqlite = { version = "0.31", features = ["bundled"] }
 sha2 = "0.10"
 hex = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest.workspace = true
 # Coverage reporting
 cargo-llvm-cov = "0.6"
 tracing-test = "0.2.6"

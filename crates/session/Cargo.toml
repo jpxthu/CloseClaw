@@ -13,7 +13,7 @@ dirs = "5"
 serde_yaml = "0.9"
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 tokio-util = "0.7"
 async-trait = "0.1"
 futures = "0.3"
@@ -29,10 +29,10 @@ thiserror = "2.0"
 tracing.workspace = true
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Hashing
 sha2 = "0.10"
@@ -51,9 +51,9 @@ rusqlite = { version = "0.31", features = ["bundled"] }
 tempfile.workspace = true
 serial_test.workspace = true
 filetime = "0.2"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter"] }
+tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }
 # Test-only workspace deps (outside the allowed edge table, which constrains
 # regular [dependencies] only): tests provide a real-engine WorkflowPort
 # wrapper and config fixtures against the real types.

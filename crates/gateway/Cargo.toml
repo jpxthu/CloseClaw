@@ -18,7 +18,7 @@ closeclaw-permission = { path = "../permission" }
 closeclaw-session = { path = "../session" }
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 tokio-util = "0.7"
 futures = "0.3"
 
@@ -40,10 +40,10 @@ libc = "0.2"
 dirs = "5"
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Hashing
 sha2 = "0.10"
@@ -62,10 +62,10 @@ closeclaw-processor-chain = { path = "../processor_chain" }
 closeclaw-test-support = { path = "../test_support" }
 # Same exemption: tests keep building workflow fixtures (run/definition).
 closeclaw-workflow = { path = "../workflow" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest.workspace = true
 tempfile.workspace = true
 serial_test.workspace = true
 serde_yaml = "0.9"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }

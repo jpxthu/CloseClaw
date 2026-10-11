@@ -11,7 +11,7 @@ closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 tokio-util = "0.7"
 futures = "0.3"
 
@@ -40,17 +40,17 @@ tree-sitter = "0.24"
 tree-sitter-bash = "0.23"
 
 # Regex
-regex = "1.10"
+regex.workspace = true
 regex-lite = "0.1"
 
 # Unicode normalization for fuzzy matching
 unicode-normalization = "0.1"
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Terminal size detection
 terminal_size = "0.4"

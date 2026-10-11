@@ -15,7 +15,7 @@ closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 futures = "0.3"
 
 # Serialization
@@ -29,13 +29,13 @@ tracing.workspace = true
 thiserror = "2.0"
 
 # HTTP client
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+reqwest.workspace = true
 
 # Async trait
 async-trait = "0.1"
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # Glob pattern matching
 glob = "0.3"
@@ -48,7 +48,7 @@ hex = "0.4"
 async-stream = "0.3.6"
 
 [dev-dependencies]
-anyhow = "1.0"
+anyhow.workspace = true
 mockito = "1.2"
 tempfile.workspace = true
 toml = "1"
