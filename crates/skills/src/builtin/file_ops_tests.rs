@@ -4,7 +4,7 @@ use crate::registry::{Skill, SkillError};
 
 #[test]
 fn test_file_ops_default() {
-    let skill = FileOpsSkill::default();
+    let skill = FileOpsSkill;
     let m = skill.manifest();
     assert_eq!(m.name, "file_ops");
 }
