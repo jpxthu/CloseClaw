@@ -16,164 +16,6 @@
 //! - the timeout path forwards `ForegroundContext.session_id` unchanged
 
 use super::*;
-use std::path::PathBuf;
-
-/// One recorded `backgroundize_task` invocation.
-#[derive(Debug, Clone)]
-struct RecordedBackgroundize {
-    command: String,
-    is_backgrounded: bool,
-    session_id: String,
-}
-
-/// Shared recorder inspected by the tests after the call under test.
-struct BgRecorder {
-    calls: std::sync::Mutex<Vec<RecordedBackgroundize>>,
-    tasks: std::sync::Mutex<Vec<closeclaw_common::BackgroundTask>>,
-}
-
-impl BgRecorder {
-    fn new() -> Self {
-        Self {
-            calls: std::sync::Mutex::new(Vec::new()),
-            tasks: std::sync::Mutex::new(Vec::new()),
-        }
-    }
-
-    fn calls(&self) -> Vec<RecordedBackgroundize> {
-        self.calls.lock().unwrap().clone()
-    }
-
-    fn task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
-        self.tasks
-            .lock()
-            .unwrap()
-            .iter()
-            .find(|t| t.id == task_id)
-            .cloned()
-    }
-}
-
-/// Mock `TaskManager` that records `backgroundize_task` arguments.
-///
-/// When `fail` is true, `backgroundize_task` returns an error so the
-/// error-propagation path of the chain can be exercised. The child is
-/// always killed and reaped immediately: the mock asserts the
-/// registration chain, not process liveness, and this keeps the test
-/// process free of lingering children.
-struct RecordingBgManager {
-    recorder: std::sync::Arc<BgRecorder>,
-    fail: bool,
-}
-
-impl RecordingBgManager {
-    fn ok() -> (std::sync::Arc<BgRecorder>, Self) {
-        let recorder = std::sync::Arc::new(BgRecorder::new());
-        let mgr = Self {
-            recorder: std::sync::Arc::clone(&recorder),
-            fail: false,
-        };
-        (recorder, mgr)
-    }
-
-    fn failing() -> Self {
-        Self {
-            recorder: std::sync::Arc::new(BgRecorder::new()),
-            fail: true,
-        }
-    }
-}
-
-/// Kill and reap a mock-held child so no process outlives the test.
-async fn reap_child(mut child: tokio::process::Child) {
-    let _ = child.kill().await;
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for RecordingBgManager {
-    async fn spawn_task(
-        &self,
-        _command: &str,
-        _cwd: &std::path::Path,
-        _is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-            "not used".into(),
-        ))
-    }
-
-    async fn backgroundize_task(
-        &self,
-        child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        // Lock the pipe reattachment behavior: the production chain
-        // (`backgroundize_child`) must reattach the taken stdout/stderr
-        // handles before handing the child to the manager. Without the
-        // reattach in `backgroundize_child`, these assertions fail.
-        assert!(
-            child.stdout.is_some(),
-            "child must arrive with its stdout pipe reattached"
-        );
-        assert!(
-            child.stderr.is_some(),
-            "child must arrive with its stderr pipe reattached"
-        );
-        reap_child(child).await;
-        if self.fail {
-            return Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-                "boom".into(),
-            ));
-        }
-        let task = closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            // Placeholder only, never written to disk: this fake never
-            // performs output I/O; the backgroundize chain under test
-            // only forwards the path into the result payload.
-            output_path: PathBuf::from("/nonexistent/closeclaw-fake-task-output"),
-        };
-        self.recorder
-            .calls
-            .lock()
-            .unwrap()
-            .push(RecordedBackgroundize {
-                command: command.to_string(),
-                is_backgrounded,
-                session_id: session_id.to_string(),
-            });
-        self.recorder.tasks.lock().unwrap().push(task.clone());
-        Ok(task)
-    }
-
-    async fn kill_task(&self, _task_id: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        // Deliberately a no-op: this suite never exercises the kill
-        // chain, so there is nothing meaningful to record or remove.
-        Ok(())
-    }
-
-    async fn get_task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
-        self.recorder.task(task_id)
-    }
-
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
-}
 
 /// Build `ChildHandles` from a freshly spawned child, mirroring the
 /// production hand-off (pipes taken out of the child first).
@@ -194,8 +36,8 @@ fn make_handles(command: &str, cwd: &str) -> ChildHandles {
 /// task registered with the given session_id, ids all consistent.
 #[tokio::test]
 async fn test_backgroundize_child_by_user_builds_manual_result() {
-    let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
+    let fake = FakeTaskManager::new().with_pipe_assertions();
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(fake.clone());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -228,7 +70,7 @@ async fn test_backgroundize_child_by_user_builds_manual_result() {
         returned_task_id, result_task_id,
         "returned task id must match the id exposed in the result"
     );
-    let task = recorder
+    let task = fake
         .task(&returned_task_id)
         .expect("task must be registered in the TaskManager");
     assert_eq!(task.id, returned_task_id);
@@ -242,7 +84,7 @@ async fn test_backgroundize_child_by_user_builds_manual_result() {
 
     // Registration chain: command / is_backgrounded=true / session_id
     // forwarded unchanged.
-    let calls = recorder.calls();
+    let calls = fake.backgroundize_calls();
     assert_eq!(calls.len(), 1, "exactly one backgroundize_task call");
     assert_eq!(calls[0].command, "true");
     assert!(
@@ -258,8 +100,8 @@ async fn test_backgroundize_child_by_user_builds_manual_result() {
 /// `by_user=false` → auto background result (`assistantAutoBackgrounded`).
 #[tokio::test]
 async fn test_backgroundize_child_auto_builds_auto_result() {
-    let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
+    let fake = FakeTaskManager::new().with_pipe_assertions();
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(fake.clone());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -286,10 +128,10 @@ async fn test_backgroundize_child_auto_builds_auto_result() {
         "returned task id must match the id exposed in the result"
     );
     assert!(
-        recorder.task(&returned_task_id).is_some(),
+        fake.task(&returned_task_id).is_some(),
         "task must be registered in the TaskManager"
     );
-    let calls = recorder.calls();
+    let calls = fake.backgroundize_calls();
     assert_eq!(calls.len(), 1);
     assert_eq!(calls[0].session_id, "sess-auto");
     assert!(
@@ -306,7 +148,8 @@ async fn test_backgroundize_child_auto_builds_auto_result() {
 /// `backgroundize_child`.
 #[tokio::test]
 async fn test_backgroundize_child_maps_manager_error() {
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(RecordingBgManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> =
+        Arc::new(FakeTaskManager::new().with_failing_backgroundize());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -330,8 +173,8 @@ async fn test_backgroundize_child_maps_manager_error() {
 /// `ForegroundOutcome::AutoBackground` with consistent ids.
 #[tokio::test]
 async fn test_auto_backgroundize_foreground_ok_maps_to_auto_background() {
-    let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
+    let fake = FakeTaskManager::new().with_pipe_assertions();
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(fake.clone());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -353,17 +196,18 @@ async fn test_auto_backgroundize_foreground_ok_maps_to_auto_background() {
         "outcome task id must match the id in the result data"
     );
     assert!(
-        recorder.task(&task_id).is_some(),
+        fake.task(&task_id).is_some(),
         "task must be registered under the outcome's task id"
     );
-    assert_eq!(recorder.calls()[0].session_id, "sess-wrap");
+    assert_eq!(fake.backgroundize_calls()[0].session_id, "sess-wrap");
 }
 
 /// `auto_backgroundize_foreground` wraps Err into
 /// `ForegroundOutcome::Failed` with the mapped message.
 #[tokio::test]
 async fn test_auto_backgroundize_foreground_err_maps_to_failed() {
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(RecordingBgManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> =
+        Arc::new(FakeTaskManager::new().with_failing_backgroundize());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -389,8 +233,8 @@ async fn test_auto_backgroundize_foreground_err_maps_to_failed() {
 /// forwards `ctx.session_id` unchanged to the registration chain.
 #[tokio::test]
 async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
-    let (recorder, mgr) = RecordingBgManager::ok();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(mgr);
+    let fake = FakeTaskManager::new().with_pipe_assertions();
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(fake.clone());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let mut child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
@@ -402,12 +246,17 @@ async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
         stderr_handle,
     };
 
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "sess-timeout",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome = handle_timeout_expiry(handles, "sleep 5", &ctx).await;
@@ -427,10 +276,10 @@ async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
         "result id must match the outcome task id"
     );
     assert!(
-        recorder.task(&task_id).is_some(),
+        fake.task(&task_id).is_some(),
         "task must be registered under the outcome task id"
     );
-    let calls = recorder.calls();
+    let calls = fake.backgroundize_calls();
     assert_eq!(calls.len(), 1);
     assert!(
         calls[0].is_backgrounded,

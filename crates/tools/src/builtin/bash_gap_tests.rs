@@ -1,4 +1,5 @@
-//! Tests for BashTool gaps fixed in Steps 1.1 and 1.2.
+//! Tests for BashTool gap fixes: prompt generation behavior and
+//! progress tracking.
 //!
 //! Gap 1: `generate_prompt` must use the default Tool trait impl
 //!         (return `self.detail()`), with no workdir/git injection.
@@ -7,8 +8,8 @@
 
 use super::*;
 use crate::builtin::bash_kill::{read_pipe_incremental, read_with_progress};
+use crate::builtin::bash_test_support::RecordingProgressSession;
 use crate::Tool;
-use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::{PromptGenerationContext, WorkdirContext};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::GatewayConfig;
@@ -30,7 +31,7 @@ fn make_tool() -> BashTool {
     let perm = Arc::new(tokio::sync::RwLock::new(
         PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap()),
     ));
-    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(DummyTaskManager);
+    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(FakeTaskManager::new());
     let session_manager = Arc::new(SessionManager::new(
         &GatewayConfig {
             name: "test".to_string(),
@@ -77,151 +78,6 @@ fn ctx_with_workdir(path: &str, has_git: bool) -> PromptGenerationContext {
     }
 }
 
-// Dummy TaskManager for tests that don't need actual task operations.
-struct DummyTaskManager;
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for DummyTaskManager {
-    async fn spawn_task(
-        &self,
-        _cmd: &str,
-        _cwd: &std::path::Path,
-        _bg: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        unimplemented!()
-    }
-    async fn backgroundize_task(
-        &self,
-        _child: tokio::process::Child,
-        _cmd: &str,
-        _bg: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        unimplemented!()
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
-}
-
-/// Working TaskManager for tests that need spawn/backgroundize.
-struct WorkingTaskManager {
-    tasks: std::sync::Arc<
-        tokio::sync::RwLock<std::collections::HashMap<String, closeclaw_common::BackgroundTask>>,
-    >,
-}
-
-impl WorkingTaskManager {
-    fn new() -> Self {
-        Self {
-            tasks: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        }
-    }
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for WorkingTaskManager {
-    async fn spawn_task(
-        &self,
-        command: &str,
-        cwd: &std::path::Path,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let task = closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: cwd.join("output"),
-        };
-        self.tasks
-            .write()
-            .await
-            .insert(task.id.clone(), task.clone());
-        Ok(task)
-    }
-    async fn backgroundize_task(
-        &self,
-        _child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let task = closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/output"),
-        };
-        self.tasks
-            .write()
-            .await
-            .insert(task.id.clone(), task.clone());
-        Ok(task)
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
-}
-
-/// Mock ToolSession that captures `report_tool_progress` calls.
-struct MockProgressSession {
-    calls: std::sync::Mutex<Vec<ToolProgress>>,
-}
-
-impl MockProgressSession {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            calls: std::sync::Mutex::new(Vec::new()),
-        })
-    }
-
-    fn progress_calls(&self) -> Vec<ToolProgress> {
-        self.calls.lock().unwrap().clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::tool_session::ToolSession for MockProgressSession {
-    async fn register_tool_handle(
-        &self,
-        _call_id: String,
-        _handle: Arc<dyn closeclaw_common::tool_session::KillHandle>,
-    ) {
-    }
-
-    async fn report_tool_progress(&self, _call_id: &str, progress: ToolProgress) {
-        self.calls.lock().unwrap().push(progress);
-    }
-}
-
 /// Spawn a child process and return its stdout/stderr handles.
 /// Panics if spawn fails.
 fn spawn_child(
@@ -245,7 +101,7 @@ fn spawn_child(
 }
 
 // ===========================================================================
-// Gap 1: generate_prompt tests (updated for Step 1.2 context-aware behavior)
+// Gap 1: generate_prompt tests (context-aware behavior)
 // ===========================================================================
 
 /// `generate_prompt` must return context-aware output for empty context.
@@ -458,9 +314,7 @@ async fn test_read_pipe_incremental_cancelled() {
 /// The process completes before the first periodic interval tick (2 s).
 #[tokio::test]
 async fn test_read_with_progress_short_command_no_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     let (mut _child, stdout, stderr) = spawn_child("echo hello");
     let (stdout_out, stderr_out, _lines, _bytes) = read_with_progress(
@@ -481,8 +335,9 @@ async fn test_read_with_progress_short_command_no_reports() {
         "short command should only get the final report, got {}",
         calls.len()
     );
-    assert_eq!(calls[0].lines, 1);
-    assert_eq!(calls[0].bytes, stdout_out.len());
+    let (_, report) = &calls[0];
+    assert_eq!(report.lines, 1);
+    assert_eq!(report.bytes, stdout_out.len());
     // Wait for child to avoid zombie
     let _ = _child.kill().await;
     let _ = _child.wait().await;
@@ -491,9 +346,7 @@ async fn test_read_with_progress_short_command_no_reports() {
 /// Long command (> 2 s) triggers progress reports while output arrives.
 #[tokio::test]
 async fn test_read_with_progress_long_command_sends_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     // Command produces output slowly over ~3 s, exceeding the 2 s interval.
     let (mut _child, stdout, stderr) =
@@ -513,7 +366,7 @@ async fn test_read_with_progress_long_command_sends_reports() {
         "expected at least 1 periodic progress report for long command, got {}",
         calls.len()
     );
-    for (i, report) in calls.iter().enumerate() {
+    for (i, (_, report)) in calls.iter().enumerate() {
         assert!(
             report.bytes > 0,
             "report[{i}] should have bytes > 0, got {}",
@@ -533,9 +386,7 @@ async fn test_read_with_progress_long_command_sends_reports() {
 /// `read_with_progress` always sends a final progress report.
 #[tokio::test]
 async fn test_read_with_progress_sends_final_report() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     let (mut _child, stdout, stderr) = spawn_child("printf 'line1\nline2\n'");
 
@@ -553,7 +404,7 @@ async fn test_read_with_progress_sends_final_report() {
         !calls.is_empty(),
         "must send at least a final progress report"
     );
-    let last = calls.last().unwrap();
+    let (_, last) = calls.last().unwrap();
     assert_eq!(
         last.lines, 2,
         "final report lines should be 2, got {}",
@@ -568,11 +419,9 @@ async fn test_read_with_progress_sends_final_report() {
 /// When `run_in_background` is true, the foreground path is never entered.
 #[tokio::test]
 async fn test_background_command_no_progress_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
-    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(WorkingTaskManager::new());
+    let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(FakeTaskManager::new());
     let tmp = tempfile::TempDir::new().unwrap();
     let ctx = BashExecCtx {
         command: "echo bg",
@@ -582,11 +431,7 @@ async fn test_background_command_no_progress_reports() {
         call_id: Some("bg-call-id"),
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let _result = execute_command(&ctx, true, &fg_opts) // run_in_background
+    let _result = execute_command(&ctx, true, None, Some(5_000)) // run_in_background
         .await;
 
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -604,9 +449,7 @@ async fn test_background_command_no_progress_reports() {
 /// should produce no periodic reports (only the final one).
 #[tokio::test]
 async fn test_read_with_progress_throttled_by_interval() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     // Fast command — completes well before the 2 s interval tick.
     let (mut _child, stdout, stderr) = spawn_child("echo done");
@@ -628,8 +471,9 @@ async fn test_read_with_progress_throttled_by_interval() {
         "fast command should only have the final report, got {}",
         calls.len()
     );
-    assert_eq!(calls[0].lines, 1);
-    assert_eq!(calls[0].bytes, stdout_out.len());
+    let (_, report) = &calls[0];
+    assert_eq!(report.lines, 1);
+    assert_eq!(report.bytes, stdout_out.len());
     let _ = _child.kill().await;
     let _ = _child.wait().await;
 }

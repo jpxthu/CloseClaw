@@ -27,6 +27,9 @@ pub mod workflow_tools;
 #[cfg(test)]
 pub(crate) mod test_helpers;
 
+#[cfg(test)]
+pub(crate) mod bash_test_support;
+
 pub use audit_log::AuditLogTool;
 pub use bash::BashTool;
 pub use coding_agent::CodingAgentTool;

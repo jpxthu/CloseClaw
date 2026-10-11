@@ -1,4 +1,4 @@
-//! Step 1.3 tests for auto-background timeout behavior.
+//! Tests for auto-background timeout behavior.
 //!
 //! Validates that `execute_foreground_command` computes `bg_timeout`
 //! correctly based on the `agent_timeout_ms` parameter:
@@ -12,138 +12,26 @@ use super::*;
 use serde_json::json;
 use tempfile::TempDir;
 
-/// Minimal mock that satisfies the `TaskManager` trait for foreground
-/// timeout tests. Only `backgroundize_task` needs real behavior; the
-/// rest are no-ops.
-struct TimeoutBgManager;
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for TimeoutBgManager {
-    async fn spawn_task(
-        &self,
-        _command: &str,
-        _cwd: &std::path::Path,
-        _is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-            "not used".into(),
-        ))
-    }
-    async fn backgroundize_task(
-        &self,
-        mut child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        // Kill and reap the child — this suite doesn't care about its survival.
-        let _ = child.kill().await;
-        // Return a fake task — the test only cares about whether the
-        // child was backgroundized, not the task itself.
-        Ok(closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/test-output"),
-        })
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
-}
-
 fn bg_trait() -> Arc<dyn closeclaw_common::TaskManager> {
-    Arc::new(TimeoutBgManager)
+    Arc::new(FakeTaskManager::new())
 }
 
-/// Shared helper: build the `BashExecCtx` + `ForegroundOptions` pair
-/// used by the timeout tests. `session`/`call_id`/`manual_bg_signal`
-/// are fixed to `None`/`""`; pass only what each test varies
-/// (`command` / `agent_timeout_ms`).
+/// Shared helper: build the `BashExecCtx` used by the timeout tests.
+/// `session`/`call_id`/`session_id` are fixed to `None`/`""`; pass the
+/// `command` each test varies (`agent_timeout_ms` goes straight to
+/// `execute_foreground_command` at the call site).
 fn fg_test_env<'a>(
     tmp: &'a TempDir,
     bg: &'a Arc<dyn closeclaw_common::TaskManager>,
     command: &'a str,
-    agent_timeout_ms: Option<u64>,
-) -> (BashExecCtx<'a>, ForegroundOptions<'a>) {
-    let ctx = BashExecCtx {
+) -> BashExecCtx<'a> {
+    BashExecCtx {
         command,
         cwd: tmp.path().to_str().unwrap(),
         bg_manager: bg,
         session: None,
         call_id: None,
         session_id: "",
-    };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms,
-        manual_bg_signal: None,
-    };
-    (ctx, fg_opts)
-}
-
-/// Mock TaskManager with configurable `max_execution_secs`.
-/// Used by tests that need a short total-execution-time limit
-/// to exercise the force-terminate path within reasonable test duration.
-struct ShortTimeoutBgManager {
-    max_secs: u64,
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for ShortTimeoutBgManager {
-    async fn spawn_task(
-        &self,
-        _command: &str,
-        _cwd: &std::path::Path,
-        _is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-            "not used".into(),
-        ))
-    }
-    async fn backgroundize_task(
-        &self,
-        _child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Ok(closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/test-output"),
-        })
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        self.max_secs
     }
 }
 
@@ -156,8 +44,8 @@ impl closeclaw_common::TaskManager for ShortTimeoutBgManager {
 async fn test_agent_timeout_30s_completes_in_foreground() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "echo done", Some(30_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "echo done");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(30_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -187,8 +75,8 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
     // test, so we verify the timeout logic indirectly: spawn a child
     // that takes ~1s and check that it does NOT auto-background when
     // bg_timeout (30s) > command duration.
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 0.5", Some(30_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "sleep 0.5");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(30_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -215,8 +103,8 @@ async fn test_agent_timeout_30s_auto_backgrounds_long_command() {
 async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "echo capped", Some(300_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "echo capped");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(300_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -240,8 +128,8 @@ async fn test_agent_timeout_300s_capped_to_120s_quick_command() {
 async fn test_default_timeout_quick_command_completes() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "echo default", None);
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "echo default");
+    let (outcome, _) = execute_foreground_command(&ctx, None, None)
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -264,8 +152,8 @@ async fn test_default_timeout_quick_command_completes() {
 async fn test_excluded_command_true_not_auto_backgrounded() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "true", None);
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "true");
+    let (outcome, _) = execute_foreground_command(&ctx, None, None)
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -284,8 +172,8 @@ async fn test_excluded_command_true_not_auto_backgrounded() {
 async fn test_excluded_command_false_not_auto_backgrounded() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "false", None);
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "false");
+    let (outcome, _) = execute_foreground_command(&ctx, None, None)
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -307,8 +195,8 @@ async fn test_excluded_command_sleep_not_auto_backgrounded() {
     // sleep is excluded → uses agent_timeout_ms.unwrap_or(120_000).
     // With a short sleep, it should complete in foreground.
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 0.1", None);
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "sleep 0.1");
+    let (outcome, _) = execute_foreground_command(&ctx, None, None)
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -335,8 +223,8 @@ async fn test_excluded_command_with_agent_timeout_uses_agent_timeout() {
     // clamped logic: min(agent, cap). Quick command completes in
     // foreground since 60s > command duration.
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "true", Some(60_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "true");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(60_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -361,8 +249,8 @@ async fn test_excluded_command_sleep_with_agent_timeout_auto_backgrounds() {
     // Agent says 1s timeout, excluded command → normal clamped logic.
     // `sleep 0.5` completes before 1s → foreground completion.
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 0.5", Some(1_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "sleep 0.5");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(1_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -387,8 +275,8 @@ async fn test_non_excluded_with_large_timeout_capped_to_120s() {
     // `echo` is not excluded; agent specifies 500s → capped to 120s.
     // Quick command completes normally.
     let bg = bg_trait();
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "echo hello", Some(500_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "echo hello");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(500_000))
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -427,16 +315,16 @@ fn test_auto_bg_timeout_constants() {
 async fn test_excluded_command_exceeds_max_execution_force_killed() {
     let tmp = TempDir::new().unwrap();
     // Mock with 1-second max execution limit.
-    // NOTE: `max_secs: 1` and `"sleep 3"` below are a tuned pair: the
-    // force-kill fires at ~1s, while the orphaned sleep keeps the pipe
-    // write end open until ~3s — that 2s gap doubles as the kill-timer
+    // NOTE: `with_max_execution_secs(1)` and `"sleep 3"` below are a tuned
+    // pair: the force-kill fires at ~1s, while the orphaned sleep keeps the
+    // pipe write end open until ~3s — that 2s gap doubles as the kill-timer
     // delay margin. Do not shorten the sleep further, or a late timer
     // makes this test flake as Completed instead of Failed.
     let bg: Arc<dyn closeclaw_common::TaskManager> =
-        Arc::new(ShortTimeoutBgManager { max_secs: 1 });
+        Arc::new(FakeTaskManager::new().with_max_execution_secs(1));
 
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 3", None);
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "sleep 3");
+    let (outcome, _) = execute_foreground_command(&ctx, None, None)
         .await
         .expect("execute_foreground_command should succeed");
 
@@ -467,8 +355,8 @@ async fn test_excluded_command_with_agent_timeout_long_command_backgrounds() {
     let tmp = TempDir::new().unwrap();
     let bg = bg_trait();
     // Agent timeout = 1s, sleep takes 5s → should auto-background.
-    let (ctx, fg_opts) = fg_test_env(&tmp, &bg, "sleep 5", Some(1_000));
-    let (outcome, _) = execute_foreground_command(&ctx, &fg_opts)
+    let ctx = fg_test_env(&tmp, &bg, "sleep 5");
+    let (outcome, _) = execute_foreground_command(&ctx, None, Some(1_000))
         .await
         .expect("execute_foreground_command should succeed");
 

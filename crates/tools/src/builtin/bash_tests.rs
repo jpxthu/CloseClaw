@@ -6,6 +6,7 @@
 
 use super::*;
 use crate::builtin::bash_kill::{persist_output_in, process_output, MAX_OUTPUT_CHARS};
+use closeclaw_common::TaskManager;
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::PermissionEngine;
 use serde_json::json;
@@ -33,95 +34,8 @@ fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     ))
 }
 
-fn test_bg_manager() -> Arc<dyn closeclaw_common::TaskManager> {
-    Arc::new(BackgroundTaskManager::new())
-}
-
-struct BackgroundTaskManager {
-    tasks: std::sync::Arc<
-        tokio::sync::RwLock<std::collections::HashMap<String, closeclaw_common::BackgroundTask>>,
-    >,
-}
-
-impl BackgroundTaskManager {
-    fn new() -> Self {
-        Self {
-            tasks: std::sync::Arc::new(tokio::sync::RwLock::new(std::collections::HashMap::new())),
-        }
-    }
-    async fn get_task(&self, id: &str) -> Option<closeclaw_common::BackgroundTask> {
-        self.tasks.read().await.get(id).cloned()
-    }
-    async fn is_running(&self, id: &str) -> bool {
-        self.tasks
-            .read()
-            .await
-            .get(id)
-            .map(|t| matches!(t.state, closeclaw_common::TaskState::Running { .. }))
-            .unwrap_or(false)
-    }
-    async fn kill(&self, _id: &str) -> Result<(), String> {
-        Ok(())
-    }
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for BackgroundTaskManager {
-    async fn spawn_task(
-        &self,
-        command: &str,
-        cwd: &std::path::Path,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let task = closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: cwd.join("output"),
-        };
-        self.tasks
-            .write()
-            .await
-            .insert(task.id.clone(), task.clone());
-        Ok(task)
-    }
-    async fn backgroundize_task(
-        &self,
-        _child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        let task = closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/output"),
-        };
-        self.tasks
-            .write()
-            .await
-            .insert(task.id.clone(), task.clone());
-        Ok(task)
-    }
-    async fn kill_task(&self, task_id: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        self.tasks.write().await.remove(task_id);
-        Ok(())
-    }
-    async fn get_task(&self, task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
-        self.tasks.read().await.get(task_id).cloned()
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
+fn test_bg_manager() -> Arc<dyn TaskManager> {
+    FakeTaskManager::pair().1
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
@@ -308,7 +222,7 @@ async fn test_input_schema_six_properties() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.3: UT for run_in_background + auto-background paths
+// UT for run_in_background + auto-background paths
 // (Refs: issue #814 — `run_in_background` must use `spawn()`, auto-bg must
 // include `assistantAutoBackgrounded: true` + `backgroundTaskId`.)
 // ---------------------------------------------------------------------------
@@ -401,11 +315,7 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
 #[tokio::test]
 async fn test_execute_command_run_in_background_returns_background_task() {
     use closeclaw_common::TaskState;
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (bg_manager, bg_trait) = FakeTaskManager::pair();
 
     let tmp = TempDir::new().unwrap();
     let ctx = BashExecCtx {
@@ -416,11 +326,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         call_id: None,
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let result = execute_command(&ctx, true, &fg_opts)
+    let result = execute_command(&ctx, true, None, Some(5_000))
         .await
         .expect("execute_command(run_in_background) should succeed");
 
@@ -444,7 +350,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     );
 
     // The task must be tracked by the manager (state: Running).
-    let snapshot = bg_manager
+    let snapshot = bg_trait
         .get_task(task_id)
         .await
         .expect("background task must be tracked by the manager");
@@ -460,11 +366,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
     // via `spawn_sh_command` (which would fail for an invalid command
     // like `nonexistent_xyz`). With the new `spawn()` path, the task is
     // registered immediately and the command runs in the background.
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (bg_manager, bg_trait) = FakeTaskManager::pair();
     let tmp = TempDir::new().unwrap();
     let ctx = BashExecCtx {
         command: "nonexistent_xyz_abcdef_12345",
@@ -474,11 +376,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         call_id: None,
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let result = execute_command(&ctx, true, &fg_opts)
+    let result = execute_command(&ctx, true, None, Some(5_000))
         .await
         .expect("execute_command(run_in_background) should succeed even for unknown commands");
     let task_id = result.data["backgroundTaskId"]
@@ -494,28 +392,29 @@ async fn test_execute_command_run_in_background_with_long_command() {
 
 #[tokio::test]
 async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (bg_manager, bg_trait) = FakeTaskManager::pair();
     // Spawn a child that will outlast the bg_timeout.
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     // Wrap the child in the shared `Arc<Mutex<Option<_>>>` slot that
-    // `handle_foreground_result` now expects (Step 1.4 refactor:
-    // the slot is the same one `BashKillHandle` would observe).
+    // `handle_foreground_result` expects (the slot is the same one
+    // `BashKillHandle` would observe).
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
     // Use a tiny bg_timeout so the auto-background path is triggered
-    // almost immediately. This is the exact branch Step 1.2 unlocked:
-    // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
-    let ctx = ForegroundContext {
+    // almost immediately. This is the branch where
+    // `backgroundize(child, command)` is called WITHOUT a cwd arg.
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome = handle_foreground_result(
@@ -550,30 +449,31 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
 
     // Clean up: kill the orphan sleep so it does not linger after the
     // test process exits.
-    let _ = bg_manager.kill(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
 
 #[tokio::test]
 async fn test_handle_foreground_result_returns_foreground_on_success() {
     // Control test: when the child completes before bg_timeout, the
     // result must be a foreground result (no background fields).
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (_bg_manager, bg_trait) = FakeTaskManager::pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     // Wrap the child in the shared slot — `handle_foreground_result`
     // extracts stdout/stderr and then takes the child for `wait()`.
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome =
@@ -603,7 +503,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.5: Two-level permission tests for BashTool
+// Two-level permission tests for BashTool
 // ---------------------------------------------------------------------------
 
 use closeclaw_permission::engine::engine_types::{Action, Effect, RuleSet};
@@ -760,17 +660,13 @@ async fn test_bash_missing_command_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.5: Manual background signal tests
+// Manual background signal tests
 // ---------------------------------------------------------------------------
 
 /// Signal fires → child is backgrounded → result contains backgroundedByUser.
 #[tokio::test]
 async fn test_handle_foreground_result_manual_background_signal() {
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (bg_manager, bg_trait) = FakeTaskManager::pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -781,12 +677,17 @@ async fn test_handle_foreground_result_manual_background_signal() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         signal_clone.notify_waiters();
     });
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: Some(&signal),
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: Some(&signal),
         force_terminate: false,
     };
     let outcome = handle_foreground_result(
@@ -814,26 +715,27 @@ async fn test_handle_foreground_result_manual_background_signal() {
         "outputPath must be present"
     );
     assert!(bg_manager.is_running(task_id).await);
-    let _ = bg_manager.kill(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
 
 /// No signal → normal foreground exit. No background fields in result.
 #[tokio::test]
 async fn test_handle_foreground_result_normal_foreground_no_signal() {
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (_bg_manager, bg_trait) = FakeTaskManager::pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome =
@@ -858,11 +760,7 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
 /// (biased select picks the signal branch first).
 #[tokio::test]
 async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
-    let bg_manager: Arc<BackgroundTaskManager> = Arc::new(BackgroundTaskManager::new());
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = {
-        let b = Arc::clone(&bg_manager);
-        b as Arc<dyn closeclaw_common::TaskManager>
-    };
+    let (_bg_manager, bg_trait) = FakeTaskManager::pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 10", tmp.path().to_str().unwrap()).expect("spawn sleep");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -872,12 +770,17 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     tokio::spawn(async move {
         signal_clone.notify_waiters();
     });
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 10",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: Some(&signal),
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: Some(&signal),
         force_terminate: false,
     };
     let outcome = handle_foreground_result(
@@ -903,5 +806,5 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     let task_id = result.data["backgroundTaskId"]
         .as_str()
         .expect("backgroundTaskId must be present");
-    let _ = bg_manager.kill(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
