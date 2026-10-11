@@ -467,9 +467,7 @@ impl Daemon {
             .unwrap_or("memory/MEMORY.md");
         let dreaming_pipeline = Arc::new(
             DreamingPipeline::with_config(
-                crate::memory_params_adapter::dreaming_params_from_config(
-                    &memory_config.config.dreaming,
-                ),
+                crate::memory_params_adapter::dreaming_params_from_config(&memory_config.config),
             )
             .with_memory_md_path(md_path),
         );

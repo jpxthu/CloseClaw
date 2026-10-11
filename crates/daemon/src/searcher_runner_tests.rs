@@ -15,33 +15,30 @@ use super::{
     build_searcher_config, deserialize_memory_config, forgetting_params_from_memory_config,
     search_params_from_memory_config, snapshots_to_internal_messages, summary_to_slot_parts,
 };
-use closeclaw_common::{ForgettingConfig, MemoryConfig, SearchConfig};
+use closeclaw_common::MemoryConfig;
 use closeclaw_memory::params::{
     default_forgetting_injection_extension_days, default_search_context_turns,
     default_search_max_summary_chars, default_search_min_entity_hits, default_search_timeout_ms,
     default_search_top_k_events,
 };
 
-fn full_search_config() -> SearchConfig {
-    SearchConfig {
-        enabled: Some(true),
-        model: Some("search-model".to_string()),
-        context_turns: Some(8),
-        timeout_ms: Some(1500),
-        max_summary_chars: Some(300),
-        min_entity_hits: Some(2),
-        top_k_events: Some(4),
-    }
+fn full_search_memory() -> MemoryConfig {
+    let mut mem = MemoryConfig::default();
+    mem.search.enabled = Some(true);
+    mem.search.model = Some("search-model".to_string());
+    mem.search.context_turns = Some(8);
+    mem.search.timeout_ms = Some(1500);
+    mem.search.max_summary_chars = Some(300);
+    mem.search.min_entity_hits = Some(2);
+    mem.search.top_k_events = Some(4);
+    mem
 }
 
 // ── Config → memory params mapping ────────────────────────────────────────
 
 #[test]
 fn test_search_params_mapping_field_equivalence() {
-    let mem_cfg = MemoryConfig {
-        search: full_search_config(),
-        ..Default::default()
-    };
+    let mem_cfg = full_search_memory();
     let params = search_params_from_memory_config(&mem_cfg);
     assert_eq!(params.enabled, Some(true));
     assert_eq!(params.model.as_deref(), Some("search-model"));
@@ -54,13 +51,8 @@ fn test_search_params_mapping_field_equivalence() {
 
 #[test]
 fn test_forgetting_params_mapping_field_equivalence() {
-    let mem_cfg = MemoryConfig {
-        forgetting: ForgettingConfig {
-            injection_extension_days: Some(21),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut mem_cfg = MemoryConfig::default();
+    mem_cfg.forgetting.injection_extension_days = Some(21);
     let params = forgetting_params_from_memory_config(&mem_cfg);
     assert_eq!(
         params.injection_extension_days,
@@ -83,13 +75,8 @@ fn test_mapping_with_missing_fields_stays_none() {
 
 #[test]
 fn test_build_searcher_config_applies_memory_defaults_for_missing_fields() {
-    let mem_cfg = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(true),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut mem_cfg = MemoryConfig::default();
+    mem_cfg.search.enabled = Some(true);
     let config = build_searcher_config("agent-model", &Some(mem_cfg))
         .expect("enabled search must build a config");
     assert_eq!(config.timeout_ms, default_search_timeout_ms());
@@ -109,14 +96,8 @@ fn test_build_searcher_config_applies_memory_defaults_for_missing_fields() {
 
 #[test]
 fn test_build_searcher_config_carries_explicit_overrides() {
-    let mem_cfg = MemoryConfig {
-        search: full_search_config(),
-        forgetting: ForgettingConfig {
-            injection_extension_days: Some(14),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut mem_cfg = full_search_memory();
+    mem_cfg.forgetting.injection_extension_days = Some(14);
     let config = build_searcher_config("agent-model", &Some(mem_cfg))
         .expect("enabled search must build a config");
     assert_eq!(
@@ -130,13 +111,8 @@ fn test_build_searcher_config_carries_explicit_overrides() {
 
 #[test]
 fn test_build_searcher_config_none_when_search_disabled() {
-    let mem_cfg = MemoryConfig {
-        search: SearchConfig {
-            enabled: Some(false),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut mem_cfg = MemoryConfig::default();
+    mem_cfg.search.enabled = Some(false);
     assert!(
         build_searcher_config("agent-model", &Some(mem_cfg)).is_none(),
         "explicitly disabled search must not build a searcher config"
@@ -158,17 +134,20 @@ fn test_build_searcher_config_without_memory_config_uses_defaults() {
 
 #[test]
 fn test_deserialize_memory_config_round_trip() {
-    let mem_cfg = MemoryConfig {
-        search: full_search_config(),
-        ..Default::default()
-    };
+    let mem_cfg = full_search_memory();
     let json = serde_json::to_value(&mem_cfg).expect("serialize memory config");
     let parsed = deserialize_memory_config(&json).expect("serialized config must deserialize");
     assert_eq!(
-        parsed.search,
-        full_search_config(),
+        parsed.search.enabled,
+        Some(true),
         "serde round trip must preserve the search fields"
     );
+    assert_eq!(parsed.search.model.as_deref(), Some("search-model"));
+    assert_eq!(parsed.search.context_turns, Some(8));
+    assert_eq!(parsed.search.timeout_ms, Some(1500));
+    assert_eq!(parsed.search.max_summary_chars, Some(300));
+    assert_eq!(parsed.search.min_entity_hits, Some(2));
+    assert_eq!(parsed.search.top_k_events, Some(4));
 }
 
 // ── Snapshot → internal message conversion ────────────────────────────────
