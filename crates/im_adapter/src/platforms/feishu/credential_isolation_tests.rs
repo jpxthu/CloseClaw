@@ -38,6 +38,49 @@ fn test_adapter_stores_only_profile_name() {
 }
 
 #[test]
+fn test_adapter_debug_contains_profile_name() {
+    let adapter = FeishuAdapter::new("diag_profile".to_string(), make_test_media_store());
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        debug_str.contains("diag_profile"),
+        "adapter debug should contain profile name for diagnostics"
+    );
+}
+
+#[tokio::test]
+async fn test_adapter_debug_omits_sensitive_metadata() {
+    let adapter = FeishuAdapter::new("meta_profile".to_string(), make_test_media_store());
+    {
+        let mut meta = adapter.last_metadata.lock().await;
+        meta.insert(
+            "chat_name".to_string(),
+            "secret-app_secret-token".to_string(),
+        );
+    }
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        !debug_str.contains("secret-app_secret-token"),
+        "adapter debug should not contain event metadata content"
+    );
+}
+
+#[test]
+fn test_adapter_debug_output_deterministic() {
+    let adapter = FeishuAdapter::new("det_profile".to_string(), make_test_media_store());
+    let debug_str = format!("{:?}", adapter);
+    let expected = concat!(
+        "FeishuAdapter { profile: \"det_profile\", cli_command: \"lark-cli\", ",
+        "workspace_dir: None, last_metadata: \"<event metadata>\", ",
+        "media_store: \"<media store>\", http_client: \"<http client>\", ",
+        "event_dedup: \"<event dedup>\" }",
+    );
+    assert_eq!(
+        debug_str, expected,
+        "adapter debug output must stay deterministic and redacted"
+    );
+}
+
+#[test]
 fn test_adapter_default_cli_command() {
     let adapter = FeishuAdapter::new("test".to_string(), make_test_media_store());
     assert_eq!(adapter.cli_command, "lark-cli");
