@@ -1013,6 +1013,7 @@ dependencies = [
  "closeclaw-gateway",
  "closeclaw-session",
  "closeclaw-skills",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "filetime",
  "serde",
