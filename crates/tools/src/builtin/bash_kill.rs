@@ -1,10 +1,10 @@
 //! `BashKillHandle` adapters and output-processing helpers for
 //! `BashTool`.
 //!
-//! This file is the extraction target of Step 1.8 of issue #858 — the
+//! This file is the extraction target of issue #858 — the
 //! `KillHandle` adapters used to live in `src/tools/builtin/bash.rs`,
 //! which exceeded the CONTRIBUTING.md 500-line hard cap after the
-//! foreground/background kill integration in Step 1.4. The
+//! foreground/background kill integration. The
 //! extraction keeps the public surface of `BashTool` unchanged:
 //! `bash.rs` re-imports [`build_result`], [`process_output`],
 //! [`BackgroundKillHandle`] and [`BashKillHandle`]

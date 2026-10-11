@@ -198,7 +198,7 @@ async fn test_bash_approval_allow_path() {
 // Tool-level permission denial and approval routing is no longer tested here.
 
 // ---------------------------------------------------------------------------
-// Step 1.3: Trust-level branching tests
+// Trust-level branching tests
 // ---------------------------------------------------------------------------
 
 fn make_ctx_with_agent(agent_id: &str) -> ToolContext {

@@ -512,7 +512,7 @@ pub(crate) async fn execute_foreground_command(
 /// auto-backgroundize budget.
 ///
 /// `session` and `call_id` (when both `Some`) drive the kill-handle
-/// integration from Step 1.4 of issue #858: the foreground path
+/// integration added by issue #858: the foreground path
 /// registers a [`BashKillHandle`] for the duration of the wait, the
 /// background path registers a [`BackgroundKillHandle`] for the
 /// lifetime of the task. Both are `None`-safe - tool invocations

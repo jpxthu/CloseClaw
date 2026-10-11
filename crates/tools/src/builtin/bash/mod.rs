@@ -2,7 +2,7 @@
 //! Implements timeout control, output truncation with head-preservation,
 //! output persistence, and command classification.
 //!
-//! Step 1.4 of issue #858 added a kill-handle integration path: foreground
+//! Issue #858 added a kill-handle integration path: foreground
 //! processes register a [`BashKillHandle`] on the owning
 //! `ConversationSession`, background tasks register a
 //! [`BackgroundKillHandle`]. The actual `KillHandle` adapter types and

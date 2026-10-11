@@ -1,4 +1,4 @@
-//! Step 1.3 tests for auto-background timeout behavior.
+//! Tests for auto-background timeout behavior.
 //!
 //! Validates that `execute_foreground_command` computes `bg_timeout`
 //! correctly based on the `agent_timeout_ms` parameter:

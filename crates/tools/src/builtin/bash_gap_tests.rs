@@ -1,4 +1,5 @@
-//! Tests for BashTool gaps fixed in Steps 1.1 and 1.2.
+//! Tests for BashTool gap fixes: prompt generation behavior and
+//! progress tracking.
 //!
 //! Gap 1: `generate_prompt` must use the default Tool trait impl
 //!         (return `self.detail()`), with no workdir/git injection.
@@ -131,7 +132,7 @@ fn spawn_child(
 }
 
 // ===========================================================================
-// Gap 1: generate_prompt tests (updated for Step 1.2 context-aware behavior)
+// Gap 1: generate_prompt tests (context-aware behavior)
 // ===========================================================================
 
 /// `generate_prompt` must return context-aware output for empty context.

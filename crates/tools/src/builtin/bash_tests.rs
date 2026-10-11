@@ -231,7 +231,7 @@ async fn test_input_schema_six_properties() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.3: UT for run_in_background + auto-background paths
+// UT for run_in_background + auto-background paths
 // (Refs: issue #814 — `run_in_background` must use `spawn()`, auto-bg must
 // include `assistantAutoBackgrounded: true` + `backgroundTaskId`.)
 // ---------------------------------------------------------------------------
@@ -406,13 +406,13 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     // Wrap the child in the shared `Arc<Mutex<Option<_>>>` slot that
-    // `handle_foreground_result` now expects (Step 1.4 refactor:
-    // the slot is the same one `BashKillHandle` would observe).
+    // `handle_foreground_result` expects (the slot is the same one
+    // `BashKillHandle` would observe).
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
     // Use a tiny bg_timeout so the auto-background path is triggered
-    // almost immediately. This is the exact branch Step 1.2 unlocked:
-    // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
+    // almost immediately. This is the branch where
+    // `backgroundize(child, command)` is called WITHOUT a cwd arg.
     let exec_ctx = BashExecCtx {
         command: "sleep 5",
         cwd: tmp.path().to_str().unwrap(),
@@ -512,7 +512,7 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.5: Two-level permission tests for BashTool
+// Two-level permission tests for BashTool
 // ---------------------------------------------------------------------------
 
 use closeclaw_permission::engine::engine_types::{Action, Effect, RuleSet};
@@ -669,7 +669,7 @@ async fn test_bash_missing_command_rejected() {
 }
 
 // ---------------------------------------------------------------------------
-// Step 1.5: Manual background signal tests
+// Manual background signal tests
 // ---------------------------------------------------------------------------
 
 /// Signal fires → child is backgrounded → result contains backgroundedByUser.
