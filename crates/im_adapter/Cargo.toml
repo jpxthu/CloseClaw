@@ -60,7 +60,7 @@ axum = "0.7"
 
 [dev-dependencies]
 tempfile = "3"
-serial_test = "3.4"
+serial_test.workspace = true
 
 # Manifest parsing for dependency boundary tests
 toml = "1"

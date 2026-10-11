@@ -1,34 +1,37 @@
 [workspace]
 members = [
+    "crates/agent",
+    "crates/cli",
     "crates/common",
     "crates/config",
-    "crates/session",
-    "crates/llm",
-    "crates/permission",
-    "crates/gateway",
-    "crates/skills",
-    "crates/tools",
-    "crates/im_adapter",
-    "crates/processor_chain",
-    "crates/platform",
-    "crates/tasks",
-    "crates/memory",
-    "crates/slash",
-    "crates/agent",
-    "crates/system_prompt",
-    "crates/cli",
     "crates/daemon",
-    "crates/workflow",
-    "crates/execution",
     "crates/debug_log",
+    "crates/execution",
     "crates/fake_llm",
+    "crates/gateway",
+    "crates/im_adapter",
+    "crates/llm",
+    "crates/memory",
+    "crates/permission",
+    "crates/platform",
+    "crates/processor_chain",
+    "crates/session",
+    "crates/skills",
+    "crates/slash",
+    "crates/system_prompt",
+    "crates/tasks",
     "crates/test_support",
+    "crates/tools",
+    "crates/workflow",
 ]
 
 [workspace.package]
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
+
+[workspace.dependencies]
+serial_test = "3.4"
 
 [package]
 name = "closeclaw"
@@ -107,7 +110,7 @@ dirs = "5"
 # Testing
 proptest = "=1.4"
 tempfile = "3.10"
-serial_test = "3.4"
+serial_test.workspace = true
 filetime = "0.2"
 mockito = "1.2"
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)
