@@ -55,6 +55,7 @@ shlex = "1.3"
 
 [dev-dependencies]
 closeclaw-im-adapter = { path = "../im_adapter" }
+closeclaw-test-support = { path = "../test_support" }
 closeclaw-llm = { path = "../llm", features = ["test-helpers"] }
 # dev-dependencies are not constrained by the allowed-edge table: tests keep
 # assembling the real processor chain.

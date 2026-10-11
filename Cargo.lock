@@ -800,6 +800,7 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-processor-chain",
  "closeclaw-session",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "dirs",
  "futures",
