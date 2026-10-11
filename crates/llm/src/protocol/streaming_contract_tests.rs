@@ -31,10 +31,10 @@ fn parse_sse_text(text: &str) -> Vec<SseEvent> {
     let mut current_data = String::new();
 
     for line in text.lines() {
-        if line.starts_with("event: ") {
-            current_event = line[7..].to_string();
-        } else if line.starts_with("data: ") {
-            current_data = line[6..].to_string();
+        if let Some(event) = line.strip_prefix("event: ") {
+            current_event = event.to_string();
+        } else if let Some(data) = line.strip_prefix("data: ") {
+            current_data = data.to_string();
         } else if line.is_empty() && !current_data.is_empty() {
             events.push(SseEvent {
                 event_type: std::mem::take(&mut current_event),

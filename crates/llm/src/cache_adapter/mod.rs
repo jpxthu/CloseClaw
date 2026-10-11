@@ -423,7 +423,7 @@ mod tests {
     // Appends partition tests
     // ------------------------------------------------------------------
 
-    /// Appends are appended after dynamic content with cache: false.
+    // Appends are appended after dynamic content with cache: false.
     // ------------------------------------------------------------------
     // Two-partition model (appends merged into dynamic)
     // ------------------------------------------------------------------

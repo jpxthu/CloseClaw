@@ -690,10 +690,9 @@ fn test_build_request_tools_section_cache_control() {
 
     let proto = AnthropicProtocol::new();
     let mut request = make_request();
-    let full_static = format!(
-        "Role: You are a helpful assistant.\n\n## Tools\n\n\
+    let full_static = "Role: You are a helpful assistant.\n\n## Tools\n\n\
          - web_search: search the web\n- read: read files"
-    );
+        .to_string();
     request.system_blocks = Some(vec![SystemBlock {
         text: full_static,
         cache: true,
@@ -852,7 +851,7 @@ fn test_messages_cache_control_array_content_direct() {
             {"type": "text", "text": "World"}
         ]
     });
-    let mut messages = vec![
+    let mut messages = [
         serde_json::json!({"role": "user", "content": "First"}),
         last_msg,
     ];
@@ -891,7 +890,7 @@ fn test_messages_cache_control_array_content_tool_result() {
             {"type": "tool_result", "tool_use_id": "toolu_01", "content": "25°C"}
         ]
     });
-    let mut messages = vec![last_msg];
+    let mut messages = [last_msg];
     let last = messages.last_mut().unwrap();
     let arr = last.get("content").unwrap().as_array().unwrap();
     let mut new_arr = arr.clone();
