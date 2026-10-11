@@ -3,7 +3,7 @@ name = "closeclaw-llm"
 version = "0.1.0"
 edition.workspace = true
 description = "LLM provider abstraction and chat types for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [features]
 fake-llm = []

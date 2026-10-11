@@ -1,9 +1,9 @@
 [package]
 name = "closeclaw-agent"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 description = "Agent configuration, registry, and spawn control"
-license = "MIT"
+license.workspace = true
 
 [lib]
 name = "closeclaw_agent"

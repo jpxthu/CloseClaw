@@ -1,9 +1,9 @@
 [package]
 name = "closeclaw-system-prompt"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 description = "System Prompt construction"
-license = "MIT"
+license.workspace = true
 
 [lib]
 name = "closeclaw_system_prompt"

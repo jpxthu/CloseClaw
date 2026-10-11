@@ -3,7 +3,7 @@ name = "closeclaw-gateway"
 version = "0.1.0"
 edition.workspace = true
 description = "Gateway - IM protocol adapters, message routing, authentication"
-license = "MIT"
+license.workspace = true
 
 [features]
 full-tests = []

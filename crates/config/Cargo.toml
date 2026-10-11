@@ -1,9 +1,9 @@
 [package]
 name = "closeclaw-config"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 description = "Configuration management for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [dependencies]
 closeclaw-common = { path = "../common" }

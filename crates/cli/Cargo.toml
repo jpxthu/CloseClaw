@@ -1,9 +1,9 @@
 [package]
 name = "closeclaw-cli"
 version = "0.1.0"
-edition = "2021"
+edition.workspace = true
 description = "CLI interface for CloseClaw"
-license = "MIT"
+license.workspace = true
 
 [lib]
 name = "closeclaw_cli"
