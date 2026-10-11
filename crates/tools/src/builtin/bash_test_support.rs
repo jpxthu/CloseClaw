@@ -12,6 +12,7 @@
 //! `backgroundize_task` always kills and reaps the child so no process
 //! outlives the test.
 
+use closeclaw_common::tool_session::{KillHandle, ToolProgress, ToolSession};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -177,5 +178,45 @@ impl closeclaw_common::TaskManager for FakeTaskManager {
 
     fn max_execution_secs(&self) -> u64 {
         self.max_secs
+    }
+}
+
+/// Recording [`ToolSession`] fake shared by the fg-chain tests.
+///
+/// Captures `(call_id, ToolProgress)` pairs from `report_tool_progress`
+/// so tests can assert which call_id the exec context's `session` /
+/// `call_id` fields were consumed with on each foreground branch.
+#[derive(Default)]
+pub(crate) struct RecordingProgressSession {
+    calls: Mutex<Vec<(String, ToolProgress)>>,
+}
+
+impl RecordingProgressSession {
+    pub(crate) fn new() -> Arc<Self> {
+        Arc::new(Self::default())
+    }
+
+    /// Pair constructor: concrete handle backs the observation hooks,
+    /// the trait object is handed to the code under test.
+    pub(crate) fn pair() -> (Arc<Self>, Arc<dyn ToolSession>) {
+        let concrete = Self::new();
+        let trait_obj: Arc<dyn ToolSession> = concrete.clone();
+        (concrete, trait_obj)
+    }
+
+    pub(crate) fn progress_calls(&self) -> Vec<(String, ToolProgress)> {
+        self.calls.lock().unwrap().clone()
+    }
+}
+
+#[async_trait::async_trait]
+impl ToolSession for RecordingProgressSession {
+    async fn register_tool_handle(&self, _call_id: String, _handle: Arc<dyn KillHandle>) {}
+
+    async fn report_tool_progress(&self, call_id: &str, progress: ToolProgress) {
+        self.calls
+            .lock()
+            .unwrap()
+            .push((call_id.to_string(), progress));
     }
 }
