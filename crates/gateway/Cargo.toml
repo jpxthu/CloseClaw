@@ -19,25 +19,25 @@ closeclaw-session = { path = "../session" }
 
 # Async runtime
 tokio.workspace = true
-tokio-util = "0.7"
-futures = "0.3"
+tokio-util.workspace = true
+futures.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 
 # Logging
 tracing.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # System
 libc = "0.2"
-dirs = "5"
+dirs.workspace = true
 
 # Date/time
 chrono.workspace = true
@@ -46,7 +46,7 @@ chrono.workspace = true
 uuid.workspace = true
 
 # Hashing
-sha2 = "0.10"
+sha2.workspace = true
 hex = "0.4"
 base64 = "0.22"
 
@@ -65,7 +65,7 @@ closeclaw-workflow = { path = "../workflow" }
 reqwest.workspace = true
 tempfile.workspace = true
 serial_test.workspace = true
-serde_yaml = "0.9"
+serde_yaml.workspace = true
 tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }

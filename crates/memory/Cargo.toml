@@ -13,10 +13,10 @@ closeclaw-common = { path = "../common" }
 tokio.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Serialization
 serde_json.workspace = true

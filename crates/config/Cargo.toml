@@ -8,19 +8,19 @@ license.workspace = true
 [dependencies]
 closeclaw-common = { path = "../common" }
 closeclaw-platform = { path = "../platform" }
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
-serde_yaml = "0.9"
-thiserror = "2.0"
+serde_yaml.workspace = true
+thiserror.workspace = true
 tracing.workspace = true
 notify = "6.1"
-async-trait = "0.1"
+async-trait.workspace = true
 dashmap = "5"
 uuid.workspace = true
 chrono.workspace = true
 regex.workspace = true
 regex-lite = "0.1"
-dirs = "5"
+dirs.workspace = true
 tokio.workspace = true
 cron = "0.15"
 

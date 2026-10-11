@@ -6,21 +6,21 @@ description = "Shared types and utilities for CloseClaw"
 license.workspace = true
 
 [dependencies]
-async-trait = "0.1"
+async-trait.workspace = true
 anyhow.workspace = true
-futures = "0.3"
+futures.workspace = true
 chrono.workspace = true
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 tracing.workspace = true
-thiserror = "2.0"
+thiserror.workspace = true
 tokio.workspace = true
 
 # Concurrent data structures (FileMutexMap)
 dashmap = "5"
 
 # Hashing (used by session_key)
-sha2 = "0.10"
+sha2.workspace = true
 
 # UUID (used by trace_id)
 uuid.workspace = true

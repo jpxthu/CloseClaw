@@ -14,18 +14,18 @@ closeclaw-debug-log = { path = "../debug_log" }
 tokio.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 
 # Logging
 tracing.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 anyhow.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # Regex (used by content_normalizer)
 regex.workspace = true
@@ -37,6 +37,6 @@ chrono.workspace = true
 closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true
-serde_yaml = "0.9"
+serde_yaml.workspace = true
 tracing-subscriber.workspace = true
 tracing-test = "0.2.6"

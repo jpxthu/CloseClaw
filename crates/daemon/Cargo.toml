@@ -23,22 +23,22 @@ chrono.workspace = true
 tracing.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 anyhow.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
-serde_yaml = "0.9"
+serde_yaml.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # Temp files (for tests)
 tempfile.workspace = true
 
 # Home directory resolution
-dirs = "5"
+dirs.workspace = true
 
 # File watching (hot reload)
 notify = "6.1"

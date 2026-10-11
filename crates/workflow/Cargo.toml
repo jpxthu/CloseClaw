@@ -6,10 +6,10 @@ description = "Workflow engine: definition parsing, state machine, and execution
 license.workspace = true
 
 [dependencies]
-serde = { version = "1.0", features = ["derive"] }
-serde_yaml = "0.9"
+serde.workspace = true
+serde_yaml.workspace = true
 chrono.workspace = true
-thiserror = "2.0"
+thiserror.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]

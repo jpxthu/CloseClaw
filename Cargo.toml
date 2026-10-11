@@ -89,11 +89,11 @@ tokio.workspace = true
 # Cancellation tokens with native parent/child derivation (used for cascade stop)
 # The `sync` module (containing `CancellationToken`) is always available; no
 # extra feature flags are required.
-tokio-util = "0.7"
-futures = "0.3"
+tokio-util.workspace = true
+futures.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
+serde.workspace = true
 serde_json.workspace = true
 
 # Logging - pinned to older versions
@@ -112,7 +112,7 @@ terminal_size = "0.4"
 chrono.workspace = true
 
 # Async trait (for IMAdapter)
-async-trait = "0.1"
+async-trait.workspace = true
 
 # File watching (hot reload)
 notify = "6.1"
@@ -141,7 +141,7 @@ closeclaw-tools = { path = "crates/tools" }
 clap = { version = "4.4", features = ["derive"] }
 
 # For getting home directory
-dirs = "5"
+dirs.workspace = true
 
 [dev-dependencies]
 # Testing
@@ -153,7 +153,7 @@ mockito = "1.2"
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)
 closeclaw-fake-llm = { path = "crates/fake_llm" }
 rusqlite = { version = "0.31", features = ["bundled"] }
-sha2 = "0.10"
+sha2.workspace = true
 hex = "0.4"
 reqwest.workspace = true
 # Coverage reporting

@@ -21,11 +21,11 @@ clap = { version = "4.4", features = ["derive"] }
 dialoguer = "0.11"
 tokio.workspace = true
 tracing.workspace = true
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
+async-trait.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-dirs = "5"
+dirs.workspace = true
 unicode-width = "0.2"
 
 [dev-dependencies]

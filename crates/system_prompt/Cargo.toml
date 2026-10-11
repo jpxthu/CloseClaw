@@ -11,7 +11,7 @@ path = "src/lib.rs"
 
 [dependencies]
 closeclaw-common = { path = "../common" }
-async-trait = "0.1"
+async-trait.workspace = true
 tracing.workspace = true
 
 [dev-dependencies]
