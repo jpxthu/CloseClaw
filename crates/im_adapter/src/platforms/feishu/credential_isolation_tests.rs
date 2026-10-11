@@ -5,6 +5,8 @@
 //! - Profile name is used for CLI commands, not leaked into messages
 //! - No credential fields in NormalizedMessage or metadata
 //! - Debug log redacts credential fields
+//! - Debug output whitelist keeps diagnostic value (profile, cli_command)
+//!   without internal implementation details (reqwest internals, etc.)
 
 use super::adapter::FeishuAdapter;
 use crate::media_store::MediaStore;
@@ -41,6 +43,91 @@ fn test_adapter_stores_only_profile_name() {
 fn test_adapter_default_cli_command() {
     let adapter = FeishuAdapter::new("test".to_string(), make_test_media_store());
     assert_eq!(adapter.cli_command, "lark-cli");
+}
+
+#[test]
+fn test_adapter_debug_contains_profile_and_cli_command() {
+    let media = make_test_media_store();
+    let mut adapter = FeishuAdapter::new("my_lark_profile".to_string(), media);
+    adapter.cli_command = "/opt/tools/lark-cli".to_string();
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        debug_str.contains("my_lark_profile"),
+        "debug output should contain profile name for diagnostics, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("/opt/tools/lark-cli"),
+        "debug output should contain cli_command value for diagnostics, got: {debug_str}"
+    );
+}
+
+#[test]
+fn test_adapter_debug_excludes_internal_impl_markers() {
+    let adapter = FeishuAdapter::new("impl_isolation".to_string(), make_test_media_store());
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        !debug_str.contains("proxies"),
+        "debug output should not contain reqwest proxy internals, got: {debug_str}"
+    );
+    assert!(
+        !debug_str.contains("NoProxy"),
+        "debug output should not contain reqwest NoProxy table, got: {debug_str}"
+    );
+    assert!(
+        !debug_str.contains("auto_sys_proxy"),
+        "debug output should not contain reqwest auto_sys_proxy flag, got: {debug_str}"
+    );
+}
+
+#[test]
+fn test_adapter_debug_placeholders_are_bare_type_names() {
+    let adapter = FeishuAdapter::new("placeholder_bind".to_string(), make_test_media_store());
+    let debug_str = format!("{:?}", adapter);
+    // Bind exact placeholder strings so internal type names cannot drift silently.
+    assert!(
+        debug_str.contains("<Arc<MediaStore>>"),
+        "debug output should bind media_store type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<reqwest::Client>"),
+        "debug output should bind http_client type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<Arc<Mutex<HashMap>>>"),
+        "debug output should bind last_metadata type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<Arc<Mutex<EventDeduplicator>>>"),
+        "debug output should bind event_dedup type-name placeholder, got: {debug_str}"
+    );
+    // Placeholders must render bare (no quote wrapping from string-literal Debug).
+    assert!(
+        debug_str.contains("media_store: <Arc<MediaStore>>"),
+        "media_store placeholder should render without quotes, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("http_client: <reqwest::Client>"),
+        "http_client placeholder should render without quotes, got: {debug_str}"
+    );
+    assert!(
+        !debug_str.contains("\"<"),
+        "no placeholder should be quote-wrapped, got: {debug_str}"
+    );
+}
+
+#[test]
+fn test_adapter_debug_workspace_dir_none_format() {
+    let adapter = FeishuAdapter::new("ws_none_profile".to_string(), make_test_media_store());
+    assert!(adapter.workspace_dir.is_none());
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        debug_str.contains("workspace_dir: None"),
+        "debug output should render workspace_dir as None, got: {debug_str}"
+    );
+    assert!(
+        !debug_str.contains('\n'),
+        "debug output should be single-line, got: {debug_str}"
+    );
 }
 
 #[tokio::test]

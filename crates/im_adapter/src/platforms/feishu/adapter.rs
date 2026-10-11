@@ -172,7 +172,13 @@ struct ResourceResp {
 /// All platform communication goes through lark-cli subprocess commands.
 /// Credentials are managed by lark-cli via profile — the adapter only
 /// stores the profile name and delegates auth to the CLI.
-#[derive(Debug, Clone)]
+///
+/// `Debug` is hand-implemented as a safe-field whitelist: internal
+/// implementation details (`http_client`, `last_metadata`, `media_store`,
+/// `event_dedup`) are only indicated by type-name placeholders, keeping the
+/// output deterministic and environment-independent (credentials never
+/// enter logs per design doc).
+#[derive(Clone)]
 pub struct FeishuAdapter {
     /// lark-cli profile name for credential delegation.
     pub(crate) profile: String,
@@ -193,6 +199,23 @@ pub struct FeishuAdapter {
     /// fields; the critical section is synchronous (no awaits) but the lock
     /// is acquired in an async context.
     event_dedup: Arc<Mutex<EventDeduplicator>>,
+}
+
+impl std::fmt::Debug for FeishuAdapter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("FeishuAdapter")
+            .field("profile", &self.profile)
+            .field("cli_command", &self.cli_command)
+            .field("workspace_dir", &self.workspace_dir)
+            .field("last_metadata", &format_args!("<Arc<Mutex<HashMap>>>"))
+            .field("media_store", &format_args!("<Arc<MediaStore>>"))
+            .field("http_client", &format_args!("<reqwest::Client>"))
+            .field(
+                "event_dedup",
+                &format_args!("<Arc<Mutex<EventDeduplicator>>>"),
+            )
+            .finish()
+    }
 }
 
 /// Return type for `extract_message_content` / `parse_content_with_fallback`.
