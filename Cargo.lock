@@ -1083,6 +1083,7 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-tasks",
+ "closeclaw-test-support",
  "dashmap",
  "futures",
  "glob",
