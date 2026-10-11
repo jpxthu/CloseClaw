@@ -124,7 +124,7 @@ fn inject_agent_registry_into_skill_registry(
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
         disk_reg.set_agent_skills_query(
-            Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentSkillsQuery>
+            Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentSkillsQuery>
         );
     }
 }
@@ -135,7 +135,7 @@ fn inject_agent_registry_into_tool_registry(
     agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
 ) {
     tool_registry.set_agent_tools_query(
-        Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentToolsConfigQuery>
+        Arc::clone(agent_registry) as Arc<dyn closeclaw_common::AgentToolsConfigQuery>
     );
 }
 
