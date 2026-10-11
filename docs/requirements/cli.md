@@ -59,19 +59,14 @@ Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - 使用 `closeclaw run` 启动 daemon
 
-- 使用 `closeclaw run --config-dir <dir>` 指定 daemon 使用的配置目录，默认为标准配置目录
-
-- 借助 `--config-dir` 可在同一台机器上运行多个互不干扰的 CloseClaw 实例
-
 - 使用 `closeclaw stop` 停止 daemon
 
 - daemon 未运行时执行 `closeclaw stop` 不报错，正常退出
 
-- 同一配置目录下 daemon 已运行时，执行 `closeclaw run` 应拒绝启动新实例
+- daemon 已运行时执行 `closeclaw run` 应拒绝启动新实例
 
 > **交叉引用**：PID 文件机制详见 [platform §F1](platform.md)（跨平台进程生命周期管理）。
 > **交叉引用**：daemon 启动与关闭过程的完整需求详见 [daemon §F1–F2](daemon.md)（系统启动、优雅关闭）。
-> **交叉引用**：配置目录的结构详见 [config §F1](config.md)（多文件配置结构）。
 
 ### F4. 配置管理
 
