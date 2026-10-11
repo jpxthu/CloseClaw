@@ -800,6 +800,7 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-processor-chain",
  "closeclaw-session",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "dirs",
  "futures",
@@ -938,6 +939,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-debug-log",
  "closeclaw-im-adapter",
+ "closeclaw-test-support",
  "regex",
  "serde",
  "serde_json",
@@ -959,6 +961,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "dirs",
  "filetime",
@@ -1013,6 +1016,7 @@ dependencies = [
  "closeclaw-gateway",
  "closeclaw-session",
  "closeclaw-skills",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "filetime",
  "serde",
@@ -1056,6 +1060,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "closeclaw-test-support"
+version = "0.1.0"
+dependencies = [
+ "tempfile",
+ "toml",
+]
+
+[[package]]
 name = "closeclaw-tools"
 version = "0.1.0"
 dependencies = [
@@ -1072,6 +1084,7 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-tasks",
+ "closeclaw-test-support",
  "dashmap",
  "futures",
  "glob",

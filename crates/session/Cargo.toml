@@ -59,3 +59,4 @@ tokio = { version = "=1.35.0", features = ["test-util"] }
 # wrapper and config fixtures against the real types.
 closeclaw-config = { path = "../config" }
 closeclaw-workflow = { path = "../workflow" }
+closeclaw-test-support = { path = "../test_support" }
