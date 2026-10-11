@@ -8,8 +8,8 @@
 
 use super::*;
 use crate::builtin::bash_kill::{read_pipe_incremental, read_with_progress};
+use crate::builtin::bash_test_support::RecordingProgressSession;
 use crate::Tool;
-use closeclaw_common::tool_session::ToolProgress;
 use closeclaw_common::{PromptGenerationContext, WorkdirContext};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::GatewayConfig;
@@ -75,37 +75,6 @@ fn ctx_with_workdir(path: &str, has_git: bool) -> PromptGenerationContext {
             recent_changes: if has_git { 3 } else { 0 },
         }),
         ..Default::default()
-    }
-}
-
-/// Mock ToolSession that captures `report_tool_progress` calls.
-struct MockProgressSession {
-    calls: std::sync::Mutex<Vec<ToolProgress>>,
-}
-
-impl MockProgressSession {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            calls: std::sync::Mutex::new(Vec::new()),
-        })
-    }
-
-    fn progress_calls(&self) -> Vec<ToolProgress> {
-        self.calls.lock().unwrap().clone()
-    }
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::tool_session::ToolSession for MockProgressSession {
-    async fn register_tool_handle(
-        &self,
-        _call_id: String,
-        _handle: Arc<dyn closeclaw_common::tool_session::KillHandle>,
-    ) {
-    }
-
-    async fn report_tool_progress(&self, _call_id: &str, progress: ToolProgress) {
-        self.calls.lock().unwrap().push(progress);
     }
 }
 
@@ -345,9 +314,7 @@ async fn test_read_pipe_incremental_cancelled() {
 /// The process completes before the first periodic interval tick (2 s).
 #[tokio::test]
 async fn test_read_with_progress_short_command_no_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     let (mut _child, stdout, stderr) = spawn_child("echo hello");
     let (stdout_out, stderr_out, _lines, _bytes) = read_with_progress(
@@ -368,8 +335,9 @@ async fn test_read_with_progress_short_command_no_reports() {
         "short command should only get the final report, got {}",
         calls.len()
     );
-    assert_eq!(calls[0].lines, 1);
-    assert_eq!(calls[0].bytes, stdout_out.len());
+    let (_, report) = &calls[0];
+    assert_eq!(report.lines, 1);
+    assert_eq!(report.bytes, stdout_out.len());
     // Wait for child to avoid zombie
     let _ = _child.kill().await;
     let _ = _child.wait().await;
@@ -378,9 +346,7 @@ async fn test_read_with_progress_short_command_no_reports() {
 /// Long command (> 2 s) triggers progress reports while output arrives.
 #[tokio::test]
 async fn test_read_with_progress_long_command_sends_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     // Command produces output slowly over ~3 s, exceeding the 2 s interval.
     let (mut _child, stdout, stderr) =
@@ -400,7 +366,7 @@ async fn test_read_with_progress_long_command_sends_reports() {
         "expected at least 1 periodic progress report for long command, got {}",
         calls.len()
     );
-    for (i, report) in calls.iter().enumerate() {
+    for (i, (_, report)) in calls.iter().enumerate() {
         assert!(
             report.bytes > 0,
             "report[{i}] should have bytes > 0, got {}",
@@ -420,9 +386,7 @@ async fn test_read_with_progress_long_command_sends_reports() {
 /// `read_with_progress` always sends a final progress report.
 #[tokio::test]
 async fn test_read_with_progress_sends_final_report() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     let (mut _child, stdout, stderr) = spawn_child("printf 'line1\nline2\n'");
 
@@ -440,7 +404,7 @@ async fn test_read_with_progress_sends_final_report() {
         !calls.is_empty(),
         "must send at least a final progress report"
     );
-    let last = calls.last().unwrap();
+    let (_, last) = calls.last().unwrap();
     assert_eq!(
         last.lines, 2,
         "final report lines should be 2, got {}",
@@ -455,9 +419,7 @@ async fn test_read_with_progress_sends_final_report() {
 /// When `run_in_background` is true, the foreground path is never entered.
 #[tokio::test]
 async fn test_background_command_no_progress_reports() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     let bg_manager: Arc<dyn closeclaw_common::TaskManager> = Arc::new(FakeTaskManager::new());
     let tmp = tempfile::TempDir::new().unwrap();
@@ -487,9 +449,7 @@ async fn test_background_command_no_progress_reports() {
 /// should produce no periodic reports (only the final one).
 #[tokio::test]
 async fn test_read_with_progress_throttled_by_interval() {
-    let session = MockProgressSession::new();
-    let session_arc: Arc<dyn closeclaw_common::tool_session::ToolSession> =
-        Arc::clone(&session) as Arc<dyn closeclaw_common::tool_session::ToolSession>;
+    let (session, session_arc) = RecordingProgressSession::pair();
 
     // Fast command — completes well before the 2 s interval tick.
     let (mut _child, stdout, stderr) = spawn_child("echo done");
@@ -511,8 +471,9 @@ async fn test_read_with_progress_throttled_by_interval() {
         "fast command should only have the final report, got {}",
         calls.len()
     );
-    assert_eq!(calls[0].lines, 1);
-    assert_eq!(calls[0].bytes, stdout_out.len());
+    let (_, report) = &calls[0];
+    assert_eq!(report.lines, 1);
+    assert_eq!(report.bytes, stdout_out.len());
     let _ = _child.kill().await;
     let _ = _child.wait().await;
 }

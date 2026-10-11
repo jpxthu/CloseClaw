@@ -51,12 +51,24 @@ impl FakeTaskManager {
         }
     }
 
+    /// Pair constructor: the concrete fake backs fake-only observation
+    /// hooks (`is_running`), the trait object is handed to the code
+    /// under test. Shared construction entry for the bash test suites.
+    pub(crate) fn pair() -> (Arc<Self>, Arc<dyn closeclaw_common::TaskManager>) {
+        let fake = Self::new();
+        let bg: Arc<dyn closeclaw_common::TaskManager> = Arc::new(fake.clone());
+        (Arc::new(fake), bg)
+    }
+
     /// Builder switch: `backgroundize_task` fails with error text `boom`.
     pub(crate) fn with_failing_backgroundize(mut self) -> Self {
         self.fail_backgroundize = true;
         self
     }
 
+    /// Builder switch: value reported by `max_execution_secs()`. A small
+    /// value lets tests reach the total-execution-time force-terminate
+    /// branch without real long waits.
     pub(crate) fn with_max_execution_secs(mut self, secs: u64) -> Self {
         self.max_secs = secs;
         self

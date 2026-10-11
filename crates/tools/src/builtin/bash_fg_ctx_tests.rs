@@ -1,10 +1,9 @@
 //! Fg-chain exec-context consumption tests, split out of
 //! `bash_tests.rs` to keep that file well below the 1000-line cap.
 //!
-//! Compiled via `#[path = "bash_fg_ctx_tests.rs"]` inside the bash
+//! Compiled via `#[path = "../bash_fg_ctx_tests.rs"]` inside the bash
 //! module, which grants access to its test-facing re-exports.
 
-use super::tests::test_bg_pair;
 use super::*;
 use crate::builtin::bash_test_support::RecordingProgressSession;
 use closeclaw_common::TaskManager;
@@ -22,7 +21,7 @@ use tempfile::TempDir;
 /// reports carrying the exact call_id.
 #[tokio::test]
 async fn test_handle_foreground_result_completed_reports_progress_via_ctx_session() {
-    let (_bg_manager, bg_trait) = test_bg_pair();
+    let (_bg_manager, bg_trait) = FakeTaskManager::pair();
     let (session, session_arc) = RecordingProgressSession::pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("echo done", tmp.path().to_str().unwrap()).expect("spawn echo");
@@ -71,7 +70,7 @@ async fn test_handle_foreground_result_completed_reports_progress_via_ctx_sessio
 /// progress report carrying the exact call_id.
 #[tokio::test]
 async fn test_handle_timeout_expiry_force_terminate_reports_progress_via_ctx_session() {
-    let (_bg_manager, bg_trait) = test_bg_pair();
+    let (_bg_manager, bg_trait) = FakeTaskManager::pair();
     let (session, session_arc) = RecordingProgressSession::pair();
     let tmp = TempDir::new().unwrap();
     let mut child = spawn_sh_command("sleep 3", tmp.path().to_str().unwrap()).expect("spawn sleep");
