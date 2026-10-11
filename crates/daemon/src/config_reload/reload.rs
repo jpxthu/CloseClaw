@@ -148,7 +148,7 @@ impl ReloadCallback for DaemonReloadCallback {
     fn on_config_file_changed(
         &self,
         path: &Path,
-        section: closeclaw_config::ConfigSection,
+        section: ConfigSection,
         _config_manager: &ConfigManager,
     ) {
         if !section.is_restart_class() {
@@ -172,7 +172,7 @@ impl ReloadCallback for DaemonReloadCallback {
 
     fn on_validation_failed(
         &self,
-        section: closeclaw_config::ConfigSection,
+        section: ConfigSection,
         path: &Path,
         error: &str,
         config_manager: &ConfigManager,
