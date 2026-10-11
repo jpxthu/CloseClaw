@@ -845,7 +845,7 @@ async fn e2e_agent_runtime_config_query() {
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let admin_sock = config_root.join("admin.sock");
-    let request = serde_json::json!({"type": "agent_info", "name": "master"});
+    let request = serde_json::json!({"type": "agent_info", "id": "master"});
 
     let response1 = admin_roundtrip(&admin_sock, &request).await;
     assert_admin_agent_info(&response1);
@@ -879,7 +879,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let admin_sock = config_root.join("admin.sock");
-    let request = serde_json::json!({"type": "agent_info", "name": "no-such-agent"});
+    let request = serde_json::json!({"type": "agent_info", "id": "no-such-agent"});
 
     let response = admin_roundtrip(&admin_sock, &request).await;
     assert_eq!(
