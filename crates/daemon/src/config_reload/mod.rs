@@ -17,4 +17,6 @@ pub(crate) use reload::parse_owner_target;
 #[cfg(test)]
 mod manager_reload_tests;
 #[cfg(test)]
+mod owner_target_tests;
+#[cfg(test)]
 mod reload_tests;
