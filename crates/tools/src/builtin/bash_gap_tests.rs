@@ -582,11 +582,7 @@ async fn test_background_command_no_progress_reports() {
         call_id: Some("bg-call-id"),
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let _result = execute_command(&ctx, true, &fg_opts) // run_in_background
+    let _result = execute_command(&ctx, true, None, Some(5_000)) // run_in_background
         .await;
 
     tokio::time::sleep(Duration::from_millis(200)).await;

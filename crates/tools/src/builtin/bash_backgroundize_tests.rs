@@ -402,12 +402,17 @@ async fn test_handle_timeout_expiry_auto_background_forwards_ctx_session_id() {
         stderr_handle,
     };
 
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "sess-timeout",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome = handle_timeout_expiry(handles, "sleep 5", &ctx).await;

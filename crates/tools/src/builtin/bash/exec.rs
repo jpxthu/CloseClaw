@@ -153,11 +153,10 @@ pub(crate) async fn auto_backgroundize_foreground(
 
 /// Context for foreground result handling.
 pub(crate) struct ForegroundContext<'a> {
-    pub(crate) bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
+    /// Shared execution context (command, cwd, bg_manager, session,
+    /// call_id, session_id) flowing unchanged through the fg chain.
+    pub(crate) exec: &'a BashExecCtx<'a>,
     pub(crate) manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
-    pub(crate) session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    pub(crate) call_id: Option<&'a str>,
-    pub(crate) session_id: &'a str,
     /// When true, a timeout should force-kill the child (not auto-backgroundize).
     /// Set for whitelist commands on the total-execution-time fallback path.
     pub(crate) force_terminate: bool,
@@ -180,8 +179,8 @@ pub(crate) async fn handle_timeout_expiry(
         let _ = crate::builtin::bash_kill::read_with_progress(
             stdout_handle,
             stderr_handle,
-            ctx.session,
-            ctx.call_id,
+            ctx.exec.session,
+            ctx.exec.call_id,
         )
         .await;
         ForegroundOutcome::Failed(format!(
@@ -190,7 +189,14 @@ pub(crate) async fn handle_timeout_expiry(
             command,
         ))
     } else {
-        auto_backgroundize_foreground(handles, command, ctx.bg_manager, false, ctx.session_id).await
+        auto_backgroundize_foreground(
+            handles,
+            command,
+            ctx.exec.bg_manager,
+            false,
+            ctx.exec.session_id,
+        )
+        .await
     }
 }
 
@@ -229,9 +235,9 @@ pub(crate) async fn handle_foreground_result(
             auto_backgroundize_foreground(
                 handles,
                 command,
-                ctx.bg_manager,
+                ctx.exec.bg_manager,
                 true,
-                ctx.session_id,
+                ctx.exec.session_id,
             )
             .await
         }
@@ -244,7 +250,7 @@ pub(crate) async fn handle_foreground_result(
                 } = handles;
                 finalize_foreground_after_wait(
                     status, stdout_handle, stderr_handle,
-                    command, ctx.session, ctx.call_id,
+                    command, ctx.exec.session, ctx.exec.call_id,
                 ).await
             }
             Ok(Err(e)) => ForegroundOutcome::Failed(
@@ -302,14 +308,11 @@ pub(super) async fn execute_bash_call(
         call_id: ctx.call_id.as_deref(),
         session_id,
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: parse_timeout(&args),
-        manual_bg_signal: ctx.manual_background_signal.as_ref(),
-    };
     execute_command(
         &exec_ctx,
         args.get("run_in_background") == Some(&Value::Bool(true)),
-        &fg_opts,
+        ctx.manual_background_signal.as_ref(),
+        parse_timeout(&args),
     )
     .await
     .map_err(ToolCallError::ExecutionFailed)
@@ -375,15 +378,6 @@ pub(crate) struct BashExecCtx<'a> {
     pub(crate) session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
     pub(crate) call_id: Option<&'a str>,
     pub(crate) session_id: &'a str,
-}
-
-/// Foreground-only options for the bash execution chain.
-///
-/// Consumed exclusively by the foreground path, so they stay out of the
-/// shared [`BashExecCtx`].
-pub(crate) struct ForegroundOptions<'a> {
-    pub(crate) agent_timeout_ms: Option<u64>,
-    pub(crate) manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
 }
 
 /// Execute a shell command in the background path.
@@ -476,7 +470,8 @@ fn resolve_bg_timeout_and_force_terminate(
 /// for setting the final tool state and deregistering.
 pub(crate) async fn execute_foreground_command(
     ctx: &BashExecCtx<'_>,
-    fg_opts: &ForegroundOptions<'_>,
+    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    agent_timeout_ms: Option<u64>,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
     let BashExecCtx {
         command,
@@ -484,7 +479,7 @@ pub(crate) async fn execute_foreground_command(
         bg_manager,
         session,
         call_id,
-        session_id,
+        ..
     } = *ctx;
     let child = spawn_sh_command(command, cwd)?;
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -497,16 +492,13 @@ pub(crate) async fn execute_foreground_command(
 
     let (bg_timeout, force_terminate) = resolve_bg_timeout_and_force_terminate(
         command,
-        fg_opts.agent_timeout_ms,
+        agent_timeout_ms,
         bg_manager.max_execution_secs(),
     );
 
     let fg_ctx = ForegroundContext {
-        bg_manager,
-        manual_bg_signal: fg_opts.manual_bg_signal,
-        session,
-        call_id,
-        session_id,
+        exec: ctx,
+        manual_bg_signal,
         force_terminate,
     };
     let outcome = handle_foreground_result(child_arc, command, bg_timeout, &fg_ctx).await;
@@ -530,13 +522,15 @@ pub(crate) async fn execute_foreground_command(
 pub(crate) async fn execute_command(
     ctx: &BashExecCtx<'_>,
     run_in_background: bool,
-    fg_opts: &ForegroundOptions<'_>,
+    manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
+    agent_timeout_ms: Option<u64>,
 ) -> Result<ToolResult, String> {
     if run_in_background {
         return execute_background_command(ctx).await;
     }
 
-    let (outcome, registered_call_id) = execute_foreground_command(ctx, fg_opts).await?;
+    let (outcome, registered_call_id) =
+        execute_foreground_command(ctx, manual_bg_signal, agent_timeout_ms).await?;
     match outcome {
         ForegroundOutcome::Completed(result) => {
             if let (Some(s), Some(cid)) = (ctx.session, registered_call_id.as_deref()) {

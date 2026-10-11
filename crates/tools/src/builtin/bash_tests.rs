@@ -416,11 +416,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
         call_id: None,
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let result = execute_command(&ctx, true, &fg_opts)
+    let result = execute_command(&ctx, true, None, Some(5_000))
         .await
         .expect("execute_command(run_in_background) should succeed");
 
@@ -474,11 +470,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
         call_id: None,
         session_id: "",
     };
-    let fg_opts = ForegroundOptions {
-        agent_timeout_ms: Some(5_000),
-        manual_bg_signal: None,
-    };
-    let result = execute_command(&ctx, true, &fg_opts)
+    let result = execute_command(&ctx, true, None, Some(5_000))
         .await
         .expect("execute_command(run_in_background) should succeed even for unknown commands");
     let task_id = result.data["backgroundTaskId"]
@@ -510,12 +502,17 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
     // Use a tiny bg_timeout so the auto-background path is triggered
     // almost immediately. This is the exact branch Step 1.2 unlocked:
     // `backgroundize(child, command)` is now called WITHOUT a cwd arg.
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome = handle_foreground_result(
@@ -568,12 +565,17 @@ async fn test_handle_foreground_result_returns_foreground_on_success() {
     // extracts stdout/stderr and then takes the child for `wait()`.
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
 
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome =
@@ -781,12 +783,17 @@ async fn test_handle_foreground_result_manual_background_signal() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
         signal_clone.notify_waiters();
     });
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 5",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: Some(&signal),
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: Some(&signal),
         force_terminate: false,
     };
     let outcome = handle_foreground_result(
@@ -828,12 +835,17 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "true",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: None,
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: None,
         force_terminate: false,
     };
     let outcome =
@@ -872,12 +884,17 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     tokio::spawn(async move {
         signal_clone.notify_waiters();
     });
-    let ctx = ForegroundContext {
+    let exec_ctx = BashExecCtx {
+        command: "sleep 10",
+        cwd: tmp.path().to_str().unwrap(),
         bg_manager: &bg_trait,
-        manual_bg_signal: Some(&signal),
         session: None,
         call_id: None,
         session_id: "",
+    };
+    let ctx = ForegroundContext {
+        exec: &exec_ctx,
+        manual_bg_signal: Some(&signal),
         force_terminate: false,
     };
     let outcome = handle_foreground_result(

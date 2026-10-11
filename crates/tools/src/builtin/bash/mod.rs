@@ -30,7 +30,7 @@ pub(crate) use exec::{
     auto_backgroundize_excluded, auto_backgroundize_foreground, backgroundize_child,
     execute_command, execute_foreground_command, handle_foreground_result, handle_timeout_expiry,
     parse_timeout, resolve_cwd, spawn_sh_command, BashExecCtx, ChildHandles, ForegroundContext,
-    ForegroundOptions, AUTO_BG_TIMEOUT_CAP_MS, AUTO_BG_TIMEOUT_MS,
+    AUTO_BG_TIMEOUT_CAP_MS, AUTO_BG_TIMEOUT_MS,
 };
 #[cfg(test)]
 pub(crate) use std::sync::{Arc, Mutex};
