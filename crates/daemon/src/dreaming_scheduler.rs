@@ -259,7 +259,7 @@ impl DreamingScheduler {
                 };
                 self.dreaming_pipeline.update_config(
                     crate::memory_params_adapter::dreaming_params_from_config(
-                        &memory_config.config,
+                        &memory_config.config.dreaming,
                     ),
                 );
                 self.memory_miner.update_config(
