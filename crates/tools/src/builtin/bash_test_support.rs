@@ -5,7 +5,8 @@
 //!
 //! - task/call recording (`spawn_task` / `backgroundize_task` register the
 //!   returned task; `backgroundize_task` arguments are recorded)
-//! - backgroundize failure injection (`failing`, error text `boom`)
+//! - backgroundize failure injection (`with_failing_backgroundize`,
+//!   error text `boom`)
 //! - configurable `max_execution_secs`
 //! - optional pipe-reattachment assertions (`with_pipe_assertions`)
 //!
@@ -50,12 +51,10 @@ impl FakeTaskManager {
         }
     }
 
-    /// `backgroundize_task` fails with error text `boom`.
-    pub(crate) fn failing() -> Self {
-        Self {
-            fail_backgroundize: true,
-            ..Self::new()
-        }
+    /// Builder switch: `backgroundize_task` fails with error text `boom`.
+    pub(crate) fn with_failing_backgroundize(mut self) -> Self {
+        self.fail_backgroundize = true;
+        self
     }
 
     pub(crate) fn with_max_execution_secs(mut self, secs: u64) -> Self {

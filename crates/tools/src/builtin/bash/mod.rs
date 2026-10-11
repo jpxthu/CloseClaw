@@ -3,12 +3,12 @@
 //! output persistence, and command classification.
 //!
 //! Issue #858 added a kill-handle integration path: foreground
-//! processes register a [`BashKillHandle`] on the owning
+//! processes register a `BashKillHandle` on the owning
 //! `ConversationSession`, background tasks register a
-//! [`BackgroundKillHandle`]. The actual `KillHandle` adapter types and
+//! `BackgroundKillHandle`. The actual `KillHandle` adapter types and
 //! the output-processing helpers (`process_output`, `build_result`,
-//! etc.) live in the sibling module [`super::bash_kill`] to keep this
-//! file under the CONTRIBUTING.md 500-line hard cap.
+//! etc.) live in the sibling module `bash_kill`, which keeps each file
+//! of this module under the CONTRIBUTING.md 1000-line hard cap.
 
 mod exec;
 mod prompt;
@@ -46,6 +46,10 @@ mod approval_tests;
 #[cfg(test)]
 #[path = "../bash_backgroundize_tests.rs"]
 mod backgroundize_tests;
+
+#[cfg(test)]
+#[path = "../bash_fg_ctx_tests.rs"]
+mod fg_ctx_tests;
 
 #[cfg(test)]
 #[path = "../bash_gap_tests.rs"]

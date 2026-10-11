@@ -148,7 +148,8 @@ async fn test_backgroundize_child_auto_builds_auto_result() {
 /// `backgroundize_child`.
 #[tokio::test]
 async fn test_backgroundize_child_maps_manager_error() {
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(FakeTaskManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> =
+        Arc::new(FakeTaskManager::new().with_failing_backgroundize());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());
@@ -205,7 +206,8 @@ async fn test_auto_backgroundize_foreground_ok_maps_to_auto_background() {
 /// `ForegroundOutcome::Failed` with the mapped message.
 #[tokio::test]
 async fn test_auto_backgroundize_foreground_err_maps_to_failed() {
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(FakeTaskManager::failing());
+    let bg_trait: Arc<dyn closeclaw_common::TaskManager> =
+        Arc::new(FakeTaskManager::new().with_failing_backgroundize());
     let tmp = tempfile::TempDir::new().unwrap();
 
     let handles = make_handles("true", tmp.path().to_str().unwrap());

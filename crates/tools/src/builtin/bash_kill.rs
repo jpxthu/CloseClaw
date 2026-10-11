@@ -318,8 +318,8 @@ pub(crate) fn spawn_progress_monitor(
 ///
 /// Reads output with progress tracking, processes it, and builds
 /// the final [`ToolResult`]. Extracted from
-/// [`super::bash::handle_foreground_result`] to keep that function
-/// under the 50-line body limit.
+/// `super::bash::handle_foreground_result` to keep that function
+/// under the 100-line body limit.
 pub(crate) async fn finalize_foreground_after_wait(
     status: std::process::ExitStatus,
     stdout_handle: Option<tokio::process::ChildStdout>,
@@ -445,8 +445,8 @@ pub(crate) async fn read_with_progress(
 /// Register the tool call, kill handle, and foreground state on the
 /// session. Returns the registered call ID.
 ///
-/// Extracted from [`super::bash::execute_foreground_command`] to keep
-/// that function under the 50-line body limit.
+/// Extracted from `super::bash::execute_foreground_command` to keep
+/// that function under the 100-line body limit.
 pub(crate) async fn register_foreground_session(
     session: &Arc<dyn ToolSession>,
     call_id: &str,

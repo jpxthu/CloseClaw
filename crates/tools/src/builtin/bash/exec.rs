@@ -467,6 +467,14 @@ fn resolve_bg_timeout_and_force_terminate(
 /// Registers the tool call, spawns the child, registers the kill handle,
 /// waits for completion, and returns the outcome. Caller is responsible
 /// for setting the final tool state and deregistering.
+///
+/// `manual_bg_signal` is the agent's manual backgroundize signal
+/// (`None` disables the branch): firing it mid-wait hands the child to
+/// the task manager and returns a user-backgrounded result.
+/// `agent_timeout_ms` is the agent-requested timeout budget, clamped to
+/// [`AUTO_BG_TIMEOUT_CAP_MS`]; when absent it falls back to
+/// [`AUTO_BG_TIMEOUT_MS`], except that auto-backgroundize-excluded
+/// commands use the total-execution-time cap with forced termination.
 pub(crate) async fn execute_foreground_command(
     ctx: &BashExecCtx<'_>,
     manual_bg_signal: Option<&Arc<tokio::sync::Notify>>,
@@ -518,6 +526,12 @@ pub(crate) async fn execute_foreground_command(
 /// lifetime of the task. Both are `None`-safe - tool invocations
 /// outside a tracked session (CLI, tests, prompt generation) skip
 /// registration entirely.
+///
+/// On the foreground path `manual_bg_signal` (manual backgroundize
+/// signal, `None` disables the branch) and `agent_timeout_ms`
+/// (agent-requested budget, clamped/fallback per
+/// [`execute_foreground_command`]) are forwarded unchanged; the
+/// background path ignores both.
 pub(crate) async fn execute_command(
     ctx: &BashExecCtx<'_>,
     run_in_background: bool,
