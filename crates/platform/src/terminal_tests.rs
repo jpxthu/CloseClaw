@@ -22,7 +22,7 @@ fn test_terminal_info_clone() {
         ansi: false,
         width: 80,
     };
-    let cloned = info.clone();
+    let cloned = info; // Copy, not clone
     assert_eq!(info, cloned);
 }
 

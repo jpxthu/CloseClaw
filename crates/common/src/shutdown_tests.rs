@@ -112,7 +112,7 @@ fn test_drain_status_clone_preserves_pending_items() {
     let cloned = status.clone();
     assert_eq!(cloned.pending_items, status.pending_items);
     assert_eq!(cloned.busy_count, 3);
-    assert_eq!(cloned.is_draining, true);
+    assert!(cloned.is_draining);
 }
 
 #[test]

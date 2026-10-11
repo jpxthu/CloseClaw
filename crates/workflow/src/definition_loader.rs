@@ -326,7 +326,7 @@ steps:
         action: goto
         target_step: 5
       - action: complete"#;
-        write_skill_md(&tmp.path(), "bad-target", yaml_body);
+        write_skill_md(tmp.path(), "bad-target", yaml_body);
 
         let result = WorkflowDefinitionLoader::load("bad-target", Some(tmp.path()), None);
         let err = result.unwrap_err();
