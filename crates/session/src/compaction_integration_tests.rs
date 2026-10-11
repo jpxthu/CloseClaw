@@ -282,9 +282,11 @@ mod tests {
     /// warning_threshold_pct = 0.15 (150,000 tokens for 1M window).
     #[test]
     fn test_token_warning_state_custom_threshold_pcts() {
-        let mut config = CompactConfig::default();
-        config.auto_compact_threshold_pct = 0.075;
-        config.warning_threshold_pct = 0.15;
+        let config = CompactConfig {
+            auto_compact_threshold_pct: 0.075,
+            warning_threshold_pct: 0.15,
+            ..Default::default()
+        };
         let svc = CompactionService::new(config);
         let model = "mini-max";
         let context_window = 1_000_000;
@@ -331,8 +333,10 @@ mod tests {
     /// in AutoCompactTriggered range.
     #[test]
     fn test_token_warning_state_circuit_breaker_blocks_auto_compact() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut svc = CompactionService::new(config);
 
         // 3_948_004 chars × 0.25 = 987,001 tokens → remaining = 12,999
@@ -395,8 +399,10 @@ mod tests {
 
     #[test]
     fn test_truncation_retains_correct_count() {
-        let mut config = CompactConfig::default();
-        config.max_history_messages = Some(5);
+        let config = CompactConfig {
+            max_history_messages: Some(5),
+            ..Default::default()
+        };
 
         let mut msgs: Vec<CompactionMessage> =
             (0..10).map(|i| comp_msg(&format!("msg-{i}"))).collect();
@@ -416,8 +422,10 @@ mod tests {
 
     #[test]
     fn test_truncation_none_does_not_truncate() {
-        let mut config = CompactConfig::default();
-        config.max_history_messages = None;
+        let config = CompactConfig {
+            max_history_messages: None,
+            ..Default::default()
+        };
 
         let mut msgs: Vec<CompactionMessage> =
             (0..20).map(|i| comp_msg(&format!("msg-{i}"))).collect();
@@ -434,8 +442,10 @@ mod tests {
 
     #[test]
     fn test_truncation_fewer_than_max_unchanged() {
-        let mut config = CompactConfig::default();
-        config.max_history_messages = Some(10);
+        let config = CompactConfig {
+            max_history_messages: Some(10),
+            ..Default::default()
+        };
 
         let mut msgs: Vec<CompactionMessage> =
             (0..5).map(|i| comp_msg(&format!("msg-{i}"))).collect();
@@ -500,8 +510,10 @@ mod tests {
 
     #[test]
     fn test_truncation_exactly_at_boundary() {
-        let mut config = CompactConfig::default();
-        config.max_history_messages = Some(3);
+        let config = CompactConfig {
+            max_history_messages: Some(3),
+            ..Default::default()
+        };
 
         let mut msgs: Vec<CompactionMessage> =
             (0..3).map(|i| comp_msg(&format!("msg-{i}"))).collect();
@@ -527,9 +539,11 @@ mod tests {
     /// the pending messages.
     #[test]
     fn test_estimate_total_tokens_with_stats_and_messages() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 5;
-        stats.total_tokens = 50_000;
+        let stats = RunningStats {
+            request_count: 5,
+            total_tokens: 50_000,
+            ..Default::default()
+        };
 
         // 6 messages total: first 5 are skipped (already counted in stats),
         // last 1 is estimated from chars.
@@ -562,9 +576,11 @@ mod tests {
     /// Empty messages with stats history returns just the stats total.
     #[test]
     fn test_estimate_total_tokens_empty_msgs_with_stats() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 10;
-        stats.total_tokens = 120_000;
+        let stats = RunningStats {
+            request_count: 10,
+            total_tokens: 120_000,
+            ..Default::default()
+        };
 
         let msgs: Vec<CompactionMessage> = vec![];
         let total = estimate_total_tokens(&stats, &msgs, 0.25);
@@ -579,16 +595,20 @@ mod tests {
         // With default chars_per_token = 0.25, need ~3_948_004 chars for
         // mini-max AutoCompactTriggered range (≤ 50,000 remaining).
         let msgs_025 = vec![comp_msg(&"x".repeat(3_948_004))];
-        let mut config_025 = CompactConfig::default();
-        config_025.chars_per_token = 0.25;
+        let config_025 = CompactConfig {
+            chars_per_token: 0.25,
+            ..Default::default()
+        };
         let svc_025 = CompactionService::new(config_025);
         assert!(svc_025.should_auto_compact(&msgs_025, "mini-max", None, &RunningStats::new()));
 
         // With chars_per_token = 0.5, same chars produce 2x tokens →
         // compaction should trigger with fewer chars.
         let msgs_05 = vec![comp_msg(&"x".repeat(1_980_000))];
-        let mut config_05 = CompactConfig::default();
-        config_05.chars_per_token = 0.5;
+        let config_05 = CompactConfig {
+            chars_per_token: 0.5,
+            ..Default::default()
+        };
         let svc_05 = CompactionService::new(config_05);
         // 1_980_000 * 0.5 = 990,000 tokens → remaining = 10,000 → AutoCompactTriggered
         assert!(svc_05.should_auto_compact(&msgs_05, "mini-max", None, &RunningStats::new()));
@@ -596,8 +616,10 @@ mod tests {
         // But with chars_per_token = 0.1, same chars produce fewer tokens →
         // might not trigger.
         let msgs_01 = vec![comp_msg(&"x".repeat(3_948_004))];
-        let mut config_01 = CompactConfig::default();
-        config_01.chars_per_token = 0.1;
+        let config_01 = CompactConfig {
+            chars_per_token: 0.1,
+            ..Default::default()
+        };
         let svc_01 = CompactionService::new(config_01);
         // 3_948_004 * 0.1 = 394,800 tokens → remaining = 605,200 → Normal
         assert!(!svc_01.should_auto_compact(&msgs_01, "mini-max", None, &RunningStats::new()));

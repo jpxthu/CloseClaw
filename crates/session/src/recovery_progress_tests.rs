@@ -394,7 +394,6 @@ mod tests {
         cp.plan_state = Some(PlanState {
             phase: PlanPhase::FinalPlan,
             plan_file_path: plan_file_path.to_string(),
-            ..PlanState::new()
         });
         cp
     }

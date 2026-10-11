@@ -88,8 +88,10 @@ fn test_bootstrap_context_check_integrity() {
 
 #[test]
 fn test_bootstrap_context_exceeds_size_limit() {
-    let mut ctx = BootstrapContext::default();
-    ctx.total_char_count = 70 * 1024; // 70K
+    let ctx = BootstrapContext {
+        total_char_count: 70 * 1024, // 70K
+        ..Default::default()
+    };
 
     assert!(ctx.exceeds_size_limit(60 * 1024));
     assert!(!ctx.exceeds_size_limit(80 * 1024));

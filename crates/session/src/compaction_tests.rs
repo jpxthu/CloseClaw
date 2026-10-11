@@ -87,8 +87,10 @@ mod tests {
 
     #[test]
     fn test_should_auto_compact_circuit_breaker() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut service = CompactionService::new(config);
         // Record failures up to max
         service.record_failure();
@@ -189,8 +191,10 @@ mod tests {
 
     #[test]
     fn test_record_failure_increments() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut service = CompactionService::new(config);
         assert_eq!(service.consecutive_failures(), 0);
         service.record_failure();
@@ -201,8 +205,10 @@ mod tests {
 
     #[test]
     fn test_record_success_resets() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut service = CompactionService::new(config);
         service.record_failure();
         service.record_failure();
@@ -213,8 +219,10 @@ mod tests {
 
     #[test]
     fn test_should_auto_compact_recovers_after_success() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut service = CompactionService::new(config);
         service.record_failure();
         service.record_failure();
@@ -299,9 +307,11 @@ mod tests {
 
     #[test]
     fn test_estimate_total_tokens_with_llm_history() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 5;
-        stats.total_tokens = 10_000;
+        let stats = RunningStats {
+            request_count: 5,
+            total_tokens: 10_000,
+            ..Default::default()
+        };
         let msgs = vec![CompactionMessage {
             role: "user".to_string(),
             content: "hello world".to_string(),
@@ -326,9 +336,11 @@ mod tests {
 
     #[test]
     fn test_estimate_total_tokens_zero_messages_with_history() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 10;
-        stats.total_tokens = 50_000;
+        let stats = RunningStats {
+            request_count: 10,
+            total_tokens: 50_000,
+            ..Default::default()
+        };
         let msgs: Vec<CompactionMessage> = vec![];
         let result = estimate_total_tokens(&stats, &msgs, 0.25);
         assert_eq!(result, 50_000);
@@ -344,9 +356,11 @@ mod tests {
 
     #[test]
     fn test_estimate_total_tokens_multiple_messages() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 3;
-        stats.total_tokens = 1_000;
+        let stats = RunningStats {
+            request_count: 3,
+            total_tokens: 1_000,
+            ..Default::default()
+        };
         let msgs = vec![
             CompactionMessage {
                 role: "user".to_string(),
@@ -391,9 +405,11 @@ mod tests {
 
     #[test]
     fn test_estimate_total_tokens_different_chars_per_token() {
-        let mut stats = RunningStats::default();
-        stats.request_count = 2;
-        stats.total_tokens = 1_000;
+        let stats = RunningStats {
+            request_count: 2,
+            total_tokens: 1_000,
+            ..Default::default()
+        };
         // 3 messages: first 2 skipped, last 1 estimated
         let msgs = vec![
             CompactionMessage {
@@ -418,8 +434,10 @@ mod tests {
     #[test]
     fn test_should_auto_compact_different_chars_per_token() {
         // With chars_per_token = 0.5, fewer chars needed to reach threshold
-        let mut config = CompactConfig::default();
-        config.chars_per_token = 0.5;
+        let config = CompactConfig {
+            chars_per_token: 0.5,
+            ..Default::default()
+        };
         let service = CompactionService::new(config);
         // mini-max context = 1_000_000, need ~987_001 tokens for AutoCompactTriggered
         // chars_per_token = 0.5: 987_001 / 0.5 ≈ 1_974_002 chars needed
@@ -542,7 +560,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: "/plans/design.md".into(),
-            ..Default::default()
         };
 
         // Simulate pre-compaction checkpoint fields with long messages
@@ -608,8 +625,10 @@ mod tests {
 
     #[test]
     fn test_manual_compact_failure_does_not_increment_breaker() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let service = CompactionService::new(config);
 
         // In production, run_manual_compact's Err branch does NOT
@@ -634,8 +653,10 @@ mod tests {
 
     #[test]
     fn test_manual_compact_success_resets_breaker() {
-        let mut config = CompactConfig::default();
-        config.max_consecutive_failures = 3;
+        let config = CompactConfig {
+            max_consecutive_failures: 3,
+            ..Default::default()
+        };
         let mut service = CompactionService::new(config);
 
         // Simulate: some auto-compact failures tripped the breaker

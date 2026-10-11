@@ -603,7 +603,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: "/tmp/plan.md".into(),
-            ..Default::default()
         };
         let cp = SessionCheckpoint::new("s-plan-builder".into()).with_plan_state(plan.clone());
         let ps = cp.plan_state.unwrap();
@@ -618,7 +617,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::Review,
             plan_file_path: "/p.md".into(),
-            ..Default::default()
         };
         let cp = SessionCheckpoint::new("s-plan-rt".into()).with_plan_state(plan);
         let json = serde_json::to_string(&cp).unwrap();
@@ -661,7 +659,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: "/workspace/plan.md".into(),
-            ..Default::default()
         };
         let checkpoint = SessionCheckpoint::new("session-plan".into()).with_plan_state(plan);
 
@@ -688,7 +685,6 @@ mod tests {
         let plan = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: "/plan.md".into(),
-            ..Default::default()
         };
         let cp = SessionCheckpoint::new("compact-test".into()).with_plan_state(plan);
         storage.save_checkpoint(&cp).await.unwrap();
