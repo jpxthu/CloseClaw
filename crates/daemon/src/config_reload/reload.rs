@@ -6,7 +6,7 @@
 use std::path::Path;
 
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_config::manager::ConfigManager;
+use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::ReloadCallback;
 use closeclaw_gateway::Gateway;
@@ -224,9 +224,9 @@ impl ReloadCallback for DaemonReloadCallback {
 /// the whole value and around each segment is trimmed; a segment that is
 /// empty after trimming (e.g. `"feishu: "`, `" :oc"`) is treated as not
 /// configured.
-fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
+pub(crate) fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
     let raw = config_manager
-        .get_section_value(closeclaw_config::ConfigSection::System)
+        .get_section_value(ConfigSection::System)
         .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
         .commands?
         .owner_display?;

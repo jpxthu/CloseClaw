@@ -9,6 +9,11 @@ use closeclaw_common::{
 };
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
+// Bridge (issue #3241 Step 1.1): `SystemConfigData` previously resolved via
+// `use super::*` from config_watcher.rs; after the double-definition merge
+// that import is gone. Removed in Step 1.2 when the parse_owner_target cases
+// migrate to config_reload/owner_target_tests.rs.
+use closeclaw_config::providers::SystemConfigData;
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
