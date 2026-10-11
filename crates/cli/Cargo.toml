@@ -31,4 +31,4 @@ unicode-width = "0.2"
 [dev-dependencies]
 closeclaw-processor-chain = { path = "../processor_chain" }
 tempfile = "3.10"
-serial_test = "*"
+serial_test = "3.4"
