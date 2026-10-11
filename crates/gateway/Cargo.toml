@@ -36,7 +36,7 @@ thiserror.workspace = true
 async-trait.workspace = true
 
 # System
-libc = "0.2"
+libc.workspace = true
 dirs.workspace = true
 
 # Date/time
@@ -47,8 +47,8 @@ uuid.workspace = true
 
 # Hashing
 sha2.workspace = true
-hex = "0.4"
-base64 = "0.22"
+hex.workspace = true
+base64.workspace = true
 
 # Shell lexing for command parsing
 shlex = "1.3"

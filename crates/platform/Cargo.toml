@@ -9,9 +9,9 @@ description = "OS abstraction layer for CloseClaw"
 [dependencies]
 anyhow.workspace = true
 dirs.workspace = true
-libc = "0.2"
+libc.workspace = true
 regex.workspace = true
-terminal_size = "0.4"
+terminal_size.workspace = true
 tokio.workspace = true
 tracing.workspace = true
 

@@ -28,11 +28,11 @@ chrono.workspace = true
 tracing.workspace = true
 
 # SQLite for active searcher (bundled to avoid system SQLite dependency)
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 serial_test.workspace = true
 
 # Manifest parsing for dependency boundary tests
-toml = "1"
+toml.workspace = true

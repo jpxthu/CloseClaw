@@ -56,11 +56,11 @@ inventory = "0.3"
 dirs.workspace = true
 
 # HTTP server (for adapter tests)
-axum = "0.7"
+axum.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 serial_test.workspace = true
 
 # Manifest parsing for dependency boundary tests
-toml = "1"
+toml.workspace = true

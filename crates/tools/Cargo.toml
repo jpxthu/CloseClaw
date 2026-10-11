@@ -16,7 +16,7 @@ tokio-util.workspace = true
 futures.workspace = true
 
 # Concurrent data structures (FileMutexMap)
-dashmap = "5"
+dashmap.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -33,7 +33,7 @@ async-trait.workspace = true
 tracing.workspace = true
 
 # Glob pattern matching
-glob = "0.3"
+glob.workspace = true
 
 # Tree-sitter for Bash AST parsing
 tree-sitter = "0.24"
@@ -41,7 +41,7 @@ tree-sitter-bash = "0.23"
 
 # Regex
 regex.workspace = true
-regex-lite = "0.1"
+regex-lite.workspace = true
 
 # Unicode normalization for fuzzy matching
 unicode-normalization = "0.1"
@@ -53,14 +53,14 @@ chrono.workspace = true
 uuid.workspace = true
 
 # Terminal size detection
-terminal_size = "0.4"
+terminal_size.workspace = true
 
 # Async stream
-async-stream = "0.3.6"
+async-stream.workspace = true
 
 # Image processing for Read tool
 image = "0.25"
-base64 = "0.22"
+base64.workspace = true
 
 [dev-dependencies]
 closeclaw-agent = { path = "../agent" }

@@ -36,21 +36,21 @@ uuid.workspace = true
 
 # Hashing
 sha2.workspace = true
-hex = "0.4"
+hex.workspace = true
 
 # Random (for plan identifier generation)
-rand = "0.8"
+rand.workspace = true
 
 # Redis client
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # SQLite
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 serial_test.workspace = true
-filetime = "0.2"
+filetime.workspace = true
 tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }

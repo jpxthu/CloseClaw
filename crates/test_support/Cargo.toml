@@ -7,7 +7,7 @@ license.workspace = true
 
 [dependencies]
 # Manifest parsing for the dependency boundary guard
-toml = "1"
+toml.workspace = true
 
 [dev-dependencies]
 # Synthetic manifests for the boundary guard unit tests (system temp dir)

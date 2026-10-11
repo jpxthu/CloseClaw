@@ -39,4 +39,4 @@ closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true
 serde_yaml.workspace = true
 tracing-subscriber.workspace = true
-tracing-test = "0.2.6"
+tracing-test.workspace = true

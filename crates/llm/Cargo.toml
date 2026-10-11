@@ -38,20 +38,20 @@ async-trait.workspace = true
 chrono.workspace = true
 
 # Glob pattern matching
-glob = "0.3"
+glob.workspace = true
 
 # Hashing (for model cache)
 sha2.workspace = true
-hex = "0.4"
+hex.workspace = true
 
 # Async stream
-async-stream = "0.3.6"
+async-stream.workspace = true
 
 [dev-dependencies]
 anyhow.workspace = true
-mockito = "1.2"
+mockito.workspace = true
 tempfile.workspace = true
-toml = "1"
+toml.workspace = true
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(feature, values("server", "chat-legacy"))'] }

@@ -17,7 +17,7 @@ thiserror.workspace = true
 tokio.workspace = true
 
 # Concurrent data structures (FileMutexMap)
-dashmap = "5"
+dashmap.workspace = true
 
 # Hashing (used by session_key)
 sha2.workspace = true
