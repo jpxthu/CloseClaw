@@ -16,9 +16,6 @@ closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::Communicat
 closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::CommunicationConfig
 closeclaw-agent: src/config/mod.rs:8 closeclaw_common::communication::check_communication_allowed
 closeclaw-agent: src/config/mod.rs:11 closeclaw_common::BootstrapMode
-closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentSkillsQuery
-closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentToolsConfig
-closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentToolsConfigQuery
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::DrainStatus
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::ShutdownMode
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::ShutdownState
