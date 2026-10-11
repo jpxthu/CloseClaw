@@ -2,6 +2,7 @@
 
 ## 概述
 
+- 关联需求文档：[agent.md](../../requirements/agent.md)
 - 一句话：Agent 配置档案定义每个 agent 的静态属性和能力边界，在 session 创建时被读取并分发到各相关模块。
 
 每个 agent 对应一个独立的配置目录。Agent 配置（JSON）和 Bootstrap 文件（Markdown）是两层独立的事：配置定义"能力边界"（模型、工具、权限、spawn 控制），Bootstrap 定义"身份人格"（AGENTS.md、SOUL.md 等）。配置不混入 Markdown 正文。
@@ -19,24 +20,26 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `id` | agent 唯一标识 | 是 | - |
 | `name` | 显示名称 | 否 | 同 id |
 | `parentId` | 父 agent ID（agent 创建时写入，运行时不变） | 否 | null |
-| `model` | 默认 LLM 模型及 fallback 列表 | 否 | 系统默认模型 |
+| `model` | 默认 LLM 模型及 fallback 列表，取值 [ModelSpec](../common/shared-types.md#modelspec)：字符串（仅主模型）或 `{ "primary": …, "fallback": [ … ] }` 对象 | 否 | 系统默认模型 |
 | `workspace` | 工作目录路径 | 否 | 系统默认 workspace |
 | `agentDir` | bootstrap 文件所在目录 | 否 | 系统默认 agent 目录 |
-| `bootstrapMode` | bootstrap 加载模式 | 否 | `"full"` |
+| `bootstrapMode` | bootstrap 加载模式（[BootstrapMode](../common/shared-types.md#会话注入辅助类型)） | 否 | `"full"` |
 | `noBootstrap` | 显式声明不使用任何 Bootstrap 文件；声明后该 Agent 的 Session 按「无 Bootstrap 文件的 Session」运行（见 [system_prompt §F8](../../requirements/system_prompt.md)） | 否 | `false` |
-| `skills` | 可用 skill 名称列表，`"*"` 表示全部可用 | 否 | `["*"]` |
-| `tools` | 可用工具名称白名单 | 否 | `["*"]` |
-| `disallowedTools` | 禁用工具黑名单 | 否 | `[]` |
+| `skills` | 可用 skill 名称列表，`"*"` 或空数组表示不限制 | 否 | `["*"]` |
+| `tools` | 可用工具名称白名单，`"*"` 或空数组表示不限制 | 否 | `["*"]` |
+| `disallowedTools` | 禁用工具黑名单；与白名单交集时黑名单优先 | 否 | `[]` |
 | `subagents` | 子 Session 创建控制参数（类型 [SubagentsConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)） | 否 | 见子字段 |
 | `memory` | per-agent memory 配置覆盖（类型 [MemoryConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)），仅在明确需要覆盖默认值时使用，详见 [memory 模块设计文档](../memory/config.md) | 否 | null |
 | `hooks` | run-health hook 审查配置列表（类型 [HookConfig](../common/shared-types.md#hookconfig--hookparams--hooktype)） | 否 | `[]` |
 | `parallelToolCalls` | 是否允许并行工具调用；`false` 时全部工具调用串行执行 | 否 | `true` |
 
+`tools` / `disallowedTools` / `skills` 的取值分别为[工具注册表](../common/core-traits.md#toolregistry)与 [skill 注册表](../common/core-traits.md#skillregistryquery)登记的名称，须与之完全一致（区分大小写）；名称不匹配的条目不会命中。
+
 `bootstrapMode` 取值：
 - `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md)
 - `"minimal"`：仅加载核心文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md），不加载自定义引导指令（BOOTSTRAP.md），减少上下文占用
 
-`bootstrapMode` 只决定自定义引导指令（BOOTSTRAP.md）在主 Agent Session 是否加载；长期记忆（MEMORY.md）的加载取决于 Session 角色（主 Session 加载、子 Session 不加载），与 `bootstrapMode` 无关——精简模式主 Agent Session 仍加载长期记忆。子 Session 不加载 BOOTSTRAP.md 与长期记忆，与目标 agent 的 `bootstrapMode` 无关。文件/记忆判据的权威定义见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载与 [fragment-provider.md](../system_prompt/fragment-provider.md)。MEMORY.md 不属于 bootstrap 集合，作为长期记忆由 MemorySection 独立管理。
+`bootstrapMode` 只决定自定义引导指令（BOOTSTRAP.md）在主 Agent Session 是否加载；长期记忆（MEMORY.md）的加载取决于 Session 角色（主 Session 加载、子 Session 不加载），与 `bootstrapMode` 无关——精简模式主 Agent Session 仍加载长期记忆。子 Session 不加载 BOOTSTRAP.md 与长期记忆，与目标 agent 的 `bootstrapMode` 无关。声明 `noBootstrap: true` 时，该 Agent 的 Session 按「无 Bootstrap 文件的 Session」运行（不加载任何 Bootstrap 文件与长期记忆），`bootstrapMode` 取值不再生效。文件/记忆判据的权威定义见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载与 [fragment-provider.md](../system_prompt/fragment-provider.md)。MEMORY.md 不属于 bootstrap 集合，作为长期记忆由 MemorySection 独立管理。
 
 `subagents` 子字段：
 
@@ -51,7 +54,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `timeoutNotifyIntervalRatio` | 超时预警后循环通知的间隔比例（相对于 timeout_warning），>=0.1 且 <=2.0 | 0.5（即 50%） |
 | `model` | 子 Session 的默认模型覆盖，优先级低于 sessions_spawn 调用时的显式 model 参数 | 无（用子 Session 自身配置） |
 
-`allowAgents` 为 `["*"]` 时不限制；为空数组 `[]` 时禁止 spawn 任何子 Session。
+`allowAgents` 为 `["*"]` 时不限制；为空数组 `[]` 时禁止 spawn 任何子 Session（注意与 `tools` / `skills` 白名单相反——后者空数组表示不限制）。
 
 ### 权限配置（permissions.json）
 
@@ -71,19 +74,20 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 
 清单仅包含 agent ID 列表，不包含内联配置（如模型名称、工具列表等）。每个 agent 的详细配置存储在同目录的 `config.json` 中。被注释掉的 ID 视为未注册，对应的配置目录会被跳过。
 
-初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建。master 作为系统的基础入口，具备全部工具和技能的访问权限（`tools` / `skills` 均为 `["*"]`，对应需求 agent.md §F5）。
+初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建。master 作为系统的基础入口，具备全部工具和技能的访问权限（`tools` / `skills` 均为 `["*"]`，对应需求 [agent §F5](../../requirements/agent.md)）。
 
 ### Agent 能力模型
 
-Agent 能力完全由配置字段组合决定，不依赖预定义的类型枚举：
+Agent 的能力边界由配置档案的字段组合与权限基线共同决定，不依赖预定义的类型标签：
 
 | 能力维度 | 配置字段 | 效果 |
 |---------|---------|------|
 | 行为限制 | `tools` / `disallowedTools` | 控制可见工具集 |
 | 上下文大小 | `bootstrapMode` | `"minimal"` 减少 context 占用 |
 | 繁衍能力 | `subagents.allowAgents` / `maxSpawnDepth` | 控制能否 spawn 子 Session |
+| 安全边界 | 权限基线（`permissions.json`，见 [§权限配置](#权限配置permissionsjson)） | 定义 Agent 可执行操作的安全边界，详见 [agent-permissions.md](agent-permissions.md) |
 
-能力维度以配置字段自由组合，不依赖预定义类型枚举——新增能力维度时通过新增配置字段即可生效，无需系统升级（对应需求可扩展性 NFR）。
+能力维度以配置字段与权限基线自由组合，不依赖预定义类型标签——新增能力维度时通过新增配置字段即可生效，无需系统升级（对应需求可扩展性 NFR）。
 
 ### 配置示例
 
@@ -97,7 +101,7 @@ Agent 能力完全由配置字段组合决定，不依赖预定义的类型枚�
   "agentDir": null,
   "bootstrapMode": "minimal",
   "skills": ["code-review"],
-  "tools": ["read", "grep", "glob", "web_search", "web_fetch"],
+  "tools": ["Read", "Grep", "Ls"],
   "disallowedTools": [],
   "subagents": {
     "allowAgents": [],
@@ -118,30 +122,28 @@ Agent 能力完全由配置字段组合决定，不依赖预定义的类型枚�
 | `executor` | 自主执行 | 注入自主执行模式的行为指令 |
 | `validation` | 校验审计 | 注入"逐条校验并报告差异"的结构化输出要求 |
 
-各模板的完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md) 第 7 节。模板不影响 agent 配置，仅在 spawn 子 Session 时作为 prompt 前缀注入。
+模板不影响 agent 配置，仅在 spawn 子 Session 时作为 prompt 前缀注入；完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md)（模板的注册与注入机制见 [agent-spawn.md](agent-spawn.md) §Prompt 模板）。
 
-> Agent 层的工具使用指导定制统一通过上述 Prompt 模板机制（spawn 时按需选择）达成，不在 agent 配置中提供独立的工具使用指导覆盖字段——避免在 agent 配置层重复定义本应由行为模板管理的上下文注入。
+> Agent 配置不包含独立的工具使用指导字段；工具使用指导统一由 Prompt 模板机制（spawn 时按需选择）提供。
 
 ## 数据流
 
 ### 配置加载流程
 
 ```
-读取注册清单（~/.closeclaw/config/agents.json）
-  ↓
-去重（注册清单中注释掉的 ID 跳过）
+读取注册清单（~/.closeclaw/config/agents.json，JSONC——注释掉的 ID 在解析阶段即不进入清单）
   ↓
 对每个注册 ID：
-  加载 ~/.closeclaw/agents/<id>/config.json（不存在 → WARN 跳过）
-  permissions.json 遵循同路径解析（实际由 Permission 模块在 evaluate() 时延迟加载）
+  加载 ~/.closeclaw/agents/<id>/config.json（不存在或无法解析 → WARN 跳过该 ID）
   ↓
-补齐所有字段默认值
+  补齐所有字段默认值
   ↓
-生成 ResolvedAgentConfig
+  生成该 Agent 的 ResolvedAgentConfig
 
-目录中有 config.json 但 ID 不在注册表 → 在注册清单核对阶段即忽略，不进入上述加载循环
+汇总为 ResolvedAgentConfig[] 返回给调用方（Daemon → AgentRegistry）
 
-生成的 ResolvedAgentConfig 返回给调用方（Daemon → AgentRegistry）
+目录中有 config.json 但 ID 不在注册清单 → 不进入加载循环（忽略）
+permissions.json 不在本流程内——由 Permission 模块在 evaluate() 时按 agent 目录延迟加载
 ```
 
 ### 配置热重载
@@ -169,7 +171,7 @@ spawn 子 Session 时，模型的最终选择按以下顺序确定：
 
 ### 配置生效路径
 
-配置加载完成后，Session 模块在创建 session 时从 AgentRegistry 读取配置各字段并分发到对应子系统。详见 [agent/README.md](README.md) → 模块关系 → 下游 → Session。
+配置加载完成后，Session 模块在创建 session 时从 AgentRegistry 读取配置各字段并分发到对应子系统（见 [agent/README.md](README.md) §模块关系）。
 
 ## 模块关系
 
@@ -185,7 +187,7 @@ spawn 子 Session 时，模型的最终选择按以下顺序确定：
 | 模块 | 消费方式 |
 |------|---------|
 | Session | 创建 session 时读取 agent 配置，分发各字段到对应子系统 |
-| Gateway/Daemon | 入站消息到达时查询 agent 配置确定目标 agent |
+| Gateway/Daemon | 入站消息按机器人→Agent 绑定确定目标 agent，创建 session 时经 AgentRegistry 读取该 agent 配置 |
 | AgentRegistry | 接收 Config 填充的 ResolvedAgentConfig 作为运行时查询数据源 |
 | Skills Registry | 查询 agent 的 skills 白名单过滤可用 skill 列表 |
 | Tools Registry | 查询 agent 的 tools/disallowedTools 过滤工具列表 |
