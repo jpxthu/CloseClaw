@@ -47,11 +47,11 @@ fn test_adapter_debug_contains_profile_name() {
     );
 }
 
-#[tokio::test]
-async fn test_adapter_debug_omits_sensitive_metadata() {
+#[test]
+fn test_adapter_debug_omits_sensitive_metadata() {
     let adapter = FeishuAdapter::new("meta_profile".to_string(), make_test_media_store());
     {
-        let mut meta = adapter.last_metadata.lock().await;
+        let mut meta = adapter.last_metadata.try_lock().unwrap();
         meta.insert(
             "chat_name".to_string(),
             "secret-app_secret-token".to_string(),
@@ -77,6 +77,22 @@ fn test_adapter_debug_output_deterministic() {
     assert_eq!(
         debug_str, expected,
         "adapter debug output must stay deterministic and redacted"
+    );
+}
+
+#[test]
+fn test_adapter_debug_contains_workspace_dir() {
+    let ws = TempDir::new().expect("tmp dir");
+    let adapter = FeishuAdapter::new("ws_profile".to_string(), make_test_media_store())
+        .with_workspace_dir(Some(ws.path().to_path_buf()));
+    let debug_str = format!("{:?}", adapter);
+    assert!(
+        debug_str.contains(ws.path().to_str().unwrap()),
+        "adapter debug should contain workspace dir when set"
+    );
+    assert!(
+        debug_str.contains("<event metadata>") && debug_str.contains("<http client>"),
+        "adapter debug redaction format should stay intact"
     );
 }
 
