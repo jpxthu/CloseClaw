@@ -31,7 +31,44 @@ license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
 
 [workspace.dependencies]
+anyhow = "1.0"
+async-stream = "0.3.6"
+async-trait = "0.1"
+axum = "0.7"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.4", features = ["derive"] }
+dashmap = "5"
+dirs = "5"
+filetime = "0.2"
+futures = "0.3"
+glob = "0.3"
+hex = "0.4"
+libc = "0.2"
+mockito = "1.2"
+notify = "6.1"
+rand = "0.8"
+regex = "1.10"
+regex-lite = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
 serial_test = "3.4"
+sha2 = "0.10"
+tempfile = "3.10"
+terminal_size = "0.4"
+thiserror = "2.0"
+# Async runtime - pinned to older version to avoid edition2024 issues
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+toml = "1"
+# Logging - pinned to older versions
+tracing = "=0.1.43"
+tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing-test = "0.2.6"
+uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [package]
 name = "closeclaw"
