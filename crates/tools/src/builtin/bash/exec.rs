@@ -1,27 +1,13 @@
-//! Built-in BashTool - provides shell command execution capability for agents.
-//! Implements timeout control, output truncation with head-preservation,
-//! output persistence, and command classification.
-//!
-//! Step 1.4 of issue #858 added a kill-handle integration path: foreground
-//! processes register a [`BashKillHandle`] on the owning
-//! `ConversationSession`, background tasks register a
-//! [`BackgroundKillHandle`]. The actual `KillHandle` adapter types and
-//! the output-processing helpers (`process_output`, `build_result`,
-//! etc.) live in the sibling module [`super::bash_kill`] to keep this
-//! file under the CONTRIBUTING.md 500-line hard cap.
-use crate::bash::CommandSandbox;
 use crate::permission_check::PermDeps;
-use crate::permission_port::{PermCaller, PermRequestBody, PermRiskLevel};
-use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
-use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
-use async_trait::async_trait;
+use crate::{ToolCallError, ToolContext, ToolResult};
 use closeclaw_common::ToolExecState;
 use serde_json::Value;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use super::bash_kill::{
+use super::trust::{analyze_security, prepare_and_sandbox, route_trust_level, TrustDecision};
+use crate::builtin::bash_kill::{
     build_auto_background_result, build_background_result, build_manual_background_result,
     finalize_foreground_after_wait, register_foreground_session, truncate_summary,
     BackgroundKillHandle,
@@ -40,209 +26,13 @@ pub(crate) enum ForegroundOutcome {
 }
 
 /// Auto-backgroundize timeout (15 seconds).
-const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
+pub(crate) const AUTO_BG_TIMEOUT_MS: u64 = 15_000;
 
 /// Maximum agent-requested timeout (10 min). Prevents excessively long auto-backgroundize.
-const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
-
-/// Shell command execution tool with timeout, output control, and auto-backgroundize.
-pub struct BashTool {
-    permission_check: PermDeps,
-    bg_manager: Arc<dyn closeclaw_common::TaskManager>,
-}
-
-impl BashTool {
-    /// Creates a new `BashTool` backed by the given permission check
-    /// port and background task manager.
-    pub fn new(
-        permission_check: PermDeps,
-        bg_manager: Arc<dyn closeclaw_common::TaskManager>,
-    ) -> Self {
-        Self {
-            permission_check,
-            bg_manager,
-        }
-    }
-
-    /// Bundle permission dependencies into a [`PermDeps`] port handle.
-    fn perm_deps(&self) -> PermDeps {
-        Arc::clone(&self.permission_check)
-    }
-}
-
-#[async_trait]
-impl Tool for BashTool {
-    fn name(&self) -> &str {
-        "Bash"
-    }
-
-    fn group(&self) -> &str {
-        "bash"
-    }
-
-    fn summary(&self) -> String {
-        "Execute shell commands with timeout and output control".to_string()
-    }
-
-    fn detail(&self) -> String {
-        "[keywords: bash shell command run execute script terminal] \
-         Execute a shell command via subprocess. Supports timeout control \
-         (default 120s, max 600s), output truncation with head-preservation \
-         (threshold 30,000 chars), and output persistence to disk when \
-         output exceeds threshold. Supports run_in_background for async \
-         execution. Commands exceeding 15s are auto-backgrounded. \
-         Background tasks notify automatically on completion - do not poll. \
-         Use run_in_background for commands expected to exceed 10 seconds."
-            .to_string()
-    }
-
-    fn generate_prompt(&self, context: &PromptGenerationContext) -> String {
-        let mut parts = Vec::new();
-
-        parts.push(prompt_when_to_use());
-        prompt_add_workdir_guidance(context, &mut parts);
-        prompt_add_permission_status(context, &mut parts);
-        parts.push(prompt_usage_principles());
-        prompt_add_combination_suggestions(context, &mut parts);
-
-        parts.join("\n\n")
-    }
-
-    fn input_schema(&self) -> Value {
-        serde_json::json!({
-            "type": "object",
-            "properties": {
-                "command": {
-                    "type": "string",
-                    "description": "Shell command to execute"
-                },
-                "timeout": {
-                    "type": "number",
-                    "description": "Timeout in milliseconds (default 120000, max 600000)"
-                },
-                "description": {
-                    "type": "string",
-                    "description": "Brief description of what this command does"
-                },
-                "run_in_background": {
-                    "type": "boolean",
-                    "description": "Run command in background, returns task ID immediately"
-                },
-                "cwd": {
-                    "type": "string",
-                    "description": "Working directory (defaults to session workdir)"
-                },
-                "dangerouslyDisableSandbox": {
-                    "type": "boolean",
-                    "description": "Bypass sandbox restrictions (landlock + seccomp) for this command. Sandbox infrastructure is ready but enforcement strategy is implemented in a follow-up PR."
-                }
-            },
-            "required": ["command"]
-        })
-    }
-
-    fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_destructive: true,
-            is_expensive: true,
-            ..Default::default()
-        }
-    }
-
-    async fn call(&self, args: Value, ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        execute_bash_call(&self.perm_deps(), &self.bg_manager, args, ctx).await
-    }
-}
-
-// --- Prompt generation helpers ---
-
-/// "When to use" section for the Bash tool prompt.
-fn prompt_when_to_use() -> String {
-    "Use Bash to execute shell commands, run scripts, compile code, \
-     or run tests. Supports timeout control (default 120s, max 600s), \
-     output truncation with head-preservation (threshold 30,000 chars), \
-     and output persistence to disk when output exceeds threshold. \
-     Commands exceeding 15s are auto-backgrounded. Background tasks \
-     notify automatically on completion — do not poll. \
-     Use run_in_background for commands expected to exceed 10 seconds."
-        .to_string()
-}
-
-/// Append workdir-based path guidance to the prompt parts.
-fn prompt_add_workdir_guidance(context: &PromptGenerationContext, parts: &mut Vec<String>) {
-    if let Some(ref wd) = context.workdir {
-        parts.push(closeclaw_common::format_workdir_guidance(
-            wd,
-            "Commands run here by default unless the cwd parameter is specified.",
-        ));
-    }
-}
-
-/// Append permission-awareness text. Uses runtime `available_tool_names` when available.
-fn prompt_add_permission_status(context: &PromptGenerationContext, parts: &mut Vec<String>) {
-    let has_bash_access = if !context.available_tool_names.is_empty() {
-        context
-            .available_tool_names
-            .iter()
-            .any(|t| t.eq_ignore_ascii_case("Bash"))
-    } else {
-        context.tools.as_ref().is_none_or(|tools| {
-            tools
-                .iter()
-                .any(|t| t.eq_ignore_ascii_case("Bash") || t == "*")
-        })
-    };
-    if has_bash_access {
-        parts.push(
-            "Bash is available for your use. Commands are subject to \
-             permission checks — untrusted commands may be sandboxed \
-             or routed to the approval flow."
-                .to_string(),
-        );
-    } else {
-        parts.push(
-            "Bash is not available in your current tool set. \
-             You do not have permission to execute shell commands."
-                .to_string(),
-        );
-    }
-}
-
-/// "Usage principles" section for the Bash tool prompt.
-fn prompt_usage_principles() -> String {
-    "Keep commands concise and focused. Prefer specific commands \
-     over complex pipelines when possible. Avoid long-running \
-     foreground commands — use run_in_background for tasks \
-     expected to exceed 10 seconds."
-        .to_string()
-}
-
-/// Append combination suggestions based on available tools.
-fn prompt_add_combination_suggestions(context: &PromptGenerationContext, parts: &mut Vec<String>) {
-    let has_read = context
-        .available_tool_names
-        .iter()
-        .any(|t| t == "Read" || t == "read");
-    let has_write = context
-        .available_tool_names
-        .iter()
-        .any(|t| t == "Write" || t == "write");
-    if has_read || has_write {
-        let mut suggestions = Vec::new();
-        if has_read {
-            suggestions.push("Read (read files before editing)");
-        }
-        if has_write {
-            suggestions.push("Write (redirect output to files)");
-        }
-        parts.push(format!("Combine with: {}.", suggestions.join(", ")));
-    }
-}
-
-// --- Helper functions ---
+pub(crate) const AUTO_BG_TIMEOUT_CAP_MS: u64 = 600_000;
 
 /// Parse and clamp agent timeout (None if absent, max 600s).
-fn parse_timeout(args: &Value) -> Option<u64> {
+pub(crate) fn parse_timeout(args: &Value) -> Option<u64> {
     let raw = args.get("timeout").and_then(Value::as_f64)?;
     let ms = raw.max(0.0) as u64;
     Some(ms.min(600_000))
@@ -250,7 +40,7 @@ fn parse_timeout(args: &Value) -> Option<u64> {
 
 /// Resolve the working directory for the subprocess.
 /// Priority: explicit `cwd` arg > `ctx.workdir` > `std::env::current_dir()`.
-fn resolve_cwd(args: &Value, ctx: &ToolContext) -> String {
+pub(crate) fn resolve_cwd(args: &Value, ctx: &ToolContext) -> String {
     if let Some(cwd) = args.get("cwd").and_then(Value::as_str) {
         if !cwd.is_empty() {
             return cwd.to_string();
@@ -277,7 +67,7 @@ async fn notify_or_pending(signal: Option<&Arc<tokio::sync::Notify>>) {
 
 /// Returns true if the command should NOT be auto-backgrounded.
 /// Sleep, true, false and variants are excluded from auto-backgrounding.
-fn auto_backgroundize_excluded(command: &str) -> bool {
+pub(crate) fn auto_backgroundize_excluded(command: &str) -> bool {
     let trimmed = command.trim();
     // Strip arguments (e.g., "sleep 5" → "sleep")
     let first_token = trimmed.split_whitespace().next().unwrap_or("");
@@ -291,7 +81,7 @@ fn auto_backgroundize_excluded(command: &str) -> bool {
 // --- Sub-execution helpers ---
 
 /// Spawn a shell command as a child process.
-fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, String> {
+pub(crate) fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, String> {
     use tokio::process::Command;
     Command::new("sh")
         .arg("-c")
@@ -310,17 +100,17 @@ fn spawn_sh_command(command: &str, cwd: &str) -> Result<tokio::process::Child, S
 /// (`backgroundize_child` / `auto_backgroundize_foreground`) and the
 /// foreground result-handling chain (`handle_timeout_expiry`), so they are
 /// grouped to keep those signatures within the CONTRIBUTING 6-parameter cap.
-struct ChildHandles {
-    child: tokio::process::Child,
-    stdout_handle: Option<tokio::process::ChildStdout>,
-    stderr_handle: Option<tokio::process::ChildStderr>,
+pub(crate) struct ChildHandles {
+    pub(crate) child: tokio::process::Child,
+    pub(crate) stdout_handle: Option<tokio::process::ChildStdout>,
+    pub(crate) stderr_handle: Option<tokio::process::ChildStderr>,
 }
 
 /// Backgroundize a child process and return the corresponding ToolResult.
 ///
 /// Reattaches stdout/stderr handles before handing off to `bg_manager`.
 /// When `by_user` is true, marks the result as `backgroundedByUser`.
-async fn backgroundize_child(
+pub(crate) async fn backgroundize_child(
     handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
@@ -348,7 +138,7 @@ async fn backgroundize_child(
 /// Auto-backgroundize a foreground child and return a [`ForegroundOutcome`].
 ///
 /// On failure, returns [`ForegroundOutcome::Failed`].
-async fn auto_backgroundize_foreground(
+pub(crate) async fn auto_backgroundize_foreground(
     handles: ChildHandles,
     command: &str,
     bg_manager: &Arc<dyn closeclaw_common::TaskManager>,
@@ -362,19 +152,19 @@ async fn auto_backgroundize_foreground(
 }
 
 /// Context for foreground result handling.
-struct ForegroundContext<'a> {
-    bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
-    manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
-    session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&'a str>,
-    session_id: &'a str,
+pub(crate) struct ForegroundContext<'a> {
+    pub(crate) bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
+    pub(crate) manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
+    pub(crate) session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    pub(crate) call_id: Option<&'a str>,
+    pub(crate) session_id: &'a str,
     /// When true, a timeout should force-kill the child (not auto-backgroundize).
     /// Set for whitelist commands on the total-execution-time fallback path.
-    force_terminate: bool,
+    pub(crate) force_terminate: bool,
 }
 
 /// Handle a timeout expiry: force-terminate or auto-backgroundize.
-async fn handle_timeout_expiry(
+pub(crate) async fn handle_timeout_expiry(
     handles: ChildHandles,
     command: &str,
     ctx: &ForegroundContext<'_>,
@@ -387,7 +177,7 @@ async fn handle_timeout_expiry(
         } = handles;
         let _ = child.start_kill();
         // Drain pipes so progress monitor can report output before the kill.
-        let _ = super::bash_kill::read_with_progress(
+        let _ = crate::builtin::bash_kill::read_with_progress(
             stdout_handle,
             stderr_handle,
             ctx.session,
@@ -410,7 +200,7 @@ async fn handle_timeout_expiry(
 /// Stdout/stderr are extracted first; the child is then taken out of the
 /// `Mutex` for `child.wait()` — holding a std Mutex across await would deadlock.
 /// On timeout, auto-backgroundizes or force-kills per `force_terminate` flag.
-async fn handle_foreground_result(
+pub(crate) async fn handle_foreground_result(
     child_arc: Arc<Mutex<Option<tokio::process::Child>>>,
     command: &str,
     bg_timeout: Duration,
@@ -467,115 +257,8 @@ async fn handle_foreground_result(
     }
 }
 
-/// Analyze command security and return the parsed result.
-///
-/// Returns the [`ParseResult`] so the caller can inspect `trust_level`
-/// and use the tree-sitter parsed `commands` (argv arrays) for
-/// downstream permission checks.
-fn analyze_security(command: &str) -> Result<ParseResult, ToolCallError> {
-    let sec_result = BashSecurityAnalyzer::new()
-        .map_err(ToolCallError::ExecutionFailed)?
-        .analyze(command);
-    Ok(sec_result)
-}
-
-/// Submit a trust-level denial to the approval flow and optionally notify the owner.
-///
-/// Builds a [`PermCaller`] and [`PermRequestBody`] from the tool context, then
-/// submits the denial through the permission port. Returns the request ID if the
-/// approval flow accepted the request (i.e. owner was notified / queued), or
-/// `None` if hard-denied (sub-agent or duplicate).
-///
-/// P3 note: `user_id` is intentionally left empty here because
-/// trust-level routing (malicious/uncertain) occurs before user identity
-/// verification — at this point in the pipeline we only know the agent ID,
-/// not the Feishu user identity. The approval flow will resolve the actual
-/// user identity from the session manager when it processes the request.
-async fn submit_trust_level_denial(
-    deps: &PermDeps,
-    ctx: &ToolContext,
-    command: &str,
-    risk: PermRiskLevel,
-) -> Option<String> {
-    let caller = PermCaller {
-        user_id: String::new(),
-        agent: ctx.agent_id.clone(),
-    };
-    let body = PermRequestBody::CommandExec {
-        agent: ctx.agent_id.clone(),
-        cmd: command.to_string(),
-        args: vec![],
-    };
-    let sid = ctx.session_id.as_deref().unwrap_or("");
-    let is_sub_agent = deps.is_session_sub_agent(sid).await;
-    deps.submit_denial(&caller, &body, risk, sid, is_sub_agent)
-        .await
-}
-
 /// Execute the BashTool call: parse args, check two-level permissions, run command.
-/// Result of trust-level routing.
-enum TrustDecision {
-    /// Command is trusted; proceed with normal permission checks.
-    Trusted,
-    /// Command was routed to approval flow; caller returns the pending result.
-    ApprovalPending(ToolResult),
-    /// Command was blocked (malicious or uncertain-rejected).
-    Blocked(String),
-}
-
-/// Route trust-level decisions (malicious/uncertain) through the approval flow.
-async fn route_trust_level(
-    deps: &PermDeps,
-    ctx: &ToolContext,
-    command: &str,
-    trust_level: TrustLevel,
-    reason: Option<String>,
-) -> Result<TrustDecision, ToolCallError> {
-    match trust_level {
-        TrustLevel::Malicious => {
-            submit_trust_level_denial(deps, ctx, command, PermRiskLevel::Critical).await;
-            Ok(TrustDecision::Blocked(format!(
-                "Blocked: malicious command detected — {}",
-                reason.unwrap_or_else(|| "unknown reason".into())
-            )))
-        }
-        TrustLevel::Uncertain => {
-            let r = reason.unwrap_or_else(|| "untrusted syntax".into());
-            if let Some(request_id) =
-                submit_trust_level_denial(deps, ctx, command, PermRiskLevel::High).await
-            {
-                Ok(TrustDecision::ApprovalPending(ToolResult {
-                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
-                    new_messages: vec![],
-                    context_modifier: None,
-                }))
-            } else {
-                Ok(TrustDecision::Blocked(format!(
-                    "Blocked: uncertain command — {}",
-                    r
-                )))
-            }
-        }
-        TrustLevel::Trusted => Ok(TrustDecision::Trusted),
-    }
-}
-
-/// Resolve working directory and apply sandbox restrictions if needed.
-async fn prepare_and_sandbox(
-    ctx: &ToolContext,
-    command: &str,
-    args: &Value,
-) -> Result<String, ToolCallError> {
-    let dangerously_disable = args.get("dangerouslyDisableSandbox") == Some(&Value::Bool(true));
-    let cwd = resolve_cwd(args, ctx);
-    if !dangerously_disable && CommandSandbox::should_sandbox(command, true) {
-        CommandSandbox::apply_sandbox_restrictions(&cwd)?;
-    }
-    Ok(cwd)
-}
-
-/// Execute the BashTool call: parse args, check two-level permissions, run command.
-async fn execute_bash_call(
+pub(super) async fn execute_bash_call(
     deps: &PermDeps,
     bg: &Arc<dyn closeclaw_common::TaskManager>,
     args: Value,
@@ -685,22 +368,22 @@ fn spawn_bg_monitor(
 /// Groups the parameters that flow unchanged through `execute_command`,
 /// `execute_foreground_command`, and `execute_background_command`, so
 /// those signatures stay within the CONTRIBUTING 6-parameter cap.
-struct BashExecCtx<'a> {
-    command: &'a str,
-    cwd: &'a str,
-    bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
-    session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
-    call_id: Option<&'a str>,
-    session_id: &'a str,
+pub(crate) struct BashExecCtx<'a> {
+    pub(crate) command: &'a str,
+    pub(crate) cwd: &'a str,
+    pub(crate) bg_manager: &'a Arc<dyn closeclaw_common::TaskManager>,
+    pub(crate) session: Option<&'a Arc<dyn closeclaw_common::tool_session::ToolSession>>,
+    pub(crate) call_id: Option<&'a str>,
+    pub(crate) session_id: &'a str,
 }
 
 /// Foreground-only options for the bash execution chain.
 ///
 /// Consumed exclusively by the foreground path, so they stay out of the
 /// shared [`BashExecCtx`].
-struct ForegroundOptions<'a> {
-    agent_timeout_ms: Option<u64>,
-    manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
+pub(crate) struct ForegroundOptions<'a> {
+    pub(crate) agent_timeout_ms: Option<u64>,
+    pub(crate) manual_bg_signal: Option<&'a Arc<tokio::sync::Notify>>,
 }
 
 /// Execute a shell command in the background path.
@@ -791,7 +474,7 @@ fn resolve_bg_timeout_and_force_terminate(
 /// Registers the tool call, spawns the child, registers the kill handle,
 /// waits for completion, and returns the outcome. Caller is responsible
 /// for setting the final tool state and deregistering.
-async fn execute_foreground_command(
+pub(crate) async fn execute_foreground_command(
     ctx: &BashExecCtx<'_>,
     fg_opts: &ForegroundOptions<'_>,
 ) -> Result<(ForegroundOutcome, Option<String>), String> {
@@ -844,7 +527,7 @@ async fn execute_foreground_command(
 /// lifetime of the task. Both are `None`-safe - tool invocations
 /// outside a tracked session (CLI, tests, prompt generation) skip
 /// registration entirely.
-async fn execute_command(
+pub(crate) async fn execute_command(
     ctx: &BashExecCtx<'_>,
     run_in_background: bool,
     fg_opts: &ForegroundOptions<'_>,
@@ -884,23 +567,3 @@ async fn execute_command(
         }
     }
 }
-
-#[cfg(test)]
-#[path = "bash_approval_tests.rs"]
-mod approval_tests;
-
-#[cfg(test)]
-#[path = "bash_backgroundize_tests.rs"]
-mod backgroundize_tests;
-
-#[cfg(test)]
-#[path = "bash_gap_tests.rs"]
-mod gap_tests;
-
-#[cfg(test)]
-#[path = "bash_tests.rs"]
-mod tests;
-
-#[cfg(test)]
-#[path = "bash_timeout_tests.rs"]
-mod timeout_tests;
