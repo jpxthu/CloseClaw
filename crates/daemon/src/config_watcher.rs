@@ -3,12 +3,11 @@
 //! Thin initialization entry point for config hot-reload at daemon startup.
 //! Delegates file watching and event dispatch to [`ConfigReloadManager`].
 
-use crate::config_reload::DaemonReloadCallback;
+use crate::config_reload::{parse_owner_target, DaemonReloadCallback};
 use anyhow::Context;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::events::ConfigChangeEvent;
-use closeclaw_config::manager::{ConfigManager, ConfigSection, ConfigSnapshot};
-use closeclaw_config::providers::SystemConfigData;
+use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 use closeclaw_gateway::{Gateway, SessionManager};
 use std::sync::Arc;
@@ -268,30 +267,6 @@ fn shutdown_exit_requested(
     }
 }
 
-/// Parse the owner notification target from `SystemConfigData.commands.owner_display`.
-///
-/// Expects format `"platform:chat_id"`. Leading/trailing whitespace around
-/// the whole value and around each segment is trimmed; a segment that is
-/// empty after trimming (e.g. `"feishu: "`, `" :oc"`) is treated as not
-/// configured.
-fn parse_owner_target(config_manager: &ConfigManager) -> Option<(String, String)> {
-    let raw = config_manager
-        .get_section_value(ConfigSection::System)
-        .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())?
-        .commands?
-        .owner_display?;
-    let trimmed = raw.trim();
-    let parts: Vec<&str> = trimmed.splitn(2, ':').collect();
-    if parts.len() != 2 || parts[0].trim().is_empty() || parts[1].trim().is_empty() {
-        warn!(
-            owner_display = %raw,
-            "invalid owner_display format, expected 'platform:chat_id'"
-        );
-        return None;
-    }
-    Some((parts[0].trim().to_string(), parts[1].trim().to_string()))
-}
-
 /// Initialize config hot-reload: create a [`ConfigReloadManager`], start the
 /// file watcher, and subscribe to config change events.
 pub(crate) fn init_config_hot_reload(
@@ -351,10 +326,3 @@ mod handle_tests;
 #[cfg(test)]
 #[path = "config_watcher_select_tests.rs"]
 mod select_tests;
-
-// parse_owner_target whitespace tests (issue #3251) follow the same
-// sibling-module pattern: added, not split out, keeping
-// `config_reload_tests.rs` within the 1000-line limit.
-#[cfg(test)]
-#[path = "config_watcher_owner_target_tests.rs"]
-mod owner_target_tests;

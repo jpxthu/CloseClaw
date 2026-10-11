@@ -10,8 +10,13 @@ pub mod reload;
 pub use closeclaw_config::{ConfigReloadManager, WatcherHandle};
 // Re-export daemon-specific callback
 pub use reload::DaemonReloadCallback;
+// Single definition of the owner-notification target parser (issue #3241):
+// config_watcher's Failed-event path reuses this implementation.
+pub(crate) use reload::parse_owner_target;
 
 #[cfg(test)]
 mod manager_reload_tests;
+#[cfg(test)]
+mod owner_target_tests;
 #[cfg(test)]
 mod reload_tests;
