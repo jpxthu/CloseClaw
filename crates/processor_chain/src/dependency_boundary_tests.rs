@@ -22,11 +22,17 @@ const ALLOWED_WORKSPACE_DEPS: [&str; 3] = [
 /// [dev-dependencies] but never in regular dependency sections.
 const DEV_ONLY_WORKSPACE_DEPS: [&str; 1] = ["closeclaw-im-adapter"];
 
+/// Names banned from every regular dependency section, matched by name
+/// regardless of declaration form (restores the original dev-only judgment
+/// that also covered `tempfile`).
+const FORBIDDEN_IN_REGULAR: [&str; 1] = ["tempfile"];
+
 #[test]
 fn test_regular_dependencies_stay_within_allowed_edge_table() {
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let spec = DepBoundarySpec::new("closeclaw-processor-chain", manifest)
         .allowed_workspace_deps(&ALLOWED_WORKSPACE_DEPS)
-        .dev_only_workspace_deps(&DEV_ONLY_WORKSPACE_DEPS);
+        .dev_only_workspace_deps(&DEV_ONLY_WORKSPACE_DEPS)
+        .forbidden_in_regular(&FORBIDDEN_IN_REGULAR);
     assert_workspace_dep_boundary(&spec);
 }

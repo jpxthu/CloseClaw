@@ -10,7 +10,9 @@
 //! `[target.'…'.dependencies]` section (including their `[….<name>]`
 //! sub-table forms). `dev-dependencies` and `build-dependencies` — declared
 //! at top level or under a `[target.'…']` table — are classified but exempt
-//! from the boundary judgment.
+//! from the boundary judgment. Per-crate name bans (`forbidden_in_regular`)
+//! additionally block listed names from any regular section regardless of
+//! declaration form.
 
 use std::fmt;
 use std::path::PathBuf;
@@ -128,6 +130,9 @@ pub struct DepBoundarySpec {
     /// Workspace crates that must stay dev-only: they may live in
     /// `[dev-dependencies]` but never in regular dependency sections.
     pub dev_only_workspace_deps: &'static [&'static str],
+    /// Names banned from regular dependency sections, matched by name
+    /// regardless of declaration form (path, crates.io version string, …).
+    pub forbidden_in_regular: &'static [&'static str],
 }
 
 impl DepBoundarySpec {
@@ -139,6 +144,7 @@ impl DepBoundarySpec {
             manifest_path: manifest_path.into(),
             allowed_workspace_deps: &[],
             dev_only_workspace_deps: &[],
+            forbidden_in_regular: &[],
         }
     }
 
@@ -153,6 +159,13 @@ impl DepBoundarySpec {
         self.dev_only_workspace_deps = deps;
         self
     }
+
+    /// Sets the names banned from regular dependency sections, matched by
+    /// name regardless of declaration form.
+    pub fn forbidden_in_regular(mut self, deps: &'static [&'static str]) -> Self {
+        self.forbidden_in_regular = deps;
+        self
+    }
 }
 
 /// Reads the crate's real `Cargo.toml` and asserts that its workspace-internal
@@ -160,8 +173,9 @@ impl DepBoundarySpec {
 ///
 /// Panics when the manifest cannot be read or parsed, when no regular
 /// dependency entry is extracted, when a dev-only crate leaks into a regular
-/// section, or when a workspace-internal dependency is outside
-/// `allowed_workspace_deps`.
+/// section, when a name listed in `forbidden_in_regular` appears in any
+/// regular section (by name, regardless of declaration form), or when a
+/// workspace-internal dependency is outside `allowed_workspace_deps`.
 pub fn assert_workspace_dep_boundary(spec: &DepBoundarySpec) {
     let manifest = std::fs::read_to_string(&spec.manifest_path).unwrap_or_else(|error| {
         panic!(
@@ -183,6 +197,7 @@ pub fn assert_workspace_dep_boundary(spec: &DepBoundarySpec) {
         spec.crate_name
     );
     assert_dev_only_crates_absent(&entries, spec);
+    assert_forbidden_names_absent(&entries, spec);
     let violations = workspace_internal_violations(&entries, spec.allowed_workspace_deps);
     assert!(
         violations.is_empty(),
@@ -199,6 +214,23 @@ fn assert_dev_only_crates_absent(entries: &[DependencyEntry], spec: &DepBoundary
         assert!(
             !leaked,
             "{}: dev-only workspace crate {dev_only} must not appear in regular dependencies",
+            spec.crate_name
+        );
+    }
+}
+
+/// Forbidden-by-name judgment: matches regular-section entries by name only,
+/// ignoring the declaration form, so crates.io version strings of banned
+/// names are blocked exactly like path declarations.
+fn assert_forbidden_names_absent(entries: &[DependencyEntry], spec: &DepBoundarySpec) {
+    for forbidden in spec.forbidden_in_regular {
+        let leaked = entries
+            .iter()
+            .any(|entry| entry.section.is_regular() && &entry.name == forbidden);
+        assert!(
+            !leaked,
+            "{}: {forbidden} is forbidden in regular dependencies (matched by name \
+             regardless of declaration form)",
             spec.crate_name
         );
     }

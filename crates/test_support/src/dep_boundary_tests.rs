@@ -424,6 +424,22 @@ closeclaw-session = { path = "../session" }
     assert_workspace_dep_boundary(&spec);
 }
 
+/// Forbidden-by-name semantics: the ban matches regular-section entries by
+/// name only, so a bare crates.io version string of a banned name — a
+/// declaration form the workspace-internal judgment deliberately ignores —
+/// must still be blocked.
+#[test]
+#[should_panic(expected = "forbidden in regular dependencies")]
+fn test_forbidden_crates_io_version_string_in_regular_section_is_rejected() {
+    let manifest = r#"
+[dependencies]
+tempfile = "3"
+"#;
+    let (_dir, spec) = synthetic_spec(manifest);
+    let spec = spec.forbidden_in_regular(&["tempfile"]);
+    assert_workspace_dep_boundary(&spec);
+}
+
 /// Writes the manifest into a temp dir (system temp per STANDARDS §8) and
 /// returns the dir so it outlives the spec's manifest path.
 fn synthetic_spec(manifest: &str) -> (TempDir, DepBoundarySpec) {

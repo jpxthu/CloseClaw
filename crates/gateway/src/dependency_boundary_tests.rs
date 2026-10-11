@@ -31,11 +31,17 @@ const DEV_ONLY_WORKSPACE_DEPS: [&str; 3] = [
     "closeclaw-workflow",
 ];
 
+/// Names banned from every regular dependency section, matched by name
+/// regardless of declaration form (restores the original
+/// `test_removed_edge_crates_are_absent_from_regular_dependencies` guard).
+const FORBIDDEN_IN_REGULAR: [&str; 2] = ["closeclaw-memory", "tempfile"];
+
 #[test]
 fn test_regular_dependencies_stay_within_allowed_edge_table() {
     let manifest = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("Cargo.toml");
     let spec = DepBoundarySpec::new("closeclaw-gateway", manifest)
         .allowed_workspace_deps(&ALLOWED_WORKSPACE_DEPS)
-        .dev_only_workspace_deps(&DEV_ONLY_WORKSPACE_DEPS);
+        .dev_only_workspace_deps(&DEV_ONLY_WORKSPACE_DEPS)
+        .forbidden_in_regular(&FORBIDDEN_IN_REGULAR);
     assert_workspace_dep_boundary(&spec);
 }
