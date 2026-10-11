@@ -74,10 +74,6 @@ chrono = { version = "0.4", features = ["serde"] }
 # Async trait (for IMAdapter)
 async-trait = "0.1"
 
-
-
-
-
 # File watching (hot reload)
 notify = "6.1"
 # Internal crates
@@ -106,7 +102,6 @@ clap = { version = "4.4", features = ["derive"] }
 
 # For getting home directory
 dirs = "5"
-
 
 [dev-dependencies]
 # Testing
