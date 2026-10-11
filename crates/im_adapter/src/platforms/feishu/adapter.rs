@@ -207,10 +207,13 @@ impl std::fmt::Debug for FeishuAdapter {
             .field("profile", &self.profile)
             .field("cli_command", &self.cli_command)
             .field("workspace_dir", &self.workspace_dir)
-            .field("last_metadata", &"<Arc<Mutex<HashMap>>>")
-            .field("media_store", &"<Arc<MediaStore>>")
-            .field("http_client", &"<reqwest::Client>")
-            .field("event_dedup", &"<Arc<Mutex<EventDeduplicator>>>")
+            .field("last_metadata", &format_args!("<Arc<Mutex<HashMap>>>"))
+            .field("media_store", &format_args!("<Arc<MediaStore>>"))
+            .field("http_client", &format_args!("<reqwest::Client>"))
+            .field(
+                "event_dedup",
+                &format_args!("<Arc<Mutex<EventDeduplicator>>>"),
+            )
             .finish()
     }
 }

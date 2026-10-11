@@ -80,6 +80,42 @@ fn test_adapter_debug_excludes_internal_impl_markers() {
 }
 
 #[test]
+fn test_adapter_debug_placeholders_are_bare_type_names() {
+    let adapter = FeishuAdapter::new("placeholder_bind".to_string(), make_test_media_store());
+    let debug_str = format!("{:?}", adapter);
+    // Bind exact placeholder strings so internal type names cannot drift silently.
+    assert!(
+        debug_str.contains("<Arc<MediaStore>>"),
+        "debug output should bind media_store type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<reqwest::Client>"),
+        "debug output should bind http_client type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<Arc<Mutex<HashMap>>>"),
+        "debug output should bind last_metadata type-name placeholder, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("<Arc<Mutex<EventDeduplicator>>>"),
+        "debug output should bind event_dedup type-name placeholder, got: {debug_str}"
+    );
+    // Placeholders must render bare (no quote wrapping from string-literal Debug).
+    assert!(
+        debug_str.contains("media_store: <Arc<MediaStore>>"),
+        "media_store placeholder should render without quotes, got: {debug_str}"
+    );
+    assert!(
+        debug_str.contains("http_client: <reqwest::Client>"),
+        "http_client placeholder should render without quotes, got: {debug_str}"
+    );
+    assert!(
+        !debug_str.contains("\"<"),
+        "no placeholder should be quote-wrapped, got: {debug_str}"
+    );
+}
+
+#[test]
 fn test_adapter_debug_workspace_dir_none_format() {
     let adapter = FeishuAdapter::new("ws_none_profile".to_string(), make_test_media_store());
     assert!(adapter.workspace_dir.is_none());
