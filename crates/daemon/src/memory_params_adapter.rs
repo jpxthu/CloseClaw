@@ -7,7 +7,7 @@
 //! the memory crate (`closeclaw_memory::params`), so this module performs
 //! pure field copies — no defaulting logic here.
 
-use closeclaw_common::{DreamingConfig, MemoryConfig};
+use closeclaw_common::MemoryConfig;
 use closeclaw_memory::params::{
     DreamingCapacityParams, DreamingDiaryParams, DreamingParams, DreamingScoringParams,
     DreamingThresholdParams, MinerParams, TranscriptCleanRules,
@@ -40,28 +40,30 @@ pub(crate) fn miner_config_from_memory(
     closeclaw_memory::miner::MinerConfig::from(miner_params_from_memory(config))
 }
 
-/// Map the resolved dreaming config onto [`DreamingParams`].
-pub(crate) fn dreaming_params_from_config(config: &DreamingConfig) -> DreamingParams {
+/// Map the `dreaming` section of the resolved memory config onto
+/// [`DreamingParams`].
+pub(crate) fn dreaming_params_from_config(config: &MemoryConfig) -> DreamingParams {
+    let dreaming = &config.dreaming;
     DreamingParams {
-        enabled: config.enabled,
+        enabled: dreaming.enabled,
         diary: DreamingDiaryParams {
-            enabled: config.diary.enabled,
-            path: config.diary.path.clone(),
+            enabled: dreaming.diary.enabled,
+            path: dreaming.diary.path.clone(),
         },
-        model: config.model.clone(),
+        model: dreaming.model.clone(),
         scoring: DreamingScoringParams {
-            frequency_weight: config.scoring.frequency_weight,
-            recency_weight: config.scoring.recency_weight,
-            explicitness_weight: config.scoring.explicitness_weight,
-            cross_agent_weight: config.scoring.cross_agent_weight,
-            negative_signal_weight: config.scoring.negative_signal_weight,
+            frequency_weight: dreaming.scoring.frequency_weight,
+            recency_weight: dreaming.scoring.recency_weight,
+            explicitness_weight: dreaming.scoring.explicitness_weight,
+            cross_agent_weight: dreaming.scoring.cross_agent_weight,
+            negative_signal_weight: dreaming.scoring.negative_signal_weight,
         },
         threshold: DreamingThresholdParams {
-            absolute: config.threshold.absolute,
-            relative: config.threshold.relative,
+            absolute: dreaming.threshold.absolute,
+            relative: dreaming.threshold.relative,
         },
         capacity: DreamingCapacityParams {
-            max_rules: config.capacity.max_rules,
+            max_rules: dreaming.capacity.max_rules,
         },
     }
 }
@@ -69,7 +71,6 @@ pub(crate) fn dreaming_params_from_config(config: &DreamingConfig) -> DreamingPa
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::{ForgettingConfig, MiningConfig};
     use closeclaw_memory::params::{
         default_forgetting_initial_ttl_days, default_forgetting_reidentify_extension_days,
         default_mining_dedup_window_days, default_mining_max_events_per_session,
@@ -77,20 +78,14 @@ mod tests {
 
     #[test]
     fn test_miner_config_from_memory_maps_mining_fields() {
-        let config = MemoryConfig {
-            mining: MiningConfig {
-                enabled: Some(true),
-                model: Some("gpt-4o-mini".to_string()),
-                max_events_per_session: Some(20),
-                dedup_window_days: Some(14),
-                transcript_clean_rules: closeclaw_common::TranscriptCleanRules {
-                    min_turns: Some(3),
-                    min_owner_msgs: Some(4),
-                    format: Some("plain".to_string()),
-                },
-            },
-            ..Default::default()
-        };
+        let mut config = MemoryConfig::default();
+        config.mining.enabled = Some(true);
+        config.mining.model = Some("gpt-4o-mini".to_string());
+        config.mining.max_events_per_session = Some(20);
+        config.mining.dedup_window_days = Some(14);
+        config.mining.transcript_clean_rules.min_turns = Some(3);
+        config.mining.transcript_clean_rules.min_owner_msgs = Some(4);
+        config.mining.transcript_clean_rules.format = Some("plain".to_string());
 
         let miner = miner_config_from_memory(&config);
         assert!(miner.enabled);
@@ -104,14 +99,10 @@ mod tests {
 
     #[test]
     fn test_miner_config_from_memory_maps_forgetting_fields() {
-        let config = MemoryConfig {
-            forgetting: ForgettingConfig {
-                initial_ttl_days: Some(60),
-                reidentify_extension_days: Some(45),
-                injection_extension_days: Some(10),
-            },
-            ..Default::default()
-        };
+        let mut config = MemoryConfig::default();
+        config.forgetting.initial_ttl_days = Some(60);
+        config.forgetting.reidentify_extension_days = Some(45);
+        config.forgetting.injection_extension_days = Some(10);
 
         let miner = miner_config_from_memory(&config);
         assert_eq!(miner.initial_ttl_days, 60);
@@ -142,27 +133,19 @@ mod tests {
 
     #[test]
     fn test_dreaming_params_from_config_maps_all_fields() {
-        let config = DreamingConfig {
-            enabled: Some(true),
-            diary: closeclaw_common::DreamingDiaryConfig {
-                enabled: Some(false),
-                path: Some("custom/diary/".to_string()),
-            },
-            model: Some("dream-model".to_string()),
-            schedule: Some("30 4 * * *".to_string()),
-            scoring: closeclaw_common::DreamingScoringConfig {
-                frequency_weight: Some(2.0),
-                recency_weight: Some(0.7),
-                explicitness_weight: Some(1.1),
-                cross_agent_weight: Some(1.4),
-                negative_signal_weight: Some(-0.8),
-            },
-            threshold: closeclaw_common::DreamingThresholdConfig {
-                absolute: Some(3.0),
-                relative: Some(0.5),
-            },
-            capacity: closeclaw_common::DreamingCapacityConfig { max_rules: Some(8) },
-        };
+        let mut config = MemoryConfig::default();
+        config.dreaming.enabled = Some(true);
+        config.dreaming.diary.enabled = Some(false);
+        config.dreaming.diary.path = Some("custom/diary/".to_string());
+        config.dreaming.model = Some("dream-model".to_string());
+        config.dreaming.scoring.frequency_weight = Some(2.0);
+        config.dreaming.scoring.recency_weight = Some(0.7);
+        config.dreaming.scoring.explicitness_weight = Some(1.1);
+        config.dreaming.scoring.cross_agent_weight = Some(1.4);
+        config.dreaming.scoring.negative_signal_weight = Some(-0.8);
+        config.dreaming.threshold.absolute = Some(3.0);
+        config.dreaming.threshold.relative = Some(0.5);
+        config.dreaming.capacity.max_rules = Some(8);
 
         let params = dreaming_params_from_config(&config);
         assert_eq!(params.enabled, Some(true));
@@ -181,7 +164,7 @@ mod tests {
 
     #[test]
     fn test_dreaming_params_from_config_defaults_stay_none() {
-        let params = dreaming_params_from_config(&DreamingConfig::default());
+        let params = dreaming_params_from_config(&MemoryConfig::default());
         assert_eq!(params.enabled, None);
         assert_eq!(params.diary.enabled, None);
         assert_eq!(params.diary.path, None);

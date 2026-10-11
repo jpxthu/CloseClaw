@@ -5,6 +5,11 @@
 
 use super::*;
 
+use crate::memory_config::sub_configs::{
+    DreamingConfig, DreamingThresholdConfig, ForgettingConfig, MemoryStorageConfig, MiningConfig,
+    SearchConfig, TranscriptCleanRules,
+};
+
 // ── MiningConfig tests ──────────────────────────────────────────────
 
 #[test]

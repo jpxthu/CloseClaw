@@ -406,7 +406,7 @@ fn test_dreaming_pipeline_built_from_config_manager() {
     );
 
     let pipeline = DreamingPipeline::with_config(
-        crate::memory_params_adapter::dreaming_params_from_config(&memory_config.config.dreaming),
+        crate::memory_params_adapter::dreaming_params_from_config(&memory_config.config),
     );
 
     // Verify the pipeline was constructed (non-trivial — with_config populates
@@ -428,26 +428,16 @@ fn test_dreaming_pipeline_built_from_config_manager() {
 /// the mining config (not from MinerConfig::default()).
 #[test]
 fn test_miner_config_from_mining_config() {
-    let memory_config_enabled = closeclaw_common::MemoryConfig {
-        mining: closeclaw_common::MiningConfig {
-            enabled: Some(true),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut memory_config_enabled = closeclaw_common::MemoryConfig::default();
+    memory_config_enabled.mining.enabled = Some(true);
     let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_enabled);
     assert!(
         miner_cfg.enabled,
         "MinerConfig should be enabled when MiningConfig.enabled = true"
     );
 
-    let memory_config_disabled = closeclaw_common::MemoryConfig {
-        mining: closeclaw_common::MiningConfig {
-            enabled: Some(false),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut memory_config_disabled = closeclaw_common::MemoryConfig::default();
+    memory_config_disabled.mining.enabled = Some(false);
     let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_disabled);
     assert!(
         !miner_cfg.enabled,
@@ -455,13 +445,7 @@ fn test_miner_config_from_mining_config() {
     );
 
     // When enabled is None, fallback should be false (per config.md).
-    let memory_config_none = closeclaw_common::MemoryConfig {
-        mining: closeclaw_common::MiningConfig {
-            enabled: None,
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let memory_config_none = closeclaw_common::MemoryConfig::default();
     let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config_none);
     assert!(
         !miner_cfg.enabled,
@@ -473,15 +457,10 @@ fn test_miner_config_from_mining_config() {
 /// max_events_per_session and dedup_window_days.
 #[test]
 fn test_miner_config_from_mining_config_custom_values() {
-    let memory_config = closeclaw_common::MemoryConfig {
-        mining: closeclaw_common::MiningConfig {
-            enabled: Some(true),
-            max_events_per_session: Some(50),
-            dedup_window_days: Some(60),
-            ..Default::default()
-        },
-        ..Default::default()
-    };
+    let mut memory_config = closeclaw_common::MemoryConfig::default();
+    memory_config.mining.enabled = Some(true);
+    memory_config.mining.max_events_per_session = Some(50);
+    memory_config.mining.dedup_window_days = Some(60);
     let miner_cfg = crate::memory_params_adapter::miner_config_from_memory(&memory_config);
     assert_eq!(miner_cfg.max_events_per_session, 50);
     assert_eq!(miner_cfg.dedup_window_days, 60);
