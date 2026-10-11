@@ -34,8 +34,17 @@ fn test_permission_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
     ))
 }
 
-fn test_bg_manager() -> Arc<dyn closeclaw_common::TaskManager> {
-    Arc::new(FakeTaskManager::new())
+/// Single construction entry for the shared fake: the concrete fake backs
+/// fake-only observation hooks (`is_running`), the trait object is handed
+/// to the code under test.
+fn test_bg_pair() -> (FakeTaskManager, Arc<dyn TaskManager>) {
+    let fake = FakeTaskManager::new();
+    let bg: Arc<dyn TaskManager> = Arc::new(fake.clone());
+    (fake, bg)
+}
+
+fn test_bg_manager() -> Arc<dyn TaskManager> {
+    test_bg_pair().1
 }
 
 fn test_session_manager() -> Arc<closeclaw_gateway::SessionManager> {
@@ -315,8 +324,7 @@ fn test_build_auto_background_result_has_task_id_and_flag() {
 #[tokio::test]
 async fn test_execute_command_run_in_background_returns_background_task() {
     use closeclaw_common::TaskState;
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (bg_manager, bg_trait) = test_bg_pair();
 
     let tmp = TempDir::new().unwrap();
     let ctx = BashExecCtx {
@@ -351,7 +359,7 @@ async fn test_execute_command_run_in_background_returns_background_task() {
     );
 
     // The task must be tracked by the manager (state: Running).
-    let snapshot = bg_manager
+    let snapshot = bg_trait
         .get_task(task_id)
         .await
         .expect("background task must be tracked by the manager");
@@ -367,8 +375,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
     // via `spawn_sh_command` (which would fail for an invalid command
     // like `nonexistent_xyz`). With the new `spawn()` path, the task is
     // registered immediately and the command runs in the background.
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (bg_manager, bg_trait) = test_bg_pair();
     let tmp = TempDir::new().unwrap();
     let ctx = BashExecCtx {
         command: "nonexistent_xyz_abcdef_12345",
@@ -394,8 +401,7 @@ async fn test_execute_command_run_in_background_with_long_command() {
 
 #[tokio::test]
 async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (bg_manager, bg_trait) = test_bg_pair();
     // Spawn a child that will outlast the bg_timeout.
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
@@ -452,15 +458,14 @@ async fn test_handle_foreground_result_auto_backgrounds_on_timeout() {
 
     // Clean up: kill the orphan sleep so it does not linger after the
     // test process exits.
-    let _ = bg_manager.kill_task(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
 
 #[tokio::test]
 async fn test_handle_foreground_result_returns_foreground_on_success() {
     // Control test: when the child completes before bg_timeout, the
     // result must be a foreground result (no background fields).
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (_bg_manager, bg_trait) = test_bg_pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     // Wrap the child in the shared slot — `handle_foreground_result`
@@ -670,8 +675,7 @@ async fn test_bash_missing_command_rejected() {
 /// Signal fires → child is backgrounded → result contains backgroundedByUser.
 #[tokio::test]
 async fn test_handle_foreground_result_manual_background_signal() {
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (bg_manager, bg_trait) = test_bg_pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 5", tmp.path().to_str().unwrap()).expect("spawn sleep");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -720,14 +724,13 @@ async fn test_handle_foreground_result_manual_background_signal() {
         "outputPath must be present"
     );
     assert!(bg_manager.is_running(task_id).await);
-    let _ = bg_manager.kill_task(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
 
 /// No signal → normal foreground exit. No background fields in result.
 #[tokio::test]
 async fn test_handle_foreground_result_normal_foreground_no_signal() {
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (_bg_manager, bg_trait) = test_bg_pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("true", tmp.path().to_str().unwrap()).expect("spawn true");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -766,8 +769,7 @@ async fn test_handle_foreground_result_normal_foreground_no_signal() {
 /// (biased select picks the signal branch first).
 #[tokio::test]
 async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
-    let bg_manager = FakeTaskManager::new();
-    let bg_trait: Arc<dyn closeclaw_common::TaskManager> = Arc::new(bg_manager.clone());
+    let (_bg_manager, bg_trait) = test_bg_pair();
     let tmp = TempDir::new().unwrap();
     let child = spawn_sh_command("sleep 10", tmp.path().to_str().unwrap()).expect("spawn sleep");
     let child_arc: Arc<Mutex<Option<tokio::process::Child>>> = Arc::new(Mutex::new(Some(child)));
@@ -813,5 +815,5 @@ async fn test_handle_foreground_result_manual_signal_preferred_over_auto() {
     let task_id = result.data["backgroundTaskId"]
         .as_str()
         .expect("backgroundTaskId must be present");
-    let _ = bg_manager.kill_task(task_id).await;
+    let _ = bg_trait.kill_task(task_id).await;
 }
