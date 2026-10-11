@@ -2,7 +2,7 @@
 //!
 //! Only [`MemoryConfig`] is part of the crate's publicly reachable surface
 //! (it is the entry listed in `docs/design/common/shared-types.md`); the
-//! sub-configuration structs live in the private-ish [`sub_configs`] module
+//! sub-configuration structs live in the private-ish `sub_configs` module
 //! and are not re-exported at any level. `default_*` helpers stay here for
 //! downstream consumers (they are not part of the admission comparison).
 

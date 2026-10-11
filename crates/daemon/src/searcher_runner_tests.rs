@@ -138,16 +138,9 @@ fn test_deserialize_memory_config_round_trip() {
     let json = serde_json::to_value(&mem_cfg).expect("serialize memory config");
     let parsed = deserialize_memory_config(&json).expect("serialized config must deserialize");
     assert_eq!(
-        parsed.search.enabled,
-        Some(true),
-        "serde round trip must preserve the search fields"
+        parsed, mem_cfg,
+        "serde round trip must preserve the whole memory config"
     );
-    assert_eq!(parsed.search.model.as_deref(), Some("search-model"));
-    assert_eq!(parsed.search.context_turns, Some(8));
-    assert_eq!(parsed.search.timeout_ms, Some(1500));
-    assert_eq!(parsed.search.max_summary_chars, Some(300));
-    assert_eq!(parsed.search.min_entity_hits, Some(2));
-    assert_eq!(parsed.search.top_k_events, Some(4));
 }
 
 // ── Snapshot → internal message conversion ────────────────────────────────

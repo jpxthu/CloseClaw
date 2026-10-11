@@ -138,7 +138,6 @@ mod tests {
         config.dreaming.diary.enabled = Some(false);
         config.dreaming.diary.path = Some("custom/diary/".to_string());
         config.dreaming.model = Some("dream-model".to_string());
-        config.dreaming.schedule = Some("30 4 * * *".to_string());
         config.dreaming.scoring.frequency_weight = Some(2.0);
         config.dreaming.scoring.recency_weight = Some(0.7);
         config.dreaming.scoring.explicitness_weight = Some(1.1);
