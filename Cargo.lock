@@ -960,6 +960,7 @@ dependencies = [
  "closeclaw-common",
  "closeclaw-config",
  "closeclaw-debug-log",
+ "closeclaw-test-support",
  "closeclaw-workflow",
  "dirs",
  "filetime",
