@@ -46,7 +46,7 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 ### F3. Daemon 生命周期管理
 
-Owner 可以通过 CLI 命令管理 daemon 进程的启停。
+Owner 可以通过 CLI 命令管理 daemon 进程的启停与重启。
 
 - 使用 `closeclaw run` 启动 daemon
 
@@ -56,7 +56,10 @@ Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - daemon 已运行时执行 `closeclaw run` 应拒绝启动新实例
 
+- 使用 `closeclaw restart` 取消待执行的重启；使用 `closeclaw restart --force` 立即执行重启。此命令依赖 daemon 已运行
+
 > **交叉引用**：PID 文件机制见 [platform §F1](platform.md)（跨平台进程生命周期管理）；daemon 启动与关闭过程的完整需求见 [daemon §F1–F2](daemon.md)（系统启动、优雅关闭）。
+> **交叉引用**：待执行的重启与重启的执行时机详见 [daemon §F6](daemon.md)（配置触发的网关重启）。
 
 ### F4. 配置管理
 
@@ -72,11 +75,13 @@ Owner 可以通过 CLI 管理 CloseClaw 的配置文件。
 
 - **配置校验**：校验现有配置文件格式的合法性并输出结果
 
+- **配置列表**：列出配置目录下的配置文件及其版本
+
 > **交叉引用**：配置文件结构、安全写入、重载等需求见 [config §F1–F6](config.md)（多文件配置结构至配置版本兼容）。
 
 ### F5. Agent 管理
 
-Owner 可以通过 CLI 查询和管理 Agent 实例。此功能依赖 daemon 已运行。
+Owner 可以通过 CLI 列出全部 Agent、查询指定 Agent 的完整配置档案、创建新的 Agent 实例。此功能依赖 daemon 已运行。
 
 > **交叉引用**：Agent 配置档案的创建、查询、列表等完整需求见 [agent §F1](agent.md)（Agent 配置档案）。
 
@@ -95,6 +100,10 @@ Owner 可以通过 CLI 查看权限规则——包括校验规则语法和列出
 ### F8. 跨平台支持
 
 跨平台一致性见 [platform §F5](platform.md)（系统差异隔离）及本文档非功能需求。
+
+### F9. 管理命令结构化输出
+
+管理类命令（F3–F7）在人类可读文本之外，支持以 `--json` 输出机器可读的结构化结果，便于 Owner 脚本化处理命令输出。
 
 ## 非功能需求
 
