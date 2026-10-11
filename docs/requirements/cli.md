@@ -55,23 +55,21 @@ Owner 可以在终端中与 Agent 进行文本对话。
 
 ### F3. Daemon 生命周期管理
 
-Owner 可以通过 CLI 命令管理 daemon 进程的启停与重启。
+Owner 可以通过 CLI 命令管理 daemon 进程的启停。
 
 - 使用 `closeclaw run` 启动 daemon
+
+- 使用 `closeclaw run --config-dir <dir>` 指定 daemon 使用的配置目录，默认为标准配置目录；该参数支持在同一台机器上运行多个互不干扰的 CloseClaw 实例
 
 - 使用 `closeclaw stop` 停止 daemon
 
 - daemon 未运行时执行 `closeclaw stop` 不报错，正常退出
 
-- daemon 已运行时执行 `closeclaw run` 应拒绝启动新实例
-
-- 使用 `closeclaw restart` 取消待执行的重启
-
-- 使用 `closeclaw restart --force` 立即执行重启。此命令需 daemon 已运行
+- 同一配置目录下 daemon 已运行时，执行 `closeclaw run` 应拒绝启动新实例
 
 > **交叉引用**：PID 文件机制详见 [platform §F1](platform.md)（跨平台进程生命周期管理）。
 > **交叉引用**：daemon 启动与关闭过程的完整需求详见 [daemon §F1–F2](daemon.md)（系统启动、优雅关闭）。
-> **交叉引用**：待执行的重启与重启的执行时机详见 [daemon §F6](daemon.md)（配置触发的网关重启）。
+> **交叉引用**：配置目录的结构详见 [config §F1](config.md)（多文件配置结构）。
 
 ### F4. 配置管理
 
@@ -93,30 +91,25 @@ Owner 可以通过 CLI 管理 CloseClaw 的配置文件。
 
 - 首次配置时引导创建初始 Agent，创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）
 
+- 支持通过 `--yes` 跳过确认提示，非交互写入配置
+
 #### 配置校验
 
 校验现有配置文件格式的合法性并输出结果。
-
-#### 配置列表
-
-列出配置目录下的配置文件及其版本。
 
 > **交叉引用**：配置文件结构、安全写入、重载等需求详见 [config §F1–F6](config.md)（多文件配置结构至配置版本兼容）。
 
 ### F5. Agent 管理
 
-Owner 可以通过 CLI 列出全部 Agent、查询指定 Agent 的完整配置档案、创建新的 Agent 实例。此功能需 daemon 已运行。
+Owner 可以通过 CLI 列出全部 Agent、查询指定 Agent 的完整配置档案。此功能需 daemon 已运行。
 
 - 使用 `closeclaw agent list` 列出全部 Agent
 
 - 使用 `closeclaw agent info <id>` 查询指定 Agent 的完整配置档案
 
-- 使用 `closeclaw agent create <name> [--model]` 创建新的 Agent 实例
-
 > **交叉引用**：Agent 配置档案的字段结构详见 [agent §F1](agent.md)（Agent 配置档案）。
 > **交叉引用**：运行时按 ID 查询完整配置档案的语义（返回字段、不含运行时派生项）详见 [agent §F6](agent.md)（运行时配置查询）。
 > **交叉引用**：Agent 的注册清单与配置目录加载机制详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：初始 Agent 的创建流程详见 [agent §F5](agent.md)（初始 Agent 创建）。
 
 ### F6. Skill 管理
 
@@ -134,14 +127,6 @@ Owner 可以通过 CLI 查看权限规则——包括校验规则的语法和列
 ### F8. 跨平台支持
 
 > **交叉引用**：CLI 的跨平台一致性详见 [platform §F5](platform.md)（系统差异隔离）及本文档非功能需求。
-
-### F9. 管理命令结构化输出
-
-管理类命令（F3–F7）默认输出适合人阅读的格式化文本，同时支持以全局 `--json` 输出机器可读的结构化结果，便于 Owner 脚本化处理命令输出。
-
-- `--json` 对 F3–F7 的管理命令一致生效；终端对话（F1）不适用
-
-- 开启后，命令的正常结果与错误结果均以 JSON 形式输出；未开启时输出人类可读文本
 
 ## 非功能需求
 
