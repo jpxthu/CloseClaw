@@ -81,32 +81,31 @@ async-trait = "0.1"
 # File watching (hot reload)
 notify = "6.1"
 # Internal crates
-closeclaw-memory = { path = "crates/memory" }
-closeclaw-common = { path = "crates/common" }
-closeclaw-debug-log = { path = "crates/debug_log" }
-closeclaw-config = { path = "crates/config" }
-closeclaw-session = { path = "crates/session" }
-closeclaw-llm = { path = "crates/llm" }
-closeclaw-permission = { path = "crates/permission" }
-closeclaw-gateway = { path = "crates/gateway" }
-closeclaw-skills = { path = "crates/skills" }
-closeclaw-tools = { path = "crates/tools" }
-closeclaw-im-adapter = { path = "crates/im_adapter" }
-closeclaw-processor-chain = { path = "crates/processor_chain" }
-closeclaw-platform = { path = "crates/platform" }
-closeclaw-tasks = { path = "crates/tasks" }
-closeclaw-slash = { path = "crates/slash" }
 closeclaw-agent = { path = "crates/agent" }
+closeclaw-cli = { path = "crates/cli" }
+closeclaw-common = { path = "crates/common" }
+closeclaw-config = { path = "crates/config" }
+closeclaw-daemon = { path = "crates/daemon" }
+closeclaw-debug-log = { path = "crates/debug_log" }
+closeclaw-gateway = { path = "crates/gateway" }
+closeclaw-im-adapter = { path = "crates/im_adapter" }
+closeclaw-llm = { path = "crates/llm" }
+closeclaw-memory = { path = "crates/memory" }
+closeclaw-permission = { path = "crates/permission" }
+closeclaw-platform = { path = "crates/platform" }
+closeclaw-processor-chain = { path = "crates/processor_chain" }
+closeclaw-session = { path = "crates/session" }
+closeclaw-skills = { path = "crates/skills" }
+closeclaw-slash = { path = "crates/slash" }
 closeclaw-system-prompt = { path = "crates/system_prompt" }
+closeclaw-tasks = { path = "crates/tasks" }
+closeclaw-tools = { path = "crates/tools" }
 
 # CLI argument parsing
 clap = { version = "4.4", features = ["derive"] }
 
 # For getting home directory
 dirs = "5"
-
-closeclaw-cli = { path = "crates/cli" }
-closeclaw-daemon = { path = "crates/daemon" }
 
 
 [dev-dependencies]

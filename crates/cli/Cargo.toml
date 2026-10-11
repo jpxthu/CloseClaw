@@ -10,12 +10,12 @@ name = "closeclaw_cli"
 path = "src/lib.rs"
 
 [dependencies]
+closeclaw-agent = { path = "../agent" }
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
-closeclaw-agent = { path = "../agent" }
-closeclaw-permission = { path = "../permission" }
-closeclaw-llm = { path = "../llm" }
 closeclaw-gateway = { path = "../gateway" }
+closeclaw-llm = { path = "../llm" }
+closeclaw-permission = { path = "../permission" }
 closeclaw-platform = { path = "../platform" }
 clap = { version = "4.4", features = ["derive"] }
 dialoguer = "0.11"

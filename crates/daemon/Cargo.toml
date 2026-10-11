@@ -44,24 +44,24 @@ dirs = "5"
 notify = "6.1"
 
 # Internal crates
+closeclaw-agent = { path = "../agent" }
+closeclaw-cli = { path = "../cli" }
 closeclaw-common = { path = "../common" }
 closeclaw-config = { path = "../config" }
 closeclaw-debug-log = { path = "../debug_log" }
-closeclaw-agent = { path = "../agent" }
-closeclaw-cli = { path = "../cli" }
 closeclaw-gateway = { path = "../gateway" }
+closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-memory = { path = "../memory" }
 closeclaw-permission = { path = "../permission" }
-closeclaw-session = { path = "../session" }
-closeclaw-skills = { path = "../skills" }
-closeclaw-system-prompt = { path = "../system_prompt" }
-closeclaw-tools = { path = "../tools" }
-closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-platform = { path = "../platform" }
 closeclaw-processor-chain = { path = "../processor_chain" }
+closeclaw-session = { path = "../session" }
+closeclaw-skills = { path = "../skills" }
 closeclaw-slash = { path = "../slash" }
+closeclaw-system-prompt = { path = "../system_prompt" }
 closeclaw-tasks = { path = "../tasks" }
+closeclaw-tools = { path = "../tools" }
 closeclaw-workflow = { path = "../workflow" }
 
 [dev-dependencies]
