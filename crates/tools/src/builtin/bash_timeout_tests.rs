@@ -12,62 +12,8 @@ use super::*;
 use serde_json::json;
 use tempfile::TempDir;
 
-/// Minimal mock that satisfies the `TaskManager` trait for foreground
-/// timeout tests. Only `backgroundize_task` needs real behavior; the
-/// rest are no-ops.
-struct TimeoutBgManager;
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for TimeoutBgManager {
-    async fn spawn_task(
-        &self,
-        _command: &str,
-        _cwd: &std::path::Path,
-        _is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-            "not used".into(),
-        ))
-    }
-    async fn backgroundize_task(
-        &self,
-        mut child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        // Kill and reap the child — this suite doesn't care about its survival.
-        let _ = child.kill().await;
-        // Return a fake task — the test only cares about whether the
-        // child was backgroundized, not the task itself.
-        Ok(closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/test-output"),
-        })
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        1800
-    }
-}
-
 fn bg_trait() -> Arc<dyn closeclaw_common::TaskManager> {
-    Arc::new(TimeoutBgManager)
+    Arc::new(FakeTaskManager::new())
 }
 
 /// Shared helper: build the `BashExecCtx` used by the timeout tests.
@@ -88,58 +34,6 @@ fn fg_test_env<'a>(
         session_id: "",
     };
     (ctx, agent_timeout_ms)
-}
-
-/// Mock TaskManager with configurable `max_execution_secs`.
-/// Used by tests that need a short total-execution-time limit
-/// to exercise the force-terminate path within reasonable test duration.
-struct ShortTimeoutBgManager {
-    max_secs: u64,
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::TaskManager for ShortTimeoutBgManager {
-    async fn spawn_task(
-        &self,
-        _command: &str,
-        _cwd: &std::path::Path,
-        _is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Err(closeclaw_common::BackgroundTaskError::SpawnFailed(
-            "not used".into(),
-        ))
-    }
-    async fn backgroundize_task(
-        &self,
-        _child: tokio::process::Child,
-        command: &str,
-        is_backgrounded: bool,
-        _session_id: &str,
-    ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError> {
-        Ok(closeclaw_common::BackgroundTask {
-            id: uuid::Uuid::new_v4().to_string(),
-            command: command.to_string(),
-            state: closeclaw_common::TaskState::Running { is_backgrounded },
-            output_path: std::path::PathBuf::from("/tmp/test-output"),
-        })
-    }
-    async fn kill_task(&self, _: &str) -> Result<(), closeclaw_common::BackgroundTaskError> {
-        Ok(())
-    }
-    async fn get_task(&self, _: &str) -> Option<closeclaw_common::BackgroundTask> {
-        None
-    }
-    async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-        vec![]
-    }
-    async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-        vec![]
-    }
-    async fn cleanup_all_finished(&self, _session_id: &str) {}
-    fn max_execution_secs(&self) -> u64 {
-        self.max_secs
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -422,13 +316,13 @@ fn test_auto_bg_timeout_constants() {
 async fn test_excluded_command_exceeds_max_execution_force_killed() {
     let tmp = TempDir::new().unwrap();
     // Mock with 1-second max execution limit.
-    // NOTE: `max_secs: 1` and `"sleep 3"` below are a tuned pair: the
-    // force-kill fires at ~1s, while the orphaned sleep keeps the pipe
-    // write end open until ~3s — that 2s gap doubles as the kill-timer
+    // NOTE: `with_max_execution_secs(1)` and `"sleep 3"` below are a tuned
+    // pair: the force-kill fires at ~1s, while the orphaned sleep keeps the
+    // pipe write end open until ~3s — that 2s gap doubles as the kill-timer
     // delay margin. Do not shorten the sleep further, or a late timer
     // makes this test flake as Completed instead of Failed.
     let bg: Arc<dyn closeclaw_common::TaskManager> =
-        Arc::new(ShortTimeoutBgManager { max_secs: 1 });
+        Arc::new(FakeTaskManager::new().with_max_execution_secs(1));
 
     let (ctx, agent_timeout_ms) = fg_test_env(&tmp, &bg, "sleep 3", None);
     let (outcome, _) = execute_foreground_command(&ctx, None, agent_timeout_ms)

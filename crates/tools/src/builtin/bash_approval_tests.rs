@@ -83,50 +83,7 @@ fn allow_all_engine() -> Arc<tokio::sync::RwLock<PermissionEngine>> {
 }
 
 fn make_bg_manager() -> Arc<dyn closeclaw_common::TaskManager> {
-    struct DummyTaskManager;
-    #[async_trait::async_trait]
-    impl closeclaw_common::TaskManager for DummyTaskManager {
-        async fn spawn_task(
-            &self,
-            _command: &str,
-            _cwd: &std::path::Path,
-            _is_backgrounded: bool,
-            _session_id: &str,
-        ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError>
-        {
-            unimplemented!("not needed for approval flow tests")
-        }
-        async fn backgroundize_task(
-            &self,
-            _child: tokio::process::Child,
-            _command: &str,
-            _is_backgrounded: bool,
-            _session_id: &str,
-        ) -> Result<closeclaw_common::BackgroundTask, closeclaw_common::BackgroundTaskError>
-        {
-            unimplemented!("not needed for approval flow tests")
-        }
-        async fn kill_task(
-            &self,
-            _task_id: &str,
-        ) -> Result<(), closeclaw_common::BackgroundTaskError> {
-            Ok(())
-        }
-        async fn get_task(&self, _task_id: &str) -> Option<closeclaw_common::BackgroundTask> {
-            None
-        }
-        async fn drain_notifications(&self) -> Vec<closeclaw_common::CompletionNotification> {
-            vec![]
-        }
-        async fn list_running_tasks(&self) -> Vec<closeclaw_common::RunningTaskInfo> {
-            vec![]
-        }
-        async fn cleanup_all_finished(&self, _session_id: &str) {}
-        fn max_execution_secs(&self) -> u64 {
-            1800
-        }
-    }
-    Arc::new(DummyTaskManager)
+    Arc::new(FakeTaskManager::new())
 }
 
 fn make_session_manager() -> Arc<SessionManager> {

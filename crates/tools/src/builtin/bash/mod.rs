@@ -22,6 +22,8 @@ pub(crate) use exec::ForegroundOutcome;
 #[cfg(test)]
 pub(crate) use super::bash_kill::{build_auto_background_result, build_background_result};
 #[cfg(test)]
+pub(crate) use crate::builtin::bash_test_support::FakeTaskManager;
+#[cfg(test)]
 pub(crate) use crate::permission_check::PermDeps;
 #[cfg(test)]
 pub(crate) use crate::{Tool, ToolCallError, ToolContext};
