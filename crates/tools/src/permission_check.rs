@@ -82,20 +82,36 @@ impl<'a> DenialRequest<'a> {
     }
 }
 
+/// Three-way outcome of [`route_denial_core`], making the denial-routing
+/// contract explicit instead of encoding it in a nested
+/// `Result<Option<T>, String>`.
+enum DenialOutcome {
+    /// Verdict is not `Denied` — caller proceeds, the approval flow is
+    /// untouched.
+    NotDenied,
+    /// Approval-pending, either via the `approval_request_id`
+    /// short-circuit or a fresh `submit_denial`.
+    Pending(ToolResult),
+    /// The flow rejected the submission (e.g. sub-agent / duplicate);
+    /// carries the denial reason for the caller to surface.
+    Rejected(String),
+}
+
 /// Shared core of [`route_denial`] and [`route_command_denial`].
 ///
 /// Routes a `Denied` verdict through the approval flow exactly once:
-/// - `Ok(None)` — verdict is not `Denied` (caller proceeds, the flow is
-///   untouched)
-/// - `Ok(Some(ToolResult))` — approval-pending, either via the
+/// - [`DenialOutcome::NotDenied`] — verdict is not `Denied` (caller
+///   proceeds, the flow is untouched)
+/// - [`DenialOutcome::Pending`] — approval-pending, either via the
 ///   `approval_request_id` short-circuit or a fresh `submit_denial`
-/// - `Err(reason)` — the flow rejected the submission (e.g. sub-agent /
-///   duplicate); `reason` is the denial reason for the caller to surface
+/// - [`DenialOutcome::Rejected`] — the flow rejected the submission
+///   (e.g. sub-agent / duplicate); the payload is the denial reason for
+///   the caller to surface
 async fn route_denial_core(
     verdict: &PermVerdict,
     request: DenialRequest<'_>,
     port: &PermDeps,
-) -> Result<Option<ToolResult>, String> {
+) -> DenialOutcome {
     // Build the approval-pending `ToolResult` shared by the
     // `approval_request_id` short-circuit and the fresh `submit_denial`
     // paths.
@@ -112,12 +128,12 @@ async fn route_denial_core(
             approval_request_id,
             ..
         } => (reason.clone(), approval_request_id.clone()),
-        _ => return Ok(None),
+        _ => return DenialOutcome::NotDenied,
     };
     // If the engine already submitted to the approval flow, use that
     // request ID directly instead of re-submitting.
     if let Some(request_id) = existing_request_id {
-        return Ok(Some(approval_pending(request_id)));
+        return DenialOutcome::Pending(approval_pending(request_id));
     }
     if let Some(request_id) = port
         .submit_denial(
@@ -129,42 +145,45 @@ async fn route_denial_core(
         )
         .await
     {
-        return Ok(Some(approval_pending(request_id)));
+        return DenialOutcome::Pending(approval_pending(request_id));
     }
-    Err(reason)
+    DenialOutcome::Rejected(reason)
 }
 
 /// Route a `Denied` verdict through the approval flow.
 ///
 /// Thin mapping shell over [`route_denial_core`]:
-/// - `Ok(None)` / `Ok(Some(ToolResult))` (approval-pending) pass through
-///   unchanged
-/// - `Err(reason)` maps to `Err(PermissionDenied(reason))`
+/// - [`DenialOutcome::NotDenied`] / [`DenialOutcome::Pending`] map to
+///   `Ok(None)` / `Ok(Some(ToolResult))` (approval-pending)
+/// - [`DenialOutcome::Rejected`] maps to `Err(PermissionDenied(reason))`
 async fn route_denial(
     verdict: &PermVerdict,
     request: DenialRequest<'_>,
     port: &PermDeps,
 ) -> Result<Option<ToolResult>, ToolCallError> {
-    route_denial_core(verdict, request, port)
-        .await
-        .map_err(ToolCallError::PermissionDenied)
+    match route_denial_core(verdict, request, port).await {
+        DenialOutcome::NotDenied => Ok(None),
+        DenialOutcome::Pending(result) => Ok(Some(result)),
+        DenialOutcome::Rejected(reason) => Err(ToolCallError::PermissionDenied(reason)),
+    }
 }
 
 /// Route a `Denied` verdict for command-level checks.
 ///
 /// Thin mapping shell over [`route_denial_core`]:
-/// - `Ok(None)` → `Permitted`
-/// - `Ok(Some(result))` → `PendingApproval(result)`
-/// - `Err(reason)` → `Denied(reason)` (caller should sandbox the command)
+/// - [`DenialOutcome::NotDenied`] → `Permitted`
+/// - [`DenialOutcome::Pending`] → `PendingApproval(result)`
+/// - [`DenialOutcome::Rejected`] → `Denied(reason)` (caller should
+///   sandbox the command)
 async fn route_command_denial(
     verdict: &PermVerdict,
     request: DenialRequest<'_>,
     port: &PermDeps,
 ) -> CommandPermissionResult {
     match route_denial_core(verdict, request, port).await {
-        Ok(None) => CommandPermissionResult::Permitted,
-        Ok(Some(result)) => CommandPermissionResult::PendingApproval(result),
-        Err(reason) => CommandPermissionResult::Denied(reason),
+        DenialOutcome::NotDenied => CommandPermissionResult::Permitted,
+        DenialOutcome::Pending(result) => CommandPermissionResult::PendingApproval(result),
+        DenialOutcome::Rejected(reason) => CommandPermissionResult::Denied(reason),
     }
 }
 
