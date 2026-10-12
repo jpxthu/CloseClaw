@@ -832,6 +832,7 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-debug-log",
+ "closeclaw-test-support",
  "dirs",
  "futures",
  "inventory",
@@ -846,7 +847,6 @@ dependencies = [
  "thiserror 2.0.18",
  "tokio",
  "tokio-util",
- "toml",
  "tracing",
  "url",
  "uuid",
@@ -862,6 +862,7 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-debug-log",
+ "closeclaw-test-support",
  "futures",
  "glob",
  "hex",
@@ -873,7 +874,6 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "toml",
  "tracing",
 ]
 
@@ -884,13 +884,13 @@ dependencies = [
  "async-trait",
  "chrono",
  "closeclaw-common",
+ "closeclaw-test-support",
  "rusqlite",
  "serde_json",
  "serial_test",
  "tempfile",
  "thiserror 2.0.18",
  "tokio",
- "toml",
  "tracing",
 ]
 

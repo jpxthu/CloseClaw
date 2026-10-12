@@ -59,8 +59,6 @@ dirs.workspace = true
 axum.workspace = true
 
 [dev-dependencies]
+closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true
 serial_test.workspace = true
-
-# Manifest parsing for dependency boundary tests
-toml.workspace = true
