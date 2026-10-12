@@ -260,29 +260,7 @@ pub async fn deliver(
 mod tests {
     use super::*;
     use crate::scenario::types::HttpError;
-    use crate::scenario::types::ResponseBlock;
-
-    fn text_block(content: &str) -> ResponseBlock {
-        ResponseBlock {
-            block_type: "text".to_string(),
-            content: Some(content.to_string()),
-            tool_name: None,
-            tool_arguments: None,
-            reasoning: None,
-            signature: None,
-        }
-    }
-
-    fn default_usage() -> crate::scenario::types::UsageResponse {
-        crate::scenario::types::UsageResponse {
-            prompt_tokens: Some(10),
-            completion_tokens: Some(20),
-            reasoning_tokens: None,
-            cache_hit_tokens: None,
-            cache_write_tokens: None,
-            cache_fields_missing: false,
-        }
-    }
+    use crate::test_util::{default_usage, text_block};
 
     // ------------------------------------------------------------------
     // apply_delay

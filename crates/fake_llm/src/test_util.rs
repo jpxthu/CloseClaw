@@ -3,7 +3,6 @@
 use crate::scenario::types::{ResponseBlock, UsageResponse};
 
 /// Build a text-only `ResponseBlock` with the given content.
-#[expect(dead_code)]
 pub(crate) fn text_block(content: &str) -> ResponseBlock {
     ResponseBlock {
         block_type: "text".to_string(),
@@ -16,7 +15,6 @@ pub(crate) fn text_block(content: &str) -> ResponseBlock {
 }
 
 /// Build a `UsageResponse` with fixed prompt=10 / completion=20 tokens.
-#[expect(dead_code)]
 pub(crate) fn default_usage() -> UsageResponse {
     UsageResponse {
         prompt_tokens: Some(10),
@@ -29,7 +27,6 @@ pub(crate) fn default_usage() -> UsageResponse {
 }
 
 /// Build a `UsageResponse` from explicit prompt/completion/cache token fields.
-#[expect(dead_code)]
 pub(crate) fn usage_with(
     prompt: Option<u32>,
     completion: Option<u32>,

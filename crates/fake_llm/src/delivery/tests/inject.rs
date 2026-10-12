@@ -1,33 +1,12 @@
 use crate::delivery::inject::*;
 use crate::delivery::sse::SseEvent;
-use crate::scenario::types::{HttpError, ResponseBlock, UsageResponse};
+use crate::scenario::types::HttpError;
+use crate::test_util::{default_usage, text_block};
 
 use std::pin::Pin;
 use std::task::{Context, Poll};
 
 use futures_core::Stream;
-
-fn text_block(content: &str) -> ResponseBlock {
-    ResponseBlock {
-        block_type: "text".to_string(),
-        content: Some(content.to_string()),
-        tool_name: None,
-        tool_arguments: None,
-        reasoning: None,
-        signature: None,
-    }
-}
-
-fn default_usage() -> UsageResponse {
-    UsageResponse {
-        prompt_tokens: Some(10),
-        completion_tokens: Some(20),
-        reasoning_tokens: None,
-        cache_hit_tokens: None,
-        cache_write_tokens: None,
-        cache_fields_missing: false,
-    }
-}
 
 /// Drain `stream` while items are immediately ready, returning the number of
 /// `Poll::Ready(Some(_))` items observed.
