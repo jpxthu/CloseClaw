@@ -112,16 +112,6 @@ async fn route_denial_core(
     request: DenialRequest<'_>,
     port: &PermDeps,
 ) -> DenialOutcome {
-    // Build the approval-pending `ToolResult` shared by the
-    // `approval_request_id` short-circuit and the fresh `submit_denial`
-    // paths.
-    fn approval_pending(request_id: String) -> ToolResult {
-        ToolResult {
-            data: approval_utils::build_approval_pending(request_id),
-            new_messages: vec![],
-            context_modifier: None,
-        }
-    }
     let (reason, existing_request_id) = match verdict {
         PermVerdict::Denied {
             reason,
@@ -133,7 +123,7 @@ async fn route_denial_core(
     // If the engine already submitted to the approval flow, use that
     // request ID directly instead of re-submitting.
     if let Some(request_id) = existing_request_id {
-        return DenialOutcome::Pending(approval_pending(request_id));
+        return DenialOutcome::Pending(approval_utils::approval_pending(request_id));
     }
     if let Some(request_id) = port
         .submit_denial(
@@ -145,7 +135,7 @@ async fn route_denial_core(
         )
         .await
     {
-        return DenialOutcome::Pending(approval_pending(request_id));
+        return DenialOutcome::Pending(approval_utils::approval_pending(request_id));
     }
     DenialOutcome::Rejected(reason)
 }

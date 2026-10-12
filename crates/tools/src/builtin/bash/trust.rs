@@ -84,11 +84,9 @@ pub(super) async fn route_trust_level(
             if let Some(request_id) =
                 submit_trust_level_denial(deps, ctx, command, PermRiskLevel::High).await
             {
-                Ok(TrustDecision::ApprovalPending(ToolResult {
-                    data: crate::builtin::approval_utils::build_approval_pending(request_id),
-                    new_messages: vec![],
-                    context_modifier: None,
-                }))
+                Ok(TrustDecision::ApprovalPending(
+                    crate::builtin::approval_utils::approval_pending(request_id),
+                ))
             } else {
                 Ok(TrustDecision::Blocked(format!(
                     "Blocked: uncertain command — {}",
