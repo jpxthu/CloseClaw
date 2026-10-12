@@ -42,3 +42,8 @@ pub(crate) fn usage_with(
         cache_fields_missing: false,
     }
 }
+
+/// Build a `UsageResponse` carrying only prompt/completion token counts.
+pub(crate) fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> UsageResponse {
+    usage_with(Some(prompt_tokens), Some(completion_tokens), None, None)
+}
