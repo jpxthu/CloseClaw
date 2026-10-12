@@ -84,7 +84,6 @@ rust-version = "1.80"
 fake-llm = ["closeclaw-llm/fake-llm"]
 
 [dependencies]
-# Async runtime - pinned to older version to avoid edition2024 issues
 tokio.workspace = true
 # Cancellation tokens with native parent/child derivation (used for cascade stop)
 # The `sync` module (containing `CancellationToken`) is always available; no
@@ -96,7 +95,6 @@ futures.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 
-# Logging - pinned to older versions
 tracing.workspace = true
 tracing-subscriber.workspace = true
 
