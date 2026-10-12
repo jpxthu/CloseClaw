@@ -14,8 +14,7 @@ use std::fs;
 use std::path::PathBuf;
 
 use closeclaw_test_support::dep_boundary::{
-    assert_workspace_dep_boundary, is_workspace_internal_declaration, regular_dependencies,
-    workspace_deps_snapshot, DepBoundarySpec,
+    assert_workspace_dep_boundary, internal_dependency_names, DepBoundarySpec,
 };
 
 const ALLOWED_WORKSPACE_DEPS: [&str; 3] = [
@@ -38,20 +37,8 @@ fn test_regular_dependencies_stay_within_allowed_edge_table() {
 #[test]
 fn test_only_allowed_workspace_crates_are_declared_as_internal_deps() {
     let manifest = fs::read_to_string(manifest_path()).expect("read this crate's Cargo.toml");
-    let entries = regular_dependencies(&manifest).expect("parse this crate's Cargo.toml");
-    let workspace_deps = workspace_deps_snapshot(&manifest_path());
-    let mut internal: Vec<&str> = entries
-        .iter()
-        .filter(|entry| {
-            is_workspace_internal_declaration(
-                &entry.name,
-                &entry.declaration,
-                workspace_deps.as_ref(),
-            )
-        })
-        .map(|entry| entry.name.as_str())
-        .collect();
-    internal.sort_unstable();
+    let internal = internal_dependency_names(&manifest, &manifest_path())
+        .expect("parse this crate's Cargo.toml");
     assert_eq!(
         internal,
         vec!["closeclaw-common", "closeclaw-debug-log"],

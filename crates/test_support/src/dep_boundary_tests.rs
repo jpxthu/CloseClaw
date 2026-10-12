@@ -1,8 +1,9 @@
 //! Unit tests for the shared dependency boundary guard.
 //!
-//! The parser behavior cases are merged from the five hand-written
+//! The parser behavior cases are merged from the eight hand-written
 //! `dependency_boundary_tests.rs` files (slash, processor_chain, session,
-//! tools, gateway) that this crate replaces, deduplicated, and re-targeted
+//! tools, gateway, llm, memory, im_adapter) that this crate replaces,
+//! deduplicated, and re-targeted
 //! at the real `toml` grammar implementation. Two cases are explicit
 //! regressions for the common defects of the hand-rolled scanners
 //! (issue #3424): look-alike sections misjudged as regular dependencies,
@@ -14,9 +15,9 @@ use std::path::PathBuf;
 use tempfile::TempDir;
 
 use crate::dep_boundary::{
-    assert_workspace_dep_boundary, is_workspace_internal_declaration, manifest_dependencies,
-    regular_dependencies, workspace_internal_violations, DepBoundarySpec, DependencySection,
-    WorkspaceDepsSnapshot,
+    assert_workspace_dep_boundary, internal_dependency_names, is_workspace_internal_declaration,
+    manifest_dependencies, regular_dependencies, workspace_deps_snapshot,
+    workspace_internal_violations, DepBoundarySpec, DependencySection, WorkspaceDepsSnapshot,
 };
 
 #[test]
@@ -612,4 +613,76 @@ fn test_assert_entry_still_rejects_inherited_member_violations() {
     );
     let spec = spec.allowed_workspace_deps(&[]);
     assert_workspace_dep_boundary(&spec);
+}
+
+/// The exact-surface helper returns the workspace-internal regular
+/// dependency names sorted, with inherited externals (root entry without a
+/// `path`) excluded and inherited members kept.
+#[test]
+fn test_internal_dependency_names_resolve_inheritance_and_sort() {
+    let (_dir, spec) = nested_workspace_spec(
+        "tokio = \"1\"\ncloseclaw-memory = { path = \"../memory\" }",
+        "closeclaw-memory.workspace = true\ncloseclaw-common = { path = \"../common\" }\ntokio.workspace = true\n",
+    );
+    let manifest =
+        std::fs::read_to_string(&spec.manifest_path).expect("read the synthetic member manifest");
+    let names = internal_dependency_names(&manifest, &spec.manifest_path)
+        .expect("parse the synthetic member manifest");
+    assert_eq!(
+        names,
+        vec![
+            "closeclaw-common".to_string(),
+            "closeclaw-memory".to_string()
+        ],
+        "inherited members are listed sorted; inherited externals stay out"
+    );
+}
+
+/// An intermediate manifest that parses but carries no `[workspace]` table
+/// (e.g. a stray package manifest between the member and the root) must not
+/// stop the upward walk: resolution continues to the root workspace
+/// manifest — the `continue` branch of [`workspace_deps_snapshot`].
+#[test]
+fn test_snapshot_walks_past_intermediate_manifest_without_workspace_table() {
+    let dir = TempDir::new().expect("create temp dir for the synthetic workspace");
+    std::fs::write(
+        dir.path().join("Cargo.toml"),
+        "[workspace]\nmembers = []\n\n[workspace.dependencies]\ntokio = \"1\"\ncloseclaw-memory = { path = \"../memory\" }\n",
+    )
+    .expect("write the synthetic workspace manifest");
+    let intermediate_dir = dir.path().join("packages");
+    std::fs::create_dir_all(&intermediate_dir).expect("create the intermediate dir");
+    std::fs::write(
+        intermediate_dir.join("Cargo.toml"),
+        "[package]\nname = \"intermediate\"\n",
+    )
+    .expect("write the intermediate manifest without a [workspace] table");
+    let member_dir = intermediate_dir.join("member");
+    std::fs::create_dir_all(&member_dir).expect("create the member dir");
+    let manifest_path = member_dir.join("Cargo.toml");
+    std::fs::write(
+        &manifest_path,
+        "[dependencies]\ntokio.workspace = true\ncloseclaw-memory.workspace = true\n",
+    )
+    .expect("write the member manifest");
+
+    let snapshot = workspace_deps_snapshot(&manifest_path).expect("resolve the root table");
+    assert_eq!(
+        snapshot.get("tokio"),
+        Some(&false),
+        "resolution must skip past the intermediate manifest to the root table"
+    );
+    assert_eq!(snapshot.get("closeclaw-memory"), Some(&true));
+
+    // End to end: the inherited external stays out of the edge-table
+    // judgment while the inherited member is still judged (and, being
+    // allow-listed here, accepted).
+    let spec = DepBoundarySpec::new("synthetic-member", manifest_path.clone())
+        .allowed_workspace_deps(&["closeclaw-memory"]);
+    assert_workspace_dep_boundary(&spec);
+    let manifest = std::fs::read_to_string(&manifest_path).expect("read the member manifest");
+    assert_eq!(
+        internal_dependency_names(&manifest, &manifest_path).expect("parse the member manifest"),
+        vec!["closeclaw-memory".to_string()]
+    );
 }

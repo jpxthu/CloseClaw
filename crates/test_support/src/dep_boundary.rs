@@ -101,7 +101,8 @@ pub fn regular_dependencies(manifest: &str) -> Result<Vec<DependencyEntry>, Mani
 /// dependency name maps to whether its entry declares a `path` key — and
 /// thus resolves to a workspace member crate rather than an external
 /// dependency. Built by [`workspace_deps_snapshot`] or injected verbatim in
-/// unit tests.
+/// unit tests. `true = contains path = workspace member`, e.g.
+/// `{"closeclaw-common": true, "tokio": false}`.
 pub type WorkspaceDepsSnapshot = HashMap<String, bool>;
 
 /// Locates the closest ancestor manifest containing a `[workspace]` table,
@@ -202,6 +203,34 @@ pub fn workspace_internal_violations(
     violations.sort_unstable();
     violations.dedup();
     violations
+}
+
+/// Names of the workspace-internal regular dependencies of the manifest
+/// `manifest` located at `manifest_path`, sorted: the regular entries are
+/// extracted, `workspace = true` inheritance targets are resolved against
+/// the root `[workspace.dependencies]` snapshot found by walking up from
+/// `manifest_path` (see [`workspace_deps_snapshot`]), and only entries
+/// judged internal by [`is_workspace_internal_declaration`] are kept.
+/// Companion to [`workspace_internal_violations`] for exact-surface
+/// assertions.
+pub fn internal_dependency_names(
+    manifest: &str,
+    manifest_path: &Path,
+) -> Result<Vec<String>, ManifestError> {
+    let workspace_deps = workspace_deps_snapshot(manifest_path);
+    let mut names: Vec<String> = regular_dependencies(manifest)?
+        .iter()
+        .filter(|entry| {
+            is_workspace_internal_declaration(
+                &entry.name,
+                &entry.declaration,
+                workspace_deps.as_ref(),
+            )
+        })
+        .map(|entry| entry.name.clone())
+        .collect();
+    names.sort_unstable();
+    Ok(names)
 }
 
 /// Declarative boundary specification for one crate, consumed by
