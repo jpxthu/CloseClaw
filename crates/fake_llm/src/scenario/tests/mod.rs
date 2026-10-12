@@ -1,4 +1,5 @@
 use super::*;
+use crate::test_util::usage_response;
 use crate::types::ProtocolKind;
 
 fn text_turn(content: &str) -> TurnResponse {
@@ -138,12 +139,7 @@ fn test_decide_captures_usage() {
         name: "usage-scene".to_string(),
         match_: None,
         turns: vec![TurnResponse {
-            response: ResponseShape::Usage(UsageResponse {
-                prompt_tokens: Some(10),
-                completion_tokens: Some(20),
-                ..Default::default()
-            })
-            .into(),
+            response: ResponseShape::Usage(usage_response(10, 20)).into(),
             delay: None,
             first_token_delay: None,
             segment_delay: None,

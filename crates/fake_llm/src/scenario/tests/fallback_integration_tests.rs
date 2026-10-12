@@ -8,6 +8,7 @@ use super::*;
 use crate::scenario::types::{
     MatchCondition, ResponseShape, ScenarioDeclaration, TextResponse, TurnResponse,
 };
+use crate::test_util::usage_response;
 use crate::types::ProtocolKind;
 
 // ---------------------------------------------------------------------------
@@ -31,12 +32,7 @@ fn text_turn(content: &str) -> TurnResponse {
 
 fn usage_turn() -> TurnResponse {
     TurnResponse {
-        response: ResponseShape::Usage(UsageResponse {
-            prompt_tokens: Some(10),
-            completion_tokens: Some(20),
-            ..Default::default()
-        })
-        .into(),
+        response: ResponseShape::Usage(usage_response(10, 20)).into(),
         delay: None,
         first_token_delay: None,
         segment_delay: None,
