@@ -33,9 +33,6 @@ serde_yaml.workspace = true
 # Async trait
 async-trait.workspace = true
 
-# Temp files (for tests)
-tempfile.workspace = true
-
 # Home directory resolution
 dirs.workspace = true
 
@@ -63,5 +60,7 @@ closeclaw-workflow = { path = "../workflow" }
 [dev-dependencies]
 libc.workspace = true
 serial_test.workspace = true
+# Temp files (for tests)
+tempfile.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }
