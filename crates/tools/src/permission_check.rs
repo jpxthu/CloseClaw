@@ -118,7 +118,7 @@ async fn route_denial_core(
             approval_request_id,
             ..
         } => (reason.clone(), approval_request_id.clone()),
-        _ => return DenialOutcome::NotDenied,
+        PermVerdict::Allowed => return DenialOutcome::NotDenied,
     };
     // If the engine already submitted to the approval flow, use that
     // request ID directly instead of re-submitting.
