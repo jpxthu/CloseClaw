@@ -13,9 +13,17 @@
 //! from the boundary judgment. Per-crate name bans (`forbidden_in_regular`)
 //! additionally block listed names from any regular section regardless of
 //! declaration form.
+//!
+//! `workspace = true` inheritance targets are resolved against the root
+//! `[workspace.dependencies]` table (located by walking up from the
+//! manifest): a root entry without a `path` is an external dependency and
+//! never enters the edge-table judgment; a root entry with a `path` — and
+//! an entry that cannot be resolved, conservatively — is a workspace
+//! member dependency and does.
 
+use std::collections::HashMap;
 use std::fmt;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use toml::Value;
 
@@ -89,31 +97,140 @@ pub fn regular_dependencies(manifest: &str) -> Result<Vec<DependencyEntry>, Mani
         .collect())
 }
 
-/// A declaration is workspace-internal only through TOML structure: a `path`
-/// key, or `workspace = true` inheritance — recognized by key, never by
-/// substring matching. String declarations are crates.io version deps.
-pub fn is_workspace_internal_declaration(declaration: &Value) -> bool {
-    declaration.as_table().is_some_and(|table| {
-        table.contains_key("path") || table.get("workspace") == Some(&Value::Boolean(true))
-    })
+/// Pure-data snapshot of a root `[workspace.dependencies]` table: each
+/// dependency name maps to whether its entry declares a `path` key — and
+/// thus resolves to a workspace member crate rather than an external
+/// dependency. Built by [`workspace_deps_snapshot`] or injected verbatim in
+/// unit tests. `true = contains path = workspace member`, e.g.
+/// `{"closeclaw-common": true, "tokio": false}`.
+pub type WorkspaceDepsSnapshot = HashMap<String, bool>;
+
+/// Locates the closest ancestor manifest containing a `[workspace]` table,
+/// starting at the directory of `manifest_path` and walking up, and returns
+/// its `[workspace.dependencies]` as a [`WorkspaceDepsSnapshot`]. `None`
+/// when no workspace manifest is found or an ancestor manifest cannot be
+/// read or parsed — the judgment core then falls back to the conservative
+/// internal verdict for `workspace = true` inheritance.
+pub fn workspace_deps_snapshot(manifest_path: &Path) -> Option<WorkspaceDepsSnapshot> {
+    let mut dir = manifest_path.parent()?;
+    loop {
+        let candidate = dir.join("Cargo.toml");
+        let manifest = match std::fs::read_to_string(&candidate) {
+            Ok(manifest) => manifest,
+            // Intermediate directories (e.g. `crates/`) may have no manifest;
+            // keep walking up.
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                dir = dir.parent()?;
+                continue;
+            }
+            Err(_) => return None,
+        };
+        let parsed: Value = toml::from_str(&manifest).ok()?;
+        if parsed.get("workspace").and_then(Value::as_table).is_some() {
+            return Some(workspace_dependencies_snapshot(&parsed));
+        }
+        dir = dir.parent()?;
+    }
+}
+
+fn workspace_dependencies_snapshot(parsed: &Value) -> WorkspaceDepsSnapshot {
+    parsed
+        .get("workspace")
+        .and_then(|workspace| workspace.get("dependencies"))
+        .and_then(Value::as_table)
+        .map(|dependencies| {
+            dependencies
+                .iter()
+                .map(|(name, declaration)| (name.clone(), has_path_key(declaration)))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+fn has_path_key(declaration: &Value) -> bool {
+    declaration
+        .as_table()
+        .is_some_and(|table| table.contains_key("path"))
+}
+
+/// A declaration is workspace-internal through TOML structure plus, for
+/// `workspace = true` inheritance, the root `[workspace.dependencies]`
+/// snapshot: a `path` key resolves to a member crate (internal); an
+/// inherited entry defined without a `path` (version/git/registry form)
+/// resolves to an external dependency and never enters the allowed
+/// edge-table judgment; an inherited name missing from the snapshot — only
+/// possible in synthetic fixtures, cargo rejects it in real manifests — is
+/// conservatively judged internal. With no snapshot at all
+/// (`workspace_deps = None`), inheritance stays conservative-internal too.
+/// String declarations are crates.io version deps.
+pub fn is_workspace_internal_declaration(
+    name: &str,
+    declaration: &Value,
+    workspace_deps: Option<&WorkspaceDepsSnapshot>,
+) -> bool {
+    let Some(table) = declaration.as_table() else {
+        return false;
+    };
+    if has_path_key(declaration) {
+        return true;
+    }
+    if table.get("workspace") != Some(&Value::Boolean(true)) {
+        return false;
+    }
+    workspace_deps
+        .and_then(|dependencies| dependencies.get(name))
+        .is_none_or(|has_path| *has_path)
 }
 
 /// Names of workspace-internal regular dependencies outside the allowed
-/// edge table, sorted and deduplicated.
+/// edge table, sorted and deduplicated. `workspace_deps` resolves
+/// `workspace = true` inheritance targets; see
+/// [`is_workspace_internal_declaration`] for the judgment semantics.
 pub fn workspace_internal_violations(
     dependencies: &[DependencyEntry],
     allowed_workspace_deps: &[&str],
+    workspace_deps: Option<&WorkspaceDepsSnapshot>,
 ) -> Vec<String> {
     let mut violations: Vec<String> = dependencies
         .iter()
         .filter(|entry| entry.section.is_regular())
-        .filter(|entry| is_workspace_internal_declaration(&entry.declaration))
+        .filter(|entry| {
+            is_workspace_internal_declaration(&entry.name, &entry.declaration, workspace_deps)
+        })
         .map(|entry| entry.name.clone())
         .filter(|name| !allowed_workspace_deps.contains(&name.as_str()))
         .collect();
     violations.sort_unstable();
     violations.dedup();
     violations
+}
+
+/// Names of the workspace-internal regular dependencies of the manifest
+/// `manifest` located at `manifest_path`, sorted: the regular entries are
+/// extracted, `workspace = true` inheritance targets are resolved against
+/// the root `[workspace.dependencies]` snapshot found by walking up from
+/// `manifest_path` (see [`workspace_deps_snapshot`]), and only entries
+/// judged internal by [`is_workspace_internal_declaration`] are kept.
+/// Companion to [`workspace_internal_violations`] for exact-surface
+/// assertions.
+pub fn internal_dependency_names(
+    manifest: &str,
+    manifest_path: &Path,
+) -> Result<Vec<String>, ManifestError> {
+    let workspace_deps = workspace_deps_snapshot(manifest_path);
+    let mut names: Vec<String> = regular_dependencies(manifest)?
+        .into_iter()
+        .filter(|entry| {
+            is_workspace_internal_declaration(
+                &entry.name,
+                &entry.declaration,
+                workspace_deps.as_ref(),
+            )
+        })
+        .map(|entry| entry.name)
+        .collect();
+    names.sort_unstable();
+    Ok(names)
 }
 
 /// Declarative boundary specification for one crate, consumed by
@@ -198,7 +315,12 @@ pub fn assert_workspace_dep_boundary(spec: &DepBoundarySpec) {
     );
     assert_dev_only_crates_absent(&entries, spec);
     assert_forbidden_names_absent(&entries, spec);
-    let violations = workspace_internal_violations(&entries, spec.allowed_workspace_deps);
+    let workspace_deps = workspace_deps_snapshot(&spec.manifest_path);
+    let violations = workspace_internal_violations(
+        &entries,
+        spec.allowed_workspace_deps,
+        workspace_deps.as_ref(),
+    );
     assert!(
         violations.is_empty(),
         "{}: workspace deps outside the allowed edge table: {violations:?}",
