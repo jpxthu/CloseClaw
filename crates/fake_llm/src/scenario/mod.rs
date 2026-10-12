@@ -177,7 +177,7 @@ impl ScenarioEngine {
     /// the cleanup interval.
     fn maybe_cleanup(&mut self) {
         self.request_count += 1;
-        if self.request_count.is_multiple_of(CLEANUP_INTERVAL) {
+        if self.request_count % CLEANUP_INTERVAL == 0 {
             self.sessions.cleanup_expired(SESSION_TTL);
         }
     }
