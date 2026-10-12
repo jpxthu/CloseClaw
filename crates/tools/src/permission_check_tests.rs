@@ -1,4 +1,7 @@
 //! Unit tests for the permission_check module.
+//!
+//! 新增 UT 的布局约定（按主题写入兄弟测试模块）见 `permission_check.rs`
+//! 尾部测试模块声明区注释（单一权威定义）；本文件不再追加。
 
 use super::*;
 use crate::permission_port::PermMessageDirection;

@@ -392,6 +392,18 @@ pub(crate) async fn check_command_permission(
     result
 }
 
+// ---------------------------------------------------------------------------
+// 测试模块布局约定（单一权威定义）
+//
+// permission_check 新增 UT 一律按主题写入对应兄弟测试模块：
+// - 拒绝路由主题 → `permission_check_route_tests.rs`（`mod route_tests`）
+// - 子代理主题 → `permission_check_subagent_tests.rs`（`mod subagent_tests`）
+// - 其它新主题 → 新建兄弟模块 `permission_check_<topic>_tests.rs` 并在此声明
+//
+// 主测试文件 `permission_check_tests.rs` 已逼近 pre-commit 1000 行硬上限，
+// 不再向其追加新 UT。
+// ---------------------------------------------------------------------------
+
 #[cfg(test)]
 #[path = "permission_check_tests.rs"]
 mod tests;
