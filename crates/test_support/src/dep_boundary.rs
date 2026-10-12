@@ -219,7 +219,7 @@ pub fn internal_dependency_names(
 ) -> Result<Vec<String>, ManifestError> {
     let workspace_deps = workspace_deps_snapshot(manifest_path);
     let mut names: Vec<String> = regular_dependencies(manifest)?
-        .iter()
+        .into_iter()
         .filter(|entry| {
             is_workspace_internal_declaration(
                 &entry.name,
@@ -227,7 +227,7 @@ pub fn internal_dependency_names(
                 workspace_deps.as_ref(),
             )
         })
-        .map(|entry| entry.name.clone())
+        .map(|entry| entry.name)
         .collect();
     names.sort_unstable();
     Ok(names)
