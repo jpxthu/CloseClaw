@@ -5,6 +5,7 @@
 //! fields, with correct priority rules and edge-case handling.
 
 use crate::scenario::types::*;
+use crate::test_util::usage_response;
 use crate::types::{ProtocolKind, RequestFeatures};
 
 // ---------------------------------------------------------------------------
@@ -604,11 +605,7 @@ fn test_streaming_shape_usage_populates_decision() {
             response: ResponseShape::Streaming(StreamingResponse {
                 segment_granularity: Some(5),
                 segment_delay_ms: None,
-                usage: Some(UsageResponse {
-                    prompt_tokens: Some(10),
-                    completion_tokens: Some(20),
-                    ..Default::default()
-                }),
+                usage: Some(usage_response(10, 20)),
             })
             .into(),
             delay: None,
@@ -645,11 +642,7 @@ fn test_streaming_no_usage_does_not_affect_text_usage() {
                 }),
                 ResponseShape::Text(TextResponse {
                     content: "hello".to_string(),
-                    usage: Some(UsageResponse {
-                        prompt_tokens: Some(5),
-                        completion_tokens: Some(10),
-                        ..Default::default()
-                    }),
+                    usage: Some(usage_response(5, 10)),
                 }),
             ]),
             delay: None,
@@ -684,19 +677,11 @@ fn test_streaming_usage_first_wins_over_text_usage() {
                 ResponseShape::Streaming(StreamingResponse {
                     segment_granularity: Some(3),
                     segment_delay_ms: None,
-                    usage: Some(UsageResponse {
-                        prompt_tokens: Some(100),
-                        completion_tokens: Some(200),
-                        ..Default::default()
-                    }),
+                    usage: Some(usage_response(100, 200)),
                 }),
                 ResponseShape::Text(TextResponse {
                     content: "hello".to_string(),
-                    usage: Some(UsageResponse {
-                        prompt_tokens: Some(1),
-                        completion_tokens: Some(2),
-                        ..Default::default()
-                    }),
+                    usage: Some(usage_response(1, 2)),
                 }),
             ]),
             delay: None,

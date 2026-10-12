@@ -20,6 +20,8 @@ pub mod kv_cache;
 pub mod protocol;
 pub mod scenario;
 pub mod server;
+#[cfg(test)]
+mod test_util;
 pub mod types;
 
 pub use kv_cache::{CacheResult, CacheState, KvCacheSimulator};

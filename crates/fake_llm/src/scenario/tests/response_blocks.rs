@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
+use crate::test_util::usage_response;
 use crate::types::ProtocolKind;
 
 #[test]
@@ -371,11 +372,7 @@ fn test_extract_usage_from_composite_shapes() {
         content: "hello".to_string(),
         usage: None,
     });
-    let usage_shape = ResponseShape::Usage(UsageResponse {
-        prompt_tokens: Some(10),
-        completion_tokens: Some(20),
-        ..Default::default()
-    });
+    let usage_shape = ResponseShape::Usage(usage_response(10, 20));
     let shapes = vec![text, usage_shape];
     let usage = ScenarioEngine::extract_usage(&shapes);
     assert!(usage.is_some());
@@ -388,17 +385,9 @@ fn test_extract_usage_from_composite_shapes() {
 fn test_extract_usage_first_shape_wins() {
     let text = ResponseShape::Text(TextResponse {
         content: "hello".to_string(),
-        usage: Some(UsageResponse {
-            prompt_tokens: Some(5),
-            completion_tokens: Some(10),
-            ..Default::default()
-        }),
+        usage: Some(usage_response(5, 10)),
     });
-    let usage_shape = ResponseShape::Usage(UsageResponse {
-        prompt_tokens: Some(100),
-        completion_tokens: Some(200),
-        ..Default::default()
-    });
+    let usage_shape = ResponseShape::Usage(usage_response(100, 200));
     let shapes = vec![text, usage_shape];
     let usage = ScenarioEngine::extract_usage(&shapes);
     assert!(usage.is_some());
@@ -466,11 +455,7 @@ fn test_decide_composite_turn_with_usage() {
                     content: "ok".to_string(),
                     usage: None,
                 }),
-                ResponseShape::Usage(UsageResponse {
-                    prompt_tokens: Some(10),
-                    completion_tokens: Some(20),
-                    ..Default::default()
-                }),
+                ResponseShape::Usage(usage_response(10, 20)),
             ]),
             delay: None,
             first_token_delay: None,

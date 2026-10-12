@@ -19,6 +19,7 @@ use crate::fixture_loader::{fixture_root, load_protocol_fixture};
 use crate::protocol::anthropic::build_message_response_from_decision;
 use crate::protocol::openai::build_chat_completion_response_from_decision;
 use crate::scenario::types::*;
+use crate::test_util::usage_response;
 use crate::types::{ProtocolKind, RequestFeatures};
 
 // ---------------------------------------------------------------------------
@@ -276,11 +277,7 @@ struct ContentInfo {
 fn test_openai_simple_fixture_matches() {
     let path = fixture_root().join("openai/simple.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(14),
-        completion_tokens: Some(4),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(14, 4));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -327,11 +324,7 @@ fn test_openai_simple_fixture_matches() {
 fn test_openai_reasoning_fixture_matches() {
     let path = fixture_root().join("openai/reasoning.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(14),
-        completion_tokens: Some(24),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(14, 24));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -379,11 +372,7 @@ fn test_openai_reasoning_fixture_matches() {
 fn test_openai_tool_use_fixture_matches() {
     let path = fixture_root().join("openai/tool-use.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(18),
-        completion_tokens: Some(12),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(18, 12));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -432,11 +421,7 @@ fn test_openai_tool_use_fixture_matches() {
 fn test_openai_cache_fixture_matches() {
     let path = fixture_root().join("openai/cache.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(38),
-        completion_tokens: Some(72),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(38, 72));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -556,11 +541,7 @@ fn test_openai_error_server_fixture_matches() {
 fn test_anthropic_simple_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-simple.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(11),
-        completion_tokens: Some(4),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(11, 4));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -642,11 +623,7 @@ fn tool_use_blocks() -> Vec<ResponseBlock> {
 fn test_anthropic_thinking_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-thinking.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(18),
-        completion_tokens: Some(90),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(18, 90));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,
@@ -714,11 +691,7 @@ fn test_anthropic_tool_use_fixture_matches() {
         segment_delay: None,
         stream_interrupt_after: None,
         segment_granularity: None,
-        usage: Some(UsageResponse {
-            prompt_tokens: Some(39),
-            completion_tokens: Some(45),
-            ..Default::default()
-        }),
+        usage: Some(usage_response(39, 45)),
     });
     let json = serde_json::to_value(&resp).unwrap();
     let f = anthropic_fields(&json);
@@ -771,11 +744,7 @@ const CACHE_TEXT: &str = "HTTP/1.1 uses a request-per-connection model (or keep-
 fn test_anthropic_cache_fixture_matches() {
     let path = fixture_root().join("anthropic/anthropic-cache.json");
     let fixture = load_protocol_fixture(&path).unwrap();
-    let usage = Some(UsageResponse {
-        prompt_tokens: Some(22),
-        completion_tokens: Some(110),
-        ..Default::default()
-    });
+    let usage = Some(usage_response(22, 110));
     let scenario = make_fallback(
         &fixture.scenario,
         &fixture.model,

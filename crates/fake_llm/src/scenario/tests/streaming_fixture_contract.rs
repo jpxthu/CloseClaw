@@ -19,6 +19,7 @@
 use crate::delivery::sse::{generate_anthropic_sse, generate_openai_sse, SseEvent};
 use crate::fixture_loader::{fixture_root, load_streaming_fixture, load_streaming_meta};
 use crate::scenario::types::*;
+use crate::test_util::usage_response;
 use crate::types::{ProtocolKind, RequestFeatures, ScenarioDecision};
 
 // ---------------------------------------------------------------------------
@@ -167,18 +168,6 @@ fn setup_streaming_case(
     };
     let fixture_events = parse_sse_text(&txt_content);
     (decision, fixture_events)
-}
-
-/// Build a UsageResponse carrying only prompt/completion token counts.
-fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> UsageResponse {
-    UsageResponse {
-        prompt_tokens: Some(prompt_tokens),
-        completion_tokens: Some(completion_tokens),
-        reasoning_tokens: None,
-        cache_hit_tokens: None,
-        cache_write_tokens: None,
-        cache_fields_missing: false,
-    }
 }
 
 /// Generate OpenAI SSE events for a decision: carry its usage (empty

@@ -1,18 +1,9 @@
 use crate::delivery::sse::*;
-use crate::scenario::types::{ResponseBlock, UsageResponse};
+use crate::scenario::types::ResponseBlock;
+use crate::test_util::{default_usage, text_block, usage_with};
 
 mod inject;
 
-fn text_block(content: &str) -> ResponseBlock {
-    ResponseBlock {
-        block_type: "text".to_string(),
-        content: Some(content.to_string()),
-        tool_name: None,
-        tool_arguments: None,
-        reasoning: None,
-        signature: None,
-    }
-}
 fn reasoning_block(reasoning: &str, content: &str) -> ResponseBlock {
     ResponseBlock {
         block_type: "reasoning".to_string(),
@@ -41,31 +32,6 @@ fn tool_call_block(name: &str, args: &str) -> ResponseBlock {
         tool_arguments: Some(args.to_string()),
         reasoning: None,
         signature: None,
-    }
-}
-fn default_usage() -> UsageResponse {
-    UsageResponse {
-        prompt_tokens: Some(10),
-        completion_tokens: Some(20),
-        reasoning_tokens: None,
-        cache_hit_tokens: None,
-        cache_write_tokens: None,
-        cache_fields_missing: false,
-    }
-}
-fn usage_with(
-    prompt: Option<u32>,
-    completion: Option<u32>,
-    cache_hit: Option<u32>,
-    cache_write: Option<u32>,
-) -> UsageResponse {
-    UsageResponse {
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-        reasoning_tokens: None,
-        cache_hit_tokens: cache_hit,
-        cache_write_tokens: cache_write,
-        cache_fields_missing: false,
     }
 }
 
