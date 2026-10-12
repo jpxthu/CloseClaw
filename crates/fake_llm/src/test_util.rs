@@ -16,14 +16,7 @@ pub(crate) fn text_block(content: &str) -> ResponseBlock {
 
 /// Build a `UsageResponse` with fixed prompt=10 / completion=20 tokens.
 pub(crate) fn default_usage() -> UsageResponse {
-    UsageResponse {
-        prompt_tokens: Some(10),
-        completion_tokens: Some(20),
-        reasoning_tokens: None,
-        cache_hit_tokens: None,
-        cache_write_tokens: None,
-        cache_fields_missing: false,
-    }
+    usage_with(Some(10), Some(20), None, None)
 }
 
 /// Build a `UsageResponse` from explicit prompt/completion/cache token fields.
