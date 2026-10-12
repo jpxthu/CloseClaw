@@ -11,8 +11,6 @@ closeclaw-common = { path = "../common" }
 
 # Async runtime
 tokio.workspace = true
-tokio-util.workspace = true
-futures.workspace = true
 
 # Serialization
 serde.workspace = true
@@ -33,7 +31,6 @@ glob.workspace = true
 
 
 [dev-dependencies]
-closeclaw-permission = { path = "../permission" }
 closeclaw-workflow = { path = "../workflow" }
 tempfile.workspace = true
 serial_test.workspace = true

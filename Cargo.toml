@@ -85,14 +85,8 @@ fake-llm = ["closeclaw-llm/fake-llm"]
 
 [dependencies]
 tokio.workspace = true
-# Cancellation tokens with native parent/child derivation (used for cascade stop)
-# The `sync` module (containing `CancellationToken`) is always available; no
-# extra feature flags are required.
-tokio-util.workspace = true
-futures.workspace = true
 
 # Serialization
-serde.workspace = true
 serde_json.workspace = true
 
 tracing.workspace = true
@@ -103,8 +97,6 @@ anyhow.workspace = true
 
 # Linux system APIs (seccomp, landlock)
 libc.workspace = true
-# Terminal size detection for dynamic width truncation
-terminal_size.workspace = true
 
 # Date/time handling
 chrono.workspace = true
@@ -112,8 +104,6 @@ chrono.workspace = true
 # Async trait (for IMAdapter)
 async-trait.workspace = true
 
-# File watching (hot reload)
-notify.workspace = true
 # Internal crates
 closeclaw-agent = { path = "crates/agent" }
 closeclaw-cli = { path = "crates/cli" }
@@ -137,9 +127,6 @@ closeclaw-tools = { path = "crates/tools" }
 
 # CLI argument parsing
 clap.workspace = true
-
-# For getting home directory
-dirs.workspace = true
 
 [dev-dependencies]
 # Testing

@@ -12,16 +12,10 @@ closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
 tokio.workspace = true
-tokio-util.workspace = true
 futures.workspace = true
 
-# Concurrent data structures (FileMutexMap)
-dashmap.workspace = true
-
 # Serialization
-serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
 
 # Error handling
 thiserror.workspace = true
@@ -31,9 +25,6 @@ async-trait.workspace = true
 
 # Logging
 tracing.workspace = true
-
-# Glob pattern matching
-glob.workspace = true
 
 # Tree-sitter for Bash AST parsing
 tree-sitter = "0.24"
@@ -51,12 +42,6 @@ chrono.workspace = true
 
 # UUID
 uuid.workspace = true
-
-# Terminal size detection
-terminal_size.workspace = true
-
-# Async stream
-async-stream.workspace = true
 
 # Image processing for Read tool
 image = "0.25"
