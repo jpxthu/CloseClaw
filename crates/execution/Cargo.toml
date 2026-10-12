@@ -6,7 +6,6 @@ description = "Plan execution engine: scheduling, retry, and sub-agent orchestra
 license.workspace = true
 
 [dev-dependencies]
-tokio.workspace = true
 tempfile.workspace = true
 
 [dependencies]

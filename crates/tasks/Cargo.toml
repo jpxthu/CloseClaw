@@ -18,6 +18,5 @@ closeclaw-debug-log = { path = "../debug_log" }
 
 [dev-dependencies]
 tempfile.workspace = true
-serde_json.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }
