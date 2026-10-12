@@ -6,25 +6,25 @@ description = "Shared types and utilities for CloseClaw"
 license.workspace = true
 
 [dependencies]
-async-trait = "0.1"
-anyhow = "1"
-futures = "0.3"
-chrono = { version = "0.4", features = ["serde"] }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-tracing = "0.1"
-thiserror = "2.0"
-tokio = { version = "=1.35.0", features = ["sync", "process"] }
+async-trait.workspace = true
+anyhow.workspace = true
+futures.workspace = true
+chrono.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+tracing.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
 
 # Concurrent data structures (FileMutexMap)
-dashmap = "5"
+dashmap.workspace = true
 
 # Hashing (used by session_key)
-sha2 = "0.10"
+sha2.workspace = true
 
 # UUID (used by trace_id)
-uuid = { version = "1.6", features = ["v4"] }
+uuid.workspace = true
 
 [dev-dependencies]
-tempfile = "3.10"
-tokio = { version = "=1.35.0", features = ["rt", "rt-multi-thread", "macros"] }
+tempfile.workspace = true
+tokio.workspace = true

@@ -31,7 +31,44 @@ license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
 
 [workspace.dependencies]
+anyhow = "1.0"
+async-stream = "0.3.6"
+async-trait = "0.1"
+axum = "0.7"
+base64 = "0.22"
+chrono = { version = "0.4", features = ["serde"] }
+clap = { version = "4.4", features = ["derive"] }
+dashmap = "5"
+dirs = "5"
+filetime = "0.2"
+futures = "0.3"
+glob = "0.3"
+hex = "0.4"
+libc = "0.2"
+mockito = "1.2"
+notify = "6.1"
+rand = "0.8"
+regex = "1.10"
+regex-lite = "0.1"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rusqlite = { version = "0.31", features = ["bundled"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+serde_yaml = "0.9"
 serial_test = "3.4"
+sha2 = "0.10"
+tempfile = "3.10"
+terminal_size = "0.4"
+thiserror = "2.0"
+# Async runtime - pinned to older version to avoid edition2024 issues
+tokio = { version = "=1.35.0", features = ["full"] }
+tokio-util = "0.7"
+toml = "1"
+# Logging - pinned to older versions
+tracing = "=0.1.43"
+tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing-test = "0.2.6"
+uuid = { version = "1.6", features = ["v4", "serde"] }
 
 [package]
 name = "closeclaw"
@@ -47,38 +84,36 @@ rust-version = "1.80"
 fake-llm = ["closeclaw-llm/fake-llm"]
 
 [dependencies]
-# Async runtime - pinned to older version to avoid edition2024 issues
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 # Cancellation tokens with native parent/child derivation (used for cascade stop)
 # The `sync` module (containing `CancellationToken`) is always available; no
 # extra feature flags are required.
-tokio-util = "0.7"
-futures = "0.3"
+tokio-util.workspace = true
+futures.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
-# Logging - pinned to older versions
-tracing = "=0.1.43"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 # Error handling
-anyhow = "1.0"
+anyhow.workspace = true
 
 # Linux system APIs (seccomp, landlock)
-libc = "0.2"
+libc.workspace = true
 # Terminal size detection for dynamic width truncation
-terminal_size = "0.4"
+terminal_size.workspace = true
 
 # Date/time handling
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # Async trait (for IMAdapter)
-async-trait = "0.1"
+async-trait.workspace = true
 
 # File watching (hot reload)
-notify = "6.1"
+notify.workspace = true
 # Internal crates
 closeclaw-agent = { path = "crates/agent" }
 closeclaw-cli = { path = "crates/cli" }
@@ -101,27 +136,27 @@ closeclaw-tasks = { path = "crates/tasks" }
 closeclaw-tools = { path = "crates/tools" }
 
 # CLI argument parsing
-clap = { version = "4.4", features = ["derive"] }
+clap.workspace = true
 
 # For getting home directory
-dirs = "5"
+dirs.workspace = true
 
 [dev-dependencies]
 # Testing
 proptest = "=1.4"
-tempfile = "3.10"
+tempfile.workspace = true
 serial_test.workspace = true
-filetime = "0.2"
-mockito = "1.2"
+filetime.workspace = true
+mockito.workspace = true
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)
 closeclaw-fake-llm = { path = "crates/fake_llm" }
-rusqlite = { version = "0.31", features = ["bundled"] }
-sha2 = "0.10"
-hex = "0.4"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
+rusqlite.workspace = true
+sha2.workspace = true
+hex.workspace = true
+reqwest.workspace = true
 # Coverage reporting
 cargo-llvm-cov = "0.6"
-tracing-test = "0.2.6"
+tracing-test.workspace = true
 
 [lib]
 name = "closeclaw"

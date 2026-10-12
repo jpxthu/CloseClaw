@@ -17,18 +17,18 @@ closeclaw-gateway = { path = "../gateway" }
 closeclaw-llm = { path = "../llm" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-platform = { path = "../platform" }
-clap = { version = "4.4", features = ["derive"] }
+clap.workspace = true
 dialoguer = "0.11"
-tokio = { version = "=1.35.0", features = ["full"] }
-tracing = "=0.1.43"
-async-trait = "0.1"
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-anyhow = "1.0"
-dirs = "5"
+tokio.workspace = true
+tracing.workspace = true
+async-trait.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+anyhow.workspace = true
+dirs.workspace = true
 unicode-width = "0.2"
 
 [dev-dependencies]
 closeclaw-processor-chain = { path = "../processor_chain" }
-tempfile = "3.10"
+tempfile.workspace = true
 serial_test.workspace = true

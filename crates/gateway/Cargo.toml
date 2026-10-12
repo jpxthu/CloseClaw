@@ -18,37 +18,37 @@ closeclaw-permission = { path = "../permission" }
 closeclaw-session = { path = "../session" }
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
-tokio-util = "0.7"
-futures = "0.3"
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # System
-libc = "0.2"
-dirs = "5"
+libc.workspace = true
+dirs.workspace = true
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Hashing
-sha2 = "0.10"
-hex = "0.4"
-base64 = "0.22"
+sha2.workspace = true
+hex.workspace = true
+base64.workspace = true
 
 # Shell lexing for command parsing
 shlex = "1.3"
@@ -62,10 +62,10 @@ closeclaw-processor-chain = { path = "../processor_chain" }
 closeclaw-test-support = { path = "../test_support" }
 # Same exemption: tests keep building workflow fixtures (run/definition).
 closeclaw-workflow = { path = "../workflow" }
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "stream"] }
-tempfile = "3.10"
+reqwest.workspace = true
+tempfile.workspace = true
 serial_test.workspace = true
-serde_yaml = "0.9"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+serde_yaml.workspace = true
+tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }

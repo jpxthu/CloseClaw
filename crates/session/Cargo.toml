@@ -9,51 +9,51 @@ license.workspace = true
 # Internal crates — only the allowed edge table (docs/design/STANDARDS.md)
 closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
-dirs = "5"
-serde_yaml = "0.9"
+dirs.workspace = true
+serde_yaml.workspace = true
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
-tokio-util = "0.7"
-async-trait = "0.1"
-futures = "0.3"
+tokio.workspace = true
+tokio-util.workspace = true
+async-trait.workspace = true
+futures.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Hashing
-sha2 = "0.10"
-hex = "0.4"
+sha2.workspace = true
+hex.workspace = true
 
 # Random (for plan identifier generation)
-rand = "0.8"
+rand.workspace = true
 
 # Redis client
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 
 # SQLite
-rusqlite = { version = "0.31", features = ["bundled"] }
+rusqlite.workspace = true
 
 [dev-dependencies]
-tempfile = "3.10"
+tempfile.workspace = true
 serial_test.workspace = true
-filetime = "0.2"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter"] }
+filetime.workspace = true
+tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
-tokio = { version = "=1.35.0", features = ["test-util"] }
+tokio = { workspace = true, features = ["test-util"] }
 # Test-only workspace deps (outside the allowed edge table, which constrains
 # regular [dependencies] only): tests provide a real-engine WorkflowPort
 # wrapper and config fixtures against the real types.

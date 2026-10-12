@@ -11,56 +11,56 @@ closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
-tokio-util = "0.7"
-futures = "0.3"
+tokio.workspace = true
+tokio-util.workspace = true
+futures.workspace = true
 
 # Concurrent data structures (FileMutexMap)
-dashmap = "5"
+dashmap.workspace = true
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Glob pattern matching
-glob = "0.3"
+glob.workspace = true
 
 # Tree-sitter for Bash AST parsing
 tree-sitter = "0.24"
 tree-sitter-bash = "0.23"
 
 # Regex
-regex = "1.10"
-regex-lite = "0.1"
+regex.workspace = true
+regex-lite.workspace = true
 
 # Unicode normalization for fuzzy matching
 unicode-normalization = "0.1"
 
 # Date/time
-chrono = { version = "0.4", features = ["serde"] }
+chrono.workspace = true
 
 # UUID
-uuid = { version = "1.6", features = ["v4", "serde"] }
+uuid.workspace = true
 
 # Terminal size detection
-terminal_size = "0.4"
+terminal_size.workspace = true
 
 # Async stream
-async-stream = "0.3.6"
+async-stream.workspace = true
 
 # Image processing for Read tool
 image = "0.25"
-base64 = "0.22"
+base64.workspace = true
 
 [dev-dependencies]
 closeclaw-agent = { path = "../agent" }
@@ -71,5 +71,5 @@ closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-tasks = { path = "../tasks" }
 closeclaw-test-support = { path = "../test_support" }
-tempfile = "3"
+tempfile.workspace = true
 serial_test.workspace = true

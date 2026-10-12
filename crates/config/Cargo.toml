@@ -8,24 +8,24 @@ license.workspace = true
 [dependencies]
 closeclaw-common = { path = "../common" }
 closeclaw-platform = { path = "../platform" }
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
-serde_yaml = "0.9"
-thiserror = "2.0"
-tracing = "=0.1.43"
-notify = "6.1"
-async-trait = "0.1"
-dashmap = "5"
-uuid = { version = "1.6", features = ["v4", "serde"] }
-chrono = { version = "0.4", features = ["serde"] }
-regex = "1.10"
-regex-lite = "0.1"
-dirs = "5"
-tokio = { version = "=1.35.0", features = ["full"] }
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+notify.workspace = true
+async-trait.workspace = true
+dashmap.workspace = true
+uuid.workspace = true
+chrono.workspace = true
+regex.workspace = true
+regex-lite.workspace = true
+dirs.workspace = true
+tokio.workspace = true
 cron = "0.15"
 
 [dev-dependencies]
 serial_test.workspace = true
-tempfile = "3.10"
-filetime = "0.2"
-tracing-subscriber = { version = "=0.3.17", features = ["env-filter", "json"] }
+tempfile.workspace = true
+filetime.workspace = true
+tracing-subscriber.workspace = true

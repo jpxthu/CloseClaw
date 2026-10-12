@@ -11,27 +11,27 @@ closeclaw-common = { path = "../common" }
 closeclaw-debug-log = { path = "../debug_log" }
 
 # Serialization
-serde = { version = "1.0", features = ["derive"] }
-serde_json = "1.0"
+serde.workspace = true
+serde_json.workspace = true
 
 # Async runtime
-tokio = { version = "=1.35.0", features = ["full"] }
+tokio.workspace = true
 
 # Logging
-tracing = "=0.1.43"
+tracing.workspace = true
 
 # Error handling
-thiserror = "2.0"
+thiserror.workspace = true
 
 # Async trait
-async-trait = "0.1"
+async-trait.workspace = true
 
 [dev-dependencies]
-tempfile = "3.10"
-filetime = "0.2"
+tempfile.workspace = true
+filetime.workspace = true
 closeclaw-gateway = { path = "../gateway" }
 closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-test-support = { path = "../test_support" }
 closeclaw-workflow = { path = "../workflow" }
-serde_yaml = "0.9"
+serde_yaml.workspace = true
