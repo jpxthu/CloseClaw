@@ -47,7 +47,6 @@ uuid.workspace = true
 
 # Hashing
 sha2.workspace = true
-hex.workspace = true
 base64.workspace = true
 
 # Shell lexing for command parsing

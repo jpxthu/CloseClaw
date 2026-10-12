@@ -12,13 +12,10 @@ closeclaw-debug-log = { path = "../debug_log" }
 
 # Async runtime
 tokio.workspace = true
-tokio-util.workspace = true
-futures.workspace = true
 
 # Serialization
 serde.workspace = true
 serde_json.workspace = true
-serde_yaml.workspace = true
 
 # Error handling
 thiserror.workspace = true
@@ -36,23 +33,16 @@ regex.workspace = true
 reqwest = { workspace = true, features = ["multipart"] }
 bytes = "1"
 
-# Hashing (for signature validation)
-sha2.workspace = true
-
 # Date/time
 chrono.workspace = true
 
 # UUID
 uuid.workspace = true
 
-# URL encoding
-url = "2"
-
 # Plugin auto-discovery
 inventory = "0.3"
 
 # Home directory expansion
-
 dirs.workspace = true
 
 # HTTP server (for adapter tests)

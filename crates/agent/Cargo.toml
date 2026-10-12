@@ -13,9 +13,7 @@ path = "src/lib.rs"
 closeclaw-common = { path = "../common" }
 async-trait.workspace = true
 dashmap.workspace = true
-serde.workspace = true
 thiserror.workspace = true
-tracing.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
