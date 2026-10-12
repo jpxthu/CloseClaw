@@ -340,3 +340,82 @@ async fn test_route_command_denial_allowed_response_is_permitted() {
         "approval flow must not be touched for Allowed responses"
     );
 }
+
+// ---------------------------------------------------------------------------
+// approval_utils::approval_pending construction tests
+//
+// The bash trust-level path (`trust.rs`, `TrustDecision::ApprovalPending`)
+// and the denial-routing path (`route_denial_core`) both embed the
+// `ToolResult` built by this single helper, so pinning its construction
+// output here pins the pending-result isomorphism between the two paths
+// (the trust side is additionally covered end-to-end by
+// `bash_approval_tests.rs`).
+// ---------------------------------------------------------------------------
+
+/// Normal path: `approval_pending` wraps exactly the three-key payload
+/// from `build_approval_pending`, with no injected agent messages and no
+/// context modifier — the "wait for owner approval" response contract.
+#[test]
+fn test_approval_pending_constructs_exact_pending_result() {
+    let result = approval_utils::approval_pending("req-ut-pending".to_string());
+    assert_eq!(
+        result.data,
+        approval_utils::build_approval_pending("req-ut-pending".to_string()),
+        "data is the shared payload builder output verbatim"
+    );
+    assert_eq!(
+        result.data,
+        serde_json::json!({
+            "status": "approval_pending",
+            "request_id": "req-ut-pending",
+            "message": "Operation pending owner approval",
+        }),
+        "payload contract: exactly status / request_id / message"
+    );
+    assert!(result.new_messages.is_empty(), "no injected agent messages");
+    assert!(result.context_modifier.is_none(), "no context modifier");
+}
+
+/// Consistency: the pending `ToolResult` the routing path hands back is
+/// field-isomorphic to the shared helper's output for the same request id
+/// (payload, no messages, no modifier). `trust.rs` embeds the same helper
+/// call in `TrustDecision::ApprovalPending`, so this pins both paths to
+/// one construction.
+#[tokio::test]
+async fn test_route_pending_result_isomorphic_to_approval_pending_helper() {
+    let (flow, notifications) = make_af_capturing();
+    let port = make_port(make_engine_with_rules(vec![]), make_sm(), make_cm(), flow);
+    let caller = PermCaller {
+        user_id: String::new(),
+        agent: "agent-a".to_string(),
+    };
+    let body = PermRequestBody::FileOp {
+        agent: "agent-a".to_string(),
+        path: "/tmp/test.txt".to_string(),
+        op: "write".to_string(),
+    };
+    let verdict = denied_verdict(Some("req-ut-iso".to_string()));
+
+    let result = route_denial(&verdict, make_denial_request(&caller, &body, ""), &port)
+        .await
+        .expect("short-circuit → Ok")
+        .expect("short-circuit → pending result");
+
+    let helper = approval_utils::approval_pending("req-ut-iso".to_string());
+    assert_eq!(
+        result.data, helper.data,
+        "routing path embeds the shared helper's payload"
+    );
+    assert!(
+        result.new_messages.is_empty() && helper.new_messages.is_empty(),
+        "neither the routing path nor the helper injects agent messages"
+    );
+    assert!(
+        result.context_modifier.is_none() && helper.context_modifier.is_none(),
+        "neither the routing path nor the helper sets a context modifier"
+    );
+    assert!(
+        notifications.lock().unwrap().is_empty(),
+        "isomorphism ran on the short-circuit path: flow never re-contacted"
+    );
+}
