@@ -43,7 +43,6 @@ uuid.workspace = true
 inventory = "0.3"
 
 # Home directory expansion
-
 dirs.workspace = true
 
 # HTTP server (for adapter tests)

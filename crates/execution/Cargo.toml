@@ -5,9 +5,6 @@ edition.workspace = true
 description = "Plan execution engine: scheduling, retry, and sub-agent orchestration"
 license.workspace = true
 
-[dev-dependencies]
-tempfile.workspace = true
-
 [dependencies]
 closeclaw-common = { path = "../common" }
 serde.workspace = true
@@ -16,3 +13,6 @@ thiserror.workspace = true
 async-trait.workspace = true
 tracing.workspace = true
 tokio.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
