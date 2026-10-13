@@ -492,12 +492,7 @@ fn create_mock_cli_with_messages(
         ));
     }
     script.push_str("echo '{\"code\":1,\"msg\":\"not found\"}'\n");
-    std::fs::write(&script_path, &script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    write_mock_script(&script_path, &script);
     script_path.to_str().unwrap().to_string()
 }
 /// Build a FeishuEvent with a parent_id for quote testing.

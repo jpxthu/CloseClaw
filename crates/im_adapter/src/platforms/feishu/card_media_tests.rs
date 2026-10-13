@@ -32,21 +32,11 @@ fn create_success_upload_mock_cli(
     response_field: &str,
     key: &str,
 ) -> String {
-    use std::io::Write;
     let script_path = tmp.path().join(script_name);
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{}\":\"{}\"}}}}'",
-        response_field, key
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let content = format!(
+        "#!/bin/bash\necho '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{response_field}\":\"{key}\"}}}}'\n"
+    );
+    write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
 

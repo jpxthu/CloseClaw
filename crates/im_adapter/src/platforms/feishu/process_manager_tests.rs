@@ -9,8 +9,8 @@
 //! - Process lifecycle (PID, running state)
 
 use super::process_manager::*;
+use super::write_mock_script;
 use serial_test::serial;
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 /// Short ready-wait timeout injected by `test_process_manager_ready_timeout`
@@ -35,8 +35,7 @@ fn create_mock_script(lines: &[&str]) -> (tempfile::TempDir, String) {
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -52,8 +51,7 @@ fn create_slow_script(events: &[&str], delay_ms: u64) -> (tempfile::TempDir, Str
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -76,8 +74,7 @@ fn create_burst_script(count: usize) -> (tempfile::TempDir, String) {
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -344,8 +341,7 @@ async fn test_process_manager_empty_output() {
 async fn test_process_manager_ready_timeout() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("no_ready.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nwhile true; do sleep 1; done\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nwhile true; do sleep 1; done\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
@@ -378,8 +374,7 @@ async fn test_process_manager_ready_timeout() {
 async fn test_process_manager_ready_early_exit_eof() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("exits_without_ready.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nexit 0\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nexit 0\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
@@ -422,8 +417,7 @@ async fn test_process_manager_ready_early_exit_eof() {
 async fn test_process_manager_ready_stderr_read_error() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("invalid_utf8_stderr.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nprintf '\\xff' >&2\nexit 0\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nprintf '\\xff' >&2\nexit 0\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
