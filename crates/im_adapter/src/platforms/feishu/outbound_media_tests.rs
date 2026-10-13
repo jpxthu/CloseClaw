@@ -5,12 +5,10 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
-use super::{create_failing_mock_cli, write_mock_script};
+use super::{create_failing_mock_cli, make_test_media_store_at, write_mock_script};
 use crate::error::AdapterError;
-use crate::media_store::MediaStore;
 use serial_test::serial;
 use std::fs;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -79,7 +77,7 @@ async fn test_copy_to_outbound_creates_file() {
     let source = tmp.path().join("source.png");
     fs::write(&source, "image data").unwrap();
 
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result = copy_to_outbound(&source, &media_store).await.unwrap();
 
     assert!(result.outbound_path.exists());
@@ -98,7 +96,7 @@ async fn test_copy_to_outbound_unique_name_on_conflict() {
     let source = tmp.path().join("test.png");
     fs::write(&source, "data1").unwrap();
 
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     // Create a file with the same name in outbound.
     fs::write(media_store.outbound_dir().join("test.png"), "existing").unwrap();
 
@@ -194,7 +192,7 @@ async fn test_prepare_outbound_workspace_relative_path() {
     fs::create_dir_all(&ws).unwrap();
     let file = ws.join("img.png");
     fs::write(&file, "data").unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result = prepare_outbound_local_media("img.png", Some(&ws), &media_store).await;
     assert!(result.is_some(), "should return outbound path");
     let outbound = result.unwrap();
@@ -207,7 +205,7 @@ async fn test_prepare_outbound_workspace_relative_path() {
 #[tokio::test]
 async fn test_prepare_outbound_media_store_absolute_path() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "pdf data").unwrap();
     let result = prepare_outbound_local_media(file.to_str().unwrap(), None, &media_store).await;
@@ -221,7 +219,7 @@ async fn test_prepare_outbound_media_store_absolute_path() {
 #[tokio::test]
 async fn test_prepare_outbound_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result =
         prepare_outbound_local_media("http://example.com/img.png", None, &media_store).await;
     assert!(result.is_none(), "HTTP URL should be skipped");
@@ -231,7 +229,7 @@ async fn test_prepare_outbound_http_url_skipped() {
 #[tokio::test]
 async fn test_prepare_outbound_https_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result =
         prepare_outbound_local_media("https://cdn.example.com/photo.jpg", None, &media_store).await;
     assert!(result.is_none(), "HTTPS URL should be skipped");
@@ -241,7 +239,7 @@ async fn test_prepare_outbound_https_url_skipped() {
 #[tokio::test]
 async fn test_prepare_outbound_nonexistent_file_skipped() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result = prepare_outbound_local_media("no_such_file.png", None, &media_store).await;
     assert!(result.is_none(), "non-existent file should be skipped");
 }
@@ -250,7 +248,7 @@ async fn test_prepare_outbound_nonexistent_file_skipped() {
 #[tokio::test]
 async fn test_prepare_outbound_whitelist_violation_skipped() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     // /etc/hosts exists on Linux but is outside any workspace/media store.
     let result = prepare_outbound_local_media("/etc/hosts", None, &media_store).await;
     assert!(
@@ -264,7 +262,7 @@ async fn test_prepare_outbound_whitelist_violation_skipped() {
 #[tokio::test]
 async fn test_prepare_outbound_empty_string_skipped() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     let result = prepare_outbound_local_media("", None, &media_store).await;
     assert!(result.is_none(), "empty string should be skipped");
 }
@@ -273,7 +271,7 @@ async fn test_prepare_outbound_empty_string_skipped() {
 #[tokio::test]
 async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
     let tmp = TempDir::new().unwrap();
-    let media_store = MediaStore::new(tmp.path().to_str().unwrap()).unwrap();
+    let media_store = make_test_media_store_at(tmp.path());
     // Create file in media store.
     let file = tmp.path().join("report.pdf");
     fs::write(&file, "content").unwrap();
@@ -307,8 +305,10 @@ fn make_adapter(
     media_root: &std::path::Path,
     workspace: Option<&std::path::Path>,
 ) -> super::adapter::FeishuAdapter {
-    let media_store = Arc::new(MediaStore::new(media_root.to_str().unwrap()).unwrap());
-    let mut adapter = super::adapter::FeishuAdapter::new("test_profile".into(), media_store);
+    let mut adapter = super::adapter::FeishuAdapter::new(
+        "test_profile".into(),
+        make_test_media_store_at(media_root),
+    );
     adapter.cli_command = cli.to_string();
     adapter.workspace_dir = workspace.map(std::path::PathBuf::from);
     adapter

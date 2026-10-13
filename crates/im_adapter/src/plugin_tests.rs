@@ -13,13 +13,11 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::media_store::MediaStore;
-    use crate::platforms::feishu::{FeishuAdapter, FeishuPlugin};
+    use crate::platforms::feishu::{make_adapter, make_plugin};
     use async_trait::async_trait;
     use closeclaw_common::content_segment::{parse_content_segments, ContentSegment};
     use closeclaw_common::processor::ContentBlock;
     use closeclaw_common::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
-    use std::sync::Arc;
 
     // =========================================================================
     // Mock plugin — uses only default trait methods (no overrides)
@@ -183,31 +181,22 @@ mod tests {
     // FeishuPlugin rendering tests
     // =========================================================================
 
-    fn make_feishu_plugin() -> FeishuPlugin {
-        let tmp = tempfile::TempDir::new().expect("tmp dir");
-        let adapter = Arc::new(FeishuAdapter::new(
-            "test_profile".into(),
-            Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
-        ));
-        FeishuPlugin::new(adapter)
-    }
-
     #[test]
     fn test_feishu_plugin_platform() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         assert_eq!(plugin.platform(), "feishu");
     }
 
     #[test]
     fn test_feishu_plugin_render_empty_blocks() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         let output = plugin.render(&[], None);
         assert_eq!(output.msg_type, "text");
     }
 
     #[test]
     fn test_feishu_plugin_render_simple_text() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         let blocks = vec![ContentBlock::Text("hello".into())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "text");
@@ -222,7 +211,7 @@ mod tests {
 
     #[test]
     fn test_feishu_plugin_render_multiline_uses_card() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         let blocks = vec![ContentBlock::Text("line1\nline2\nline3".into())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "interactive");
@@ -231,7 +220,7 @@ mod tests {
 
     #[test]
     fn test_feishu_plugin_render_code_block_uses_card() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         let text = "```rust\nfn main() {}\n```";
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
@@ -240,7 +229,7 @@ mod tests {
 
     #[test]
     fn test_feishu_plugin_render_mixed_content_uses_card() {
-        let plugin = make_feishu_plugin();
+        let plugin = make_plugin("unused-cli");
         let text = "header\n```python\nprint('hi')\n```\n---\nfooter";
         let blocks = vec![ContentBlock::Text(text.into())];
         let output = plugin.render(&blocks, None);
@@ -573,24 +562,18 @@ mod tests {
         assert!(enqueuer.payloads().is_empty());
     }
 
-    /// `FeishuPlugin`/`FeishuAdapter`/`build_text` keep their historical
+    /// `FeishuAdapter`/`FeishuPlugin`/`build_text` keep their historical
     /// `platforms::feishu::` re-export paths and semantics after the
-    /// definitions were moved down to `feishu/plugin.rs` and
-    /// `feishu/renderer.rs`: the plugin wraps the adapter, reports the
-    /// `"feishu"` platform name, and `build_text` renders a text payload.
+    /// definitions were moved down to `feishu/adapter.rs`, `feishu/plugin.rs`
+    /// and `feishu/renderer.rs`: the adapter is assembled via the shared test
+    /// helper and wrapped into the plugin (which reports the `"feishu"`
+    /// platform name), and `build_text` renders a text payload.
     #[test]
     fn test_feishu_reexport_types_smoke() {
         use crate::platforms::feishu::{build_text, FeishuAdapter, FeishuPlugin};
 
-        let tmp = tempfile::TempDir::new().expect("tmp dir");
-        let adapter = Arc::new(FeishuAdapter::new(
-            "test_profile".into(),
-            Arc::new(
-                MediaStore::new(tmp.path().to_str().expect("utf-8 temp path"))
-                    .expect("media store"),
-            ),
-        ));
-        let plugin = FeishuPlugin::new(adapter);
+        let adapter: FeishuAdapter = make_adapter("unused-cli");
+        let plugin = FeishuPlugin::new(std::sync::Arc::new(adapter));
         assert_eq!(plugin.platform(), "feishu");
 
         let output = build_text("ping");

@@ -6,7 +6,6 @@
 //! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 use super::*;
-use crate::media_store::MediaStore;
 use crate::platforms::feishu::identity_resolver_stub::IdentityResolverStub;
 use crate::platforms::feishu::FeishuPlugin;
 use crate::IMAdapter;
@@ -14,17 +13,6 @@ use closeclaw_common::{IMPlugin, MessageType};
 use serial_test::serial;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 /// Build a minimal FeishuEvent for a message event.
 fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
@@ -237,7 +225,7 @@ fn test_expand_post_title_with_mixed_elements() {
 
 #[tokio::test]
 async fn test_parse_message_event_text_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
@@ -246,7 +234,7 @@ async fn test_parse_message_event_text_type() {
 }
 #[tokio::test]
 async fn test_parse_message_event_post_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let content = serde_json::json!({
         "title": "T",
         "content": [[{"tag": "text", "text": "body"}]]
@@ -259,7 +247,7 @@ async fn test_parse_message_event_post_type() {
 }
 #[tokio::test]
 async fn test_parse_message_event_image_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
@@ -273,14 +261,14 @@ async fn test_parse_message_event_image_type() {
 }
 #[tokio::test]
 async fn test_parse_message_event_metadata_account_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.account_id, "ou_sender");
 }
 #[tokio::test]
 async fn test_parse_message_event_thread_id_from_root_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let mut event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     event.event.root_id = Some("om_root123".to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
@@ -295,7 +283,7 @@ async fn test_parse_message_event_thread_id_from_root_id() {
 /// card.action.trigger returns None (deferred) — webhook and CLI formats.
 #[tokio::test]
 async fn test_parse_card_action_deferred_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Webhook format
     let webhook = serde_json::json!({
         "schema": "2.0",
@@ -339,7 +327,7 @@ async fn test_parse_card_action_deferred_returns_none() {
 /// Duplicate card.action.trigger event_id is rejected via dedup.
 #[tokio::test]
 async fn test_parse_card_action_dedup_duplicate_rejected() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -375,7 +363,7 @@ async fn test_parse_card_action_dedup_duplicate_rejected() {
 
 #[tokio::test]
 async fn test_parse_inbound_empty_text_returns_none() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": ""}).to_string());
     let result = plugin.parse_inbound(&payload).await.unwrap();
@@ -386,7 +374,7 @@ async fn test_parse_inbound_empty_text_returns_none() {
 }
 #[tokio::test]
 async fn test_parse_inbound_whitespace_only_text_returns_none() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "   "}).to_string());
     let result = plugin.parse_inbound(&payload).await.unwrap();
@@ -397,7 +385,7 @@ async fn test_parse_inbound_whitespace_only_text_returns_none() {
 }
 #[tokio::test]
 async fn test_parse_inbound_text_type() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
@@ -406,7 +394,7 @@ async fn test_parse_inbound_text_type() {
 }
 #[tokio::test]
 async fn test_parse_inbound_post_type() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let content = serde_json::json!({
         "title": "Post",
@@ -419,7 +407,7 @@ async fn test_parse_inbound_post_type() {
 }
 #[tokio::test]
 async fn test_parse_inbound_image_type() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload(
         "image",
@@ -436,7 +424,7 @@ async fn test_parse_inbound_image_type() {
 // ===========================================================================
 #[tokio::test]
 async fn test_parse_inbound_with_identity_mapping() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let resolver =
         IdentityResolverStub::new(&[("feishu", "test_app_id", "ou_sender", "mapped_user")]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
@@ -447,7 +435,7 @@ async fn test_parse_inbound_with_identity_mapping() {
 }
 #[tokio::test]
 async fn test_parse_inbound_without_mapping_fallback() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     // Resolver has a mapping for a different sender, not ou_sender.
     let resolver =
         IdentityResolverStub::new(&[("feishu", "test_app_id", "ou_other", "other_user")]);
@@ -459,7 +447,7 @@ async fn test_parse_inbound_without_mapping_fallback() {
 }
 #[tokio::test]
 async fn test_parse_inbound_no_resolver_fallback() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let plugin = FeishuPlugin::new(adapter);
     let payload = make_webhook_payload("text", &serde_json::json!({"text": "hi"}).to_string());
     let msg = plugin.parse_inbound(&payload).await.unwrap().unwrap();
@@ -467,13 +455,6 @@ async fn test_parse_inbound_no_resolver_fallback() {
     assert_eq!(msg.account_id, "ou_sender");
 }
 // Quote/reference (parent_id) tests
-
-/// Create a FeishuAdapter with a mock lark-cli command.
-fn make_adapter_with_mock_cli(mock_cli_path: &str) -> FeishuAdapter {
-    let mut adapter = make_test_adapter();
-    adapter.cli_command = mock_cli_path.to_string();
-    adapter
-}
 
 /// Create a mock lark-cli script that handles multiple message IDs.
 fn create_mock_cli_with_messages(
@@ -541,7 +522,7 @@ async fn test_quote_text_type_prepends_blockquote() {
         .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
+    let adapter = make_adapter(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply body"}).to_string(),
@@ -577,7 +558,7 @@ async fn test_quote_post_type_prepends_expanded_blockquote() {
         .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
+    let adapter = make_adapter(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "my reply"}).to_string(),
@@ -615,7 +596,7 @@ async fn test_quote_truncation_boundary() {
         .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
+    let adapter = make_adapter(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -648,7 +629,7 @@ async fn test_quote_truncation_boundary() {
         .to_string(),
     );
     let cli2 = create_mock_cli_with_messages(&tmp, &msgs2);
-    let adapter2 = make_adapter_with_mock_cli(&cli2);
+    let adapter2 = make_adapter(&cli2);
     let event2 = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -668,7 +649,7 @@ async fn test_quote_api_failure_no_blockquote() {
     let tmp = TempDir::new().unwrap();
     let msgs: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
+    let adapter = make_adapter(&cli);
     let event = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -684,7 +665,7 @@ async fn test_quote_api_failure_no_blockquote() {
 #[tokio::test]
 async fn test_quote_no_parent_id_and_image_type_unchanged() {
     // No parent_id → behavior unchanged
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
@@ -702,7 +683,7 @@ async fn test_quote_no_parent_id_and_image_type_unchanged() {
         .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter2 = make_adapter_with_mock_cli(&cli);
+    let adapter2 = make_adapter(&cli);
     let event2 = make_message_event_with_parent(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -730,7 +711,7 @@ async fn test_quote_with_root_id_thread_uses_root_id() {
         .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
-    let adapter = make_adapter_with_mock_cli(&cli);
+    let adapter = make_adapter(&cli);
     let event = make_message_event_with_parent_and_root(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -787,7 +768,7 @@ fn test_extract_unknown_type_err() {
 }
 #[tokio::test]
 async fn test_parse_unknown_type_none() {
-    let a = make_test_adapter();
+    let a = make_adapter("unused-cli");
     let e = make_message_event("unsupported_type", &serde_json::json!({}).to_string());
     assert!(a.parse_message_event(e).await.unwrap().is_none());
 }
@@ -799,7 +780,7 @@ async fn test_parse_unknown_type_none() {
 /// Top-level message: peer_id = sender_open_id|message_id, reply_ref = message_id
 #[tokio::test]
 async fn test_anchor_top_level_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "hi"}).to_string(),
@@ -814,7 +795,7 @@ async fn test_anchor_top_level_message() {
 /// Topic reply with thread_id: peer_id = sender_open_id|thread_id, reply_ref = root_id
 #[tokio::test]
 async fn test_anchor_topic_reply_with_thread_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let mut event = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -832,7 +813,7 @@ async fn test_anchor_topic_reply_with_thread_id() {
 /// peer_id = sender_open_id|root_id, reply_ref = root_id
 #[tokio::test]
 async fn test_anchor_topic_reply_root_id_only() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let mut event = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -848,7 +829,7 @@ async fn test_anchor_topic_reply_root_id_only() {
 /// Topic reply with parent_id only: peer_id = sender_open_id|parent_id, reply_ref = parent_id
 #[tokio::test]
 async fn test_anchor_topic_reply_parent_id_only() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let mut event = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "reply"}).to_string(),
@@ -864,7 +845,7 @@ async fn test_anchor_topic_reply_parent_id_only() {
 /// Missing message_id: peer_id = sender_open_id|"" , reply_ref = Some("")
 #[tokio::test]
 async fn test_anchor_missing_message_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "hi"}).to_string());
     // message_id is None → defaults to empty string
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
@@ -876,7 +857,7 @@ async fn test_anchor_missing_message_id() {
 /// account_id is unchanged when peer_id is composite
 #[tokio::test]
 async fn test_anchor_account_id_unchanged() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "text",
         &serde_json::json!({"text": "hi"}).to_string(),
@@ -890,7 +871,7 @@ async fn test_anchor_account_id_unchanged() {
 /// thread_id fallback chain: thread_id > root_id > parent_id
 #[tokio::test]
 async fn test_anchor_thread_id_fallback_chain() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Case 1: explicit thread_id wins over root_id and parent_id
     let mut e1 = make_message_event_with_id(
         "text",

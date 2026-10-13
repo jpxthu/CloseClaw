@@ -8,21 +8,7 @@
 //! - post media_refs extraction from embedded img/media/file tags
 
 use super::*;
-use crate::media_store::MediaStore;
 use closeclaw_common::MessageType;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 /// Build a minimal FeishuEvent for a message event.
 fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
@@ -94,7 +80,7 @@ fn make_message_event_with_id(
 
 #[tokio::test]
 async fn test_text_empty_content_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": ""}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -104,7 +90,7 @@ async fn test_text_empty_content_returns_none() {
 
 #[tokio::test]
 async fn test_text_missing_text_field_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -114,7 +100,7 @@ async fn test_text_missing_text_field_returns_none() {
 
 #[tokio::test]
 async fn test_text_whitespace_only_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "   "}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -124,7 +110,7 @@ async fn test_text_whitespace_only_returns_none() {
 
 #[tokio::test]
 async fn test_text_non_empty_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("text", &serde_json::json!({"text": "hello"}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "hello");
@@ -138,7 +124,7 @@ async fn test_text_non_empty_produces_message() {
 
 #[tokio::test]
 async fn test_post_empty_expand_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("post", &serde_json::json!({"content": []}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -148,7 +134,7 @@ async fn test_post_empty_expand_returns_none() {
 
 #[tokio::test]
 async fn test_post_no_content_key_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("post", &serde_json::json!({}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -158,7 +144,7 @@ async fn test_post_no_content_key_returns_none() {
 
 #[tokio::test]
 async fn test_post_with_text_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let content = serde_json::json!({
         "title": "T",
         "content": [[{"tag": "text", "text": "body"}]]
@@ -172,7 +158,7 @@ async fn test_post_with_text_produces_message() {
 
 #[tokio::test]
 async fn test_post_with_image_not_discarded() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let content = serde_json::json!({
         "content": [[{"tag": "img", "image_key": "img_in_post"}]]
     });
@@ -186,7 +172,7 @@ async fn test_post_with_image_not_discarded() {
 
 #[tokio::test]
 async fn test_post_empty_text_no_media_discarded() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("post", &serde_json::json!({"content": []}).to_string());
     assert!(
         adapter.parse_message_event(event).await.unwrap().is_none(),
@@ -196,7 +182,7 @@ async fn test_post_empty_text_no_media_discarded() {
 
 #[tokio::test]
 async fn test_post_empty_text_with_image_produces() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Post with only an img tag (no text) → content is "[图片]",
     // media_refs populated. Download fails → media unavailable.
     let content = serde_json::json!({
@@ -212,7 +198,7 @@ async fn test_post_empty_text_with_image_produces() {
 
 #[tokio::test]
 async fn test_post_with_text_and_embedded_image() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Post with text + img tag → content has text, media_refs has image.
     // Download fails → media unavailable.
     let content = serde_json::json!({
@@ -235,7 +221,7 @@ async fn test_post_with_text_and_embedded_image() {
 
 #[tokio::test]
 async fn test_post_empty_text_with_file_produces() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Post with only a file tag (no text) → content is "[文件]",
     // media_refs populated. Download fails → media unavailable.
     let content = serde_json::json!({
@@ -253,7 +239,7 @@ async fn test_post_empty_text_with_file_produces() {
 
 #[tokio::test]
 async fn test_post_multiple_media_refs_extracted() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Post with img + file + text → media_refs has both, content has text.
     // Download fails → media unavailable.
     let content = serde_json::json!({
@@ -277,7 +263,7 @@ async fn test_post_multiple_media_refs_extracted() {
 
 #[tokio::test]
 async fn test_image_no_text_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({"image_key": "img_xxx"}).to_string(),
@@ -292,7 +278,7 @@ async fn test_image_no_text_produces_message() {
 
 #[tokio::test]
 async fn test_file_no_text_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "file",
         &serde_json::json!({"file_key": "file_xxx"}).to_string(),
@@ -307,7 +293,7 @@ async fn test_file_no_text_produces_message() {
 
 #[tokio::test]
 async fn test_audio_no_text_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
@@ -322,7 +308,7 @@ async fn test_audio_no_text_produces_message() {
 
 #[tokio::test]
 async fn test_image_empty_key_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "image",
         &serde_json::json!({}).to_string(),
@@ -340,7 +326,7 @@ async fn test_image_empty_key_produces_message() {
 
 #[tokio::test]
 async fn test_sticker_with_emoji_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event(
         "sticker",
         &serde_json::json!({"emoji_type": "THUMBSUP"}).to_string(),
@@ -352,7 +338,7 @@ async fn test_sticker_with_emoji_produces_message() {
 
 #[tokio::test]
 async fn test_sticker_without_emoji_produces_message() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event("sticker", &serde_json::json!({}).to_string());
     let msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     assert_eq!(msg.content, "[]");

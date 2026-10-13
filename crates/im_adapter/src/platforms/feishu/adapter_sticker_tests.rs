@@ -1,20 +1,6 @@
 //! Unit tests for Feishu adapter: sticker message handling.
 
 use super::*;
-use crate::media_store::MediaStore;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 /// Build a minimal FeishuEvent for a message event.
 fn make_message_event(message_type: &str, content_json: &str) -> FeishuEvent {
@@ -77,7 +63,7 @@ fn test_extract_sticker_empty_emoji_type() {
 
 #[tokio::test]
 async fn test_parse_sticker_with_emoji_type() {
-    let a = make_test_adapter();
+    let a = make_adapter("unused-cli");
     let e = make_message_event(
         "sticker",
         &serde_json::json!({"emoji_type": "THUMBSUP"}).to_string(),
@@ -89,7 +75,7 @@ async fn test_parse_sticker_with_emoji_type() {
 
 #[tokio::test]
 async fn test_parse_sticker_without_emoji_type() {
-    let a = make_test_adapter();
+    let a = make_adapter("unused-cli");
     let e = make_message_event("sticker", &serde_json::json!({}).to_string());
     let msg = a.parse_message_event(e).await.unwrap().unwrap();
     assert_eq!(msg.content, "[]");

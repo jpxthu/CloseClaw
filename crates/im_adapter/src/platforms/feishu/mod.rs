@@ -70,6 +70,8 @@ pub(crate) mod streaming_send;
 mod style_tests;
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod test_helpers_tests;
 mod text_style;
 pub mod tools;
 #[cfg(test)]
@@ -94,6 +96,7 @@ pub(crate) use post_expand::expand_post_content;
 pub(crate) use renderer::extract_card_plain_text;
 #[cfg(test)]
 pub(crate) use test_helpers::{
-    create_failing_mock_cli, make_adapter, make_plugin, make_plugin_with_store, write_mock_script,
-    CAPABILITY_ERROR_JSON,
+    create_failing_mock_cli, make_adapter, make_adapter_with_profile, make_adapter_with_store,
+    make_plugin, make_plugin_with_store, make_test_media_store, make_test_media_store_at,
+    make_test_media_store_with_tmp, write_mock_script, CAPABILITY_ERROR_JSON,
 };

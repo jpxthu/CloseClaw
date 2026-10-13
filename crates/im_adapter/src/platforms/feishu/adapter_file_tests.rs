@@ -4,21 +4,7 @@
 //! CONTRIBUTING.md 1000-line hard limit.
 
 use super::*;
-use crate::media_store::MediaStore;
 use closeclaw_common::{MediaType, MessageType};
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 /// Build a FeishuEvent with an explicit message_id.
 fn make_message_event_with_id(
@@ -74,7 +60,7 @@ fn test_expand_post_file_tag() {
 
 #[tokio::test]
 async fn test_parse_message_event_file_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "file",
         &serde_json::json!({"file_key": "file_xxx", "file_name": "report.pdf"}).to_string(),
@@ -89,7 +75,7 @@ async fn test_parse_message_event_file_type() {
 
 #[tokio::test]
 async fn test_parse_message_event_audio_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id(
         "audio",
         &serde_json::json!({"file_key": "audio_xxx"}).to_string(),
@@ -152,7 +138,7 @@ fn test_extract_audio_json_with_file_name() {
 
 #[tokio::test]
 async fn test_parse_file_malformed_xml_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_message_event_with_id("file", "<file key=\"missing-quote", Some("om_bad_xml"));
     let msg = adapter.parse_message_event(event).await.unwrap();
     assert!(msg.is_none(), "malformed XML should return None, not panic");
@@ -170,7 +156,7 @@ async fn test_fixture_p2p_file_xml_content() {
         super::process_manager::normalize_cli_event(&raw).expect("fixture normalizes to CLI event");
     assert_eq!(event.event.message_type, "file");
     // Content is XML — parse_message_event should handle fallback.
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let msg = adapter
         .parse_message_event(event)
         .await

@@ -14,13 +14,12 @@
 //! the real `lark-cli`).
 
 use std::future::Future;
-use std::sync::Arc;
 use std::time::Duration;
 
 use tempfile::TempDir;
 
+use super::make_test_media_store;
 use super::plugin::resolve_feishu_profile;
-use crate::media_store::MediaStore;
 use crate::platforms::register_platform_plugins;
 use crate::ports::test_doubles::{FakeEnqueuer, FakeRegistrar};
 use crate::ports::GatewayHost;
@@ -36,13 +35,6 @@ fn setup_enabled_config_dir() -> TempDir {
     )
     .expect("platforms.json");
     dir
-}
-
-/// Temp-dir media store so registration never falls back to the default
-/// `~/.closeclaw/media` path.
-fn make_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("media tmp");
-    Arc::new(MediaStore::new(tmp.path().to_str().expect("utf-8")).expect("media store"))
 }
 
 /// Drive `register()` until it either completes (skip path) or parks inside
@@ -109,7 +101,9 @@ fn test_resolve_profile_none_when_nothing_available() {
 #[tokio::test]
 async fn test_register_enabled_registers_plugin_through_registrar() {
     let config_dir = setup_enabled_config_dir();
-    let media_store = make_media_store();
+    // Temp-dir media store so registration never falls back to the default
+    // `~/.closeclaw/media` path.
+    let media_store = make_test_media_store();
     let registrar = FakeRegistrar::parking();
     let host = GatewayHost {
         enqueuer: FakeEnqueuer::new(),
@@ -153,7 +147,9 @@ async fn test_register_skips_when_no_profile_available() {
         return;
     }
     let config_dir = setup_enabled_config_dir();
-    let media_store = make_media_store();
+    // Temp-dir media store so registration never falls back to the default
+    // `~/.closeclaw/media` path.
+    let media_store = make_test_media_store();
     let registrar = FakeRegistrar::parking();
     let host = GatewayHost {
         enqueuer: FakeEnqueuer::new(),

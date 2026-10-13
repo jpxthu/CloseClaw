@@ -9,23 +9,9 @@
 
 use super::process_manager::{start_event_stream, Event, EventLine};
 use super::*;
-use crate::media_store::MediaStore;
 use crate::ports::test_doubles::wait_enqueued;
 use crate::IMAdapter;
 use closeclaw_common::MessageType;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 /// Create a recording inbound-enqueuer double (no real host).
 fn make_enqueuer() -> std::sync::Arc<crate::ports::test_doubles::FakeEnqueuer> {
@@ -72,7 +58,7 @@ fn cli_text_payload(
 /// Simulates the real p2p-top-text.json event structure.
 #[tokio::test]
 async fn test_full_chain_cli_p2p_top_text() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = cli_text_payload(
         "ev_chain_top_001",
         "om_x100b662c236f18a4c213c559ac4a010",
@@ -104,7 +90,7 @@ async fn test_full_chain_cli_p2p_top_text() {
 /// Simulates the real p2p-thread-reply.json event structure.
 #[tokio::test]
 async fn test_full_chain_cli_p2p_thread_reply() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = cli_text_payload(
         "ev_chain_thread_001",
         "om_x100b662c207e7ca4dd414962d2c6de4",
@@ -130,7 +116,7 @@ async fn test_full_chain_cli_p2p_thread_reply() {
 /// CLI format: top-level text with no thread fields → anchor uses message_id.
 #[tokio::test]
 async fn test_full_chain_cli_top_level_no_thread_fields() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = cli_text_payload(
         "ev_chain_notop_001",
         "om_msg_no_thread",
@@ -147,7 +133,7 @@ async fn test_full_chain_cli_top_level_no_thread_fields() {
 /// CLI format: thread reply with root_id but no thread_id → root_id used as anchor.
 #[tokio::test]
 async fn test_full_chain_cli_thread_reply_root_id_only() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = cli_text_payload(
         "ev_chain_root_001",
         "om_msg_in_thread",
@@ -171,7 +157,7 @@ async fn test_full_chain_cli_thread_reply_root_id_only() {
 /// CLI format with invalid JSON in content field → parse_message_event fails gracefully.
 #[tokio::test]
 async fn test_full_chain_cli_malformed_content_returns_error() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "type": "im.message.receive_v1",
         "event_id": "ev_bad_content_001",
@@ -189,7 +175,7 @@ async fn test_full_chain_cli_malformed_content_returns_error() {
 /// CLI format with empty content → text type returns None (empty text discarded).
 #[tokio::test]
 async fn test_full_chain_cli_empty_content_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     // Empty text message → content.text is empty → discarded
     let payload = cli_text_payload(
         "ev_empty_content_001",
@@ -212,7 +198,7 @@ async fn test_full_chain_cli_empty_content_returns_none() {
 /// Duplicate event_id rejected at parse_inbound level (dedup gate).
 #[tokio::test]
 async fn test_full_chain_dedup_duplicate_rejected() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = cli_text_payload(
         "ev_chain_dedup_001",
         "om_dedup_msg",
@@ -245,7 +231,7 @@ async fn test_full_chain_dedup_duplicate_rejected() {
 /// chat_type early in parse_message_event, before any side-effects.
 #[tokio::test]
 async fn test_full_chain_group_chat_event_discarded() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "type": "im.message.receive_v1",
         "event_id": "ev_group_001",
@@ -268,7 +254,7 @@ async fn test_full_chain_group_chat_event_discarded() {
 /// P2P chat text event with chat_type="p2p" is processed normally.
 #[tokio::test]
 async fn test_full_chain_p2p_chat_event_with_chat_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "type": "im.message.receive_v1",
         "event_id": "ev_p2p_type_001",
@@ -291,7 +277,7 @@ async fn test_full_chain_p2p_chat_event_with_chat_type() {
 /// P2P chat text event with no chat_type field is also processed.
 #[tokio::test]
 async fn test_full_chain_p2p_chat_event_without_chat_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "type": "im.message.receive_v1",
         "event_id": "ev_p2p_notype_001",

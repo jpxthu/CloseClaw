@@ -7,24 +7,13 @@
 
 use super::identity_resolver_stub::IdentityResolverStub;
 use super::*;
-use crate::media_store::MediaStore;
 use crate::platforms::feishu::FeishuPlugin;
 use closeclaw_common::IMPlugin;
 use std::sync::Arc;
-use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Build a FeishuAdapter for tests (no real HTTP).
-fn make_test_adapter() -> FeishuAdapter {
-    let tmp = TempDir::new().expect("tmp dir");
-    FeishuAdapter::new(
-        "test_profile".to_string(),
-        Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
-    )
-}
 
 /// Build a FeishuEvent with a custom header app_id (simulates different bot
 /// application receiving the same user's message).
@@ -97,7 +86,7 @@ fn make_webhook_from_event(event: &FeishuEvent) -> Vec<u8> {
 /// to select the correct mapping.
 #[tokio::test]
 async fn test_parse_inbound_isolation_different_header_app_id() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let resolver = IdentityResolverStub::new(&[
         ("feishu", "app_x", "ou_alice", "alice_via_x"),
         ("feishu", "app_y", "ou_alice", "alice_via_y"),
@@ -137,7 +126,7 @@ async fn test_parse_inbound_isolation_different_header_app_id() {
 /// so account_id falls back to the raw sender open_id.
 #[tokio::test]
 async fn test_parse_inbound_header_app_id_not_in_resolver_fallback() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     let resolver = IdentityResolverStub::new(&[("feishu", "known_app", "ou_alice", "alice_known")]);
     let plugin = FeishuPlugin::with_identity_resolver(adapter, Some(Arc::new(resolver)));
 
@@ -158,7 +147,7 @@ async fn test_parse_inbound_header_app_id_not_in_resolver_fallback() {
 /// the fallback path: header_app_id absent/empty → use adapter.app_id.
 #[tokio::test]
 async fn test_parse_inbound_adapter_app_id_used_as_fallback() {
-    let adapter = Arc::new(make_test_adapter());
+    let adapter = Arc::new(make_adapter("unused-cli"));
     // Mapping uses adapter's app_id ("test_app_id") as bot_app_id.
     let resolver = IdentityResolverStub::new(&[(
         "feishu",
