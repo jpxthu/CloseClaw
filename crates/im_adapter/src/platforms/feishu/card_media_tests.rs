@@ -19,11 +19,9 @@
 use super::*;
 use crate::media_store::MediaStore;
 use serial_test::serial;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Capability-error JSON emitted by the failing mock (stderr + stdout echo).
-const CAPABILITY_ERROR_JSON: &str = r#"{"code":230001,"msg":"capability error"}"#;
 
 /// Create a mock lark-cli that returns a successful upload response.
 ///
@@ -37,9 +35,10 @@ fn create_success_upload_mock_cli(
     key: &str,
 ) -> String {
     let script_path = tmp.path().join(script_name);
-    let content = format!(
-        "#!/bin/bash\necho '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{response_field}\":\"{key}\"}}}}'\n"
-    );
+    let mut content = String::from("#!/bin/bash\n");
+    content.push_str(&format!(
+        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{response_field}\":\"{key}\"}}}}'\n"
+    ));
     write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
@@ -52,6 +51,18 @@ fn make_plugin(cli_command: &str) -> (FeishuPlugin, TempDir) {
     adapter.cli_command = cli_command.to_string();
     let adapter = Arc::new(adapter);
     (FeishuPlugin::new(adapter), tmp)
+}
+
+/// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
+/// `tmp`; returns the store's outbound dir so tests can assert the
+/// prepare-step outbound copy (proving the true upload path was taken).
+fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
+    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
+    let outbound_dir = media_store.outbound_dir().to_path_buf();
+    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
+    adapter.cli_command = cli_command.to_string();
+    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    (plugin, outbound_dir)
 }
 
 // ===========================================================================
@@ -69,11 +80,7 @@ async fn test_process_card_media_audio_element_graceful_failure() {
     let test_file = tmp.path().join("test_audio_fail.mp3");
     std::fs::write(&test_file, b"fake audio content").unwrap();
 
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let outbound_dir = media_store.outbound_dir().to_path_buf();
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store.clone());
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let audio_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
@@ -119,11 +126,7 @@ async fn test_process_card_media_file_element_graceful_failure() {
     let test_file = tmp.path().join("test_document_fail.pdf");
     std::fs::write(&test_file, b"fake pdf content").unwrap();
 
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let outbound_dir = media_store.outbound_dir().to_path_buf();
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store.clone());
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let file_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
@@ -211,11 +214,7 @@ async fn test_process_card_media_mixed_elements() {
     let video_file = tmp.path().join("test_video_fail.mp4");
     std::fs::write(&video_file, b"fake video content").unwrap();
 
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let outbound_dir = media_store.outbound_dir().to_path_buf();
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store.clone());
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let audio_ref = audio_file.to_str().unwrap().to_string();
     let doc_ref = doc_file.to_str().unwrap().to_string();

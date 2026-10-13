@@ -8,6 +8,9 @@
 
 use tempfile::TempDir;
 
+/// Capability-error JSON emitted by the failing mock (stderr + stdout echo).
+pub(crate) const CAPABILITY_ERROR_JSON: &str = r#"{"code":230001,"msg":"capability error"}"#;
+
 /// Write a mock shell script atomically — temp-name write, handle
 /// closed, rename into place, chmod 0755 — so the exec path never coexists
 /// with an open write handle (avoids ETXTBSY on spawn).
@@ -30,16 +33,20 @@ pub(crate) fn write_mock_script(path: &std::path::Path, content: &str) {
 ///
 /// Parameterized over the former per-file copies' differences: script
 /// name / stderr JSON response / optional stdout echo / exit code.
+///
+/// Constraint: `error_json` must not contain single quotes — the generated
+/// script embeds it in single-quoted shell strings, so a `'` inside would
+/// break the quoting (and could inject shell syntax).
 pub(crate) fn create_failing_mock_cli(
     tmp: &TempDir,
     script_name: &str,
     error_json: &str,
-    echo_stdout: bool,
+    should_echo_stdout: bool,
     exit_code: i32,
 ) -> String {
     let script_path = tmp.path().join(script_name);
     let mut content = format!("#!/bin/bash\necho '{error_json}' >&2\n");
-    if echo_stdout {
+    if should_echo_stdout {
         content.push_str(&format!("echo '{error_json}'\n"));
     }
     content.push_str(&format!("exit {exit_code}\n"));
@@ -55,8 +62,10 @@ mod tests {
 
     use super::*;
     use serial_test::serial;
+    #[cfg(unix)]
     use std::os::unix::fs::PermissionsExt;
 
+    #[cfg(unix)]
     fn assert_executable(path: &std::path::Path) {
         let mode = std::fs::metadata(path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o755, "script must be executable (0755)");
@@ -73,6 +82,7 @@ mod tests {
         assert!(path.exists(), "returned target path must exist");
         let written = std::fs::read_to_string(&path).unwrap();
         assert_eq!(written, content, "file content must match input verbatim");
+        #[cfg(unix)]
         assert_executable(&path);
     }
 
@@ -100,6 +110,7 @@ mod tests {
         let path = std::path::PathBuf::from(&cli);
         assert_eq!(path, tmp.path().join("failing_lark_cli.sh"));
         assert!(path.exists());
+        #[cfg(unix)]
         assert_executable(&path);
     }
 
@@ -118,7 +129,7 @@ mod tests {
             !content
                 .lines()
                 .any(|l| l.starts_with("echo") && !l.contains(">&2")),
-            "echo_stdout=false must not add a stdout echo line"
+            "should_echo_stdout=false must not add a stdout echo line"
         );
     }
 
@@ -131,7 +142,7 @@ mod tests {
         let loud_content = std::fs::read_to_string(&loud).unwrap();
         assert!(
             loud_content.contains(&format!("echo '{json}'\n")),
-            "echo_stdout=true must echo the same JSON to stdout"
+            "should_echo_stdout=true must echo the same JSON to stdout"
         );
 
         let quiet = create_failing_mock_cli(&tmp, "echo_off.sh", json, false, 1);
@@ -139,7 +150,7 @@ mod tests {
         assert_eq!(
             quiet_content.matches(&format!("echo '{json}'")).count(),
             1,
-            "echo_stdout=false must emit the JSON exactly once (stderr only)"
+            "should_echo_stdout=false must emit the JSON exactly once (stderr only)"
         );
     }
 

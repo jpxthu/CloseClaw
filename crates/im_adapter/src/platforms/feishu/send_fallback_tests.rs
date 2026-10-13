@@ -20,9 +20,6 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
 
-/// Capability-error JSON emitted by the failing mock (stderr + stdout echo).
-const CAPABILITY_ERROR_JSON: &str = r#"{"code":230001,"msg":"capability error"}"#;
-
 /// Create a mock lark-cli script that outputs the given JSON to stdout.
 fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
     let script_path = tmp.path().join("mock_cli.sh");
