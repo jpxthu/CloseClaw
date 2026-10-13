@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Workflow engine: definition parsing, state machine, and execution protocol"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true

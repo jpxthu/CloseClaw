@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Debug log framework for CloseClaw — structured JSONL logging with redaction"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 tokio.workspace = true
