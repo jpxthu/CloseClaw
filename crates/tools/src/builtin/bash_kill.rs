@@ -471,13 +471,18 @@ pub(crate) async fn register_foreground_session(
 
 /// Truncate a command string for use as `args_summary` in pending
 /// operation tracking.
+///
+/// Cuts at the largest UTF-8 character boundary `<= 200` bytes (the
+/// boundary `safe_truncate` computes — equivalent to
+/// `str::floor_char_boundary`, which is MSRV-incompatible here) and
+/// appends `"..."`. Inputs of 200 bytes or fewer are returned
+/// unchanged.
 pub(crate) fn truncate_summary(command: &str) -> String {
     const MAX_SUMMARY_LEN: usize = 200;
     if command.len() <= MAX_SUMMARY_LEN {
         command.to_string()
     } else {
-        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
-        format!("{}...", &command[..end])
+        format!("{}...", safe_truncate(command, MAX_SUMMARY_LEN))
     }
 }
 

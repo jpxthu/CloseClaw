@@ -65,3 +65,6 @@ mod skill_tool_tests;
 
 #[cfg(test)]
 mod edit_tool_tests;
+
+#[cfg(test)]
+mod bash_kill_tests;
