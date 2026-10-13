@@ -49,44 +49,35 @@ pub(crate) fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> Usag
 // TurnResponse-level helpers
 // ---------------------------------------------------------------------------
 
-/// Build a text-only `TurnResponse` with no usage, delay, or error injection.
-pub(crate) fn text_turn(content: &str) -> TurnResponse {
+/// Build a `TurnResponse` carrying `response` with no delay, interrupt,
+/// or error injection.
+fn turn_with(response: ResponseShape) -> TurnResponse {
     TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: content.to_string(),
-            usage: None,
-        })
-        .into(),
+        response: response.into(),
         delay: None,
         first_token_delay: None,
         segment_delay: None,
         stream_interrupt_after: None,
         error: None,
     }
+}
+
+/// Build a text-only `TurnResponse` with no usage, delay, or error injection.
+pub(crate) fn text_turn(content: &str) -> TurnResponse {
+    turn_with(ResponseShape::Text(TextResponse {
+        content: content.to_string(),
+        usage: None,
+    }))
 }
 
 /// Build a usage-only `TurnResponse` with fixed prompt=10 / completion=20 tokens.
 pub(crate) fn usage_turn() -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Usage(default_usage()).into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
+    turn_with(ResponseShape::Usage(default_usage()))
 }
 
 /// Build a `TurnResponse` carrying the catch-all `Unknown` shape.
 pub(crate) fn unknown_turn() -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Unknown.into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
+    turn_with(ResponseShape::Unknown)
 }
 
 /// Build a reasoning `TurnResponse` with the given content, reasoning
@@ -96,21 +87,13 @@ pub(crate) fn reasoning_turn(
     reasoning: &str,
     intensity: ReasoningIntensity,
 ) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Reasoning(ReasoningResponse {
-            content: content.to_string(),
-            reasoning: reasoning.to_string(),
-            signature: None,
-            usage: None,
-            intensity,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
+    turn_with(ResponseShape::Reasoning(ReasoningResponse {
+        content: content.to_string(),
+        reasoning: reasoning.to_string(),
+        signature: None,
+        usage: None,
+        intensity,
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -342,6 +325,27 @@ mod tests {
         assert!(f.messages.is_empty());
         assert!(f.tools.is_empty());
         assert_eq!(f.protocol, ProtocolKind::Anthropic);
+    }
+
+    #[test]
+    fn features_full_combines_multi_messages_tools_and_protocol() {
+        let f = features_full(
+            "claude-3",
+            vec![("user", "q"), ("assistant", "a")],
+            vec!["web_search", "calc"],
+            ProtocolKind::Anthropic,
+        );
+        assert_eq!(f.model, "claude-3");
+        assert!(!f.stream);
+        assert_eq!(f.max_tokens, None);
+        assert_eq!(f.temperature, None);
+        assert_eq!(f.protocol, ProtocolKind::Anthropic);
+        assert_eq!(f.tools, vec!["web_search".to_string(), "calc".to_string()]);
+        assert_eq!(f.messages.len(), 2);
+        assert_eq!(f.messages[0].role, "user");
+        assert_eq!(f.messages[0].content, "q");
+        assert_eq!(f.messages[1].role, "assistant");
+        assert_eq!(f.messages[1].content, "a");
     }
 
     #[test]
