@@ -1,6 +1,7 @@
 //! Tests for structured turn overflow errors (Step 1.2).
 
 use super::*;
+use crate::test_util::{features, text_turn};
 use crate::types::ProtocolKind;
 
 #[test]

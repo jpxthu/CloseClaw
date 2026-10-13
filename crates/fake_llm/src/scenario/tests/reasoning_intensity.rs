@@ -3,6 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
+use crate::test_util::features;
 
 /// Helper: build a reasoning turn with given intensity and reasoning text.
 fn reasoning_turn(content: &str, reasoning: &str, intensity: ReasoningIntensity) -> TurnResponse {

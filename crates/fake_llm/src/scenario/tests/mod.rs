@@ -1,36 +1,6 @@
 use super::*;
-use crate::test_util::usage_response;
+use crate::test_util::{features, features_multi, text_turn, usage_response};
 use crate::types::ProtocolKind;
-
-fn text_turn(content: &str) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: content.to_string(),
-            usage: None,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
-fn features(model: &str, msg: &str) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
 
 #[test]
 fn test_decide_no_match_no_fallback_returns_error() {
@@ -207,46 +177,13 @@ fn fixture_scenarios_dir() -> std::path::PathBuf {
         .join("scenarios")
 }
 
-fn features_with_model(model: &str, msg: &str) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
-fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: messages
-            .into_iter()
-            .map(|(role, content)| MessageEntry {
-                role: role.to_string(),
-                content: content.to_string(),
-            })
-            .collect(),
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
 #[test]
 fn test_decide_end_to_end_from_dir() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // basic-text.json: greeting scenario matches model "gpt-4o-basic" + "hello"
-    let feat = features_with_model("gpt-4o-basic", "hello world");
+    let feat = features("gpt-4o-basic", "hello world");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -266,7 +203,7 @@ fn test_decide_fixture_fallback_basic() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // basic-text.json: fallback-basic matches model "gpt-4o-basic-fallback"
-    let feat = features_with_model("gpt-4o-basic-fallback", "something else");
+    let feat = features("gpt-4o-basic-fallback", "something else");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -286,7 +223,7 @@ fn test_decide_fixture_error_injection_rate_limit() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // error-injection.json: rate-limit scenario — first turn OK, second turn 429
-    let feat = features_with_model("gpt-4o-error", "hi");
+    let feat = features("gpt-4o-error", "hi");
     let outcome1 = engine.decide(&feat);
     match outcome1 {
         DecisionOutcome::Decision(d) => {
@@ -366,7 +303,7 @@ fn test_decide_fixture_multi_turn_turn1() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // multi-turn.json: three-turn-chat with model "gpt-4o-multi"
-    let feat = features_with_model("gpt-4o-multi", "start");
+    let feat = features("gpt-4o-multi", "start");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -386,11 +323,11 @@ fn test_decide_fixture_multi_turn_turn2() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // Drive to turn 1 first
-    let feat1 = features_with_model("gpt-4o-multi", "start");
+    let feat1 = features("gpt-4o-multi", "start");
     let _ = engine.decide(&feat1);
 
     // Turn 2
-    let feat = features_with_messages(
+    let feat = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -416,9 +353,9 @@ fn test_decide_fixture_multi_turn_turn3() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // Drive to turn 2
-    let feat1 = features_with_model("gpt-4o-multi", "start");
+    let feat1 = features("gpt-4o-multi", "start");
     let _ = engine.decide(&feat1);
-    let feat2 = features_with_messages(
+    let feat2 = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -429,7 +366,7 @@ fn test_decide_fixture_multi_turn_turn3() {
     let _ = engine.decide(&feat2);
 
     // Turn 3
-    let feat = features_with_messages(
+    let feat = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -457,7 +394,7 @@ fn test_decide_fixture_usage_response() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // usage-response.json: usage-report with model "gpt-4o-usage"
-    let feat = features_with_model("gpt-4o-usage", "hi");
+    let feat = features("gpt-4o-usage", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -476,7 +413,7 @@ fn test_decide_fixture_cache_fields_missing() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // cache-fields-missing.json: no-cache-fields-vendor with model "vendor-no-cache"
-    let feat = features_with_model("vendor-no-cache", "hi");
+    let feat = features("vendor-no-cache", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -511,7 +448,7 @@ fn test_decide_unknown_model_returns_error_when_no_fallback() {
 
     // No fixture matches model "unknown-model" and no fallback declared.
     // Zero hits with no fallback → error.
-    let feat = features_with_model("unknown-model", "hi");
+    let feat = features("unknown-model", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
