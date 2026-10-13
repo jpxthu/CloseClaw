@@ -174,12 +174,22 @@ fn test_blocking_acquire_waits_for_holder_release() {
     let plan = write_plan(dir.path(), "plan.md");
     let held = plan_file::acquire_plan_lock(&plan).expect("holder acquires");
 
+    let (ready_tx, ready_rx) = mpsc::channel::<()>();
     let (tx, rx) = mpsc::channel::<io::Result<File>>();
     let waiter_plan = plan.clone();
     let waiter = std::thread::spawn(move || {
+        // Signal readiness *before* blocking on the lock so the main thread
+        // only starts the negative assertion once this thread has actually
+        // reached `acquire_plan_lock` (distinguishes "not scheduled yet"
+        // from "scheduled and blocked on the lock").
+        let _ = ready_tx.send(());
         let result = plan_file::acquire_plan_lock(&waiter_plan);
         let _ = tx.send(result);
     });
+
+    ready_rx
+        .recv_timeout(Duration::from_secs(10))
+        .expect("waiter thread must reach acquire_plan_lock");
 
     // While the holder is alive the waiter must not return. A timeout here
     // is the expected outcome; an early return means the lock is broken.
