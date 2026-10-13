@@ -476,8 +476,7 @@ pub(crate) fn truncate_summary(command: &str) -> String {
     if command.len() <= MAX_SUMMARY_LEN {
         command.to_string()
     } else {
-        let end = command.floor_char_boundary(MAX_SUMMARY_LEN);
-        format!("{}...", &command[..end])
+        format!("{}...", safe_truncate(command, MAX_SUMMARY_LEN))
     }
 }
 
