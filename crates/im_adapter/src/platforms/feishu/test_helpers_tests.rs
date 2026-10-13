@@ -5,7 +5,9 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::{
-    create_failing_mock_cli, make_adapter, make_plugin, make_plugin_with_store, write_mock_script,
+    create_failing_mock_cli, make_adapter, make_adapter_with_profile, make_adapter_with_store,
+    make_plugin, make_plugin_with_store, make_test_media_store, make_test_media_store_at,
+    make_test_media_store_with_tmp, write_mock_script,
 };
 use serial_test::serial;
 #[cfg(unix)]
@@ -189,4 +191,106 @@ fn test_make_plugin_with_store_is_idempotent_over_same_tmp() {
     assert_eq!(dir_a, dir_b, "same tmp must yield the same outbound dir");
     assert_eq!(dir_a, plugin_a.adapter.media_store.outbound_dir());
     assert_eq!(dir_b, plugin_b.adapter.media_store.outbound_dir());
+}
+
+// ===========================================================================
+// Layered store primitives
+// ===========================================================================
+
+/// Normal path: each bare-store call backs the store with an independent
+/// temp root (no shared state across call sites).
+#[test]
+fn test_make_test_media_store_yields_distinct_roots_per_call() {
+    let store_a = make_test_media_store();
+    let store_b = make_test_media_store();
+
+    assert_ne!(
+        store_a.outbound_dir(),
+        store_b.outbound_dir(),
+        "each call must back its store with an independent temp root"
+    );
+}
+
+/// Given-root primitive: the store is rooted under the externally supplied
+/// root (created on demand) and the store is writable.
+#[test]
+fn test_make_test_media_store_at_creates_store_under_given_root() {
+    let tmp = TempDir::new().unwrap();
+    let root = tmp.path().join("media_root");
+
+    let store = make_test_media_store_at(&root);
+
+    assert!(root.exists(), "store root must be created if missing");
+    assert!(
+        store.outbound_dir().starts_with(&root),
+        "store dirs must live under the given root"
+    );
+    let probe = store.outbound_dir().join("probe.txt");
+    std::fs::write(&probe, "ok").unwrap();
+    assert_eq!(std::fs::read_to_string(&probe).unwrap(), "ok");
+}
+
+/// Boundary: while the caller retains tmp ownership, the store's paths stay
+/// valid and the store is writable (the with-tmp form's contract).
+#[test]
+fn test_make_test_media_store_with_tmp_keeps_store_writable_while_tmp_held() {
+    let (tmp, store) = make_test_media_store_with_tmp();
+
+    assert!(
+        store.outbound_dir().starts_with(tmp.path()),
+        "store root must live under the returned tmp"
+    );
+    assert!(
+        store.outbound_dir().exists(),
+        "outbound dir must stay valid while tmp ownership is retained"
+    );
+    let probe = store.outbound_dir().join("probe.txt");
+    std::fs::write(&probe, "ok").unwrap();
+    assert_eq!(std::fs::read_to_string(&probe).unwrap(), "ok");
+}
+
+// ===========================================================================
+// Layered adapter assembly
+// ===========================================================================
+
+/// Normal path: the public adapter-with-store form behaves exactly like
+/// `make_adapter` — same profile convention, cli override applied, store
+/// rooted under the caller's tmp.
+#[test]
+fn test_make_adapter_with_store_matches_make_adapter_behavior() {
+    let tmp = TempDir::new().unwrap();
+    let adapter = make_adapter_with_store("my_lark_cli", &tmp);
+
+    assert_eq!(
+        adapter.cli_command, "my_lark_cli",
+        "cli override must apply"
+    );
+    assert_eq!(
+        adapter.profile, "test_profile",
+        "shared assembly must keep the test_profile convention"
+    );
+    assert!(
+        adapter.media_store.outbound_dir().starts_with(tmp.path()),
+        "media store must be rooted under the passed tmp"
+    );
+    assert!(
+        adapter.media_store.outbound_dir().exists(),
+        "outbound dir must stay valid while tmp ownership is retained"
+    );
+}
+
+/// Parameterized path: a custom profile is applied verbatim while the
+/// default cli command stays untouched (plain `FeishuAdapter::new` parity).
+#[test]
+fn test_make_adapter_with_profile_applies_custom_profile_and_keeps_default_cli() {
+    let adapter = make_adapter_with_profile("my_lark_profile");
+
+    assert_eq!(
+        adapter.profile, "my_lark_profile",
+        "custom profile must be applied verbatim"
+    );
+    assert_eq!(
+        adapter.cli_command, "lark-cli",
+        "profile primitive must keep the default cli command"
+    );
 }

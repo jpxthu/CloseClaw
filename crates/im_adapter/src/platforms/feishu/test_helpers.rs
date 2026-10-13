@@ -58,13 +58,51 @@ pub(crate) fn create_failing_mock_cli(
     script_path.to_str().unwrap().to_string()
 }
 
+/// Create a `MediaStore` rooted at an externally supplied `root`; the
+/// `inbound/` and `outbound/` sub-directories are created under it.
+pub(crate) fn make_test_media_store_at(root: &std::path::Path) -> Arc<MediaStore> {
+    Arc::new(MediaStore::new(root.to_str().unwrap()).expect("media store"))
+}
+
+/// Create a `MediaStore` rooted in a fresh temp dir and hand back the
+/// `TempDir` so callers that depend on path validity (e.g. outbound-copy
+/// resolution against the store root) can keep the storage alive.
+pub(crate) fn make_test_media_store_with_tmp() -> (TempDir, Arc<MediaStore>) {
+    let tmp = TempDir::new().unwrap();
+    let store = make_test_media_store_at(tmp.path());
+    (tmp, store)
+}
+
+/// Create a `MediaStore` rooted in a self-managed temp dir. The temp dir is
+/// removed as soon as this returns, so only use this when store paths are
+/// never re-materialized on disk; for path-sensitive cases use
+/// [`make_test_media_store_with_tmp`].
+pub(crate) fn make_test_media_store() -> Arc<MediaStore> {
+    make_test_media_store_with_tmp().1
+}
+
 /// Single assembly point: a `FeishuAdapter` wired to `cli_command` with a
 /// media store rooted at `tmp` (profile `test_profile`).
-fn adapter_with_store(cli_command: &str, tmp: &TempDir) -> FeishuAdapter {
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
+pub(crate) fn make_adapter_with_store(cli_command: &str, tmp: &TempDir) -> FeishuAdapter {
+    let media_store = make_test_media_store_at(tmp.path());
     let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
     adapter.cli_command = cli_command.to_string();
     adapter
+}
+
+/// Profile-parameterized assembly: a `FeishuAdapter` with the given profile
+/// and the default cli command, backed by a self-managed temp-dir media
+/// store — mirrors a plain `FeishuAdapter::new(profile, store)` call.
+pub(crate) fn make_adapter_with_profile(profile: &str) -> FeishuAdapter {
+    let media_store = make_test_media_store();
+    FeishuAdapter::new(profile.into(), media_store)
+}
+
+/// Create a FeishuAdapter wired to `cli_command` with a self-built
+/// temp-dir-backed media store (profile `test_profile`).
+pub(crate) fn make_adapter(cli_command: &str) -> FeishuAdapter {
+    let tmp = TempDir::new().unwrap();
+    make_adapter_with_store(cli_command, &tmp)
 }
 
 /// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
@@ -73,17 +111,10 @@ fn adapter_with_store(cli_command: &str, tmp: &TempDir) -> FeishuAdapter {
 /// Skip-path tests may ignore the return value as `_outbound_dir`;
 /// discarding it is normal usage.
 pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
-    let adapter = adapter_with_store(cli_command, tmp);
+    let adapter = make_adapter_with_store(cli_command, tmp);
     let outbound_dir = adapter.media_store.outbound_dir().to_path_buf();
     let plugin = FeishuPlugin::new(Arc::new(adapter));
     (plugin, outbound_dir)
-}
-
-/// Create a FeishuAdapter wired to `cli_command` with a self-built
-/// temp-dir-backed media store (profile `test_profile`).
-pub(crate) fn make_adapter(cli_command: &str) -> FeishuAdapter {
-    let tmp = TempDir::new().unwrap();
-    adapter_with_store(cli_command, &tmp)
 }
 
 /// Create a FeishuPlugin wired to `cli_command` with a self-built
