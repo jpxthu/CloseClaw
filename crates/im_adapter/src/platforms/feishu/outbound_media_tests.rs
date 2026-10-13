@@ -49,6 +49,89 @@ fn captured_args_contain_path(args: &str, outbound: &std::path::Path) -> bool {
     })
 }
 
+/// Normal path: an absolute outbound path token in args hits.
+#[test]
+fn test_captured_args_contain_path_absolute_token_hit() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+    let args = format!("im send --chat oc_x --image {}", outbound.to_str().unwrap());
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "absolute outbound token should hit, args: {args}"
+    );
+}
+
+/// Environment boundary: when TMPDIR sits under the process cwd, production
+/// `make_media_path_relative` relativizes the outbound path and lark-cli
+/// receives a cwd-relative token — must still hit. Simulated by synthesizing
+/// a relative token and defining outbound as `cwd.join(token)`; purely
+/// lexical (no filesystem access, no env mutation, no dependence on the
+/// real TMPDIR×cwd layout).
+#[test]
+fn test_captured_args_contain_path_cwd_relative_token_hit() {
+    let cwd = std::env::current_dir().unwrap();
+    let rel = std::path::Path::new("tmpdir-under-cwd/outbound/photo.png");
+    let outbound = cwd.join(rel);
+    let args = format!("im send --chat oc_x --image {}", rel.to_str().unwrap());
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "cwd-relative token should resolve to outbound, args: {args}"
+    );
+}
+
+/// Error path: args without any path equivalent to outbound misses, so the
+/// call-site assertion still fails (with full args text) when the path was
+/// genuinely not passed. Includes the substring trap: a token sharing the
+/// outbound path as a prefix (`photo.png.bak`) is a different path — a
+/// plain `args.contains(outbound)` would have matched it spuriously.
+#[test]
+fn test_captured_args_contain_path_missing_path_misses() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+
+    let args = "im send --chat oc_x --image /elsewhere/other.png";
+    assert!(
+        !captured_args_contain_path(args, &outbound),
+        "unrelated args must not hit"
+    );
+
+    let decoy = format!("{}.bak", outbound.to_str().unwrap());
+    let args = format!("im send --chat oc_x --image {decoy}");
+    assert!(
+        !captured_args_contain_path(&args, &outbound),
+        "prefix-sharing token must not count as a hit, args: {args}"
+    );
+}
+
+/// Boundary: the outbound token in the middle of a multi-token args line hits.
+#[test]
+fn test_captured_args_contain_path_outbound_in_middle_hit() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("report.pdf");
+    let args = format!(
+        "im send --chat oc_x {} --verbose",
+        outbound.to_str().unwrap()
+    );
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "outbound token mid-args should hit, args: {args}"
+    );
+}
+
+/// Boundary: same file name in a different directory is a different path —
+/// must miss.
+#[test]
+fn test_captured_args_contain_path_same_name_different_dir_misses() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+    let decoy = tmp.path().join("inbound").join("photo.png");
+    let args = format!("im send --chat oc_x --image {}", decoy.to_str().unwrap());
+    assert!(
+        !captured_args_contain_path(&args, &outbound),
+        "same file name in another directory must not hit, args: {args}"
+    );
+}
+
 #[tokio::test]
 async fn test_validate_path_within_workspace() {
     let tmp = TempDir::new().unwrap();
