@@ -6,6 +6,10 @@
 //!   （ETXTBSY 根因）。
 //! - mock 脚本必须落 `tempfile::TempDir`（系统临时目录），禁止仓库固定路径。
 
+use super::{FeishuAdapter, FeishuPlugin};
+use crate::media_store::MediaStore;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Capability-error JSON emitted by the failing mock (stderr + stdout echo).
@@ -52,6 +56,20 @@ pub(crate) fn create_failing_mock_cli(
     content.push_str(&format!("exit {exit_code}\n"));
     write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
+}
+
+/// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
+/// `tmp`; returns the store's outbound dir so tests can assert the
+/// prepare-step outbound copy (proving the true upload path was taken).
+/// Skip-path tests may ignore the return value as `_outbound_dir`;
+/// discarding it is normal usage.
+pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
+    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
+    let outbound_dir = media_store.outbound_dir().to_path_buf();
+    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
+    adapter.cli_command = cli_command.to_string();
+    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    (plugin, outbound_dir)
 }
 
 #[cfg(test)]

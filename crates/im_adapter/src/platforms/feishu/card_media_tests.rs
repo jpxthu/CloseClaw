@@ -17,10 +17,7 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
-use crate::media_store::MediaStore;
 use serial_test::serial;
-use std::path::PathBuf;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli that returns a successful upload response.
@@ -41,20 +38,6 @@ fn create_success_upload_mock_cli(
     ));
     write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
-}
-
-/// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
-/// `tmp`; returns the store's outbound dir so tests can assert the
-/// prepare-step outbound copy (proving the true upload path was taken).
-/// Skip-path tests may ignore the return value as `_outbound_dir`;
-/// discarding it is normal usage.
-fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let outbound_dir = media_store.outbound_dir().to_path_buf();
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli_command.to_string();
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
-    (plugin, outbound_dir)
 }
 
 // ===========================================================================
@@ -157,8 +140,7 @@ async fn test_process_card_media_file_element_graceful_failure() {
 #[tokio::test]
 async fn test_process_card_media_audio_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -175,8 +157,7 @@ async fn test_process_card_media_audio_no_file_token_skipped() {
 #[tokio::test]
 async fn test_process_card_media_file_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -252,8 +233,7 @@ async fn test_process_card_media_mixed_elements() {
 #[tokio::test]
 async fn test_process_card_media_empty_elements() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -268,8 +248,7 @@ async fn test_process_card_media_empty_elements() {
 #[tokio::test]
 async fn test_process_card_media_no_card_key() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({});
     let result = plugin.process_card_media(&mut payload).await;
@@ -280,8 +259,7 @@ async fn test_process_card_media_no_card_key() {
 #[tokio::test]
 async fn test_process_card_media_no_elements_in_card() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {}
@@ -294,8 +272,7 @@ async fn test_process_card_media_no_elements_in_card() {
 #[tokio::test]
 async fn test_process_card_media_audio_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -315,8 +292,7 @@ async fn test_process_card_media_audio_http_url_skipped() {
 #[tokio::test]
 async fn test_process_card_media_file_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -391,8 +367,7 @@ async fn test_process_card_media_file_upload_failure_keeps_token() {
 #[tokio::test]
 async fn test_process_card_media_img_no_img_key_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
+    let (plugin, _outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
