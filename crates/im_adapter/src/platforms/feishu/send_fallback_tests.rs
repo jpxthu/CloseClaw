@@ -19,16 +19,6 @@ use serial_test::serial;
 use std::fmt::Write as _;
 use tempfile::TempDir;
 
-/// Create a mock lark-cli script that outputs the given JSON to stdout.
-fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
-    let script_path = tmp.path().join("mock_cli.sh");
-    let mut content = String::new();
-    writeln!(content, "#!/bin/bash").unwrap();
-    writeln!(content, "echo '{response_json}'").unwrap();
-    write_mock_script(&script_path, &content);
-    script_path.to_str().unwrap().to_string()
-}
-
 /// Create a mock lark-cli script that fails for the first `fail_count` calls,
 /// then succeeds. Uses a counter file to track calls.
 fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {

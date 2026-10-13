@@ -176,6 +176,8 @@ pub(crate) fn build_reply_args(target: &ReplyTarget, text: &str) -> Vec<String> 
     args
 }
 
+// --- Text/reply sending: plain message send + card-to-text fallback ---
+
 impl FeishuAdapter {
     /// Low-level: send a message via lark-cli subprocess.
     ///
@@ -231,7 +233,24 @@ impl FeishuAdapter {
         }
         self.send_msg(chat_id, "text", &plain_text, reply_ref).await
     }
+}
 
+// --- Media sending: image/file upload via lark-cli ---
+
+/// Obtain the process working directory for lark-cli path relativization.
+///
+/// Returns `None` when `std::env::current_dir()` fails; the failure reason
+/// is logged here (warn) and callers pass `None` to `send_media_file`,
+/// causing it to fall back to the outbound absolute path.
+fn cwd_for_cli() -> Option<std::path::PathBuf> {
+    std::env::current_dir()
+        .inspect_err(|e| {
+            tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
+        })
+        .ok()
+}
+
+impl FeishuAdapter {
     /// Send an image file via lark-cli.
     ///
     /// - P2P (`ou_xxx`): `lark-cli im +messages-send --user-id <id> --image <path> --as bot`
@@ -241,7 +260,7 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        self.send_media_file(receive_id, "--image", image_path)
+        self.send_media_file(receive_id, "--image", image_path, cwd_for_cli().as_deref())
             .await
     }
 
@@ -254,7 +273,8 @@ impl FeishuAdapter {
         receive_id: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
-        self.send_media_file(receive_id, "--file", file_path).await
+        self.send_media_file(receive_id, "--file", file_path, cwd_for_cli().as_deref())
+            .await
     }
 
     /// Send a media file (image or file) via lark-cli.
@@ -268,11 +288,16 @@ impl FeishuAdapter {
     /// - Path fails whitelist validation
     /// - Copy to outbound fails
     ///   (warning logged in all skip cases)
-    async fn send_media_file(
+    ///
+    /// `cwd` is the working directory used to relativize the outbound path
+    /// for lark-cli; `None` falls back to passing the outbound absolute path
+    /// (failure reason, if any, is logged by the caller).
+    pub(crate) async fn send_media_file(
         &self,
         receive_id: &str,
         media_flag: &str,
         file_path: &str,
+        cwd: Option<&std::path::Path>,
     ) -> Result<(), AdapterError> {
         let media_store = &self.media_store;
         let workspace_dir = self.workspace_dir.as_deref();
@@ -289,12 +314,11 @@ impl FeishuAdapter {
                 }
             };
         // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
-        let cwd = std::env::current_dir().unwrap_or_else(|e| {
-            // Defensive: current_dir() rarely fails; if it does, use absolute path
-            tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
-            outbound_path.clone()
-        });
-        let path_str = make_media_path_relative(&outbound_path, &cwd);
+        // Defensive: cwd unavailable (acquisition failure logged by the
+        // caller); fall back to the outbound absolute path so
+        // `make_media_path_relative` passes it through unchanged.
+        let effective_cwd = cwd.unwrap_or(&outbound_path);
+        let path_str = make_media_path_relative(&outbound_path, effective_cwd);
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
@@ -313,7 +337,11 @@ impl FeishuAdapter {
         run_cli(self, &args).await?;
         Ok(())
     }
+}
 
+// --- Emoji reaction: reactions create ---
+
+impl FeishuAdapter {
     /// Send an emoji reaction to a message via lark-cli.
     ///
     /// `lark-cli im reactions create --params '{"message_id":"<id>"}'
@@ -352,7 +380,8 @@ impl FeishuAdapter {
 /// # Arguments
 /// * `outbound` - Absolute path to the outbound media file.
 /// * `cwd` - The working directory to compute the relative path against.
-///   Obtained from `std::env::current_dir()` by the caller.
+///   Production callers obtain it from `std::env::current_dir()`;
+///   tests may inject a synthetic path.
 pub(crate) fn make_media_path_relative(
     outbound: &std::path::Path,
     cwd: &std::path::Path,
