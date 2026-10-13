@@ -176,6 +176,8 @@ pub(crate) fn build_reply_args(target: &ReplyTarget, text: &str) -> Vec<String> 
     args
 }
 
+// --- Text/reply sending: plain message send + card-to-text fallback ---
+
 impl FeishuAdapter {
     /// Low-level: send a message via lark-cli subprocess.
     ///
@@ -231,7 +233,11 @@ impl FeishuAdapter {
         }
         self.send_msg(chat_id, "text", &plain_text, reply_ref).await
     }
+}
 
+// --- Media sending: image/file upload via lark-cli ---
+
+impl FeishuAdapter {
     /// Send an image file via lark-cli.
     ///
     /// - P2P (`ou_xxx`): `lark-cli im +messages-send --user-id <id> --image <path> --as bot`
@@ -313,7 +319,11 @@ impl FeishuAdapter {
         run_cli(self, &args).await?;
         Ok(())
     }
+}
 
+// --- Emoji reaction: reactions create ---
+
+impl FeishuAdapter {
     /// Send an emoji reaction to a message via lark-cli.
     ///
     /// `lark-cli im reactions create --params '{"message_id":"<id>"}'
