@@ -7,7 +7,7 @@
 use super::{
     create_failing_mock_cli, make_adapter, make_adapter_with_profile, make_adapter_with_store,
     make_plugin, make_plugin_with_store, make_test_media_store, make_test_media_store_at,
-    make_test_media_store_with_tmp, write_mock_script,
+    make_test_media_store_with_tmp, write_mock_script, CAPABILITY_ERROR_JSON,
 };
 use serial_test::serial;
 #[cfg(unix)]
@@ -293,4 +293,53 @@ fn test_make_adapter_with_profile_applies_custom_profile_and_keeps_default_cli()
         adapter.cli_command, "lark-cli",
         "profile primitive must keep the default cli command"
     );
+}
+
+/// Boundary: repeated `make_adapter` calls are independent — each adapter
+/// is backed by its own (self-managed, already-reclaimed) temp root, so
+/// call sites never share media state or bleed cli overrides into each
+/// other. Per the helper contract the store paths are never re-materialized
+/// on disk after the call, so independence is asserted at path level only.
+#[test]
+fn test_make_adapter_calls_are_independent_per_invocation() {
+    let a = make_adapter("cli_a.sh");
+    let b = make_adapter("cli_b.sh");
+
+    assert_ne!(
+        a.media_store.outbound_dir(),
+        b.media_store.outbound_dir(),
+        "repeated calls must not share a media store root"
+    );
+    assert_eq!(
+        a.cli_command, "cli_a.sh",
+        "each call keeps its own override"
+    );
+    assert_eq!(
+        b.cli_command, "cli_b.sh",
+        "each call keeps its own override"
+    );
+}
+
+// ===========================================================================
+// Shared capability-error payload
+// ===========================================================================
+
+/// `CAPABILITY_ERROR_JSON` is the standard `error_json` argument of
+/// `create_failing_mock_cli`, whose contract forbids single quotes (they
+/// would break the generated script's shell quoting); the payload itself
+/// must stay a well-formed capability-error JSON (code 230001).
+#[test]
+fn test_capability_error_json_is_shell_safe_and_wellformed() {
+    assert!(
+        !CAPABILITY_ERROR_JSON.contains('\''),
+        "single quotes would break create_failing_mock_cli shell quoting"
+    );
+    let parsed: serde_json::Value =
+        serde_json::from_str(CAPABILITY_ERROR_JSON).expect("payload must be valid JSON");
+    assert_eq!(
+        parsed["code"],
+        serde_json::json!(230001),
+        "payload must keep the capability-error code"
+    );
+    assert_eq!(parsed["msg"], "capability error");
 }
