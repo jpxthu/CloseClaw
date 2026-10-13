@@ -7,10 +7,9 @@ use super::send_helpers::{
     build_reply_args, build_send_args, is_capability_error, make_media_path_relative, run_cli,
     ReplyTarget,
 };
-use super::{create_failing_mock_cli, create_mock_cli, make_adapter, write_mock_script};
+use super::{create_echo_cli, create_failing_mock_cli, create_mock_cli, make_adapter};
 use crate::error::AdapterError;
 use serial_test::serial;
-use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -132,21 +131,7 @@ fn test_is_capability_error() {
     assert!(!is_capability_error("some other error"));
 }
 
-/// Create a mock lark-cli script that echoes all arguments as JSON.
-fn create_args_echo_cli(tmp: &TempDir) -> String {
-    let script_path = tmp.path().join("echo_args.sh");
-    let args_file = tmp.path().join("captured_args");
-    let args_path = args_file.to_str().unwrap();
-    // Script that writes all args to a file, one per line
-    let mut content = String::new();
-    writeln!(content, "#!/bin/bash").unwrap();
-    writeln!(content, "echo \"$@\" > {args_path}").unwrap();
-    writeln!(content, "echo '{{\"code\":0}}'").unwrap();
-    write_mock_script(&script_path, &content);
-    script_path.to_str().unwrap().to_string()
-}
-
-/// Read the captured args file written by [`create_args_echo_cli`] and
+/// Read the captured args file written by [`create_echo_cli`] and
 /// return the argument immediately following `flag`.
 fn capture_flag_arg(cli_tmp: &TempDir, flag: &str) -> String {
     let args_file = cli_tmp.path().join("captured_args");
@@ -164,7 +149,7 @@ fn capture_flag_arg(cli_tmp: &TempDir, flag: &str) -> String {
 #[tokio::test]
 async fn test_run_cli_inserts_profile_arg() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let _ = run_cli(&adapter, &["im", "+messages-send"]).await;
     // Verify --profile was prepended to the args
@@ -192,7 +177,7 @@ async fn test_run_cli_inserts_profile_arg() {
 #[tokio::test]
 async fn test_send_msg_composite_peer_id_no_reply() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let result = adapter
         .send_msg("ou_user123|om_msg456", "text", "hello", None)
@@ -211,7 +196,7 @@ async fn test_send_msg_composite_peer_id_no_reply() {
 #[tokio::test]
 async fn test_send_msg_composite_peer_id_thread_reply() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let target = ReplyTarget::Thread {
         root_id: "om_root789".to_string(),
@@ -233,7 +218,7 @@ async fn test_send_msg_composite_peer_id_thread_reply() {
 #[tokio::test]
 async fn test_send_msg_composite_peer_id_message_reply() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let target = ReplyTarget::Message {
         message_id: "om_msg456".to_string(),
@@ -255,7 +240,7 @@ async fn test_send_msg_composite_peer_id_message_reply() {
 #[tokio::test]
 async fn test_send_msg_simple_peer_id_no_reply() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let result = adapter.send_msg("oc_chat123", "text", "hello", None).await;
     assert!(result.is_ok());
@@ -271,7 +256,7 @@ async fn test_send_msg_simple_peer_id_no_reply() {
 #[tokio::test]
 async fn test_send_msg_composite_peer_id_group_chat() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
     let adapter = make_adapter(&cli);
     let result = adapter
         .send_msg("ou_user123|oc_chat456", "text", "hello", None)
@@ -299,7 +284,7 @@ async fn test_send_msg_composite_peer_id_group_chat() {
 async fn test_send_media_file_outbound_under_cwd_uses_relative_path() {
     // System temp dir, injected as cwd so the outbound path can be stripped.
     let tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&tmp);
+    let cli = create_echo_cli(&tmp);
 
     // Place media store under tmp (which is the injected cwd).
     let media_dir = tmp.path().join("media");
@@ -349,7 +334,7 @@ async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
     std::fs::write(&src, "image data").unwrap();
 
     let cli_tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&cli_tmp);
+    let cli = create_echo_cli(&cli_tmp);
     let mut adapter = make_adapter(&cli);
     adapter.media_store = Arc::new(media_store);
 
@@ -388,7 +373,7 @@ async fn test_send_media_file_none_cwd_falls_back_to_absolute_path() {
     std::fs::write(&src, "image data").unwrap();
 
     let cli_tmp = TempDir::new().unwrap();
-    let cli = create_args_echo_cli(&cli_tmp);
+    let cli = create_echo_cli(&cli_tmp);
     let mut adapter = make_adapter(&cli);
     adapter.media_store = Arc::new(media_store);
 

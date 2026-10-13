@@ -5,7 +5,9 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
-use super::{create_failing_mock_cli, make_test_media_store_at, write_mock_script};
+use super::{
+    create_echo_cli, create_failing_mock_cli, make_test_media_store_at, write_mock_script,
+};
 use crate::error::AdapterError;
 use serial_test::serial;
 use std::fs;
@@ -288,16 +290,6 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // =================================================================
 // send_media_file integration — outbound copy before send
 // =================================================================
-
-/// Helper: create a mock CLI that records args to a file and succeeds.
-fn create_echo_cli(tmp: &TempDir) -> String {
-    let script = tmp.path().join("echo.sh");
-    let args_file = tmp.path().join("captured_args");
-    let args_path = args_file.to_str().unwrap().to_string();
-    let content = format!("#!/bin/bash\necho \"$@\" > {args_path}\necho '{{\"code\":0}}'\n");
-    write_mock_script(&script, &content);
-    script.to_str().unwrap().to_string()
-}
 
 /// Helper: create a FeishuAdapter with a mock CLI and optional workspace.
 fn make_adapter(

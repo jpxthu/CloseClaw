@@ -71,6 +71,19 @@ pub(crate) fn create_failing_mock_cli(
     script_path.to_str().unwrap().to_string()
 }
 
+/// Create a mock lark-cli script that records all its arguments to
+/// `<tmp>/captured_args` — one line, whitespace-separated (exactly the
+/// format `capture_flag_arg`'s `split_whitespace` parsing relies on) —
+/// then echoes `{"code":0}` to stdout and exits 0.
+pub(crate) fn create_echo_cli(tmp: &TempDir) -> String {
+    let script_path = tmp.path().join("echo.sh");
+    let args_file = tmp.path().join("captured_args");
+    let args_path = args_file.to_str().unwrap();
+    let content = format!("#!/bin/bash\necho \"$@\" > {args_path}\necho '{{\"code\":0}}'\n");
+    write_mock_script(&script_path, &content);
+    script_path.to_str().unwrap().to_string()
+}
+
 /// Create a `MediaStore` rooted at an externally supplied `root`; the
 /// `inbound/` and `outbound/` sub-directories are created under it.
 pub(crate) fn make_test_media_store_at(root: &std::path::Path) -> Arc<MediaStore> {
