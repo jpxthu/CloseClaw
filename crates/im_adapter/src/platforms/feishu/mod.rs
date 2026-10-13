@@ -70,6 +70,8 @@ pub(crate) mod streaming_send;
 mod style_tests;
 #[cfg(test)]
 mod test_helpers;
+#[cfg(test)]
+mod test_helpers_tests;
 mod text_style;
 pub mod tools;
 #[cfg(test)]
