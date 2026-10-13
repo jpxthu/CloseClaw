@@ -240,7 +240,8 @@ impl FeishuAdapter {
 /// Obtain the process working directory for lark-cli path relativization.
 ///
 /// Returns `None` when `std::env::current_dir()` fails; the failure reason
-/// is logged here (warn) and callers pass the outbound absolute path.
+/// is logged here (warn) and callers pass `None` to `send_media_file`,
+/// causing it to fall back to the outbound absolute path.
 fn cwd_for_cli() -> Option<std::path::PathBuf> {
     std::env::current_dir()
         .inspect_err(|e| {
