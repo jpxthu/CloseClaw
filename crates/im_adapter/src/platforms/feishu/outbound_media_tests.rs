@@ -5,11 +5,142 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
-use super::{create_failing_mock_cli, make_test_media_store_at, write_mock_script};
+use super::{
+    create_echo_cli, create_failing_mock_cli, make_test_media_store_at, write_mock_script,
+};
 use crate::error::AdapterError;
 use serial_test::serial;
 use std::fs;
 use tempfile::TempDir;
+
+/// Does the captured CLI args line (one line, whitespace-separated — see
+/// [`create_echo_cli`]) contain a path equivalent to `outbound`?
+///
+/// A plain full-text `args.contains(outbound)` silently assumes the system
+/// temp dir is not located under the process cwd. When it is (an allowed
+/// layout, STANDARDS §8), production `make_media_path_relative` strips the
+/// cwd prefix and lark-cli receives a *cwd-relative* path, so the absolute
+/// `contains` check fails spuriously. Compare each whitespace-separated
+/// token for path equivalence instead:
+///
+/// - absolute token → direct component-wise `Path` equality;
+/// - relative token → resolved against the process cwd. Because
+///   `make_media_path_relative` relativizes via `strip_prefix(cwd)`,
+///   `cwd.join(token)` reconstructs `outbound` exactly (lexically, no
+///   filesystem access), so equivalence still holds.
+///
+/// A path genuinely absent from the args still yields `false`, keeping the
+/// assertion fail-safe; [`assert_captured_args_contain_path`] keeps the full
+/// `args` text in the failure message for diagnosability.
+///
+/// Known limitation (pre-existing, same as `capture_flag_arg`):
+/// whitespace-splitting cannot reassemble paths containing spaces.
+fn captured_args_contain_path(args: &str, outbound: &std::path::Path) -> bool {
+    args.split_whitespace().any(|token| {
+        let token_path = std::path::Path::new(token);
+        if token_path.is_absolute() {
+            token_path == outbound
+        } else {
+            std::env::current_dir().is_ok_and(|cwd| cwd.join(token_path) == outbound)
+        }
+    })
+}
+
+/// Normal path: an absolute outbound path token in args hits.
+#[test]
+fn test_captured_args_contain_path_absolute_token_hit() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+    let args = format!("im send --chat oc_x --image {}", outbound.to_str().unwrap());
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "absolute outbound token should hit, args: {args}"
+    );
+}
+
+/// Environment boundary: when TMPDIR sits under the process cwd, production
+/// `make_media_path_relative` relativizes the outbound path and lark-cli
+/// receives a cwd-relative token — must still hit. Simulated by synthesizing
+/// a relative token and defining outbound as `cwd.join(token)`; purely
+/// lexical (no filesystem access, no env mutation, no dependence on the
+/// real TMPDIR×cwd layout).
+#[test]
+fn test_captured_args_contain_path_cwd_relative_token_hit() {
+    let cwd = std::env::current_dir().unwrap();
+    let rel = std::path::Path::new("tmpdir-under-cwd/outbound/photo.png");
+    let outbound = cwd.join(rel);
+    let args = format!("im send --chat oc_x --image {}", rel.to_str().unwrap());
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "cwd-relative token should resolve to outbound, args: {args}"
+    );
+}
+
+/// Error path: args without any path equivalent to outbound misses, so the
+/// call-site assertion still fails (with full args text) when the path was
+/// genuinely not passed. Includes the substring trap: a token sharing the
+/// outbound path as a prefix (`photo.png.bak`) is a different path — a
+/// plain `args.contains(outbound)` would have matched it spuriously.
+#[test]
+fn test_captured_args_contain_path_missing_path_misses() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+
+    let args = "im send --chat oc_x --image /elsewhere/other.png";
+    assert!(
+        !captured_args_contain_path(args, &outbound),
+        "unrelated args must not hit"
+    );
+
+    let decoy = format!("{}.bak", outbound.to_str().unwrap());
+    let args = format!("im send --chat oc_x --image {decoy}");
+    assert!(
+        !captured_args_contain_path(&args, &outbound),
+        "prefix-sharing token must not count as a hit, args: {args}"
+    );
+}
+
+/// Boundary: the outbound token in the middle of a multi-token args line hits.
+#[test]
+fn test_captured_args_contain_path_outbound_in_middle_hit() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("report.pdf");
+    let args = format!(
+        "im send --chat oc_x {} --verbose",
+        outbound.to_str().unwrap()
+    );
+    assert!(
+        captured_args_contain_path(&args, &outbound),
+        "outbound token mid-args should hit, args: {args}"
+    );
+}
+
+/// Boundary: same file name in a different directory is a different path —
+/// must miss.
+#[test]
+fn test_captured_args_contain_path_same_name_different_dir_misses() {
+    let tmp = TempDir::new().unwrap();
+    let outbound = tmp.path().join("outbound").join("photo.png");
+    let decoy = tmp.path().join("inbound").join("photo.png");
+    let args = format!("im send --chat oc_x --image {}", decoy.to_str().unwrap());
+    assert!(
+        !captured_args_contain_path(&args, &outbound),
+        "same file name in another directory must not hit, args: {args}"
+    );
+}
+
+/// Assert helper shared by the outbound-copy send tests: reads the CLI
+/// captured args from `<tmp>/captured_args` and asserts it contains a path
+/// equivalent to `outbound` (see [`captured_args_contain_path`]); on failure
+/// the full args text is kept in the message for diagnosability.
+fn assert_captured_args_contain_path(tmp: &TempDir, outbound: &std::path::Path) {
+    let args_file = tmp.path().join("captured_args");
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        captured_args_contain_path(&args, outbound),
+        "lark-cli should receive outbound path, args: {args}"
+    );
+}
 
 #[tokio::test]
 async fn test_validate_path_within_workspace() {
@@ -289,16 +420,6 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // send_media_file integration — outbound copy before send
 // =================================================================
 
-/// Helper: create a mock CLI that records args to a file and succeeds.
-fn create_echo_cli(tmp: &TempDir) -> String {
-    let script = tmp.path().join("echo.sh");
-    let args_file = tmp.path().join("captured_args");
-    let args_path = args_file.to_str().unwrap().to_string();
-    let content = format!("#!/bin/bash\necho \"$@\" > {args_path}\necho '{{\"code\":0}}'\n");
-    write_mock_script(&script, &content);
-    script.to_str().unwrap().to_string()
-}
-
 /// Helper: create a FeishuAdapter with a mock CLI and optional workspace.
 fn make_adapter(
     cli: &str,
@@ -335,12 +456,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let outbound = adapter.media_store.outbound_dir().join("photo.png");
     assert!(outbound.exists(), "outbound copy should exist");
     // Verify sent path is the outbound copy (not the original).
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        args.contains(outbound.to_str().unwrap()),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 /// send_file with absolute path inside media store → outbound copy created,
@@ -361,12 +477,7 @@ async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     );
     let outbound = adapter.media_store.outbound_dir().join("report.pdf");
     assert!(outbound.exists(), "outbound copy should exist");
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        args.contains(outbound.to_str().unwrap()),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 /// HTTP URL → send_image skips send and returns Ok (not an error).
@@ -661,12 +772,7 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
     assert!(result.is_ok());
     let outbound = adapter.media_store.outbound_dir().join("speech.opus");
     assert!(outbound.exists(), "outbound copy should exist for audio");
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        args.contains(outbound.to_str().unwrap()),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 // =================================================================
