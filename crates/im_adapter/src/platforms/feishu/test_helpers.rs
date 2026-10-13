@@ -58,16 +58,23 @@ pub(crate) fn create_failing_mock_cli(
     script_path.to_str().unwrap().to_string()
 }
 
+/// Single assembly point: a `FeishuAdapter` wired to `cli_command` with a
+/// media store rooted at `tmp` (profile `test_profile`).
+fn adapter_with_store(cli_command: &str, tmp: &TempDir) -> FeishuAdapter {
+    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
+    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
+    adapter.cli_command = cli_command.to_string();
+    adapter
+}
+
 /// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
 /// `tmp`; returns the store's outbound dir so tests can assert the
 /// prepare-step outbound copy (proving the true upload path was taken).
 /// Skip-path tests may ignore the return value as `_outbound_dir`;
 /// discarding it is normal usage.
 pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let outbound_dir = media_store.outbound_dir().to_path_buf();
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli_command.to_string();
+    let adapter = adapter_with_store(cli_command, tmp);
+    let outbound_dir = adapter.media_store.outbound_dir().to_path_buf();
     let plugin = FeishuPlugin::new(Arc::new(adapter));
     (plugin, outbound_dir)
 }
@@ -76,12 +83,7 @@ pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (Feish
 /// temp-dir-backed media store (profile `test_profile`).
 pub(crate) fn make_adapter(cli_command: &str) -> FeishuAdapter {
     let tmp = TempDir::new().unwrap();
-    let mut adapter = FeishuAdapter::new(
-        "test_profile".into(),
-        Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
-    );
-    adapter.cli_command = cli_command.to_string();
-    adapter
+    adapter_with_store(cli_command, &tmp)
 }
 
 /// Create a FeishuPlugin wired to `cli_command` with a self-built
@@ -108,7 +110,7 @@ mod tests {
     }
 
     #[test]
-    fn write_mock_script_writes_content_to_existing_executable_path() {
+    fn test_write_mock_script_writes_content_to_existing_executable_path() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("normal.sh");
         let content = "#!/bin/bash\necho 'hello'\n";
@@ -123,7 +125,7 @@ mod tests {
     }
 
     #[test]
-    fn write_mock_script_overwrites_existing_target_without_tmp_leftover() {
+    fn test_write_mock_script_overwrites_existing_target_without_tmp_leftover() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("overwrite.sh");
 
@@ -139,7 +141,7 @@ mod tests {
     }
 
     #[test]
-    fn failing_creator_places_executable_script_under_given_name() {
+    fn test_failing_creator_places_executable_script_under_given_name() {
         let tmp = TempDir::new().unwrap();
         let cli = create_failing_mock_cli(&tmp, "failing_lark_cli.sh", r#"{"code":1}"#, false, 1);
 
@@ -151,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn failing_creator_emits_error_json_on_stderr_only() {
+    fn test_failing_creator_emits_error_json_on_stderr_only() {
         let tmp = TempDir::new().unwrap();
         let json = r#"{"code":230001,"msg":"capability error"}"#;
         let cli = create_failing_mock_cli(&tmp, "stderr_only.sh", json, false, 1);
@@ -170,7 +172,7 @@ mod tests {
     }
 
     #[test]
-    fn failing_creator_stdout_echo_follows_flag() {
+    fn test_failing_creator_stdout_echo_follows_flag() {
         let tmp = TempDir::new().unwrap();
         let json = r#"{"code":2}"#;
 
@@ -191,7 +193,7 @@ mod tests {
     }
 
     #[test]
-    fn failing_creator_bakes_exit_code_into_script() {
+    fn test_failing_creator_bakes_exit_code_into_script() {
         let tmp = TempDir::new().unwrap();
         let cli = create_failing_mock_cli(&tmp, "exit_code.sh", r#"{"code":3}"#, false, 42);
 
@@ -204,7 +206,7 @@ mod tests {
     /// behavior matches the spec (stderr JSON + stdout echo + exit code).
     #[serial]
     #[test]
-    fn failing_creator_spawned_script_matches_spec() {
+    fn test_failing_creator_spawned_script_matches_spec() {
         let tmp = TempDir::new().unwrap();
         let json = r#"{"code":9,"msg":"boom"}"#;
         let cli = create_failing_mock_cli(&tmp, "spawn_spec.sh", json, true, 3);
@@ -216,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn make_adapter_overrides_cli_command_and_uses_test_profile() {
+    fn test_make_adapter_overrides_cli_command_and_uses_test_profile() {
         let adapter = make_adapter("my_lark_cli");
 
         assert_eq!(
@@ -227,7 +229,7 @@ mod tests {
     }
 
     #[test]
-    fn make_plugin_builds_plugin_with_wired_adapter() {
+    fn test_make_plugin_builds_plugin_with_wired_adapter() {
         let plugin = make_plugin("wired_cli.sh");
 
         assert_eq!(plugin.adapter.cli_command, "wired_cli.sh");
@@ -235,7 +237,7 @@ mod tests {
     }
 
     #[test]
-    fn make_plugin_with_store_returns_existing_outbound_dir_matching_store() {
+    fn test_make_plugin_with_store_returns_existing_outbound_dir_matching_store() {
         let tmp = TempDir::new().unwrap();
         let (plugin, outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
 
@@ -255,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn make_plugin_with_store_with_missing_cli_does_not_spawn_or_panic() {
+    fn test_make_plugin_with_store_with_missing_cli_does_not_spawn_or_panic() {
         let tmp = TempDir::new().unwrap();
 
         let (plugin, outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
@@ -269,7 +271,7 @@ mod tests {
     }
 
     #[test]
-    fn make_plugin_with_store_is_idempotent_over_same_tmp() {
+    fn test_make_plugin_with_store_is_idempotent_over_same_tmp() {
         let tmp = TempDir::new().unwrap();
 
         let (plugin_a, dir_a) = make_plugin_with_store("unused-cli", &tmp);
