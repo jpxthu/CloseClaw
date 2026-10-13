@@ -46,11 +46,8 @@ fn create_success_upload_mock_cli(
 /// Create a FeishuPlugin with a mock CLI for testing.
 fn make_plugin(cli_command: &str) -> (FeishuPlugin, TempDir) {
     let tmp = TempDir::new().expect("tmp dir");
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli_command.to_string();
-    let adapter = Arc::new(adapter);
-    (FeishuPlugin::new(adapter), tmp)
+    let (plugin, _outbound_dir) = make_plugin_with_store(cli_command, &tmp);
+    (plugin, tmp)
 }
 
 /// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
