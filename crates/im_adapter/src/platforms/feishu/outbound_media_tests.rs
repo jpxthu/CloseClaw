@@ -13,6 +13,42 @@ use serial_test::serial;
 use std::fs;
 use tempfile::TempDir;
 
+/// Does the captured CLI args line (one line, whitespace-separated — see
+/// [`create_echo_cli`]) contain a path equivalent to `outbound`?
+///
+/// A plain full-text `args.contains(outbound)` silently assumes the system
+/// temp dir is not located under the process cwd. When it is (an allowed
+/// layout, STANDARDS §8), production `make_media_path_relative` strips the
+/// cwd prefix and lark-cli receives a *cwd-relative* path, so the absolute
+/// `contains` check fails spuriously. Compare each whitespace-separated
+/// token for path equivalence instead:
+///
+/// - absolute token → direct component-wise `Path` equality;
+/// - relative token → resolved against the process cwd. Because
+///   `make_media_path_relative` relativizes via `strip_prefix(cwd)`,
+///   `cwd.join(token)` reconstructs `outbound` exactly (lexically, no
+///   filesystem access), so equivalence still holds.
+///
+/// A path genuinely absent from the args still yields `false`, keeping the
+/// assertion fail-safe; call sites retain the full `args` text in the
+/// failure message for diagnosability.
+///
+/// Known limitation (pre-existing, same as `capture_flag_arg`):
+/// whitespace-splitting cannot reassemble paths containing spaces.
+fn captured_args_contain_path(args: &str, outbound: &std::path::Path) -> bool {
+    args.split_whitespace().any(|token| {
+        let token_path = std::path::Path::new(token);
+        if token_path.is_absolute() {
+            token_path == outbound
+        } else {
+            match std::env::current_dir() {
+                Ok(cwd) => cwd.join(token_path) == outbound,
+                Err(_) => false,
+            }
+        }
+    })
+}
+
 #[tokio::test]
 async fn test_validate_path_within_workspace() {
     let tmp = TempDir::new().unwrap();
@@ -330,7 +366,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let args_file = tmp.path().join("captured_args");
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains(outbound.to_str().unwrap()),
+        captured_args_contain_path(&args, &outbound),
         "lark-cli should receive outbound path, args: {args}"
     );
 }
@@ -356,7 +392,7 @@ async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     let args_file = tmp.path().join("captured_args");
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains(outbound.to_str().unwrap()),
+        captured_args_contain_path(&args, &outbound),
         "lark-cli should receive outbound path, args: {args}"
     );
 }
@@ -656,7 +692,7 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
     let args_file = tmp.path().join("captured_args");
     let args = fs::read_to_string(&args_file).unwrap();
     assert!(
-        args.contains(outbound.to_str().unwrap()),
+        captured_args_contain_path(&args, &outbound),
         "lark-cli should receive outbound path, args: {args}"
     );
 }
