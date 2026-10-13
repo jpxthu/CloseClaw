@@ -214,4 +214,69 @@ mod tests {
         assert_eq!(String::from_utf8_lossy(&output.stderr).trim(), json);
         assert_eq!(String::from_utf8_lossy(&output.stdout).trim(), json);
     }
+
+    #[test]
+    fn make_adapter_overrides_cli_command_and_uses_test_profile() {
+        let adapter = make_adapter("my_lark_cli");
+
+        assert_eq!(
+            adapter.cli_command, "my_lark_cli",
+            "cli_command must equal the passed value"
+        );
+        assert_eq!(adapter.profile, "test_profile");
+    }
+
+    #[test]
+    fn make_plugin_builds_plugin_with_wired_adapter() {
+        let plugin = make_plugin("wired_cli.sh");
+
+        assert_eq!(plugin.adapter.cli_command, "wired_cli.sh");
+        assert_eq!(plugin.adapter.profile, "test_profile");
+    }
+
+    #[test]
+    fn make_plugin_with_store_returns_existing_outbound_dir_matching_store() {
+        let tmp = TempDir::new().unwrap();
+        let (plugin, outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
+
+        assert_eq!(
+            outbound_dir,
+            plugin.adapter.media_store.outbound_dir(),
+            "returned dir must match the plugin's media store outbound dir"
+        );
+        assert!(
+            outbound_dir.exists(),
+            "outbound dir must exist after assembly"
+        );
+        assert!(
+            outbound_dir.starts_with(tmp.path()),
+            "outbound dir must live under the passed tmp"
+        );
+    }
+
+    #[test]
+    fn make_plugin_with_store_with_missing_cli_does_not_spawn_or_panic() {
+        let tmp = TempDir::new().unwrap();
+
+        let (plugin, outbound_dir) = make_plugin_with_store("unused-cli", &tmp);
+
+        assert!(
+            !tmp.path().join("unused-cli").exists(),
+            "no mock script may be written for the passed cli_command"
+        );
+        assert_eq!(plugin.adapter.cli_command, "unused-cli");
+        assert!(outbound_dir.exists());
+    }
+
+    #[test]
+    fn make_plugin_with_store_is_idempotent_over_same_tmp() {
+        let tmp = TempDir::new().unwrap();
+
+        let (plugin_a, dir_a) = make_plugin_with_store("unused-cli", &tmp);
+        let (plugin_b, dir_b) = make_plugin_with_store("unused-cli", &tmp);
+
+        assert_eq!(dir_a, dir_b, "same tmp must yield the same outbound dir");
+        assert_eq!(dir_a, plugin_a.adapter.media_store.outbound_dir());
+        assert_eq!(dir_b, plugin_b.adapter.media_store.outbound_dir());
+    }
 }
