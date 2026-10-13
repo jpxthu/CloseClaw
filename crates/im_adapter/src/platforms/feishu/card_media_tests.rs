@@ -473,10 +473,7 @@ async fn test_process_card_media_img_upload_success_replaces_key() {
     let test_file = tmp.path().join("test_img_ok.png");
     std::fs::write(&test_file, b"fake png content").unwrap();
 
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let img_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
@@ -516,11 +513,7 @@ async fn test_process_card_media_audio_success() {
     let test_file = tmp.path().join("test_audio.mp3");
     std::fs::write(&test_file, b"fake audio content").unwrap();
 
-    // Create plugin with media store rooted at the same tmp dir.
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -555,11 +548,7 @@ async fn test_process_card_media_file_success() {
     let test_file = tmp.path().join("test_document.pdf");
     std::fs::write(&test_file, b"fake pdf content").unwrap();
 
-    // Create plugin with media store rooted at the same tmp dir.
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
