@@ -247,7 +247,11 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        let cwd = std::env::current_dir().ok();
+        let cwd = std::env::current_dir()
+            .inspect_err(|e| {
+                tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
+            })
+            .ok();
         self.send_media_file(receive_id, "--image", image_path, cwd.as_deref())
             .await
     }
@@ -261,7 +265,11 @@ impl FeishuAdapter {
         receive_id: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
-        let cwd = std::env::current_dir().ok();
+        let cwd = std::env::current_dir()
+            .inspect_err(|e| {
+                tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
+            })
+            .ok();
         self.send_media_file(receive_id, "--file", file_path, cwd.as_deref())
             .await
     }
@@ -279,7 +287,8 @@ impl FeishuAdapter {
     ///   (warning logged in all skip cases)
     ///
     /// `cwd` is the working directory used to relativize the outbound path
-    /// for lark-cli; `None` falls back to passing the outbound absolute path.
+    /// for lark-cli; `None` falls back to passing the outbound absolute path
+    /// (failure reason, if any, is logged by the caller).
     pub(crate) async fn send_media_file(
         &self,
         receive_id: &str,
@@ -302,12 +311,10 @@ impl FeishuAdapter {
                 }
             };
         // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
-        let cwd = cwd.unwrap_or_else(|| {
-            // Defensive: cwd unavailable; fall back to the outbound absolute
-            // path so `make_media_path_relative` passes it through unchanged.
-            tracing::warn!("cwd unavailable, passing absolute path to lark-cli");
-            &outbound_path
-        });
+        // Defensive: cwd unavailable (acquisition failure logged by the
+        // caller); fall back to the outbound absolute path so
+        // `make_media_path_relative` passes it through unchanged.
+        let cwd = cwd.unwrap_or(&outbound_path);
         let path_str = make_media_path_relative(&outbound_path, cwd);
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
@@ -370,7 +377,8 @@ impl FeishuAdapter {
 /// # Arguments
 /// * `outbound` - Absolute path to the outbound media file.
 /// * `cwd` - The working directory to compute the relative path against.
-///   Obtained from `std::env::current_dir()` by the caller.
+///   Production callers obtain it from `std::env::current_dir()`;
+///   tests may inject a synthetic path.
 pub(crate) fn make_media_path_relative(
     outbound: &std::path::Path,
     cwd: &std::path::Path,
