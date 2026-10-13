@@ -28,7 +28,7 @@
 # <模块名>
 
 ## 概述
-- 关联需求文档：[requirements/xxx.md](../requirements/xxx.md)
+- 关联需求文档：[requirements/xxx.md](../requirements/xxx.md)（无产品需求的基建模块写「无（<原因>）」，见下）
 - 一句话：这个模块做什么
 
 ## 架构
@@ -47,6 +47,12 @@
 - 无关：无调用且无数据流关联、但名称或功能容易混淆的模块
 - 共享类型：若传入/传出的数据被 2+ 模块共享，必须在 common 文档中定义，此处引用 `[common/xxx](common/xxx.md)`
 ```
+
+### 无产品需求的基建模块
+
+不提供 User / Agent 可感知的产品行为、因而没有对应需求文档的内部基建模块（如 [test_support](test_support/README.md)），其 README「概述」中「关联需求文档」一行写「无（<原因>）」，其余仍遵守本节 4 节结构与全部规则。此类模块的权威约束若来自某项标准（如依赖方向允许边表），在「模块关系」中引用该标准，不另立定义。
+
+判别与归属：判据是该模块的产出**是否进入 CloseClaw 的产品运行路径**——进入者（如 [fake_llm](fake_llm/README.md)，其响应被产品代码当真实 LLM 消费）应有需求文档；只在测试代码内部被消费者（如 test_support，其断言结果不出测试）没有需求文档。是否归入此类由 owner 认定（因涉及是否记录产品需求）。
 
 ### `<子功能>.md` — 子功能文档
 
@@ -116,7 +122,7 @@ docs/design/
 | 领域层（跨域桥接） | `gateway` | `common`、`platform`、`debug_log`、`session`、`llm`、`permission`、`config` |
 | 组合根 | `daemon`、根 crate `closeclaw` | 全部 workspace crate |
 | 入口客户端 | `cli` | `common`、`platform`、`debug_log`、`gateway`、`config`、`permission`、`llm`、`agent` |
-| 测试基础设施 | `fake_llm` | 无（不引用任何 CloseClaw crate） |
+| 测试基础设施 | `fake_llm`、`test_support` | 无（不引用任何 CloseClaw crate） |
 
 判读：
 
@@ -126,7 +132,7 @@ docs/design/
 - **`gateway` 的跨域桥接例外**：其文档登记为 `LlmCaller`、`SessionLookup`、`SlashSessionQuery`、`SlashEffectExecutor`、`PermissionChecker` 等 common trait 的具体提供方（桥接 session ↔ llm 的循环依赖、包装 PermissionEngine、读取配置绑定），故允许直接依赖 `session`、`llm`、`permission`、`config`；其余仅依赖基础层。
 - 组合根运行时装配组件、注入依赖，可依赖全部 crate；其组件间调用不转化为组件所在 crate 的直接依赖（见 [daemon README](daemon/README.md) 组件依赖表）。依赖图（常规依赖）必须无环。
 - `cli` 为客户端入口，除基础层外其允许的领域依赖见上表（取自 cli 模块各子文档「模块关系」登记的下游模块）；它经管理协议（socket）与 daemon 交互，不依赖 `daemon` crate。
-- `fake_llm` 为黑盒测试基础设施，不引用任何 CloseClaw crate；产品领域 crate 不把它列入常规依赖，仅组合根（测试装配）使用。
+- 测试基础设施 crate（`fake_llm`、`test_support`）不引用任何 CloseClaw crate；产品领域 crate 不把它们列入常规依赖。`fake_llm` 为黑盒运行时服务，仅由组合根在测试装配时使用；`test_support` 为编译期共享库，仅作为各 crate 的 dev-依赖在测试中引用。
 - 未列入本表的 crate 默认适用领域层规则（仅基础层）。
 
 ### common 模块文档
