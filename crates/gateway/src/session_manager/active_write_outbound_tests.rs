@@ -406,8 +406,7 @@ struct FailingPersistence;
 #[async_trait::async_trait]
 impl PersistenceService for FailingPersistence {
     async fn save_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Err(PersistenceError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        Err(PersistenceError::Io(std::io::Error::other(
             "simulated save failure",
         )))
     }

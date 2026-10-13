@@ -115,9 +115,10 @@ fn test_consistency_check_result_default() {
 /// Verify that `ConsistencyCheckResult` is cloneable.
 #[test]
 fn test_consistency_check_result_clone() {
-    let mut r = ConsistencyCheckResult::default();
-    r.deleted_orphaned_records = 3;
-    r.deleted_orphaned_files = 2;
+    let r = ConsistencyCheckResult {
+        deleted_orphaned_records: 3,
+        deleted_orphaned_files: 2,
+    };
     let r2 = r.clone();
     assert_eq!(r2.deleted_orphaned_records, 3);
     assert_eq!(r2.deleted_orphaned_files, 2);

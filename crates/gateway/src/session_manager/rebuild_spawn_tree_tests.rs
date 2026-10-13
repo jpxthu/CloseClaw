@@ -155,8 +155,7 @@ impl PersistenceService for FailingCheckpointStorage {
         &self,
         _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Err(PersistenceError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        Err(PersistenceError::Io(std::io::Error::other(
             "injected failure",
         )))
     }
@@ -170,8 +169,7 @@ impl PersistenceService for FailingCheckpointStorage {
         &self,
         _: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Err(PersistenceError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        Err(PersistenceError::Io(std::io::Error::other(
             "injected failure",
         )))
     }

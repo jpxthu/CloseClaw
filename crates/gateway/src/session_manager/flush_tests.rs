@@ -73,8 +73,7 @@ impl closeclaw_session::persistence::PersistenceService for FlushAllMockStorage 
         checkpoint: &SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
         if self.fail_session_ids.contains(&checkpoint.session_id) {
-            return Err(PersistenceError::Io(std::io::Error::new(
-                std::io::ErrorKind::Other,
+            return Err(PersistenceError::Io(std::io::Error::other(
                 "simulated failure",
             )));
         }
