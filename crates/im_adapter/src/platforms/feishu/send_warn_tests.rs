@@ -5,6 +5,10 @@
 //! - send_card_json non-capability error → warn + Err, no fallback
 //! - send_message lark-cli command not found → warn + Err
 //! - send_card_json lark-cli command not found → warn + Err
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
 use crate::error::AdapterError;

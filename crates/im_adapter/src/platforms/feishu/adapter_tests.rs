@@ -1,6 +1,10 @@
 //! Unit tests for Feishu adapter: expand_post_content, parse_message_event
 //! (text/post/image/file/audio with graceful degradation), parse_inbound,
 //! parse_card_action, identity mapping, and quote/reference handling.
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::identity_resolver_stub::IdentityResolverStub;

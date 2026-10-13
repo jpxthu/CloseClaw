@@ -7,6 +7,10 @@
 //! - unknown msg_type → Err(UnsupportedOperation)
 //! - extract_card_plain_text correctness
 //! - send_card_json capability error fallback
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
 use crate::IMAdapter;

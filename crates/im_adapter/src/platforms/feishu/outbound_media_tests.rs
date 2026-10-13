@@ -1,4 +1,8 @@
 //! Tests for outbound media handling.
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
 use super::{create_failing_mock_cli, write_mock_script};

@@ -7,6 +7,10 @@
 //! - Auto-restart on abnormal exit
 //! - Ready signal detection
 //! - Process lifecycle (PID, running state)
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::process_manager::*;
 use super::write_mock_script;

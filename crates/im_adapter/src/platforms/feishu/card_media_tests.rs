@@ -11,6 +11,10 @@
 //! - audio/file/media/img with an existing local file + failing CLI → true
 //!   upload-failure path (outbound copy happens, upload error swallowed,
 //!   token/key kept, Ok returned)
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
 use crate::media_store::MediaStore;
