@@ -126,7 +126,7 @@ fn test_resolve_preserves_goal_cleans_verify_injects_new() {
     assert!(message_text(&messages[1]).starts_with("Verify Step"));
     // Old verify should be gone, new one present.
     let old_verify = "Verify Step 0 (Step 0):\nCheck output";
-    let texts: Vec<String> = messages.iter().map(|m| message_text(m)).collect();
+    let texts: Vec<String> = messages.iter().map(message_text).collect();
     assert_eq!(
         texts[1],
         closeclaw_workflow::definition::build_verify_message(&typed_definition(&cs).steps[0], true,)
@@ -234,7 +234,7 @@ fn test_rejected_resolve_injects_message_without_changing_state() {
     // pending_verify unchanged.
     assert_eq!(typed_state(&cs).pending_verify.count, 3);
     // Rejection message injected.
-    let msgs: Vec<String> = cs.messages().iter().map(|m| message_text(m)).collect();
+    let msgs: Vec<String> = cs.messages().iter().map(message_text).collect();
     assert!(
         msgs.iter()
             .any(|m| m.contains("仅可回复「终止」结束工作流")),
@@ -286,7 +286,7 @@ fn test_terminate_works_with_definition_changed_pause() {
     assert!(cs.workflow_handler().is_none());
     assert!(cs.workflow_run_value().is_none());
     // Messages cleared.
-    let msgs: Vec<String> = cs.messages().iter().map(|m| message_text(m)).collect();
+    let msgs: Vec<String> = cs.messages().iter().map(message_text).collect();
     assert!(
         msgs.is_empty(),
         "messages should be cleared after terminate"
