@@ -149,8 +149,15 @@ pub(crate) struct SyncPlugin {
     pub(crate) sent_texts: Arc<Mutex<Vec<String>>>,
 }
 
+type SyncPluginHandles = (
+    SyncPlugin,
+    Arc<Notify>,
+    Arc<Notify>,
+    Arc<Mutex<Vec<String>>>,
+);
+
 impl SyncPlugin {
-    pub(crate) fn new() -> (Self, Arc<Notify>, Arc<Notify>, Arc<Mutex<Vec<String>>>) {
+    pub(crate) fn new() -> SyncPluginHandles {
         let entered = Arc::new(Notify::new());
         let ok = Arc::new(Notify::new());
         let texts = Arc::new(Mutex::new(Vec::new()));

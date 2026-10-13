@@ -126,8 +126,7 @@ struct FailingSavePersist;
 #[async_trait::async_trait]
 impl PersistenceService for FailingSavePersist {
     async fn save_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Err(PersistenceError::Io(std::io::Error::new(
-            std::io::ErrorKind::Other,
+        Err(PersistenceError::Io(std::io::Error::other(
             "simulated save failure",
         )))
     }
