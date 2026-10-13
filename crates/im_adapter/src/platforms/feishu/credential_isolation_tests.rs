@@ -8,20 +8,12 @@
 //! - Debug output whitelist keeps diagnostic value (profile, cli_command)
 //!   without internal implementation details (reqwest internals, etc.)
 
-use super::adapter::FeishuAdapter;
-use crate::media_store::MediaStore;
+use super::make_adapter_with_profile;
 use crate::IMAdapter;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
 
 #[test]
 fn test_adapter_stores_only_profile_name() {
-    let adapter = FeishuAdapter::new("my_lark_profile".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("my_lark_profile");
     assert_eq!(adapter.profile, "my_lark_profile");
     // Verify no credential fields exist on the adapter
     let debug_str = format!("{:?}", adapter);
@@ -41,14 +33,13 @@ fn test_adapter_stores_only_profile_name() {
 
 #[test]
 fn test_adapter_default_cli_command() {
-    let adapter = FeishuAdapter::new("test".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("test");
     assert_eq!(adapter.cli_command, "lark-cli");
 }
 
 #[test]
 fn test_adapter_debug_contains_profile_and_cli_command() {
-    let media = make_test_media_store();
-    let mut adapter = FeishuAdapter::new("my_lark_profile".to_string(), media);
+    let mut adapter = make_adapter_with_profile("my_lark_profile");
     adapter.cli_command = "/opt/tools/lark-cli".to_string();
     let debug_str = format!("{:?}", adapter);
     assert!(
@@ -63,7 +54,7 @@ fn test_adapter_debug_contains_profile_and_cli_command() {
 
 #[test]
 fn test_adapter_debug_excludes_internal_impl_markers() {
-    let adapter = FeishuAdapter::new("impl_isolation".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("impl_isolation");
     let debug_str = format!("{:?}", adapter);
     assert!(
         !debug_str.contains("proxies"),
@@ -81,7 +72,7 @@ fn test_adapter_debug_excludes_internal_impl_markers() {
 
 #[test]
 fn test_adapter_debug_placeholders_are_bare_type_names() {
-    let adapter = FeishuAdapter::new("placeholder_bind".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("placeholder_bind");
     let debug_str = format!("{:?}", adapter);
     // Bind exact placeholder strings so internal type names cannot drift silently.
     assert!(
@@ -117,7 +108,7 @@ fn test_adapter_debug_placeholders_are_bare_type_names() {
 
 #[test]
 fn test_adapter_debug_workspace_dir_none_format() {
-    let adapter = FeishuAdapter::new("ws_none_profile".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("ws_none_profile");
     assert!(adapter.workspace_dir.is_none());
     let debug_str = format!("{:?}", adapter);
     assert!(
@@ -132,7 +123,7 @@ fn test_adapter_debug_workspace_dir_none_format() {
 
 #[tokio::test]
 async fn test_adapter_profile_not_in_message_content() {
-    let adapter = FeishuAdapter::new("secret_profile".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("secret_profile");
     let event = super::adapter::FeishuEvent {
         schema: "2.0".to_string(),
         header: super::adapter::FeishuHeader {
@@ -176,7 +167,7 @@ async fn test_adapter_profile_not_in_message_content() {
 
 #[test]
 fn test_adapter_metadata_does_not_leak_credentials() {
-    let adapter = FeishuAdapter::new("profile_xyz".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("profile_xyz");
     let meta = adapter.last_metadata.try_lock().unwrap();
     for (key, value) in meta.iter() {
         assert!(
@@ -189,7 +180,7 @@ fn test_adapter_metadata_does_not_leak_credentials() {
 
 #[tokio::test]
 async fn test_validate_signature_always_true() {
-    let adapter = FeishuAdapter::new("any_profile".to_string(), make_test_media_store());
+    let adapter = make_adapter_with_profile("any_profile");
     assert!(adapter.validate_signature("any", b"test").await);
     assert!(adapter.validate_signature("", b"").await);
     assert!(

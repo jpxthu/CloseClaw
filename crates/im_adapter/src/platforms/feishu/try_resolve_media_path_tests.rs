@@ -9,17 +9,11 @@
 //! - Relative path with no workspace_dir → rejected
 //! - Non-existent file → None
 
+use super::make_test_media_store_with_tmp;
 use super::outbound_media::prepare_outbound_local_media;
 use crate::media_store::MediaStore;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> (TempDir, Arc<MediaStore>) {
-    let tmp = TempDir::new().expect("tmp dir");
-    let store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    (tmp, store)
-}
 
 // =========================================================================
 // HTTP URL tests
@@ -27,14 +21,14 @@ fn make_test_media_store() -> (TempDir, Arc<MediaStore>) {
 
 #[tokio::test]
 async fn http_url_returns_none() {
-    let (_tmp, store) = make_test_media_store();
+    let (_tmp, store) = make_test_media_store_with_tmp();
     let result = prepare_outbound_local_media("http://example.com/img.png", None, &store).await;
     assert!(result.is_none(), "HTTP URL should return None");
 }
 
 #[tokio::test]
 async fn https_url_returns_none() {
-    let (_tmp, store) = make_test_media_store();
+    let (_tmp, store) = make_test_media_store_with_tmp();
     let result = prepare_outbound_local_media("https://example.com/img.png", None, &store).await;
     assert!(result.is_none(), "HTTPS URL should return None");
 }
@@ -50,7 +44,7 @@ async fn absolute_path_within_workspace_resolves() {
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::write(ws.join("photo.png"), "data").unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
     let path = ws.join("photo.png");
 
     let result = prepare_outbound_local_media(path.to_str().unwrap(), Some(&ws), &store).await;
@@ -93,7 +87,7 @@ async fn absolute_path_outside_rejected() {
     std::fs::create_dir_all(&outside).unwrap();
     std::fs::write(outside.join("secret.txt"), "secret").unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
     let path = outside.join("secret.txt");
 
     let result = prepare_outbound_local_media(path.to_str().unwrap(), Some(&ws), &store).await;
@@ -109,7 +103,7 @@ async fn nonexistent_file_returns_none() {
     let ws = tmp.path().join("workspace");
     std::fs::create_dir_all(&ws).unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
     let path = ws.join("nonexistent.png");
 
     let result = prepare_outbound_local_media(path.to_str().unwrap(), Some(&ws), &store).await;
@@ -127,7 +121,7 @@ async fn relative_path_resolved_against_workspace() {
     std::fs::create_dir_all(&ws).unwrap();
     std::fs::write(ws.join("file.png"), "image data").unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
 
     let result = prepare_outbound_local_media("./file.png", Some(&ws), &store).await;
     assert!(
@@ -146,7 +140,7 @@ async fn relative_path_subdirectory_resolves() {
     std::fs::create_dir_all(ws.join("subdir")).unwrap();
     std::fs::write(ws.join("subdir").join("nested.pdf"), "data").unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
 
     let result = prepare_outbound_local_media("./subdir/nested.pdf", Some(&ws), &store).await;
     assert!(
@@ -159,7 +153,7 @@ async fn relative_path_subdirectory_resolves() {
 
 #[tokio::test]
 async fn relative_path_no_workspace_fails() {
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
 
     // Relative path without workspace_dir — the function returns None
     // because the raw relative path doesn't exist as-is.
@@ -180,7 +174,7 @@ async fn relative_path_outside_workspace_rejected() {
     // Create a file outside workspace that the relative path would resolve to.
     std::fs::write(outside.join("escape.txt"), "bad").unwrap();
 
-    let (_store_tmp, store) = make_test_media_store();
+    let (_store_tmp, store) = make_test_media_store_with_tmp();
 
     // This relative path resolves to workspace/../outside/escape.txt
     // but canonicalize prevents directory traversal
