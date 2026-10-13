@@ -60,6 +60,8 @@ mod send_dispatch;
 mod send_fallback_tests;
 mod send_helpers;
 #[cfg(test)]
+mod send_helpers_tests;
+#[cfg(test)]
 mod send_warn_tests;
 #[cfg(test)]
 mod step1_8_gap_tests;
