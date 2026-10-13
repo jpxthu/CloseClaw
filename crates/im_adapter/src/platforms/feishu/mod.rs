@@ -68,6 +68,8 @@ mod streaming_render_tests;
 pub(crate) mod streaming_send;
 #[cfg(test)]
 mod style_tests;
+#[cfg(test)]
+mod test_helpers;
 mod text_style;
 pub mod tools;
 #[cfg(test)]
@@ -90,3 +92,5 @@ pub(crate) use adapter::{
 pub(crate) use post_expand::expand_post_content;
 #[cfg(test)]
 pub(crate) use renderer::extract_card_plain_text;
+#[cfg(test)]
+pub(crate) use test_helpers::{create_failing_mock_cli, write_mock_script, CAPABILITY_ERROR_JSON};

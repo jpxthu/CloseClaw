@@ -7,46 +7,26 @@
 //! - unknown msg_type → Err(UnsupportedOperation)
 //! - extract_card_plain_text correctness
 //! - send_card_json capability error fallback
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
 use crate::IMAdapter;
 use closeclaw_common::{AdapterError as CommonAdapterError, IMPlugin, RenderedOutput};
 use serial_test::serial;
-use std::io::Write;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli script that outputs the given JSON to stdout.
 fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
     let script_path = tmp.path().join("mock_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{response_json}'").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
-/// Create a mock lark-cli script that always exits with error.
-fn create_failing_mock_cli(tmp: &TempDir) -> String {
-    let script_path = tmp.path().join("failing_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":230001,\"msg\":\"capability error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(f, "echo '{{\"code\":230001,\"msg\":\"capability error\"}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let mut content = String::new();
+    writeln!(content, "#!/bin/bash").unwrap();
+    writeln!(content, "echo '{response_json}'").unwrap();
+    write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
 
@@ -56,31 +36,20 @@ fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {
     let script_path = tmp.path().join("fail_then_succeed.sh");
     let counter_path = tmp.path().join("call_counter");
     let fail_count_str = fail_count.to_string();
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "COUNTER_FILE=\"{}\"", counter_path.display()).unwrap();
-    writeln!(f, "COUNT=$(cat \"$COUNTER_FILE\" 2>/dev/null || echo 0)").unwrap();
-    writeln!(f, "echo $((COUNT + 1)) > \"$COUNTER_FILE\"").unwrap();
-    writeln!(f, "if [ \"$COUNT\" -lt {} ]; then", fail_count_str).unwrap();
-    writeln!(
-        f,
-        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(
-        f,
-        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}'"
-    )
-    .unwrap();
-    writeln!(f, "  exit 1").unwrap();
-    writeln!(f, "else").unwrap();
-    writeln!(f, "  echo '{{\"code\":0,\"msg\":\"ok\"}}'").unwrap();
-    writeln!(f, "fi").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let fail_json = r#"{"code":230002,"msg":"capability error"}"#;
+    let mut content = String::new();
+    writeln!(content, "#!/bin/bash").unwrap();
+    writeln!(content, "COUNTER_FILE=\"{}\"", counter_path.display()).unwrap();
+    content.push_str("COUNT=$(cat \"$COUNTER_FILE\" 2>/dev/null || echo 0)\n");
+    writeln!(content, "echo $((COUNT + 1)) > \"$COUNTER_FILE\"").unwrap();
+    writeln!(content, "if [ \"$COUNT\" -lt {} ]; then", fail_count_str).unwrap();
+    writeln!(content, "  echo '{fail_json}' >&2").unwrap();
+    writeln!(content, "  echo '{fail_json}'").unwrap();
+    writeln!(content, "  exit 1").unwrap();
+    writeln!(content, "else").unwrap();
+    writeln!(content, "  echo '{{\"code\":0,\"msg\":\"ok\"}}'").unwrap();
+    writeln!(content, "fi").unwrap();
+    write_mock_script(&script_path, &content);
     // Initialize counter
     std::fs::write(&counter_path, "0").unwrap();
     script_path.to_str().unwrap().to_string()
@@ -208,7 +177,7 @@ fn extract_card_plain_text_no_elements() {
 #[tokio::test]
 async fn text_send_failure_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = text_output("hello");
     let result = plugin.send(&output, "chat_test", None, None).await;
@@ -236,7 +205,7 @@ async fn interactive_send_failure_falls_back_to_text_success() {
 #[tokio::test]
 async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = interactive_output("content to extract");
     let result = plugin.send(&output, "chat_test", None, None).await;
@@ -269,7 +238,7 @@ async fn unknown_msg_type_returns_err() {
 #[tokio::test]
 async fn interactive_empty_text_fallback_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = RenderedOutput {
         msg_type: "interactive".into(),
@@ -336,7 +305,7 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
 async fn send_card_capability_error_fallback_text_also_fails() {
     let tmp = TempDir::new().unwrap();
     // Both card and text fallback fail with capability error
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let adapter = make_adapter(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;

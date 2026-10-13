@@ -8,35 +8,20 @@
 //! - mixed elements (img + media + audio + file) → each processed independently
 //! - unknown tag → skipped
 //! - img tag: missing img_key skipped; upload failure keeps img_key; success replaces it
-//! - file/img with an existing local file + failing CLI → true upload-failure path
-//!   (outbound copy happens, upload error swallowed, token/key kept, Ok returned)
+//! - audio/file/media/img with an existing local file + failing CLI → true
+//!   upload-failure path (outbound copy happens, upload error swallowed,
+//!   token/key kept, Ok returned)
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::*;
 use crate::media_store::MediaStore;
 use serial_test::serial;
+use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Create a mock lark-cli that always fails (for testing error handling).
-fn create_failing_mock_cli(tmp: &TempDir) -> String {
-    use std::io::Write;
-    let script_path = tmp.path().join("failing_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":230001,\"msg\":\"capability error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(f, "echo '{{\"code\":230001,\"msg\":\"capability error\"}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
 
 /// Create a mock lark-cli that returns a successful upload response.
 ///
@@ -49,32 +34,32 @@ fn create_success_upload_mock_cli(
     response_field: &str,
     key: &str,
 ) -> String {
-    use std::io::Write;
     let script_path = tmp.path().join(script_name);
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{}\":\"{}\"}}}}'",
-        response_field, key
-    )
-    .unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let mut content = String::from("#!/bin/bash\n");
+    content.push_str(&format!(
+        "echo '{{\"code\":0,\"msg\":\"ok\",\"data\":{{\"{response_field}\":\"{key}\"}}}}'\n"
+    ));
+    write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
 
 /// Create a FeishuPlugin with a mock CLI for testing.
 fn make_plugin(cli_command: &str) -> (FeishuPlugin, TempDir) {
     let tmp = TempDir::new().expect("tmp dir");
+    let (plugin, _outbound_dir) = make_plugin_with_store(cli_command, &tmp);
+    (plugin, tmp)
+}
+
+/// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
+/// `tmp`; returns the store's outbound dir so tests can assert the
+/// prepare-step outbound copy (proving the true upload path was taken).
+fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
     let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
+    let outbound_dir = media_store.outbound_dir().to_path_buf();
     let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
     adapter.cli_command = cli_command.to_string();
-    let adapter = Arc::new(adapter);
-    (FeishuPlugin::new(adapter), tmp)
+    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    (plugin, outbound_dir)
 }
 
 // ===========================================================================
@@ -82,17 +67,23 @@ fn make_plugin(cli_command: &str) -> (FeishuPlugin, TempDir) {
 // ===========================================================================
 
 /// Audio element with file_token: process_card_media extracts and attempts upload.
-/// With a failing mock CLI, the upload fails gracefully (warn + continue).
+/// The file_token points at a real file inside the media store, so the failing
+/// mock CLI is actually spawned — the upload fails gracefully (warn + continue).
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_audio_element_graceful_failure() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
+    let test_file = tmp.path().join("test_audio_fail.mp3");
+    std::fs::write(&test_file, b"fake audio content").unwrap();
 
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
+
+    let audio_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
         "card": {
             "elements": [
-                { "tag": "audio", "file_token": "/tmp/test_audio.mp3" }
+                { "tag": "audio", "file_token": audio_ref.as_str() }
             ]
         }
     });
@@ -105,21 +96,40 @@ async fn test_process_card_media_audio_element_graceful_failure() {
     // file_token should remain unchanged since upload failed
     let elements = payload["card"]["elements"].as_array().unwrap();
     let audio = &elements[0];
-    assert_eq!(audio["file_token"], "/tmp/test_audio.mp3");
+    assert_eq!(
+        audio["file_token"],
+        audio_ref.as_str(),
+        "file_token must stay unchanged when upload fails"
+    );
+    // Prove the true upload-failure path was taken (not the skip branch):
+    // prepare must have copied the source file to outbound before the upload.
+    let outbound_files = std::fs::read_dir(&outbound_dir)
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert!(
+        outbound_files > 0,
+        "prepare step must have copied the file to outbound (proves upload path was taken)"
+    );
 }
 
 /// File element with file_token: process_card_media extracts and attempts upload.
-/// With a failing mock CLI, the upload fails gracefully (warn + continue).
+/// The file_token points at a real file inside the media store, so the failing
+/// mock CLI is actually spawned — the upload fails gracefully (warn + continue).
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_file_element_graceful_failure() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
+    let test_file = tmp.path().join("test_document_fail.pdf");
+    std::fs::write(&test_file, b"fake pdf content").unwrap();
 
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
+
+    let file_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
         "card": {
             "elements": [
-                { "tag": "file", "file_token": "/tmp/test_document.pdf" }
+                { "tag": "file", "file_token": file_ref.as_str() }
             ]
         }
     });
@@ -132,14 +142,27 @@ async fn test_process_card_media_file_element_graceful_failure() {
     // file_token should remain unchanged since upload failed
     let elements = payload["card"]["elements"].as_array().unwrap();
     let file = &elements[0];
-    assert_eq!(file["file_token"], "/tmp/test_document.pdf");
+    assert_eq!(
+        file["file_token"],
+        file_ref.as_str(),
+        "file_token must stay unchanged when upload fails"
+    );
+    // Prove the true upload-failure path was taken (not the skip branch):
+    // prepare must have copied the source file to outbound before the upload.
+    let outbound_files = std::fs::read_dir(&outbound_dir)
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert!(
+        outbound_files > 0,
+        "prepare step must have copied the file to outbound (proves upload path was taken)"
+    );
 }
 
 /// Audio element without file_token: skipped gracefully, no panic.
 #[tokio::test]
 async fn test_process_card_media_audio_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -157,7 +180,7 @@ async fn test_process_card_media_audio_no_file_token_skipped() {
 #[tokio::test]
 async fn test_process_card_media_file_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -172,19 +195,33 @@ async fn test_process_card_media_file_no_file_token_skipped() {
 }
 
 /// Mixed elements: audio, file, media, and unknown tag all processed independently.
-/// Each processes (or skips) without affecting others.
+/// Each media element points at a real file inside the media store, so the
+/// failing mock CLI is spawned per element — uploads fail gracefully
+/// (warn + continue) without affecting the other elements.
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_mixed_elements() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
 
+    let audio_file = tmp.path().join("test_audio_fail.mp3");
+    std::fs::write(&audio_file, b"fake audio content").unwrap();
+    let doc_file = tmp.path().join("test_doc_fail.pdf");
+    std::fs::write(&doc_file, b"fake pdf content").unwrap();
+    let video_file = tmp.path().join("test_video_fail.mp4");
+    std::fs::write(&video_file, b"fake video content").unwrap();
+
+    let (plugin, outbound_dir) = make_plugin_with_store(&cli, &tmp);
+
+    let audio_ref = audio_file.to_str().unwrap().to_string();
+    let doc_ref = doc_file.to_str().unwrap().to_string();
+    let video_ref = video_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
         "card": {
             "elements": [
-                { "tag": "audio", "file_token": "/tmp/audio.mp3" },
-                { "tag": "file", "file_token": "/tmp/doc.pdf" },
-                { "tag": "media", "file_token": "/tmp/video.mp4" },
+                { "tag": "audio", "file_token": audio_ref.as_str() },
+                { "tag": "file", "file_token": doc_ref.as_str() },
+                { "tag": "media", "file_token": video_ref.as_str() },
                 { "tag": "markdown", "content": "text only" },
                 { "tag": "unknown_tag", "data": "ignored" }
             ]
@@ -197,20 +234,30 @@ async fn test_process_card_media_mixed_elements() {
     let elements = payload["card"]["elements"].as_array().unwrap();
     assert_eq!(elements.len(), 5);
     assert_eq!(elements[0]["tag"], "audio");
-    assert_eq!(elements[0]["file_token"], "/tmp/audio.mp3");
+    assert_eq!(elements[0]["file_token"], audio_ref.as_str());
     assert_eq!(elements[1]["tag"], "file");
-    assert_eq!(elements[1]["file_token"], "/tmp/doc.pdf");
+    assert_eq!(elements[1]["file_token"], doc_ref.as_str());
     assert_eq!(elements[2]["tag"], "media");
-    assert_eq!(elements[2]["file_token"], "/tmp/video.mp4");
+    assert_eq!(elements[2]["file_token"], video_ref.as_str());
     assert_eq!(elements[3]["tag"], "markdown");
     assert_eq!(elements[4]["tag"], "unknown_tag");
+    // Prove the true upload-failure path was taken for every media element
+    // (not the skip branch): prepare must have copied all three files to
+    // outbound before the uploads failed.
+    let outbound_files = std::fs::read_dir(&outbound_dir)
+        .map(|d| d.count())
+        .unwrap_or(0);
+    assert!(
+        outbound_files >= 3,
+        "prepare must have copied all three media files to outbound (proves upload path taken)"
+    );
 }
 
 /// Empty card elements: no panic, returns Ok.
 #[tokio::test]
 async fn test_process_card_media_empty_elements() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -226,7 +273,7 @@ async fn test_process_card_media_empty_elements() {
 #[tokio::test]
 async fn test_process_card_media_no_card_key() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({});
@@ -238,7 +285,7 @@ async fn test_process_card_media_no_card_key() {
 #[tokio::test]
 async fn test_process_card_media_no_elements_in_card() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -252,7 +299,7 @@ async fn test_process_card_media_no_elements_in_card() {
 #[tokio::test]
 async fn test_process_card_media_audio_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -273,7 +320,7 @@ async fn test_process_card_media_audio_http_url_skipped() {
 #[tokio::test]
 async fn test_process_card_media_file_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -296,14 +343,16 @@ async fn test_process_card_media_file_http_url_skipped() {
 
 /// File element pointing at an existing whitelisted file with a failing CLI.
 ///
-/// Unlike the skip-path tests above (nonexistent reference → prepare returns
-/// None), this one reaches `upload_file`: the outbound copy exists, the upload
-/// errors, and the error must be swallowed (warn + continue) — `file_token`
-/// stays unchanged and `process_card_media` still returns Ok.
+/// Unlike references that make `prepare_outbound_local_media` return `None`
+/// (HTTP URLs, nonexistent paths → skip), this one reaches `upload_file`: the
+/// outbound copy exists, the upload errors, and the error must be swallowed
+/// (warn + continue) — `file_token` stays unchanged and `process_card_media`
+/// still returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_file_upload_failure_keeps_token() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let test_file = tmp.path().join("test_document_fail.pdf");
     std::fs::write(&test_file, b"fake pdf content").unwrap();
 
@@ -351,7 +400,7 @@ async fn test_process_card_media_file_upload_failure_keeps_token() {
 #[tokio::test]
 async fn test_process_card_media_img_no_img_key_skipped() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let (plugin, _tmp) = make_plugin(&cli);
 
     let mut payload = serde_json::json!({
@@ -377,10 +426,11 @@ async fn test_process_card_media_img_no_img_key_skipped() {
 /// Img element with an existing local file + failing CLI: true upload-failure
 /// path — `upload_image` errors, warning is logged, `img_key` unchanged,
 /// `process_card_media` still returns Ok.
+#[serial]
 #[tokio::test]
 async fn test_process_card_media_img_upload_failure_keeps_key() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let test_file = tmp.path().join("test_img_fail.png");
     std::fs::write(&test_file, b"fake png content").unwrap();
 

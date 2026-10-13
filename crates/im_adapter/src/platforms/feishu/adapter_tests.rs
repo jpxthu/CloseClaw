@@ -1,6 +1,10 @@
 //! Unit tests for Feishu adapter: expand_post_content, parse_message_event
 //! (text/post/image/file/audio with graceful degradation), parse_inbound,
 //! parse_card_action, identity mapping, and quote/reference handling.
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 use super::*;
 use crate::media_store::MediaStore;
 use crate::platforms::feishu::identity_resolver_stub::IdentityResolverStub;
@@ -492,12 +496,7 @@ fn create_mock_cli_with_messages(
         ));
     }
     script.push_str("echo '{\"code\":1,\"msg\":\"not found\"}'\n");
-    std::fs::write(&script_path, &script).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    write_mock_script(&script_path, &script);
     script_path.to_str().unwrap().to_string()
 }
 /// Build a FeishuEvent with a parent_id for quote testing.
@@ -536,8 +535,10 @@ async fn test_quote_text_type_prepends_blockquote() {
         serde_json::json!({
             "code": 0,
             "msg": "ok",
-            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": "quoted text"}).to_string()}}]
-        }).to_string(),
+            "items": [{"msg_type": "text", "body": {
+                "content": serde_json::json!({"text": "quoted text"}).to_string()}}]
+        })
+        .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter = make_adapter_with_mock_cli(&cli);
@@ -695,8 +696,10 @@ async fn test_quote_no_parent_id_and_image_type_unchanged() {
         "om_parent6".to_string(),
         serde_json::json!({
             "code": 0, "msg": "ok",
-            "items": [{"msg_type": "image", "body": {"content": serde_json::json!({"image_key": "img_xxx"}).to_string()}}]
-        }).to_string(),
+            "items": [{"msg_type": "image", "body": {
+                "content": serde_json::json!({"image_key": "img_xxx"}).to_string()}}]
+        })
+        .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter2 = make_adapter_with_mock_cli(&cli);
@@ -721,8 +724,10 @@ async fn test_quote_with_root_id_thread_uses_root_id() {
         serde_json::json!({
             "code": 0,
             "msg": "ok",
-            "items": [{"msg_type": "text", "body": {"content": serde_json::json!({"text": "quoted"}).to_string()}}]
-        }).to_string(),
+            "items": [{"msg_type": "text", "body": {
+                "content": serde_json::json!({"text": "quoted"}).to_string()}}]
+        })
+        .to_string(),
     );
     let cli = create_mock_cli_with_messages(&tmp, &msgs);
     let adapter = make_adapter_with_mock_cli(&cli);
@@ -823,7 +828,8 @@ async fn test_anchor_topic_reply_with_thread_id() {
     assert_eq!(msg.thread_id.as_deref(), Some("om_thread_789"));
 }
 
-/// Topic reply with root_id only (no thread_id): peer_id = sender_open_id|root_id, reply_ref = root_id
+/// Topic reply with root_id only (no thread_id):
+/// peer_id = sender_open_id|root_id, reply_ref = root_id
 #[tokio::test]
 async fn test_anchor_topic_reply_root_id_only() {
     let adapter = make_test_adapter();

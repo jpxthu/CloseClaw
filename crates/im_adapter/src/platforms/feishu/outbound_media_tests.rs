@@ -1,6 +1,11 @@
 //! Tests for outbound media handling.
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
+use super::{create_failing_mock_cli, write_mock_script};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use serial_test::serial;
@@ -286,22 +291,6 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // send_media_file integration — outbound copy before send
 // =================================================================
 
-/// Helper: write a mock shell script atomically — temp-name write, handle
-/// closed, rename into place, chmod 0755 — so the exec path never coexists
-/// with an open write handle (avoids ETXTBSY on spawn).
-fn write_mock_script(path: &std::path::Path, content: &str) {
-    let mut tmp_name = path.as_os_str().to_os_string();
-    tmp_name.push(".tmp");
-    let script_tmp = std::path::PathBuf::from(tmp_name);
-    std::fs::write(&script_tmp, content).unwrap(); // write & close before rename
-    std::fs::rename(&script_tmp, path).unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
-}
-
 /// Helper: create a mock CLI that records args to a file and succeeds.
 fn create_echo_cli(tmp: &TempDir) -> String {
     let script = tmp.path().join("echo.sh");
@@ -540,18 +529,17 @@ async fn test_upload_file_success_returns_file_key() {
 #[tokio::test]
 async fn test_send_file_copy_preserved_on_upload_failure() {
     let tmp = TempDir::new().unwrap();
-    // Failing mock CLI, created via write_mock_script (temp write → handle
-    // closed → rename → chmod): no write handle is alive when send_file()
-    // spawns it, so execve cannot fail with ETXTBSY (Text file busy).
-    let script = tmp.path().join("fail.sh");
-    let content = concat!(
-        "#!/bin/bash\n",
-        "echo '{\"code\":999,\"msg\":\"upload rejected\"}' >&2\n",
-        "echo '{\"code\":999,\"msg\":\"upload rejected\"}'\n",
-        "exit 1\n",
+    // Failing mock CLI, built by the shared parameterized creator, which
+    // lands the script atomically via write_mock_script (temp write →
+    // handle closed → rename → chmod): no write handle is alive when
+    // send_file() spawns it, so execve cannot fail with ETXTBSY.
+    let cli = create_failing_mock_cli(
+        &tmp,
+        "fail.sh",
+        r#"{"code":999,"msg":"upload rejected"}"#,
+        true,
+        1,
     );
-    write_mock_script(&script, content);
-    let cli = script.to_str().unwrap().to_string();
 
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "pdf content").unwrap();
@@ -581,6 +569,15 @@ async fn test_send_file_copy_preserved_on_upload_failure() {
     assert!(
         outbound.exists(),
         "outbound copy should be preserved even when upload fails"
+    );
+    // Byte-compare the preserved copy against the source file: a
+    // half-written or truncated copy must fail this assertion, not just
+    // an absent one.
+    let source_bytes = fs::read(&file).unwrap();
+    let outbound_bytes = fs::read(&outbound).unwrap();
+    assert_eq!(
+        source_bytes, outbound_bytes,
+        "preserved outbound copy must be byte-identical to the source file"
     );
 }
 

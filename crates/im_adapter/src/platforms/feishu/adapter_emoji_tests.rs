@@ -44,7 +44,8 @@ fn test_expand_post_emoji_mixed_with_other_elements() {
         "title": "Mixed",
         "content": [
             [{"tag": "text", "text": "Hello "}, {"tag": "emoji", "emoji_type": "thumbsup"}],
-            [{"tag": "text", "text": "and "}, {"tag": "emoji", "emoji_type": "赞"}, {"tag": "text", "text": " too"}],
+            [{"tag": "text", "text": "and "}, {"tag": "emoji", "emoji_type": "赞"},
+                {"tag": "text", "text": " too"}],
             [{"tag": "at", "name": "Alice"}, {"tag": "emoji", "emoji_type": "heart"}]
         ]
     });

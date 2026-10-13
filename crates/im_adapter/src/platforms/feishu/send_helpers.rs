@@ -2,7 +2,8 @@
 //!
 //! All message sending goes through `lark-cli` subprocess commands:
 //! - Text: `lark-cli im +messages-send --chat-id <id> --text "..." --as bot`
-//! - Card: `lark-cli im +messages-send --chat-id <id> --msg-type interactive --content '<json>' --as bot`
+//! - Card: `lark-cli im +messages-send --chat-id <id> --msg-type interactive
+//!   --content '<json>' --as bot`
 //! - Reply: `lark-cli im +messages-reply --message-id <id> --text "..." --reply-in-thread`
 //! - Media: `lark-cli im +messages-send --chat-id <id> --image <path>` or `--file <path>`
 //!
@@ -109,8 +110,10 @@ pub(crate) enum ReplyTarget {
 /// Build lark-cli arguments for sending a message.
 ///
 /// Returns the argument list (without the command name) for:
-/// - P2P (open_id `ou_xxx`): `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
-/// - Group (chat_id `oc_xxx`): `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
+/// - P2P (open_id `ou_xxx`):
+///   `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
+/// - Group (chat_id `oc_xxx`):
+///   `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
 fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> {
     let (id_flag, id_value) = if chat_id.starts_with("ou_") {
         ("--user-id".to_string(), chat_id.to_string())
@@ -273,22 +276,18 @@ impl FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let media_store = &self.media_store;
         let workspace_dir = self.workspace_dir.as_deref();
-        let outbound_path = match prepare_outbound_local_media(
-            file_path,
-            workspace_dir,
-            media_store,
-        )
-        .await
-        {
-            Some(p) => p,
-            None => {
-                tracing::warn!(
-                    file_path = %file_path,
-                    "Skipping media send: not a local file, does not exist, or failed whitelist validation"
-                );
-                return Ok(());
-            }
-        };
+        let outbound_path =
+            match prepare_outbound_local_media(file_path, workspace_dir, media_store).await {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(
+                        file_path = %file_path,
+                        "Skipping media send: not a local file, does not \
+                         exist, or failed whitelist validation"
+                    );
+                    return Ok(());
+                }
+            };
         // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
         let cwd = std::env::current_dir().unwrap_or_else(|e| {
             // Defensive: current_dir() rarely fails; if it does, use absolute path
@@ -317,7 +316,8 @@ impl FeishuAdapter {
 
     /// Send an emoji reaction to a message via lark-cli.
     ///
-    /// `lark-cli im reactions create --params '{"message_id":"<id>"}' --data '{"reaction_type":{"emoji_type":"<emoji>"}}'`
+    /// `lark-cli im reactions create --params '{"message_id":"<id>"}'
+    /// --data '{"reaction_type":{"emoji_type":"<emoji>"}}'`
     #[allow(dead_code)]
     pub(crate) async fn send_reaction(
         &self,
@@ -381,38 +381,25 @@ pub(crate) fn is_capability_error(error_msg: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
+    //! Convention (see `test_helpers.rs` module docs): any test that creates
+    //! and actually spawns a mock CLI script must be marked
+    //! `#[serial_test::serial]` (ETXTBSY root cause); mock scripts must live
+    //! in a `tempfile::TempDir`.
+
     use super::*;
+    use crate::platforms::feishu::{create_failing_mock_cli, write_mock_script};
     use serial_test::serial;
-    use std::io::Write;
+    use std::fmt::Write as _;
     use std::sync::Arc;
     use tempfile::TempDir;
 
     /// Create a mock lark-cli script that outputs the given JSON and exits 0.
     fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
         let script_path = tmp.path().join("mock_lark_cli.sh");
-        let mut f = std::fs::File::create(&script_path).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{response_json}'").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
-        script_path.to_str().unwrap().to_string()
-    }
-
-    /// Create a mock lark-cli script that exits with a non-zero code.
-    fn create_failing_mock_cli(tmp: &TempDir, exit_code: i32) -> String {
-        let script_path = tmp.path().join("failing_lark_cli.sh");
-        let mut f = std::fs::File::create(&script_path).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{{\"code\":{exit_code},\"msg\":\"error\"}}' >&2").unwrap();
-        writeln!(f, "exit 1").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
+        let mut content = String::new();
+        writeln!(content, "#!/bin/bash").unwrap();
+        writeln!(content, "echo '{response_json}'").unwrap();
+        write_mock_script(&script_path, &content);
         script_path.to_str().unwrap().to_string()
     }
 
@@ -467,7 +454,13 @@ mod tests {
     #[tokio::test]
     async fn test_run_cli_process_failure() {
         let tmp = TempDir::new().unwrap();
-        let cli = create_failing_mock_cli(&tmp, 1);
+        let cli = create_failing_mock_cli(
+            &tmp,
+            "failing_lark_cli.sh",
+            r#"{"code":1,"msg":"error"}"#,
+            false,
+            1,
+        );
         let adapter = make_adapter_with_cli(&cli);
         let result = run_cli(&adapter, &["im", "+messages-send"]).await;
         assert!(result.is_err());
@@ -543,16 +536,12 @@ mod tests {
         let script_path = tmp.path().join("echo_args.sh");
         let args_file = tmp.path().join("captured_args");
         let args_path = args_file.to_str().unwrap();
-        let mut f = std::fs::File::create(&script_path).unwrap();
         // Script that writes all args to a file, one per line
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo \"$@\" > {args_path}").unwrap();
-        writeln!(f, "echo '{{\"code\":0}}'").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
+        let mut content = String::new();
+        writeln!(content, "#!/bin/bash").unwrap();
+        writeln!(content, "echo \"$@\" > {args_path}").unwrap();
+        writeln!(content, "echo '{{\"code\":0}}'").unwrap();
+        write_mock_script(&script_path, &content);
         script_path.to_str().unwrap().to_string()
     }
 

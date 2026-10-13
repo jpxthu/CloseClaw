@@ -42,8 +42,10 @@ async fn test_parse_inbound_valid() {
     let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let payload = serde_json::json!({
         "schema": "2.0",
-        "header": {"event_id":"evt_1","event_type":"im.message.receive_v1","create_time":"0","token":"t","app_id":"a"},
-        "event": {"sender":{"sender_id":{"open_id":"ou_abc"},"sender_type":"user"},"content":"{\"text\":\"hello\"}","chat_id":"oc_x","message_type":"text"}
+        "header": {"event_id":"evt_1","event_type":"im.message.receive_v1",
+            "create_time":"0","token":"t","app_id":"a"},
+        "event": {"sender":{"sender_id":{"open_id":"ou_abc"},"sender_type":"user"},
+            "content":"{\"text\":\"hello\"}","chat_id":"oc_x","message_type":"text"}
     });
     let msg = adapter
         .parse_inbound(&serde_json::to_vec(&payload).unwrap())
@@ -66,8 +68,10 @@ async fn test_parse_inbound_invalid_json() {
 async fn test_parse_inbound_empty_text() {
     let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
     let payload = serde_json::json!({
-        "schema":"2.0","header":{"event_id":"e2","event_type":"x","create_time":"0","token":"t","app_id":"a"},
-        "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},"content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
+        "schema":"2.0","header":{"event_id":"e2","event_type":"x",
+            "create_time":"0","token":"t","app_id":"a"},
+        "event":{"sender":{"sender_id":{"open_id":"ou_x"},"sender_type":"user"},
+            "content":"{\"other\":\"data\"}","chat_id":"oc_y","message_type":"text"}
     });
     let result = adapter
         .parse_inbound(&serde_json::to_vec(&payload).unwrap())

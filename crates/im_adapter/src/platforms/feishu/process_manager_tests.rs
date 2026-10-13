@@ -7,10 +7,14 @@
 //! - Auto-restart on abnormal exit
 //! - Ready signal detection
 //! - Process lifecycle (PID, running state)
+//!
+//! Convention (see `test_helpers.rs` module docs): any test that creates and
+//! actually spawns a mock CLI script must be marked `#[serial_test::serial]`
+//! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::process_manager::*;
+use super::write_mock_script;
 use serial_test::serial;
-use std::os::unix::fs::PermissionsExt;
 use std::time::Duration;
 
 /// Short ready-wait timeout injected by `test_process_manager_ready_timeout`
@@ -35,8 +39,7 @@ fn create_mock_script(lines: &[&str]) -> (tempfile::TempDir, String) {
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -52,8 +55,7 @@ fn create_slow_script(events: &[&str], delay_ms: u64) -> (tempfile::TempDir, Str
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -76,8 +78,7 @@ fn create_burst_script(count: usize) -> (tempfile::TempDir, String) {
     }
     content.push_str("exit 0\n");
 
-    std::fs::write(&script_path, &content).unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, &content);
     (dir, script_path.to_str().unwrap().to_string())
 }
 
@@ -143,7 +144,10 @@ fn test_extract_event_id_missing() {
 
 #[test]
 fn test_parse_event_line_cli_format() {
-    let line = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
+    let line = concat!(
+        r#"{"type":"im.message.receive_v1","event_id":"ev_001","#,
+        r#""message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#
+    );
     let result = ProcessManager::parse_event(line);
     match result {
         EventLine::Event(e) => {
@@ -156,7 +160,11 @@ fn test_parse_event_line_cli_format() {
 
 #[test]
 fn test_parse_event_line_webhook_format() {
-    let line = r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","event_id":"ev_002","create_time":"1234567890","token":"","app_id":"app_123"},"event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#;
+    let line = concat!(
+        r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","#,
+        r#""event_id":"ev_002","create_time":"1234567890","token":"","app_id":"app_123"},"#,
+        r#""event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#
+    );
     let result = ProcessManager::parse_event(line);
     match result {
         EventLine::Event(e) => {
@@ -294,8 +302,15 @@ fn test_parse_event_line_deeply_nested() {
 #[serial]
 #[tokio::test]
 async fn test_process_manager_start_and_receive_events() {
-    let cli_event = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
-    let webhook_event = r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","event_id":"ev_002","create_time":"123","token":"","app_id":"app_1"},"event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#;
+    let cli_event = concat!(
+        r#"{"type":"im.message.receive_v1","event_id":"ev_001","#,
+        r#""message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#
+    );
+    let webhook_event = concat!(
+        r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","#,
+        r#""event_id":"ev_002","create_time":"123","token":"","app_id":"app_1"},"#,
+        r#""event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#
+    );
 
     let (_dir, script) = create_mock_script(&[cli_event, webhook_event]);
     let (mut manager, mut rx) = ProcessManager::new("bash".into(), vec![script]);
@@ -344,8 +359,7 @@ async fn test_process_manager_empty_output() {
 async fn test_process_manager_ready_timeout() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("no_ready.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nwhile true; do sleep 1; done\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nwhile true; do sleep 1; done\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
@@ -378,8 +392,7 @@ async fn test_process_manager_ready_timeout() {
 async fn test_process_manager_ready_early_exit_eof() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("exits_without_ready.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nexit 0\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nexit 0\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
@@ -422,8 +435,7 @@ async fn test_process_manager_ready_early_exit_eof() {
 async fn test_process_manager_ready_stderr_read_error() {
     let dir = tempfile::TempDir::new().unwrap();
     let script_path = dir.path().join("invalid_utf8_stderr.sh");
-    std::fs::write(&script_path, "#!/bin/bash\nprintf '\\xff' >&2\nexit 0\n").unwrap();
-    std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
+    write_mock_script(&script_path, "#!/bin/bash\nprintf '\\xff' >&2\nexit 0\n");
 
     let (mut manager, _rx) = ProcessManager::new(
         "bash".into(),
