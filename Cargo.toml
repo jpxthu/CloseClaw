@@ -78,7 +78,7 @@ authors = ["CloseClaw Team"]
 description = "Lightweight, rule-driven multi-agent execution framework"
 license.workspace = true
 repository.workspace = true
-rust-version = "1.80"
+rust-version = "1.82"
 
 [features]
 fake-llm = ["closeclaw-llm/fake-llm"]
