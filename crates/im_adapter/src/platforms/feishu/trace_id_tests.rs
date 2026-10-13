@@ -3,23 +3,8 @@
 //! Verifies that `parse_message_event` stores platform-specific metadata
 //! (e.g. chat_name) in `last_metadata`, accessible via `last_parsed_metadata()`.
 
-use super::adapter::FeishuAdapter;
 use super::adapter::{FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId};
-use super::FeishuPlugin;
-use crate::media_store::MediaStore;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
-fn make_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
+use super::{make_adapter, make_plugin};
 
 /// Build a minimal FeishuEvent for a message event.
 fn make_event(message_type: &str, content_json: &str) -> FeishuEvent {
@@ -54,7 +39,7 @@ fn make_event(message_type: &str, content_json: &str) -> FeishuEvent {
 /// last_parsed_metadata must return an empty map initially.
 #[tokio::test]
 async fn test_last_parsed_metadata_initially_empty() {
-    let adapter = make_adapter();
+    let adapter = make_adapter("unused-cli");
     let meta = adapter.last_metadata.try_lock().unwrap();
     assert!(meta.is_empty(), "last_metadata should be empty initially");
 }
@@ -65,7 +50,7 @@ async fn test_parse_message_event_stores_chat_name_in_metadata() {
     // Note: fetch_chat_name makes an HTTP call which will fail in unit tests.
     // The adapter degrades gracefully — chat_name defaults to empty.
     // We verify the metadata mechanism works by checking the field is set.
-    let adapter = make_adapter();
+    let adapter = make_adapter("unused-cli");
     let event = make_event("text", &serde_json::json!({"text": "hi"}).to_string());
     let _msg = adapter.parse_message_event(event).await.unwrap().unwrap();
     // chat_name may be empty (HTTP failure) but the metadata key should exist
@@ -76,16 +61,10 @@ async fn test_parse_message_event_stores_chat_name_in_metadata() {
     drop(meta);
 }
 
-/// Helper to build a FeishuPlugin for testing generate_trace_id.
-fn make_plugin() -> FeishuPlugin {
-    let adapter = Arc::new(make_adapter());
-    FeishuPlugin::new(adapter)
-}
-
 /// generate_trace_id must produce a string in `{platform}_{timestamp_hex}_{uuid}` format.
 #[test]
 fn test_generate_trace_id_format() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     assert_eq!(
@@ -99,7 +78,7 @@ fn test_generate_trace_id_format() {
 /// The hex timestamp part must be valid hexadecimal.
 #[test]
 fn test_generate_trace_id_timestamp_is_hex() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let timestamp_hex = parts[1];
@@ -112,7 +91,7 @@ fn test_generate_trace_id_timestamp_is_hex() {
 /// The UUID part must be exactly 32 hex characters (UUID v4 without hyphens).
 #[test]
 fn test_generate_trace_id_uuid_length() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let uuid_part = parts[2];
@@ -130,7 +109,7 @@ fn test_generate_trace_id_uuid_length() {
 /// Timestamp must be reasonable (not in the far past or far future).
 #[test]
 fn test_generate_trace_id_timestamp_reasonable() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let trace_id = plugin.generate_trace_id("feishu");
     let parts: Vec<&str> = trace_id.split('_').collect();
     let timestamp_ms = u64::from_str_radix(parts[1], 16).unwrap();
@@ -148,7 +127,7 @@ fn test_generate_trace_id_timestamp_reasonable() {
 /// Two consecutive calls must produce different trace_ids (randomness check).
 #[test]
 fn test_generate_trace_id_unique() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let id1 = plugin.generate_trace_id("feishu");
     let id2 = plugin.generate_trace_id("feishu");
     assert_ne!(id1, id2, "two consecutive trace_ids must differ");
