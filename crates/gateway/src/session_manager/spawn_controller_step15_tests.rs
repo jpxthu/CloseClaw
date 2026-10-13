@@ -170,8 +170,10 @@ async fn test_agent_registry_query_path_config_not_found() {
     let controller = make_controller(&cm, &sm, &pe);
 
     // Parent is in the registry with max_spawn_depth=2 (passes depth check).
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
     inject_agents(&cm, vec![("parent", parent)]);
     // NOTE: "unknown-agent" is NOT injected — AgentRegistry returns None.
@@ -237,10 +239,12 @@ async fn test_step_order_require_agent_id_before_whitelist() {
     let controller = make_controller(&cm, &sm, &pe);
 
     // require_agent_id=true, allow_agents is empty (no parent, no child).
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(true);
-    sub.allow_agents = vec![]; // empty — if whitelist ran, it would reject
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(true),
+        allow_agents: vec![], // empty — if whitelist ran, it would reject
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -270,10 +274,12 @@ async fn test_step_order_agent_id_provided_whitelist_rejects() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(true);
-    sub.allow_agents = vec!["only-this".to_string()];
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(true),
+        allow_agents: vec!["only-this".to_string()],
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -303,12 +309,14 @@ async fn test_step_order_require_agent_id_short_circuits_whitelist() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(true);
     // Parent IS in allowlist — if whitelist ran, it would pass.
     // But requireAgentId runs first → AgentIdRequired.
-    sub.allow_agents = vec!["parent".to_string()];
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(true),
+        allow_agents: vec!["parent".to_string()],
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -340,8 +348,10 @@ async fn test_global_spawn_timeout_fallback_to_172800() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
     // child has no timeout configured (timeout=None)
     let child = make_agent("child", SubagentsConfig::default());
@@ -371,11 +381,15 @@ async fn test_spawn_timeout_priority_target_over_global() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.timeout = Some(120);
+    let child_sub = SubagentsConfig {
+        timeout: Some(120),
+        ..Default::default()
+    };
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -399,11 +413,15 @@ async fn test_spawn_timeout_zero_passthrough() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.timeout = Some(0);
+    let child_sub = SubagentsConfig {
+        timeout: Some(0),
+        ..Default::default()
+    };
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -437,8 +455,10 @@ async fn test_boundary_depth_zero() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(0);
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(0),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -468,9 +488,11 @@ async fn test_boundary_max_children_zero() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.max_children = Some(0);
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        max_children: Some(0),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -501,10 +523,12 @@ async fn test_boundary_require_agent_id_empty_allowlist() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(true);
-    sub.allow_agents = vec![]; // empty
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(true),
+        allow_agents: vec![], // empty
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -534,12 +558,16 @@ async fn test_boundary_depth_one_effective_max_zero() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(1);
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(1),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
 
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = Some(1);
+    let child_sub = SubagentsConfig {
+        max_spawn_depth: Some(1),
+        ..Default::default()
+    };
     let child = make_agent("child", child_sub);
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -561,9 +589,11 @@ async fn test_boundary_max_children_one_saturated() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.max_children = Some(1);
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        max_children: Some(1),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
