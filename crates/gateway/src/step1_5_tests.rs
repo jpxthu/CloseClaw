@@ -405,7 +405,7 @@ fn test_gateway_no_direct_system_prompt_imports() {
     );
 }
 
-/// Step 1.2 — Verify that `SessionMessageHandler` delegates LLM calls
+/// Verify that `SessionMessageHandler` delegates LLM calls
 /// through `Arc<dyn closeclaw_common::LlmCaller>` (injected into
 /// `SessionManager` via `set_llm_caller`) rather than calling
 /// `UnifiedFallbackClient::chat()` directly.
@@ -415,7 +415,7 @@ fn test_gateway_no_direct_system_prompt_imports() {
 /// `UnifiedFallbackClient`; the handler resolves it at runtime via
 /// `dispatch_llm_call`.
 #[tokio::test]
-async fn test_gateway_delegates_llm_to_session_layer() {
+async fn test_gateway_delegates_llm_via_injected_caller() {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
