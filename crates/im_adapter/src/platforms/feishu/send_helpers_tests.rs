@@ -146,6 +146,19 @@ fn create_args_echo_cli(tmp: &TempDir) -> String {
     script_path.to_str().unwrap().to_string()
 }
 
+/// Read the captured args file written by [`create_args_echo_cli`] and
+/// return the argument immediately following `flag`.
+fn capture_flag_arg(cli_tmp: &TempDir, flag: &str) -> String {
+    let args_file = cli_tmp.path().join("captured_args");
+    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+    content
+        .split_whitespace()
+        .skip_while(|s| *s != flag)
+        .nth(1)
+        .map(str::to_string)
+        .unwrap_or_else(|| panic!("{flag} arg not found"))
+}
+
 #[serial]
 #[tokio::test]
 async fn test_run_cli_inserts_profile_arg() {
@@ -307,15 +320,9 @@ async fn test_send_media_file_outbound_under_cwd_uses_relative_path() {
         .await;
     assert!(result.is_ok());
 
-    let args_file = tmp.path().join("captured_args");
-    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
-    let image_arg = content
-        .split_whitespace()
-        .skip_while(|s| *s != "--image")
-        .nth(1)
-        .expect("--image arg not found");
+    let image_arg = capture_flag_arg(&tmp, "--image");
     assert!(
-        !std::path::Path::new(image_arg).is_absolute(),
+        !std::path::Path::new(&image_arg).is_absolute(),
         "Expected relative path under injected cwd, got absolute: {image_arg}"
     );
     assert!(
@@ -356,18 +363,12 @@ async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
         .await;
     assert!(result.is_ok());
 
-    let args_file = cli_tmp.path().join("captured_args");
-    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
-    let image_arg = content
-        .split_whitespace()
-        .skip_while(|s| *s != "--image")
-        .nth(1)
-        .expect("--image arg not found");
+    let image_arg = capture_flag_arg(&cli_tmp, "--image");
     assert!(
-        std::path::Path::new(image_arg).is_absolute(),
+        std::path::Path::new(&image_arg).is_absolute(),
         "Expected absolute path for outbound outside cwd, got: {image_arg}"
     );
-    assert!(std::path::Path::new(image_arg).exists());
+    assert!(std::path::Path::new(&image_arg).exists());
 }
 
 /// When the injected cwd is `None` (defensive fallback), lark-cli receives
@@ -395,18 +396,12 @@ async fn test_send_media_file_none_cwd_falls_back_to_absolute_path() {
         .await;
     assert!(result.is_ok());
 
-    let args_file = cli_tmp.path().join("captured_args");
-    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
-    let image_arg = content
-        .split_whitespace()
-        .skip_while(|s| *s != "--image")
-        .nth(1)
-        .expect("--image arg not found");
+    let image_arg = capture_flag_arg(&cli_tmp, "--image");
     assert!(
-        std::path::Path::new(image_arg).is_absolute(),
+        std::path::Path::new(&image_arg).is_absolute(),
         "Expected absolute path with None cwd, got: {image_arg}"
     );
-    assert!(std::path::Path::new(image_arg).exists());
+    assert!(std::path::Path::new(&image_arg).exists());
 }
 
 /// Unit test for make_media_path_relative: outbound is not under cwd,
