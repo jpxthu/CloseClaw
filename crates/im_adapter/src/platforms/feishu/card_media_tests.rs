@@ -46,6 +46,8 @@ fn create_success_upload_mock_cli(
 /// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
 /// `tmp`; returns the store's outbound dir so tests can assert the
 /// prepare-step outbound copy (proving the true upload path was taken).
+/// Skip-path tests may ignore the return value as `_outbound_dir`;
+/// discarding it is normal usage.
 fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
     let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
     let outbound_dir = media_store.outbound_dir().to_path_buf();
