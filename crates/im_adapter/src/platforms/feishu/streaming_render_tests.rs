@@ -8,29 +8,15 @@
 //! Does NOT call real Feishu APIs — uses test-only adapter construction.
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
-use super::FeishuPlugin;
+use super::make_plugin;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 use closeclaw_common::streaming::{DefaultStreamingRenderer, StreamingRenderer};
 use closeclaw_common::IMPlugin;
 use closeclaw_common::StreamingOutput;
-use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn make_test_adapter() -> super::adapter::FeishuAdapter {
-    let tmp = tempfile::TempDir::new().expect("tmp dir");
-    let store = Arc::new(
-        crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
-    );
-    super::adapter::FeishuAdapter::new("test_profile".to_string(), store)
-}
-
-fn make_plugin() -> FeishuPlugin {
-    let adapter = Arc::new(make_test_adapter());
-    FeishuPlugin::new(adapter)
-}
 
 fn block_start(index: usize, bt: ContentBlockType) -> StreamEvent {
     StreamEvent::BlockStart {
@@ -98,7 +84,7 @@ fn tool_use_delta_input(index: usize, input: &str) -> StreamEvent {
 /// the DefaultStreamingRenderer, routed through FeishuPlugin.
 #[test]
 fn normal_text_block_sentence_terminator_emits_line() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     assert!(out.text_messages.is_empty());
     assert!(out.render_blocks.is_empty());
@@ -114,7 +100,7 @@ fn normal_text_block_sentence_terminator_emits_line() {
 /// Text block accumulates partial text (no terminator) and flushes at block end.
 #[test]
 fn normal_text_block_partial_flushes_at_end() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "partial content"));
     assert!(out.text_messages.is_empty());
@@ -126,7 +112,7 @@ fn normal_text_block_partial_flushes_at_end() {
 /// Multiple deltas accumulate and emit on sentence terminator.
 #[test]
 fn normal_text_multiple_deltas_accumulate() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "Hello "));
     assert!(out.text_messages.is_empty());
@@ -137,7 +123,7 @@ fn normal_text_multiple_deltas_accumulate() {
 /// BlockEnd flushes remaining buffered text.
 #[test]
 fn normal_text_block_end_flushes_remaining() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "some text without terminator"));
     let out = plugin.handle_stream_event(block_end(0, ContentBlockType::Text));
@@ -151,7 +137,7 @@ fn normal_text_block_end_flushes_remaining() {
 /// Chinese sentence terminators trigger line emission.
 #[test]
 fn line_buffer_chinese_terminators() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "你好世界！"));
     assert_eq!(out.text_messages, vec!["你好世界！"]);
@@ -160,7 +146,7 @@ fn line_buffer_chinese_terminators() {
 /// Newlines trigger line emission.
 #[test]
 fn line_buffer_newline_triggers() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "line one\nline two\n"));
     assert_eq!(out.text_messages, vec!["line one\n", "line two\n"]);
@@ -169,7 +155,7 @@ fn line_buffer_newline_triggers() {
 /// 100-character threshold forces emission.
 #[test]
 fn line_buffer_threshold_forces_emission() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let long_text = "a".repeat(150);
     let out = plugin.handle_stream_event(text_delta(0, &long_text));
@@ -180,7 +166,7 @@ fn line_buffer_threshold_forces_emission() {
 /// English sentence terminators trigger line emission.
 #[test]
 fn line_buffer_english_terminators() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "Done. Ready?"));
     assert_eq!(out.text_messages, vec!["Done.", " Ready?"]);
@@ -194,7 +180,7 @@ fn line_buffer_english_terminators() {
 /// In WholeBlock mode, the entire code block is emitted as one unit.
 #[test]
 fn code_block_boundaries_preserve_content() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "```\nfoo.bar.baz\n```\n"));
     assert_eq!(out.text_messages, vec!["```\nfoo.bar.baz\n```\n"]);
@@ -204,7 +190,7 @@ fn code_block_boundaries_preserve_content() {
 /// In WholeBlock mode, the entire code block is emitted as one unit.
 #[test]
 fn code_block_with_language_hint() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "```rust\nfn main() {}\n```\n"));
     assert_eq!(out.text_messages, vec!["```rust\nfn main() {}\n```\n"]);
@@ -214,7 +200,7 @@ fn code_block_with_language_hint() {
 /// is NOT emitted at threshold — it waits for the closing fence.
 #[test]
 fn code_block_threshold_deferred_in_whole_block() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "```\n"));
     let long_code = "x".repeat(120);
@@ -230,7 +216,7 @@ fn code_block_threshold_deferred_in_whole_block() {
 /// Text after code block resumes sentence terminator splitting.
 #[test]
 fn text_after_code_block_resumes_splitting() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "```\ncode\n```\n"));
     let out = plugin.handle_stream_event(text_delta(0, "Back to text. Done."));
@@ -244,7 +230,7 @@ fn text_after_code_block_resumes_splitting() {
 /// Two sequential Text blocks are independent; second block starts fresh.
 #[test]
 fn multi_block_two_text_blocks_independent() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "Block one."));
     // "Block one." ends with sentence terminator '.' → emitted during text_delta
@@ -261,7 +247,7 @@ fn multi_block_two_text_blocks_independent() {
 /// Three Text blocks each with partial content, flushed at block end.
 #[test]
 fn multi_block_three_text_blocks_partial() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
 
     for (i, text) in ["first", "second", "third"].iter().enumerate() {
         plugin.handle_stream_event(block_start(i, ContentBlockType::Text));
@@ -279,7 +265,7 @@ fn multi_block_three_text_blocks_partial() {
 /// Thinking block produces render_blocks (not discarded).
 #[test]
 fn thinking_block_emits_render_blocks() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Thinking));
     plugin.handle_stream_event(thinking_delta(0, "Let me think..."));
     let out = plugin.handle_stream_event(block_end(0, ContentBlockType::Thinking));
@@ -296,7 +282,7 @@ fn thinking_block_emits_render_blocks() {
 /// ToolUse block produces render_blocks with id, name, and input.
 #[test]
 fn tool_use_block_emits_render_blocks() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::ToolUse));
     plugin.handle_stream_event(tool_use_delta_id(0, "call_123"));
     plugin.handle_stream_event(tool_use_delta_name(0, "search"));
@@ -316,7 +302,7 @@ fn tool_use_block_emits_render_blocks() {
 /// Thinking block interleaved with Text blocks: both outputs are independent.
 #[test]
 fn thinking_interleaved_with_text() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
 
     // Text block
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
@@ -345,7 +331,7 @@ fn thinking_interleaved_with_text() {
 /// check_stream_timeout returns empty when nothing buffered.
 #[test]
 fn check_stream_timeout_empty_returns_empty() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.check_stream_timeout();
     assert!(out.text_messages.is_empty());
     assert!(out.render_blocks.is_empty());
@@ -378,7 +364,7 @@ fn check_stream_timeout_returns_buffered_text() {
 /// flush_stream returns remaining text from open Text block.
 #[test]
 fn flush_stream_returns_remaining_text() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "partial"));
     let out = plugin.flush_stream();
@@ -388,7 +374,7 @@ fn flush_stream_returns_remaining_text() {
 /// flush_stream returns empty when all buffers already drained.
 #[test]
 fn flush_stream_returns_empty_when_drained() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "done."));
     plugin.handle_stream_event(block_end(0, ContentBlockType::Text));
@@ -399,7 +385,7 @@ fn flush_stream_returns_empty_when_drained() {
 /// flush_stream resets block state for next message.
 #[test]
 fn flush_stream_resets_block_state() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     plugin.handle_stream_event(text_delta(0, "partial"));
     let out = plugin.flush_stream();
@@ -415,7 +401,7 @@ fn flush_stream_resets_block_state() {
 /// flush_stream returns empty on completely empty state.
 #[test]
 fn flush_stream_empty_state_returns_empty() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.flush_stream();
     assert_eq!(out, StreamingOutput::default());
 }
@@ -473,7 +459,7 @@ fn cardkit_blocks_update_at_99ms() {
 /// Cardkit pending_text accumulates text from handle_stream_event output.
 #[test]
 fn cardkit_accumulates_text_from_stream_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     // Feed text that triggers line emission.
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, "Hello world."));
@@ -491,7 +477,7 @@ fn cardkit_accumulates_text_from_stream_output() {
 /// Cardkit pending_text is empty after flush.
 #[test]
 fn cardkit_pending_text_empty_initially() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     assert!(plugin.cardkit_pending_text().is_empty());
 }
 
@@ -502,7 +488,7 @@ fn cardkit_pending_text_empty_initially() {
 /// Empty text delta produces no output.
 #[test]
 fn empty_text_delta_produces_no_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     let out = plugin.handle_stream_event(text_delta(0, ""));
     assert!(out.text_messages.is_empty());
@@ -512,7 +498,7 @@ fn empty_text_delta_produces_no_output() {
 /// MessageEnd event produces no output.
 #[test]
 fn message_end_event_produces_no_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.handle_stream_event(StreamEvent::MessageEnd {
         usage: None,
         finish_reason: None,
@@ -524,7 +510,7 @@ fn message_end_event_produces_no_output() {
 /// Error event produces no output.
 #[test]
 fn error_event_produces_no_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.handle_stream_event(StreamEvent::Error {
         message: "test error".to_string(),
     });
@@ -535,7 +521,7 @@ fn error_event_produces_no_output() {
 /// BlockStart alone produces no output.
 #[test]
 fn block_start_alone_produces_no_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.handle_stream_event(block_start(0, ContentBlockType::Text));
     assert!(out.text_messages.is_empty());
     assert!(out.render_blocks.is_empty());
@@ -544,7 +530,7 @@ fn block_start_alone_produces_no_output() {
 /// Handle stream event with no prior state produces empty output.
 #[test]
 fn no_prior_state_produces_empty_output() {
-    let plugin = make_plugin();
+    let plugin = make_plugin("unused-cli");
     let out = plugin.check_stream_timeout();
     assert_eq!(out, StreamingOutput::default());
     let out = plugin.flush_stream();

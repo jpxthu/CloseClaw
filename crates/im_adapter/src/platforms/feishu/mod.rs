@@ -93,4 +93,7 @@ pub(crate) use post_expand::expand_post_content;
 #[cfg(test)]
 pub(crate) use renderer::extract_card_plain_text;
 #[cfg(test)]
-pub(crate) use test_helpers::{create_failing_mock_cli, write_mock_script, CAPABILITY_ERROR_JSON};
+pub(crate) use test_helpers::{
+    create_failing_mock_cli, make_adapter, make_plugin, make_plugin_with_store, write_mock_script,
+    CAPABILITY_ERROR_JSON,
+};
