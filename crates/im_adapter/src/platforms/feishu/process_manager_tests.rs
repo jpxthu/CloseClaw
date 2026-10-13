@@ -144,7 +144,10 @@ fn test_extract_event_id_missing() {
 
 #[test]
 fn test_parse_event_line_cli_format() {
-    let line = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
+    let line = concat!(
+        r#"{"type":"im.message.receive_v1","event_id":"ev_001","#,
+        r#""message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#
+    );
     let result = ProcessManager::parse_event(line);
     match result {
         EventLine::Event(e) => {
@@ -157,7 +160,11 @@ fn test_parse_event_line_cli_format() {
 
 #[test]
 fn test_parse_event_line_webhook_format() {
-    let line = r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","event_id":"ev_002","create_time":"1234567890","token":"","app_id":"app_123"},"event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#;
+    let line = concat!(
+        r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","#,
+        r#""event_id":"ev_002","create_time":"1234567890","token":"","app_id":"app_123"},"#,
+        r#""event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#
+    );
     let result = ProcessManager::parse_event(line);
     match result {
         EventLine::Event(e) => {
@@ -295,8 +302,15 @@ fn test_parse_event_line_deeply_nested() {
 #[serial]
 #[tokio::test]
 async fn test_process_manager_start_and_receive_events() {
-    let cli_event = r#"{"type":"im.message.receive_v1","event_id":"ev_001","message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#;
-    let webhook_event = r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","event_id":"ev_002","create_time":"123","token":"","app_id":"app_1"},"event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#;
+    let cli_event = concat!(
+        r#"{"type":"im.message.receive_v1","event_id":"ev_001","#,
+        r#""message_id":"om_001","sender_id":"ou_user","content":"{\"text\":\"hello\"}"}"#
+    );
+    let webhook_event = concat!(
+        r#"{"schema":"2.0","header":{"event_type":"im.message.reaction.created_v1","#,
+        r#""event_id":"ev_002","create_time":"123","token":"","app_id":"app_1"},"#,
+        r#""event":{"message_id":"om_002","reaction_type":{"emoji_type":"THUMBSUP"}}}"#
+    );
 
     let (_dir, script) = create_mock_script(&[cli_event, webhook_event]);
     let (mut manager, mut rx) = ProcessManager::new("bash".into(), vec![script]);

@@ -2,7 +2,8 @@
 //!
 //! All message sending goes through `lark-cli` subprocess commands:
 //! - Text: `lark-cli im +messages-send --chat-id <id> --text "..." --as bot`
-//! - Card: `lark-cli im +messages-send --chat-id <id> --msg-type interactive --content '<json>' --as bot`
+//! - Card: `lark-cli im +messages-send --chat-id <id> --msg-type interactive
+//!   --content '<json>' --as bot`
 //! - Reply: `lark-cli im +messages-reply --message-id <id> --text "..." --reply-in-thread`
 //! - Media: `lark-cli im +messages-send --chat-id <id> --image <path>` or `--file <path>`
 //!
@@ -109,8 +110,10 @@ pub(crate) enum ReplyTarget {
 /// Build lark-cli arguments for sending a message.
 ///
 /// Returns the argument list (without the command name) for:
-/// - P2P (open_id `ou_xxx`): `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
-/// - Group (chat_id `oc_xxx`): `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
+/// - P2P (open_id `ou_xxx`):
+///   `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
+/// - Group (chat_id `oc_xxx`):
+///   `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
 fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> {
     let (id_flag, id_value) = if chat_id.starts_with("ou_") {
         ("--user-id".to_string(), chat_id.to_string())
@@ -273,22 +276,18 @@ impl FeishuAdapter {
     ) -> Result<(), AdapterError> {
         let media_store = &self.media_store;
         let workspace_dir = self.workspace_dir.as_deref();
-        let outbound_path = match prepare_outbound_local_media(
-            file_path,
-            workspace_dir,
-            media_store,
-        )
-        .await
-        {
-            Some(p) => p,
-            None => {
-                tracing::warn!(
-                    file_path = %file_path,
-                    "Skipping media send: not a local file, does not exist, or failed whitelist validation"
-                );
-                return Ok(());
-            }
-        };
+        let outbound_path =
+            match prepare_outbound_local_media(file_path, workspace_dir, media_store).await {
+                Some(p) => p,
+                None => {
+                    tracing::warn!(
+                        file_path = %file_path,
+                        "Skipping media send: not a local file, does not \
+                         exist, or failed whitelist validation"
+                    );
+                    return Ok(());
+                }
+            };
         // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
         let cwd = std::env::current_dir().unwrap_or_else(|e| {
             // Defensive: current_dir() rarely fails; if it does, use absolute path
@@ -317,7 +316,8 @@ impl FeishuAdapter {
 
     /// Send an emoji reaction to a message via lark-cli.
     ///
-    /// `lark-cli im reactions create --params '{"message_id":"<id>"}' --data '{"reaction_type":{"emoji_type":"<emoji>"}}'`
+    /// `lark-cli im reactions create --params '{"message_id":"<id>"}'
+    /// --data '{"reaction_type":{"emoji_type":"<emoji>"}}'`
     #[allow(dead_code)]
     pub(crate) async fn send_reaction(
         &self,

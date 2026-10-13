@@ -84,7 +84,10 @@ fn test_platform_config_empty_object() {
 /// Multiple platforms, each independently configurable.
 #[test]
 fn test_platform_config_multiple_platforms() {
-    let json = r#"{"platforms":{"feishu":{"enabled":true},"discord":{"enabled":false},"slack":{"enabled":true}}}"#;
+    let json = concat!(
+        r#"{"platforms":{"feishu":{"enabled":true},"#,
+        r#""discord":{"enabled":false},"slack":{"enabled":true}}}"#
+    );
     let dir = setup_config_dir(Some(json));
     let cfg = load_platforms_config(dir.path().to_str().unwrap());
     assert!(cfg.is_enabled("feishu"));
