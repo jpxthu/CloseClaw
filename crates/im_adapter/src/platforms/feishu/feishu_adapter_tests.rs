@@ -1,4 +1,4 @@
-//! Integration tests for FeishuAdapter
+//! Unit tests for FeishuAdapter
 //!
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
