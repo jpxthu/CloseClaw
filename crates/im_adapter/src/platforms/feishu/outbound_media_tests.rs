@@ -30,8 +30,8 @@ use tempfile::TempDir;
 ///   filesystem access), so equivalence still holds.
 ///
 /// A path genuinely absent from the args still yields `false`, keeping the
-/// assertion fail-safe; call sites retain the full `args` text in the
-/// failure message for diagnosability.
+/// assertion fail-safe; [`assert_captured_args_contain_path`] keeps the full
+/// `args` text in the failure message for diagnosability.
 ///
 /// Known limitation (pre-existing, same as `capture_flag_arg`):
 /// whitespace-splitting cannot reassemble paths containing spaces.
@@ -41,10 +41,7 @@ fn captured_args_contain_path(args: &str, outbound: &std::path::Path) -> bool {
         if token_path.is_absolute() {
             token_path == outbound
         } else {
-            match std::env::current_dir() {
-                Ok(cwd) => cwd.join(token_path) == outbound,
-                Err(_) => false,
-            }
+            std::env::current_dir().is_ok_and(|cwd| cwd.join(token_path) == outbound)
         }
     })
 }
@@ -129,6 +126,19 @@ fn test_captured_args_contain_path_same_name_different_dir_misses() {
     assert!(
         !captured_args_contain_path(&args, &outbound),
         "same file name in another directory must not hit, args: {args}"
+    );
+}
+
+/// Assert helper shared by the outbound-copy send tests: reads the CLI
+/// captured args from `<tmp>/captured_args` and asserts it contains a path
+/// equivalent to `outbound` (see [`captured_args_contain_path`]); on failure
+/// the full args text is kept in the message for diagnosability.
+fn assert_captured_args_contain_path(tmp: &TempDir, outbound: &std::path::Path) {
+    let args_file = tmp.path().join("captured_args");
+    let args = fs::read_to_string(&args_file).unwrap();
+    assert!(
+        captured_args_contain_path(&args, outbound),
+        "lark-cli should receive outbound path, args: {args}"
     );
 }
 
@@ -446,12 +456,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let outbound = adapter.media_store.outbound_dir().join("photo.png");
     assert!(outbound.exists(), "outbound copy should exist");
     // Verify sent path is the outbound copy (not the original).
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        captured_args_contain_path(&args, &outbound),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 /// send_file with absolute path inside media store → outbound copy created,
@@ -472,12 +477,7 @@ async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     );
     let outbound = adapter.media_store.outbound_dir().join("report.pdf");
     assert!(outbound.exists(), "outbound copy should exist");
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        captured_args_contain_path(&args, &outbound),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 /// HTTP URL → send_image skips send and returns Ok (not an error).
@@ -772,12 +772,7 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
     assert!(result.is_ok());
     let outbound = adapter.media_store.outbound_dir().join("speech.opus");
     assert!(outbound.exists(), "outbound copy should exist for audio");
-    let args_file = tmp.path().join("captured_args");
-    let args = fs::read_to_string(&args_file).unwrap();
-    assert!(
-        captured_args_contain_path(&args, &outbound),
-        "lark-cli should receive outbound path, args: {args}"
-    );
+    assert_captured_args_contain_path(&tmp, &outbound);
 }
 
 // =================================================================
