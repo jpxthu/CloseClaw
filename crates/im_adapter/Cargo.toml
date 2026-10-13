@@ -45,10 +45,10 @@ inventory = "0.3"
 # Home directory expansion
 dirs.workspace = true
 
-# HTTP server (for adapter tests)
-axum.workspace = true
-
 [dev-dependencies]
 closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true
 serial_test.workspace = true
+
+# HTTP server (for adapter tests)
+axum.workspace = true

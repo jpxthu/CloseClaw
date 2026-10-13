@@ -4,7 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Fake LLM Server: independent HTTP test server for OpenAI & Anthropic protocols"
 license.workspace = true
-rust-version = "1.82"
+rust-version.workspace = true
 
 [dependencies]
 # Async runtime (pinned to match workspace)

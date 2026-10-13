@@ -29,6 +29,7 @@ members = [
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/jpxthu/CloseClaw"
+rust-version = "1.82"
 
 [workspace.dependencies]
 anyhow = "1.0"
@@ -78,7 +79,7 @@ authors = ["CloseClaw Team"]
 description = "Lightweight, rule-driven multi-agent execution framework"
 license.workspace = true
 repository.workspace = true
-rust-version = "1.82"
+rust-version.workspace = true
 
 [features]
 fake-llm = ["closeclaw-llm/fake-llm"]
