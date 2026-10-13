@@ -3,27 +3,18 @@
 //! These tests were migrated from `src/im/feishu.rs` `#[cfg(test)] mod tests`.
 
 use super::event_dedup::EventDeduplicator;
-use super::FeishuAdapter;
-use crate::media_store::MediaStore;
+use super::make_adapter;
 use crate::IMAdapter;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
 
 #[test]
 fn test_feishu_adapter_name() {
-    let adapter = FeishuAdapter::new("test_profile".to_string(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     assert_eq!(adapter.name(), "feishu");
 }
 
 #[tokio::test]
 async fn test_validate_signature_correct() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     // lark-cli event consume handles signature verification;
     // validate_signature always returns true.
     assert!(adapter.validate_signature("any", b"test").await);
@@ -31,7 +22,7 @@ async fn test_validate_signature_correct() {
 
 #[tokio::test]
 async fn test_validate_signature_incorrect() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     // lark-cli event consume handles signature verification;
     // validate_signature always returns true.
     assert!(adapter.validate_signature("wrong", b"test").await);
@@ -39,7 +30,7 @@ async fn test_validate_signature_incorrect() {
 
 #[tokio::test]
 async fn test_parse_inbound_valid() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {"event_id":"evt_1","event_type":"im.message.receive_v1",
@@ -60,13 +51,13 @@ async fn test_parse_inbound_valid() {
 
 #[tokio::test]
 async fn test_parse_inbound_invalid_json() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     assert!(adapter.parse_inbound(b"not json").await.is_err());
 }
 
 #[tokio::test]
 async fn test_parse_inbound_empty_text() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema":"2.0","header":{"event_id":"e2","event_type":"x",
             "create_time":"0","token":"t","app_id":"a"},
@@ -82,7 +73,7 @@ async fn test_parse_inbound_empty_text() {
 
 #[tokio::test]
 async fn test_error_cases() {
-    let a = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let a = make_adapter("unused-cli");
     assert!(a.send_message("b", "hi", None).await.is_err());
 }
 
@@ -136,7 +127,7 @@ fn make_card_action_payload(event_id: &str) -> Vec<u8> {
 /// First event with a given event_id passes through normally.
 #[tokio::test]
 async fn test_dedup_first_event_passes() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = make_message_payload("ev_dedup_001", "hello");
     let msg = adapter.parse_inbound(&payload).await.unwrap();
     assert!(msg.is_some(), "first event should pass dedup");
@@ -146,7 +137,7 @@ async fn test_dedup_first_event_passes() {
 /// Duplicate event_id is rejected (returns Ok(None)).
 #[tokio::test]
 async fn test_dedup_duplicate_rejected() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = make_message_payload("ev_dedup_002", "first");
     let msg1 = adapter.parse_inbound(&payload).await.unwrap();
     assert!(msg1.is_some(), "first event should pass");
@@ -160,7 +151,7 @@ async fn test_dedup_duplicate_rejected() {
 /// Duplicate event_id in card.action.trigger is also rejected.
 #[tokio::test]
 async fn test_dedup_card_action_duplicate_rejected() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = make_card_action_payload("ev_card_dedup_001");
     // First call: card.action.trigger returns Ok(None) by design (Step 1.4),
     // but the event_id is recorded in dedup.
@@ -212,7 +203,7 @@ fn test_dedup_capacity_eviction() {
 /// Empty event_id is never deduplicated (always passes).
 #[tokio::test]
 async fn test_dedup_empty_event_id_always_passes() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     let payload = make_message_payload("", "hello");
     let msg1 = adapter.parse_inbound(&payload).await.unwrap();
     assert!(msg1.is_some(), "empty event_id first call should pass");
@@ -235,7 +226,7 @@ async fn test_dedup_empty_event_id_always_passes() {
 /// could execute.
 #[tokio::test]
 async fn test_dedup_before_media_download() {
-    let adapter = FeishuAdapter::new("test_profile".into(), make_test_media_store());
+    let adapter = make_adapter("unused-cli");
     // Use an image event which would require media download in the normal path.
     let payload = serde_json::json!({
         "schema": "2.0",

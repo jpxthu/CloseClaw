@@ -15,7 +15,6 @@ use crate::error::AdapterError;
 use crate::IMAdapter;
 use serial_test::serial;
 use std::fmt::Write as _;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli script that outputs an error JSON.
@@ -29,19 +28,6 @@ fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
     writeln!(content, "exit 1").unwrap();
     write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
-}
-
-/// Create a FeishuAdapter pointing at a mock CLI script.
-fn make_adapter_with_cli(cli_command: &str) -> FeishuAdapter {
-    let tmp = tempfile::TempDir::new().expect("tmp dir");
-    let mut adapter = FeishuAdapter::new(
-        "test_profile".into(),
-        Arc::new(
-            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
-        ),
-    );
-    adapter.cli_command = cli_command.to_string();
-    adapter
 }
 
 /// Helper: build a card JSON string with a single markdown element.
@@ -63,7 +49,7 @@ fn card_payload_with_markdown(text: &str) -> String {
 async fn test_send_message_cli_error_returns_err() {
     let tmp = TempDir::new().unwrap();
     let cli = create_error_mock_cli(&tmp, 99999);
-    let adapter = make_adapter_with_cli(&cli);
+    let adapter = make_adapter(&cli);
     let result = adapter.send_message("oc_target_chat", "hello", None).await;
     assert!(
         result.is_err(),
@@ -84,7 +70,7 @@ async fn test_send_message_cli_error_returns_err() {
 async fn test_send_card_non_capability_error_returns_err_no_fallback() {
     let tmp = TempDir::new().unwrap();
     let cli = create_error_mock_cli(&tmp, 99999);
-    let adapter = make_adapter_with_cli(&cli);
+    let adapter = make_adapter(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
     assert!(
@@ -102,7 +88,7 @@ async fn test_send_card_non_capability_error_returns_err_no_fallback() {
 /// send_message: lark-cli command not found → returns Err (warn logged).
 #[tokio::test]
 async fn test_send_message_command_not_found_returns_err() {
-    let adapter = make_adapter_with_cli("nonexistent_command_xyz");
+    let adapter = make_adapter("nonexistent_command_xyz");
     let result = adapter.send_message("oc_target_chat", "hello", None).await;
     assert!(
         result.is_err(),
@@ -113,7 +99,7 @@ async fn test_send_message_command_not_found_returns_err() {
 /// send_card_json: lark-cli command not found → returns Err (warn logged).
 #[tokio::test]
 async fn test_send_card_command_not_found_returns_err() {
-    let adapter = make_adapter_with_cli("nonexistent_command_xyz");
+    let adapter = make_adapter("nonexistent_command_xyz");
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
     assert!(

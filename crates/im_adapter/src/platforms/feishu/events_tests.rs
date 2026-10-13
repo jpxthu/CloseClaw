@@ -1,21 +1,7 @@
 //! Unit tests for reaction.created and bot.added event parsing.
 
-use super::adapter::FeishuAdapter;
-use crate::media_store::MediaStore;
+use super::make_adapter;
 use crate::IMAdapter;
-use std::sync::Arc;
-use tempfile::TempDir;
-
-/// Create a test MediaStore rooted in a temp directory.
-fn make_test_media_store() -> Arc<MediaStore> {
-    let tmp = TempDir::new().expect("tmp dir");
-    Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"))
-}
-
-/// Create a test FeishuAdapter (no real HTTP — only sync methods are exercised).
-fn make_test_adapter() -> FeishuAdapter {
-    FeishuAdapter::new("test_profile".to_string(), make_test_media_store())
-}
 
 // ===========================================================================
 // reaction.created event tests
@@ -51,7 +37,7 @@ fn make_reaction_payload(message_id: &str, open_id: &str, emoji_type: &str) -> V
 /// reaction.created: returns Ok(None) — not a NormalizedMessage.
 #[tokio::test]
 async fn test_parse_inbound_reaction_created_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = make_reaction_payload("om_test_msg_001", "ou_user_abc", "THUMBSUP");
     let result = adapter.parse_inbound(&payload).await.unwrap();
     assert!(result.is_none());
@@ -60,7 +46,7 @@ async fn test_parse_inbound_reaction_created_returns_none() {
 /// reaction.created: missing reaction_type — graceful parse error (no panic).
 #[tokio::test]
 async fn test_parse_inbound_reaction_created_missing_reaction_type() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -89,7 +75,7 @@ async fn test_parse_inbound_reaction_created_missing_reaction_type() {
 /// reaction.created: missing message_id — graceful parse error (no panic).
 #[tokio::test]
 async fn test_parse_inbound_reaction_created_missing_message_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -120,7 +106,7 @@ async fn test_parse_inbound_reaction_created_missing_message_id() {
 /// reaction.created: operator at top level (open_id field) — graceful handling.
 #[tokio::test]
 async fn test_parse_inbound_reaction_created_with_top_level_open_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -174,7 +160,7 @@ fn make_bot_added_payload(chat_id: &str, bot_open_id: &str) -> Vec<u8> {
 /// bot.added: returns Ok(None) — not a NormalizedMessage.
 #[tokio::test]
 async fn test_parse_inbound_bot_added_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = make_bot_added_payload("oc_group_chat_001", "ou_bot_xyz");
     let result = adapter.parse_inbound(&payload).await.unwrap();
     assert!(result.is_none());
@@ -183,7 +169,7 @@ async fn test_parse_inbound_bot_added_returns_none() {
 /// bot.added: missing chat_id field — graceful handling.
 #[tokio::test]
 async fn test_parse_inbound_bot_added_missing_chat_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -207,7 +193,7 @@ async fn test_parse_inbound_bot_added_missing_chat_id() {
 /// bot.added: missing bot.open_id field — graceful handling.
 #[tokio::test]
 async fn test_parse_inbound_bot_added_missing_bot_open_id() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
@@ -232,7 +218,7 @@ async fn test_parse_inbound_bot_added_missing_bot_open_id() {
 /// card.action.trigger: still returns Ok(None) — no regression.
 #[tokio::test]
 async fn test_parse_inbound_card_action_still_returns_none() {
-    let adapter = make_test_adapter();
+    let adapter = make_adapter("unused-cli");
     let payload = serde_json::json!({
         "schema": "2.0",
         "header": {
