@@ -56,6 +56,10 @@ mod fg_ctx_tests;
 mod gap_tests;
 
 #[cfg(test)]
+#[path = "../bash_summary_tests.rs"]
+mod summary_tests;
+
+#[cfg(test)]
 #[path = "../bash_tests.rs"]
 mod tests;
 
