@@ -41,6 +41,9 @@ hex.workspace = true
 # Random (for plan identifier generation)
 rand.workspace = true
 
+# System
+libc.workspace = true
+
 # Redis client
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
 

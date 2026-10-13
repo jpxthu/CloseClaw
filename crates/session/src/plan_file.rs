@@ -8,6 +8,7 @@ use rand::seq::SliceRandom;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Write};
+use std::os::fd::AsRawFd;
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
@@ -256,6 +257,27 @@ where
     write_atomically(plan_path, content.as_bytes(), Some(mode))
 }
 
+/// Take a blocking exclusive advisory lock on `file`'s descriptor.
+///
+/// MSRV-1.82-compatible equivalent of [`File::lock`] (stabilized in Rust
+/// 1.89): a single `flock(LOCK_EX)` call, with the resulting `io::Error`
+/// propagated as-is — `EINTR` is **not** retried and surfaces as
+/// `io::ErrorKind::Interrupted`, exactly like the std Unix implementation.
+/// The lock is advisory, scoped to the open file description behind the
+/// descriptor (independent descriptors — same process or another — contend
+/// for it), and released by the kernel when the descriptor is closed.
+fn lock_file_exclusive(file: &File) -> io::Result<()> {
+    // SAFETY: `file` is a valid open `File` whose descriptor stays alive
+    // for the whole call; `flock` only updates kernel lock state for that
+    // descriptor — it dereferences no user memory and cannot unwind.
+    let rc = unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) };
+    if rc == 0 {
+        Ok(())
+    } else {
+        Err(io::Error::last_os_error())
+    }
+}
+
 /// Open (creating it if needed) the sidecar lock file for `plan_path` and
 /// take the exclusive advisory lock on it.
 ///
@@ -283,7 +305,7 @@ pub(crate) fn acquire_plan_lock(plan_path: &Path) -> io::Result<File> {
     let mut lock_name = plan_path.as_os_str().to_os_string();
     lock_name.push(".lock");
     let lock_file = File::create(PathBuf::from(&lock_name))?;
-    lock_file.lock()?;
+    lock_file_exclusive(&lock_file)?;
     Ok(lock_file)
 }
 
