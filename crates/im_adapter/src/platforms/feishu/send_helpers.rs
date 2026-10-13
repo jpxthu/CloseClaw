@@ -387,7 +387,7 @@ mod tests {
     //! in a `tempfile::TempDir`.
 
     use super::*;
-    use crate::platforms::feishu::{create_failing_mock_cli, write_mock_script};
+    use crate::platforms::feishu::{create_failing_mock_cli, make_adapter, write_mock_script};
     use serial_test::serial;
     use std::fmt::Write as _;
     use std::sync::Arc;
@@ -403,22 +403,12 @@ mod tests {
         script_path.to_str().unwrap().to_string()
     }
 
-    fn make_adapter_with_cli(cli_command: &str) -> FeishuAdapter {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let mut adapter = FeishuAdapter::new(
-            "test_profile".into(),
-            Arc::new(crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).unwrap()),
-        );
-        adapter.cli_command = cli_command.to_string();
-        adapter
-    }
-
     #[serial]
     #[tokio::test]
     async fn test_run_cli_success() {
         let tmp = TempDir::new().unwrap();
         let cli = create_mock_cli(&tmp, r#"{"code":0,"msg":"ok"}"#);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = run_cli(&adapter, &["im", "+messages-send"]).await;
         assert!(result.is_ok());
     }
@@ -428,7 +418,7 @@ mod tests {
     async fn test_run_cli_error_code() {
         let tmp = TempDir::new().unwrap();
         let cli = create_mock_cli(&tmp, r#"{"code":999,"msg":"something failed"}"#);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = run_cli(&adapter, &["im", "+messages-send"]).await;
         assert!(result.is_err());
         match result.unwrap_err() {
@@ -445,7 +435,7 @@ mod tests {
     async fn test_run_cli_non_json_output() {
         let tmp = TempDir::new().unwrap();
         let cli = create_mock_cli(&tmp, "ok");
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = run_cli(&adapter, &["--version"]).await;
         assert!(result.is_ok());
     }
@@ -461,14 +451,14 @@ mod tests {
             false,
             1,
         );
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = run_cli(&adapter, &["im", "+messages-send"]).await;
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn test_run_cli_command_not_found() {
-        let adapter = make_adapter_with_cli("nonexistent_command_xyz");
+        let adapter = make_adapter("nonexistent_command_xyz");
         let result = run_cli(&adapter, &["--version"]).await;
         assert!(result.is_err());
     }
@@ -550,7 +540,7 @@ mod tests {
     async fn test_run_cli_inserts_profile_arg() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let _ = run_cli(&adapter, &["im", "+messages-send"]).await;
         // Verify --profile was prepended to the args
         let args_file = tmp.path().join("captured_args");
@@ -578,7 +568,7 @@ mod tests {
     async fn test_send_msg_composite_peer_id_no_reply() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = adapter
             .send_msg("ou_user123|om_msg456", "text", "hello", None)
             .await;
@@ -597,7 +587,7 @@ mod tests {
     async fn test_send_msg_composite_peer_id_thread_reply() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let target = ReplyTarget::Thread {
             root_id: "om_root789".to_string(),
         };
@@ -619,7 +609,7 @@ mod tests {
     async fn test_send_msg_composite_peer_id_message_reply() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let target = ReplyTarget::Message {
             message_id: "om_msg456".to_string(),
         };
@@ -641,7 +631,7 @@ mod tests {
     async fn test_send_msg_simple_peer_id_no_reply() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = adapter.send_msg("oc_chat123", "text", "hello", None).await;
         assert!(result.is_ok());
         let args_file = tmp.path().join("captured_args");
@@ -657,7 +647,7 @@ mod tests {
     async fn test_send_msg_composite_peer_id_group_chat() {
         let tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&tmp);
-        let adapter = make_adapter_with_cli(&cli);
+        let adapter = make_adapter(&cli);
         let result = adapter
             .send_msg("ou_user123|oc_chat456", "text", "hello", None)
             .await;
@@ -694,7 +684,7 @@ mod tests {
         let src = media_dir.join("photo.png");
         std::fs::write(&src, "image data").unwrap();
 
-        let mut adapter = make_adapter_with_cli(&cli);
+        let mut adapter = make_adapter(&cli);
         adapter.media_store = Arc::new(media_store);
 
         let result = adapter.send_image("oc_test", src.to_str().unwrap()).await;
@@ -734,7 +724,7 @@ mod tests {
 
         let cli_tmp = TempDir::new().unwrap();
         let cli = create_args_echo_cli(&cli_tmp);
-        let mut adapter = make_adapter_with_cli(&cli);
+        let mut adapter = make_adapter(&cli);
         adapter.media_store = Arc::new(media_store);
 
         let result = adapter.send_image("oc_test", src.to_str().unwrap()).await;

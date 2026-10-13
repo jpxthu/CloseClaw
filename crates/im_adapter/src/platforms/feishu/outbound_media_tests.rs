@@ -5,12 +5,11 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::outbound_media::*;
-use super::{create_failing_mock_cli, write_mock_script};
+use super::{create_failing_mock_cli, make_test_media_store_at, write_mock_script};
 use crate::error::AdapterError;
 use crate::media_store::MediaStore;
 use serial_test::serial;
 use std::fs;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 #[tokio::test]
@@ -307,8 +306,10 @@ fn make_adapter(
     media_root: &std::path::Path,
     workspace: Option<&std::path::Path>,
 ) -> super::adapter::FeishuAdapter {
-    let media_store = Arc::new(MediaStore::new(media_root.to_str().unwrap()).unwrap());
-    let mut adapter = super::adapter::FeishuAdapter::new("test_profile".into(), media_store);
+    let mut adapter = super::adapter::FeishuAdapter::new(
+        "test_profile".into(),
+        make_test_media_store_at(media_root),
+    );
     adapter.cli_command = cli.to_string();
     adapter.workspace_dir = workspace.map(std::path::PathBuf::from);
     adapter
