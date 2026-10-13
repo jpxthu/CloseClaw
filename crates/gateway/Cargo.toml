@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Gateway - IM protocol adapters, message routing, authentication"
 license.workspace = true
+rust-version.workspace = true
 
 [features]
 full-tests = []

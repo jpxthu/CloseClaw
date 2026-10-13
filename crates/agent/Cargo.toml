@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Agent configuration, registry, and spawn control"
 license.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "closeclaw_agent"

@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "CLI interface for CloseClaw"
 license.workspace = true
+rust-version.workspace = true
 
 [lib]
 name = "closeclaw_cli"

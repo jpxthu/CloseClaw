@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Plan execution engine: scheduling, retry, and sub-agent orchestration"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 closeclaw-common = { path = "../common" }
