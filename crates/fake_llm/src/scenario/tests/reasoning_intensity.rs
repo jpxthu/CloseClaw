@@ -3,26 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
-use crate::test_util::features;
-
-/// Helper: build a reasoning turn with given intensity and reasoning text.
-fn reasoning_turn(content: &str, reasoning: &str, intensity: ReasoningIntensity) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Reasoning(ReasoningResponse {
-            content: content.to_string(),
-            reasoning: reasoning.to_string(),
-            signature: None,
-            usage: None,
-            intensity,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
+use crate::test_util::{features, reasoning_turn};
 
 /// Low intensity produces shorter reasoning text than Medium.
 #[test]
