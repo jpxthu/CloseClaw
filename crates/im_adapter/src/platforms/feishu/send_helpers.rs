@@ -114,7 +114,7 @@ pub(crate) enum ReplyTarget {
 ///   `lark-cli im +messages-send --user-id <id> --<flag> <content> --as bot`
 /// - Group (chat_id `oc_xxx`):
 ///   `lark-cli im +messages-send --chat-id <id> --<flag> <content> --as bot`
-fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> {
+pub(crate) fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> {
     let (id_flag, id_value) = if chat_id.starts_with("ou_") {
         ("--user-id".to_string(), chat_id.to_string())
     } else {
@@ -154,7 +154,7 @@ fn build_send_args(chat_id: &str, msg_type: &str, content: &str) -> Vec<String> 
 ///
 /// `ReplyTarget::Thread` → `+messages-reply --message-id <root_id> --text "..." --reply-in-thread`
 /// `ReplyTarget::Message` → `+messages-reply --message-id <id> --text "..."`
-fn build_reply_args(target: &ReplyTarget, text: &str) -> Vec<String> {
+pub(crate) fn build_reply_args(target: &ReplyTarget, text: &str) -> Vec<String> {
     let mut args = vec![
         "im".to_string(),
         "+messages-reply".to_string(),
@@ -353,7 +353,10 @@ impl FeishuAdapter {
 /// * `outbound` - Absolute path to the outbound media file.
 /// * `cwd` - The working directory to compute the relative path against.
 ///   Obtained from `std::env::current_dir()` by the caller.
-fn make_media_path_relative(outbound: &std::path::Path, cwd: &std::path::Path) -> String {
+pub(crate) fn make_media_path_relative(
+    outbound: &std::path::Path,
+    cwd: &std::path::Path,
+) -> String {
     match outbound.strip_prefix(cwd) {
         Ok(rel) => {
             let rel_str = rel.to_string_lossy().to_string();
