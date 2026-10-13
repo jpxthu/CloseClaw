@@ -258,7 +258,7 @@ async fn test_graceful_stop_streaming_with_tool_calls() {
     // Step 1.1 removed remove_session from stop_single_session;
     // sessions stay in tracking tables until flush_all cleans them up.
     assert!(
-        mgr.has_session(&child_id).await,
+        mgr.has_session(child_id).await,
         "session should remain in tracking tables after stop"
     );
 }
@@ -290,7 +290,7 @@ async fn test_graceful_stop_streaming_no_tool_calls() {
         .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(child_id).await);
 }
 
 /// Idle session → direct stop, pending_operations should be empty.
@@ -312,7 +312,7 @@ async fn test_graceful_stop_idle() {
         .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(child_id).await);
 }
 
 /// Tool is running → wait for tool to finish → pending_operations empty.
@@ -362,7 +362,7 @@ async fn test_graceful_stop_tool_running() {
         .await;
     assert!(result.succeeded >= 2);
     // Sessions remain in tracking tables after stop (Step 1.1).
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(child_id).await);
 }
 
 /// Forceful mode should not be affected by the graceful state machine.
@@ -446,8 +446,8 @@ async fn test_forceful_mock_stops_streaming_immediately() {
         elapsed
     );
     // Sessions remain in tracking tables after stop (Step 1.1).
-    assert!(mgr.has_session(&parent_id).await);
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(parent_id).await);
+    assert!(mgr.has_session(child_id).await);
 }
 
 /// Verify escalation propagation: after graceful→forceful escalation,
@@ -500,8 +500,8 @@ async fn test_escalation_propagation_across_levels() {
         result
     );
     // Sessions remain in tracking tables after stop (Step 1.1).
-    assert!(mgr.has_session(&parent_id).await);
-    assert!(mgr.has_session(&child_id).await);
+    assert!(mgr.has_session(parent_id).await);
+    assert!(mgr.has_session(child_id).await);
 }
 
 // ── Step 1.2: escalation + idle stop behavior ─────────────────────────
