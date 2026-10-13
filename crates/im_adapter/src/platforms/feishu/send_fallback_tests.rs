@@ -12,7 +12,7 @@ use super::*;
 use crate::IMAdapter;
 use closeclaw_common::{AdapterError as CommonAdapterError, IMPlugin, RenderedOutput};
 use serial_test::serial;
-use std::io::Write;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -22,14 +22,10 @@ const CAPABILITY_ERROR_JSON: &str = r#"{"code":230001,"msg":"capability error"}"
 /// Create a mock lark-cli script that outputs the given JSON to stdout.
 fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
     let script_path = tmp.path().join("mock_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{response_json}'").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let mut content = String::new();
+    writeln!(content, "#!/bin/bash").unwrap();
+    writeln!(content, "echo '{response_json}'").unwrap();
+    write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
 
@@ -39,31 +35,20 @@ fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {
     let script_path = tmp.path().join("fail_then_succeed.sh");
     let counter_path = tmp.path().join("call_counter");
     let fail_count_str = fail_count.to_string();
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "COUNTER_FILE=\"{}\"", counter_path.display()).unwrap();
-    writeln!(f, "COUNT=$(cat \"$COUNTER_FILE\" 2>/dev/null || echo 0)").unwrap();
-    writeln!(f, "echo $((COUNT + 1)) > \"$COUNTER_FILE\"").unwrap();
-    writeln!(f, "if [ \"$COUNT\" -lt {} ]; then", fail_count_str).unwrap();
-    writeln!(
-        f,
-        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(
-        f,
-        "  echo '{{\"code\":230002,\"msg\":\"capability error\"}}'"
-    )
-    .unwrap();
-    writeln!(f, "  exit 1").unwrap();
-    writeln!(f, "else").unwrap();
-    writeln!(f, "  echo '{{\"code\":0,\"msg\":\"ok\"}}'").unwrap();
-    writeln!(f, "fi").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let fail_json = r#"{"code":230002,"msg":"capability error"}"#;
+    let mut content = String::new();
+    writeln!(content, "#!/bin/bash").unwrap();
+    writeln!(content, "COUNTER_FILE=\"{}\"", counter_path.display()).unwrap();
+    content.push_str("COUNT=$(cat \"$COUNTER_FILE\" 2>/dev/null || echo 0)\n");
+    writeln!(content, "echo $((COUNT + 1)) > \"$COUNTER_FILE\"").unwrap();
+    writeln!(content, "if [ \"$COUNT\" -lt {} ]; then", fail_count_str).unwrap();
+    writeln!(content, "  echo '{fail_json}' >&2").unwrap();
+    writeln!(content, "  echo '{fail_json}'").unwrap();
+    writeln!(content, "  exit 1").unwrap();
+    writeln!(content, "else").unwrap();
+    writeln!(content, "  echo '{{\"code\":0,\"msg\":\"ok\"}}'").unwrap();
+    writeln!(content, "fi").unwrap();
+    write_mock_script(&script_path, &content);
     // Initialize counter
     std::fs::write(&counter_path, "0").unwrap();
     script_path.to_str().unwrap().to_string()

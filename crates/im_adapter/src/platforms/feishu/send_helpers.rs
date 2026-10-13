@@ -382,23 +382,19 @@ pub(crate) fn is_capability_error(error_msg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::platforms::feishu::create_failing_mock_cli;
+    use crate::platforms::feishu::{create_failing_mock_cli, write_mock_script};
     use serial_test::serial;
-    use std::io::Write;
+    use std::fmt::Write as _;
     use std::sync::Arc;
     use tempfile::TempDir;
 
     /// Create a mock lark-cli script that outputs the given JSON and exits 0.
     fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
         let script_path = tmp.path().join("mock_lark_cli.sh");
-        let mut f = std::fs::File::create(&script_path).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{response_json}'").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
+        let mut content = String::new();
+        writeln!(content, "#!/bin/bash").unwrap();
+        writeln!(content, "echo '{response_json}'").unwrap();
+        write_mock_script(&script_path, &content);
         script_path.to_str().unwrap().to_string()
     }
 
@@ -535,16 +531,12 @@ mod tests {
         let script_path = tmp.path().join("echo_args.sh");
         let args_file = tmp.path().join("captured_args");
         let args_path = args_file.to_str().unwrap();
-        let mut f = std::fs::File::create(&script_path).unwrap();
         // Script that writes all args to a file, one per line
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo \"$@\" > {args_path}").unwrap();
-        writeln!(f, "echo '{{\"code\":0}}'").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
+        let mut content = String::new();
+        writeln!(content, "#!/bin/bash").unwrap();
+        writeln!(content, "echo \"$@\" > {args_path}").unwrap();
+        writeln!(content, "echo '{{\"code\":0}}'").unwrap();
+        write_mock_script(&script_path, &content);
         script_path.to_str().unwrap().to_string()
     }
 

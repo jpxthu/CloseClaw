@@ -10,23 +10,20 @@ use super::*;
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use serial_test::serial;
-use std::io::Write;
+use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli script that outputs an error JSON.
 fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
     let script_path = tmp.path().join("error_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}' >&2").unwrap();
-    writeln!(f, "echo '{{\"code\":{code},\"msg\":\"API error\"}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
+    let mut content = String::new();
+    let err_json = format!("{{\"code\":{code},\"msg\":\"API error\"}}");
+    writeln!(content, "#!/bin/bash").unwrap();
+    writeln!(content, "echo '{err_json}' >&2").unwrap();
+    writeln!(content, "echo '{err_json}'").unwrap();
+    writeln!(content, "exit 1").unwrap();
+    write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
 }
 
