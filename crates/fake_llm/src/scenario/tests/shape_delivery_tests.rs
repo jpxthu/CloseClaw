@@ -5,60 +5,7 @@
 //! fields, with correct priority rules and edge-case handling.
 
 use crate::scenario::types::*;
-use crate::test_util::usage_response;
-use crate::types::{ProtocolKind, RequestFeatures};
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn features(model: &str, msg: &str) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
-fn features_ext(model: &str, msgs: Vec<(&str, &str)>) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: msgs
-            .into_iter()
-            .map(|(role, content)| MessageEntry {
-                role: role.to_string(),
-                content: content.to_string(),
-            })
-            .collect(),
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
-fn text_turn(content: &str) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: content.to_string(),
-            ..Default::default()
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
+use crate::test_util::{features, features_multi, text_turn, usage_response};
 
 /// Assert that the first response block contains the expected text.
 fn assert_text_content(d: &super::ScenarioDecision, expected: &str) {
@@ -451,7 +398,7 @@ fn test_multi_turn_delay_isolation() {
     }
 
     // Turn 1: no delay shape → all delay fields are None
-    let feat1 = features_ext(
+    let feat1 = features_multi(
         "gpt-4",
         vec![("user", "hi"), ("assistant", "ok"), ("user", "next")],
     );
@@ -489,7 +436,7 @@ fn test_multi_turn_error_in_second_turn() {
     }
 
     // Turn 1: error shape returns Error outcome
-    let feat1 = features_ext(
+    let feat1 = features_multi(
         "gpt-4",
         vec![
             ("user", "hi"),
