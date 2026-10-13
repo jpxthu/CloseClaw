@@ -3,7 +3,7 @@
 // ------------------------------------------------------------------
 
 use super::*;
-use crate::test_util::usage_response;
+use crate::test_util::{features, usage_response};
 use crate::types::ProtocolKind;
 
 #[test]

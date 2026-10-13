@@ -1,6 +1,10 @@
 //! Shared test helpers for constructing protocol-agnostic response fixtures.
 
-use crate::scenario::types::{ResponseBlock, UsageResponse};
+use crate::scenario::types::{
+    MessageEntry, ReasoningIntensity, ReasoningResponse, ResponseBlock, ResponseShape,
+    TextResponse, TurnResponse, UsageResponse,
+};
+use crate::types::{ProtocolKind, RequestFeatures};
 
 /// Build a text-only `ResponseBlock` with the given content.
 pub(crate) fn text_block(content: &str) -> ResponseBlock {
@@ -41,9 +45,127 @@ pub(crate) fn usage_response(prompt_tokens: u32, completion_tokens: u32) -> Usag
     usage_with(Some(prompt_tokens), Some(completion_tokens), None, None)
 }
 
+// ---------------------------------------------------------------------------
+// TurnResponse-level helpers
+// ---------------------------------------------------------------------------
+
+/// Build a `TurnResponse` carrying `response` with no delay, interrupt,
+/// or error injection.
+fn turn_with(response: ResponseShape) -> TurnResponse {
+    TurnResponse {
+        response: response.into(),
+        delay: None,
+        first_token_delay: None,
+        segment_delay: None,
+        stream_interrupt_after: None,
+        error: None,
+    }
+}
+
+/// Build a text-only `TurnResponse` with no usage, delay, or error injection.
+pub(crate) fn text_turn(content: &str) -> TurnResponse {
+    turn_with(ResponseShape::Text(TextResponse {
+        content: content.to_string(),
+        usage: None,
+    }))
+}
+
+/// Build a usage-only `TurnResponse` with fixed prompt=10 / completion=20 tokens.
+pub(crate) fn usage_turn() -> TurnResponse {
+    turn_with(ResponseShape::Usage(default_usage()))
+}
+
+/// Build a `TurnResponse` carrying the catch-all `Unknown` shape.
+pub(crate) fn unknown_turn() -> TurnResponse {
+    turn_with(ResponseShape::Unknown)
+}
+
+/// Build a reasoning `TurnResponse` with the given content, reasoning
+/// text, and intensity.
+pub(crate) fn reasoning_turn(
+    content: &str,
+    reasoning: &str,
+    intensity: ReasoningIntensity,
+) -> TurnResponse {
+    turn_with(ResponseShape::Reasoning(ReasoningResponse {
+        content: content.to_string(),
+        reasoning: reasoning.to_string(),
+        signature: None,
+        usage: None,
+        intensity,
+    }))
+}
+
+// ---------------------------------------------------------------------------
+// RequestFeatures-level helpers
+// ---------------------------------------------------------------------------
+
+/// Full-parameter entry point for building `RequestFeatures`.
+///
+/// Every other feature helper delegates here. `stream` is fixed to
+/// `false` and `max_tokens` / `temperature` stay unset.
+pub(crate) fn features_full(
+    model: &str,
+    messages: Vec<(&str, &str)>,
+    tools: Vec<&str>,
+    protocol: ProtocolKind,
+) -> RequestFeatures {
+    RequestFeatures {
+        model: model.to_string(),
+        stream: false,
+        max_tokens: None,
+        temperature: None,
+        messages: messages
+            .into_iter()
+            .map(|(role, content)| MessageEntry {
+                role: role.to_string(),
+                content: content.to_string(),
+            })
+            .collect(),
+        tools: tools.into_iter().map(str::to_string).collect(),
+        protocol,
+    }
+}
+
+/// Build non-streaming OpenAI `RequestFeatures` with a single user message.
+pub(crate) fn features(model: &str, msg: &str) -> RequestFeatures {
+    features_full(model, vec![("user", msg)], vec![], ProtocolKind::OpenAi)
+}
+
+/// Build `RequestFeatures` with a single user message under `protocol`.
+pub(crate) fn features_with_protocol(
+    model: &str,
+    msg: &str,
+    protocol: ProtocolKind,
+) -> RequestFeatures {
+    features_full(model, vec![("user", msg)], vec![], protocol)
+}
+
+/// Build non-streaming OpenAI `RequestFeatures` from role/content pairs.
+pub(crate) fn features_multi(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
+    features_full(model, messages, vec![], ProtocolKind::OpenAi)
+}
+
+/// Build non-streaming OpenAI `RequestFeatures` with user-role messages
+/// and the given tool names.
+pub(crate) fn features_with_tools(
+    model: &str,
+    msgs: Vec<&str>,
+    tools: Vec<&str>,
+) -> RequestFeatures {
+    let messages: Vec<(&str, &str)> = msgs.into_iter().map(|m| ("user", m)).collect();
+    features_full(model, messages, tools, ProtocolKind::OpenAi)
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{default_usage, text_block, usage_response, usage_with};
+    use super::{
+        default_usage, features, features_full, features_multi, features_with_protocol,
+        features_with_tools, reasoning_turn, text_block, text_turn, unknown_turn, usage_response,
+        usage_turn, usage_with,
+    };
+    use crate::scenario::types::{ReasoningIntensity, ResponseShape};
+    use crate::types::ProtocolKind;
 
     #[test]
     fn text_block_sets_text_type_and_content_only() {
@@ -99,5 +221,151 @@ mod tests {
         assert_eq!(usage.cache_hit_tokens, expected.cache_hit_tokens);
         assert_eq!(usage.cache_write_tokens, expected.cache_write_tokens);
         assert_eq!(usage.cache_fields_missing, expected.cache_fields_missing);
+    }
+
+    #[test]
+    fn text_turn_produces_text_shape_with_no_delay_or_error() {
+        let turn = text_turn("hello");
+        let shapes = turn.response.to_shapes();
+        assert_eq!(shapes.len(), 1);
+        match &shapes[0] {
+            ResponseShape::Text(t) => {
+                assert_eq!(t.content, "hello");
+                assert!(t.usage.is_none());
+            }
+            other => panic!("expected Text shape, got {:?}", other),
+        }
+        assert_eq!(turn.delay, None);
+        assert_eq!(turn.first_token_delay, None);
+        assert_eq!(turn.segment_delay, None);
+        assert_eq!(turn.stream_interrupt_after, None);
+        assert!(turn.error.is_none());
+    }
+
+    #[test]
+    fn usage_turn_produces_usage_shape_with_fixed_tokens() {
+        let turn = usage_turn();
+        let shapes = turn.response.to_shapes();
+        match &shapes[0] {
+            ResponseShape::Usage(u) => {
+                assert_eq!(u.prompt_tokens, Some(10));
+                assert_eq!(u.completion_tokens, Some(20));
+            }
+            other => panic!("expected Usage shape, got {:?}", other),
+        }
+        assert!(turn.error.is_none());
+    }
+
+    #[test]
+    fn unknown_turn_produces_unknown_shape() {
+        let turn = unknown_turn();
+        let shapes = turn.response.to_shapes();
+        assert!(matches!(shapes[0], ResponseShape::Unknown));
+        assert!(turn.error.is_none());
+    }
+
+    #[test]
+    fn reasoning_turn_places_content_reasoning_and_intensity() {
+        let turn = reasoning_turn("answer", "thinking", ReasoningIntensity::High);
+        let shapes = turn.response.to_shapes();
+        match &shapes[0] {
+            ResponseShape::Reasoning(r) => {
+                assert_eq!(r.content, "answer");
+                assert_eq!(r.reasoning, "thinking");
+                assert_eq!(r.intensity, ReasoningIntensity::High);
+                assert_eq!(r.signature, None);
+                assert!(r.usage.is_none());
+            }
+            other => panic!("expected Reasoning shape, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn features_defaults_to_openai_non_streaming_single_user_message() {
+        let f = features("gpt-4", "hello");
+        assert_eq!(f.model, "gpt-4");
+        assert!(!f.stream);
+        assert_eq!(f.max_tokens, None);
+        assert_eq!(f.temperature, None);
+        assert_eq!(f.protocol, ProtocolKind::OpenAi);
+        assert!(f.tools.is_empty());
+        assert_eq!(f.messages.len(), 1);
+        assert_eq!(f.messages[0].role, "user");
+        assert_eq!(f.messages[0].content, "hello");
+    }
+
+    #[test]
+    fn features_with_protocol_applies_protocol_to_single_user_message() {
+        let f = features_with_protocol("claude-3", "hi", ProtocolKind::Anthropic);
+        assert_eq!(f.protocol, ProtocolKind::Anthropic);
+        assert_eq!(f.messages.len(), 1);
+        assert_eq!(f.messages[0].role, "user");
+        assert_eq!(f.messages[0].content, "hi");
+    }
+
+    #[test]
+    fn features_multi_preserves_message_order_and_content() {
+        let f = features_multi(
+            "m",
+            vec![("user", "q1"), ("assistant", "a1"), ("user", "q2")],
+        );
+        let roles: Vec<&str> = f.messages.iter().map(|m| m.role.as_str()).collect();
+        let contents: Vec<&str> = f.messages.iter().map(|m| m.content.as_str()).collect();
+        assert_eq!(roles, vec!["user", "assistant", "user"]);
+        assert_eq!(contents, vec!["q1", "a1", "q2"]);
+        assert!(f.tools.is_empty());
+        assert_eq!(f.protocol, ProtocolKind::OpenAi);
+    }
+
+    #[test]
+    fn features_full_supports_empty_messages_with_protocol() {
+        let f = features_full("gpt-4o", vec![], vec![], ProtocolKind::Anthropic);
+        assert_eq!(f.model, "gpt-4o");
+        assert!(!f.stream);
+        assert!(f.messages.is_empty());
+        assert!(f.tools.is_empty());
+        assert_eq!(f.protocol, ProtocolKind::Anthropic);
+    }
+
+    #[test]
+    fn features_full_combines_multi_messages_tools_and_protocol() {
+        let f = features_full(
+            "claude-3",
+            vec![("user", "q"), ("assistant", "a")],
+            vec!["web_search", "calc"],
+            ProtocolKind::Anthropic,
+        );
+        assert_eq!(f.model, "claude-3");
+        assert!(!f.stream);
+        assert_eq!(f.max_tokens, None);
+        assert_eq!(f.temperature, None);
+        assert_eq!(f.protocol, ProtocolKind::Anthropic);
+        assert_eq!(f.tools, vec!["web_search".to_string(), "calc".to_string()]);
+        assert_eq!(f.messages.len(), 2);
+        assert_eq!(f.messages[0].role, "user");
+        assert_eq!(f.messages[0].content, "q");
+        assert_eq!(f.messages[1].role, "assistant");
+        assert_eq!(f.messages[1].content, "a");
+    }
+
+    #[test]
+    fn features_with_tools_places_tools_in_given_order() {
+        let f = features_with_tools("gpt-4o", vec!["q"], vec!["web_search", "calc"]);
+        assert_eq!(f.messages.len(), 1);
+        assert_eq!(f.messages[0].role, "user");
+        assert_eq!(f.messages[0].content, "q");
+        assert_eq!(f.tools, vec!["web_search".to_string(), "calc".to_string()]);
+    }
+
+    #[test]
+    fn features_with_tools_empty_tools_matches_features_shape() {
+        let f = features_with_tools("gpt-4", vec!["hi"], vec![]);
+        let expected = features("gpt-4", "hi");
+        assert_eq!(f.messages.len(), expected.messages.len());
+        assert_eq!(f.messages[0].role, expected.messages[0].role);
+        assert_eq!(f.messages[0].content, expected.messages[0].content);
+        assert!(f.tools.is_empty());
+        assert_eq!(f.protocol, expected.protocol);
+        assert_eq!(f.stream, expected.stream);
     }
 }

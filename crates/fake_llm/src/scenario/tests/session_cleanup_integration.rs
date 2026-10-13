@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 
 use super::*;
 use crate::scenario::session;
+use crate::test_util::{features, text_turn};
 use crate::types::ProtocolKind;
 
 /// After CLEANUP_INTERVAL (100) `decide()` calls, expired sessions

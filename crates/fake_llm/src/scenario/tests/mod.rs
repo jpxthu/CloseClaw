@@ -1,36 +1,5 @@
 use super::*;
-use crate::test_util::usage_response;
-use crate::types::ProtocolKind;
-
-fn text_turn(content: &str) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: content.to_string(),
-            usage: None,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
-fn features(model: &str, msg: &str) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
+use crate::test_util::{features, features_multi, features_with_tools, text_turn, usage_response};
 
 #[test]
 fn test_decide_no_match_no_fallback_returns_error() {
@@ -67,28 +36,10 @@ fn test_decide_matches_scenario_and_returns_turn() {
     }
 
     // Second request with extended history -> turn 1
-    let feat2 = RequestFeatures {
-        model: "gpt-4".to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![
-            MessageEntry {
-                role: "user".to_string(),
-                content: "hi".to_string(),
-            },
-            MessageEntry {
-                role: "assistant".to_string(),
-                content: "hello".to_string(),
-            },
-            MessageEntry {
-                role: "user".to_string(),
-                content: "next".to_string(),
-            },
-        ],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    };
+    let feat2 = features_multi(
+        "gpt-4",
+        vec![("user", "hi"), ("assistant", "hello"), ("user", "next")],
+    );
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
         DecisionOutcome::Decision(d) => {
@@ -207,46 +158,13 @@ fn fixture_scenarios_dir() -> std::path::PathBuf {
         .join("scenarios")
 }
 
-fn features_with_model(model: &str, msg: &str) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
-fn features_with_messages(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: messages
-            .into_iter()
-            .map(|(role, content)| MessageEntry {
-                role: role.to_string(),
-                content: content.to_string(),
-            })
-            .collect(),
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
-
 #[test]
 fn test_decide_end_to_end_from_dir() {
     let dir = fixture_scenarios_dir();
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // basic-text.json: greeting scenario matches model "gpt-4o-basic" + "hello"
-    let feat = features_with_model("gpt-4o-basic", "hello world");
+    let feat = features("gpt-4o-basic", "hello world");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -266,7 +184,7 @@ fn test_decide_fixture_fallback_basic() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // basic-text.json: fallback-basic matches model "gpt-4o-basic-fallback"
-    let feat = features_with_model("gpt-4o-basic-fallback", "something else");
+    let feat = features("gpt-4o-basic-fallback", "something else");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -286,7 +204,7 @@ fn test_decide_fixture_error_injection_rate_limit() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // error-injection.json: rate-limit scenario — first turn OK, second turn 429
-    let feat = features_with_model("gpt-4o-error", "hi");
+    let feat = features("gpt-4o-error", "hi");
     let outcome1 = engine.decide(&feat);
     match outcome1 {
         DecisionOutcome::Decision(d) => {
@@ -300,28 +218,14 @@ fn test_decide_fixture_error_injection_rate_limit() {
     }
 
     // Second request: same session -> error injection
-    let feat2 = RequestFeatures {
-        model: "gpt-4o-error".to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![
-            MessageEntry {
-                role: "user".to_string(),
-                content: "hi".to_string(),
-            },
-            MessageEntry {
-                role: "assistant".to_string(),
-                content: "OK before error".to_string(),
-            },
-            MessageEntry {
-                role: "user".to_string(),
-                content: "next".to_string(),
-            },
+    let feat2 = features_multi(
+        "gpt-4o-error",
+        vec![
+            ("user", "hi"),
+            ("assistant", "OK before error"),
+            ("user", "next"),
         ],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    };
+    );
     let outcome2 = engine.decide(&feat2);
     match outcome2 {
         DecisionOutcome::Error(e) => {
@@ -338,18 +242,11 @@ fn test_decide_fixture_error_injection_server_error() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // error-injection.json: server-error matches model "gpt-4o-error-search" + tool "web_search"
-    let feat = RequestFeatures {
-        model: "gpt-4o-error-search".to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: "search something".to_string(),
-        }],
-        tools: vec!["web_search".to_string()],
-        protocol: ProtocolKind::OpenAi,
-    };
+    let feat = features_with_tools(
+        "gpt-4o-error-search",
+        vec!["search something"],
+        vec!["web_search"],
+    );
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Error(e) => {
@@ -366,7 +263,7 @@ fn test_decide_fixture_multi_turn_turn1() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // multi-turn.json: three-turn-chat with model "gpt-4o-multi"
-    let feat = features_with_model("gpt-4o-multi", "start");
+    let feat = features("gpt-4o-multi", "start");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -386,11 +283,11 @@ fn test_decide_fixture_multi_turn_turn2() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // Drive to turn 1 first
-    let feat1 = features_with_model("gpt-4o-multi", "start");
+    let feat1 = features("gpt-4o-multi", "start");
     let _ = engine.decide(&feat1);
 
     // Turn 2
-    let feat = features_with_messages(
+    let feat = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -416,9 +313,9 @@ fn test_decide_fixture_multi_turn_turn3() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // Drive to turn 2
-    let feat1 = features_with_model("gpt-4o-multi", "start");
+    let feat1 = features("gpt-4o-multi", "start");
     let _ = engine.decide(&feat1);
-    let feat2 = features_with_messages(
+    let feat2 = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -429,7 +326,7 @@ fn test_decide_fixture_multi_turn_turn3() {
     let _ = engine.decide(&feat2);
 
     // Turn 3
-    let feat = features_with_messages(
+    let feat = features_multi(
         "gpt-4o-multi",
         vec![
             ("user", "start"),
@@ -457,7 +354,7 @@ fn test_decide_fixture_usage_response() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // usage-response.json: usage-report with model "gpt-4o-usage"
-    let feat = features_with_model("gpt-4o-usage", "hi");
+    let feat = features("gpt-4o-usage", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -476,7 +373,7 @@ fn test_decide_fixture_cache_fields_missing() {
     let mut engine = ScenarioEngine::from_dir(&dir).unwrap();
 
     // cache-fields-missing.json: no-cache-fields-vendor with model "vendor-no-cache"
-    let feat = features_with_model("vendor-no-cache", "hi");
+    let feat = features("vendor-no-cache", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(d) => {
@@ -511,7 +408,7 @@ fn test_decide_unknown_model_returns_error_when_no_fallback() {
 
     // No fixture matches model "unknown-model" and no fallback declared.
     // Zero hits with no fallback → error.
-    let feat = features_with_model("unknown-model", "hi");
+    let feat = features("unknown-model", "hi");
     let outcome = engine.decide(&feat);
     match outcome {
         DecisionOutcome::Decision(_) => panic!("expected error, got decision"),
@@ -701,41 +598,6 @@ fn test_decide_for_models_carrying_delay() {
 /// but should have independent session cursors and KV cache state.
 #[test]
 fn test_per_scenario_isolation_cursors_and_cache() {
-    let prefix = vec![MessageEntry {
-        role: "user".to_string(),
-        content: "hello".to_string(),
-    }];
-    let mk_feat = |model: &str| RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: prefix.clone(),
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    };
-    let mk_feat_ext = |model: &str, reply: &str| RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![
-            MessageEntry {
-                role: "user".into(),
-                content: "hello".into(),
-            },
-            MessageEntry {
-                role: "assistant".into(),
-                content: reply.to_string(),
-            },
-            MessageEntry {
-                role: "user".into(),
-                content: "next".into(),
-            },
-        ],
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    };
     let decl = |name: &str, model: &str| ScenarioDeclaration {
         name: name.to_string(),
         match_: Some(types::MatchCondition {
@@ -749,26 +611,32 @@ fn test_per_scenario_isolation_cursors_and_cache() {
         ScenarioEngine::new(vec![decl("scene-a", "model-a"), decl("scene-b", "model-b")]).unwrap();
 
     // Scene A turn 0, Scene B turn 0 (independent cursors)
-    match engine.decide(&mk_feat("model-a")) {
+    match engine.decide(&features("model-a", "hello")) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("t0"))
         }
         _ => panic!("expected Decision"),
     }
-    match engine.decide(&mk_feat("model-b")) {
+    match engine.decide(&features("model-b", "hello")) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("t0"))
         }
         _ => panic!("expected Decision"),
     }
     // Scene A turn 1, Scene B turn 1 (cursors advance independently)
-    match engine.decide(&mk_feat_ext("model-a", "t0")) {
+    match engine.decide(&features_multi(
+        "model-a",
+        vec![("user", "hello"), ("assistant", "t0"), ("user", "next")],
+    )) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("t1"))
         }
         _ => panic!("expected Decision"),
     }
-    match engine.decide(&mk_feat_ext("model-b", "t0")) {
+    match engine.decide(&features_multi(
+        "model-b",
+        vec![("user", "hello"), ("assistant", "t0"), ("user", "next")],
+    )) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("t1"))
         }

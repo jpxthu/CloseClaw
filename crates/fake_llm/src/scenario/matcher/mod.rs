@@ -255,16 +255,18 @@ pub fn match_scenario<'a>(
 
 #[cfg(test)]
 mod tests {
-    use super::super::types::MessageEntry;
     use super::*;
-    use crate::scenario::types::{ResponseShape, TextResponse, TurnResponse};
+    use crate::test_util::{
+        features, features_full, features_multi, features_with_protocol, features_with_tools,
+        text_turn,
+    };
     use crate::types::ProtocolKind;
 
     fn fallback(name: &str) -> ScenarioDeclaration {
         ScenarioDeclaration {
             name: name.to_string(),
             match_: None,
-            turns: vec![turn()],
+            turns: vec![text_turn("ok")],
             models: None,
         }
     }
@@ -273,50 +275,8 @@ mod tests {
         ScenarioDeclaration {
             name: name.to_string(),
             match_: Some(condition),
-            turns: vec![turn()],
+            turns: vec![text_turn("ok")],
             models: None,
-        }
-    }
-
-    fn turn() -> TurnResponse {
-        TurnResponse {
-            response: ResponseShape::Text(TextResponse {
-                content: "ok".to_string(),
-                usage: None,
-            })
-            .into(),
-            delay: None,
-            first_token_delay: None,
-            segment_delay: None,
-            stream_interrupt_after: None,
-            error: None,
-        }
-    }
-
-    fn feat(model: &str, messages: Vec<&str>, tools: Vec<&str>) -> RequestFeatures {
-        feat_proto(model, messages, tools, ProtocolKind::OpenAi)
-    }
-
-    fn feat_proto(
-        model: &str,
-        messages: Vec<&str>,
-        tools: Vec<&str>,
-        protocol: ProtocolKind,
-    ) -> RequestFeatures {
-        RequestFeatures {
-            model: model.to_string(),
-            stream: false,
-            max_tokens: None,
-            temperature: None,
-            messages: messages
-                .into_iter()
-                .map(|c| MessageEntry {
-                    role: "user".to_string(),
-                    content: c.to_string(),
-                })
-                .collect(),
-            tools: tools.into_iter().map(String::from).collect(),
-            protocol,
         }
     }
 
@@ -334,7 +294,7 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let result = index.match_request(&features("gpt-4o", "hi"));
         assert_eq!(index.get(result.unwrap()).name, "gpt4");
     }
 
@@ -348,7 +308,7 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
+        let result = index.match_request(&features("claude-3", "hi"));
         assert!(result.is_none());
     }
 
@@ -362,7 +322,7 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["please calculate 2+2"], vec![]));
+        let result = index.match_request(&features("gpt-4o", "please calculate 2+2"));
         assert_eq!(index.get(result.unwrap()).name, "math");
     }
 
@@ -376,7 +336,7 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["hello world"], vec![]));
+        let result = index.match_request(&features("gpt-4o", "hello world"));
         assert!(result.is_none());
     }
 
@@ -390,7 +350,11 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["search", "math"]));
+        let result = index.match_request(&features_with_tools(
+            "gpt-4o",
+            vec!["hi"],
+            vec!["search", "math"],
+        ));
         assert_eq!(index.get(result.unwrap()).name, "web_search");
     }
 
@@ -404,7 +368,7 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["math"]));
+        let result = index.match_request(&features_with_tools("gpt-4o", vec!["hi"], vec!["math"]));
         assert!(result.is_none());
     }
 
@@ -421,17 +385,33 @@ mod tests {
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
 
-        let r = index.match_request(&feat("gpt-4o", vec!["hello world"], vec!["search"]));
+        let r = index.match_request(&features_with_tools(
+            "gpt-4o",
+            vec!["hello world"],
+            vec!["search"],
+        ));
         assert_eq!(index.get(r.unwrap()).name, "specific");
 
         assert!(index
-            .match_request(&feat("claude-3", vec!["hello world"], vec!["search"]))
+            .match_request(&features_with_tools(
+                "claude-3",
+                vec!["hello world"],
+                vec!["search"]
+            ))
             .is_none());
         assert!(index
-            .match_request(&feat("gpt-4o", vec!["goodbye"], vec!["search"]))
+            .match_request(&features_with_tools(
+                "gpt-4o",
+                vec!["goodbye"],
+                vec!["search"]
+            ))
             .is_none());
         assert!(index
-            .match_request(&feat("gpt-4o", vec!["hello world"], vec!["math"]))
+            .match_request(&features_with_tools(
+                "gpt-4o",
+                vec!["hello world"],
+                vec!["math"],
+            ))
             .is_none());
     }
 
@@ -439,7 +419,7 @@ mod tests {
     fn test_index_fallback_matches_any() {
         let scenarios = vec![fallback("fallback")];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("any-model", vec!["anything"], vec![]));
+        let result = index.match_request(&features("any-model", "anything"));
         assert_eq!(index.get(result.unwrap()).name, "fallback");
     }
 
@@ -461,10 +441,10 @@ mod tests {
         assert!(result.is_ok());
         let index = result.unwrap();
         // Request matching specific scenario hits it directly
-        let r = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let r = index.match_request(&features("gpt-4o", "hi"));
         assert_eq!(index.get(r.unwrap()).name, "specific");
         // Request with non-matching model falls back
-        let r = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
+        let r = index.match_request(&features("claude-3", "hi"));
         assert_eq!(index.get(r.unwrap()).name, "fallback");
     }
 
@@ -504,14 +484,14 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("claude-3", vec!["hi"], vec![]));
+        let result = index.match_request(&features("claude-3", "hi"));
         assert!(result.is_none());
     }
 
     #[test]
     fn test_index_empty_returns_none() {
         let index = MatcherIndex::build(vec![]).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let result = index.match_request(&features("gpt-4o", "hi"));
         assert!(result.is_none());
     }
 
@@ -525,10 +505,9 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat(
+        let result = index.match_request(&features_multi(
             "gpt-4o",
-            vec!["first message", "please calculate this"],
-            vec![],
+            vec![("user", "first message"), ("user", "please calculate this")],
         ));
         assert_eq!(index.get(result.unwrap()).name, "math");
     }
@@ -553,13 +532,13 @@ mod tests {
         ];
         let index = MatcherIndex::build(scenarios).unwrap();
 
-        let r1 = index.match_request(&feat("gpt-4o", vec!["hi"], vec![]));
+        let r1 = index.match_request(&features("gpt-4o", "hi"));
         assert_eq!(index.get(r1.unwrap()).name, "gpt4-scene");
 
-        let r2 = index.match_request(&feat("claude-3-opus", vec!["hi"], vec![]));
+        let r2 = index.match_request(&features("claude-3-opus", "hi"));
         assert_eq!(index.get(r2.unwrap()).name, "claude-scene");
 
-        let r3 = index.match_request(&feat("unknown-model", vec!["hi"], vec![]));
+        let r3 = index.match_request(&features("unknown-model", "hi"));
         assert!(r3.is_none());
     }
 
@@ -578,18 +557,16 @@ mod tests {
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "gpt-4o",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::OpenAi,
         ));
         assert_eq!(index.get(r.unwrap()).name, "gpt4");
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "gpt-4o",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::Anthropic,
         ));
         assert_eq!(index.get(r.unwrap()).name, "gpt4");
@@ -600,18 +577,16 @@ mod tests {
         let scenarios = vec![fallback("fallback")];
         let index = MatcherIndex::build(scenarios).unwrap();
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "any-model",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::OpenAi,
         ));
         assert_eq!(index.get(r.unwrap()).name, "fallback");
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "any-model",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::Anthropic,
         ));
         assert_eq!(index.get(r.unwrap()).name, "fallback");
@@ -634,18 +609,16 @@ mod tests {
         assert!(result.is_ok());
         let index = result.unwrap();
         // gpt-4o request hits specific
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "gpt-4o",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::OpenAi,
         ));
         assert_eq!(index.get(r.unwrap()).name, "gpt4-scene");
         // non-matching model falls back
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "claude-3",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::OpenAi,
         ));
         assert_eq!(index.get(r.unwrap()).name, "fallback");
@@ -662,18 +635,16 @@ mod tests {
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "gpt-4o",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::OpenAi,
         ));
         assert!(r.is_none());
 
-        let r = index.match_request(&feat_proto(
+        let r = index.match_request(&features_with_protocol(
             "claude-3",
-            vec!["hi"],
-            vec![],
+            "hi",
             ProtocolKind::Anthropic,
         ));
         assert_eq!(index.get(r.unwrap()).name, "claude-scene");
@@ -692,7 +663,7 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let result = match_scenario(&feat("gpt-4o", vec!["hi"], vec![]), &scenarios).unwrap();
+        let result = match_scenario(&features("gpt-4o", "hi"), &scenarios).unwrap();
         assert_eq!(result.unwrap().name, "gpt4");
     }
 
@@ -705,14 +676,14 @@ mod tests {
                 ..Default::default()
             },
         )];
-        let result = match_scenario(&feat("claude-3", vec!["hi"], vec![]), &scenarios).unwrap();
+        let result = match_scenario(&features("claude-3", "hi"), &scenarios).unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_convenience_match_scenario_fallback() {
         let scenarios = vec![fallback("fallback")];
-        let result = match_scenario(&feat("any", vec!["hi"], vec![]), &scenarios).unwrap();
+        let result = match_scenario(&features("any", "hi"), &scenarios).unwrap();
         assert_eq!(result.unwrap().name, "fallback");
     }
 
@@ -730,7 +701,12 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat("gpt-4o", vec![], vec![]));
+        let result = index.match_request(&features_full(
+            "gpt-4o",
+            vec![],
+            vec![],
+            ProtocolKind::OpenAi,
+        ));
         assert!(result.is_none());
     }
 
@@ -744,12 +720,14 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let r = index.match_request(&feat("any-model", vec!["hi"], vec!["code_exec"]));
+        let r = index.match_request(&features_with_tools(
+            "any-model",
+            vec!["hi"],
+            vec!["code_exec"],
+        ));
         assert_eq!(index.get(r.unwrap()).name, "code");
 
-        assert!(index
-            .match_request(&feat("any-model", vec!["hi"], vec![]))
-            .is_none());
+        assert!(index.match_request(&features("any-model", "hi")).is_none());
     }
 
     #[test]
@@ -775,7 +753,12 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .match_request(&features_full(
+                            "gpt-4o",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi
+                        ))
                         .unwrap()
                 )
                 .name,
@@ -785,14 +768,24 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("claude-3", vec![], vec![]))
+                        .match_request(&features_full(
+                            "claude-3",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi
+                        ))
                         .unwrap()
                 )
                 .name,
             "claude"
         );
         assert!(index
-            .match_request(&feat("gemini", vec![], vec![]))
+            .match_request(&features_full(
+                "gemini",
+                vec![],
+                vec![],
+                ProtocolKind::OpenAi
+            ))
             .is_none());
     }
 
@@ -807,13 +800,11 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
+        assert!(index.match_request(&features("gpt-4o", "hi")).is_none());
         assert!(index
-            .match_request(&feat("gpt-4o", vec!["hi"], vec![]))
+            .match_request(&features_with_tools("claude-3", vec!["hi"], vec!["search"]))
             .is_none());
-        assert!(index
-            .match_request(&feat("claude-3", vec!["hi"], vec!["search"]))
-            .is_none());
-        let r = index.match_request(&feat("gpt-4o", vec!["hi"], vec!["search"]));
+        let r = index.match_request(&features_with_tools("gpt-4o", vec!["hi"], vec!["search"]));
         assert_eq!(index.get(r.unwrap()).name, "search");
     }
 
@@ -828,13 +819,11 @@ mod tests {
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
         assert!(index
-            .match_request(&feat("gpt-4o", vec!["what is 2+2?"], vec![]))
+            .match_request(&features("gpt-4o", "what is 2+2?"))
             .is_some());
+        assert!(index.match_request(&features("gpt-4o", "2+2")).is_some());
         assert!(index
-            .match_request(&feat("gpt-4o", vec!["2+2"], vec![]))
-            .is_some());
-        assert!(index
-            .match_request(&feat("gpt-4o", vec!["what is 3+3?"], vec![]))
+            .match_request(&features("gpt-4o", "what is 3+3?"))
             .is_none());
     }
 
@@ -847,7 +836,7 @@ mod tests {
                     model_id: Some("gpt-4o".to_string()),
                     ..Default::default()
                 }),
-                turns: vec![turn()],
+                turns: vec![text_turn("ok")],
                 models: None,
             },
             ScenarioDeclaration {
@@ -856,7 +845,7 @@ mod tests {
                     model_id: Some("claude-3".to_string()),
                     ..Default::default()
                 }),
-                turns: vec![turn()],
+                turns: vec![text_turn("ok")],
                 models: None,
             },
         ];
@@ -865,7 +854,12 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .match_request(&features_full(
+                            "gpt-4o",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi
+                        ))
                         .unwrap()
                 )
                 .name,
@@ -875,7 +869,12 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("claude-3", vec![], vec![]))
+                        .match_request(&features_full(
+                            "claude-3",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi
+                        ))
                         .unwrap()
                 )
                 .name,
@@ -888,7 +887,7 @@ mod tests {
         let scenarios = vec![ScenarioDeclaration {
             name: "catch-all".to_string(),
             match_: None,
-            turns: vec![turn()],
+            turns: vec![text_turn("ok")],
             models: None,
         }];
         let index = MatcherIndex::build(scenarios).unwrap();
@@ -896,7 +895,12 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("gpt-4o", vec![], vec![]))
+                        .match_request(&features_full(
+                            "gpt-4o",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi
+                        ))
                         .unwrap()
                 )
                 .name,
@@ -906,7 +910,12 @@ mod tests {
             index
                 .get(
                     index
-                        .match_request(&feat("any-model", vec![], vec![]))
+                        .match_request(&features_full(
+                            "any-model",
+                            vec![],
+                            vec![],
+                            ProtocolKind::OpenAi,
+                        ))
                         .unwrap()
                 )
                 .name,
@@ -924,10 +933,9 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat(
+        let result = index.match_request(&features_multi(
             "gpt-4o",
-            vec!["first message", "please calculate this"],
-            vec![],
+            vec![("user", "first message"), ("user", "please calculate this")],
         ));
         assert!(result.is_some());
     }
@@ -942,10 +950,13 @@ mod tests {
             },
         )];
         let index = MatcherIndex::build(scenarios).unwrap();
-        let result = index.match_request(&feat(
+        let result = index.match_request(&features_multi(
             "gpt-4o",
-            vec!["first", "second", "please calculate"],
-            vec![],
+            vec![
+                ("user", "first"),
+                ("user", "second"),
+                ("user", "please calculate"),
+            ],
         ));
         assert!(result.is_some());
     }

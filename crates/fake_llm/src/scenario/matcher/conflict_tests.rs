@@ -7,33 +7,18 @@
 use super::conflict::{detect_conflicts, ConflictReport};
 use super::MatcherIndex;
 use crate::scenario::types::{MatchCondition, ScenarioDeclaration};
-use crate::scenario::types::{ResponseShape, TextResponse, TurnResponse};
+use crate::test_util::{features_with_protocol, text_turn};
 use crate::types::ProtocolKind;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn text_turn() -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: "ok".to_string(),
-            usage: None,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
 fn fallback(name: &str) -> ScenarioDeclaration {
     ScenarioDeclaration {
         name: name.to_string(),
         match_: None,
-        turns: vec![text_turn()],
+        turns: vec![text_turn("ok")],
         models: None,
     }
 }
@@ -42,23 +27,8 @@ fn conditional(name: &str, condition: MatchCondition) -> ScenarioDeclaration {
     ScenarioDeclaration {
         name: name.to_string(),
         match_: Some(condition),
-        turns: vec![text_turn()],
+        turns: vec![text_turn("ok")],
         models: None,
-    }
-}
-
-fn feat(model: &str, msg: &str, protocol: ProtocolKind) -> crate::types::RequestFeatures {
-    crate::types::RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![crate::scenario::types::MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol,
     }
 }
 
@@ -848,12 +818,20 @@ fn test_dual_dimension_same_model_different_protocol_independent_hit() {
     )];
     let index = MatcherIndex::build(scenarios).unwrap();
 
-    let r1 = index.match_request(&feat("gpt-4o", "hi", ProtocolKind::OpenAi));
+    let r1 = index.match_request(&features_with_protocol(
+        "gpt-4o",
+        "hi",
+        ProtocolKind::OpenAi,
+    ));
     assert_eq!(index.get(r1.unwrap()).name, "openai-scene");
 
     // Same model, Anthropic protocol → still hits (scenario is not
     // protocol-constrained in its declaration, so it's in both buckets).
-    let r2 = index.match_request(&feat("gpt-4o", "hi", ProtocolKind::Anthropic));
+    let r2 = index.match_request(&features_with_protocol(
+        "gpt-4o",
+        "hi",
+        ProtocolKind::Anthropic,
+    ));
     assert_eq!(index.get(r2.unwrap()).name, "openai-scene");
 }
 
@@ -862,10 +840,18 @@ fn test_dual_dimension_any_model_bucket_isolated_by_protocol() {
     let scenarios = vec![fallback("fb")];
     let index = MatcherIndex::build(scenarios).unwrap();
 
-    let r1 = index.match_request(&feat("any-model", "hi", ProtocolKind::OpenAi));
+    let r1 = index.match_request(&features_with_protocol(
+        "any-model",
+        "hi",
+        ProtocolKind::OpenAi,
+    ));
     assert_eq!(index.get(r1.unwrap()).name, "fb");
 
-    let r2 = index.match_request(&feat("any-model", "hi", ProtocolKind::Anthropic));
+    let r2 = index.match_request(&features_with_protocol(
+        "any-model",
+        "hi",
+        ProtocolKind::Anthropic,
+    ));
     assert_eq!(index.get(r2.unwrap()).name, "fb");
 }
 

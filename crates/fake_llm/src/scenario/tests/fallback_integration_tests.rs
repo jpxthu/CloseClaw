@@ -5,89 +5,11 @@
 //! cross-protocol routing.
 
 use super::*;
-use crate::scenario::types::{
-    MatchCondition, ResponseShape, ScenarioDeclaration, TextResponse, TurnResponse,
+use crate::scenario::types::{MatchCondition, ScenarioDeclaration};
+use crate::test_util::{
+    features, features_multi, features_with_protocol, text_turn, unknown_turn, usage_turn,
 };
-use crate::test_util::usage_response;
 use crate::types::ProtocolKind;
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn text_turn(content: &str) -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Text(TextResponse {
-            content: content.to_string(),
-            usage: None,
-        })
-        .into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
-fn usage_turn() -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Usage(usage_response(10, 20)).into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
-fn unknown_turn() -> TurnResponse {
-    TurnResponse {
-        response: ResponseShape::Unknown.into(),
-        delay: None,
-        first_token_delay: None,
-        segment_delay: None,
-        stream_interrupt_after: None,
-        error: None,
-    }
-}
-
-fn feat(model: &str, msg: &str) -> RequestFeatures {
-    feat_proto(model, msg, ProtocolKind::OpenAi)
-}
-
-fn feat_proto(model: &str, msg: &str, protocol: ProtocolKind) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: vec![MessageEntry {
-            role: "user".to_string(),
-            content: msg.to_string(),
-        }],
-        tools: vec![],
-        protocol,
-    }
-}
-
-fn feat_multi(model: &str, messages: Vec<(&str, &str)>) -> RequestFeatures {
-    RequestFeatures {
-        model: model.to_string(),
-        stream: false,
-        max_tokens: None,
-        temperature: None,
-        messages: messages
-            .into_iter()
-            .map(|(role, content)| MessageEntry {
-                role: role.to_string(),
-                content: content.to_string(),
-            })
-            .collect(),
-        tools: vec![],
-        protocol: ProtocolKind::OpenAi,
-    }
-}
 
 // ===================================================================
 // Zero-hit → fallback: multi-turn cursor advancement
@@ -104,7 +26,7 @@ fn test_fallback_zero_hit_returns_turn0() {
     let mut engine = ScenarioEngine::new(vec![fallback]).unwrap();
 
     // Zero-hit: model "unknown" has no matching scenario → fallback.
-    let outcome = engine.decide(&feat("unknown-model", "hi"));
+    let outcome = engine.decide(&features("unknown-model", "hi"));
     match outcome {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "fb");
@@ -125,7 +47,7 @@ fn test_fallback_multi_turn_cursor_advances() {
     let mut engine = ScenarioEngine::new(vec![fallback]).unwrap();
 
     // Turn 0
-    let outcome0 = engine.decide(&feat("unknown", "hi"));
+    let outcome0 = engine.decide(&features("unknown", "hi"));
     match outcome0 {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("t0"));
@@ -134,7 +56,7 @@ fn test_fallback_multi_turn_cursor_advances() {
     }
 
     // Turn 1: extend message history
-    let outcome1 = engine.decide(&feat_multi(
+    let outcome1 = engine.decide(&features_multi(
         "unknown",
         vec![("user", "hi"), ("assistant", "t0"), ("user", "next")],
     ));
@@ -146,7 +68,7 @@ fn test_fallback_multi_turn_cursor_advances() {
     }
 
     // Turn 2
-    let outcome2 = engine.decide(&feat_multi(
+    let outcome2 = engine.decide(&features_multi(
         "unknown",
         vec![
             ("user", "hi"),
@@ -175,10 +97,10 @@ fn test_fallback_turn_overflow_returns_error() {
     let mut engine = ScenarioEngine::new(vec![fallback]).unwrap();
 
     // Turn 0 succeeds
-    let _ = engine.decide(&feat("unknown", "hi"));
+    let _ = engine.decide(&features("unknown", "hi"));
 
     // Turn 1: exceeds declared turns → 500 error
-    let outcome = engine.decide(&feat_multi(
+    let outcome = engine.decide(&features_multi(
         "unknown",
         vec![("user", "hi"), ("assistant", "t0"), ("user", "next")],
     ));
@@ -209,7 +131,7 @@ fn test_no_fallback_zero_hit_returns_500() {
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // "unknown-model" doesn't match any scenario, no fallback declared.
-    let outcome = engine.decide(&feat("unknown-model", "hi"));
+    let outcome = engine.decide(&features("unknown-model", "hi"));
     match outcome {
         DecisionOutcome::Error(e) => {
             assert_eq!(e.status, 500);
@@ -222,7 +144,7 @@ fn test_no_fallback_zero_hit_returns_500() {
 #[test]
 fn test_empty_engine_zero_hit_returns_500() {
     let mut engine = ScenarioEngine::new(vec![]).unwrap();
-    let outcome = engine.decide(&feat("any", "hi"));
+    let outcome = engine.decide(&features("any", "hi"));
     match outcome {
         DecisionOutcome::Error(e) => {
             assert_eq!(e.status, 500);
@@ -245,7 +167,7 @@ fn test_usage_only_shape_produces_empty_blocks() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
-    let outcome = engine.decide(&feat("any", "hi"));
+    let outcome = engine.decide(&features("any", "hi"));
     match outcome {
         DecisionOutcome::Decision(d) => {
             assert!(
@@ -269,7 +191,7 @@ fn test_unknown_shape_produces_empty_text_block() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
-    let outcome = engine.decide(&feat("any", "hi"));
+    let outcome = engine.decide(&features("any", "hi"));
     match outcome {
         DecisionOutcome::Decision(d) => {
             // Unknown shape produces a single text block with empty content.
@@ -294,7 +216,7 @@ fn test_no_placeholder_text_in_usage_only_response() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
-    let outcome = engine.decide(&feat("any", "hi"));
+    let outcome = engine.decide(&features("any", "hi"));
     match outcome {
         DecisionOutcome::Decision(d) => {
             // Verify no block contains "placeholder" text
@@ -321,7 +243,7 @@ fn test_no_placeholder_text_in_unknown_shape_response() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
-    let outcome = engine.decide(&feat("any", "hi"));
+    let outcome = engine.decide(&features("any", "hi"));
     match outcome {
         DecisionOutcome::Decision(d) => {
             for block in &d.response_blocks {
@@ -351,7 +273,11 @@ fn test_fallback_matches_openai_protocol() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![fallback]).unwrap();
-    let outcome = engine.decide(&feat_proto("unknown", "hi", ProtocolKind::OpenAi));
+    let outcome = engine.decide(&features_with_protocol(
+        "unknown",
+        "hi",
+        ProtocolKind::OpenAi,
+    ));
     match outcome {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "fb");
@@ -373,7 +299,11 @@ fn test_fallback_matches_anthropic_protocol() {
         models: None,
     };
     let mut engine = ScenarioEngine::new(vec![fallback]).unwrap();
-    let outcome = engine.decide(&feat_proto("unknown", "hi", ProtocolKind::Anthropic));
+    let outcome = engine.decide(&features_with_protocol(
+        "unknown",
+        "hi",
+        ProtocolKind::Anthropic,
+    ));
     match outcome {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "fb");
@@ -403,7 +333,11 @@ fn test_model_specific_scenario_does_not_leak_cross_protocol() {
     let mut engine = ScenarioEngine::new(vec![scenario]).unwrap();
 
     // OpenAI request → matches
-    match engine.decide(&feat_proto("gpt-4o", "hi", ProtocolKind::OpenAi)) {
+    match engine.decide(&features_with_protocol(
+        "gpt-4o",
+        "hi",
+        ProtocolKind::OpenAi,
+    )) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "gpt4-scene");
         }
@@ -411,7 +345,11 @@ fn test_model_specific_scenario_does_not_leak_cross_protocol() {
     }
 
     // Anthropic request with same model → also matches (no protocol constraint)
-    match engine.decide(&feat_proto("gpt-4o", "hi", ProtocolKind::Anthropic)) {
+    match engine.decide(&features_with_protocol(
+        "gpt-4o",
+        "hi",
+        ProtocolKind::Anthropic,
+    )) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "gpt4-scene");
         }
@@ -419,7 +357,11 @@ fn test_model_specific_scenario_does_not_leak_cross_protocol() {
     }
 
     // Different model → no match, no fallback → 500
-    match engine.decide(&feat_proto("claude-3", "hi", ProtocolKind::Anthropic)) {
+    match engine.decide(&features_with_protocol(
+        "claude-3",
+        "hi",
+        ProtocolKind::Anthropic,
+    )) {
         DecisionOutcome::Error(e) => {
             assert_eq!(e.status, 500);
         }
@@ -460,7 +402,7 @@ fn test_specific_scenario_cursors_are_independent() {
     let mut engine = ScenarioEngine::new(vec![scene_a, scene_b]).unwrap();
 
     // model-a → scene-a turn 0
-    match engine.decide(&feat("model-a", "hi")) {
+    match engine.decide(&features("model-a", "hi")) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "scene-a");
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("a-t0"));
@@ -469,7 +411,7 @@ fn test_specific_scenario_cursors_are_independent() {
     }
 
     // model-b → scene-b turn 0
-    match engine.decide(&feat("model-b", "hi")) {
+    match engine.decide(&features("model-b", "hi")) {
         DecisionOutcome::Decision(d) => {
             assert_eq!(d.scenario, "scene-b");
             assert_eq!(d.response_blocks[0].content.as_deref(), Some("b-t0"));
@@ -478,7 +420,7 @@ fn test_specific_scenario_cursors_are_independent() {
     }
 
     // model-a again → scene-a turn 1 (cursor advanced independently)
-    match engine.decide(&feat_multi(
+    match engine.decide(&features_multi(
         "model-a",
         vec![("user", "hi"), ("assistant", "a-t0"), ("user", "next")],
     )) {
@@ -490,7 +432,7 @@ fn test_specific_scenario_cursors_are_independent() {
     }
 
     // model-b again → scene-b turn 1 (cursor advanced independently)
-    match engine.decide(&feat_multi(
+    match engine.decide(&features_multi(
         "model-b",
         vec![("user", "hi"), ("assistant", "b-t0"), ("user", "next")],
     )) {
