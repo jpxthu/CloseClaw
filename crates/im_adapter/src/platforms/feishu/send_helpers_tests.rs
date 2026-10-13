@@ -150,7 +150,8 @@ fn create_args_echo_cli(tmp: &TempDir) -> String {
 /// return the argument immediately following `flag`.
 fn capture_flag_arg(cli_tmp: &TempDir, flag: &str) -> String {
     let args_file = cli_tmp.path().join("captured_args");
-    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+    let content = std::fs::read_to_string(&args_file)
+        .unwrap_or_else(|e| panic!("failed to read captured_args at {:?}: {e}", args_file));
     content
         .split_whitespace()
         .skip_while(|s| *s != flag)
