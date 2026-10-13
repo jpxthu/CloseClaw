@@ -370,6 +370,45 @@ async fn test_send_media_file_outbound_outside_cwd_uses_absolute_path() {
     assert!(std::path::Path::new(image_arg).exists());
 }
 
+/// When the injected cwd is `None` (defensive fallback), lark-cli receives
+/// the outbound absolute path.
+///
+/// Places media store under the system temp dir and injects `None`, so
+/// `make_media_path_relative` passes the outbound absolute path through
+/// unchanged.
+#[serial]
+#[tokio::test]
+async fn test_send_media_file_none_cwd_falls_back_to_absolute_path() {
+    let media_tmp = TempDir::new().unwrap();
+    let media_dir = media_tmp.path().join("media");
+    let media_store = crate::media_store::MediaStore::new(media_dir.to_str().unwrap()).unwrap();
+    let src = media_dir.join("photo.png");
+    std::fs::write(&src, "image data").unwrap();
+
+    let cli_tmp = TempDir::new().unwrap();
+    let cli = create_args_echo_cli(&cli_tmp);
+    let mut adapter = make_adapter(&cli);
+    adapter.media_store = Arc::new(media_store);
+
+    let result = adapter
+        .send_media_file("oc_test", "--image", src.to_str().unwrap(), None)
+        .await;
+    assert!(result.is_ok());
+
+    let args_file = cli_tmp.path().join("captured_args");
+    let content = std::fs::read_to_string(&args_file).unwrap_or_default();
+    let image_arg = content
+        .split_whitespace()
+        .skip_while(|s| *s != "--image")
+        .nth(1)
+        .expect("--image arg not found");
+    assert!(
+        std::path::Path::new(image_arg).is_absolute(),
+        "Expected absolute path with None cwd, got: {image_arg}"
+    );
+    assert!(std::path::Path::new(image_arg).exists());
+}
+
 /// Unit test for make_media_path_relative: outbound is not under cwd,
 /// so the function preserves the absolute path.
 #[test]

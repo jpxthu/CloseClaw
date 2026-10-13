@@ -237,6 +237,18 @@ impl FeishuAdapter {
 
 // --- Media sending: image/file upload via lark-cli ---
 
+/// Obtain the process working directory for lark-cli path relativization.
+///
+/// Returns `None` when `std::env::current_dir()` fails; the failure reason
+/// is logged here (warn) and callers pass the outbound absolute path.
+fn cwd_for_cli() -> Option<std::path::PathBuf> {
+    std::env::current_dir()
+        .inspect_err(|e| {
+            tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
+        })
+        .ok()
+}
+
 impl FeishuAdapter {
     /// Send an image file via lark-cli.
     ///
@@ -247,12 +259,7 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        let cwd = std::env::current_dir()
-            .inspect_err(|e| {
-                tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
-            })
-            .ok();
-        self.send_media_file(receive_id, "--image", image_path, cwd.as_deref())
+        self.send_media_file(receive_id, "--image", image_path, cwd_for_cli().as_deref())
             .await
     }
 
@@ -265,12 +272,7 @@ impl FeishuAdapter {
         receive_id: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
-        let cwd = std::env::current_dir()
-            .inspect_err(|e| {
-                tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
-            })
-            .ok();
-        self.send_media_file(receive_id, "--file", file_path, cwd.as_deref())
+        self.send_media_file(receive_id, "--file", file_path, cwd_for_cli().as_deref())
             .await
     }
 
@@ -314,8 +316,8 @@ impl FeishuAdapter {
         // Defensive: cwd unavailable (acquisition failure logged by the
         // caller); fall back to the outbound absolute path so
         // `make_media_path_relative` passes it through unchanged.
-        let cwd = cwd.unwrap_or(&outbound_path);
-        let path_str = make_media_path_relative(&outbound_path, cwd);
+        let effective_cwd = cwd.unwrap_or(&outbound_path);
+        let path_str = make_media_path_relative(&outbound_path, effective_cwd);
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
