@@ -570,6 +570,15 @@ async fn test_send_file_copy_preserved_on_upload_failure() {
         outbound.exists(),
         "outbound copy should be preserved even when upload fails"
     );
+    // Byte-compare the preserved copy against the source file: a
+    // half-written or truncated copy must fail this assertion, not just
+    // an absent one.
+    let source_bytes = fs::read(&file).unwrap();
+    let outbound_bytes = fs::read(&outbound).unwrap();
+    assert_eq!(
+        source_bytes, outbound_bytes,
+        "preserved outbound copy must be byte-identical to the source file"
+    );
 }
 
 /// send_image with workspace-relative path, workspace is None →
