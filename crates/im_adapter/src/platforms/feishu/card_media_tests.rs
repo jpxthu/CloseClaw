@@ -43,16 +43,11 @@ fn create_success_upload_mock_cli(
     script_path.to_str().unwrap().to_string()
 }
 
-/// Create a FeishuPlugin with a mock CLI for testing.
-fn make_plugin(cli_command: &str) -> (FeishuPlugin, TempDir) {
-    let tmp = TempDir::new().expect("tmp dir");
-    let (plugin, _outbound_dir) = make_plugin_with_store(cli_command, &tmp);
-    (plugin, tmp)
-}
-
 /// Create a FeishuPlugin wired to `cli_command` with a media store rooted at
 /// `tmp`; returns the store's outbound dir so tests can assert the
 /// prepare-step outbound copy (proving the true upload path was taken).
+/// Skip-path tests may ignore the return value as `_outbound_dir`;
+/// discarding it is normal usage.
 fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (FeishuPlugin, PathBuf) {
     let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
     let outbound_dir = media_store.outbound_dir().to_path_buf();
@@ -163,7 +158,7 @@ async fn test_process_card_media_file_element_graceful_failure() {
 async fn test_process_card_media_audio_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -181,7 +176,7 @@ async fn test_process_card_media_audio_no_file_token_skipped() {
 async fn test_process_card_media_file_no_file_token_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -258,7 +253,7 @@ async fn test_process_card_media_mixed_elements() {
 async fn test_process_card_media_empty_elements() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -274,7 +269,7 @@ async fn test_process_card_media_empty_elements() {
 async fn test_process_card_media_no_card_key() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({});
     let result = plugin.process_card_media(&mut payload).await;
@@ -286,7 +281,7 @@ async fn test_process_card_media_no_card_key() {
 async fn test_process_card_media_no_elements_in_card() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {}
@@ -300,7 +295,7 @@ async fn test_process_card_media_no_elements_in_card() {
 async fn test_process_card_media_audio_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -321,7 +316,7 @@ async fn test_process_card_media_audio_http_url_skipped() {
 async fn test_process_card_media_file_http_url_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -397,7 +392,7 @@ async fn test_process_card_media_file_upload_failure_keeps_token() {
 async fn test_process_card_media_img_no_img_key_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
-    let (plugin, _tmp) = make_plugin(&cli);
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -473,10 +468,7 @@ async fn test_process_card_media_img_upload_success_replaces_key() {
     let test_file = tmp.path().join("test_img_ok.png");
     std::fs::write(&test_file, b"fake png content").unwrap();
 
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let img_ref = test_file.to_str().unwrap().to_string();
     let mut payload = serde_json::json!({
@@ -516,11 +508,7 @@ async fn test_process_card_media_audio_success() {
     let test_file = tmp.path().join("test_audio.mp3");
     std::fs::write(&test_file, b"fake audio content").unwrap();
 
-    // Create plugin with media store rooted at the same tmp dir.
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
@@ -555,11 +543,7 @@ async fn test_process_card_media_file_success() {
     let test_file = tmp.path().join("test_document.pdf");
     std::fs::write(&test_file, b"fake pdf content").unwrap();
 
-    // Create plugin with media store rooted at the same tmp dir.
-    let media_store = Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"));
-    let mut adapter = FeishuAdapter::new("test_profile".into(), media_store);
-    adapter.cli_command = cli;
-    let plugin = FeishuPlugin::new(Arc::new(adapter));
+    let (plugin, _outbound_dir) = make_plugin_with_store(&cli, &tmp);
 
     let mut payload = serde_json::json!({
         "card": {
