@@ -4,6 +4,7 @@ version = "0.1.0"
 edition.workspace = true
 description = "Session management for CloseClaw"
 license.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 # Internal crates — only the allowed edge table (docs/design/STANDARDS.md)
@@ -40,6 +41,9 @@ hex.workspace = true
 
 # Random (for plan identifier generation)
 rand.workspace = true
+
+# System
+libc.workspace = true
 
 # Redis client
 redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
