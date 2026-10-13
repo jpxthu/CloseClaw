@@ -31,6 +31,19 @@ pub(crate) fn write_mock_script(path: &std::path::Path, content: &str) {
     }
 }
 
+/// Create a mock lark-cli script that echoes `response_json` to stdout and
+/// exits 0 (script name unified as `mock_cli.sh` across all consumers).
+///
+/// Constraint: `response_json` must not contain single quotes — the generated
+/// script embeds it in a single-quoted shell string, so a `'` inside would
+/// break the quoting (same constraint as [`create_failing_mock_cli`]).
+pub(crate) fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
+    let script_path = tmp.path().join("mock_cli.sh");
+    let content = format!("#!/bin/bash\necho '{response_json}'\n");
+    write_mock_script(&script_path, &content);
+    script_path.to_str().unwrap().to_string()
+}
+
 /// Create a mock lark-cli script that always fails: emits `error_json` to
 /// stderr, optionally echoes the same JSON to stdout, then exits with
 /// `exit_code`.

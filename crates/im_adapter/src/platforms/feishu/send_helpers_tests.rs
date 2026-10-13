@@ -7,22 +7,12 @@ use super::send_helpers::{
     build_reply_args, build_send_args, is_capability_error, make_media_path_relative, run_cli,
     ReplyTarget,
 };
-use super::{create_failing_mock_cli, make_adapter, write_mock_script};
+use super::{create_failing_mock_cli, create_mock_cli, make_adapter, write_mock_script};
 use crate::error::AdapterError;
 use serial_test::serial;
 use std::fmt::Write as _;
 use std::sync::Arc;
 use tempfile::TempDir;
-
-/// Create a mock lark-cli script that outputs the given JSON and exits 0.
-fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
-    let script_path = tmp.path().join("mock_lark_cli.sh");
-    let mut content = String::new();
-    writeln!(content, "#!/bin/bash").unwrap();
-    writeln!(content, "echo '{response_json}'").unwrap();
-    write_mock_script(&script_path, &content);
-    script_path.to_str().unwrap().to_string()
-}
 
 #[serial]
 #[tokio::test]
