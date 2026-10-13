@@ -17,7 +17,6 @@ use crate::IMAdapter;
 use closeclaw_common::{AdapterError as CommonAdapterError, IMPlugin, RenderedOutput};
 use serial_test::serial;
 use std::fmt::Write as _;
-use std::sync::Arc;
 use tempfile::TempDir;
 
 /// Create a mock lark-cli script that outputs the given JSON to stdout.
@@ -53,24 +52,6 @@ fn create_fail_then_succeed_cli(tmp: &TempDir, fail_count: usize) -> String {
     // Initialize counter
     std::fs::write(&counter_path, "0").unwrap();
     script_path.to_str().unwrap().to_string()
-}
-
-/// Create a FeishuPlugin with a mock lark-cli.
-fn make_plugin(cli_command: &str) -> FeishuPlugin {
-    let tmp = tempfile::TempDir::new().expect("tmp dir");
-    let adapter = Arc::new(FeishuAdapter::new(
-        "test_profile".into(),
-        Arc::new(
-            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
-        ),
-    ));
-    // Override cli_command for mock testing
-    let adapter = {
-        let mut a = (*adapter).clone();
-        a.cli_command = cli_command.to_string();
-        Arc::new(a)
-    };
-    FeishuPlugin::new(adapter)
 }
 
 fn text_output(content: &str) -> RenderedOutput {
@@ -258,19 +239,6 @@ async fn interactive_empty_text_fallback_returns_ok() {
 // =====================================================================
 // send_card_json capability fallback tests (via adapter)
 // =====================================================================
-
-/// Helper: create a FeishuAdapter pointing at a mock CLI.
-fn make_adapter(cli_command: &str) -> FeishuAdapter {
-    let tmp = tempfile::TempDir::new().unwrap();
-    let mut adapter = FeishuAdapter::new(
-        "test_profile".into(),
-        Arc::new(
-            crate::media_store::MediaStore::new(tmp.path().to_str().unwrap()).expect("media store"),
-        ),
-    );
-    adapter.cli_command = cli_command.to_string();
-    adapter
-}
 
 /// Helper: build a card JSON string with a single markdown element.
 fn card_payload_with_markdown(text: &str) -> String {

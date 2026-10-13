@@ -72,6 +72,24 @@ pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (Feish
     (plugin, outbound_dir)
 }
 
+/// Create a FeishuAdapter wired to `cli_command` with a self-built
+/// temp-dir-backed media store (profile `test_profile`).
+pub(crate) fn make_adapter(cli_command: &str) -> FeishuAdapter {
+    let tmp = TempDir::new().unwrap();
+    let mut adapter = FeishuAdapter::new(
+        "test_profile".into(),
+        Arc::new(MediaStore::new(tmp.path().to_str().unwrap()).expect("media store")),
+    );
+    adapter.cli_command = cli_command.to_string();
+    adapter
+}
+
+/// Create a FeishuPlugin wired to `cli_command` with a self-built
+/// temp-dir-backed media store (delegates to [`make_adapter`]).
+pub(crate) fn make_plugin(cli_command: &str) -> FeishuPlugin {
+    FeishuPlugin::new(Arc::new(make_adapter(cli_command)))
+}
+
 #[cfg(test)]
 mod tests {
     //! Convention (see module docs above): any test that creates and actually
