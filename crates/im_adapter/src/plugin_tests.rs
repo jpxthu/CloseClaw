@@ -13,7 +13,7 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::platforms::feishu::make_plugin;
+    use crate::platforms::feishu::{make_adapter, make_plugin};
     use async_trait::async_trait;
     use closeclaw_common::content_segment::{parse_content_segments, ContentSegment};
     use closeclaw_common::processor::ContentBlock;
@@ -562,16 +562,18 @@ mod tests {
         assert!(enqueuer.payloads().is_empty());
     }
 
-    /// `FeishuPlugin`/`build_text` keep their historical `platforms::feishu::`
-    /// re-export paths and semantics after the definitions were moved down to
-    /// `feishu/plugin.rs` and `feishu/renderer.rs`: the plugin (assembled via
-    /// the shared test helper, which wraps a `FeishuAdapter`) reports the
-    /// `"feishu"` platform name, and `build_text` renders a text payload.
+    /// `FeishuAdapter`/`FeishuPlugin`/`build_text` keep their historical
+    /// `platforms::feishu::` re-export paths and semantics after the
+    /// definitions were moved down to `feishu/adapter.rs`, `feishu/plugin.rs`
+    /// and `feishu/renderer.rs`: the adapter is assembled via the shared test
+    /// helper and wrapped into the plugin (which reports the `"feishu"`
+    /// platform name), and `build_text` renders a text payload.
     #[test]
     fn test_feishu_reexport_types_smoke() {
-        use crate::platforms::feishu::{build_text, FeishuPlugin};
+        use crate::platforms::feishu::{build_text, FeishuAdapter, FeishuPlugin};
 
-        let plugin: FeishuPlugin = make_plugin("unused-cli");
+        let adapter: FeishuAdapter = make_adapter("unused-cli");
+        let plugin = FeishuPlugin::new(std::sync::Arc::new(adapter));
         assert_eq!(plugin.platform(), "feishu");
 
         let output = build_text("ping");

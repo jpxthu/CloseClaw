@@ -14,21 +14,7 @@ use super::*;
 use crate::error::AdapterError;
 use crate::IMAdapter;
 use serial_test::serial;
-use std::fmt::Write as _;
 use tempfile::TempDir;
-
-/// Create a mock lark-cli script that outputs an error JSON.
-fn create_error_mock_cli(tmp: &TempDir, code: i32) -> String {
-    let script_path = tmp.path().join("error_cli.sh");
-    let mut content = String::new();
-    let err_json = format!("{{\"code\":{code},\"msg\":\"API error\"}}");
-    writeln!(content, "#!/bin/bash").unwrap();
-    writeln!(content, "echo '{err_json}' >&2").unwrap();
-    writeln!(content, "echo '{err_json}'").unwrap();
-    writeln!(content, "exit 1").unwrap();
-    write_mock_script(&script_path, &content);
-    script_path.to_str().unwrap().to_string()
-}
 
 /// Helper: build a card JSON string with a single markdown element.
 fn card_payload_with_markdown(text: &str) -> String {
@@ -48,7 +34,13 @@ fn card_payload_with_markdown(text: &str) -> String {
 #[tokio::test]
 async fn test_send_message_cli_error_returns_err() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_error_mock_cli(&tmp, 99999);
+    let cli = create_failing_mock_cli(
+        &tmp,
+        "error_cli.sh",
+        r#"{"code":99999,"msg":"API error"}"#,
+        true,
+        1,
+    );
     let adapter = make_adapter(&cli);
     let result = adapter.send_message("oc_target_chat", "hello", None).await;
     assert!(
@@ -69,7 +61,13 @@ async fn test_send_message_cli_error_returns_err() {
 #[tokio::test]
 async fn test_send_card_non_capability_error_returns_err_no_fallback() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_error_mock_cli(&tmp, 99999);
+    let cli = create_failing_mock_cli(
+        &tmp,
+        "error_cli.sh",
+        r#"{"code":99999,"msg":"API error"}"#,
+        true,
+        1,
+    );
     let adapter = make_adapter(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
