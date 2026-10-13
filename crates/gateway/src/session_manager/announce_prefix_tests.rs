@@ -76,8 +76,8 @@ async fn test_inject_now_prefix() {
         NotificationPriority::Now,
         ChildCompletionStatus::Completed,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1, "should inject one system message");
@@ -115,8 +115,8 @@ async fn test_inject_next_prefix() {
         NotificationPriority::Next,
         ChildCompletionStatus::Completed,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -146,8 +146,8 @@ async fn test_inject_later_prefix() {
         NotificationPriority::Later,
         ChildCompletionStatus::Completed,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -173,7 +173,7 @@ async fn test_inject_mixed_priority_prefixes() {
     // Push events in reverse priority order (Later, Next, Now)
     // They will be drained in priority order: Now, Next, Later
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-1",
             "agent-1",
@@ -185,7 +185,7 @@ async fn test_inject_mixed_priority_prefixes() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-2",
             "agent-2",
@@ -197,7 +197,7 @@ async fn test_inject_mixed_priority_prefixes() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-3",
             "agent-3",
@@ -209,7 +209,7 @@ async fn test_inject_mixed_priority_prefixes() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 system messages");
@@ -233,7 +233,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
 
     // Push 3 events all with Now priority (dedup by child_session_id)
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "batch-1",
             "agent-1",
@@ -245,7 +245,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "batch-2",
             "agent-2",
@@ -257,7 +257,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "batch-3",
             "agent-3",
@@ -269,7 +269,7 @@ async fn test_inject_same_level_batch_each_has_prefix() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3, "should inject 3 messages");
@@ -297,7 +297,7 @@ async fn test_filtered_inject_adds_prefix() {
     setup_parent_with_conv(&mgr, pid).await;
 
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "f-child-1",
             "f-agent-1",
@@ -309,7 +309,7 @@ async fn test_filtered_inject_adds_prefix() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "f-child-2",
             "f-agent-2",
@@ -322,7 +322,7 @@ async fn test_filtered_inject_adds_prefix() {
     .unwrap();
 
     // Only drain Now priority
-    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now), None)
+    mgr.drain_and_inject_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now), None)
         .await;
 
     let msgs = get_system_messages(&mgr, pid).await;
@@ -331,7 +331,7 @@ async fn test_filtered_inject_adds_prefix() {
     assert!(msgs[0].contains("filtered urgent"));
 
     // Next event should still be in queue
-    let remaining = mgr.drain_announces(&pid).await;
+    let remaining = mgr.drain_announces(pid).await;
     assert_eq!(remaining.len(), 1, "Next event should remain in queue");
     assert_eq!(remaining[0].child_session_id, "f-child-2");
 }
@@ -350,14 +350,14 @@ async fn test_filtered_drain_system_notification_prefix() {
 
     // Push a system notification with Now priority
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("system urgent message".into(), NotificationPriority::Now);
     }
 
     // drain_announces_filtered with Now predicate should collect notification
     let drained = mgr
-        .drain_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now))
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now))
         .await;
 
     // SystemNotification is NOT returned as AnnounceEvent
@@ -399,13 +399,13 @@ async fn test_filtered_drain_system_notification_next_prefix() {
     setup_parent_with_conv(&mgr, pid).await;
 
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("next system msg".into(), NotificationPriority::Next);
     }
 
     let drained = mgr
-        .drain_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Next))
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Next))
         .await;
 
     assert_eq!(
@@ -446,8 +446,8 @@ async fn test_errored_status_gets_priority_prefix() {
         NotificationPriority::Now,
         ChildCompletionStatus::Errored,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -477,8 +477,8 @@ async fn test_terminated_status_gets_priority_prefix() {
         NotificationPriority::Later,
         ChildCompletionStatus::Terminated,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -511,8 +511,8 @@ async fn test_injected_text_format() {
         NotificationPriority::Next,
         ChildCompletionStatus::Completed,
     );
-    mgr.push_announce(&pid, event).await.unwrap();
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.push_announce(pid, event).await.unwrap();
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 1);
@@ -544,7 +544,7 @@ async fn test_filtered_drain_preserves_non_matching() {
     setup_parent_with_conv(&mgr, pid).await;
 
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "keep-child",
             "keep-agent",
@@ -556,7 +556,7 @@ async fn test_filtered_drain_preserves_non_matching() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "drain-child",
             "drain-agent",
@@ -570,14 +570,14 @@ async fn test_filtered_drain_preserves_non_matching() {
 
     // Only drain Now
     let drained = mgr
-        .drain_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now))
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now))
         .await;
 
     assert_eq!(drained.len(), 1, "should drain exactly 1 Now event");
     assert_eq!(drained[0].child_session_id, "drain-child");
 
     // Later event should still be in queue
-    let remaining = mgr.drain_announces(&pid).await;
+    let remaining = mgr.drain_announces(pid).await;
     assert_eq!(remaining.len(), 1, "Later event should remain");
     assert_eq!(remaining[0].child_session_id, "keep-child");
 }
@@ -596,7 +596,7 @@ async fn test_injection_order_follows_priority() {
 
     // Push in Later → Next → Now order (reverse of drain order)
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "o-child-1",
             "o-agent-1",
@@ -608,7 +608,7 @@ async fn test_injection_order_follows_priority() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "o-child-2",
             "o-agent-2",
@@ -620,7 +620,7 @@ async fn test_injection_order_follows_priority() {
     .await
     .unwrap();
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "o-child-3",
             "o-agent-3",
@@ -632,7 +632,7 @@ async fn test_injection_order_follows_priority() {
     .await
     .unwrap();
 
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.drain_and_inject_announces(pid, None).await;
 
     let msgs = get_system_messages(&mgr, pid).await;
     assert_eq!(msgs.len(), 3);
@@ -666,7 +666,7 @@ async fn test_drain_announces_separates_notifications_from_events() {
 
     // Push an AnnounceEvent.
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-sep",
             "agent-sep",
@@ -680,12 +680,12 @@ async fn test_drain_announces_separates_notifications_from_events() {
 
     // Push a SystemNotification.
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("urgent system msg".into(), NotificationPriority::Now);
     }
 
-    let result = mgr.drain_announces(&pid).await;
+    let result = mgr.drain_announces(pid).await;
 
     // AnnounceEvent goes to announces.
     assert_eq!(result.announces.len(), 1);
@@ -708,13 +708,13 @@ async fn test_drain_and_inject_gateway_none_no_panic() {
 
     // Push a SystemNotification.
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("test notification".into(), NotificationPriority::Next);
     }
 
     // Call with gateway=None — should not panic.
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.drain_and_inject_announces(pid, None).await;
 
     // Notification should NOT be in transcript.
     let msgs = get_system_messages(&mgr, pid).await;
@@ -724,7 +724,7 @@ async fn test_drain_and_inject_gateway_none_no_panic() {
     );
 
     // Queue should be empty (drain consumed the entry).
-    let cs = mgr.get_conversation_session(&pid).await.unwrap();
+    let cs = mgr.get_conversation_session(pid).await.unwrap();
     assert!(cs.read().await.is_queue_empty());
 }
 
@@ -739,12 +739,12 @@ async fn test_drain_and_inject_filtered_gateway_none_no_panic() {
 
     // Push a SystemNotification and an AnnounceEvent.
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("test filtered".into(), NotificationPriority::Now);
     }
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-filt",
             "agent-filt",
@@ -757,7 +757,7 @@ async fn test_drain_and_inject_filtered_gateway_none_no_panic() {
     .unwrap();
 
     // Call with gateway=None.
-    mgr.drain_and_inject_announces_filtered(&pid, |p| matches!(p, NotificationPriority::Now), None)
+    mgr.drain_and_inject_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now), None)
         .await;
 
     // AnnounceEvent should be injected as system message.
@@ -772,7 +772,7 @@ async fn test_drain_and_inject_filtered_gateway_none_no_panic() {
     );
 
     // Queue should be empty.
-    let cs = mgr.get_conversation_session(&pid).await.unwrap();
+    let cs = mgr.get_conversation_session(pid).await.unwrap();
     assert!(cs.read().await.is_queue_empty());
 }
 
@@ -788,7 +788,7 @@ async fn test_mixed_queue_only_announce_injected() {
 
     // Push AnnounceEvent (Now) and SystemNotification (Now).
     mgr.push_announce(
-        &pid,
+        pid,
         make_event(
             "child-mix",
             "agent-mix",
@@ -800,12 +800,12 @@ async fn test_mixed_queue_only_announce_injected() {
     .await
     .unwrap();
     {
-        let cs = mgr.get_conversation_session(&pid).await.unwrap();
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
         let mut cs = cs.write().await;
         cs.push_system_notification("system text".into(), NotificationPriority::Now);
     }
 
-    mgr.drain_and_inject_announces(&pid, None).await;
+    mgr.drain_and_inject_announces(pid, None).await;
 
     // Only AnnounceEvent should be in transcript.
     let msgs = get_system_messages(&mgr, pid).await;
