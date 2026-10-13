@@ -41,6 +41,14 @@ fn make_permission_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
 }
 
+/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
+fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
+    SubagentsConfig {
+        max_spawn_depth: Some(max_spawn_depth),
+        ..Default::default()
+    }
+}
+
 fn make_session_manager() -> SessionManager {
     SessionManager::new(&test_config(), None, None, ReasoningLevel::default())
 }
@@ -128,10 +136,12 @@ async fn test_validate_agent_id_fallback_to_parent() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(false);
-    sub.default_child_agent = None;
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(false),
+        default_child_agent: None,
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -156,11 +166,13 @@ async fn test_validate_agent_id_fallback_rejected_by_whitelist() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.require_agent_id = Some(false);
-    sub.default_child_agent = None;
-    sub.allow_agents = vec!["allowed-agent".to_string()];
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        require_agent_id: Some(false),
+        default_child_agent: None,
+        allow_agents: vec!["allowed-agent".to_string()],
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -188,9 +200,11 @@ async fn test_validate_explicit_agent_id_no_fallback() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    parent_sub.default_child_agent = Some("should-not-resolve".to_string());
+    let parent_sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        default_child_agent: Some("should-not-resolve".to_string()),
+        ..Default::default()
+    };
     let parent = make_agent("parent", parent_sub);
     let child = make_agent("explicit-child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("explicit-child", child)]);
@@ -215,10 +229,12 @@ async fn test_validate_default_child_agent_ignored_falls_back_to_parent() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    sub.default_child_agent = Some("my-default".to_string()); // deprecated, ignored
-    sub.allow_agents = vec!["*".to_string()];
+    let sub = SubagentsConfig {
+        max_spawn_depth: Some(2),
+        default_child_agent: Some("my-default".to_string()), // deprecated, ignored
+        allow_agents: vec!["*".to_string()],
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let default_child = make_agent("my-default", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("my-default", default_child)]);
@@ -248,12 +264,14 @@ async fn test_validate_spawn_timeout_configured() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", sub);
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.timeout = Some(60);
-    let child = make_agent("child", child_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
+    let child = make_agent(
+        "child",
+        SubagentsConfig {
+            timeout: Some(60),
+            ..Default::default()
+        },
+    );
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
@@ -275,9 +293,7 @@ async fn test_validate_spawn_timeout_not_configured() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -302,12 +318,14 @@ async fn test_validate_spawn_timeout_zero_passthrough() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", sub);
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.timeout = Some(0);
-    let child = make_agent("child", child_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
+    let child = make_agent(
+        "child",
+        SubagentsConfig {
+            timeout: Some(0),
+            ..Default::default()
+        },
+    );
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;

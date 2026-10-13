@@ -65,6 +65,14 @@ fn make_permission_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
 }
 
+/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
+fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
+    SubagentsConfig {
+        max_spawn_depth: Some(max_spawn_depth),
+        ..Default::default()
+    }
+}
+
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {
     ResolvedAgentConfig {
         id: id.to_string(),
@@ -466,9 +474,7 @@ async fn test_adapter_integration_validate_then_permission_no_restrictions() {
     let sm = make_session_manager();
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -504,9 +510,7 @@ async fn test_adapter_integration_validate_then_permission_denied() {
     let sm = make_session_manager();
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
@@ -567,14 +571,16 @@ async fn test_validate_result_usable_for_child_session_creation() {
     let sm = make_session_manager();
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(3);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(3));
 
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = Some(2);
-    child_sub.timeout = Some(3600);
-    let child = make_agent("child", child_sub);
+    let child = make_agent(
+        "child",
+        SubagentsConfig {
+            max_spawn_depth: Some(2),
+            timeout: Some(3600),
+            ..Default::default()
+        },
+    );
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 
     let parent_id = setup_parent_session(&sm, "parent").await;
