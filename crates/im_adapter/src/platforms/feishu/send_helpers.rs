@@ -382,6 +382,7 @@ pub(crate) fn is_capability_error(error_msg: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platforms::feishu::create_failing_mock_cli;
     use serial_test::serial;
     use std::io::Write;
     use std::sync::Arc;
@@ -393,21 +394,6 @@ mod tests {
         let mut f = std::fs::File::create(&script_path).unwrap();
         writeln!(f, "#!/bin/bash").unwrap();
         writeln!(f, "echo '{response_json}'").unwrap();
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-        }
-        script_path.to_str().unwrap().to_string()
-    }
-
-    /// Create a mock lark-cli script that exits with a non-zero code.
-    fn create_failing_mock_cli(tmp: &TempDir, exit_code: i32) -> String {
-        let script_path = tmp.path().join("failing_lark_cli.sh");
-        let mut f = std::fs::File::create(&script_path).unwrap();
-        writeln!(f, "#!/bin/bash").unwrap();
-        writeln!(f, "echo '{{\"code\":{exit_code},\"msg\":\"error\"}}' >&2").unwrap();
-        writeln!(f, "exit 1").unwrap();
         #[cfg(unix)]
         {
             use std::os::unix::fs::PermissionsExt;
@@ -467,7 +453,13 @@ mod tests {
     #[tokio::test]
     async fn test_run_cli_process_failure() {
         let tmp = TempDir::new().unwrap();
-        let cli = create_failing_mock_cli(&tmp, 1);
+        let cli = create_failing_mock_cli(
+            &tmp,
+            "failing_lark_cli.sh",
+            r#"{"code":1,"msg":"error"}"#,
+            false,
+            1,
+        );
         let adapter = make_adapter_with_cli(&cli);
         let result = run_cli(&adapter, &["im", "+messages-send"]).await;
         assert!(result.is_err());

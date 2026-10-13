@@ -16,32 +16,15 @@ use std::io::Write;
 use std::sync::Arc;
 use tempfile::TempDir;
 
+/// Capability-error JSON emitted by the failing mock (stderr + stdout echo).
+const CAPABILITY_ERROR_JSON: &str = r#"{"code":230001,"msg":"capability error"}"#;
+
 /// Create a mock lark-cli script that outputs the given JSON to stdout.
 fn create_mock_cli(tmp: &TempDir, response_json: &str) -> String {
     let script_path = tmp.path().join("mock_cli.sh");
     let mut f = std::fs::File::create(&script_path).unwrap();
     writeln!(f, "#!/bin/bash").unwrap();
     writeln!(f, "echo '{response_json}'").unwrap();
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&script_path, PermissionsExt::from_mode(0o755)).unwrap();
-    }
-    script_path.to_str().unwrap().to_string()
-}
-
-/// Create a mock lark-cli script that always exits with error.
-fn create_failing_mock_cli(tmp: &TempDir) -> String {
-    let script_path = tmp.path().join("failing_cli.sh");
-    let mut f = std::fs::File::create(&script_path).unwrap();
-    writeln!(f, "#!/bin/bash").unwrap();
-    writeln!(
-        f,
-        "echo '{{\"code\":230001,\"msg\":\"capability error\"}}' >&2"
-    )
-    .unwrap();
-    writeln!(f, "echo '{{\"code\":230001,\"msg\":\"capability error\"}}'").unwrap();
-    writeln!(f, "exit 1").unwrap();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -208,7 +191,7 @@ fn extract_card_plain_text_no_elements() {
 #[tokio::test]
 async fn text_send_failure_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = text_output("hello");
     let result = plugin.send(&output, "chat_test", None, None).await;
@@ -236,7 +219,7 @@ async fn interactive_send_failure_falls_back_to_text_success() {
 #[tokio::test]
 async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = interactive_output("content to extract");
     let result = plugin.send(&output, "chat_test", None, None).await;
@@ -269,7 +252,7 @@ async fn unknown_msg_type_returns_err() {
 #[tokio::test]
 async fn interactive_empty_text_fallback_returns_ok() {
     let tmp = TempDir::new().unwrap();
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
     let output = RenderedOutput {
         msg_type: "interactive".into(),
@@ -336,7 +319,7 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
 async fn send_card_capability_error_fallback_text_also_fails() {
     let tmp = TempDir::new().unwrap();
     // Both card and text fallback fail with capability error
-    let cli = create_failing_mock_cli(&tmp);
+    let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let adapter = make_adapter(&cli);
     let card = card_payload_with_markdown("content");
     let result = adapter.send_card_json("oc_chat", &card, None).await;
