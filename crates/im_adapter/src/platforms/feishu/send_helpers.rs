@@ -247,7 +247,8 @@ impl FeishuAdapter {
         receive_id: &str,
         image_path: &str,
     ) -> Result<(), AdapterError> {
-        self.send_media_file(receive_id, "--image", image_path)
+        let cwd = std::env::current_dir().ok();
+        self.send_media_file(receive_id, "--image", image_path, cwd.as_deref())
             .await
     }
 
@@ -260,7 +261,9 @@ impl FeishuAdapter {
         receive_id: &str,
         file_path: &str,
     ) -> Result<(), AdapterError> {
-        self.send_media_file(receive_id, "--file", file_path).await
+        let cwd = std::env::current_dir().ok();
+        self.send_media_file(receive_id, "--file", file_path, cwd.as_deref())
+            .await
     }
 
     /// Send a media file (image or file) via lark-cli.
@@ -274,11 +277,15 @@ impl FeishuAdapter {
     /// - Path fails whitelist validation
     /// - Copy to outbound fails
     ///   (warning logged in all skip cases)
-    async fn send_media_file(
+    ///
+    /// `cwd` is the working directory used to relativize the outbound path
+    /// for lark-cli; `None` falls back to passing the outbound absolute path.
+    pub(crate) async fn send_media_file(
         &self,
         receive_id: &str,
         media_flag: &str,
         file_path: &str,
+        cwd: Option<&std::path::Path>,
     ) -> Result<(), AdapterError> {
         let media_store = &self.media_store;
         let workspace_dir = self.workspace_dir.as_deref();
@@ -295,12 +302,13 @@ impl FeishuAdapter {
                 }
             };
         // lark-cli only accepts relative paths (design doc: CLI 仅接受进程工作目录的相对路径)
-        let cwd = std::env::current_dir().unwrap_or_else(|e| {
-            // Defensive: current_dir() rarely fails; if it does, use absolute path
-            tracing::warn!(error = %e, "Failed to get cwd, passing absolute path to lark-cli");
-            outbound_path.clone()
+        let cwd = cwd.unwrap_or_else(|| {
+            // Defensive: cwd unavailable; fall back to the outbound absolute
+            // path so `make_media_path_relative` passes it through unchanged.
+            tracing::warn!("cwd unavailable, passing absolute path to lark-cli");
+            &outbound_path
         });
-        let path_str = make_media_path_relative(&outbound_path, &cwd);
+        let path_str = make_media_path_relative(&outbound_path, cwd);
         let id_flag = if receive_id.starts_with("ou_") {
             "--user-id"
         } else {
