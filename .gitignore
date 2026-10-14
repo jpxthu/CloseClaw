@@ -1,7 +1,7 @@
 # Build output
 /target/
 **/target/
-target-msrv/
+/target-msrv/
 
 # IDE
 .idea/
