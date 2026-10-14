@@ -230,12 +230,12 @@ Source: issue #N
 Type: <type>
 ```
 
-| Footer | 含义 | 可选值 |
+| Footer | 含义 | 行内需包含的关键词 |
 |--------|------|--------|
-| `Source:` | 变更来源 | `issue #N` / `design-doc <path>` / `requirement <path>` / `CI` / `user` |
+| `Source:` | 变更来源 | `issue` / `design-doc` / `requirement` / `CI` / `user` / `Fixes` / `Refs` / `Closes` |
+| `Type:` | 变更类型 | `feat` `fix` `docs` `refactor` `test` `perf` `chore` |
 
-`<path>` 是相对项目根的文档路径（如 `design-doc docs/design/daemon/shutdown.md`、`requirement docs/requirements/llm.md`），路径中不能含空白
-| `Type:` | 变更类型 | 见上方分支与 Commit 类型表 |
+`design-doc` / `requirement` 后接相对项目根的文档路径。多 issue 合批：`Source: issue #A, #B`，或逐行重复 `Source: issue #N`。
 
 ### 标准开发流程
 

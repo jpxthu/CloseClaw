@@ -1,6 +1,6 @@
 #!/bin/bash
 # Commit-msg hook: validates Source: and Type: footers
-# Mirrors CI check in .github/workflows/ci.yml
+# Source: 行含来源关键词、Type: 行含类型关键词即通过。
 
 set -e
 
@@ -10,15 +10,20 @@ echo "=== Commit message ==="
 echo "$msg"
 echo ""
 
+source_keywords="issue|design-doc|requirement|Fixes|Refs|Closes|CI|user"
+valid_types="feat|fix|docs|refactor|test|perf|chore"
+
 # 1. Check Source: footer
-if ! echo "$msg" | grep -qE '^Source: (issue #[0-9]+|design-doc [^ ]+|requirement [^ ]+|Fixes #|Refs #|Closes #|CI|user)$'; then
-    echo "ERROR: Source footer must be one of:"
-    echo "  - issue #N"
-    echo "  - design-doc <path> (relative to project root, no spaces in path)"
-    echo "  - requirement <path> (relative to project root, no spaces in path)"
-    echo "  - Fixes #N / Refs #N / Closes #N (legacy)"
-    echo "  - CI"
-    echo "  - user"
+if ! echo "$msg" | grep -qE '^Source: '; then
+    echo "ERROR: Commit message must contain a 'Source:' footer line"
+    echo ""
+    echo "Commit message:"
+    echo "$msg"
+    exit 1
+fi
+if ! echo "$msg" | grep -E '^Source: ' | grep -qiE "$source_keywords"; then
+    echo "ERROR: Source footer line must contain one of these keywords:"
+    echo "  issue / design-doc / requirement / Fixes / Refs / Closes / CI / user"
     echo ""
     echo "Commit message:"
     echo "$msg"
@@ -26,9 +31,16 @@ if ! echo "$msg" | grep -qE '^Source: (issue #[0-9]+|design-doc [^ ]+|requiremen
 fi
 
 # 2. Check Type: footer
-valid_types="feat|fix|docs|refactor|test|perf|chore"
-if ! echo "$msg" | grep -qE "^Type: ($valid_types)"; then
-    echo "ERROR: Type footer must be one of: $valid_types"
+if ! echo "$msg" | grep -qE '^Type: '; then
+    echo "ERROR: Commit message must contain a 'Type:' footer line"
+    echo ""
+    echo "Commit message:"
+    echo "$msg"
+    exit 1
+fi
+if ! echo "$msg" | grep -E '^Type: ' | grep -qiE "$valid_types"; then
+    echo "ERROR: Type footer line must contain one of these keywords:"
+    echo "  $valid_types"
     echo ""
     echo "Commit message:"
     echo "$msg"

@@ -81,7 +81,10 @@ pre-commit 触发
 
 ### commit-msg
 
-检查 commit message 是否包含 `Source:` 和 `Type:` footer。
+检查 commit message 是否包含 `Source:` 和 `Type:` footer：
+
+- `Source:` 行内包含关键词：`issue` `design-doc` `requirement` `Fixes` `Refs` `Closes` `CI` `user`
+- `Type:` 行内包含关键词：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
 
 ```
 feat(auth): add OAuth2 support
@@ -89,9 +92,6 @@ feat(auth): add OAuth2 support
 Source: issue #123
 Type: feat
 ```
-
-Source 支持：`issue #N`、`design-doc <path>`、`requirement <path>`、`Fixes #N`、`Refs #N`、`Closes #N`、`CI`、`user`  
-Type 支持：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
 
 ### pre-push
 
