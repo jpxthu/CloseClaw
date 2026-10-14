@@ -4,17 +4,31 @@
 //! fallback to the fixed interval, and non-Memory reloads being ignored
 //! by the cron loop.
 //!
+//! Also houses the loop-level Fire-persistence regression tests for
+//! issue #3608: after a reload, every subsequent Fire must re-arm on the
+//! currently loaded schedule (or the fixed-interval fallback), not
+//! silently revert to the schedule the loop started with.
+//!
 //! Own file (not appended to `dreaming_scheduler_tests.rs`) because that
 //! file sits near the 1000-line hard limit (CONTRIBUTING §硬性限制).
 
 use std::sync::Arc;
 
+use tokio::sync::{mpsc, watch};
+
+use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::{
     make_config_change_scheduler, make_disabled_pipeline_and_miner, make_test_config_manager,
     notify_section_reload, run_scheduler_briefly, seed_memory_section_cache_with_schedule,
-    wait_until,
+    wait_until, MockConfig, TestStorage,
 };
+use closeclaw_common::CompactConfig;
+use closeclaw_config::session::{PerAgentSessionConfig, SessionConfigProvider};
+use closeclaw_config::ConfigManager;
 use closeclaw_config::ConfigSection;
+use closeclaw_memory::dreaming::DreamingPipeline;
+use closeclaw_memory::miner::MemoryMiner;
+use closeclaw_session::persistence::{AgentRole, PersistenceService};
 
 // ── Normal path: schedule switch + next_fire recomputation ────────────
 
@@ -168,4 +182,198 @@ async fn test_cron_loop_ignores_non_memory_reload() {
         !miner.is_enabled(),
         "non-Memory reload must not be applied by the cron loop"
     );
+}
+
+// ── Loop-level Fire persistence (issue #3608) ─────────────────────────
+
+/// `SessionConfigProvider` wrapper that emits one message per
+/// `list_agents` call: `list_agents` is the first statement of every
+/// spawned dreaming cycle (`execute_dreaming_cycle`), so each message is
+/// the observable "a Fire happened" signal for the loop-level regression
+/// tests — the loop-local `next_fire` itself is not observable from
+/// outside the loop (issue #3608). The channel rendezvous lets the test
+/// await each Fire individually: under `start_paused` the runtime
+/// auto-advances the virtual clock timer-by-timer while the test task is
+/// parked on `recv()`, so spawned cycles are polled (and their signals
+/// delivered) exactly when they run.
+struct FireSignalConfig {
+    inner: MockConfig,
+    fires: mpsc::UnboundedSender<()>,
+}
+
+impl SessionConfigProvider for FireSignalConfig {
+    fn session_config_for(&self, agent_id: &str, role: AgentRole) -> PerAgentSessionConfig {
+        self.inner.session_config_for(agent_id, role)
+    }
+
+    fn sweeper_interval_secs(&self) -> u64 {
+        self.inner.sweeper_interval_secs()
+    }
+
+    fn dreaming_interval_secs(&self) -> u64 {
+        self.inner.dreaming_interval_secs()
+    }
+
+    fn consistency_check_interval_secs(&self) -> u64 {
+        self.inner.consistency_check_interval_secs()
+    }
+
+    fn list_agents(&self) -> Vec<String> {
+        let _ = self.fires.send(());
+        self.inner.list_agents()
+    }
+
+    fn compact_config(&self) -> CompactConfig {
+        self.inner.compact_config()
+    }
+
+    fn plan_archive_days(&self) -> u64 {
+        self.inner.plan_archive_days()
+    }
+
+    fn audit_log_limit(&self) -> usize {
+        self.inner.audit_log_limit()
+    }
+}
+
+/// Wire a scheduler over the given pipeline/miner/config manager whose
+/// Fires are signalled via [`FireSignalConfig`]. The empty agent list
+/// keeps every cycle a no-op that finishes within its first poll, so
+/// cycles never overlap and one message == one Fire.
+fn make_fire_signalling_scheduler(
+    pipeline: Arc<DreamingPipeline>,
+    miner: Arc<MemoryMiner>,
+    config_manager: Arc<ConfigManager>,
+    fires: mpsc::UnboundedSender<()>,
+) -> DreamingScheduler {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(FireSignalConfig {
+        inner: MockConfig::empty(),
+        fires,
+    });
+    DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
+}
+
+/// Await `n` Fires, bounded by a virtual-clock horizon of `horizon_secs`.
+///
+/// Under `start_paused` the timeout deadline is also virtual: auto-advance
+/// drives it while the test task is parked on the recvs, so the horizon
+/// discriminates on the SCHEDULING cadence, not on real runtime speed.
+/// Returns the virtual time consumed by the `n` fires.
+async fn await_n_fires(
+    fire_rx: &mut mpsc::UnboundedReceiver<()>,
+    n: usize,
+    horizon_secs: u64,
+) -> tokio::time::Duration {
+    let started_at = tokio::time::Instant::now();
+    let horizon = tokio::time::Duration::from_secs(horizon_secs);
+    tokio::time::timeout(horizon, async {
+        for _ in 0..n {
+            fire_rx
+                .recv()
+                .await
+                .expect("fire signal channel stays open while the loop runs");
+        }
+    })
+    .await
+    .expect("fires must keep arriving within the virtual horizon");
+    started_at.elapsed()
+}
+
+/// Signal shutdown and join the loop.
+async fn shutdown_and_join(shutdown_tx: watch::Sender<()>, handle: tokio::task::JoinHandle<()>) {
+    shutdown_tx.send(()).expect("shutdown send");
+    handle.await.expect("scheduler loop joins after shutdown");
+}
+
+/// Loop-level regression (issue #3608, normal path): after a
+/// Memory-section reload switches the cron from the daily `0 3 * * *` to
+/// the every-minute `* * * * *`, every subsequent Fire must re-arm on the
+/// reloaded schedule instead of silently reverting to the schedule the
+/// loop started with. Pre-fix, only the reload-scheduled Fire lands on
+/// the new schedule and the re-arm after it jumps back to the old daily
+/// 3am horizon — the second Fire cannot arrive within the horizon.
+///
+/// Runs on a paused (virtual) clock, same pattern as
+/// `test_dreaming_shutdown_abandons_task_after_grace_period`:
+/// `cron_next_fire` derives its delay from the wall clock, so pausing
+/// tokio's clock lets the test fast-forward through minute boundaries.
+/// Four fires (the reload-scheduled one plus three re-arms) must all
+/// arrive within one virtual hour: on the every-minute schedule they
+/// arrive within ~4 minutes, while a loop that reverted to the daily
+/// schedule would need up to 24 virtual hours for its next fire.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_cron_loop_fires_keep_reloaded_schedule() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    seed_memory_section_cache_with_schedule(&config_manager, Some("* * * * *"));
+    let (pipeline, miner) = make_disabled_pipeline_and_miner(
+        &tmp.path().join("memory-cron-fire-persist.db"),
+        &tmp.path().join("MEMORY-cron-fire-persist.md"),
+    );
+    let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
+    let mut scheduler =
+        make_fire_signalling_scheduler(pipeline, miner, config_manager.clone(), fire_tx)
+            .with_schedule(Some("0 3 * * *".to_string()));
+
+    notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move { scheduler.run(shutdown_rx).await });
+
+    await_n_fires(&mut fire_rx, 4, 3600).await;
+
+    shutdown_and_join(shutdown_tx, handle).await;
+}
+
+/// Loop-level regression (issue #3608, boundary): a reload to an INVALID
+/// expression stores the raw value and re-arms on the fixed interval
+/// (`now + dreaming_interval_secs`), and that fallback must PERSIST
+/// across subsequent Fires — each Fire re-arms on the fallback again, not
+/// on the stale pre-reload daily schedule. Pre-fix, the re-arm after the
+/// first fallback Fire jumps back to the daily schedule and no further
+/// fire can arrive within the horizon.
+///
+/// Paused clock; `MockConfig::dreaming_interval_secs` is 600s, so three
+/// persistent-fallback fires take ~1800 virtual seconds. The horizon
+/// upper-bounds the cadence (persistence, ≤1h) and the elapsed floor
+/// lower-bounds it (each re-arm honours the full 600s interval: three
+/// fires need ≥2×600s — a faster re-arm would mean the fallback interval
+/// is not what governs the re-arms).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    seed_memory_section_cache_with_schedule(&config_manager, Some("not-a-cron"));
+    let (pipeline, miner) = make_disabled_pipeline_and_miner(
+        &tmp.path().join("memory-cron-fallback-persist.db"),
+        &tmp.path().join("MEMORY-cron-fallback-persist.md"),
+    );
+    let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
+    let mut scheduler =
+        make_fire_signalling_scheduler(pipeline, miner, config_manager.clone(), fire_tx)
+            .with_schedule(Some("0 3 * * *".to_string()));
+
+    notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
+
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move { scheduler.run(shutdown_rx).await });
+
+    let elapsed = await_n_fires(&mut fire_rx, 3, 3600).await;
+    assert!(
+        elapsed >= tokio::time::Duration::from_secs(1200),
+        "each re-arm must honour the full 600s fallback interval: three \
+         fires must span ≥1200s, took {elapsed:?}"
+    );
+
+    shutdown_and_join(shutdown_tx, handle).await;
 }
