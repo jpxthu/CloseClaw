@@ -694,9 +694,10 @@ impl Tool for PlanVisDummyTool {
         serde_json::json!({ "type": "object", "properties": {} })
     }
     fn flags(&self) -> ToolFlags {
-        let mut f = ToolFlags::default();
-        f.is_read_only = self.is_read_only;
-        f
+        ToolFlags {
+            is_read_only: self.is_read_only,
+            ..Default::default()
+        }
     }
 }
 

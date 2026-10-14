@@ -263,7 +263,7 @@ fn test_concurrent_get_and_populate() {
     }
 
     // After all writers, at least some configs should be present
-    assert!(!registry.get("writer-0").is_none() || !registry.get("writer-49").is_none());
+    assert!(registry.get("writer-0").is_some() || registry.get("writer-49").is_some());
 }
 
 #[tokio::test]
@@ -502,8 +502,10 @@ async fn test_agent_tools_query_empty_disallowed_is_none() {
 #[tokio::test]
 async fn test_agent_config_lookup_with_model() {
     let registry = AgentRegistry::new();
-    let mut subagents = SubagentsConfig::default();
-    subagents.model = Some(ModelSpec::single("claude-3"));
+    let subagents = SubagentsConfig {
+        model: Some(ModelSpec::single("claude-3")),
+        ..SubagentsConfig::default()
+    };
     let mut cfg = make_config("config-lookup");
     cfg.subagents = subagents;
     registry.populate(vec![cfg]);

@@ -198,9 +198,10 @@ impl Tool for LongDetailTool {
         serde_json::json!({})
     }
     fn flags(&self) -> ToolFlags {
-        let mut f = ToolFlags::default();
-        f.is_deferred_by_default = self.is_deferred;
-        f
+        ToolFlags {
+            is_deferred_by_default: self.is_deferred,
+            ..Default::default()
+        }
     }
 }
 
