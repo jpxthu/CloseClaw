@@ -33,10 +33,10 @@ fn classify_config_recv(result: Result<ConfigChangeEvent, RecvError>) -> ConfigR
 }
 
 impl DreamingScheduler {
-    /// Await the next loop event (shared by both scheduling loops).
+    /// Await the next loop event (shared by the unified scheduling loop).
     ///
-    /// Races the four branches previously duplicated across
-    /// [`Self::run_cron_loop`] and [`Self::run_fixed_interval_loop`] —
+    /// Races the four branches previously duplicated across the two
+    /// per-strategy scheduling loops, unified in [`Self::run_loop`] —
     /// shutdown watch, config broadcast, mining-notify channel and the
     /// `next_fire` timer — and classifies the winner as a
     /// [`LoopEvent`]. Only Memory-section reloads surface as
