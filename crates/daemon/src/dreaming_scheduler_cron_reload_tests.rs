@@ -310,7 +310,10 @@ async fn shutdown_and_join(shutdown_tx: watch::Sender<()>, handle: tokio::task::
 /// Four fires (the reload-scheduled one plus three re-arms) must all
 /// arrive within one virtual hour: on the every-minute schedule they
 /// arrive within ~4 minutes, while a loop that reverted to the daily
-/// schedule would need up to 24 virtual hours for its next fire.
+/// schedule would need up to 24 virtual hours for its next fire. The
+/// elapsed upper bound additionally pins the minute cadence itself
+/// (four fires ≤300s): degrading to the 600s fixed-interval fallback
+/// would span ≈1860s — still under the horizon, but past the bound.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_cron_loop_fires_keep_reloaded_schedule() {
     let tmp = tempfile::tempdir().expect("temp dir");
@@ -330,7 +333,13 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move { scheduler.run(shutdown_rx).await });
 
-    await_n_fires(&mut fire_rx, 4, 3600).await;
+    let elapsed = await_n_fires(&mut fire_rx, 4, 3600).await;
+    assert!(
+        elapsed <= tokio::time::Duration::from_secs(300),
+        "every-minute re-arms must keep the minute cadence: four fires \
+         must span ≤300s (a 600s-fallback regression needs ≈1860s), \
+         took {elapsed:?}"
+    );
 
     shutdown_and_join(shutdown_tx, handle).await;
 }

@@ -63,14 +63,13 @@ impl DreamingScheduler {
             );
         } else {
             let interval_secs = self.config.dreaming_interval_secs();
-            let interval = tokio::time::Duration::from_secs(interval_secs);
             info!(
                 "schedule became invalid after config \
                  reload, falling back to fixed \
                  interval {}s",
                 interval_secs
             );
-            *next_fire = tokio::time::Instant::now() + interval;
+            *next_fire = self.fallback_next_fire();
         }
     }
 }
