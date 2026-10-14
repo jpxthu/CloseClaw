@@ -14,6 +14,7 @@ use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
+use super::slash_executor_test_utils::first_text_block;
 use closeclaw_common::executor::SlashResultExecutor;
 
 // ── Minimal mock (SessionLookup) ──────────────────────────────────────
@@ -136,11 +137,7 @@ async fn test_system_append_add_increments_number() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #1"),
-                "first add should be #1, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已追加指令 #1");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -158,11 +155,7 @@ async fn test_system_append_add_increments_number() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #2"),
-                "second add should be #2, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已追加指令 #2");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -180,11 +173,7 @@ async fn test_system_append_add_increments_number() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #3"),
-                "third add should be #3, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已追加指令 #3");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -245,11 +234,7 @@ async fn test_system_append_clear_zero_items() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 0 条追加指令"),
-                "clear on empty list should show 0, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已清除 0 条追加指令");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -285,11 +270,7 @@ async fn test_system_append_clear_count_reflected_in_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 4 条追加指令"),
-                "second clear should reflect count 4, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已清除 4 条追加指令");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -311,10 +292,7 @@ async fn test_system_append_add_reply_format_uses_count() {
     let actions = drain_actions(&mut rx).await;
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            let text = match &blocks[0] {
-                ContentBlock::Text(t) => t.as_str(),
-                other => panic!("expected Text block, got {other:?}"),
-            };
+            let text = first_text_block(blocks);
             assert_eq!(text, "已追加指令 #1");
             assert!(
                 text.starts_with("已追加指令 #"),
