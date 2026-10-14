@@ -292,4 +292,59 @@ mod tests {
         let actions: Vec<ReplyAction> = vec![];
         let _ = reply_blocks(&actions);
     }
+
+    #[tokio::test]
+    async fn test_drain_actions_collects_multiple_actions_in_send_order() {
+        let (tx, mut rx) = mpsc::channel(16);
+        tx.send(ReplyAction::Reply(vec![ContentBlock::Text("first".into())]))
+            .await
+            .unwrap();
+        tx.send(ReplyAction::TriggerCompact { instruction: None })
+            .await
+            .unwrap();
+        tx.send(ReplyAction::Nothing).await.unwrap();
+        drop(tx);
+
+        let actions = drain_actions(&mut rx).await;
+
+        assert_eq!(actions.len(), 3);
+        assert!(matches!(
+            &actions[0],
+            ReplyAction::Reply(b) if *b == [ContentBlock::Text("first".into())]
+        ));
+        assert!(matches!(
+            &actions[1],
+            ReplyAction::TriggerCompact { instruction: None }
+        ));
+        assert!(matches!(&actions[2], ReplyAction::Nothing));
+    }
+
+    #[tokio::test]
+    async fn test_drain_actions_returns_empty_vec_when_channel_closed_empty() {
+        let (tx, mut rx) = mpsc::channel::<ReplyAction>(16);
+        drop(tx);
+
+        let actions = drain_actions(&mut rx).await;
+
+        assert!(actions.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_drain_actions_collects_buffered_actions_after_sender_drop() {
+        let (tx, mut rx) = mpsc::channel(2);
+        tx.send(ReplyAction::Nothing).await.unwrap();
+        tx.send(ReplyAction::TriggerCompact { instruction: None })
+            .await
+            .unwrap();
+        drop(tx);
+
+        let actions = drain_actions(&mut rx).await;
+
+        assert_eq!(actions.len(), 2);
+        assert!(matches!(&actions[0], ReplyAction::Nothing));
+        assert!(matches!(
+            &actions[1],
+            ReplyAction::TriggerCompact { instruction: None }
+        ));
+    }
 }
