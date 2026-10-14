@@ -105,6 +105,15 @@ enum ConfigRecvOutcome {
     Closed,
 }
 
+/// What triggered a loop's shutdown epilogue
+/// ([`DreamingScheduler::finish_shutdown`]).
+enum ShutdownCause {
+    /// Shutdown watch signal observed (normal daemon shutdown).
+    Signal,
+    /// Config broadcast channel closed — sender dropped (issue #3577).
+    ConfigClosed,
+}
+
 /// Classify one config broadcast receive result.
 ///
 /// Pure function, kept private and unit-testable (issue #3577): the
@@ -334,15 +343,12 @@ impl DreamingScheduler {
         let cron_schedule = self.schedule.as_deref().and_then(parse_cron_schedule);
 
         if let Some(ref sched) = cron_schedule {
-            let next = sched.next_fire_time(Local::now());
-            let delay = (next - Local::now())
-                .to_std()
-                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
             info!(
                 schedule = %sched.display(),
                 "DreamingScheduler started with cron schedule"
             );
-            self.run_cron_loop(&mut shutdown, sched, delay).await;
+            self.run_cron_loop(&mut shutdown, sched, cron_next_fire(sched))
+                .await;
         } else {
             let interval_secs = self.config.dreaming_interval_secs();
             let interval = tokio::time::Duration::from_secs(interval_secs);
@@ -359,15 +365,19 @@ impl DreamingScheduler {
         &mut self,
         shutdown: &mut watch::Receiver<()>,
         schedule: &CronSchedule,
-        initial_delay: tokio::time::Duration,
+        next_fire: tokio::time::Instant,
     ) {
-        let mut next_fire = tokio::time::Instant::now() + initial_delay;
+        let mut next_fire = next_fire;
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
             match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown | LoopEvent::ConfigClosed => {
-                    Self::finish_shutdown(&mut active_task).await;
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
+                    break;
+                }
+                LoopEvent::ConfigClosed => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
                     break;
                 }
                 LoopEvent::ConfigReload => {
@@ -378,11 +388,7 @@ impl DreamingScheduler {
                 }
                 LoopEvent::Fire => {
                     self.spawn_or_skip_cycle(&mut active_task).await;
-                    let next = schedule.next_fire_time(Local::now());
-                    let delay = (next - Local::now())
-                        .to_std()
-                        .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
-                    next_fire = tokio::time::Instant::now() + delay;
+                    next_fire = cron_next_fire(schedule);
                 }
             }
         }
@@ -451,14 +457,24 @@ impl DreamingScheduler {
         }
     }
 
-    /// Shared shutdown epilogue: log the signal and give an in-flight
-    /// cycle the grace budget to finish. Also the termination path for
-    /// [`LoopEvent::ConfigClosed`] (issue #3577). The caller breaks its
-    /// loop afterwards.
+    /// Shared shutdown epilogue: log the exit cause truthfully and give
+    /// an in-flight cycle the grace budget to finish. Termination causes
+    /// are the shutdown watch ([`ShutdownCause::Signal`]) and the closed
+    /// config broadcast ([`ShutdownCause::ConfigClosed`], issue #3577) —
+    /// the latter gets its own message, not the shutdown-signal text.
+    /// The caller breaks its loop afterwards.
     async fn finish_shutdown(
         active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
+        cause: ShutdownCause,
     ) {
-        info!("DreamingScheduler received shutdown signal, exiting");
+        match cause {
+            ShutdownCause::Signal => {
+                info!("DreamingScheduler received shutdown signal, exiting");
+            }
+            ShutdownCause::ConfigClosed => {
+                info!("DreamingScheduler config broadcast closed, exiting");
+            }
+        }
         if let Some(handle) = active_task.take() {
             wait_for_active_task(handle).await;
         }
@@ -483,11 +499,7 @@ impl DreamingScheduler {
         self.handle_config_change().await;
         let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
         if let Some(ref new_sched) = new_sched {
-            let next = new_sched.next_fire_time(Local::now());
-            let delay = (next - Local::now())
-                .to_std()
-                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
-            *next_fire = tokio::time::Instant::now() + delay;
+            *next_fire = cron_next_fire(new_sched);
             info!(
                 schedule = %new_sched.display(),
                 "schedule updated after config reload"
@@ -516,8 +528,12 @@ impl DreamingScheduler {
 
         loop {
             match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown | LoopEvent::ConfigClosed => {
-                    Self::finish_shutdown(&mut active_task).await;
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
+                    break;
+                }
+                LoopEvent::ConfigClosed => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
                     break;
                 }
                 LoopEvent::ConfigReload => {
@@ -731,6 +747,22 @@ fn match_field(field: &CronField, value: u32) -> bool {
         CronField::Any => true,
         CronField::Value(v) => *v == value,
     }
+}
+
+/// Next cron fire instant, expressed on tokio's clock.
+///
+/// Collapses the three verbatim `next_fire_time` → delay →
+/// `tokio::time::Instant` conversions previously duplicated across
+/// [`DreamingScheduler::run`], the cron loop's `Fire` branch and
+/// [`DreamingScheduler::handle_cron_config_reload`] (issue #3578).
+/// Falls back to a 1s delay when the wall-clock delta is negative or
+/// unrepresentable (clock moved backwards past the fire instant).
+fn cron_next_fire(schedule: &CronSchedule) -> tokio::time::Instant {
+    let next = schedule.next_fire_time(Local::now());
+    let delay = (next - Local::now())
+        .to_std()
+        .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
+    tokio::time::Instant::now() + delay
 }
 
 /// Display a cron field for logging.

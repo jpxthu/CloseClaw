@@ -700,18 +700,19 @@ pub fn seed_memory_section_cache(config_manager: &ConfigManager) {
     );
 }
 
-/// Scenario: broadcast a section reload event and let it propagate
-/// (broadcast channel delivery).
-pub async fn notify_section_reload(
-    config_manager: &ConfigManager,
-    section: ConfigSection,
-    path: &str,
-) {
+/// Scenario: broadcast a section reload event.
+///
+/// Synchronous by design: the scheduler's receiver subscribed at
+/// construction (`DreamingScheduler::new` → `subscribe_config_changes`),
+/// so the event is guaranteed buffered in the receiver — no settle sleep
+/// is needed. Consumers observe the effect deterministically via
+/// [`wait_until`] (plan Step 1.5: the previous fixed 50ms sleep was
+/// redundant and removed).
+pub fn notify_section_reload(config_manager: &ConfigManager, section: ConfigSection, path: &str) {
     config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
         section,
         path: path.into(),
     });
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
 }
 
 /// Poll `ready` until it holds, failing the test if it doesn't within 1s.

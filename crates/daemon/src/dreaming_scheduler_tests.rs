@@ -347,8 +347,7 @@ async fn test_config_change_memory_section_updates_components() {
         &config_manager,
         closeclaw_config::ConfigSection::Memory,
         "memory.json",
-    )
-    .await;
+    );
     // Deterministic signal: handle_config_change() updates the pipeline and
     // then the miner, so miner flipping to enabled proves the Memory reload
     // event was consumed and applied (pipeline update precedes it).
@@ -390,8 +389,7 @@ async fn test_config_change_non_memory_ignored() {
         &config_manager,
         closeclaw_config::ConfigSection::Gateway,
         "gateway.json",
-    )
-    .await;
+    );
     // Conservative fixed window (#3148 item 4): a non-Memory event is
     // intentionally a no-op — it produces NO observable state change, and
     // that absence is exactly what this test asserts — so unlike the Memory
@@ -784,6 +782,87 @@ async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
     assert!(
         !observed.mined_ids().iter().any(|id| id == "notify-foreign"),
         "session with unconfigured agent must be silently ignored"
+    );
+}
+
+/// The shared notify helper's `agents.is_empty()` guard must suppress
+/// mining end to end: with NO agent configured at all, a notified
+/// session that would otherwise be minable is left untouched and the
+/// loop stays alive. This is a different branch than the foreign-agent
+/// scenario above — that one is filtered inside `mine_archived_session`
+/// (`agents.contains(aid)`), this one short-circuits in
+/// `handle_mining_notify` before any per-session work.
+///
+/// Deterministic consumption proof: the notify channel has capacity 1,
+/// so the follow-up `send().await` can only complete once the loop has
+/// dequeued the first message — the guard branch has definitely run
+/// (bounded by a 1s timeout so a broken loop fails fast, not by hang).
+#[tokio::test]
+async fn test_mining_notify_empty_agents_suppresses_mining() {
+    let test_storage = Arc::new(TestStorage::default());
+
+    // A session that would be minable if any agent were configured.
+    let mut cp = SessionCheckpoint::new("notify-no-agents".into())
+        .with_outbound_pending(miner_clean_transcript());
+    cp.agent_id = Some("agent1".into());
+    cp.mined = false;
+    test_storage.add_archived(cp);
+
+    let storage: Arc<dyn PersistenceService> =
+        Arc::clone(&test_storage) as Arc<dyn PersistenceService>;
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let pipeline = Arc::new(DreamingPipeline::new());
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: true,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        tmp.path().join("memory-notify-empty.db"),
+        tmp.path()
+            .join("MEMORY-notify-empty.md")
+            .to_string_lossy()
+            .into_owned(),
+    ));
+
+    let (notify_tx, notify_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let scheduler = DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
+    .with_mining_notify_rx(notify_rx);
+
+    let observed = Arc::clone(&test_storage);
+    run_scheduler_briefly(scheduler, async move {
+        notify_tx
+            .send("notify-no-agents".to_string())
+            .await
+            .unwrap();
+        // Completes only once the first message was dequeued by the
+        // loop — proof the empty-agents guard branch executed.
+        tokio::time::timeout(
+            tokio::time::Duration::from_secs(1),
+            notify_tx.send("consumption-proof".to_string()),
+        )
+        .await
+        .expect("loop must consume the notify message within 1s")
+        .unwrap();
+    })
+    .await;
+
+    assert!(
+        observed.mined_ids().is_empty(),
+        "no session may be mined when no agent is configured, got {:?}",
+        observed.mined_ids()
     );
 }
 
