@@ -21,21 +21,18 @@ use tracing::{error, info, warn};
 /// Timeout (seconds) to wait for an active dreaming cycle during shutdown.
 pub(crate) const SHUTDOWN_GRACE_SECS: u64 = 10;
 
-use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigChangeEvent;
 use closeclaw_config::ConfigManager;
-use closeclaw_config::ConfigSection;
 use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::storage::MemoryStorage;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
+mod config_reload;
 mod cron;
 mod events;
 mod run;
-
-use cron::{cron_next_fire, parse_cron_schedule};
 
 /// Errors that can occur during scheduler operations.
 #[derive(Debug, Error)]
@@ -286,41 +283,6 @@ impl DreamingScheduler {
         self
     }
 
-    /// Handle a config change for the Memory section.
-    async fn handle_config_change(&mut self) {
-        match self.config_manager.section(ConfigSection::Memory) {
-            Some(value) => {
-                let content = match serde_json::to_string(&value) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        error!(%e, "failed to serialize memory config");
-                        return;
-                    }
-                };
-                let memory_config = match MemoryConfigData::from_json_str(&content) {
-                    Ok(c) => c,
-                    Err(e) => {
-                        error!(%e, "failed to parse memory config");
-                        return;
-                    }
-                };
-                self.dreaming_pipeline.update_config(
-                    crate::memory_params_adapter::dreaming_params_from_config(
-                        &memory_config.config.dreaming,
-                    ),
-                );
-                self.memory_miner.update_config(
-                    crate::memory_params_adapter::miner_config_from_memory(&memory_config.config),
-                );
-                self.schedule = memory_config.config.dreaming.schedule.clone();
-                info!("dreaming config reloaded via config manager");
-            }
-            None => {
-                error!("Memory config section not available");
-            }
-        }
-    }
-
     /// Shared mining-notify branch: mine the notified session only when
     /// at least one agent is configured; otherwise stay silent.
     async fn handle_mining_notify(&self, session_id: &str) {
@@ -331,30 +293,6 @@ impl DreamingScheduler {
                 "mining triggered by archive notification"
             );
             self.mine_session(session_id, &agents).await;
-        }
-    }
-
-    /// Handle a config reload within the cron loop: apply new config,
-    /// re-parse the schedule, and recompute next fire time.
-    async fn handle_cron_config_reload(&mut self, next_fire: &mut tokio::time::Instant) {
-        self.handle_config_change().await;
-        let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
-        if let Some(ref new_sched) = new_sched {
-            *next_fire = cron_next_fire(new_sched);
-            info!(
-                schedule = %new_sched.display(),
-                "schedule updated after config reload"
-            );
-        } else {
-            let interval_secs = self.config.dreaming_interval_secs();
-            let interval = tokio::time::Duration::from_secs(interval_secs);
-            info!(
-                "schedule became invalid after config \
-                 reload, falling back to fixed \
-                 interval {}s",
-                interval_secs
-            );
-            *next_fire = tokio::time::Instant::now() + interval;
         }
     }
 
