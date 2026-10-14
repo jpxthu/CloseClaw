@@ -8,10 +8,13 @@
 //! that file under the 1000-line red line.
 
 use super::run::prepare_run;
+use closeclaw_platform::process::is_process_alive;
 use std::io::Read;
+use std::path::PathBuf;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
+use tempfile::TempDir;
 
 /// Env gate: set only on the re-exec'd child so normal test runs skip the
 /// helper sub-test.
@@ -27,6 +30,17 @@ const HELPER_RESULT_MARKER: &str = "PREPARE_RUN_RESOLVED=";
 /// re-exec completes well under 2s; 10s leaves headroom for slow starts
 /// while staying under the 30s unit-test hard cap (STANDARDS.md §6).
 const HELPER_CHILD_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Wait bound injected by the hang-fault-injection test (issue #3165 Step
+/// 1.3). Shorter than [`HELPER_CHILD_TIMEOUT`] so the case stays under the
+/// 5s CI target (STANDARDS.md §6); the production-path bound is unchanged.
+const TEST_HANG_INJECTION_TIMEOUT: Duration = Duration::from_secs(2);
+
+/// Env gate for the hang fault injection: its value is the path of a pid
+/// file (inside the parent's TempDir). When set alongside
+/// [`HELPER_CHILD_GATE`], the helper child records its pid there and then
+/// blocks forever, so the parent can exercise the timeout kill path.
+const HELPER_CHILD_HANG: &str = "PREPARE_RUN_HELPER_HANG";
 
 /// Poll interval of the helper-child watcher thread (bounded polling +
 /// kill fallback precedent: crates/platform/src/process_tests.rs).
@@ -62,6 +76,18 @@ pub(super) fn spawn_helper_child(
     config_dir: &str,
     envs: &[(&str, &str)],
     remove_home: bool,
+) -> Result<std::process::Output, String> {
+    spawn_helper_child_with_timeout(config_dir, envs, remove_home, HELPER_CHILD_TIMEOUT)
+}
+
+/// [`spawn_helper_child`] with an injectable wait bound — test-only hook so
+/// the hang-fault-injection case can shrink the timeout without touching the
+/// production-path bound.
+fn spawn_helper_child_with_timeout(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+    remove_home: bool,
+    timeout: Duration,
 ) -> Result<std::process::Output, String> {
     let sub_test = helper_child_test_name();
     let test_binary = std::env::current_exe().expect("failed to resolve current test binary");
@@ -115,7 +141,7 @@ pub(super) fn spawn_helper_child(
         }
     });
 
-    match rx.recv_timeout(HELPER_CHILD_TIMEOUT) {
+    match rx.recv_timeout(timeout) {
         Ok(Ok(status)) => {
             let stdout = stdout_reader.join().unwrap_or_default();
             let stderr = stderr_reader.join().unwrap_or_default();
@@ -140,7 +166,7 @@ pub(super) fn spawn_helper_child(
             Err(format!(
                 "helper child `{sub_test}` timed out after {}s and was killed \
                  (kill succeeded: {killed})",
-                HELPER_CHILD_TIMEOUT.as_secs()
+                timeout.as_secs()
             ))
         }
         Err(e) => Err(format!("helper child `{sub_test}` watcher failed: {e}")),
@@ -165,6 +191,17 @@ fn drain_pipe<R: Read>(pipe: Option<R>) -> Vec<u8> {
 fn test_prepare_run_helper_child() {
     if std::env::var(HELPER_CHILD_GATE).is_err() {
         eprintln!("skipped: run via parent test subprocess");
+        return;
+    }
+    // Hang fault injection (issue #3165 Step 1.3): record our pid for the
+    // parent's residual-process check, then block forever. The wait is a
+    // channel recv with a live but silent sender — no sleep polling
+    // (STANDARDS.md §9); only the parent's kill can end it.
+    if let Some(pid_file) = std::env::var(HELPER_CHILD_HANG).ok().map(PathBuf::from) {
+        std::fs::write(&pid_file, std::process::id().to_string())
+            .expect("failed to write hang-injection pid file");
+        let (_tx, rx) = mpsc::channel::<()>();
+        let _ = rx.recv();
         return;
     }
     let config_dir = std::env::var(HELPER_CONFIG_DIR).expect("missing config_dir input");
@@ -192,4 +229,55 @@ pub(super) fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
         .unwrap_or_else(|| {
             panic!("helper child printed no {HELPER_RESULT_MARKER} line, stdout: {stdout}")
         })
+}
+
+/// Hang fault injection (issue #3165 Step 1.3): a helper child blocked
+/// forever must surface as a timeout error within the wait bound — naming
+/// the helper sub-test for diagnosis — with the child killed and reaped so
+/// no process is left behind.
+#[test]
+fn test_spawn_helper_child_timeout_kills_hung_child() {
+    let tmp = TempDir::new().expect("failed to create tempdir");
+    let pid_file = tmp.path().join("helper-child.pid");
+
+    let started = Instant::now();
+    let result = spawn_helper_child_with_timeout(
+        "",
+        &[(
+            HELPER_CHILD_HANG,
+            pid_file.to_str().expect("utf-8 tempdir path"),
+        )],
+        false,
+        TEST_HANG_INJECTION_TIMEOUT,
+    );
+    let elapsed = started.elapsed();
+
+    // Bounded error path: the returned error is the timeout diagnostic
+    // naming the helper sub-test, arriving near the injected bound (the
+    // +2s margin absorbs kill + reap + pipe teardown under parallel load).
+    let err = result.expect_err("hung helper child must surface a timeout error");
+    assert!(
+        err.contains("timed out"),
+        "error should be the bounded-wait timeout, got: {err}"
+    );
+    assert!(
+        err.contains(&helper_child_test_name()),
+        "error should name the helper sub-test for diagnosis, got: {err}"
+    );
+    assert!(
+        elapsed < TEST_HANG_INJECTION_TIMEOUT + Duration::from_secs(2),
+        "wait must return near the timeout bound, took {elapsed:?}"
+    );
+
+    // No residual child: the timeout path killed and reaped it (pid file
+    // proves the child reached the hang state before being killed).
+    let child_pid: u32 = std::fs::read_to_string(&pid_file)
+        .expect("hang child should have written its pid file")
+        .trim()
+        .parse()
+        .expect("pid file should contain a numeric pid");
+    assert!(
+        !is_process_alive(child_pid),
+        "helper child {child_pid} should be reaped after the timeout kill"
+    );
 }
