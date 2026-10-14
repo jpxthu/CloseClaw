@@ -29,6 +29,8 @@ pub use stop::{handle_stop, handle_stop_at, handle_stop_at_with_timeout, STOP_TI
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
+mod run_helper_tests;
+#[cfg(test)]
 mod run_tests;
 #[cfg(test)]
 mod stop_tests;
