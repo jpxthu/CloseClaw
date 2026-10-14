@@ -14,7 +14,7 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 /// Handler that dispatches `/<skill-name>` to the matching skill.
 ///
 /// The command names are **not** declared statically — they are injected
-/// at registration time via [`HandlerRegistry::register_named`]. This
+/// at registration time via [`crate::registry::HandlerRegistry::register_named`]. This
 /// allows the handler to dynamically claim any skill name that appears
 /// in the disk or builtin registries (accessed via the
 /// [`DiskSkillAccess`] / [`BuiltinSkillAccess`] ports).

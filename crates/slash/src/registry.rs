@@ -80,7 +80,7 @@ impl HandlerRegistry {
 
     /// Iterate over (command, handler) pairs, returning Arc clones.
     ///
-    /// This avoids the Arc→Box heap allocation that [`iter`] requires,
+    /// This avoids the Arc→Box heap allocation that [`Self::iter`] requires,
     /// making it the preferred path for callers that only need `Arc`.
     pub fn iter_arc(&self) -> Vec<(String, Arc<dyn SlashHandler>)> {
         self.handlers

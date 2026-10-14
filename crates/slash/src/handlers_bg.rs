@@ -9,7 +9,7 @@ use closeclaw_common::SlashSessionQuery;
 
 /// `/bg` — move the currently running foreground command to background.
 ///
-/// Calls [`SessionManager::trigger_manual_background`] to signal the session
+/// Calls [`SlashSessionQuery::trigger_manual_background`] to signal the session
 /// that the current command should be backgrounded.
 #[derive(Clone)]
 pub struct BackgroundHandler {
