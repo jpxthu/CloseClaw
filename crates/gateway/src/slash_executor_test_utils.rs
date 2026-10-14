@@ -2,7 +2,7 @@
 //!
 //! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and
 //! `first_text_block` used by `slash_executor_tests.rs` and
-//! `slash_permission_tests.rs`.
+//! `slash_executor_system_append_tests.rs`.
 
 use std::sync::Arc;
 
@@ -146,13 +146,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn first_text_block_returns_text_of_single_block() {
+    fn test_first_text_block_returns_text_of_single_block() {
         let blocks = vec![ContentBlock::Text("hello world".into())];
         assert_eq!(first_text_block(&blocks), "hello world");
     }
 
     #[test]
-    fn first_text_block_returns_first_block_when_multiple() {
+    fn test_first_text_block_returns_first_block_when_multiple() {
         let blocks = vec![
             ContentBlock::Text("first".into()),
             ContentBlock::Text("second".into()),
@@ -162,7 +162,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "expected ContentBlock::Text, got: Thinking")]
-    fn first_text_block_panics_on_non_text_variant() {
+    fn test_first_text_block_panics_on_non_text_variant() {
         let blocks = vec![ContentBlock::Thinking {
             thinking: "reasoning trace".into(),
             signature: None,
@@ -172,7 +172,7 @@ mod tests {
 
     #[test]
     #[should_panic(expected = "expected at least one ContentBlock, got: empty slice")]
-    fn first_text_block_panics_on_empty_slice() {
+    fn test_first_text_block_panics_on_empty_slice() {
         let blocks: Vec<ContentBlock> = vec![];
         let _ = first_text_block(&blocks);
     }
