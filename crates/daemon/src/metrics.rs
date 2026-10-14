@@ -5,7 +5,7 @@
 //! sites to always invoke `emit_*` methods without null-checks when no
 //! metrics backend is configured.
 
-use closeclaw_common::{llm_stats::CacheBreakInfo, MetricsEmitter};
+use closeclaw_common::{llm_stats::CacheAnomalyInfo, MetricsEmitter};
 
 /// No-op metrics emitter — the default implementation.
 ///
@@ -13,7 +13,7 @@ use closeclaw_common::{llm_stats::CacheBreakInfo, MetricsEmitter};
 pub(crate) struct NoopMetricsEmitter;
 
 impl MetricsEmitter for NoopMetricsEmitter {
-    fn emit_cache_break(&self, _info: &CacheBreakInfo) {}
+    fn emit_cache_anomaly(&self, _info: &CacheAnomalyInfo) {}
 }
 
 #[cfg(test)]
@@ -21,18 +21,16 @@ mod tests {
     use super::*;
 
     /// Verify that `NoopMetricsEmitter` does not panic and can be
-    /// called with a real `CacheBreakInfo`.
+    /// called with a real `CacheAnomalyInfo`.
     #[test]
-    fn test_noop_metrics_emitter_cache_break_does_not_panic() {
+    fn test_noop_metrics_emitter_cache_anomaly_does_not_panic() {
         let emitter = NoopMetricsEmitter;
-        let info = CacheBreakInfo {
-            previous_cache_read: 10_000,
-            current_cache_read: 5_000,
-            drop_tokens: 5_000,
-            drop_ratio: 0.5,
-            previous_hit_rate: 0.5,
-            current_hit_rate: 0.25,
+        let info = CacheAnomalyInfo {
+            previous_prompt_tokens: 10_000,
+            current_cache_read_tokens: 5_000,
+            deviation_tokens: 5_000,
+            tolerance_tokens: 1024,
         };
-        emitter.emit_cache_break(&info);
+        emitter.emit_cache_anomaly(&info);
     }
 }

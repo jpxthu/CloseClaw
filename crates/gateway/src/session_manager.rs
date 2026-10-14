@@ -9,9 +9,8 @@ use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_common::tool_session::ToolSession;
 use closeclaw_common::IMPlugin;
 use closeclaw_common::{
-    CacheBreakThresholds, DynamicPromptBuilder, LlmCaller, PromptOverrides,
-    SessionActivityDimensions, SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder,
-    ToolRegistryQuery,
+    DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionActivityDimensions,
+    SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
 };
 use closeclaw_config::manager::{ConfigManager, ConfigSnapshot};
 use closeclaw_config::session::SessionConfigProvider;
@@ -77,8 +76,6 @@ pub struct SessionManager {
     skill_registry: RwLock<Option<Arc<dyn SkillRegistryQuery>>>,
     /// Default reasoning level for new sessions
     default_reasoning_level: ReasoningLevel,
-    /// Default cache break detection thresholds for new sessions
-    default_cache_break_thresholds: std::sync::RwLock<Option<CacheBreakThresholds>>,
     /// Priority prompt overrides (checked at request time, not session creation).
     prompt_overrides: RwLock<Option<PromptOverrides>>,
     /// System prompt builder (trait object) for rebuilding prompts.
@@ -202,7 +199,6 @@ impl SessionManager {
             file_mutex_map: Arc::new(closeclaw_common::file_mutex::FileMutexMap::new()),
             skill_registry: RwLock::new(None),
             default_reasoning_level,
-            default_cache_break_thresholds: std::sync::RwLock::new(None),
             prompt_overrides: RwLock::new(None),
             system_prompt_builder: RwLock::new(None),
             llm_caller: RwLock::new(None),

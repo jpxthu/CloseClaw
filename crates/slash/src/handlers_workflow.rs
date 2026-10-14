@@ -313,7 +313,7 @@ mod tests {
         async fn get_stats(&self, _: &str) -> Option<(usize, usize, usize, usize)> {
             None
         }
-        async fn get_last_cache_break(&self, _: &str) -> Option<String> {
+        async fn get_last_cache_anomaly(&self, _: &str) -> Option<String> {
             None
         }
         async fn get_active_child_count(&self, _: &str) -> usize {

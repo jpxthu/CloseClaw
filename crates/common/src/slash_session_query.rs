@@ -106,8 +106,8 @@ pub trait SlashSessionQuery: Send + Sync {
     /// Get stats for a session (total_tokens, prompt_tokens, cache_read, cache_write).
     async fn get_stats(&self, session_id: &str) -> Option<(usize, usize, usize, usize)>;
 
-    /// Get the last cache break notification for a session.
-    async fn get_last_cache_break(&self, session_id: &str) -> Option<String>;
+    /// Get the last cache anomaly notification for a session.
+    async fn get_last_cache_anomaly(&self, session_id: &str) -> Option<String>;
 
     /// Get the count of active child handles for a session.
     async fn get_active_child_count(&self, session_id: &str) -> usize;

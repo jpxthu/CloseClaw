@@ -1,12 +1,12 @@
 //! Metrics emission abstraction.
 //!
 //! Defines the [`MetricsEmitter`] trait as a DI interface for reporting
-//! operational metrics (e.g. cache breaks).
+//! operational metrics (e.g. cache anomalies).
 //!
 //! Future backends (Prometheus, Grafana, etc.) only need to implement
 //! this trait — no call-site changes required.
 
-use crate::llm_stats::CacheBreakInfo;
+use crate::llm_stats::CacheAnomalyInfo;
 
 /// Trait for emitting operational metrics.
 ///
@@ -14,8 +14,8 @@ use crate::llm_stats::CacheBreakInfo;
 /// so that both the gateway crate and the daemon composition root can
 /// depend on it without creating circular dependencies.
 pub trait MetricsEmitter: Send + Sync {
-    /// Record a KV cache break event.
-    fn emit_cache_break(&self, info: &CacheBreakInfo);
+    /// Record a cache hit anomaly event.
+    fn emit_cache_anomaly(&self, info: &CacheAnomalyInfo);
 }
 
 #[cfg(test)]
@@ -24,7 +24,7 @@ mod tests {
 
     /// Verify that a mock `MetricsEmitter` receives the correct info.
     #[test]
-    fn test_mock_metrics_emitter_receives_cache_break() {
+    fn test_mock_metrics_emitter_receives_cache_anomaly() {
         use std::sync::atomic::{AtomicBool, Ordering};
 
         struct MockEmitter {
@@ -32,7 +32,7 @@ mod tests {
         }
 
         impl MetricsEmitter for MockEmitter {
-            fn emit_cache_break(&self, _info: &CacheBreakInfo) {
+            fn emit_cache_anomaly(&self, _info: &CacheAnomalyInfo) {
                 self.called.store(true, Ordering::Relaxed);
             }
         }
@@ -42,15 +42,13 @@ mod tests {
         };
         assert!(!emitter.called.load(Ordering::Relaxed));
 
-        let info = CacheBreakInfo {
-            previous_cache_read: 20_000,
-            current_cache_read: 1_000,
-            drop_tokens: 19_000,
-            drop_ratio: 0.95,
-            previous_hit_rate: 0.8,
-            current_hit_rate: 0.05,
+        let info = CacheAnomalyInfo {
+            previous_prompt_tokens: 20_000,
+            current_cache_read_tokens: 1_000,
+            deviation_tokens: 19_000,
+            tolerance_tokens: 1024,
         };
-        emitter.emit_cache_break(&info);
+        emitter.emit_cache_anomaly(&info);
         assert!(emitter.called.load(Ordering::Relaxed));
     }
 }

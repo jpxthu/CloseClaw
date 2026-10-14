@@ -107,7 +107,6 @@ impl SessionManager {
             ConversationSession::new(session_id.to_string(), "default".to_string(), workdir_path)
                 .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level);
-        self.apply_default_cache_break_thresholds(&mut conv_session);
 
         self.inject_session_deps(&mut conv_session, session_id, &agent_id)
             .await;

@@ -235,8 +235,8 @@ impl SlashHandler for StatusHandler {
             }
         }
 
-        // Cache break event (most recent).
-        if let Some(cb) = sm.get_last_cache_break(sid).await {
+        // Cache anomaly event (most recent).
+        if let Some(cb) = sm.get_last_cache_anomaly(sid).await {
             lines.push(cb);
         }
 
