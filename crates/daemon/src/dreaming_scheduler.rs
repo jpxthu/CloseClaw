@@ -71,6 +71,22 @@ pub struct DreamingScheduler {
     mining_notify_rx: Option<mpsc::Receiver<String>>,
 }
 
+/// Events shared by both scheduler loops: the four `select!` branches
+/// (shutdown watch, config broadcast, mining-notify channel, timer)
+/// collapsed into a single classification returned by
+/// [`DreamingScheduler::next_event`].
+enum LoopEvent {
+    /// Shutdown signal observed — finish the active cycle, then exit.
+    Shutdown,
+    /// Memory-section config reload — each loop applies its own handler.
+    ConfigReload,
+    /// Session ID pushed by ArchiveSweeper's immediate hook.
+    MiningNotify(String),
+    /// Scheduled fire time reached — run one cycle, then advance
+    /// `next_fire` per the loop's own strategy.
+    Fire,
+}
+
 // ── Standalone helpers (spawnable without borrowing scheduler) ───────
 
 /// Execute one dreaming cycle: dreaming pipeline first, then mining scan.
@@ -314,21 +330,58 @@ impl DreamingScheduler {
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
+            match self.next_event(shutdown, next_fire).await {
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task).await;
+                    break;
+                }
+                LoopEvent::ConfigReload => {
+                    self.handle_cron_config_reload(&mut next_fire).await;
+                }
+                LoopEvent::MiningNotify(session_id) => {
+                    self.handle_mining_notify(&session_id).await;
+                }
+                LoopEvent::Fire => {
+                    self.spawn_or_skip_cycle(&mut active_task).await;
+                    let next = schedule.next_fire_time(Local::now());
+                    let delay = (next - Local::now())
+                        .to_std()
+                        .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
+                    next_fire = tokio::time::Instant::now() + delay;
+                }
+            }
+        }
+    }
+
+    /// Await the next loop event (shared by both scheduling loops).
+    ///
+    /// Races the four branches previously duplicated across
+    /// [`Self::run_cron_loop`] and [`Self::run_fixed_interval_loop`] —
+    /// shutdown watch, config broadcast, mining-notify channel and the
+    /// `next_fire` timer — and classifies the winner as a
+    /// [`LoopEvent`]. Only Memory-section reloads surface as
+    /// [`LoopEvent::ConfigReload`]; any other config outcome (other
+    /// sections, recv errors) is consumed and ignored, and polling
+    /// continues (behavior kept from the pre-refactor loops; Err
+    /// classification is issue #3577's scope).
+    ///
+    /// Cancellation accounting matches the pre-refactor `select!`:
+    /// broadcast `recv()`, watch `changed()` and `sleep_until` are all
+    /// cancel-safe, so discarding the losing futures per iteration
+    /// loses no signal; the `next_fire` deadline is rebuilt unchanged.
+    async fn next_event(
+        &mut self,
+        shutdown: &mut watch::Receiver<()>,
+        next_fire: tokio::time::Instant,
+    ) -> LoopEvent {
+        loop {
             tokio::select! {
                 _ = shutdown.changed() => {
-                    info!(
-                        "DreamingScheduler received shutdown signal, exiting"
-                    );
-                    if let Some(handle) = active_task.take() {
-                        wait_for_active_task(handle).await;
-                    }
-                    break;
+                    return LoopEvent::Shutdown;
                 }
                 result = self.config_rx.recv() => {
                     if Self::is_memory_config_reload(result) {
-                        self.handle_cron_config_reload(
-                            &mut next_fire,
-                        ).await;
+                        return LoopEvent::ConfigReload;
                     }
                 }
                 Some(session_id) = async {
@@ -337,30 +390,37 @@ impl DreamingScheduler {
                         None => None,
                     }
                 } => {
-                    let agents = self.config.list_agents();
-                    if !agents.is_empty() {
-                        info!(
-                            session_id = %session_id,
-                            "mining triggered by archive notification"
-                        );
-                        self.mine_session(&session_id, &agents).await;
-                    }
+                    return LoopEvent::MiningNotify(session_id);
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
-                    self.spawn_or_skip_cycle(
-                        &mut active_task,
-                    ).await;
-                    let next =
-                        schedule.next_fire_time(Local::now());
-                    let delay = (next - Local::now())
-                        .to_std()
-                        .unwrap_or_else(|_| {
-                            tokio::time::Duration::from_secs(1)
-                        });
-                    next_fire =
-                        tokio::time::Instant::now() + delay;
+                    return LoopEvent::Fire;
                 }
             }
+        }
+    }
+
+    /// Shared shutdown epilogue: log the signal and give an in-flight
+    /// cycle the grace budget to finish. The caller breaks its loop
+    /// afterwards.
+    async fn finish_shutdown(
+        active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
+    ) {
+        info!("DreamingScheduler received shutdown signal, exiting");
+        if let Some(handle) = active_task.take() {
+            wait_for_active_task(handle).await;
+        }
+    }
+
+    /// Shared mining-notify branch: mine the notified session only when
+    /// at least one agent is configured; otherwise stay silent.
+    async fn handle_mining_notify(&self, session_id: &str) {
+        let agents = self.config.list_agents();
+        if !agents.is_empty() {
+            info!(
+                session_id = %session_id,
+                "mining triggered by archive notification"
+            );
+            self.mine_session(session_id, &agents).await;
         }
     }
 
@@ -413,42 +473,20 @@ impl DreamingScheduler {
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
-            tokio::select! {
-                _ = shutdown.changed() => {
-                    info!(
-                        "DreamingScheduler received shutdown signal, exiting"
-                    );
-                    if let Some(handle) = active_task.take() {
-                        wait_for_active_task(handle).await;
-                    }
+            match self.next_event(shutdown, next_fire).await {
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task).await;
                     break;
                 }
-                result = self.config_rx.recv() => {
-                    if Self::is_memory_config_reload(result) {
-                        self.handle_config_change().await;
-                    }
+                LoopEvent::ConfigReload => {
+                    self.handle_config_change().await;
                 }
-                Some(session_id) = async {
-                    match &mut self.mining_notify_rx {
-                        Some(rx) => rx.recv().await,
-                        None => None,
-                    }
-                } => {
-                    let agents = self.config.list_agents();
-                    if !agents.is_empty() {
-                        info!(
-                            session_id = %session_id,
-                            "mining triggered by archive notification"
-                        );
-                        self.mine_session(&session_id, &agents).await;
-                    }
+                LoopEvent::MiningNotify(session_id) => {
+                    self.handle_mining_notify(&session_id).await;
                 }
-                _ = tokio::time::sleep_until(next_fire) => {
-                    self.spawn_or_skip_cycle(
-                        &mut active_task,
-                    ).await;
-                    next_fire =
-                        tokio::time::Instant::now() + interval;
+                LoopEvent::Fire => {
+                    self.spawn_or_skip_cycle(&mut active_task).await;
+                    next_fire = tokio::time::Instant::now() + interval;
                 }
             }
         }
