@@ -306,8 +306,9 @@ git checkout master && git pull
 | `--coverage` | 覆盖率：`cargo llvm-cov nextest --workspace` |
 | `--deps` | 依赖审计：cargo-deny check + cargo-machete |
 | `--dep-guard` | 依赖治理守卫：dep-guard 四项检查（依赖方向 / 禁二次出口 / common 准入一致性 / 死依赖），baseline=现状、仅对新增越界报警（细则见 `scripts/dep-guard/`） |
+| `--msrv` | MSRV 下限检查：以根 Cargo.toml `rust-version` 工具链执行 `check --workspace --all-targets --locked`，与 CI msrv job 同口径（工具链缺失记 SKIP） |
 | `--heavy` | 重型检查：miri + TSAN（默认跳过，需显式传入，不在 `--all` 内） |
-| `--all` | = slow + flaky + doctest + coverage + deps + dep-guard（不含 heavy） |
+| `--all` | = slow + flaky + doctest + coverage + deps + dep-guard + msrv（不含 heavy） |
 
 - 工具缺失的段记 SKIP 并打印安装提示；小范围实测可 `NEXTEST_EXTRA_ARGS` 透传 nextest 过滤参数，如 `NEXTEST_EXTRA_ARGS="-E test(test_exec_)"`
 - 何时跑：合码前后跑 `--all`；周期性（如每周）跑 `--heavy`；`--slow` 的 >5s SLOW 档用于防慢测试回归

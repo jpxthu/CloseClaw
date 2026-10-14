@@ -51,8 +51,9 @@ usage() {
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
   --deps      依赖检查（cargo-deny check + cargo-machete）
   --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖）
+  --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
-  --all       = --slow --flaky --doctest --coverage --deps --dep-guard（不含 --heavy）
+  --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv（不含 --heavy）
   --help, -h  打印本用法
 
 说明:
@@ -327,6 +328,25 @@ do_dep_guard() (
     return 0
 )
 
+# ---------- --msrv：MSRV 下限检查（与 CI msrv job 同口径） ----------
+do_msrv() (
+    set -u
+    # 功能性探测（cargo +<工具链> --version）：rustup shim 恒存在于 PATH，
+    # command -v 探测不了具体工具链是否安装（同 --deps/--heavy 探测做法）
+    if ! cargo +1.85 --version >/dev/null 2>&1; then
+        echo "[SKIP] 未找到 1.85 工具链，请先安装：rustup toolchain install 1.85 --profile minimal"
+        return 77
+    fi
+    local rc=0
+    cargo +1.85 check --workspace --all-targets --locked || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "[FAIL] MSRV check 失败（退出码 $rc）：声明 MSRV 与构建现实脱节或代码超下限，明细见上方输出"
+        return "$rc"
+    fi
+    echo "[ok] MSRV check 通过（与 CI msrv job 同口径）"
+    return 0
+)
+
 # ---------- --heavy：miri + TSAN（默认跳过，显式传入） ----------
 do_heavy() (
     set -u
@@ -372,7 +392,7 @@ do_heavy() (
 )
 
 # ---------- 参数解析 ----------
-RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_DEP_GUARD=0 RUN_HEAVY=0
+RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_DEP_GUARD=0 RUN_MSRV=0 RUN_HEAVY=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --slow)       RUN_SLOW=1 ;;
@@ -381,15 +401,16 @@ while [[ $# -gt 0 ]]; do
         --coverage)   RUN_COVERAGE=1 ;;
         --deps)       RUN_DEPS=1 ;;
         --dep-guard)  RUN_DEP_GUARD=1 ;;
+        --msrv)       RUN_MSRV=1 ;;
         --heavy)      RUN_HEAVY=1 ;;
-        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1 ;;
+        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1 ;;
         --help|-h)    usage; exit 0 ;;
         *)            echo "未知选项: $1"; echo ""; usage; exit 1 ;;
     esac
     shift
 done
 
-if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_HEAVY)) -eq 0 ]]; then
+if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_MSRV + RUN_HEAVY)) -eq 0 ]]; then
     usage
     exit 1
 fi
@@ -405,6 +426,7 @@ if [[ $RUN_DOCTEST -eq 1 ]]; then  run_section "--doctest 文档测试" do_docte
 if [[ $RUN_COVERAGE -eq 1 ]]; then run_section "--coverage 覆盖率" do_coverage; fi
 if [[ $RUN_DEPS -eq 1 ]]; then     run_section "--deps 依赖检查" do_deps; fi
 if [[ $RUN_DEP_GUARD -eq 1 ]]; then run_section "--dep-guard 依赖治理守卫" do_dep_guard; fi
+if [[ $RUN_MSRV -eq 1 ]]; then     run_section "--msrv MSRV 检查" do_msrv; fi
 if [[ $RUN_HEAVY -eq 1 ]]; then    run_section "--heavy 重型检查（miri/TSAN）" do_heavy; fi
 
 # ---------- 汇总表 ----------
