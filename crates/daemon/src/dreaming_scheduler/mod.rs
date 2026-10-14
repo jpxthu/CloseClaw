@@ -943,5 +943,5 @@ mod cron_tests {
 /// private `classify_config_recv` / `ConfigRecvOutcome`, which a sibling
 /// module cannot reach.
 #[cfg(test)]
-#[path = "dreaming_scheduler_classify_tests.rs"]
+#[path = "../dreaming_scheduler_classify_tests.rs"]
 mod classify_tests;
