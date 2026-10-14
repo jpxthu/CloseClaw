@@ -247,6 +247,15 @@ mod tests {
     }
 
     #[test]
+    fn test_reply_blocks_returns_first_action_when_multiple() {
+        let actions = vec![
+            ReplyAction::Reply(vec![ContentBlock::Text("first".into())]),
+            ReplyAction::Nothing,
+        ];
+        assert_eq!(reply_blocks(&actions), [ContentBlock::Text("first".into())]);
+    }
+
+    #[test]
     #[should_panic(expected = "expected ReplyAction::Reply, got: TriggerCompact")]
     fn test_reply_blocks_panics_on_trigger_compact() {
         let actions = vec![ReplyAction::TriggerCompact { instruction: None }];
