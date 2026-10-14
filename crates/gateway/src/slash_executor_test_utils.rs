@@ -203,4 +203,67 @@ mod tests {
         let blocks: Vec<ContentBlock> = vec![];
         let _ = first_text_block(&blocks);
     }
+
+    #[test]
+    fn test_text_block_at_returns_block_at_index() {
+        let blocks = vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ];
+        assert_eq!(text_block_at(&blocks, 0), "first");
+        assert_eq!(text_block_at(&blocks, 1), "second");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock at index 1, got: slice of length 1")]
+    fn test_text_block_at_panics_on_out_of_bounds() {
+        let blocks = vec![ContentBlock::Text("only".into())];
+        let _ = text_block_at(&blocks, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock::Text, got: Thinking")]
+    fn test_text_block_at_panics_on_non_text_variant() {
+        let blocks = vec![ContentBlock::Thinking {
+            thinking: "reasoning trace".into(),
+            signature: None,
+        }];
+        let _ = text_block_at(&blocks, 0);
+    }
+
+    #[test]
+    fn test_reply_blocks_returns_blocks_of_reply_action() {
+        let actions = vec![ReplyAction::Reply(vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ])];
+        assert_eq!(
+            reply_blocks(&actions),
+            [
+                ContentBlock::Text("first".into()),
+                ContentBlock::Text("second".into())
+            ]
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ReplyAction::Reply, got: TriggerCompact")]
+    fn test_reply_blocks_panics_on_trigger_compact() {
+        let actions = vec![ReplyAction::TriggerCompact { instruction: None }];
+        let _ = reply_blocks(&actions);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ReplyAction::Reply, got: Nothing")]
+    fn test_reply_blocks_panics_on_nothing() {
+        let actions = vec![ReplyAction::Nothing];
+        let _ = reply_blocks(&actions);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected at least one ReplyAction, got: empty slice")]
+    fn test_reply_blocks_panics_on_empty_actions() {
+        let actions: Vec<ReplyAction> = vec![];
+        let _ = reply_blocks(&actions);
+    }
 }
