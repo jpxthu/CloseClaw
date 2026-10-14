@@ -36,7 +36,10 @@ fn test_session_stats_initial_state() {
 fn test_session_accumulate_usage_single_call() {
     let mut session =
         ConversationSession::new("sess_stats_single".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(30), Some(20)));
+    session.accumulate_usage(
+        &make_usage(100, 50, Some(150), Some(30), Some(20)),
+        Some("gpt-4o"),
+    );
     let stats = session.stats();
     assert_eq!(stats.total_prompt_tokens, 100);
     assert_eq!(stats.total_completion_tokens, 50);
@@ -44,15 +47,26 @@ fn test_session_accumulate_usage_single_call() {
     assert_eq!(stats.total_cache_read_tokens, 30);
     assert_eq!(stats.total_cache_write_tokens, 20);
     assert_eq!(stats.request_count, 1);
+    // Per-call snapshots advance for the next round's anomaly check.
+    assert_eq!(stats.last_prompt_tokens, Some(100));
+    assert_eq!(stats.last_completion_tokens, Some(50));
+    assert_eq!(stats.last_call_model.as_deref(), Some("gpt-4o"));
+    assert!(stats.last_call_at.is_some());
 }
 
 #[test]
 fn test_session_accumulate_usage_multiple_calls() {
     let mut session =
         ConversationSession::new("sess_stats_multi".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(30), Some(20)));
-    session.accumulate_usage(&make_usage(200, 80, Some(280), Some(60), None));
-    session.accumulate_usage(&make_usage(50, 20, None, None, Some(10)));
+    session.accumulate_usage(
+        &make_usage(100, 50, Some(150), Some(30), Some(20)),
+        Some("gpt-4o"),
+    );
+    session.accumulate_usage(
+        &make_usage(200, 80, Some(280), Some(60), None),
+        Some("gpt-4o"),
+    );
+    session.accumulate_usage(&make_usage(50, 20, None, None, Some(10)), Some("gpt-4o"));
 
     let stats = session.stats();
     assert_eq!(stats.total_prompt_tokens, 350);
@@ -68,12 +82,18 @@ fn test_session_cache_hit_rate() {
     let mut session =
         ConversationSession::new("sess_stats_rate".into(), "gpt-4o".into(), tmp_path());
     // 100 prompt, 30 cache_read → rate = 0.3
-    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(30), None));
+    session.accumulate_usage(
+        &make_usage(100, 50, Some(150), Some(30), None),
+        Some("gpt-4o"),
+    );
     let rate = session.stats().cache_hit_rate();
     assert!((rate - 0.3).abs() < f64::EPSILON);
 
     // Add 200 more prompt, 70 more cache_read → 100/300 ≈ 0.333...
-    session.accumulate_usage(&make_usage(200, 50, Some(250), Some(70), None));
+    session.accumulate_usage(
+        &make_usage(200, 50, Some(250), Some(70), None),
+        Some("gpt-4o"),
+    );
     let rate = session.stats().cache_hit_rate();
     assert!((rate - (100.0 / 300.0)).abs() < f64::EPSILON);
 }
@@ -88,7 +108,7 @@ fn test_session_cache_hit_rate_zero_prompt() {
 fn test_session_accumulate_usage_with_all_none_cache() {
     let mut session =
         ConversationSession::new("sess_stats_no_cache".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(50, 25, Some(75), None, None));
+    session.accumulate_usage(&make_usage(50, 25, Some(75), None, None), Some("gpt-4o"));
     let stats = session.stats();
     assert_eq!(stats.total_cache_read_tokens, 0);
     assert_eq!(stats.total_cache_write_tokens, 0);
@@ -100,7 +120,7 @@ fn test_session_accumulate_usage_with_all_none_cache() {
 fn test_session_accumulate_usage_total_none_computed() {
     let mut session =
         ConversationSession::new("sess_stats_total_none".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(40, 10, None, Some(5), None));
+    session.accumulate_usage(&make_usage(40, 10, None, Some(5), None), Some("gpt-4o"));
     assert_eq!(session.stats().total_tokens, 50);
 }
 
@@ -108,7 +128,10 @@ fn test_session_accumulate_usage_total_none_computed() {
 fn test_session_total_cache_saved() {
     let mut session =
         ConversationSession::new("sess_stats_saved".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(42), Some(10)));
+    session.accumulate_usage(
+        &make_usage(100, 50, Some(150), Some(42), Some(10)),
+        Some("gpt-4o"),
+    );
     assert_eq!(session.stats().total_cache_saved(), 42);
 }
 
@@ -122,7 +145,10 @@ fn test_session_total_cache_saved() {
 fn test_session_drop_resets_stats() {
     let mut session =
         ConversationSession::new("sess_drop_reset".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(100, 50, Some(150), Some(30), Some(20)));
+    session.accumulate_usage(
+        &make_usage(100, 50, Some(150), Some(30), Some(20)),
+        Some("gpt-4o"),
+    );
     assert_eq!(session.stats().total_prompt_tokens, 100);
     assert_eq!(session.stats().total_completion_tokens, 50);
     assert_eq!(session.stats().request_count, 1);
@@ -137,6 +163,12 @@ fn test_session_drop_resets_stats() {
     assert_eq!(stats.total_cache_read_tokens, 0);
     assert_eq!(stats.total_cache_write_tokens, 0);
     assert_eq!(stats.request_count, 0);
+    // reset clears all last_* snapshots too
+    assert_eq!(stats.last_prompt_tokens, None);
+    assert_eq!(stats.last_completion_tokens, None);
+    assert_eq!(stats.last_call_at, None);
+    assert_eq!(stats.last_call_model, None);
+    assert_eq!(stats.last_cache_anomaly, None);
 }
 
 /// Verify the Drop impl is correctly wired by explicitly dropping a session
@@ -146,7 +178,10 @@ fn test_session_drop_resets_stats() {
 fn test_session_explicit_drop_no_panic() {
     let mut session =
         ConversationSession::new("sess_drop_panic".into(), "gpt-4o".into(), tmp_path());
-    session.accumulate_usage(&make_usage(200, 100, Some(300), Some(50), Some(30)));
+    session.accumulate_usage(
+        &make_usage(200, 100, Some(300), Some(50), Some(30)),
+        Some("gpt-4o"),
+    );
     assert!(session.stats().total_tokens > 0);
     // Explicit drop triggers Drop impl → stats.reset()
     drop(session);

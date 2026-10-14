@@ -248,29 +248,28 @@ impl SessionMessageHandler {
                     // Routes workflow actions to the engine and queues
                     // blocked notifications for owner delivery.
                     cs_write.process_workflow_tool_results(&stream_result.content_blocks);
-                    // Cache break detection (must run before accumulate_usage
-                    // so that last_cache_read_tokens still holds the previous value).
-                    if let Some(info) = cs_write.detect_cache_break_for_usage(
+                    // Cache anomaly detection (must run before accumulate_usage:
+                    // last_prompt_tokens still holds the previous call's reference).
+                    if let Some(info) = cs_write.detect_cache_anomaly_for_usage(
                         stream_result.usage.cache_read_tokens,
                         Some(stream_result.usage.prompt_tokens),
                     ) {
                         tracing::warn!(
                             session_id,
-                            previous = info.previous_cache_read,
-                            current = info.current_cache_read,
-                            drop = info.drop_tokens,
-                            ratio = info.drop_ratio,
-                            "Cache break detected"
+                            previous_prompt_tokens = info.previous_prompt_tokens,
+                            current_cache_read_tokens = info.current_cache_read_tokens,
+                            deviation = info.deviation_tokens,
+                            tolerance = info.tolerance_tokens,
+                            "Cache anomaly detected"
                         );
                         if let Some(emitter) = metrics_emitter {
-                            emitter.emit_cache_break(&info);
+                            emitter.emit_cache_anomaly(&info);
                         }
-                        cs_write.push_system_notification(
-                            info.format_notification(),
-                            NotificationPriority::Now,
-                        );
+                        let notification = info.format_notification();
+                        cs_write.push_system_notification(notification, NotificationPriority::Now);
                     }
-                    cs_write.accumulate_usage(&stream_result.usage);
+                    let call_model = cs_write.model().to_string();
+                    cs_write.accumulate_usage(&stream_result.usage, Some(&call_model));
 
                     // Run health check at turn boundary.
                     let mut recovery_action = None;

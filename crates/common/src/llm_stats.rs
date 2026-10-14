@@ -5,112 +5,96 @@
 
 use crate::processor::UnifiedUsage;
 
-// ── Cache break threshold configuration ───────────────────────
+// ── Cache anomaly tolerance ──────────────────────────────────────
 
-/// Thresholds for cache break detection.
+/// Fixed tolerance (in tokens) for cache hit consistency checks.
 ///
-/// `drop_ratio_threshold` is the minimum fraction (0.0–1.0) of
-/// hit-rate decline that triggers a cache break.
-/// `min_drop_tokens` is the minimum absolute token drop required
-/// for the rate-based comparison to activate.
+/// Design-fixed value absorbing token-boundary differences and normal
+/// fluctuation of cache hit counts. Not runtime-configurable; changing
+/// it requires a design change.
+const CACHE_TOLERANCE_TOKENS: u32 = 1024;
+
+// ── Cache anomaly info ───────────────────────────────────────────
+
+/// Information about a detected cache hit anomaly.
+///
+/// Carries the previous call's total prompt tokens (reference value),
+/// the current call's cache-read tokens, their absolute deviation, and
+/// the tolerance margin applied for this decision.
 #[derive(Debug, Clone, PartialEq)]
-pub struct CacheBreakThresholds {
-    /// Minimum hit-rate drop ratio to trigger a break.
-    pub drop_ratio_threshold: f64,
-    /// Minimum absolute token drop (per call) to consider a break.
-    pub min_drop_tokens: u32,
+pub struct CacheAnomalyInfo {
+    /// Previous call's total prompt tokens (reference value).
+    pub previous_prompt_tokens: u32,
+    /// Current call's cache-read (hit) tokens.
+    pub current_cache_read_tokens: u32,
+    /// Absolute deviation between hit count and reference value.
+    pub deviation_tokens: u32,
+    /// Tolerance margin applied for this decision.
+    pub tolerance_tokens: u32,
 }
 
-impl Default for CacheBreakThresholds {
-    fn default() -> Self {
-        Self {
-            drop_ratio_threshold: 0.05,
-            min_drop_tokens: 2000,
-        }
-    }
-}
+/// Static text appended to cache-anomaly notifications listing common causes.
+const POSSIBLE_CAUSES: &str = "可能原因：上下文前缀变更、缓存 TTL 过期、模型/参数变更";
 
-// ── Cache break info ─────────────────────────────────────────────
-
-/// Information about a detected cache break between two consecutive calls.
-#[derive(Debug, Clone, PartialEq)]
-pub struct CacheBreakInfo {
-    /// Previous call's `cache_read_tokens` value.
-    pub previous_cache_read: u32,
-    /// Current call's `cache_read_tokens` value.
-    pub current_cache_read: u32,
-    /// Absolute drop in cache-read tokens.
-    pub drop_tokens: u32,
-    /// Ratio of the drop relative to the previous value (0.0–1.0).
-    pub drop_ratio: f64,
-    /// Per-call cache hit rate of the previous call (0.0–1.0).
-    pub previous_hit_rate: f64,
-    /// Per-call cache hit rate of the current call (0.0–1.0).
-    pub current_hit_rate: f64,
-}
-
-/// Static text appended to cache-break notifications listing common causes.
-const POSSIBLE_CAUSES: &str = "可能原因：上下文变更、缓存 TTL 过期、模型/参数变更";
-
-impl CacheBreakInfo {
-    /// Formats a user-facing notification for this cache break.
+impl CacheAnomalyInfo {
+    /// Formats a user-facing notification for this cache anomaly.
     ///
-    /// The notification includes the hit-rate comparison and token drop,
-    /// followed by possible causes (static list, no runtime detection).
+    /// The notification includes the reference value, the current hit
+    /// count, the deviation, the tolerance margin, followed by possible
+    /// causes (static list, no runtime detection).
     pub fn format_notification(&self) -> String {
-        let drop_pct = self.drop_ratio * 100.0;
-        let prev_rate_pct = self.previous_hit_rate * 100.0;
-        let curr_rate_pct = self.current_hit_rate * 100.0;
         format!(
-            "[缓存断点] 缓存命中率从 {:.1}% 降至 {:.1}%（减少 {} tokens，降幅 {:.1}%）。{POSSIBLE_CAUSES}",
-            prev_rate_pct, curr_rate_pct, self.drop_tokens, drop_pct,
+            "[缓存命中异常] 参考值 {} tokens，本次命中 {} tokens，偏差 {} tokens（容忍余量 {} tokens）。{POSSIBLE_CAUSES}",
+            self.previous_prompt_tokens,
+            self.current_cache_read_tokens,
+            self.deviation_tokens,
+            self.tolerance_tokens,
         )
     }
 }
 
-/// Detects a cache break between two consecutive cache-read token counts.
+/// Detects a cache hit anomaly for the current call.
 ///
-/// Returns `Some(CacheBreakInfo)` when:
-/// - `current` is less than `previous` by more than `thresholds.drop_ratio_threshold`
-///   **and** the absolute drop exceeds `thresholds.min_drop_tokens`.
+/// The reference value is the previous call's total prompt tokens;
+/// it is compared against the current call's cache-read tokens. Returns
+/// `Some(CacheAnomalyInfo)` when the absolute deviation exceeds the
+/// fixed tolerance ([`CACHE_TOLERANCE_TOKENS`]) — direction-agnostic,
+/// so a hit count exceeding the reference is also an anomaly.
 ///
-/// Uses [`CacheBreakThresholds::default`] when `thresholds` is `None`.
-///
-/// Returns `None` when either input is `None`, the current value is
-/// greater than or equal to the previous value, or the drop does not
-/// meet the thresholds.
-pub fn detect_cache_break(
-    previous: Option<u32>,
-    current: Option<u32>,
-    thresholds: Option<&CacheBreakThresholds>,
-) -> Option<CacheBreakInfo> {
-    let prev = previous?;
-    let curr = current?;
-    let th = thresholds.cloned().unwrap_or_default();
-
-    if curr >= prev {
+/// Returns `None` (no check / no anomaly) when:
+/// - Either input is `None` (protocol did not provide the cache field).
+///   `Some(0)` is a genuine zero hit and **does** participate.
+/// - `previous_prompt_tokens` is `Some(0)`: upstream prompt counts are
+///   synthesized to 0 when unavailable, so 0 marks the reference value
+///   as unusable.
+/// - The deviation is within the tolerance margin.
+pub fn detect_cache_anomaly(
+    previous_prompt_tokens: Option<u32>,
+    current_cache_read_tokens: Option<u32>,
+) -> Option<CacheAnomalyInfo> {
+    let prev = previous_prompt_tokens?;
+    let curr = current_cache_read_tokens?;
+    if prev == 0 {
         return None;
     }
-
-    let drop_tokens = prev - curr;
-
-    if drop_tokens <= th.min_drop_tokens {
+    let deviation = prev.abs_diff(curr);
+    if deviation <= CACHE_TOLERANCE_TOKENS {
         return None;
     }
-
-    let drop_ratio = drop_tokens as f64 / prev as f64;
-    if drop_ratio <= th.drop_ratio_threshold {
-        return None;
-    }
-
-    Some(CacheBreakInfo {
-        previous_cache_read: prev,
-        current_cache_read: curr,
-        drop_tokens,
-        drop_ratio,
-        previous_hit_rate: 0.0,
-        current_hit_rate: 0.0,
+    Some(CacheAnomalyInfo {
+        previous_prompt_tokens: prev,
+        current_cache_read_tokens: curr,
+        deviation_tokens: deviation,
+        tolerance_tokens: CACHE_TOLERANCE_TOKENS,
     })
+}
+
+/// Current Unix epoch time in milliseconds.
+fn current_epoch_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
 }
 
 /// Accumulated token usage statistics across multiple LLM API calls.
@@ -133,10 +117,20 @@ pub struct RunningStats {
     pub request_count: u64,
     /// Cumulative reasoning tokens across all calls.
     pub total_reasoning_tokens: u64,
-    /// Custom cache break detection thresholds.
+    /// Total prompt tokens of the most recent call; serves as the
+    /// reference value for the next round's cache consistency check.
     ///
-    /// When `None`, [`CacheBreakThresholds::default`] is used.
-    pub cache_break_thresholds: Option<CacheBreakThresholds>,
+    /// `None` before any calls have been accumulated.
+    pub last_prompt_tokens: Option<u32>,
+    /// Completion tokens of the most recent call, for context-size
+    /// estimation.
+    pub last_completion_tokens: Option<u32>,
+    /// Millisecond timestamp of the most recent call, for cache
+    /// natural-expiry exemption checks.
+    pub last_call_at: Option<u64>,
+    /// Model/provider identifier of the most recent call, for
+    /// model-switch exemption checks.
+    pub last_call_model: Option<String>,
     /// `cache_read_tokens` from the most recent API call.
     ///
     /// `None` before any calls have been accumulated.
@@ -146,8 +140,8 @@ pub struct RunningStats {
     /// Computed as `cache_read / prompt_tokens` for that call.
     /// `None` before any calls have been accumulated.
     pub last_cache_hit_rate: Option<f64>,
-    /// The most recent cache break event, if any.
-    pub last_cache_break: Option<CacheBreakInfo>,
+    /// The most recent cache anomaly event, if any.
+    pub last_cache_anomaly: Option<CacheAnomalyInfo>,
 }
 
 impl PartialEq for RunningStats {
@@ -159,10 +153,13 @@ impl PartialEq for RunningStats {
             && self.total_cache_write_tokens == other.total_cache_write_tokens
             && self.request_count == other.request_count
             && self.total_reasoning_tokens == other.total_reasoning_tokens
-            && self.cache_break_thresholds == other.cache_break_thresholds
+            && self.last_prompt_tokens == other.last_prompt_tokens
+            && self.last_completion_tokens == other.last_completion_tokens
+            && self.last_call_at == other.last_call_at
+            && self.last_call_model == other.last_call_model
             && self.last_cache_read_tokens == other.last_cache_read_tokens
             && self.last_cache_hit_rate == other.last_cache_hit_rate
-            && self.last_cache_break == other.last_cache_break
+            && self.last_cache_anomaly == other.last_cache_anomaly
     }
 }
 
@@ -175,35 +172,31 @@ impl RunningStats {
         Self::default()
     }
 
-    /// Detects a cache break by comparing per-call hit rates.
+    /// Detects a cache hit anomaly using the previous call's state.
     ///
-    /// Computes the current hit rate as `current_cache_read /
-    /// current_prompt_tokens` and compares it against the previous
-    /// call's hit rate (`last_cache_hit_rate`). If the drop exceeds
-    /// the threshold and the absolute token drop is significant,
-    /// returns `Some(CacheBreakInfo)`.
+    /// Reference value is [`RunningStats::last_prompt_tokens`] (the
+    /// previous call's total input tokens); compared against
+    /// `current_cache_read`. The first call (no accumulated reference)
+    /// is naturally exempt because `last_prompt_tokens` is `None`.
     ///
-    /// Call this **before** `accumulate()` so that `last_cache_read_tokens`
-    /// still holds the previous call's value when the comparison is made.
-    pub fn detect_cache_break_and_update(
+    /// Call this **before** [`RunningStats::accumulate`] so the
+    /// reference value still holds the previous call's state.
+    ///
+    /// This also advances the per-call snapshot fields
+    /// [`RunningStats::last_cache_read_tokens`] and
+    /// [`RunningStats::last_cache_hit_rate`] (doc-silent items with
+    /// existing semantics).
+    pub fn detect_cache_anomaly_and_update(
         &mut self,
         current_cache_read: Option<u32>,
         current_prompt_tokens: Option<u32>,
-    ) -> Option<CacheBreakInfo> {
-        // Providers that always return 0 for cache_read are not using
-        // caching at all. Treat as None so the normal detection path
-        // excludes them naturally (detect_cache_break returns None
-        // when current is None).
-        let effective_cache_read = current_cache_read.filter(|&v| v != 0);
+    ) -> Option<CacheAnomalyInfo> {
+        let info = detect_cache_anomaly(self.last_prompt_tokens, current_cache_read);
 
-        let prev_rate = self.last_cache_hit_rate;
-        let mut info = detect_cache_break(
-            self.last_cache_read_tokens,
-            effective_cache_read,
-            self.cache_break_thresholds.as_ref(),
-        );
-        // Save previous value for rate-based comparison; update after rate check.
-        let prev_cache_read = self.last_cache_read_tokens;
+        // Per-call snapshot fields (doc-silent, existing semantics kept):
+        // providers that always return 0 for cache_read are not using
+        // caching at all — treat as None so the snapshot excludes them.
+        let effective_cache_read = current_cache_read.filter(|&v| v != 0);
         self.last_cache_read_tokens = effective_cache_read;
 
         // Compute current per-call hit rate.
@@ -211,40 +204,25 @@ impl RunningStats {
             (Some(cr), Some(pt)) if pt > 0 => Some(cr as f64 / pt as f64),
             _ => None,
         };
-
-        // Override with hit-rate based detection when both rates available.
-        if let (Some(prev), Some(curr)) = (prev_rate, current_rate) {
-            self.apply_rate_break(&mut info, prev, curr, prev_cache_read, effective_cache_read);
-            // If token break exists but rate drop didn't trigger, fill rates.
-            if let Some(ref mut b) = info {
-                if b.previous_hit_rate == 0.0 && b.current_hit_rate == 0.0 {
-                    b.previous_hit_rate = prev;
-                    b.current_hit_rate = curr;
-                }
-            }
-        }
-
         self.last_cache_hit_rate = current_rate;
 
-        // Store cache break info when a break is detected.
-        if let Some(ref break_info) = info {
-            self.last_cache_break = Some(break_info.clone());
-            Self::log_cache_break(break_info);
+        // Store cache anomaly info when an anomaly is detected.
+        if let Some(ref anomaly) = info {
+            self.last_cache_anomaly = Some(anomaly.clone());
+            Self::log_cache_anomaly(anomaly);
         }
 
         info
     }
 
-    /// Logs a detected cache break event.
-    fn log_cache_break(break_info: &CacheBreakInfo) {
+    /// Logs a detected cache anomaly event.
+    fn log_cache_anomaly(info: &CacheAnomalyInfo) {
         tracing::warn!(
-            previous = break_info.previous_cache_read,
-            current = break_info.current_cache_read,
-            drop_tokens = break_info.drop_tokens,
-            drop_ratio = break_info.drop_ratio,
-            previous_hit_rate = break_info.previous_hit_rate,
-            current_hit_rate = break_info.current_hit_rate,
-            "KV cache break: prefix invalidated between consecutive calls"
+            previous_prompt_tokens = info.previous_prompt_tokens,
+            current_cache_read_tokens = info.current_cache_read_tokens,
+            deviation_tokens = info.deviation_tokens,
+            tolerance_tokens = info.tolerance_tokens,
+            "Cache anomaly: cache hit deviates from previous prompt tokens beyond tolerance"
         );
     }
 
@@ -253,7 +231,10 @@ impl RunningStats {
     /// `Option<u32>` fields that are `None` are treated as 0.
     /// When `total_tokens` is `None`, it is computed as
     /// `prompt_tokens + completion_tokens`.
-    pub fn accumulate(&mut self, usage: &UnifiedUsage) {
+    ///
+    /// `model` is the model/provider identifier used for this call; it
+    /// advances `last_call_model` for later model-switch exemption checks.
+    pub fn accumulate(&mut self, usage: &UnifiedUsage, model: Option<&str>) {
         let prompt = u64::from(usage.prompt_tokens);
         let completion = u64::from(usage.completion_tokens);
         let total = usage
@@ -270,10 +251,14 @@ impl RunningStats {
         self.total_cache_write_tokens += cache_write;
         self.total_reasoning_tokens += usage.reasoning_tokens.map_or(0u64, u64::from);
         self.request_count += 1;
+        self.last_prompt_tokens = Some(usage.prompt_tokens);
+        self.last_completion_tokens = Some(usage.completion_tokens);
+        self.last_call_at = Some(current_epoch_millis());
+        self.last_call_model = model.map(str::to_string);
     }
 }
 
-/// Helper getters, setters, and derived-statistics methods.
+/// Helper getters and derived-statistics methods.
 impl RunningStats {
     /// Returns the cache hit rate as a fraction in `[0.0, 1.0]`.
     /// Returns `0.0` when `total_prompt_tokens` is zero.
@@ -298,14 +283,9 @@ impl RunningStats {
         self.last_cache_read_tokens
     }
 
-    /// Returns a reference to the most recent cache break event, if any.
-    pub fn last_cache_break(&self) -> Option<&CacheBreakInfo> {
-        self.last_cache_break.as_ref()
-    }
-
-    /// Sets custom cache break detection thresholds.
-    pub fn set_cache_break_thresholds(&mut self, thresholds: CacheBreakThresholds) {
-        self.cache_break_thresholds = Some(thresholds);
+    /// Returns a reference to the most recent cache anomaly event, if any.
+    pub fn last_cache_anomaly(&self) -> Option<&CacheAnomalyInfo> {
+        self.last_cache_anomaly.as_ref()
     }
 
     /// Resets all counters and snapshots to initial values.
@@ -318,61 +298,12 @@ impl RunningStats {
         self.total_cache_write_tokens = 0;
         self.request_count = 0;
         self.total_reasoning_tokens = 0;
-        self.cache_break_thresholds = None;
+        self.last_prompt_tokens = None;
+        self.last_completion_tokens = None;
+        self.last_call_at = None;
+        self.last_call_model = None;
         self.last_cache_read_tokens = None;
         self.last_cache_hit_rate = None;
-        self.last_cache_break = None;
-    }
-
-    /// Checks whether a hit-rate drop between consecutive calls exceeds
-    /// the configured threshold.
-    ///
-    /// Returns `true` when both the rate drop exceeds
-    /// `drop_ratio_threshold` **and** the absolute token drop exceeds
-    /// `min_drop_tokens`.
-    fn did_rate_drop_exceed_threshold(
-        &self,
-        prev_rate: f64,
-        current_rate: f64,
-        drop_tokens: u32,
-    ) -> bool {
-        let th = self.cache_break_thresholds.clone().unwrap_or_default();
-        (prev_rate - current_rate) > th.drop_ratio_threshold && drop_tokens > th.min_drop_tokens
-    }
-
-    /// Applies rate-based break detection: either enhances an existing
-    /// token break with hit-rate data, or creates a rate-only break.
-    fn apply_rate_break(
-        &self,
-        info: &mut Option<CacheBreakInfo>,
-        prev_rate: f64,
-        current_rate: f64,
-        prev_cache_read: Option<u32>,
-        current_cache_read: Option<u32>,
-    ) {
-        let prev_ct = prev_cache_read.unwrap_or(0);
-        let curr_ct = current_cache_read.unwrap_or(0);
-        let drop_tokens = prev_ct.saturating_sub(curr_ct);
-        if !self.did_rate_drop_exceed_threshold(prev_rate, current_rate, drop_tokens) {
-            return;
-        }
-        if let Some(ref mut b) = info {
-            b.previous_hit_rate = prev_rate;
-            b.current_hit_rate = current_rate;
-        } else {
-            let drop_ratio = if prev_ct > 0 {
-                drop_tokens as f64 / prev_ct as f64
-            } else {
-                0.0
-            };
-            *info = Some(CacheBreakInfo {
-                previous_cache_read: prev_ct,
-                current_cache_read: curr_ct,
-                drop_tokens,
-                drop_ratio,
-                previous_hit_rate: prev_rate,
-                current_hit_rate: current_rate,
-            });
-        }
+        self.last_cache_anomaly = None;
     }
 }

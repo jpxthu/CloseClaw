@@ -235,9 +235,9 @@ impl SlashHandler for StatusHandler {
             }
         }
 
-        // Cache break event (most recent).
-        if let Some(cb) = sm.get_last_cache_break(sid).await {
-            lines.push(cb);
+        // Cache anomaly event (most recent).
+        if let Some(anomaly) = sm.get_last_cache_anomaly(sid).await {
+            lines.push(anomaly);
         }
 
         SlashResult::Reply(lines.join("\n"))

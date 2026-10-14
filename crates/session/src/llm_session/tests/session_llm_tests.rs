@@ -397,60 +397,90 @@ async fn test_session_delegates_to_injected_caller() {
     assert_eq!(result.usage.total_tokens, Some(8));
 }
 
-// ── cache break detection ───────────────────────────────────────────
+// ── cache anomaly detection (fixed 1024 tolerance) ──────────────────
 
-/// Verify that `detect_cache_break_for_usage` returns `CacheBreakInfo`
-/// when cache read tokens drop, simulating a cache break event.
+/// Verify that `detect_cache_anomaly_for_usage` returns `CacheAnomalyInfo`
+/// with all four fields when the current cache hit deviates from the
+/// previous round's prompt tokens (reference value) beyond the fixed
+/// 1024-token tolerance.
 #[test]
-fn test_detect_cache_break_returns_info_on_drop() {
-    let mut session = ConversationSession::new(
-        "test-session".to_string(),
-        "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+fn test_detect_cache_anomaly_returns_info_on_deviation() {
+    let mut session =
+        ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
+    // First call: no reference value yet (last_prompt_tokens is None) → exempt.
+    let first = session.detect_cache_anomaly_for_usage(Some(10_000), Some(100_000));
+    assert!(first.is_none(), "first call should not detect anomaly");
+
+    // Establish the reference value for round 2 via accumulate.
+    session.accumulate_usage(
+        &UnifiedUsage {
+            prompt_tokens: 100_000,
+            completion_tokens: 1_000,
+            total_tokens: Some(101_000),
+            reasoning_tokens: None,
+            cache_read_tokens: Some(10_000),
+            cache_write_tokens: None,
+        },
+        Some("test-model"),
     );
-    // Set initial cache read tokens via detect_cache_break_and_update (first call sets the value).
-    let none = session.detect_cache_break_for_usage(Some(10_000), Some(100_000));
-    assert!(none.is_none(), "first call should not detect break");
-    // Simulate a cache break: cache read drops to 2000.
-    let info = session.detect_cache_break_for_usage(Some(2_000), Some(100_000));
-    assert!(info.is_some(), "should detect cache break");
+
+    // Simulate a whole-round miss: cache hit drops to 2000, deviation
+    // 98 000 exceeds the fixed tolerance.
+    let info = session.detect_cache_anomaly_for_usage(Some(2_000), Some(100_000));
+    assert!(info.is_some(), "should detect cache anomaly");
     let info = info.unwrap();
-    assert_eq!(info.previous_cache_read, 10_000);
-    assert_eq!(info.current_cache_read, 2_000);
-    assert_eq!(info.drop_tokens, 8_000);
-    assert!(info.drop_ratio > 0.7, "drop ratio should be significant");
+    assert_eq!(info.previous_prompt_tokens, 100_000);
+    assert_eq!(info.current_cache_read_tokens, 2_000);
+    assert_eq!(info.deviation_tokens, 98_000);
+    assert_eq!(info.tolerance_tokens, 1024);
+    assert_eq!(
+        session.last_cache_anomaly(),
+        Some(&info),
+        "detected anomaly should be stored in stats"
+    );
 }
 
-/// Verify that `detect_cache_break_for_usage` returns `None` when
-/// cache read tokens do not drop (no break).
+/// Verify that `detect_cache_anomaly_for_usage` returns `None` when the
+/// cache hit stays within the fixed tolerance of the reference value —
+/// in both directions (absolute-value semantics, doc:75).
 #[test]
-fn test_detect_cache_break_returns_none_when_no_drop() {
-    let mut session = ConversationSession::new(
-        "test-session".to_string(),
-        "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+fn test_detect_cache_anomaly_returns_none_within_tolerance() {
+    let mut session =
+        ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
+    // Establish the reference value.
+    session.accumulate_usage(
+        &UnifiedUsage {
+            prompt_tokens: 100_000,
+            completion_tokens: 1_000,
+            total_tokens: Some(101_000),
+            reasoning_tokens: None,
+            cache_read_tokens: Some(100_000),
+            cache_write_tokens: None,
+        },
+        Some("test-model"),
     );
-    // Set initial cache read tokens.
-    let _ = session.detect_cache_break_for_usage(Some(10_000), Some(100_000));
-    // Cache read increases — no break.
-    let info = session.detect_cache_break_for_usage(Some(12_000), Some(100_000));
+    // Hit 1000 below the reference (deviation 1000 ≤ 1024) — no anomaly.
+    let below = session.detect_cache_anomaly_for_usage(Some(99_000), Some(100_000));
     assert!(
-        info.is_none(),
-        "should not detect break when cache read increases"
+        below.is_none(),
+        "deviation within tolerance is not an anomaly"
+    );
+    // Hit 1000 above the reference — equally no anomaly (direction-agnostic).
+    let above = session.detect_cache_anomaly_for_usage(Some(101_000), Some(100_000));
+    assert!(
+        above.is_none(),
+        "upward deviation within tolerance is also None"
     );
 }
 
-/// Verify that the first call to `detect_cache_break_for_usage` returns
-/// `None` (no previous value to compare against).
+/// Verify that the first call to `detect_cache_anomaly_for_usage` returns
+/// `None` (no accumulated reference value to compare against).
 #[test]
-fn test_detect_cache_break_first_call_returns_none() {
-    let mut session = ConversationSession::new(
-        "test-session".to_string(),
-        "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    let info = session.detect_cache_break_for_usage(Some(5_000), Some(50_000));
-    assert!(info.is_none(), "first call should not detect break");
+fn test_detect_cache_anomaly_first_call_returns_none() {
+    let mut session =
+        ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
+    let info = session.detect_cache_anomaly_for_usage(Some(5_000), Some(50_000));
+    assert!(info.is_none(), "first call should not detect anomaly");
 }
 
 // ── build_llm_request uses session reasoning_level (Step 1.1 fix) ──────────

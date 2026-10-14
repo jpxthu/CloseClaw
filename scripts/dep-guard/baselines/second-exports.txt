@@ -30,9 +30,9 @@ closeclaw-llm: src/session_state.rs:5 closeclaw_common::ChildSessionState
 closeclaw-llm: src/session_state.rs:5 closeclaw_common::LlmState
 closeclaw-llm: src/session_state.rs:5 closeclaw_common::SessionExecStatus
 closeclaw-llm: src/session_state.rs:5 closeclaw_common::ToolExecState
-closeclaw-llm: src/stats.rs:5 closeclaw_common::CacheBreakInfo
+closeclaw-llm: src/stats.rs:5 closeclaw_common::CacheAnomalyInfo
 closeclaw-llm: src/stats.rs:5 closeclaw_common::RunningStats
-closeclaw-llm: src/stats.rs:5 closeclaw_common::detect_cache_break
+closeclaw-llm: src/stats.rs:5 closeclaw_common::detect_cache_anomaly
 closeclaw-llm: src/streaming.rs:5 closeclaw_common::StreamDone
 closeclaw-llm: src/streaming.rs:5 closeclaw_common::StreamingSink
 closeclaw-llm: src/turn.rs:5 closeclaw_common::TurnCounter

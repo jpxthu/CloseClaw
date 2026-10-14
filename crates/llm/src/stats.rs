@@ -2,4 +2,4 @@
 //!
 //! Re-exported from [`closeclaw_common`] for backward compatibility.
 
-pub use closeclaw_common::{detect_cache_break, CacheBreakInfo, RunningStats};
+pub use closeclaw_common::{detect_cache_anomaly, CacheAnomalyInfo, RunningStats};

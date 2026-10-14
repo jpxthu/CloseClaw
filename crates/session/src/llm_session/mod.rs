@@ -740,29 +740,25 @@ impl ConversationSession {
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()
     }
-    /// Detects a cache break by comparing per-call hit rates.
-    pub fn detect_cache_break_for_usage(
+    /// Detects a cache hit anomaly against the previous call's prompt tokens.
+    pub fn detect_cache_anomaly_for_usage(
         &mut self,
         current_cache_read: Option<u32>,
         current_prompt_tokens: Option<u32>,
-    ) -> Option<closeclaw_common::CacheBreakInfo> {
+    ) -> Option<closeclaw_common::CacheAnomalyInfo> {
         self.stats
-            .detect_cache_break_and_update(current_cache_read, current_prompt_tokens)
+            .detect_cache_anomaly_and_update(current_cache_read, current_prompt_tokens)
     }
     /// Accumulates a single API call's usage into the session stats.
-    pub fn accumulate_usage(&mut self, usage: &UnifiedUsage) {
-        self.stats.accumulate(usage);
+    ///
+    /// `model` is the model identifier used for this call (advances
+    /// `last_call_model` for later model-switch exemption checks).
+    pub fn accumulate_usage(&mut self, usage: &UnifiedUsage, model: Option<&str>) {
+        self.stats.accumulate(usage, model);
     }
-    /// Sets cache break detection thresholds on session stats.
-    pub fn set_cache_break_thresholds(
-        &mut self,
-        thresholds: closeclaw_common::CacheBreakThresholds,
-    ) {
-        self.stats.set_cache_break_thresholds(thresholds);
-    }
-    /// Returns a reference to the most recent cache break event, if any.
-    pub fn last_cache_break(&self) -> Option<&closeclaw_common::CacheBreakInfo> {
-        self.stats.last_cache_break()
+    /// Returns a reference to the most recent cache anomaly event, if any.
+    pub fn last_cache_anomaly(&self) -> Option<&closeclaw_common::CacheAnomalyInfo> {
+        self.stats.last_cache_anomaly()
     }
 }
 

@@ -2,25 +2,30 @@
 //!
 //! Verifies three dimensions:
 //! 1. Cache read tokens accumulate correctly across N rounds
-//! 2. Cache break detection triggers `tracing::warn!` when thresholds are met
+//! 2. Cache anomaly detection triggers `tracing::warn!` when the deviation
+//!    between the previous round's prompt tokens and the current cache hit
+//!    exceeds the fixed 1024-token tolerance
 //! 3. Cache hit rate calculation is correct
 
 use super::capture_logs;
 use crate::llm_session::ConversationSession;
-use closeclaw_common::{CacheBreakInfo, UnifiedUsage};
+use closeclaw_common::{CacheAnomalyInfo, UnifiedUsage};
 use tempfile::TempDir;
+
+/// Design-fixed tolerance (llm-session-enhancements.md:75), non-configurable.
+const TOLERANCE: u32 = 1024;
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Simulate a single LLM round: detect cache break, then accumulate usage.
+/// Simulate a single LLM round: detect cache anomaly, then accumulate usage.
 ///
 /// This mirrors the session handler flow in
 /// `session_handler_announce.rs` (detect → accumulate).
 fn simulate_round(session: &mut ConversationSession, usage: &UnifiedUsage) {
-    session.detect_cache_break_for_usage(usage.cache_read_tokens, Some(usage.prompt_tokens));
-    session.accumulate_usage(usage);
+    session.detect_cache_anomaly_for_usage(usage.cache_read_tokens, Some(usage.prompt_tokens));
+    session.accumulate_usage(usage, None);
 }
 
 /// Build a `UnifiedUsage` from the given parameters.
@@ -41,37 +46,45 @@ fn make_usage(
     }
 }
 
-/// Build the full cache-break scenario (issue #3112 场景分层): a fresh
-/// `ConversationSession` under a `TempDir`, rounds 1–3 with stable cache
-/// reads, then round 4 where the cache read drops sharply to trigger
-/// `detect_cache_break_for_usage`, finally accumulate the dropped round.
+/// Build the cache anomaly scenario (issue #3112 场景分层, fixed-1024
+/// semantics): a fresh `ConversationSession` under a `TempDir`, two stable
+/// rounds with a full cache hit matching the prompt tokens, then a round
+/// where the cache read drops to 0 — deviation 100 000 exceeds the fixed
+/// tolerance and triggers `detect_cache_anomaly_for_usage`. The dropped
+/// round is accumulated afterwards, mirroring detect → accumulate.
 ///
 /// Zero environment capture, so it is a plain fn rather than inlined in
 /// the `capture_logs` closure (issue #3112 建议目标).
 ///
-/// Returns round 4's detection result (`Some(CacheBreakInfo)`).
-fn run_cache_break_scenario() -> Option<CacheBreakInfo> {
+/// Returns the anomaly round's detection result (`Some(CacheAnomalyInfo)`).
+fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
     let test_root = TempDir::new().unwrap();
     let mut session = ConversationSession::new(
-        "test-cache-break".into(),
+        "test-cache-anomaly".into(),
         "glm-5".into(),
         test_root.path().to_path_buf(),
     );
 
-    // Rounds 1–3: stable cache at 50 000
-    for _ in 1..=3 {
-        let usage = make_usage(1000, 200, Some(1200), Some(50_000), None);
-        simulate_round(&mut session, &usage);
-    }
+    // Round 1: first round — no reference value, exempt from checking.
+    let stable = make_usage(100_000, 200, Some(100_200), Some(100_000), None);
+    simulate_round(&mut session, &stable);
 
-    // Round 4: cache drops to 10 000 (drop = 40 000, ratio = 80%)
-    let drop_usage = make_usage(1000, 200, Some(1200), Some(10_000), None);
-    let break_info = session
-        .detect_cache_break_for_usage(drop_usage.cache_read_tokens, Some(drop_usage.prompt_tokens));
+    // Round 2: stable full hit — deviation 0, within tolerance.
+    let anomaly_free = session.detect_cache_anomaly_for_usage(Some(100_000), Some(100_000));
+    assert!(
+        anomaly_free.is_none(),
+        "stable round within tolerance must not detect an anomaly"
+    );
+    session.accumulate_usage(&stable, None);
+
+    // Round 3: cache drops to 0 (whole-round miss) — deviation 100 000
+    // exceeds the fixed 1024 tolerance.
+    let dropped = make_usage(100_000, 200, Some(100_200), Some(0), None);
+    let anomaly = session.detect_cache_anomaly_for_usage(Some(0), Some(dropped.prompt_tokens));
 
     // Accumulate the dropped round's usage
-    session.accumulate_usage(&drop_usage);
-    break_info
+    session.accumulate_usage(&dropped, None);
+    anomaly
 }
 
 // ---------------------------------------------------------------------------
@@ -119,44 +132,42 @@ async fn test_cache_hit_accumulation() {
     );
 }
 
-/// Test 2: Cache break detection
+/// Test 2: Cache anomaly detection under the fixed 1024 tolerance
 ///
-/// First 3 rounds: high cache_read (50 000).
-/// Round 4: drops to 10 000 (drop = 40 000, ratio = 80% > 5%, > 2 000).
-/// Verify:
-/// - `detect_cache_break_for_usage()` returns `Some(CacheBreakInfo)`
-/// - `tracing::warn!` is emitted with cache break info
+/// Stable rounds keep the cache hit equal to the prompt tokens; the
+/// anomaly round drops the hit to 0 (whole-round miss, deviation
+/// 100 000 > 1024). Verify:
+/// - `detect_cache_anomaly_for_usage()` returns `Some(CacheAnomalyInfo)`
+///   with all four fields populated and `tolerance_tokens == 1024`
+/// - `tracing::warn!` is emitted with cache anomaly details
 ///
 /// Uses `#[serial]` plus the shared `capture_logs` helper (thread-local
-/// `set_default`) to capture log output on this thread. The previous inline
-/// capture used `EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("warn"))`:
-/// env-driven when `RUST_LOG` parses, warn otherwise. Pinning `WARN` matches
-/// that default path's semantics and is now deterministic regardless of
-/// `RUST_LOG`.
+/// `set_default`) to capture log output on this thread. Pinning `WARN`
+/// makes the capture deterministic regardless of `RUST_LOG`.
 #[serial_test::serial]
 #[tokio::test]
-async fn test_cache_break_detection() {
-    let (break_info, log_output) = capture_logs(run_cache_break_scenario, tracing::Level::WARN);
+async fn test_cache_anomaly_detection() {
+    let (anomaly, log_output) = capture_logs(run_cache_anomaly_scenario, tracing::Level::WARN);
 
-    // Assert: detect returns Some with correct break info
-    let info = break_info.expect("expected cache break to be detected");
-    assert_eq!(info.previous_cache_read, 50_000);
-    assert_eq!(info.current_cache_read, 10_000);
-    assert_eq!(info.drop_tokens, 40_000);
-    assert!(
-        (info.drop_ratio - 0.80).abs() < f64::EPSILON,
-        "drop_ratio should be 0.80, got {}",
-        info.drop_ratio
-    );
+    // Assert: detect returns Some with correct anomaly info
+    let info = anomaly.expect("expected cache anomaly to be detected");
+    assert_eq!(info.previous_prompt_tokens, 100_000);
+    assert_eq!(info.current_cache_read_tokens, 0);
+    assert_eq!(info.deviation_tokens, 100_000);
+    assert_eq!(info.tolerance_tokens, TOLERANCE);
 
-    // Assert: tracing::warn! was emitted with cache break details
+    // Assert: tracing::warn! was emitted with cache anomaly details
     assert!(
-        log_output.contains("cache break"),
-        "expected warn log to contain 'cache break', got:\n{log_output}"
+        log_output.contains("Cache anomaly"),
+        "expected warn log to contain 'Cache anomaly', got:\n{log_output}"
     );
     assert!(
-        log_output.contains("drop_tokens=40000"),
-        "expected warn log to contain drop_tokens=40000, got:\n{log_output}"
+        log_output.contains("deviation_tokens=100000"),
+        "expected warn log to contain deviation_tokens=100000, got:\n{log_output}"
+    );
+    assert!(
+        log_output.contains("tolerance_tokens=1024"),
+        "expected warn log to contain tolerance_tokens=1024, got:\n{log_output}"
     );
 }
 
@@ -174,9 +185,15 @@ async fn test_cache_hit_rate_calculation() {
     );
 
     // 5 rounds: each with prompt=1000, cache_read=300
+    // (deviation 700 within tolerance — no anomaly expected).
     for _ in 0..5 {
         let usage = make_usage(1000, 200, Some(1200), Some(300), None);
-        simulate_round(&mut session, &usage);
+        let detected = session.detect_cache_anomaly_for_usage(Some(300), Some(1000));
+        assert!(
+            detected.is_none(),
+            "within-tolerance round is not an anomaly"
+        );
+        session.accumulate_usage(&usage, None);
     }
 
     let stats = session.stats();

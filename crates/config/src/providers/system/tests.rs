@@ -460,11 +460,35 @@ fn test_system_config_data_llm_defaults_when_missing() {
 fn test_llm_config_serde_roundtrip() {
     let config = LlmConfig {
         reasoning_level: ReasoningLevel::Medium,
-        cache_break: None,
     };
     let json = serde_json::to_string(&config).unwrap();
     let parsed: LlmConfig = serde_json::from_str(&json).unwrap();
     assert_eq!(config, parsed);
+}
+
+#[test]
+fn test_llm_config_ignores_removed_cache_break_key() {
+    // Pre-alignment config files may still carry the removed `cacheBreak`
+    // key (cache-break threshold runtime config was deleted when cache
+    // anomaly detection moved to a design-fixed tolerance). `LlmConfig`
+    // has no `deny_unknown_fields`, so legacy files must keep parsing
+    // with the extra key silently ignored.
+    let config: LlmConfig = serde_json::from_str(
+        r#"{
+            "reasoningLevel": "low",
+            "cacheBreak": {"dropRatioThreshold": 0.05, "minDropTokens": 2000}
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(config.reasoning_level, ReasoningLevel::Low);
+    // The whole SystemConfigData wrapper must be equally tolerant.
+    let config: SystemConfigData = serde_json::from_str(
+        r#"{
+            "llm": {"reasoningLevel": "high", "cacheBreak": {"minDropTokens": 2000}}
+        }"#,
+    )
+    .unwrap();
+    assert_eq!(config.llm.unwrap().reasoning_level, ReasoningLevel::High);
 }
 
 // -----------------------------------------------------------------------
