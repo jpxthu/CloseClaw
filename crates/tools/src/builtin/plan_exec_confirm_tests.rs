@@ -257,17 +257,16 @@ async fn cancel_removes_entry_and_pushes_message() {
 
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let session_msgs: Vec<String> = {
+    let has_cancelled_msg = {
         let state = mock.state();
         state
             .pending_messages
             .iter()
             .filter(|(sid, _)| sid == "session-1")
-            .map(|(_, m)| m.content.clone())
-            .collect()
+            .any(|(_, m)| m.content.contains("已取消执行 plan"))
     };
 
-    assert!(session_msgs.iter().any(|m| m.contains("已取消执行 plan")));
+    assert!(has_cancelled_msg);
     assert!(!flow.confirm(&id).await);
 }
 
