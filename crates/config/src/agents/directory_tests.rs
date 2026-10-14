@@ -358,8 +358,8 @@ fn test_directory_provider_id_mismatch_warn() {
     // Rendering source: `agent_id` / `dirname` are structured fields
     // on the `warn!` in `inject_dirname_id` (directory.rs:155-160),
     // rendered as `field=value` by tracing-subscriber fmt defaults;
-    // the workspace pins tracing-subscriber `=0.3.17`. If the pin is
-    // ever lifted, re-verify these value-rendering assertions.
+    // re-verified after the `=0.3.17` pin was lifted to a semver
+    // range (issue #3604 PR-3; locked at 0.3.23 at time of writing).
     assert!(
         logs.contains("does not match directory name"),
         "expected WARN log, got: {}",
