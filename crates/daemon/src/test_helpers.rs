@@ -9,17 +9,22 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::CompactConfig;
 use closeclaw_config::manager::ConfigSection;
+use closeclaw_config::session::{PerAgentSessionConfig, SessionConfigProvider};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::{Gateway, SessionManager};
+use closeclaw_memory::dreaming::DreamingPipeline;
+use closeclaw_memory::miner::MemoryMiner;
 
 use closeclaw_session::persistence::{
-    DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
+    AgentRole, DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
 };
-use tokio::sync::mpsc;
+use tokio::sync::{mpsc, watch};
 
 use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
+use crate::dreaming_scheduler::DreamingScheduler;
 
 /// Duplicate of `crate::bridge::common_shutdown_handle` for daemon-crate tests.
 /// Creates a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
@@ -571,4 +576,181 @@ pub(crate) fn kill_self(sig: TestShutdownSignal) {
         "kill self failed: {}",
         std::io::Error::last_os_error()
     );
+}
+
+// ── Shared DreamingScheduler test helpers ────────────────────────────────
+
+/// Mock SessionConfigProvider that returns a configurable agent list.
+#[derive(Debug)]
+pub struct MockConfig {
+    agents: Vec<String>,
+}
+
+impl MockConfig {
+    pub fn new(agents: Vec<String>) -> Self {
+        Self { agents }
+    }
+
+    pub fn empty() -> Self {
+        Self::new(Vec::new())
+    }
+}
+
+impl SessionConfigProvider for MockConfig {
+    fn session_config_for(&self, _agent_id: &str, _role: AgentRole) -> PerAgentSessionConfig {
+        PerAgentSessionConfig::default()
+    }
+
+    fn sweeper_interval_secs(&self) -> u64 {
+        60
+    }
+
+    fn dreaming_interval_secs(&self) -> u64 {
+        600
+    }
+
+    fn consistency_check_interval_secs(&self) -> u64 {
+        3600
+    }
+
+    fn list_agents(&self) -> Vec<String> {
+        self.agents.clone()
+    }
+
+    fn compact_config(&self) -> CompactConfig {
+        CompactConfig::default()
+    }
+
+    fn plan_archive_days(&self) -> u64 {
+        7
+    }
+
+    fn audit_log_limit(&self) -> usize {
+        1000
+    }
+}
+
+/// Helper to create a ConfigManager backed by a temp directory.
+pub fn make_test_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
+    Arc::new(ConfigManager::new(dir.to_path_buf()).expect("failed to create test ConfigManager"))
+}
+
+// ── Config-change test helpers (setup / scenario / assert) ────────────
+
+/// Setup: build a pipeline and miner with dreaming/mining DISABLED, so a
+/// Memory section reload can be verified to flip them on (or stay off).
+pub fn make_disabled_pipeline_and_miner(
+    db_path: &std::path::Path,
+    memory_md_path: &std::path::Path,
+) -> (Arc<DreamingPipeline>, Arc<MemoryMiner>) {
+    let pipeline = Arc::new(DreamingPipeline::with_config(
+        closeclaw_memory::params::DreamingParams {
+            enabled: Some(false),
+            ..Default::default()
+        },
+    ));
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: false,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        db_path,
+        memory_md_path.to_string_lossy().into_owned(),
+    ));
+    (pipeline, miner)
+}
+
+/// Setup: wire fresh storage and an empty mock config into a scheduler
+/// around the given pipeline/miner/config manager.
+pub fn make_config_change_scheduler(
+    pipeline: Arc<DreamingPipeline>,
+    miner: Arc<MemoryMiner>,
+    config_manager: Arc<ConfigManager>,
+) -> DreamingScheduler {
+    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
+}
+
+/// Setup: populate the Memory section cache with dreaming/mining enabled.
+pub fn seed_memory_section_cache(config_manager: &ConfigManager) {
+    let memory_value = serde_json::json!({
+        "dreaming": {
+            "enabled": true
+        },
+        "mining": {
+            "enabled": true
+        }
+    });
+    config_manager.update_section_cache(
+        closeclaw_config::ConfigSection::Memory,
+        std::path::PathBuf::from("memory.json"),
+        memory_value,
+    );
+}
+
+/// Scenario: broadcast a section reload event.
+///
+/// Synchronous by design: the scheduler's receiver subscribed at
+/// construction (`DreamingScheduler::new` → `subscribe_config_changes`),
+/// so the event is guaranteed buffered in the receiver — no settle sleep
+/// is needed. Consumers observe the effect deterministically via
+/// [`wait_until`] (plan Step 1.5: the previous fixed 50ms sleep was
+/// redundant and removed).
+pub fn notify_section_reload(config_manager: &ConfigManager, section: ConfigSection, path: &str) {
+    config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
+        section,
+        path: path.into(),
+    });
+}
+
+/// Poll `ready` until it holds, failing the test if it doesn't within 1s.
+///
+/// Deterministic substitute for fixed sleeps: waits on an observable state
+/// flip (e.g. config taking effect) with a deadline instead of guessing a
+/// wall-clock window (STANDARDS §9: 确定性优先).
+pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
+    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(1);
+    loop {
+        if ready() {
+            return;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "timed out after 1s waiting for {what}"
+        );
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+    }
+}
+
+/// Scenario: run the scheduler loop, wait for `event_consumed` — the
+/// caller's signal that the pending config event has been received and
+/// applied (an observable state flip; or a bounded window when the event
+/// intentionally produces no observable change) — then shut the loop down
+/// and verify prompt exit.
+pub async fn run_scheduler_briefly(
+    mut scheduler: DreamingScheduler,
+    event_consumed: impl std::future::Future<Output = ()>,
+) {
+    let (shutdown_tx, shutdown_rx) = watch::channel(());
+    let handle = tokio::spawn(async move {
+        scheduler.run(shutdown_rx).await;
+    });
+
+    event_consumed.await;
+    shutdown_tx.send(()).unwrap();
+
+    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    assert!(result.is_ok(), "scheduler should exit promptly");
 }

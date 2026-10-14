@@ -71,6 +71,66 @@ pub struct DreamingScheduler {
     mining_notify_rx: Option<mpsc::Receiver<String>>,
 }
 
+/// Events shared by both scheduler loops: the four `select!` branches
+/// (shutdown watch, config broadcast, mining-notify channel, timer)
+/// collapsed into a single classification returned by
+/// [`DreamingScheduler::next_event`].
+enum LoopEvent {
+    /// Shutdown signal observed — finish the active cycle, then exit.
+    Shutdown,
+    /// Memory-section config reload — each loop applies its own handler.
+    ConfigReload,
+    /// Session ID pushed by ArchiveSweeper's immediate hook.
+    MiningNotify(String),
+    /// Scheduled fire time reached — run one cycle, then advance
+    /// `next_fire` per the loop's own strategy.
+    Fire,
+    /// Config broadcast channel closed (sender dropped) — finish the
+    /// active cycle via the shutdown path, then exit (issue #3577).
+    ConfigClosed,
+}
+
+/// Outcome of one receive from the config broadcast channel, classified
+/// by [`classify_config_recv`].
+enum ConfigRecvOutcome {
+    /// Memory-section reload — the caller applies its reload handler.
+    MemoryReload,
+    /// Other section / non-reload event — ignore and keep polling.
+    Ignore,
+    /// Receiver lagged behind the broadcast: `n` events were lost.
+    /// Log and keep polling.
+    Lagged(u64),
+    /// Sender half dropped — the channel is permanently closed and the
+    /// loop must terminate via the shutdown path (issue #3577).
+    Closed,
+}
+
+/// What triggered a loop's shutdown epilogue
+/// ([`DreamingScheduler::finish_shutdown`]).
+enum ShutdownCause {
+    /// Shutdown watch signal observed (normal daemon shutdown).
+    Signal,
+    /// Config broadcast channel closed — sender dropped (issue #3577).
+    ConfigClosed,
+}
+
+/// Classify one config broadcast receive result.
+///
+/// Pure function, kept private and unit-testable (issue #3577): the
+/// four outcomes map to reload / ignore / warn-and-continue /
+/// terminate respectively.
+fn classify_config_recv(result: Result<ConfigChangeEvent, RecvError>) -> ConfigRecvOutcome {
+    match result {
+        Ok(ConfigChangeEvent::Reloaded {
+            section: ConfigSection::Memory,
+            ..
+        }) => ConfigRecvOutcome::MemoryReload,
+        Ok(_) => ConfigRecvOutcome::Ignore,
+        Err(RecvError::Lagged(n)) => ConfigRecvOutcome::Lagged(n),
+        Err(RecvError::Closed) => ConfigRecvOutcome::Closed,
+    }
+}
+
 // ── Standalone helpers (spawnable without borrowing scheduler) ───────
 
 /// Execute one dreaming cycle: dreaming pipeline first, then mining scan.
@@ -283,15 +343,12 @@ impl DreamingScheduler {
         let cron_schedule = self.schedule.as_deref().and_then(parse_cron_schedule);
 
         if let Some(ref sched) = cron_schedule {
-            let next = sched.next_fire_time(Local::now());
-            let delay = (next - Local::now())
-                .to_std()
-                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
             info!(
                 schedule = %sched.display(),
                 "DreamingScheduler started with cron schedule"
             );
-            self.run_cron_loop(&mut shutdown, sched, delay).await;
+            self.run_cron_loop(&mut shutdown, sched, cron_next_fire(sched))
+                .await;
         } else {
             let interval_secs = self.config.dreaming_interval_secs();
             let interval = tokio::time::Duration::from_secs(interval_secs);
@@ -308,27 +365,81 @@ impl DreamingScheduler {
         &mut self,
         shutdown: &mut watch::Receiver<()>,
         schedule: &CronSchedule,
-        initial_delay: tokio::time::Duration,
+        next_fire: tokio::time::Instant,
     ) {
-        let mut next_fire = tokio::time::Instant::now() + initial_delay;
+        let mut next_fire = next_fire;
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
-            tokio::select! {
-                _ = shutdown.changed() => {
-                    info!(
-                        "DreamingScheduler received shutdown signal, exiting"
-                    );
-                    if let Some(handle) = active_task.take() {
-                        wait_for_active_task(handle).await;
-                    }
+            match self.next_event(shutdown, next_fire).await {
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
                     break;
                 }
+                LoopEvent::ConfigClosed => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
+                    break;
+                }
+                LoopEvent::ConfigReload => {
+                    self.handle_cron_config_reload(&mut next_fire).await;
+                }
+                LoopEvent::MiningNotify(session_id) => {
+                    self.handle_mining_notify(&session_id).await;
+                }
+                LoopEvent::Fire => {
+                    self.spawn_or_skip_cycle(&mut active_task).await;
+                    next_fire = cron_next_fire(schedule);
+                }
+            }
+        }
+    }
+
+    /// Await the next loop event (shared by both scheduling loops).
+    ///
+    /// Races the four branches previously duplicated across
+    /// [`Self::run_cron_loop`] and [`Self::run_fixed_interval_loop`] —
+    /// shutdown watch, config broadcast, mining-notify channel and the
+    /// `next_fire` timer — and classifies the winner as a
+    /// [`LoopEvent`]. Only Memory-section reloads surface as
+    /// [`LoopEvent::ConfigReload`]; other sections are consumed,
+    /// ignored and polling continues. `Err(RecvError::Lagged)` logs a
+    /// warning (with the number of lost events) and keeps polling;
+    /// `Err(RecvError::Closed)` logs an error and returns
+    /// [`LoopEvent::ConfigClosed`] so the caller exits via the shutdown
+    /// path (issue #3577).
+    ///
+    /// Cancellation accounting matches the pre-refactor `select!`:
+    /// broadcast `recv()`, watch `changed()` and `sleep_until` are all
+    /// cancel-safe, so discarding the losing futures per iteration
+    /// loses no signal; the `next_fire` deadline is rebuilt unchanged.
+    async fn next_event(
+        &mut self,
+        shutdown: &mut watch::Receiver<()>,
+        next_fire: tokio::time::Instant,
+    ) -> LoopEvent {
+        loop {
+            tokio::select! {
+                _ = shutdown.changed() => {
+                    return LoopEvent::Shutdown;
+                }
                 result = self.config_rx.recv() => {
-                    if Self::is_memory_config_reload(result) {
-                        self.handle_cron_config_reload(
-                            &mut next_fire,
-                        ).await;
+                    match classify_config_recv(result) {
+                        ConfigRecvOutcome::MemoryReload => {
+                            return LoopEvent::ConfigReload;
+                        }
+                        ConfigRecvOutcome::Ignore => {}
+                        ConfigRecvOutcome::Lagged(n) => {
+                            warn!(
+                                lost = n,
+                                "config broadcast receiver lagged, events lost; continuing"
+                            );
+                        }
+                        ConfigRecvOutcome::Closed => {
+                            error!(
+                                "config broadcast channel closed, stopping dreaming scheduler"
+                            );
+                            return LoopEvent::ConfigClosed;
+                        }
                     }
                 }
                 Some(session_id) = async {
@@ -337,42 +448,49 @@ impl DreamingScheduler {
                         None => None,
                     }
                 } => {
-                    let agents = self.config.list_agents();
-                    if !agents.is_empty() {
-                        info!(
-                            session_id = %session_id,
-                            "mining triggered by archive notification"
-                        );
-                        self.mine_session(&session_id, &agents).await;
-                    }
+                    return LoopEvent::MiningNotify(session_id);
                 }
                 _ = tokio::time::sleep_until(next_fire) => {
-                    self.spawn_or_skip_cycle(
-                        &mut active_task,
-                    ).await;
-                    let next =
-                        schedule.next_fire_time(Local::now());
-                    let delay = (next - Local::now())
-                        .to_std()
-                        .unwrap_or_else(|_| {
-                            tokio::time::Duration::from_secs(1)
-                        });
-                    next_fire =
-                        tokio::time::Instant::now() + delay;
+                    return LoopEvent::Fire;
                 }
             }
         }
     }
 
-    /// Check if the event is a Memory config reload.
-    fn is_memory_config_reload(result: Result<ConfigChangeEvent, RecvError>) -> bool {
-        matches!(
-            result,
-            Ok(ConfigChangeEvent::Reloaded {
-                section: ConfigSection::Memory,
-                ..
-            })
-        )
+    /// Shared shutdown epilogue: log the exit cause truthfully and give
+    /// an in-flight cycle the grace budget to finish. Termination causes
+    /// are the shutdown watch ([`ShutdownCause::Signal`]) and the closed
+    /// config broadcast ([`ShutdownCause::ConfigClosed`], issue #3577) —
+    /// the latter gets its own message, not the shutdown-signal text.
+    /// The caller breaks its loop afterwards.
+    async fn finish_shutdown(
+        active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
+        cause: ShutdownCause,
+    ) {
+        match cause {
+            ShutdownCause::Signal => {
+                info!("DreamingScheduler received shutdown signal, exiting");
+            }
+            ShutdownCause::ConfigClosed => {
+                info!("DreamingScheduler config broadcast closed, exiting");
+            }
+        }
+        if let Some(handle) = active_task.take() {
+            wait_for_active_task(handle).await;
+        }
+    }
+
+    /// Shared mining-notify branch: mine the notified session only when
+    /// at least one agent is configured; otherwise stay silent.
+    async fn handle_mining_notify(&self, session_id: &str) {
+        let agents = self.config.list_agents();
+        if !agents.is_empty() {
+            info!(
+                session_id = %session_id,
+                "mining triggered by archive notification"
+            );
+            self.mine_session(session_id, &agents).await;
+        }
     }
 
     /// Handle a config reload within the cron loop: apply new config,
@@ -381,11 +499,7 @@ impl DreamingScheduler {
         self.handle_config_change().await;
         let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
         if let Some(ref new_sched) = new_sched {
-            let next = new_sched.next_fire_time(Local::now());
-            let delay = (next - Local::now())
-                .to_std()
-                .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
-            *next_fire = tokio::time::Instant::now() + delay;
+            *next_fire = cron_next_fire(new_sched);
             info!(
                 schedule = %new_sched.display(),
                 "schedule updated after config reload"
@@ -413,42 +527,24 @@ impl DreamingScheduler {
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
-            tokio::select! {
-                _ = shutdown.changed() => {
-                    info!(
-                        "DreamingScheduler received shutdown signal, exiting"
-                    );
-                    if let Some(handle) = active_task.take() {
-                        wait_for_active_task(handle).await;
-                    }
+            match self.next_event(shutdown, next_fire).await {
+                LoopEvent::Shutdown => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
                     break;
                 }
-                result = self.config_rx.recv() => {
-                    if Self::is_memory_config_reload(result) {
-                        self.handle_config_change().await;
-                    }
+                LoopEvent::ConfigClosed => {
+                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
+                    break;
                 }
-                Some(session_id) = async {
-                    match &mut self.mining_notify_rx {
-                        Some(rx) => rx.recv().await,
-                        None => None,
-                    }
-                } => {
-                    let agents = self.config.list_agents();
-                    if !agents.is_empty() {
-                        info!(
-                            session_id = %session_id,
-                            "mining triggered by archive notification"
-                        );
-                        self.mine_session(&session_id, &agents).await;
-                    }
+                LoopEvent::ConfigReload => {
+                    self.handle_config_change().await;
                 }
-                _ = tokio::time::sleep_until(next_fire) => {
-                    self.spawn_or_skip_cycle(
-                        &mut active_task,
-                    ).await;
-                    next_fire =
-                        tokio::time::Instant::now() + interval;
+                LoopEvent::MiningNotify(session_id) => {
+                    self.handle_mining_notify(&session_id).await;
+                }
+                LoopEvent::Fire => {
+                    self.spawn_or_skip_cycle(&mut active_task).await;
+                    next_fire = tokio::time::Instant::now() + interval;
                 }
             }
         }
@@ -653,6 +749,22 @@ fn match_field(field: &CronField, value: u32) -> bool {
     }
 }
 
+/// Next cron fire instant, expressed on tokio's clock.
+///
+/// Collapses the three verbatim `next_fire_time` → delay →
+/// `tokio::time::Instant` conversions previously duplicated across
+/// [`DreamingScheduler::run`], the cron loop's `Fire` branch and
+/// [`DreamingScheduler::handle_cron_config_reload`] (issue #3578).
+/// Falls back to a 1s delay when the wall-clock delta is negative or
+/// unrepresentable (clock moved backwards past the fire instant).
+fn cron_next_fire(schedule: &CronSchedule) -> tokio::time::Instant {
+    let next = schedule.next_fire_time(Local::now());
+    let delay = (next - Local::now())
+        .to_std()
+        .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
+    tokio::time::Instant::now() + delay
+}
+
 /// Display a cron field for logging.
 fn display_field(field: &CronField) -> String {
     match field {
@@ -823,3 +935,13 @@ mod cron_tests {
         assert_eq!(sched.display(), "0 3 * * *");
     }
 }
+
+// ── Config recv classification tests ──────────────────────────────────
+
+/// Child test module (separate file, same pattern as the config crate's
+/// `events.rs` → `events_tests.rs`): needs `super::*` access to the
+/// private `classify_config_recv` / `ConfigRecvOutcome`, which a sibling
+/// module cannot reach.
+#[cfg(test)]
+#[path = "dreaming_scheduler_classify_tests.rs"]
+mod classify_tests;

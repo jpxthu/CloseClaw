@@ -5,68 +5,18 @@ use std::sync::Arc;
 use tokio::sync::watch;
 
 use crate::dreaming_scheduler::DreamingScheduler;
-use crate::test_helpers::TestStorage;
-use closeclaw_common::CompactConfig;
+use crate::test_helpers::{
+    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_test_config_manager,
+    notify_section_reload, run_scheduler_briefly, seed_memory_section_cache, wait_until,
+    MockConfig, TestStorage,
+};
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;
-use closeclaw_config::PerAgentSessionConfig;
 use closeclaw_memory::dreaming::{DreamingError, DreamingPipeline};
 use closeclaw_memory::miner::MemoryMiner;
-use closeclaw_session::persistence::{
-    AgentRole, DreamingStatus, PersistenceService, SessionCheckpoint,
-};
+use closeclaw_session::persistence::{DreamingStatus, PersistenceService, SessionCheckpoint};
 
 // ── Test helpers ─────────────────────────────────────────────────────────
-
-/// Mock SessionConfigProvider that returns a configurable agent list.
-#[derive(Debug)]
-struct MockConfig {
-    agents: Vec<String>,
-}
-
-impl MockConfig {
-    fn new(agents: Vec<String>) -> Self {
-        Self { agents }
-    }
-
-    fn empty() -> Self {
-        Self::new(Vec::new())
-    }
-}
-
-impl SessionConfigProvider for MockConfig {
-    fn session_config_for(&self, _agent_id: &str, _role: AgentRole) -> PerAgentSessionConfig {
-        PerAgentSessionConfig::default()
-    }
-
-    fn sweeper_interval_secs(&self) -> u64 {
-        60
-    }
-
-    fn dreaming_interval_secs(&self) -> u64 {
-        600
-    }
-
-    fn consistency_check_interval_secs(&self) -> u64 {
-        3600
-    }
-
-    fn list_agents(&self) -> Vec<String> {
-        self.agents.clone()
-    }
-
-    fn compact_config(&self) -> CompactConfig {
-        CompactConfig::default()
-    }
-
-    fn plan_archive_days(&self) -> u64 {
-        7
-    }
-
-    fn audit_log_limit(&self) -> usize {
-        1000
-    }
-}
 
 fn make_scheduler(
     storage: Arc<dyn PersistenceService>,
@@ -342,129 +292,9 @@ async fn test_dreaming_scheduler_hourly_cron() {
 
 // ── Step 1.5: Config hot-reload tests ────────────────────────────────
 
-/// Helper to create a ConfigManager backed by a temp directory.
-fn make_test_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
-    Arc::new(ConfigManager::new(dir.to_path_buf()).expect("failed to create test ConfigManager"))
-}
-
-// ── Config-change test helpers (setup / scenario / assert) ────────────
-
-/// Setup: build a pipeline and miner with dreaming/mining DISABLED, so a
-/// Memory section reload can be verified to flip them on (or stay off).
-fn make_disabled_pipeline_and_miner(
-    db_path: &std::path::Path,
-    memory_md_path: &std::path::Path,
-) -> (Arc<DreamingPipeline>, Arc<MemoryMiner>) {
-    let pipeline = Arc::new(DreamingPipeline::with_config(
-        closeclaw_memory::params::DreamingParams {
-            enabled: Some(false),
-            ..Default::default()
-        },
-    ));
-    let miner = Arc::new(MemoryMiner::new(
-        closeclaw_memory::miner::MinerConfig {
-            enabled: false,
-            ..Default::default()
-        },
-        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
-        db_path,
-        memory_md_path.to_string_lossy().into_owned(),
-    ));
-    (pipeline, miner)
-}
-
-/// Setup: wire fresh storage and an empty mock config into a scheduler
-/// around the given pipeline/miner/config manager.
-fn make_config_change_scheduler(
-    pipeline: Arc<DreamingPipeline>,
-    miner: Arc<MemoryMiner>,
-    config_manager: Arc<ConfigManager>,
-) -> DreamingScheduler {
-    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
-    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
-    DreamingScheduler::new(
-        Arc::clone(&storage),
-        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
-            storage,
-        )),
-        config,
-        pipeline,
-        miner,
-        config_manager,
-    )
-}
-
-/// Setup: populate the Memory section cache with dreaming/mining enabled.
-fn seed_memory_section_cache(config_manager: &ConfigManager) {
-    let memory_value = serde_json::json!({
-        "dreaming": {
-            "enabled": true
-        },
-        "mining": {
-            "enabled": true
-        }
-    });
-    config_manager.update_section_cache(
-        closeclaw_config::ConfigSection::Memory,
-        std::path::PathBuf::from("memory.json"),
-        memory_value,
-    );
-}
-
-/// Scenario: broadcast a section reload event and let it propagate
-/// (broadcast channel delivery).
-async fn notify_section_reload(
-    config_manager: &ConfigManager,
-    section: closeclaw_config::ConfigSection,
-    path: &str,
-) {
-    config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
-        section,
-        path: path.into(),
-    });
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
-}
-
-/// Poll `ready` until it holds, failing the test if it doesn't within 1s.
-///
-/// Deterministic substitute for fixed sleeps: waits on an observable state
-/// flip (e.g. config taking effect) with a deadline instead of guessing a
-/// wall-clock window (STANDARDS §9: 确定性优先).
-async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(1);
-    loop {
-        if ready() {
-            return;
-        }
-        assert!(
-            tokio::time::Instant::now() < deadline,
-            "timed out after 1s waiting for {what}"
-        );
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
-    }
-}
-
-/// Scenario: run the scheduler loop, wait for `event_consumed` — the
-/// caller's signal that the pending config event has been received and
-/// applied (an observable state flip; or a bounded window when the event
-/// intentionally produces no observable change) — then shut the loop down
-/// and verify prompt exit.
-async fn run_scheduler_briefly(
-    mut scheduler: DreamingScheduler,
-    event_consumed: impl std::future::Future<Output = ()>,
-) {
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    event_consumed.await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
-    assert!(result.is_ok(), "scheduler should exit promptly");
-}
+// Config-change test helpers (MockConfig / make_config_change_scheduler /
+// notify_section_reload / wait_until / run_scheduler_briefly / ...) live in
+// `crate::test_helpers` so the loop-behavior tests below can share them.
 
 /// Scenario: run the pipeline once over a fresh mined+undreamt checkpoint and
 /// return the dreaming status it ends up with (assertions stay at call sites).
@@ -517,8 +347,7 @@ async fn test_config_change_memory_section_updates_components() {
         &config_manager,
         closeclaw_config::ConfigSection::Memory,
         "memory.json",
-    )
-    .await;
+    );
     // Deterministic signal: handle_config_change() updates the pipeline and
     // then the miner, so miner flipping to enabled proves the Memory reload
     // event was consumed and applied (pipeline update precedes it).
@@ -560,8 +389,7 @@ async fn test_config_change_non_memory_ignored() {
         &config_manager,
         closeclaw_config::ConfigSection::Gateway,
         "gateway.json",
-    )
-    .await;
+    );
     // Conservative fixed window (#3148 item 4): a non-Memory event is
     // intentionally a no-op — it produces NO observable state change, and
     // that absence is exactly what this test asserts — so unlike the Memory
@@ -827,5 +655,260 @@ async fn test_dreaming_shutdown_handles_errored_task() {
         elapsed < std::time::Duration::from_secs(2),
         "errored task should be handled immediately, took {:?}",
         elapsed
+    );
+}
+
+// ── Step 1.1: select! loop branch protection tests ─────────────────────
+
+/// A transcript that passes the miner's default cleaning thresholds
+/// (min_turns = 5, min_owner_msgs = 5): five user turns plus one
+/// assistant reply.
+fn miner_clean_transcript() -> Vec<closeclaw_session::persistence::PendingMessage> {
+    let mut msgs: Vec<_> = (1..=5)
+        .map(|i| {
+            closeclaw_session::persistence::PendingMessage::with_role(
+                format!("u{i}"),
+                format!("hello {i}"),
+                "user".into(),
+            )
+        })
+        .collect();
+    msgs.push(closeclaw_session::persistence::PendingMessage::with_role(
+        "a1".into(),
+        "hi there".into(),
+        "assistant".into(),
+    ));
+    msgs
+}
+
+/// The mining-notify mpsc branch drives a running fixed-interval loop end
+/// to end: a notified session whose agent is configured is mined
+/// immediately (observed via `TestStorage::mined_ids`), while a session
+/// whose agent is not configured is silently ignored — the loop keeps
+/// running without panic in both cases.
+///
+/// FIFO consumption makes the ignore assertion deterministic: by the time
+/// the follow-up configured session ("notify-confirm", sent after the
+/// ignored one) is observed mined, the ignored message has already been
+/// consumed by the loop and produced no mine.
+#[tokio::test]
+async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
+    let test_storage = Arc::new(TestStorage::default());
+
+    // Archived unmined sessions with non-empty transcripts, so the miner
+    // actually reaches mark_mined when it runs (observable via mined_ids).
+    let mut configured = SessionCheckpoint::new("notify-mined".into())
+        .with_outbound_pending(miner_clean_transcript());
+    configured.agent_id = Some("agent1".into());
+    configured.mined = false;
+    test_storage.add_archived(configured);
+
+    let mut foreign = SessionCheckpoint::new("notify-foreign".into())
+        .with_outbound_pending(miner_clean_transcript());
+    foreign.agent_id = Some("unknown-agent".into());
+    foreign.mined = false;
+    test_storage.add_archived(foreign);
+
+    let mut confirm = SessionCheckpoint::new("notify-confirm".into())
+        .with_outbound_pending(miner_clean_transcript());
+    confirm.agent_id = Some("agent1".into());
+    confirm.mined = false;
+    test_storage.add_archived(confirm);
+
+    let storage: Arc<dyn PersistenceService> =
+        Arc::clone(&test_storage) as Arc<dyn PersistenceService>;
+    let config: Arc<dyn SessionConfigProvider> =
+        Arc::new(MockConfig::new(vec!["agent1".to_string()]));
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let pipeline = Arc::new(DreamingPipeline::new());
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: true,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        tmp.path().join("memory-notify.db"),
+        tmp.path()
+            .join("MEMORY-notify.md")
+            .to_string_lossy()
+            .into_owned(),
+    ));
+
+    let (notify_tx, notify_rx) = tokio::sync::mpsc::channel::<String>(8);
+    let scheduler = DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
+    .with_mining_notify_rx(notify_rx);
+
+    let observed = Arc::clone(&test_storage);
+    run_scheduler_briefly(scheduler, async move {
+        // A configured-agent session must be mined immediately.
+        notify_tx.send("notify-mined".to_string()).await.unwrap();
+        wait_until("notified session mined", || {
+            test_storage
+                .mined_ids()
+                .iter()
+                .any(|id| id == "notify-mined")
+        })
+        .await;
+
+        // An unconfigured-agent session is silently ignored (no panic);
+        // the confirm session after it proves the ignored one was consumed.
+        notify_tx.send("notify-foreign".to_string()).await.unwrap();
+        notify_tx.send("notify-confirm".to_string()).await.unwrap();
+        wait_until("confirm session mined", || {
+            test_storage
+                .mined_ids()
+                .iter()
+                .any(|id| id == "notify-confirm")
+        })
+        .await;
+    })
+    .await;
+
+    assert!(
+        observed.mined_ids().iter().any(|id| id == "notify-mined"),
+        "session with configured agent must be mined via the notify branch"
+    );
+    assert!(
+        !observed.mined_ids().iter().any(|id| id == "notify-foreign"),
+        "session with unconfigured agent must be silently ignored"
+    );
+}
+
+/// The shared notify helper's `agents.is_empty()` guard must suppress
+/// mining end to end: with NO agent configured at all, a notified
+/// session that would otherwise be minable is left untouched and the
+/// loop stays alive. This is a different branch than the foreign-agent
+/// scenario above — that one is filtered inside `mine_archived_session`
+/// (`agents.contains(aid)`), this one short-circuits in
+/// `handle_mining_notify` before any per-session work.
+///
+/// Deterministic consumption proof: the notify channel has capacity 1,
+/// so the follow-up `send().await` can only complete once the loop has
+/// dequeued the first message — the guard branch has definitely run
+/// (bounded by a 1s timeout so a broken loop fails fast, not by hang).
+#[tokio::test]
+async fn test_mining_notify_empty_agents_suppresses_mining() {
+    let test_storage = Arc::new(TestStorage::default());
+
+    // A session that would be minable if any agent were configured.
+    let mut cp = SessionCheckpoint::new("notify-no-agents".into())
+        .with_outbound_pending(miner_clean_transcript());
+    cp.agent_id = Some("agent1".into());
+    cp.mined = false;
+    test_storage.add_archived(cp);
+
+    let storage: Arc<dyn PersistenceService> =
+        Arc::clone(&test_storage) as Arc<dyn PersistenceService>;
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let pipeline = Arc::new(DreamingPipeline::new());
+    let miner = Arc::new(MemoryMiner::new(
+        closeclaw_memory::miner::MinerConfig {
+            enabled: true,
+            ..Default::default()
+        },
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        Box::new(crate::noop_miner_llm::NoopMinerLlmCaller),
+        tmp.path().join("memory-notify-empty.db"),
+        tmp.path()
+            .join("MEMORY-notify-empty.md")
+            .to_string_lossy()
+            .into_owned(),
+    ));
+
+    let (notify_tx, notify_rx) = tokio::sync::mpsc::channel::<String>(1);
+    let scheduler = DreamingScheduler::new(
+        Arc::clone(&storage),
+        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
+            storage,
+        )),
+        config,
+        pipeline,
+        miner,
+        config_manager,
+    )
+    .with_mining_notify_rx(notify_rx);
+
+    let observed = Arc::clone(&test_storage);
+    run_scheduler_briefly(scheduler, async move {
+        notify_tx
+            .send("notify-no-agents".to_string())
+            .await
+            .unwrap();
+        // Completes only once the first message was dequeued by the
+        // loop — proof the empty-agents guard branch executed.
+        tokio::time::timeout(
+            tokio::time::Duration::from_secs(1),
+            notify_tx.send("consumption-proof".to_string()),
+        )
+        .await
+        .expect("loop must consume the notify message within 1s")
+        .unwrap();
+    })
+    .await;
+
+    assert!(
+        observed.mined_ids().is_empty(),
+        "no session may be mined when no agent is configured, got {:?}",
+        observed.mined_ids()
+    );
+}
+
+/// Flooding the config broadcast past its capacity (64) must leave the
+/// scheduler loop alive: the receiver's `Err(RecvError::Lagged)` is
+/// tolerated and a subsequent valid memory reload event is still applied
+/// (miner flips to enabled). This assertion holds both before the Lagged
+/// handling lands (error silently ignored, polling continues) and after
+/// (warn logged, polling continues).
+#[tokio::test]
+async fn test_config_broadcast_lagged_loop_survives_and_applies_reload() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    seed_memory_section_cache(&config_manager);
+    let (pipeline, miner) = make_disabled_pipeline_and_miner(
+        &tmp.path().join("memory-lagged.db"),
+        &tmp.path().join("MEMORY-lagged.md"),
+    );
+    let scheduler =
+        make_config_change_scheduler(pipeline.clone(), miner.clone(), config_manager.clone());
+
+    // Flood the broadcast channel past capacity while the loop is not yet
+    // polling: the scheduler's receiver is guaranteed to Lag on its first
+    // recv. 64 is the broadcast channel capacity (closeclaw-config
+    // DEFAULT_CHANNEL_CAPACITY); +8 leaves margin.
+    let flooded = 64 + 8;
+    for _ in 0..flooded {
+        config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
+            section: closeclaw_config::ConfigSection::Memory,
+            path: "memory.json".into(),
+        });
+    }
+    // A subsequent valid memory reload event after the lag window.
+    config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
+        section: closeclaw_config::ConfigSection::Memory,
+        path: "memory.json".into(),
+    });
+
+    run_scheduler_briefly(
+        scheduler,
+        wait_until("post-lag memory reload applied", || miner.is_enabled()),
+    )
+    .await;
+
+    assert!(
+        miner.is_enabled(),
+        "memory reload after broadcast lag must still be applied"
     );
 }
