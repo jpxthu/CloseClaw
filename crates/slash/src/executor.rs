@@ -197,7 +197,7 @@ mod tests {
                     matches!(&blocks[0], ContentBlock::Text(t)
                         if t == NO_DOWNGRADE_REPLY),
                     "no-downgrade reply should contain parenthetical, got: {:?}",
-                    &blocks[0],
+                    blocks[0],
                 );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
@@ -225,7 +225,7 @@ mod tests {
                     matches!(&blocks[0], ContentBlock::Text(t)
                         if t == DOWNGRADE_REPLY),
                     "downgrade reply should contain effective level and explanation, got: {:?}",
-                    &blocks[0],
+                    blocks[0],
                 );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
@@ -252,7 +252,7 @@ mod tests {
                 assert!(
                     matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
                     "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
-                    &blocks[0],
+                    blocks[0],
                 );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
@@ -277,7 +277,7 @@ mod tests {
                 assert!(
                     matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
                     "None fallback should use legacy reply (no parentheses), got: {:?}",
-                    &blocks[0],
+                    blocks[0],
                 );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
@@ -304,7 +304,7 @@ mod tests {
                 assert!(
                     matches!(&blocks[0], ContentBlock::Text(t) if t == "当前模型无法关闭推理，已降至最低可用档位 Low"),
                     "Off+can't-close should indicate downgrade to lowest level, got: {:?}",
-                    &blocks[0],
+                    blocks[0],
                 );
             }
             other => panic!("expected ReplyAction::Reply, got {:?}", other),
