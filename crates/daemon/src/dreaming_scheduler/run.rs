@@ -10,7 +10,7 @@ use tokio::sync::watch;
 use tokio::task::JoinHandle;
 use tracing::info;
 
-use super::cron::{cron_next_fire, parse_cron_schedule, CronSchedule};
+use super::cron::{cron_next_fire, parse_cron_schedule};
 use super::{DreamingScheduler, DreamingSchedulerError, LoopEvent, ShutdownCause};
 
 impl DreamingScheduler {
@@ -27,7 +27,7 @@ impl DreamingScheduler {
                 schedule = %sched.display(),
                 "DreamingScheduler started with cron schedule"
             );
-            self.run_cron_loop(&mut shutdown, sched, cron_next_fire(sched))
+            self.run_cron_loop(&mut shutdown, cron_next_fire(sched))
                 .await;
         } else {
             let interval_secs = self.config.dreaming_interval_secs();
@@ -44,10 +44,8 @@ impl DreamingScheduler {
     async fn run_cron_loop(
         &mut self,
         shutdown: &mut watch::Receiver<()>,
-        schedule: &CronSchedule,
-        next_fire: tokio::time::Instant,
+        mut next_fire: tokio::time::Instant,
     ) {
-        let mut next_fire = next_fire;
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
         loop {
@@ -68,8 +66,23 @@ impl DreamingScheduler {
                 }
                 LoopEvent::Fire => {
                     self.spawn_or_skip_cycle(&mut active_task).await;
-                    next_fire = cron_next_fire(schedule);
+                    next_fire = self.next_fire_from_current_schedule();
                 }
+            }
+        }
+    }
+
+    /// Recompute the next fire instant from the current `schedule`
+    /// (issue #3608): re-parse the expression so a reloaded schedule keeps
+    /// governing every subsequent Fire, falling back to the fixed interval
+    /// when it is missing or invalid — the same fallback semantics as
+    /// [`DreamingScheduler::handle_cron_config_reload`].
+    fn next_fire_from_current_schedule(&self) -> tokio::time::Instant {
+        match self.schedule.as_deref().and_then(parse_cron_schedule) {
+            Some(sched) => cron_next_fire(&sched),
+            None => {
+                tokio::time::Instant::now()
+                    + tokio::time::Duration::from_secs(self.config.dreaming_interval_secs())
             }
         }
     }
