@@ -139,7 +139,7 @@ async fn test_system_append_add_increments_number() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #1"),
                 "first add should be #1, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -161,7 +161,7 @@ async fn test_system_append_add_increments_number() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #2"),
                 "second add should be #2, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -183,7 +183,7 @@ async fn test_system_append_add_increments_number() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #3"),
                 "third add should be #3, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -248,7 +248,7 @@ async fn test_system_append_clear_zero_items() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 0 条追加指令"),
                 "clear on empty list should show 0, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -288,7 +288,7 @@ async fn test_system_append_clear_count_reflected_in_reply() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 4 条追加指令"),
                 "second clear should reflect count 4, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),

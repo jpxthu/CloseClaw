@@ -381,7 +381,7 @@ async fn test_sandbox_evaluate_permission_request() {
 
         let response = eval_result.unwrap();
         match response {
-            PermissionResponse::Allowed { token: _, .. } => {
+            PermissionResponse::Allowed { .. } => {
                 // Permissive rules allow this request
             }
             PermissionResponse::Denied {

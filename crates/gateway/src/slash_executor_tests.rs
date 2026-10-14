@@ -522,7 +522,7 @@ async fn test_exec_failure_forwards_error_to_user() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t.contains("命令执行失败")),
                 "error message should be forwarded to user, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -600,7 +600,7 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
                 matches!(&blocks[0], ContentBlock::Text(t)
                     if t == NO_DOWNGRADE_REPLY),
                 "no-downgrade reply should contain parenthetical, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -629,7 +629,7 @@ async fn test_set_reasoning_downgrade_reply() {
                     if t == DOWNGRADE_REPLY),
                 "downgrade reply should contain effective level and\
  explanation, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -654,7 +654,7 @@ async fn test_set_reasoning_off_provider_supports_closing() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
                 "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -679,7 +679,7 @@ async fn test_set_reasoning_off_provider_cannot_close() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "当前模型无法关闭推理，已降至最低可用档位 Low"),
                 "Off+can't-close should indicate downgrade to lowest level, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -704,7 +704,7 @@ async fn test_set_reasoning_none_fallback_legacy_reply() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
                 "None fallback should use legacy reply, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -807,7 +807,7 @@ async fn test_set_mode_with_reply_message_uses_custom_message() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "已切换到 Plan 模式"),
                 "should use custom reply_message, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -835,7 +835,7 @@ async fn test_set_mode_without_reply_message_uses_default() {
             assert!(
                 matches!(&blocks[0], ContentBlock::Text(t) if t == "Mode set to: auto"),
                 "should use default English message, got: {:?}",
-                &blocks[0],
+                blocks[0],
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
