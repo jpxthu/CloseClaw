@@ -760,7 +760,7 @@ async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
 /// is still genuinely executed end to end, while real wall-clock cost
 /// drops to milliseconds (precisely as in PR #3202).
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-async fn test_dreaming_shutdown_aborts_task_after_grace_period() {
+async fn test_dreaming_shutdown_abandons_task_after_grace_period() {
     use crate::dreaming_scheduler::SHUTDOWN_GRACE_SECS;
 
     // Spawn a hanging task that never completes: parked on
