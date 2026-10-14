@@ -584,15 +584,40 @@ pub(crate) fn kill_self(sig: TestShutdownSignal) {
 #[derive(Debug)]
 pub struct MockConfig {
     agents: Vec<String>,
+    /// Fire-signal hook: when set, every `list_agents` call sends one
+    /// message before returning (see [`MockConfig::with_on_list_agents`]).
+    on_list_agents: Option<mpsc::UnboundedSender<()>>,
 }
 
 impl MockConfig {
     pub fn new(agents: Vec<String>) -> Self {
-        Self { agents }
+        Self {
+            agents,
+            on_list_agents: None,
+        }
     }
 
     pub fn empty() -> Self {
         Self::new(Vec::new())
+    }
+
+    /// Builder: install the fire-signal hook — every `list_agents` call
+    /// then emits one message. `list_agents` is the first statement of
+    /// every spawned dreaming cycle (`execute_dreaming_cycle`), so each
+    /// message is the observable "a Fire happened" signal for loop-level
+    /// regression tests — the loop-local `next_fire` itself is not
+    /// observable from outside the loop (issue #3608). The channel
+    /// rendezvous lets a test await each Fire individually: under
+    /// `start_paused` the runtime auto-advances the virtual clock
+    /// timer-by-timer while the test task is parked on `recv()`, so
+    /// spawned cycles are polled (and their signals delivered) exactly
+    /// when they run. Pair with an empty agent list: every cycle stays a
+    /// no-op that finishes within its first poll, so cycles never overlap
+    /// and one message == one Fire. Inject via
+    /// [`make_config_change_scheduler_with_config`].
+    pub fn with_on_list_agents(mut self, tx: mpsc::UnboundedSender<()>) -> Self {
+        self.on_list_agents = Some(tx);
+        self
     }
 }
 
@@ -614,6 +639,9 @@ impl SessionConfigProvider for MockConfig {
     }
 
     fn list_agents(&self) -> Vec<String> {
+        if let Some(fires) = &self.on_list_agents {
+            let _ = fires.send(());
+        }
         self.agents.clone()
     }
 
@@ -669,8 +697,22 @@ pub fn make_config_change_scheduler(
     miner: Arc<MemoryMiner>,
     config_manager: Arc<ConfigManager>,
 ) -> DreamingScheduler {
+    make_config_change_scheduler_with_config(pipeline, miner, config_manager, MockConfig::empty())
+}
+
+/// Setup: [`make_config_change_scheduler`] over a caller-built
+/// [`MockConfig`] — the injection point for mock hooks (e.g.
+/// `with_on_list_agents` fire signalling), since the scheduler takes the
+/// config as `Arc<dyn SessionConfigProvider>` and the mock cannot be
+/// reached for wiring after it is wrapped.
+pub fn make_config_change_scheduler_with_config(
+    pipeline: Arc<DreamingPipeline>,
+    miner: Arc<MemoryMiner>,
+    config_manager: Arc<ConfigManager>,
+    config: MockConfig,
+) -> DreamingScheduler {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
-    let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
+    let config: Arc<dyn SessionConfigProvider> = Arc::new(config);
     DreamingScheduler::new(
         Arc::clone(&storage),
         Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(

@@ -16,19 +16,12 @@ use std::sync::Arc;
 
 use tokio::sync::{mpsc, watch};
 
-use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::{
-    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_test_config_manager,
-    notify_section_reload, run_scheduler_briefly, seed_memory_section_cache_with_schedule,
-    wait_until, MockConfig, TestStorage,
+    make_config_change_scheduler, make_config_change_scheduler_with_config,
+    make_disabled_pipeline_and_miner, make_test_config_manager, notify_section_reload,
+    run_scheduler_briefly, seed_memory_section_cache_with_schedule, wait_until, MockConfig,
 };
-use closeclaw_common::CompactConfig;
-use closeclaw_config::session::{PerAgentSessionConfig, SessionConfigProvider};
-use closeclaw_config::ConfigManager;
 use closeclaw_config::ConfigSection;
-use closeclaw_memory::dreaming::DreamingPipeline;
-use closeclaw_memory::miner::MemoryMiner;
-use closeclaw_session::persistence::{AgentRole, PersistenceService};
 
 // ── Normal path: schedule switch + next_fire recomputation ────────────
 
@@ -186,83 +179,6 @@ async fn test_cron_loop_ignores_non_memory_reload() {
 
 // ── Loop-level Fire persistence (issue #3608) ─────────────────────────
 
-/// `SessionConfigProvider` wrapper that emits one message per
-/// `list_agents` call: `list_agents` is the first statement of every
-/// spawned dreaming cycle (`execute_dreaming_cycle`), so each message is
-/// the observable "a Fire happened" signal for the loop-level regression
-/// tests — the loop-local `next_fire` itself is not observable from
-/// outside the loop (issue #3608). The channel rendezvous lets the test
-/// await each Fire individually: under `start_paused` the runtime
-/// auto-advances the virtual clock timer-by-timer while the test task is
-/// parked on `recv()`, so spawned cycles are polled (and their signals
-/// delivered) exactly when they run.
-struct FireSignalConfig {
-    inner: MockConfig,
-    fires: mpsc::UnboundedSender<()>,
-}
-
-impl SessionConfigProvider for FireSignalConfig {
-    fn session_config_for(&self, agent_id: &str, role: AgentRole) -> PerAgentSessionConfig {
-        self.inner.session_config_for(agent_id, role)
-    }
-
-    fn sweeper_interval_secs(&self) -> u64 {
-        self.inner.sweeper_interval_secs()
-    }
-
-    fn dreaming_interval_secs(&self) -> u64 {
-        self.inner.dreaming_interval_secs()
-    }
-
-    fn consistency_check_interval_secs(&self) -> u64 {
-        self.inner.consistency_check_interval_secs()
-    }
-
-    fn list_agents(&self) -> Vec<String> {
-        let _ = self.fires.send(());
-        self.inner.list_agents()
-    }
-
-    fn compact_config(&self) -> CompactConfig {
-        self.inner.compact_config()
-    }
-
-    fn plan_archive_days(&self) -> u64 {
-        self.inner.plan_archive_days()
-    }
-
-    fn audit_log_limit(&self) -> usize {
-        self.inner.audit_log_limit()
-    }
-}
-
-/// Wire a scheduler over the given pipeline/miner/config manager whose
-/// Fires are signalled via [`FireSignalConfig`]. The empty agent list
-/// keeps every cycle a no-op that finishes within its first poll, so
-/// cycles never overlap and one message == one Fire.
-fn make_fire_signalling_scheduler(
-    pipeline: Arc<DreamingPipeline>,
-    miner: Arc<MemoryMiner>,
-    config_manager: Arc<ConfigManager>,
-    fires: mpsc::UnboundedSender<()>,
-) -> DreamingScheduler {
-    let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
-    let config: Arc<dyn SessionConfigProvider> = Arc::new(FireSignalConfig {
-        inner: MockConfig::empty(),
-        fires,
-    });
-    DreamingScheduler::new(
-        Arc::clone(&storage),
-        Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
-            storage,
-        )),
-        config,
-        pipeline,
-        miner,
-        config_manager,
-    )
-}
-
 /// Await `n` Fires, bounded by a virtual-clock horizon of `horizon_secs`.
 ///
 /// Under `start_paused` the timeout deadline is also virtual: auto-advance
@@ -324,9 +240,13 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
         &tmp.path().join("MEMORY-cron-fire-persist.md"),
     );
     let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
-    let mut scheduler =
-        make_fire_signalling_scheduler(pipeline, miner, config_manager.clone(), fire_tx)
-            .with_schedule(Some("0 3 * * *".to_string()));
+    let mut scheduler = make_config_change_scheduler_with_config(
+        pipeline,
+        miner,
+        config_manager.clone(),
+        MockConfig::empty().with_on_list_agents(fire_tx),
+    )
+    .with_schedule(Some("0 3 * * *".to_string()));
 
     notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
 
@@ -368,9 +288,13 @@ async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
         &tmp.path().join("MEMORY-cron-fallback-persist.md"),
     );
     let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
-    let mut scheduler =
-        make_fire_signalling_scheduler(pipeline, miner, config_manager.clone(), fire_tx)
-            .with_schedule(Some("0 3 * * *".to_string()));
+    let mut scheduler = make_config_change_scheduler_with_config(
+        pipeline,
+        miner,
+        config_manager.clone(),
+        MockConfig::empty().with_on_list_agents(fire_tx),
+    )
+    .with_schedule(Some("0 3 * * *".to_string()));
 
     notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
 
