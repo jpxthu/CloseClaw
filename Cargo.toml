@@ -37,7 +37,7 @@ anyhow = "1.0"
 async-stream = "0.3.6"
 async-trait = "0.1"
 axum = "0.7"
-base64 = "0.22"
+base64 = "0.23"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.4", features = ["derive"] }
 dashmap = "5"
