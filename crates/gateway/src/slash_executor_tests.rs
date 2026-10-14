@@ -517,13 +517,13 @@ async fn test_exec_failure_forwards_error_to_user() {
     .await;
     drop(ctx);
 
-    let mut actions = drain_actions(&mut rx).await;
+    let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match actions.remove(0) {
+    match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
             assert!(
-                first_text_block(&blocks).contains("命令执行失败"),
+                first_text_block(blocks).contains("命令执行失败"),
                 "error message should be forwarded to user, got: {:?}",
                 blocks[0],
             );
