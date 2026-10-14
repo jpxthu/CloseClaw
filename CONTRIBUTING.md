@@ -84,7 +84,7 @@ cargo build && cargo nextest run
 ## MSRV 政策
 
 - **唯一事实来源**：MSRV 只在根 `Cargo.toml` 的 `[workspace.package] rust-version` 定义；文档不书写 MSRV 版本数字，一律引用该值；CI msrv job 以显式版本号执行（见 `.github/workflows/ci.yml`），其值必须与该定义保持一致。
-- **bump 流程**：MSRV 调整必须走独立 PR，同时更新 `Cargo.toml`（`rust-version`）、`Cargo.lock`（如需依赖校准）与全部文档引用点，并同步 CI msrv job 的版本引用；禁止与功能改动混入同一 PR。
+- **bump 流程**：MSRV 调整必须走独立 PR，同时更新 `Cargo.toml`（`rust-version`）、`Cargo.lock`（如需依赖校准）与全部文档引用点，并同步 CI msrv job 与 `scripts/periodic-checks.sh` `--msrv` 段的工具链版本引用；禁止与功能改动混入同一 PR。
 - **半年复审**：每半年复审 MSRV 取值（结合依赖生态与发行版工具链情况），需要时按上述 bump 流程调整。
 
 ---

@@ -10,7 +10,7 @@
 # CLI 参数可覆盖（详见该文件注释）。
 #
 # 工具（python3 / cargo-llvm-cov / cargo-deny / cargo-machete / miri / TSAN）
-# 缺失时打印安装提示并将该段记为 SKIP，不算失败。
+# 或 1.85 工具链（rustup）缺失时打印安装提示并将该段记为 SKIP，不算失败。
 #
 # 小范围实测：NEXTEST_EXTRA_ARGS 可透传 nextest 过滤参数，例如
 #   NEXTEST_EXTRA_ARGS="-E test(test_exec_)" scripts/periodic-checks.sh --slow
@@ -31,6 +31,8 @@ SLOW_TIER2=1.0
 SLOW_MARK_LINE=5.0
 # TSAN 目标 triple（按本机平台调整）
 TSAN_TARGET="x86_64-unknown-linux-gnu"
+# MSRV 工具链（与 .github/workflows/ci.yml msrv job 同口径，见 CONTRIBUTING.md §MSRV 政策）
+MSRV_TOOLCHAIN="1.85"
 
 # 透传给 nextest 的额外参数（小范围实测用），按空白分词
 NEXTEST_EXTRA_ARGS_ARR=()
@@ -333,12 +335,12 @@ do_msrv() (
     set -u
     # 功能性探测（cargo +<工具链> --version）：rustup shim 恒存在于 PATH，
     # command -v 探测不了具体工具链是否安装（同 --deps/--heavy 探测做法）
-    if ! cargo +1.85 --version >/dev/null 2>&1; then
-        echo "[SKIP] 未找到 1.85 工具链，请先安装：rustup toolchain install 1.85 --profile minimal"
+    if ! cargo +"$MSRV_TOOLCHAIN" --version >/dev/null 2>&1; then
+        echo "[SKIP] 未找到 $MSRV_TOOLCHAIN 工具链，请先安装：rustup toolchain install $MSRV_TOOLCHAIN --profile minimal"
         return 77
     fi
     local rc=0
-    cargo +1.85 check --workspace --all-targets --locked || rc=$?
+    cargo +"$MSRV_TOOLCHAIN" check --workspace --all-targets --locked || rc=$?
     if [[ $rc -ne 0 ]]; then
         echo "[FAIL] MSRV check 失败（退出码 $rc）：声明 MSRV 与构建现实脱节或代码超下限，明细见上方输出"
         return "$rc"
