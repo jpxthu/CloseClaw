@@ -903,3 +903,13 @@ mod cron_tests {
         assert_eq!(sched.display(), "0 3 * * *");
     }
 }
+
+// ── Config recv classification tests ──────────────────────────────────
+
+/// Child test module (separate file, same pattern as the config crate's
+/// `events.rs` → `events_tests.rs`): needs `super::*` access to the
+/// private `classify_config_recv` / `ConfigRecvOutcome`, which a sibling
+/// module cannot reach.
+#[cfg(test)]
+#[path = "dreaming_scheduler_classify_tests.rs"]
+mod classify_tests;
