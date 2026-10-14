@@ -190,56 +190,47 @@ UnifiedResponse 是各 LLM Provider 非流式调用的统一响应结构。Sessi
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `prompt_tokens` | int | 输入 token 数 |
+| `prompt_tokens` | int | 输入 token 总数（含缓存命中与缓存写入的输入 token） |
 | `completion_tokens` | int | 输出 token 数 |
 | `total_tokens` | int? | 总 token 数，可选。协议未给出时由消费方按需自行合计 |
 | `reasoning_tokens` | int? | 推理过程消耗的 token 数，协议提供时才有值 |
 | `cache_read_tokens` | int? | 缓存命中的输入 token 数，协议提供时才有值 |
 | `cache_write_tokens` | int? | 写入缓存的 token 数，协议提供时才有值 |
 
-注意 UnifiedUsage 只承载单次调用的原始计数。用户可见的派生指标——缓存命中率百分比、跨轮次累计等——由 [RunningStats](#runningstats--cachebreakinfo--cachebreakthresholds) 累计计算；预估费用等需要模型定价信息的指标不属于本结构的职责（定价知识在 LLM 模块）。
+注意 UnifiedUsage 只承载单次调用的原始计数。用户可见的派生指标——缓存命中率百分比、跨轮次累计等——由 [RunningStats](#runningstats--cacheanomalyinfo) 累计计算；预估费用等需要模型定价信息的指标不属于本结构的职责（定价知识在 LLM 模块）。
 
-### RunningStats / CacheBreakInfo / CacheBreakThresholds
+### RunningStats / CacheAnomalyInfo
 
-跨轮次 LLM 用量的统计结构族。Session 持有 RunningStats，每次 API 调用完成后将当次 UnifiedUsage 累加进去；派生的缓存命中率供 `/status` 展示与缓存异常提醒，统计快照参与 compaction 阈值判断。行为细节（流式 MessageEnd 时更新、会话结束清零）定义于 [llm-session-enhancements](../session/llm-session-enhancements.md)，压缩对统计的读取时机见 [compact-process](../session/compact-process.md)，Session 概览见 [session](../session/README.md)；对 slash 的呈现见 [slash status](../slash/status.md)。
+跨轮次 LLM 用量的统计结构族。Session 持有 RunningStats，每次 API 调用完成后将当次 UnifiedUsage 累加进去；RunningStats 为会话运行时状态，不随 checkpoint 持久化，会话恢复后重新累计。派生的缓存命中率供 `/status` 展示，统计快照参与 compaction 阈值判断，保留状态供缓存命中一致性校验。行为细节（流式 MessageEnd 时更新、会话结束清零、缓存命中一致性校验）定义于 [llm-session-enhancements](../session/llm-session-enhancements.md)，压缩对统计的读取时机见 [compact-process](../session/compact-process.md)，Session 概览见 [session](../session/README.md)；对 slash 的呈现见 [slash status](../slash/status.md)。
 
 **RunningStats** 字段：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `total_prompt_tokens` | int | 所有调用累计的输入 token |
+| `total_prompt_tokens` | int | 所有调用累计的输入 token 总数 |
 | `total_completion_tokens` | int | 累计输出 token |
 | `total_tokens` | int | 累计总 token |
 | `total_cache_read_tokens` | int | 累计缓存命中 token |
 | `total_cache_write_tokens` | int | 累计缓存写入 token |
 | `request_count` | int | 已累加的 API 调用次数 |
 | `total_reasoning_tokens` | int | 累计推理 token |
-| `cache_break_thresholds` | CacheBreakThresholds? | 自定义命中率下降判定阈值，空则用默认值 |
-| `last_cache_read_tokens` | int? | 最近一次调用的缓存命中数，尚无调用时为空 |
-| `last_cache_hit_rate` | float? | 最近一次调用的单次命中率，尚无调用时为空 |
-| `last_cache_break` | CacheBreakInfo? | 最近一次命中率下降事件，未发生时为空 |
+| `last_prompt_tokens` | int? | 最近一次调用的输入 token 总数（作为下一轮校验的参考值），尚无调用时为空 |
+| `last_completion_tokens` | int? | 最近一次调用的输出 token 数，供上下文占用估算 |
+| `last_call_at` | timestamp? | 最近一次调用的毫秒级时间戳，供缓存自然过期判定 |
+| `last_call_model` | string? | 最近一次调用使用的模型/供应商标识，供模型切换豁免判定 |
 
-除原始累计外，RunningStats 还提供累计缓存命中率、累计节省 token 等派生指标的查询。累计口径：单次用量缺省 total_tokens 时按 prompt + completion 求和后累加；可空的缓存/推理 token 缺省按 0 计入累计。缓存命中率下降事件的判定基于相邻两次调用的缓存命中数对比（单次命中率 = 该次 cache_read_tokens ÷ prompt_tokens），自有前值的第二次调用起参与判定（首次调用无前值不触发）；仅当绝对降幅超过下限且相对降幅超过阈值比例时触发，产生一个 CacheBreakInfo（当前值不低于前值时不触发，天然规避除零）。「缺省按 0 计入」仅是累加口径不等于展示或告警依据——协议始终不携带缓存字段的供应商不参与命中率下降检测与告警（需求见 [llm §F9](../../requirements/llm.md)，行为细节见 [llm-session-enhancements](../session/llm-session-enhancements.md)）。
+除原始累计外，RunningStats 还提供累计缓存命中率等派生指标的查询。累计口径：单次用量缺省 total_tokens 时按 prompt + completion 求和后累加；可空的缓存/推理 token 缺省按 0 计入累计。RunningStats 保留最近一次调用的输入 token 总数，作为下一轮缓存命中一致性校验的参考值；校验仅在「追加扩展轮」参与，其前置条件、容忍余量固定值与异常上报行为（需求见 [llm §F9](../../requirements/llm.md)）定义于 [llm-session-enhancements](../session/llm-session-enhancements.md)。
 
-**CacheBreakThresholds** 字段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `drop_ratio_threshold` | float | 触发下降事件的最小命中率降幅比例，默认 0.05 |
-| `min_drop_tokens` | int | 启动比例比较所需的最小绝对 token 降幅，默认 2000 |
-
-**CacheBreakInfo** 字段：
+**CacheAnomalyInfo** 字段：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `previous_cache_read` | int | 上一次调用的缓存命中 token 数 |
-| `current_cache_read` | int | 本次调用的缓存命中 token 数 |
-| `drop_tokens` | int | 两次之间的绝对降幅 |
-| `drop_ratio` | float | 相对上次命中数的降幅比例 |
-| `previous_hit_rate` | float | 上一次调用的单次命中率 |
-| `current_hit_rate` | float | 本次调用的单次命中率 |
+| `previous_prompt_tokens` | int | 上一轮调用的输入 token 总数（参考值） |
+| `current_cache_read_tokens` | int | 本次调用的缓存命中 token 数 |
+| `deviation_tokens` | int | 本次命中数与参考值的偏差（绝对值） |
+| `tolerance_tokens` | int | 本次判定采用的容忍余量 |
 
-CacheBreakInfo 可格式化为用户可读的命中率下降提示文本（含前后命中率对比、token 降幅与常见原因说明）。
+CacheAnomalyInfo 可格式化为用户可读的缓存命中异常提示文本（含参考值、本次命中数与偏差、容忍余量与常见原因说明）。
 
 ### ProcessedMessage
 
@@ -745,7 +736,7 @@ NormalizedMessage 仅用于入站方向。出站方向使用 ContentBlock[]（LL
 
 流式场景下的增量流动以 [StreamEvent](#streamevent) 事件流表达，流动路径即下文「ContentBlock[] 的出站流动路径」的流式分支（事件的产生与消费分工见模块关系节）；渲染过程中的单批产出为 [StreamingOutput](#streamingoutput)（完整文本行或强制输出的行内片段 + 本批完成的非文本块），生命周期止于本次流式发送完成。
 
-LLM 非流式调用的响应流动：LlmCaller 返回 [UnifiedResponse](#unifiedresponse--unifiedusage) → Session 封装后其 ContentBlock[] 进入上述出站路径；用量 UnifiedUsage 由 [RunningStats](#runningstats--cachebreakinfo--cachebreakthresholds) 累加，供用量统计与缓存异常提醒。
+LLM 非流式调用的响应流动：LlmCaller 返回 [UnifiedResponse](#unifiedresponse--unifiedusage) → Session 封装后其 ContentBlock[] 进入上述出站路径；用量 UnifiedUsage 由 [RunningStats](#runningstats--cacheanomalyinfo) 累加，供用量统计与缓存命中一致性校验。
 
 ContentBlock[] 的出站流动路径：
 
@@ -952,7 +943,7 @@ Session 发起非流式 LLM 调用 → LlmCaller 返回 UnifiedResponse { conten
   ↓
 content_blocks → 出站处理链路（路径同上文 ContentBlock[]）
   ↓
-usage (UnifiedUsage) → RunningStats 累加 → 用量统计与调试日志
+usage (UnifiedUsage) → RunningStats 累加 → 用量统计、缓存命中一致性校验、调试日志与指标上报
 ```
 
 流式调用不走 UnifiedResponse：增量以 StreamEvent 交付，收尾时 MessageEnd 携带 Optional UnifiedUsage 提供同一套用量口径（见 StreamEvent 节），同样汇入 RunningStats。
@@ -1190,10 +1181,10 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **消费者**：permission 模块（InitialPermissionSet 映射为具体权限规则；UserRegistration 落盘用户记录）、审批队列（UserCreationRequest 流转与回调）
 - **无关**：SlashDispatcher（注册指令硬拦截，不产出 SlashResult）、LLM Provider、Processor Chain、IM Adapter 入站链
 
-### RunningStats / CacheBreakInfo / CacheBreakThresholds
+### RunningStats / CacheAnomalyInfo
 
-- **生产者**：Session（持有并随每次 LLM 调用累加；压缩流程按需读取快照）
-- **消费者**：session（compaction 阈值判断）、gateway（checkpoint 恢复时传递统计快照）、slash（/status 呈现命中率与累计用量）、llm（re-export 供模块内使用）
+- **生产者**：Session（持有并随每次 LLM 调用累加；压缩流程按需读取快照；缓存命中一致性校验写入异常事件）
+- **消费者**：session（compaction 阈值判断、缓存命中一致性校验）、slash（/status 呈现命中率与累计用量）、llm（re-export 供模块内使用）
 - **无关**：Processor Chain 出站过滤、IM Adapter 渲染
 
 ### ProcessedMessage

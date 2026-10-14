@@ -79,4 +79,4 @@ Fake LLM Server 是测试基础设施，与 CloseClaw 的关系是**黑盒替换
 - **无关**：`tests/fixtures/llm/` 的供应商 fixture 体系（采集真实供应商响应，验证供应商特有行为；Fake LLM Server 实现协议标准，两者互补不重叠，见 [fixtures](fixtures.md) 的分工）
 - **共享类型**：无——Fake LLM Server 以黑盒方式接入（不引用任何 CloseClaw 代码），与各模块之间不传递任何共享数据结构
 
-被测行为的对错标准不在本模块定义：跨轮用量统计、KV cache 命中率与命中率下降告警的权威定义见 [session/llm-session-enhancements](../session/llm-session-enhancements.md)；用量字段提取与协议归一化、缓存策略见 [llm](../llm/README.md)。fake_llm 只制造输入，不定义被测行为的对错标准。
+被测行为的对错标准不在本模块定义：跨轮用量统计、KV cache 命中率与缓存命中一致性校验（含「追加扩展轮」判定、容忍余量、Owner 通知策略）的权威定义见 [session/llm-session-enhancements](../session/llm-session-enhancements.md)；用量字段提取与协议归一化、缓存策略见 [llm](../llm/README.md)。fake_llm 只制造输入，不定义被测行为的对错标准。

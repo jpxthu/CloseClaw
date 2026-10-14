@@ -287,7 +287,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 后台触发 | 触发会话的手动后台执行 |
 | workflow 状态 | 设置并持久化 workflow run、查询当前活跃 workflow phase（类型擦除，避免依赖 workflow crate） |
 | 系统提示词 | 失效静态层缓存、重建会话 system prompt、追加 system append |
-| 会话状态查询 | model、reasoning、verbosity、mode、workdir、LLM busy、token 统计、缓存断裂通知、子会话句柄数 |
+| 会话状态查询 | model、reasoning、verbosity、mode、workdir、LLM busy、token 统计、缓存统计（命中率、读写累计）、子会话句柄数 |
 
 #### SlashEffectExecutor
 
@@ -363,7 +363,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AuditLogger
 
-**用途**：审计日志记录与查询接口。permission 的文件审计日志实现，permission 权限引擎、daemon 与 tools（审计查看工具）消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置）、按条件查询审计条目，使审计读写与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../requirements/mode.md)；审计日志的查看统一走本 trait 的查询能力，落盘与查询的实现由 permission 的文件日志承担。
+**用途**：审计日志记录与查询接口。permission 的文件审计日志实现，permission 权限引擎、daemon 与 tools（审计查看工具）消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置）、按条件查询审计条目，使审计读写与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../../requirements/mode.md)；审计日志的查看统一走本 trait 的查询能力，落盘与查询的实现由 permission 的文件日志承担。
 
 **接口契约**：
 
@@ -406,7 +406,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 Agent 解析与 allowlist、目标 Agent 已注册且配置可加载（见 [agent §F9](../requirements/agent.md)），返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
+| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 Agent 解析与 allowlist、目标 Agent 已注册且配置可加载（见 [agent §F9](../../requirements/agent.md)），返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
 | 权限校验 | 前置校验通过后执行，校验子 Session 是否可在父会话下生成（权限判定语义见 [permission 模块](../permission/README.md)），返回 Ok 或 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的权限变体（权限被拒） |
 
 两步统一返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)：前置校验失败为其各前置变体，权限被拒为 `Permission` 变体。权限校验步经 [PermissionChecker](#permissionchecker) 的权限引擎边界完成（载荷复用既有的 [SpawnPermissionError](shared-types.md#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror)，不重复定义拒绝载荷）：SpawnValidator 是子会话生成的高层门面，PermissionChecker 是权限引擎边界的窄接口。
@@ -449,7 +449,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 |------|------|
 | 非流式调用 | 接收 [InternalRequest](shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition) 返回 [UnifiedResponse](shared-types.md#unifiedresponse--unifiedusage) |
 | 流式调用 | 返回 [StreamEvent](shared-types.md#streamevent) 流（逐项携带成功事件或 LLMError） |
-| 默认请求头 | 返回 provider 默认请求头，用于 prompt 指纹检测缓存断裂；敏感头（Authorization、api-key 等）值替换为占位符 |
+| 默认请求头 | 返回 provider 默认请求头（协议版本、鉴权占位等），供 LlmCaller 调用时携带；敏感头（Authorization、api-key 等）值替换为占位符 |
 
 #### StreamingSink
 
@@ -539,13 +539,13 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### MetricsEmitter
 
-**用途**：运营指标上报接口。common DI trait，具体实现由 gateway 提供（默认实现 NoopMetricsEmitter 为零成本空操作），gateway、daemon 消费。指标后端只需实现此 trait，无需改动调用点。
+**用途**：运营指标上报接口。common DI trait，具体实现由 gateway 提供（默认实现 NoopMetricsEmitter 为零成本空操作），gateway、daemon 与 session（缓存命中异常事件上报）消费。指标后端只需实现此 trait，无需改动调用点。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 缓存断裂上报 | 记录 KV cache break 事件 |
+| 缓存命中异常上报 | 记录缓存命中一致性校验判定的缓存异常事件（载荷为缓存命中异常事件，结构见 [shared-types RunningStats / CacheAnomalyInfo](shared-types.md#runningstats--cacheanomalyinfo)） |
 
 #### IdentityResolver
 
@@ -600,7 +600,7 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
   - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator、AuditLogger）
-  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup）
+  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup、MetricsEmitter）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）

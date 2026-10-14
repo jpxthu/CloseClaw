@@ -21,7 +21,7 @@ Session 模块是 CloseClaw 的运行时载体，管理 session 的全生命周�
 | [session-injection.md](session-injection.md) | System Prompt 注入链路（session 创建/恢复/compaction 时触发）和 memory_injection 槽位（消息级记忆摘要注入） |
 | [working-directory.md](working-directory.md) | 工作目录的定义：字段、默认值、`/cd` 变更、`/pwd` 读取、system prompt 注入 |
 | [compact-process.md](compact-process.md) | 会话上下文压缩：触发机制、LLM summarization、system prompt 隔离保护 |
-| [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、用量统计、Thinking 内容管理 |
+| [llm-session-enhancements.md](llm-session-enhancements.md) | LLM 交互增强：流式输出、Reasoning Level 控制、用量统计（含缓存命中一致性校验）、Thinking 内容管理 |
 | [session-tools.md](session-tools.md) | 对外工具：sessions_spawn / sessions_steer / sessions_kill 的参数、行为、向 ToolRegistry 注册 |
 | [spawn-tree.md](spawn-tree.md) | 父子 session 运行时关系（spawn_tree）：存储结构、查询接口、节点回收与 GC 兜底、级联 Kill、生命周期联动、重启恢复 |
 | [run-health.md](run-health.md) | 运行时安全网：turn 边界健康检测（硬规则 + Hook 审查）、运行快照创建与回滚 |
@@ -86,7 +86,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
 
 - **执行层组件**：
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。对话模式（normal/plan/auto）标记持久化在 SessionCheckpoint 的 `session_mode` 字段中，/mode 切换时新模式先写入内存待应用值，下一条用户消息前惰性应用并回写 checkpoint（详见 [session-lifecycle.md](session-lifecycle.md) 模式切换节；压缩保护见 [compact-process.md](compact-process.md)，模式的行为约束详见 [mode/README.md](../mode/README.md)）。三个模式概念正交、独立存储：`session_mode`（对话模式，[SessionMode](../common/shared-types.md#reasoninglevel--agentrole--sessionmode)：normal/plan/auto，行为约束）、`reasoning_mode`（推理呈现模式，ReasoningMode：Direct/Plan/Stream/Hidden）、`mode_state`（推理步骤状态，ReasoningModeState）——`reasoning_mode` 字段带 `#[serde(alias = "mode")]` 兼容旧 checkpoint，设计文档所述的「对话模式」一律指 `session_mode`，与推理相关字段不混用。
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、缓存命中一致性校验的上一轮请求前缀快照（增强层运行时）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。对话模式（normal/plan/auto）标记持久化在 SessionCheckpoint 的 `session_mode` 字段中，/mode 切换时新模式先写入内存待应用值，下一条用户消息前惰性应用并回写 checkpoint（详见 [session-lifecycle.md](session-lifecycle.md) 模式切换节；压缩保护见 [compact-process.md](compact-process.md)，模式的行为约束详见 [mode/README.md](../mode/README.md)）。三个模式概念正交、独立存储：`session_mode`（对话模式，[SessionMode](../common/shared-types.md#reasoninglevel--agentrole--sessionmode)：normal/plan/auto，行为约束）、`reasoning_mode`（推理呈现模式，ReasoningMode：Direct/Plan/Stream/Hidden）、`mode_state`（推理步骤状态，ReasoningModeState）——`reasoning_mode` 字段带 `#[serde(alias = "mode")]` 兼容旧 checkpoint，设计文档所述的「对话模式」一律指 `session_mode`，与推理相关字段不混用。
   - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle；若崩溃前存在未完成操作，恢复扫描会注入恢复通知（详见 [session-recovery.md](session-recovery.md)），未完成操作在后续 turn 中处理。由四维派生整体执行状态 `SessionExecStatus`（Idle / Waiting / Busy）：Idle 对应可接收输入（四维中后台工具与子 Session 不计入），Busy 对应 LLM 推理或前台工具执行中，Waiting 仅在通过 `sessions_yield` 主动让出 turn 时出现。完整状态表见 [session-execution.md](session-execution.md) 四维执行状态节。
 
     **idle（输入就绪）**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。
@@ -102,7 +102,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 - **执行状态**是运行时骨架：四维状态跟踪（llm_active / foreground_tool_active / background_tool_active / child_active）贯穿每次会话交互，级联停止依赖执行状态做决策，后台结果注入依赖统一消息队列调度。
 - **注入**是 session 生命周期事件——决定何时构建 system prompt。触发时机（详见 session-injection.md）包括：session 创建、归档恢复、compaction 完成。注入链路不关心 system prompt 的 Section 组装细节，只负责在正确时机调用 builder 并存储结果。
 - **压缩**在 session 运行时发生：对过长的对话历史做 summarization。支持手动触发（`/compact`）和自动触发（token 用量阈值），内含熔断保护和分级告警。system prompt 独立于对话消息流，不参与压缩（详见 [compact-process.md](compact-process.md#概述)），确保角色定义在任意次压缩后完整无损。
-- **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计在每次会话交互中生效。
+- **LLM 增强**贯穿每次 API 调用：流式推送、reasoning level 控制、cache hit 统计与缓存命中一致性校验在每次会话交互中生效。
 - **健康检测**在每个 turn 边界触发：硬规则检查（响应超时、空响应）+ 可选的 Hook 质量门禁（plan-check / loop-check / progress-check）。详见 [run-health.md](run-health.md)。
 
 ## 数据流
