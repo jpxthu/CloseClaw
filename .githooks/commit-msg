@@ -1,7 +1,6 @@
 #!/bin/bash
 # Commit-msg hook: validates Source: and Type: footers
-# 校验口径（宽松）：存在 Source: 与 Type: 两行 footer，行内包含指定关键词即可，不苛求格式。
-# 多 issue 合批写法不限：`Source: issue #A, #B`（逗号分隔）或逐行重复 `Source: issue #N` 均可。
+# Source: 行含来源关键词、Type: 行含类型关键词即通过。
 
 set -e
 
@@ -14,7 +13,7 @@ echo ""
 source_keywords="issue|design-doc|requirement|Fixes|Refs|Closes|CI|user"
 valid_types="feat|fix|docs|refactor|test|perf|chore"
 
-# 1. Check Source: footer — 必须存在 Source: 行，且行内包含来源关键词
+# 1. Check Source: footer
 if ! echo "$msg" | grep -qE '^Source: '; then
     echo "ERROR: Commit message must contain a 'Source:' footer line"
     echo ""
@@ -25,14 +24,13 @@ fi
 if ! echo "$msg" | grep -E '^Source: ' | grep -qiE "$source_keywords"; then
     echo "ERROR: Source footer line must contain one of these keywords:"
     echo "  issue / design-doc / requirement / Fixes / Refs / Closes / CI / user"
-    echo "  e.g. 'Source: issue #N' / 'Source: issue #A, #B' (multi-issue) / 'Source: CI'"
     echo ""
     echo "Commit message:"
     echo "$msg"
     exit 1
 fi
 
-# 2. Check Type: footer — 必须存在 Type: 行，且行内包含变更类型关键词
+# 2. Check Type: footer
 if ! echo "$msg" | grep -qE '^Type: '; then
     echo "ERROR: Commit message must contain a 'Type:' footer line"
     echo ""
