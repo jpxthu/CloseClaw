@@ -458,7 +458,7 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
         ReplyAction::Reply(blocks) => assert!(
             matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 High（含 provider 降级后的值）"),
             "got: {:?}",
-            &blocks[0],
+            blocks[0],
         ),
         other => panic!("expected Reply, got {other:?}"),
     }
@@ -483,7 +483,7 @@ async fn test_set_reasoning_no_downgrade_reply_off() {
         ReplyAction::Reply(blocks) => assert!(
             matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
             "got: {:?}",
-            &blocks[0],
+            blocks[0],
         ),
         other => panic!("expected Reply, got {other:?}"),
     }
