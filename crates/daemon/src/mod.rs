@@ -53,6 +53,8 @@ pub(crate) use phase_init::ServiceShutdownReceivers;
 #[cfg(test)]
 pub(crate) use std::sync::Arc;
 #[cfg(test)]
+mod dreaming_scheduler_cron_reload_tests;
+#[cfg(test)]
 mod dreaming_scheduler_tests;
 #[cfg(test)]
 mod gateway_restart_checkpoint_tests;
