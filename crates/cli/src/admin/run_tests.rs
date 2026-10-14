@@ -606,7 +606,7 @@ fn test_prepare_run_env_value_tilde_not_reexpanded() {
 #[test]
 fn test_prepare_run_root_dir_failure_propagates() {
     let output = spawn_helper_child("", &[], true)
-        .unwrap_or_else(|e| panic!("helper child did not run: {e}"));
+        .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         !output.status.success(),
         "should fail when HOME is unset and config_dir is empty\nstdout: {}",

@@ -214,7 +214,7 @@ fn test_prepare_run_helper_child() {
 /// On failure, outputs both stdout and stderr for debugging.
 pub(super) fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
     let output = spawn_helper_child(config_dir, envs, false)
-        .unwrap_or_else(|e| panic!("helper child did not run: {e}"));
+        .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         output.status.success(),
         "helper child failed\nstdout: {}\nstderr: {}",
