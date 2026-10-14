@@ -4,7 +4,8 @@
 //! assertion helpers `reply_blocks` / `text_block_at` / `first_text_block`
 //! used by `slash_executor_tests.rs`,
 //! `slash_executor_system_append_tests.rs` and
-//! `outbound_streaming_checkpoint_tests.rs`.
+//! `outbound_streaming_checkpoint_tests.rs`, plus the reply-channel helper
+//! `drain_actions` used by the first two.
 
 use std::sync::Arc;
 
@@ -119,6 +120,22 @@ pub(crate) fn make_reasoning_ctx(
         executor: exec,
     };
     (ctx, rx)
+}
+
+// ---------------------------------------------------------------------------
+// Reply channel helper
+// ---------------------------------------------------------------------------
+
+/// Drain all remaining [`ReplyAction`]s from the reply channel.
+///
+/// Reads the receiver until the channel is closed (all senders dropped) and
+/// returns the collected actions in send order.
+pub(crate) async fn drain_actions(rx: &mut mpsc::Receiver<ReplyAction>) -> Vec<ReplyAction> {
+    let mut actions = Vec::new();
+    while let Some(a) = rx.recv().await {
+        actions.push(a);
+    }
+    actions
 }
 
 // ---------------------------------------------------------------------------

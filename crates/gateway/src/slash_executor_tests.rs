@@ -21,7 +21,7 @@ use closeclaw_common::verbosity::VerbosityLevel;
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
 use super::slash_executor_test_utils::{
-    first_text_block, make_reasoning_ctx, reply_blocks, ReasoningConfigMockExecutor,
+    drain_actions, first_text_block, make_reasoning_ctx, reply_blocks, ReasoningConfigMockExecutor,
 };
 use closeclaw_common::executor::SlashResultExecutor;
 
@@ -205,14 +205,6 @@ fn make_ctx() -> (
         executor: executor.clone(),
     };
     (ctx, rx, executor, spy)
-}
-
-async fn drain_actions(rx: &mut mpsc::Receiver<ReplyAction>) -> Vec<ReplyAction> {
-    let mut actions = Vec::new();
-    while let Some(a) = rx.recv().await {
-        actions.push(a);
-    }
-    actions
 }
 
 // ---------------------------------------------------------------------------
