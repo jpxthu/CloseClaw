@@ -140,3 +140,40 @@ pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
         other => panic!("expected ContentBlock::Text, got: {other:?}"),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn first_text_block_returns_text_of_single_block() {
+        let blocks = vec![ContentBlock::Text("hello world".into())];
+        assert_eq!(first_text_block(&blocks), "hello world");
+    }
+
+    #[test]
+    fn first_text_block_returns_first_block_when_multiple() {
+        let blocks = vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ];
+        assert_eq!(first_text_block(&blocks), "first");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock::Text, got: Thinking")]
+    fn first_text_block_panics_on_non_text_variant() {
+        let blocks = vec![ContentBlock::Thinking {
+            thinking: "reasoning trace".into(),
+            signature: None,
+        }];
+        let _ = first_text_block(&blocks);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected at least one ContentBlock, got: empty slice")]
+    fn first_text_block_panics_on_empty_slice() {
+        let blocks: Vec<ContentBlock> = vec![];
+        let _ = first_text_block(&blocks);
+    }
+}
