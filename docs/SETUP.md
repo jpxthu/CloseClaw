@@ -2,11 +2,12 @@
 
 ## Rust 版本
 
-CloseClaw 的最低 Rust 版本（MSRV）以根 [Cargo.toml](../Cargo.toml) 的 `[workspace.package] rust-version` 为唯一事实来源（推荐：使用最新版 stable）。
+CloseClaw 要求 Rust 版本不低于根 [Cargo.toml](../Cargo.toml) `[workspace.package] rust-version` 所定值（MSRV；推荐使用最新版 stable）。MSRV 的 bump 流程与复审政策见 [CONTRIBUTING.md](../CONTRIBUTING.md)『MSRV 政策』。
 
 ```bash
 rustc --version
 # 应不低于根 Cargo.toml [workspace.package] rust-version 所定值（MSRV）
+grep -m1 '^rust-version' Cargo.toml   # 查看当前 MSRV
 ```
 
 ### 升级 Rust
