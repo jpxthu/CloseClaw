@@ -1,9 +1,9 @@
 //! Unit tests for [`classify_config_recv`] — config broadcast receive
 //! result classification (issue #3577, plan Step 1.4).
 //!
-//! Mounted as a child module of `dreaming_scheduler` (via `#[path]`) so
-//! the private pure function and its private outcome enum stay directly
-//! unit-testable with `use super::*`.
+//! Mounted as a child module of `dreaming_scheduler::events` (via
+//! `#[path]`) so the private pure function and its shared outcome enum
+//! stay directly unit-testable with `use super::*`.
 
 use super::*;
 
