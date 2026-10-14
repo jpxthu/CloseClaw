@@ -35,7 +35,7 @@ jobs:
           tool: cargo-nextest
 
       - name: Cache cargo build
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target
           key: ${{ runner.os }}-cargo-build-${{ hashFiles('**/Cargo.lock') }}
@@ -92,7 +92,7 @@ jobs:
         run: rustup toolchain install 1.85 --profile minimal
 
       - name: Cache cargo build (msrv)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: target-msrv
           key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
