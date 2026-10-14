@@ -2,11 +2,11 @@
 
 ## Rust 版本
 
-CloseClaw 需要 **Rust 1.85 或更高版本**（推荐：最新版 stable）。
+CloseClaw 的最低 Rust 版本（MSRV）以根 [Cargo.toml](../Cargo.toml) 的 `[workspace.package] rust-version` 为唯一事实来源（推荐：使用最新版 stable）。
 
 ```bash
 rustc --version
-# 应该 >= 1.85.0
+# 应不低于根 Cargo.toml [workspace.package] rust-version 所定值（MSRV）
 ```
 
 ### 升级 Rust
@@ -196,7 +196,7 @@ cargo run -- skill list
 
 ### 编译报错：link for cretonofound
 
-确保 Rust 版本 >= 1.85，或者降级相关依赖版本。
+确保 Rust 版本满足 MSRV（根 [Cargo.toml](../Cargo.toml) `[workspace.package] rust-version` 所定值），或者降级相关依赖版本。
 
 ### 测试失败
 
