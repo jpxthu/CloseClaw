@@ -236,8 +236,8 @@ impl SlashHandler for StatusHandler {
         }
 
         // Cache anomaly event (most recent).
-        if let Some(cb) = sm.get_last_cache_anomaly(sid).await {
-            lines.push(cb);
+        if let Some(anomaly) = sm.get_last_cache_anomaly(sid).await {
+            lines.push(anomaly);
         }
 
         SlashResult::Reply(lines.join("\n"))

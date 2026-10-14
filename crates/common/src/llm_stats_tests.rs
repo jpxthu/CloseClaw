@@ -104,7 +104,7 @@ fn format_notification_contains_five_elements() {
     let text = make_info(100_000, 90_000).format_notification();
     assert!(text.contains("100000"), "reference value: {text}");
     assert!(text.contains("90000"), "current hit count: {text}");
-    assert!(text.contains("10000"), "deviation: {text}");
+    assert!(text.contains("偏差 10000 tokens"), "deviation: {text}");
     assert!(text.contains("1024"), "tolerance: {text}");
     assert!(text.contains("可能原因："), "causes: {text}");
 }

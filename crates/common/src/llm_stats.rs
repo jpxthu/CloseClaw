@@ -181,6 +181,11 @@ impl RunningStats {
     ///
     /// Call this **before** [`RunningStats::accumulate`] so the
     /// reference value still holds the previous call's state.
+    ///
+    /// This also advances the per-call snapshot fields
+    /// [`RunningStats::last_cache_read_tokens`] and
+    /// [`RunningStats::last_cache_hit_rate`] (doc-silent items with
+    /// existing semantics).
     pub fn detect_cache_anomaly_and_update(
         &mut self,
         current_cache_read: Option<u32>,

@@ -212,7 +212,7 @@ impl SlashSessionQuery for SessionManager {
         let guard = cs.read().await;
         guard
             .last_cache_anomaly()
-            .map(|cb| cb.format_notification())
+            .map(|anomaly| anomaly.format_notification())
     }
 
     async fn get_active_child_count(&self, session_id: &str) -> usize {
