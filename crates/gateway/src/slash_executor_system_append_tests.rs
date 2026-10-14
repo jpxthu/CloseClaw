@@ -14,7 +14,7 @@ use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
-use super::slash_executor_test_utils::{first_text_block, reply_blocks};
+use super::slash_executor_test_utils::{drain_actions, first_text_block, reply_blocks};
 use closeclaw_common::executor::SlashResultExecutor;
 
 // ── Minimal mock (SessionLookup) ──────────────────────────────────────
@@ -93,14 +93,6 @@ impl SlashEffectExecutor for CountingMockExecutor {
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────
-
-async fn drain_actions(rx: &mut mpsc::Receiver<ReplyAction>) -> Vec<ReplyAction> {
-    let mut actions = Vec::new();
-    while let Some(a) = rx.recv().await {
-        actions.push(a);
-    }
-    actions
-}
 
 fn make_counting_ctx(
     exec: Arc<CountingMockExecutor>,
