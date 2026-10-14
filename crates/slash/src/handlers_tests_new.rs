@@ -221,22 +221,20 @@ async fn test_status_handler_shows_effective_reasoning_level() {
 }
 
 #[tokio::test]
-async fn test_status_handler_shows_cache_break_event() {
-    use closeclaw_common::llm_stats::CacheBreakInfo;
+async fn test_status_handler_shows_cache_anomaly_event() {
+    use closeclaw_common::llm_stats::CacheAnomalyInfo;
 
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
-    // Inject a cache break event into session stats.
+    // Inject a cache anomaly event into session stats.
     if let Some(conv) = sm.get_conversation_session(&sid).await {
         let mut cs = conv.write().await;
         let stats = cs.stats_mut();
-        stats.last_cache_break = Some(CacheBreakInfo {
-            previous_cache_read: 100_000,
-            current_cache_read: 80_000,
-            drop_tokens: 20_000,
-            drop_ratio: 0.20,
-            previous_hit_rate: 0.50,
-            current_hit_rate: 0.30,
+        stats.last_cache_anomaly = Some(CacheAnomalyInfo {
+            previous_prompt_tokens: 100_000,
+            current_cache_read_tokens: 80_000,
+            deviation_tokens: 20_000,
+            tolerance_tokens: 1024,
         });
     }
     let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
@@ -244,26 +242,26 @@ async fn test_status_handler_shows_cache_break_event() {
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
         SlashResult::Reply(t) => {
-            // Should contain the cache break notification.
+            // Should contain the cache anomaly notification (format_notification
+            // output: reference value, current hit, deviation, tolerance, causes).
             assert!(
-                t.contains("[缓存断点]"),
-                "should show cache break event, got: {t}"
+                t.contains("[缓存命中异常]"),
+                "should show cache anomaly event, got: {t}"
             );
             assert!(
-                t.contains("50.0%"),
-                "should show previous hit rate, got: {t}"
+                t.contains("100000"),
+                "should show reference value, got: {t}"
             );
-            assert!(
-                t.contains("30.0%"),
-                "should show current hit rate, got: {t}"
-            );
+            assert!(t.contains("80000"), "should show current hit, got: {t}");
+            assert!(t.contains("20000"), "should show deviation, got: {t}");
+            assert!(t.contains("1024"), "should show tolerance, got: {t}");
         }
         _ => panic!("expected Reply"),
     }
 }
 
 #[tokio::test]
-async fn test_status_handler_no_cache_break_when_none() {
+async fn test_status_handler_no_cache_anomaly_when_none() {
     let sm = make_workdir_session_manager();
     let sid = create_test_session(&sm).await;
     let h = StatusHandler::new(Arc::clone(&sm) as Arc<dyn closeclaw_common::SlashSessionQuery>);
@@ -271,10 +269,10 @@ async fn test_status_handler_no_cache_break_when_none() {
     ctx.session_id = sid;
     match h.handle("", &ctx).await {
         SlashResult::Reply(t) => {
-            // Should NOT contain cache break event.
+            // Should NOT contain cache anomaly event.
             assert!(
-                !t.contains("[缓存断点]"),
-                "should not show cache break when none, got: {t}"
+                !t.contains("[缓存命中异常]"),
+                "should not show cache anomaly when none, got: {t}"
             );
         }
         _ => panic!("expected Reply"),

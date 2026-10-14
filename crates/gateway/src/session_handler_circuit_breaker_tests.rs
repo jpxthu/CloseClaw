@@ -100,14 +100,17 @@ async fn populate_session_for_auto_compact(sm: &SessionManager, sid: &str) {
     cs_write.apply_transcript_op(TranscriptOp::Rewrite, msgs);
     // 125K used on 128K context → remaining = 3,000 ≤ 6,400 (5% of 128K)
     // → AutoCompactTriggered.
-    cs_write.accumulate_usage(&closeclaw_common::processor::UnifiedUsage {
-        prompt_tokens: 125_000,
-        completion_tokens: 0,
-        total_tokens: Some(125_000),
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-    });
+    cs_write.accumulate_usage(
+        &closeclaw_common::processor::UnifiedUsage {
+            prompt_tokens: 125_000,
+            completion_tokens: 0,
+            total_tokens: Some(125_000),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        Some("test-model"),
+    );
 }
 
 /// Verify the circuit breaker notification was injected into the session
