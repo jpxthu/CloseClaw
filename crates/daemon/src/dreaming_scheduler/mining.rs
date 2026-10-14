@@ -72,9 +72,7 @@ pub(super) async fn mine_archived_session(
 ///
 /// Messages are rendered as `"<role>: <content>"` lines, matching the
 /// format produced by session transcript recording.
-pub(super) fn format_transcript(
-    messages: &[closeclaw_session::persistence::PendingMessage],
-) -> String {
+fn format_transcript(messages: &[closeclaw_session::persistence::PendingMessage]) -> String {
     messages
         .iter()
         .map(|m| {

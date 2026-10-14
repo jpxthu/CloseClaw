@@ -15,9 +15,6 @@ use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::mpsc;
 
-/// Timeout (seconds) to wait for an active dreaming cycle during shutdown.
-pub(crate) const SHUTDOWN_GRACE_SECS: u64 = 10;
-
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigChangeEvent;
 use closeclaw_config::ConfigManager;
@@ -25,6 +22,9 @@ use closeclaw_memory::dreaming::DreamingPipeline;
 use closeclaw_memory::miner::MemoryMiner;
 use closeclaw_memory::storage::MemoryStorage;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService};
+
+/// Timeout (seconds) to wait for an active dreaming cycle during shutdown.
+pub(crate) const SHUTDOWN_GRACE_SECS: u64 = 10;
 
 mod config_reload;
 mod cron;
