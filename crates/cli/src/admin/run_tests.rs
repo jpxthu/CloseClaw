@@ -10,6 +10,7 @@ use super::run::{
     ensure_no_running_daemon, handle_run, handle_run_foreground, handle_run_with_socket_timeout,
     prepare_run, DaemonRunner,
 };
+use super::run_helper_tests::{run_helper, spawn_helper_child};
 use closeclaw_platform::process::{read_pid_file, write_pid_file};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -529,96 +530,9 @@ fn test_prepare_run_bare_tilde_is_home() {
 }
 
 // ── Env var expansion tests (re-exec child) ──────────────────────────────
-// Env mutation is prohibited by CONTRIBUTING.md §7, so env var expansion is
-// tested by re-exec'ing this test binary as a gated helper child with the
-// target env injected (precedent: crates/platform/src/process_tests.rs).
-
-/// Env gate: set only on the re-exec'd child so normal test runs skip the
-/// helper sub-test.
-const HELPER_CHILD_GATE: &str = "PREPARE_RUN_HELPER_CHILD";
-
-/// Raw `--config-dir` input injected by the parent test into the child.
-const HELPER_CONFIG_DIR: &str = "PREPARE_RUN_HELPER_CONFIG_DIR";
-
-/// Marker prefix of the resolved-path line printed by the helper child.
-const HELPER_RESULT_MARKER: &str = "PREPARE_RUN_RESOLVED=";
-
-/// `--exact` filter selecting only the helper sub-test inside the child.
-///
-/// Derived from `module_path!()` (issue #3161 Step 1.4 review) instead
-/// of a hand-written string, so a module refactor cannot silently
-/// desync the filter. libtest reports names *without* the leading crate
-/// segment (`admin::run_tests::…`) while `module_path!()` includes it
-/// (`closeclaw_cli::admin::run_tests::…`), so the crate-name prefix is
-/// stripped here.
-fn helper_child_test_name() -> String {
-    let full = concat!(module_path!(), "::test_prepare_run_helper_child");
-    full.strip_prefix(concat!(env!("CARGO_CRATE_NAME"), "::"))
-        .unwrap_or(full)
-        .to_string()
-}
-
-/// Re-exec the current test binary as the `prepare_run` helper child.
-///
-/// `--exact` restricts the child to the helper sub-test; `envs` /
-/// `remove_home` reproduce the isolation semantics of the old compiled
-/// helper binary (subprocess-only env, no process-global mutation).
-fn spawn_helper_child(
-    config_dir: &str,
-    envs: &[(&str, &str)],
-    remove_home: bool,
-) -> std::process::Output {
-    let test_binary = std::env::current_exe().expect("failed to resolve current test binary");
-    let mut cmd = std::process::Command::new(test_binary);
-    cmd.env(HELPER_CHILD_GATE, "1")
-        .env(HELPER_CONFIG_DIR, config_dir)
-        .arg("--exact")
-        .arg("--nocapture")
-        .arg(helper_child_test_name());
-    for (k, v) in envs {
-        cmd.env(k, v);
-    }
-    if remove_home {
-        cmd.env_remove("HOME");
-    }
-    cmd.output().expect("failed to execute helper child")
-}
-
-/// Helper sub-test body: resolves `prepare_run` under the parent-injected
-/// env and prints the result with [`HELPER_RESULT_MARKER`]. Inert during a
-/// normal run (gate unset); the parent tests drive it by re-exec'ing this
-/// binary with [`HELPER_CHILD_GATE`] + `--exact` filtering.
-#[test]
-fn test_prepare_run_helper_child() {
-    if std::env::var(HELPER_CHILD_GATE).is_err() {
-        eprintln!("skipped: run via parent test subprocess");
-        return;
-    }
-    let config_dir = std::env::var(HELPER_CONFIG_DIR).expect("missing config_dir input");
-    let (resolved, _) = prepare_run(&config_dir, None).expect("prepare_run failed");
-    println!("{HELPER_RESULT_MARKER}{}", resolved.display());
-}
-
-/// Run the helper child with optional env vars set and return the resolved
-/// config_dir it printed (stripped from the [`HELPER_RESULT_MARKER`] line).
-/// On failure, outputs both stdout and stderr for debugging.
-fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
-    let output = spawn_helper_child(config_dir, envs, false);
-    assert!(
-        output.status.success(),
-        "helper child failed\nstdout: {}\nstderr: {}",
-        String::from_utf8_lossy(&output.stdout),
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let stdout = String::from_utf8(output.stdout).expect("helper output is not UTF-8");
-    stdout
-        .lines()
-        .find_map(|line| line.strip_prefix(HELPER_RESULT_MARKER))
-        .map(str::to_string)
-        .unwrap_or_else(|| {
-            panic!("helper child printed no {HELPER_RESULT_MARKER} line, stdout: {stdout}")
-        })
-}
+// Env-dependent behavior is exercised via the re-exec helper scaffold in
+// super::run_helper_tests (env mutation prohibited by CONTRIBUTING.md §7;
+// bounded child wait + kill fallback: issue #3165).
 
 /// One env-expansion case: (input config_dir, injected env vars, expected
 /// output).
@@ -691,7 +605,8 @@ fn test_prepare_run_env_value_tilde_not_reexpanded() {
 /// fail: the helper child reports it on stderr and exits non-zero.
 #[test]
 fn test_prepare_run_root_dir_failure_propagates() {
-    let output = spawn_helper_child("", &[], true);
+    let output = spawn_helper_child("", &[], true)
+        .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         !output.status.success(),
         "should fail when HOME is unset and config_dir is empty\nstdout: {}",
