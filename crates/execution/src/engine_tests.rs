@@ -469,7 +469,7 @@ async fn test_hook_block_stops_subsequent_steps() {
         report.steps[0].hook_blocked.as_deref(),
         Some("blocked by hook")
     );
-    assert!(!report.steps[0].error_message.is_some());
+    assert!(report.steps[0].error_message.is_none());
     // Step 1 never executed
     assert!(!report.steps.iter().any(|s| s.step_index == 1));
 }
