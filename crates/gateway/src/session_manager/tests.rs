@@ -437,7 +437,7 @@ async fn test_find_or_create_creates_workspace_directory() {
     let mgr = SessionManager::new(
         &test_config(),
         None,
-        workspace_dir.clone(),
+        workspace_dir,
         ReasoningLevel::default(),
     );
     let msg = test_message();

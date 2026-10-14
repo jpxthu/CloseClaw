@@ -23,6 +23,8 @@ use closeclaw_session::persistence::{ReasoningLevel, SessionCheckpoint};
 use closeclaw_session::spawn::controller::SpawnContext;
 use closeclaw_session::storage::memory::MemoryStorage;
 
+use super::test_helpers::make_subagents_max_depth;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -63,14 +65,6 @@ fn make_config_manager() -> ConfigManager {
 
 fn make_permission_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
-}
-
-/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
-fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
-    SubagentsConfig {
-        max_spawn_depth: Some(max_spawn_depth),
-        ..Default::default()
-    }
 }
 
 fn make_agent(id: &str, subagents: SubagentsConfig) -> ResolvedAgentConfig {

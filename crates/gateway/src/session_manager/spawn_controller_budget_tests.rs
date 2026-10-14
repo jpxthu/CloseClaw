@@ -14,6 +14,8 @@ use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::SessionCheckpoint;
 use closeclaw_session::storage::memory::MemoryStorage;
 use std::sync::Arc;
+
+use super::test_helpers::make_subagents_max_depth;
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
 
 fn make_permission_engine() -> PermissionEngine {
@@ -44,13 +46,7 @@ fn test_config() -> GatewayConfig {
         ..Default::default()
     }
 }
-/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
-fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
-    SubagentsConfig {
-        max_spawn_depth: Some(max_spawn_depth),
-        ..Default::default()
-    }
-}
+
 fn make_config_manager() -> ConfigManager {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")

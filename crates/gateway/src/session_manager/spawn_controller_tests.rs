@@ -23,6 +23,8 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 use closeclaw_session::persistence::ReasoningLevel;
 
+use super::test_helpers::make_subagents_max_depth;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -33,14 +35,6 @@ fn test_config() -> GatewayConfig {
         name: "test".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        ..Default::default()
-    }
-}
-
-/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
-fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
-    SubagentsConfig {
-        max_spawn_depth: Some(max_spawn_depth),
         ..Default::default()
     }
 }

@@ -24,6 +24,8 @@ use closeclaw_common::SpawnError;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
+use super::test_helpers::make_subagents_max_depth;
+
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs)
 // ---------------------------------------------------------------------------
@@ -39,14 +41,6 @@ fn test_config() -> GatewayConfig {
 
 fn make_permission_engine() -> PermissionEngine {
     PermissionEngine::new_with_default_data_root(RuleSetBuilder::new().build().unwrap())
-}
-
-/// Minimal `SubagentsConfig` with only `max_spawn_depth` overridden.
-fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
-    SubagentsConfig {
-        max_spawn_depth: Some(max_spawn_depth),
-        ..Default::default()
-    }
 }
 
 fn make_session_manager() -> SessionManager {

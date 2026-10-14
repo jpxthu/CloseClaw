@@ -10,7 +10,7 @@ use super::spawn::{ChildSessionInfo, ChildSessionStatus, SpawnMode, SpawnTargetA
 use super::SessionManager;
 use chrono::Utc;
 use closeclaw_common::{tool_session::ToolSession, ToolExecState};
-use closeclaw_common::{BootstrapMode, ModelSpec};
+use closeclaw_common::{BootstrapMode, ModelSpec, SubagentsConfig};
 use closeclaw_llm::types::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{ChatSession, ConversationSession, SessionMessage};
 use std::path::PathBuf;
@@ -33,6 +33,16 @@ pub(crate) fn make_msg() -> crate::Message {
         platform: None,
         dsl_result: None,
         content_blocks: None,
+    }
+}
+
+// ── Subagents config factory ────────────────────────────────────────────
+
+/// Minimal [`SubagentsConfig`] with only `max_spawn_depth` overridden.
+pub(crate) fn make_subagents_max_depth(max_spawn_depth: u32) -> SubagentsConfig {
+    SubagentsConfig {
+        max_spawn_depth: Some(max_spawn_depth),
+        ..Default::default()
     }
 }
 
