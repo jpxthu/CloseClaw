@@ -1,15 +1,17 @@
 //! Shared test utilities for slash executor tests.
 //!
-//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and
-//! `first_text_block` used by `slash_executor_tests.rs` and
-//! `slash_executor_system_append_tests.rs`.
+//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and the
+//! assertion helpers `reply_blocks` / `text_block_at` / `first_text_block`
+//! used by `slash_executor_tests.rs`,
+//! `slash_executor_system_append_tests.rs` and
+//! `outbound_streaming_checkpoint_tests.rs`.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use closeclaw_common::executor::{SideEffectContext, SlashEffectExecutor};
+use closeclaw_common::executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::session_lookup::SessionLookup;
 use closeclaw_common::slash_router::SystemAppendAction;
@@ -107,10 +109,7 @@ impl SlashEffectExecutor for ReasoningConfigMockExecutor {
 /// Build a [`SideEffectContext`] with the given reasoning mock executor.
 pub(crate) fn make_reasoning_ctx(
     exec: Arc<ReasoningConfigMockExecutor>,
-) -> (
-    SideEffectContext,
-    mpsc::Receiver<closeclaw_common::executor::ReplyAction>,
-) {
+) -> (SideEffectContext, mpsc::Receiver<ReplyAction>) {
     let (tx, rx) = mpsc::channel(16);
     let ctx = SideEffectContext {
         session_id: "sess-reasoning".into(),
@@ -123,8 +122,24 @@ pub(crate) fn make_reasoning_ctx(
 }
 
 // ---------------------------------------------------------------------------
-// first_text_block
+// Assertion helpers
 // ---------------------------------------------------------------------------
+
+/// Return the text of the [`ContentBlock`] at `index`.
+///
+/// Panics with an expectation/actual message when `index` is out of bounds
+/// or the block at `index` is not [`ContentBlock::Text`].
+pub(crate) fn text_block_at(blocks: &[ContentBlock], index: usize) -> &str {
+    assert!(
+        index < blocks.len(),
+        "expected ContentBlock at index {index}, got: slice of length {}",
+        blocks.len()
+    );
+    match &blocks[index] {
+        ContentBlock::Text(t) => t.as_str(),
+        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    }
+}
 
 /// Return the text of the first [`ContentBlock`].
 ///
@@ -135,9 +150,23 @@ pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
         !blocks.is_empty(),
         "expected at least one ContentBlock, got: empty slice"
     );
-    match &blocks[0] {
-        ContentBlock::Text(t) => t.as_str(),
-        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    text_block_at(blocks, 0)
+}
+
+/// Return the content blocks of the first [`ReplyAction`].
+///
+/// Panics with an expectation/actual message when `actions` is empty or the
+/// first action is not [`ReplyAction::Reply`].
+// TODO(#3566): remove once slash_executor_tests.rs consumes this helper.
+#[expect(dead_code)]
+pub(crate) fn reply_blocks(actions: &[ReplyAction]) -> &[ContentBlock] {
+    assert!(
+        !actions.is_empty(),
+        "expected at least one ReplyAction, got: empty slice"
+    );
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => blocks.as_slice(),
+        other => panic!("expected ReplyAction::Reply, got: {other:?}"),
     }
 }
 
