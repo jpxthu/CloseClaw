@@ -29,9 +29,6 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Rust
-        run: rustup default stable
-
       - name: Install cargo-nextest
         uses: taiki-e/install-action@9983c65e42da123ff25d1f78505eb6de315aa172 # v2
         with:
@@ -81,3 +78,24 @@ jobs:
 
       - name: Run doc tests
         run: cargo test --workspace --doc --no-fail-fast
+
+  msrv:
+    name: MSRV check (1.85)
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: target-msrv
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install MSRV toolchain
+        run: rustup toolchain install 1.85 --profile minimal
+
+      - name: Cache cargo build (msrv)
+        uses: actions/cache@v4
+        with:
+          path: target-msrv
+          key: ${{ runner.os }}-cargo-msrv-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: MSRV check
+        run: cargo +1.85 check --workspace --all-targets --locked
