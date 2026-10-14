@@ -112,7 +112,7 @@ fn match_field(field: &CronField, value: u32) -> bool {
 ///
 /// Collapses the three verbatim `next_fire_time` → delay →
 /// `tokio::time::Instant` conversions previously duplicated across
-/// [`DreamingScheduler::run`](super::DreamingScheduler::run), the cron
+/// [`super::DreamingScheduler::run`], the cron
 /// loop's `Fire` branch and
 /// [`super::DreamingScheduler::handle_cron_config_reload`]
 /// (issue #3578).
