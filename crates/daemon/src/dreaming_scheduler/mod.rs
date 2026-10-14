@@ -14,7 +14,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use thiserror::Error;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tracing::{error, info, warn};
 
@@ -33,8 +33,9 @@ use closeclaw_session::persistence::{PersistenceError, PersistenceService};
 
 mod cron;
 mod events;
+mod run;
 
-use cron::{cron_next_fire, parse_cron_schedule, CronSchedule};
+use cron::{cron_next_fire, parse_cron_schedule};
 
 /// Errors that can occur during scheduler operations.
 #[derive(Debug, Error)]
@@ -95,7 +96,7 @@ pub(crate) enum LoopEvent {
 
 /// Outcome of one receive from the config broadcast channel, classified
 /// by [`classify_config_recv`](events::classify_config_recv).
-enum ConfigRecvOutcome {
+pub(crate) enum ConfigRecvOutcome {
     /// Memory-section reload — the caller applies its reload handler.
     MemoryReload,
     /// Other section / non-reload event — ignore and keep polling.
@@ -320,66 +321,6 @@ impl DreamingScheduler {
         }
     }
 
-    /// Run the scheduler loop until `shutdown` signal is received.
-    ///
-    /// Uses cron-based scheduling when a valid expression is available;
-    /// falls back to a fixed interval otherwise. Each cycle: dreaming
-    /// pipeline first, then mining scan.
-    pub async fn run(&mut self, mut shutdown: watch::Receiver<()>) {
-        let cron_schedule = self.schedule.as_deref().and_then(parse_cron_schedule);
-
-        if let Some(ref sched) = cron_schedule {
-            info!(
-                schedule = %sched.display(),
-                "DreamingScheduler started with cron schedule"
-            );
-            self.run_cron_loop(&mut shutdown, sched, cron_next_fire(sched))
-                .await;
-        } else {
-            let interval_secs = self.config.dreaming_interval_secs();
-            let interval = tokio::time::Duration::from_secs(interval_secs);
-            info!(
-                "DreamingScheduler started with fixed interval {}s",
-                interval_secs
-            );
-            self.run_fixed_interval_loop(&mut shutdown, interval).await;
-        }
-    }
-
-    /// Cron-based scheduling loop: compute next fire time from wall clock.
-    async fn run_cron_loop(
-        &mut self,
-        shutdown: &mut watch::Receiver<()>,
-        schedule: &CronSchedule,
-        next_fire: tokio::time::Instant,
-    ) {
-        let mut next_fire = next_fire;
-        let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
-
-        loop {
-            match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown => {
-                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
-                    break;
-                }
-                LoopEvent::ConfigClosed => {
-                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
-                    break;
-                }
-                LoopEvent::ConfigReload => {
-                    self.handle_cron_config_reload(&mut next_fire).await;
-                }
-                LoopEvent::MiningNotify(session_id) => {
-                    self.handle_mining_notify(&session_id).await;
-                }
-                LoopEvent::Fire => {
-                    self.spawn_or_skip_cycle(&mut active_task).await;
-                    next_fire = cron_next_fire(schedule);
-                }
-            }
-        }
-    }
-
     /// Shared mining-notify branch: mine the notified session only when
     /// at least one agent is configured; otherwise stay silent.
     async fn handle_mining_notify(&self, session_id: &str) {
@@ -414,39 +355,6 @@ impl DreamingScheduler {
                 interval_secs
             );
             *next_fire = tokio::time::Instant::now() + interval;
-        }
-    }
-
-    /// Fixed-interval fallback scheduling loop.
-    async fn run_fixed_interval_loop(
-        &mut self,
-        shutdown: &mut watch::Receiver<()>,
-        interval: tokio::time::Duration,
-    ) {
-        let mut next_fire = tokio::time::Instant::now() + interval;
-        let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
-
-        loop {
-            match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown => {
-                    Self::finish_shutdown(&mut active_task, ShutdownCause::Signal).await;
-                    break;
-                }
-                LoopEvent::ConfigClosed => {
-                    Self::finish_shutdown(&mut active_task, ShutdownCause::ConfigClosed).await;
-                    break;
-                }
-                LoopEvent::ConfigReload => {
-                    self.handle_config_change().await;
-                }
-                LoopEvent::MiningNotify(session_id) => {
-                    self.handle_mining_notify(&session_id).await;
-                }
-                LoopEvent::Fire => {
-                    self.spawn_or_skip_cycle(&mut active_task).await;
-                    next_fire = tokio::time::Instant::now() + interval;
-                }
-            }
         }
     }
 
