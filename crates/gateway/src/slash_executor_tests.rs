@@ -21,7 +21,7 @@ use closeclaw_common::verbosity::VerbosityLevel;
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
 use super::slash_executor_test_utils::{
-    first_text_block, make_reasoning_ctx, ReasoningConfigMockExecutor,
+    first_text_block, make_reasoning_ctx, reply_blocks, ReasoningConfigMockExecutor,
 };
 use closeclaw_common::executor::SlashResultExecutor;
 
@@ -227,13 +227,9 @@ async fn test_reply_sends_text_block() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "hello world");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "hello world");
 }
 
 // ---------------------------------------------------------------------------
@@ -259,13 +255,9 @@ async fn test_set_mode_sends_confirmation() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "Mode set to: plan");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "Mode set to: plan");
 }
 
 // ---------------------------------------------------------------------------
@@ -282,16 +274,12 @@ async fn test_new_session_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(
-                first_text_block(blocks),
-                "已创建新 session：mock-new-session-id"
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(
+        first_text_block(blocks),
+        "已创建新 session：mock-new-session-id"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -308,13 +296,9 @@ async fn test_stop_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已停止当前任务");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已停止当前任务");
 }
 
 // ---------------------------------------------------------------------------
@@ -334,13 +318,9 @@ async fn test_compact_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), COMPACT_REPLY);
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), COMPACT_REPLY);
 }
 
 #[tokio::test]
@@ -361,13 +341,9 @@ async fn test_compact_with_instruction_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), COMPACT_REPLY);
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), COMPACT_REPLY);
 }
 
 // ---------------------------------------------------------------------------
@@ -392,13 +368,9 @@ async fn test_system_append_add_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已追加指令 #1");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已追加指令 #1");
 }
 
 #[tokio::test]
@@ -419,13 +391,9 @@ async fn test_system_append_clear_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已清除 1 条追加指令");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已清除 1 条追加指令");
 }
 
 // ---------------------------------------------------------------------------
@@ -445,13 +413,9 @@ async fn test_exec_calls_execute_exec_and_sends_result() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "exec output");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "exec output");
 }
 
 #[tokio::test]
@@ -519,17 +483,13 @@ async fn test_exec_failure_forwards_error_to_user() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert!(
-                first_text_block(blocks).contains("命令执行失败"),
-                "error message should be forwarded to user, got: {:?}",
-                blocks[0],
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert!(
+        first_text_block(blocks).contains("命令执行失败"),
+        "error message should be forwarded to user, got: {:?}",
+        blocks[0],
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -544,13 +504,9 @@ async fn test_unknown_sends_unknown_command_text() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "Unknown command: /nope");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "Unknown command: /nope");
 }
 
 // ---------------------------------------------------------------------------
@@ -571,16 +527,12 @@ async fn test_set_reasoning_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(
-                first_text_block(blocks),
-                "推理深度已设为 Max（含 provider 降级后的值）"
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(
+        first_text_block(blocks),
+        "推理深度已设为 Max（含 provider 降级后的值）"
+    );
 }
 
 /// No downgrade: requested == effective → "推理深度已设为 {effective}（含 provider 降级后的值）".
@@ -598,12 +550,7 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
     assert!(exec.was_called());
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), NO_DOWNGRADE_REPLY);
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), NO_DOWNGRADE_REPLY);
 }
 
 /// Downgrade: requested=Max, effective=High → downgrade explanation.
@@ -621,12 +568,7 @@ async fn test_set_reasoning_downgrade_reply() {
     assert!(exec.was_called());
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), DOWNGRADE_REPLY);
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), DOWNGRADE_REPLY);
 }
 
 /// Off + provider supports closing → "推理输出已关闭".
@@ -642,12 +584,7 @@ async fn test_set_reasoning_off_provider_supports_closing() {
     drop(ctx);
 
     let actions = drain_actions(&mut rx).await;
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), "推理输出已关闭");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), "推理输出已关闭");
 }
 
 /// Off + provider cannot close → "当前模型无法关闭推理，已降至最低可用档位 {effective}".
@@ -663,15 +600,10 @@ async fn test_set_reasoning_off_provider_cannot_close() {
     drop(ctx);
 
     let actions = drain_actions(&mut rx).await;
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(
-                first_text_block(blocks),
-                "当前模型无法关闭推理，已降至最低可用档位 Low"
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(
+        first_text_block(reply_blocks(&actions)),
+        "当前模型无法关闭推理，已降至最低可用档位 Low"
+    );
 }
 
 /// None (session not found) → legacy fallback "推理深度已设为 {requested}".
@@ -687,12 +619,10 @@ async fn test_set_reasoning_none_fallback_legacy_reply() {
     drop(ctx);
 
     let actions = drain_actions(&mut rx).await;
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), "推理深度已设为 Max");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(
+        first_text_block(reply_blocks(&actions)),
+        "推理深度已设为 Max"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -713,13 +643,9 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "输出详细度已设置为 off");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "输出详细度已设置为 off");
 }
 
 // ---------------------------------------------------------------------------
@@ -736,13 +662,9 @@ async fn test_side_effect_context_normal_reply_delivered() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "ping");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "ping");
 }
 
 #[tokio::test]
@@ -756,15 +678,10 @@ async fn test_side_effect_context_new_session_delivered() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(
-                first_text_block(blocks),
-                "已创建新 session：mock-new-session-id"
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(
+        first_text_block(reply_blocks(&actions)),
+        "已创建新 session：mock-new-session-id"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -786,13 +703,9 @@ async fn test_set_mode_with_reply_message_uses_custom_message() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已切换到 Plan 模式");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已切换到 Plan 模式");
 }
 
 #[tokio::test]
@@ -810,13 +723,9 @@ async fn test_set_mode_without_reply_message_uses_default() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "Mode set to: auto");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "Mode set to: auto");
 }
 
 #[tokio::test]

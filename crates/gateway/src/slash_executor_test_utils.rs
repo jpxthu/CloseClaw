@@ -157,8 +157,6 @@ pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
 ///
 /// Panics with an expectation/actual message when `actions` is empty or the
 /// first action is not [`ReplyAction::Reply`].
-// TODO(#3566): remove once slash_executor_tests.rs consumes this helper.
-#[expect(dead_code)]
 pub(crate) fn reply_blocks(actions: &[ReplyAction]) -> &[ContentBlock] {
     assert!(
         !actions.is_empty(),
