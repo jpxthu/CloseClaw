@@ -14,7 +14,7 @@ use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
-use super::slash_executor_test_utils::first_text_block;
+use super::slash_executor_test_utils::{first_text_block, reply_blocks};
 use closeclaw_common::executor::SlashResultExecutor;
 
 // ── Minimal mock (SessionLookup) ──────────────────────────────────────
@@ -135,12 +135,7 @@ async fn test_system_append_add_increments_number() {
 
     let actions = drain_actions(&mut rx1).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), "已追加指令 #1");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), "已追加指令 #1");
 
     // Second add → #2
     let (ctx2, mut rx2) = make_ctx();
@@ -153,12 +148,7 @@ async fn test_system_append_add_increments_number() {
 
     let actions = drain_actions(&mut rx2).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), "已追加指令 #2");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), "已追加指令 #2");
 
     // Third add → #3
     let (ctx3, mut rx3) = make_ctx();
@@ -171,12 +161,7 @@ async fn test_system_append_add_increments_number() {
 
     let actions = drain_actions(&mut rx3).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(first_text_block(blocks), "已追加指令 #3");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    assert_eq!(first_text_block(reply_blocks(&actions)), "已追加指令 #3");
 }
 
 #[tokio::test]
@@ -231,13 +216,9 @@ async fn test_system_append_clear_zero_items() {
 
     let actions = drain_actions(&mut rx).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已清除 0 条追加指令");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已清除 0 条追加指令");
 }
 
 #[tokio::test]
@@ -267,13 +248,9 @@ async fn test_system_append_clear_count_reflected_in_reply() {
 
     let actions = drain_actions(&mut rx2).await;
     assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            assert_eq!(blocks.len(), 1);
-            assert_eq!(first_text_block(blocks), "已清除 4 条追加指令");
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    assert_eq!(blocks.len(), 1);
+    assert_eq!(first_text_block(blocks), "已清除 4 条追加指令");
 }
 
 #[tokio::test]
@@ -290,15 +267,11 @@ async fn test_system_append_add_reply_format_uses_count() {
     drop(ctx);
 
     let actions = drain_actions(&mut rx).await;
-    match &actions[0] {
-        ReplyAction::Reply(blocks) => {
-            let text = first_text_block(blocks);
-            assert_eq!(text, "已追加指令 #1");
-            assert!(
-                text.starts_with("已追加指令 #"),
-                "reply should start with '已追加指令 #', got: {text}"
-            );
-        }
-        other => panic!("expected ReplyAction::Reply, got {other:?}"),
-    }
+    let blocks = reply_blocks(&actions);
+    let text = first_text_block(blocks);
+    assert_eq!(text, "已追加指令 #1");
+    assert!(
+        text.starts_with("已追加指令 #"),
+        "reply should start with '已追加指令 #', got: {text}"
+    );
 }
