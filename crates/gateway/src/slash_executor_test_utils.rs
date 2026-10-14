@@ -1,7 +1,8 @@
 //! Shared test utilities for slash executor tests.
 //!
-//! Contains `ReasoningConfigMockExecutor` and `make_reasoning_ctx`
-//! used by `slash_executor_tests.rs` and `slash_permission_tests.rs`.
+//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and
+//! `first_text_block` used by `slash_executor_tests.rs` and
+//! `slash_executor_system_append_tests.rs`.
 
 use std::sync::Arc;
 
@@ -119,4 +120,60 @@ pub(crate) fn make_reasoning_ctx(
         executor: exec,
     };
     (ctx, rx)
+}
+
+// ---------------------------------------------------------------------------
+// first_text_block
+// ---------------------------------------------------------------------------
+
+/// Return the text of the first [`ContentBlock`].
+///
+/// Panics with an expectation/actual message when `blocks` is empty or the
+/// first block is not [`ContentBlock::Text`].
+pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
+    assert!(
+        !blocks.is_empty(),
+        "expected at least one ContentBlock, got: empty slice"
+    );
+    match &blocks[0] {
+        ContentBlock::Text(t) => t.as_str(),
+        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_first_text_block_returns_text_of_single_block() {
+        let blocks = vec![ContentBlock::Text("hello world".into())];
+        assert_eq!(first_text_block(&blocks), "hello world");
+    }
+
+    #[test]
+    fn test_first_text_block_returns_first_block_when_multiple() {
+        let blocks = vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ];
+        assert_eq!(first_text_block(&blocks), "first");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock::Text, got: Thinking")]
+    fn test_first_text_block_panics_on_non_text_variant() {
+        let blocks = vec![ContentBlock::Thinking {
+            thinking: "reasoning trace".into(),
+            signature: None,
+        }];
+        let _ = first_text_block(&blocks);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected at least one ContentBlock, got: empty slice")]
+    fn test_first_text_block_panics_on_empty_slice() {
+        let blocks: Vec<ContentBlock> = vec![];
+        let _ = first_text_block(&blocks);
+    }
 }
