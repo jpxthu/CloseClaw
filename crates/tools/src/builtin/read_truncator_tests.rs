@@ -34,7 +34,7 @@ fn test_small_file_no_truncation() {
 fn test_offset_starts_from_correct_line() {
     let content = "a\nb\nc\nd\ne\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 3, None, &cfg);
+    let r = truncate_lines(content, 3, None, &cfg);
     assert!(!r.truncated);
     assert_eq!(r.lines_read, 3); // c, d, e
     assert!(r.content.starts_with("c\n"));
@@ -44,7 +44,7 @@ fn test_offset_starts_from_correct_line() {
 fn test_offset_beyond_file_returns_empty() {
     let content = "a\nb\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 100, None, &cfg);
+    let r = truncate_lines(content, 100, None, &cfg);
     assert!(r.truncated);
     assert_eq!(r.lines_read, 0);
     assert!(r.content.is_empty());
@@ -54,7 +54,7 @@ fn test_offset_beyond_file_returns_empty() {
 fn test_offset_zero_treated_as_one() {
     let content = "a\nb\nc\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 0, None, &cfg);
+    let r = truncate_lines(content, 0, None, &cfg);
     assert_eq!(r.lines_read, 3);
     assert!(r.content.starts_with("a\n"));
 }
@@ -67,7 +67,7 @@ fn test_offset_zero_treated_as_one() {
 fn test_limit_restricts_output() {
     let content = "a\nb\nc\nd\ne\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 1, Some(2), &cfg);
+    let r = truncate_lines(content, 1, Some(2), &cfg);
     assert!(r.truncated);
     assert_eq!(r.lines_read, 2);
     assert_eq!(r.trigger, Some(TruncationTrigger::Limit));
@@ -77,7 +77,7 @@ fn test_limit_restricts_output() {
 fn test_limit_zero_returns_empty() {
     let content = "a\nb\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 1, Some(0), &cfg);
+    let r = truncate_lines(content, 1, Some(0), &cfg);
     assert!(r.truncated);
     assert_eq!(r.lines_read, 0);
 }
@@ -86,7 +86,7 @@ fn test_limit_zero_returns_empty() {
 fn test_limit_greater_than_total_returns_all() {
     let content = "a\nb\n";
     let cfg = TruncationConfig::default();
-    let r = truncate_lines(&content, 1, Some(100), &cfg);
+    let r = truncate_lines(content, 1, Some(100), &cfg);
     assert!(!r.truncated);
     assert_eq!(r.lines_read, 2);
 }

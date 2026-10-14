@@ -362,7 +362,7 @@ async fn test_read_with_progress_long_command_sends_reports() {
 
     let calls = session.progress_calls();
     assert!(
-        calls.len() >= 1,
+        !calls.is_empty(),
         "expected at least 1 periodic progress report for long command, got {}",
         calls.len()
     );

@@ -239,6 +239,8 @@ mod tests {
         (spawn_controller, session_manager, cfg_mgr, agent_registry)
     }
 
+    // 测试 fixture 构造函数：参数即 fixture 字段，打包成结构体反而降低可读性
+    #[allow(clippy::too_many_arguments)]
     fn make_registrars(
         disk_registry: Arc<DiskSkillRegistry>,
         permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,

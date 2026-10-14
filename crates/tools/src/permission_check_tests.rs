@@ -552,7 +552,7 @@ async fn test_empty_inputs_are_denied() {
     assert!(tool.is_err());
     let file = check_file_op_permission(&deps, &ctx, "", "read", None).await;
     assert!(file.is_err());
-    let cmd = check_command_permission(&deps, &ctx, "", &vec![], None).await;
+    let cmd = check_command_permission(&deps, &ctx, "", &[], None).await;
     assert!(matches!(cmd, CommandPermissionResult::Denied(_)));
 }
 

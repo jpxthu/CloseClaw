@@ -29,12 +29,13 @@ impl Tool for DummyTool {
         serde_json::json!({ "type": "object", "properties": {} })
     }
     fn flags(&self) -> ToolFlags {
-        let mut f = ToolFlags::default();
-        f.is_deferred_by_default = self.is_deferred;
-        f.is_read_only = self.is_read_only;
-        f.is_destructive = self.is_destructive;
-        f.is_expensive = self.is_expensive;
-        f
+        ToolFlags {
+            is_deferred_by_default: self.is_deferred,
+            is_read_only: self.is_read_only,
+            is_destructive: self.is_destructive,
+            is_expensive: self.is_expensive,
+            ..Default::default()
+        }
     }
 }
 
