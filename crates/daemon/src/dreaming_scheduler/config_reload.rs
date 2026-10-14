@@ -16,7 +16,7 @@ use super::DreamingScheduler;
 
 impl DreamingScheduler {
     /// Handle a config change for the Memory section.
-    pub(crate) async fn handle_config_change(&mut self) {
+    pub(super) async fn handle_config_change(&mut self) {
         match self.config_manager.section(ConfigSection::Memory) {
             Some(value) => {
                 let content = match serde_json::to_string(&value) {

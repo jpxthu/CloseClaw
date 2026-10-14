@@ -69,17 +69,17 @@ pub struct DreamingScheduler {
     /// Config manager for hot-reload subscriptions.
     config_manager: Arc<ConfigManager>,
     /// Broadcast receiver for config change events.
-    pub(crate) config_rx: tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
+    config_rx: tokio::sync::broadcast::Receiver<ConfigChangeEvent>,
     /// Optional channel receiver for immediate mining notifications
     /// from ArchiveSweeper (design doc §即时 hook).
-    pub(crate) mining_notify_rx: Option<mpsc::Receiver<String>>,
+    mining_notify_rx: Option<mpsc::Receiver<String>>,
 }
 
 /// Events shared by both scheduler loops: the four `select!` branches
 /// (shutdown watch, config broadcast, mining-notify channel, timer)
 /// collapsed into a single classification returned by
 /// [`DreamingScheduler::next_event`].
-pub(crate) enum LoopEvent {
+enum LoopEvent {
     /// Shutdown signal observed — finish the active cycle, then exit.
     Shutdown,
     /// Memory-section config reload — each loop applies its own handler.
@@ -96,7 +96,7 @@ pub(crate) enum LoopEvent {
 
 /// Outcome of one receive from the config broadcast channel, classified
 /// by [`classify_config_recv`](events::classify_config_recv).
-pub(crate) enum ConfigRecvOutcome {
+enum ConfigRecvOutcome {
     /// Memory-section reload — the caller applies its reload handler.
     MemoryReload,
     /// Other section / non-reload event — ignore and keep polling.
@@ -111,7 +111,7 @@ pub(crate) enum ConfigRecvOutcome {
 
 /// What triggered a loop's shutdown epilogue
 /// ([`DreamingScheduler::finish_shutdown`]).
-pub(crate) enum ShutdownCause {
+enum ShutdownCause {
     /// Shutdown watch signal observed (normal daemon shutdown).
     Signal,
     /// Config broadcast channel closed — sender dropped (issue #3577).

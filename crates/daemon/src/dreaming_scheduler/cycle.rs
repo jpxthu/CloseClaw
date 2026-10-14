@@ -102,7 +102,7 @@ pub(crate) async fn wait_for_active_task(handle: JoinHandle<Result<(), DreamingS
 impl DreamingScheduler {
     /// Shared mining-notify branch: mine the notified session only when
     /// at least one agent is configured; otherwise stay silent.
-    pub(crate) async fn handle_mining_notify(&self, session_id: &str) {
+    pub(super) async fn handle_mining_notify(&self, session_id: &str) {
         let agents = self.config.list_agents();
         if !agents.is_empty() {
             info!(
@@ -117,7 +117,7 @@ impl DreamingScheduler {
     ///
     /// If a previous task has already finished, its result is
     /// collected and logged before a new cycle is started.
-    pub(crate) async fn spawn_or_skip_cycle(
+    pub(super) async fn spawn_or_skip_cycle(
         &self,
         active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
     ) {

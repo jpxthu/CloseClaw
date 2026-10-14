@@ -8,7 +8,7 @@ use chrono::{Datelike, Local, Timelike};
 ///
 /// Supports `*` for "any" and specific numeric values.
 #[derive(Debug, Clone)]
-pub(crate) struct CronSchedule {
+pub(super) struct CronSchedule {
     minute: CronField,
     hour: CronField,
     dom: CronField,
@@ -27,7 +27,7 @@ enum CronField {
 ///
 /// Only supports `*` and non-negative integer values. Returns `None` on
 /// any parse error, allowing the caller to fall back to fixed-interval.
-pub(crate) fn parse_cron_schedule(expr: &str) -> Option<CronSchedule> {
+pub(super) fn parse_cron_schedule(expr: &str) -> Option<CronSchedule> {
     let parts: Vec<&str> = expr.split_whitespace().collect();
     if parts.len() != 5 {
         return None;
@@ -88,7 +88,7 @@ impl CronSchedule {
     }
 
     /// Human-readable display for logging.
-    pub(crate) fn display(&self) -> String {
+    pub(super) fn display(&self) -> String {
         format!(
             "{} {} {} {} {}",
             display_field(&self.minute),
@@ -114,11 +114,11 @@ fn match_field(field: &CronField, value: u32) -> bool {
 /// `tokio::time::Instant` conversions previously duplicated across
 /// [`DreamingScheduler::run`](super::DreamingScheduler::run), the cron
 /// loop's `Fire` branch and
-/// [`DreamingScheduler::handle_cron_config_reload`](super::DreamingScheduler::handle_cron_config_reload)
+/// [`super::DreamingScheduler::handle_cron_config_reload`]
 /// (issue #3578).
 /// Falls back to a 1s delay when the wall-clock delta is negative or
 /// unrepresentable (clock moved backwards past the fire instant).
-pub(crate) fn cron_next_fire(schedule: &CronSchedule) -> tokio::time::Instant {
+pub(super) fn cron_next_fire(schedule: &CronSchedule) -> tokio::time::Instant {
     let next = schedule.next_fire_time(Local::now());
     let delay = (next - Local::now())
         .to_std()

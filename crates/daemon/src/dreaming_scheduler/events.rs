@@ -51,7 +51,7 @@ impl DreamingScheduler {
     /// broadcast `recv()`, watch `changed()` and `sleep_until` are all
     /// cancel-safe, so discarding the losing futures per iteration
     /// loses no signal; the `next_fire` deadline is rebuilt unchanged.
-    pub(crate) async fn next_event(
+    pub(super) async fn next_event(
         &mut self,
         shutdown: &mut watch::Receiver<()>,
         next_fire: tokio::time::Instant,
@@ -102,7 +102,7 @@ impl DreamingScheduler {
     /// config broadcast ([`ShutdownCause::ConfigClosed`], issue #3577) —
     /// the latter gets its own message, not the shutdown-signal text.
     /// The caller breaks its loop afterwards.
-    pub(crate) async fn finish_shutdown(
+    pub(super) async fn finish_shutdown(
         active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
         cause: ShutdownCause,
     ) {

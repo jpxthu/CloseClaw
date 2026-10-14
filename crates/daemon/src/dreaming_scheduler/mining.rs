@@ -14,7 +14,7 @@ use closeclaw_session::persistence::PersistenceService;
 use tracing::error;
 
 /// Mine a single archived session (standalone version).
-pub(crate) async fn mine_archived_session(
+pub(super) async fn mine_archived_session(
     session_id: &str,
     agents: &[String],
     storage: &Arc<dyn PersistenceService>,
@@ -72,7 +72,7 @@ pub(crate) async fn mine_archived_session(
 ///
 /// Messages are rendered as `"<role>: <content>"` lines, matching the
 /// format produced by session transcript recording.
-pub(crate) fn format_transcript(
+pub(super) fn format_transcript(
     messages: &[closeclaw_session::persistence::PendingMessage],
 ) -> String {
     messages
