@@ -68,7 +68,7 @@ IM Adapter 发送
 - **[DslParseResult / DslInstruction](shared-types.md#dslparseresult--dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser，终于 Renderer 渲染（批量模式）或出站历史写入（流式模式，仅日志不渲染）。
 - **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → IM Adapter 渲染；发送成功后 Gateway 据此写出站历史。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
 - **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。高危指令（Exec、Git 写操作）在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
-- **[UnifiedResponse / UnifiedUsage](shared-types.md#unifiedresponse--unifiedusage)**：非流式 LLM 调用的统一响应，其 ContentBlock[] 即上图的出站起点；usage 由 [RunningStats](shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds) 累加。
+- **[UnifiedResponse / UnifiedUsage](shared-types.md#unifiedresponse--unifiedusage)**：非流式 LLM 调用的统一响应，其 ContentBlock[] 即上图的出站起点；usage 由 [RunningStats](shared-types.md#runningstats--cacheanomalyinfo) 累加。
 - **[RenderedOutput](shared-types.md#renderedoutput)**：IMPlugin 渲染产出的平台原生消息结构 → [Gateway 中间件] → IMPlugin 发送。渲染与发送之间的中间件插入点为批量模式；流式模式下中间件为渲染前的一次性预检（pre-flight）。
 - **[StreamingOutput](shared-types.md#streamingoutput)**：流式渲染单批产出（完整文本行 + 本批完成的非文本块），流式发送链路中由平台组装为 RenderedOutput 后发送。
 - **[ContentSegment](shared-types.md#contentsegment--内容段落解析)**：平台无关的内容段解析产出（Markdown / Hr / CodeBlock），批量渲染路径中由 im_adapter（飞书平台渲染）、cli（TerminalRenderer）消费。

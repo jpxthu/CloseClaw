@@ -2,7 +2,7 @@
 
 ## 概述
 
-协议映射层定义 OpenAI 和 Anthropic 两种 LLM 协议到统一内容块和统一流式事件（[StreamEvent](../../common/shared-types.md#streamevent)）的转换规则。这是 LLM 模块五层架构中 Protocol 层和 ModelInterpreter 层的桥梁规范——Protocol 层按协议解析原始响应，ModelInterpreter 按此映射将协议原生字段归一化为统一内容块。
+协议映射层定义 OpenAI 和 Anthropic 两种 LLM 协议到统一内容块和统一流式事件（[StreamEvent](../common/shared-types.md#streamevent)）的转换规则。这是 LLM 模块五层架构中 Protocol 层和 ModelInterpreter 层的桥梁规范——Protocol 层按协议解析原始响应，ModelInterpreter 按此映射将协议原生字段归一化为统一内容块。
 
 此规范中立于具体供应商，只描述协议本身的映射关系。各供应商的特有行为（如 MiniMax OpenAI 协议下 thinking 混在文本中的标签格式）在各 provider 文档中说明。
 
@@ -45,7 +45,7 @@ Anthropic 协议下，content 是类型化结构数组。每个元素通过 `typ
 
 ### 统一流式事件
 
-流式输出通过 [StreamEvent](../../common/shared-types.md#streamevent) 五种统一事件传递（类型语义与消费契约见 common 定义），本表定义两种协议 SSE 到该事件的映射规则，屏蔽协议在事件粒度上的差异：
+流式输出通过 [StreamEvent](../common/shared-types.md#streamevent) 五种统一事件传递（类型语义与消费契约见 common 定义），本表定义两种协议 SSE 到该事件的映射规则，屏蔽协议在事件粒度上的差异：
 
 | StreamEvent 事件 | OpenAI SSE 来源 | Anthropic SSE 来源 |
 |---------|----------------|-------------------|
@@ -71,13 +71,15 @@ OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reaso
 
 | 统一字段 | 含义 | OpenAI 协议来源 | Anthropic 协议来源 |
 |---------|------|----------------|-------------------|
-| prompt_tokens | 输入 token 数 | `usage.prompt_tokens` | `usage.input_tokens` |
+| prompt_tokens | 输入 token 总数（含缓存命中与缓存写入） | `usage.prompt_tokens` | `usage.input_tokens` + `usage.cache_read_input_tokens` + `usage.cache_creation_input_tokens` |
 | completion_tokens | 输出 token 数 | `usage.completion_tokens` | `usage.output_tokens` |
 | reasoning_tokens | 推理消耗 token 数 | `usage.completion_tokens_details.reasoning_tokens` | 无独立原生字段（推理消耗计入输出 token，不单列） |
 | cache_read_tokens | 命中缓存的输入 token 数 | `usage.prompt_tokens_details.cached_tokens` | `usage.cache_read_input_tokens` |
 | cache_write_tokens | 写入缓存的 token 数 | 无原生字段（服务端自动前缀缓存不回写该值） | `usage.cache_creation_input_tokens` |
 
-流式场景下的用量到达时机：OpenAI 在最终 chunk 携带（需请求带 `stream_options.include_usage`），Anthropic 在 `message_start` 给出输入侧初值、`message_delta` 给出最终值。协议未携带的字段归一化为缺失（由上层按 0 显示，见 [session/llm-session-enhancements](../session/llm-session-enhancements.md) 的用量统计）。
+Anthropic 的 `input_tokens` 仅计未命中缓存的输入部分，输入 token 总数须加上缓存命中与缓存写入两项；OpenAI 的 `prompt_tokens` 已含缓存命中部分。跨协议以「输入 token 总数」作为缓存命中一致性校验的参考值口径。
+
+流式场景下的用量到达时机：OpenAI 在最终 chunk 携带（需请求带 `stream_options.include_usage`），Anthropic 在 `message_start` 给出输入侧初值、`message_delta` 给出最终值。流式下 MessageEnd 的最终用量以 `message_delta` 的最终值为准（`message_start` 仅提供输入侧初值、可能为零）、`message_delta` 缺失的字段回退 `message_start` 的初值；MessageEnd 于协议流结束处产出，用量在完整到达后并入（OpenAI 为携带 usage 的最终 chunk，含工具调用路径的 usage 尾块；Anthropic 为 `message_delta` 之后；协议未提供用量时其 usage 为空），其输入 token 总数按本节定义合成。协议未携带的字段归一化为缺失（由上层按 0 显示，见 [session/llm-session-enhancements](../session/llm-session-enhancements.md) 的用量统计）。
 
 ### 多轮对话增量处理
 

@@ -27,7 +27,7 @@ ConversationSession
   └── 响应后处理 ────────────────────────────────────────
         ├── Thinking 内容作为独立 block 保留
         ├── 写入 message history（含 Thinking block）
-        └── 累加用量统计
+        └── 累加用量统计 → 缓存命中一致性校验（异常 → 错误日志 + Owner 系统通知）
 ```
 
 ### 流式输出
@@ -58,17 +58,33 @@ Reasoning Level 控制 LLM 的推理深度，通过 config 默认值 + 运行时
 
 ### 用量统计
 
-会话维护跨轮次的 `RunningStats`（结构定义见 [common 共享类型](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)），每次 API 调用完成后累加 [UnifiedUsage](../common/shared-types.md#unifiedresponse--unifiedusage) 用量数据。
+会话维护跨轮次的 `RunningStats`（结构定义见 [common 共享类型](../common/shared-types.md#runningstats--cacheanomalyinfo)），每次 API 调用完成后累加 [UnifiedUsage](../common/shared-types.md#unifiedresponse--unifiedusage) 用量数据。
 
 **Usage 扩展**：除基础的 prompt/completion/total tokens 外，增加 `cache_read_tokens`（命中缓存的输入 token）、`cache_write_tokens`（新写入缓存的 token）和 `reasoning_tokens`（推理消耗的 token，与文本输出分开统计）。若 API 响应不携带缓存字段则对应字段显示为 0。
 
-**RunningStats** 跨轮次累加所有用量，保留上一轮快照用于命中率对比。支持查询累计缓存命中率（累计 cache_read / 累计 prompt，派生指标定义见 [common 共享类型](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds)）。流式过程中 RunningStats 在 MessageEnd 事件到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
+**RunningStats** 跨轮次累加所有用量，并承载缓存命中一致性校验所需的上一轮调用状态（上一轮调用的输入 token 总数、调用时间戳、模型/供应商标识）；上一轮请求的前缀快照由增强层随会话另行维护。支持查询累计缓存命中率（累计 cache_read / 累计 prompt，派生指标定义见 [common 共享类型](../common/shared-types.md#runningstats--cacheanomalyinfo)）。流式过程中 RunningStats 在 MessageEnd 事件到达时更新（此时才有完整 usage），中途查询返回上一次累加值。会话结束时 RunningStats 清零。
 
-**缓存命中率下降检测**：
+**缓存命中一致性校验**：
 
-增强层在每次 API 调用后参与缓存命中率下降检测：单次命中率 = 该次 `cache_read_tokens` ÷ `prompt_tokens`，相邻两次调用的对比方式、触发阈值与无缓存字段供应商的排除规则以 [RunningStats 权威定义](../common/shared-types.md#runningstats--cachebreakinfo--cachebreakthresholds) 为准。用户可通过用量查询（如 `/status` 指令）查看下降事件及可能的下降原因（如上下文变更、缓存 TTL 过期等）。
+增强层对每次可比较的调用做缓存命中一致性校验，识别供应商侧缓存异常（本应命中的缓存前缀未命中）。
 
-检测仅基于 API 响应中已有的缓存统计字段，不做额外的请求指纹计算或消息注入。
+**判定依据**：以同一 Session 内上一轮调用的输入 token 总数为参考值，比对本轮调用的缓存命中 token 数。两个 token 数均直接取自供应商响应返回的用量数据，增强层不做本地 token 化，也不对 token 数做估算。
+
+**前置条件（追加扩展轮）**：仅当本轮请求是上一轮请求的追加扩展——同一会话内本轮使用的模型/供应商与上一轮相同，且 System Prompt、工具定义与实际发送的消息历史前缀保持不变、仅在尾部追加新内容——时才具备有效参考、参与校验。增强层随会话缓存上一轮实际发送请求的前缀快照（System Prompt 取实际发送的整段内容、含动态区，工具定义与发送给 provider 的消息列表取 Thinking 清理后的形态），本轮请求构造完成后比对前缀部分：前缀一致判定为追加扩展轮，进入数值比较；前缀不一致则不参与校验。前缀快照与上一轮输入 token 总数作为增强层随会话维护的运行时状态，在每一轮用量完整到达后统一推进（豁免轮同样推进，使豁免仅作用于该轮），会话结束时清除。
+
+**数值比较与容忍余量**：本轮缓存命中 token 数与参考值的偏差（两者之差的绝对值）在容忍余量内视为正常，超出容忍余量时判定为缓存异常。容忍余量为固定值 1024 token（设计口径，非运行时可配置，如需调整按设计变更处理），用以吸收 token 边界差异与缓存命中数值的正常波动（实测缓存命中值集中于百至千 token 量级，真实缓存异常的偏差与之相近或更大）；该固定值是在「避免边界波动误报」与「检出异常」之间的取舍——对短上下文的整轮未命中未必能检出。
+
+**不参与校验的情形**（以免误报）：
+
+- 请求前缀未保持不变的调用（对话压缩、历史被改写、System Prompt 或工具定义变化，以及记忆摘要、子 Session 摘要、后台结果等注入导致的消息列表位移）
+- 本轮使用的模型/供应商与上一轮不同的调用（分词口径不可比）
+- 上一轮调用的输入 token 总数缺失（未取得、合成为 0）的调用（参考值不可用）
+- 缓存自然过期的调用（上一轮调用与本轮调用间隔超过该供应商缓存有效期，本轮命中预期为 0）。增强层记录上一轮调用时间戳以判定间隔，供应商缓存有效期取该供应商缓存策略（见 [llm cache-adapter](../llm/cache-adapter.md) 与各 provider 文档）；未单独收录有效期的供应商按通用默认有效期（5 分钟量级）处理
+- 响应未返回缓存命中 token 数的调用（即「未同时返回输入 token 总数与缓存命中 token 数」；显示层按 0 呈现，但与「真实命中 0」区别对待，缺失不入校验）。输入侧缓存写入等字段缺失时按 0 合成输入 token 总数，不单独触发豁免
+
+**新基线情形**：压缩调用不经过增强层的用量累加与校验路径（其 usage 不计入 RunningStats、不更新参考值与前缀快照）；压缩调用本身不含会话 System Prompt，不参与校验；压缩后上下文被整体替换、会话恢复（含跨重启）后无既有前缀快照与参考值——这两种情形下的首个 turn 均作为新基线（本身不参与校验），自其后一轮起恢复校验。
+
+**异常处置**：判定为缓存异常时产生一个缓存命中异常事件（结构见 [common 共享类型 RunningStats / CacheAnomalyInfo](../common/shared-types.md#runningstats--cacheanomalyinfo)），据此格式化 Owner 系统通知文本、记录错误日志（级别见 [debug_log §F2](../../requirements/debug_log.md)）并上报运营指标（缓存命中异常事件）；当且仅当当前 User 为 Owner 时经 Gateway 通用系统通知接口向其发送系统通知。校验逐次调用即时进行，逐条上报，不做去重。
 
 ### Thinking 内容管理
 
@@ -111,12 +127,10 @@ LLM 响应中的 Thinking 内容以独立 block 形式保留在消息历史中�
   └── 响应后处理
         ├── Thinking 内容作为独立 block 保留
         ├── 写入 message history（含 Thinking block）
-        └── 累加用量统计
+        └── 累加用量统计 → 缓存命中一致性校验（异常 → 错误日志 + Owner 系统通知）
 ```
 
 ### Reasoning Level 生效链路
-
-#### Reasoning Level 生效链路
 
 生效链路（编号列表）：
 
@@ -145,22 +159,22 @@ RunningStats 累加
   ├── 缓存写入累加
   ├── 推理消耗 token 累加
   ├── prompt token 累加
-  └── 缓存命中率下降检测（相邻两次调用命中率对比，单次 = cache_read / prompt，判定细节见 RunningStats 权威定义）→ 触发时标记下降事件
+  └── 缓存命中一致性校验（比对本次 cache_read 与上一轮输入 token 总数；仅追加扩展轮参与，判定细节见「用量统计」节）→ 异常时错误日志 + Owner 系统通知
 ```
 
 ## 模块关系
 
 ### 上游
 
-- **ConversationSession**：调用增强层构建 LLM 请求、处理响应，提供 Reasoning Level 运行时覆盖（档位或关闭请求）和 RunningStats 存储。
+- **ConversationSession**：调用增强层构建 LLM 请求、处理响应，提供 Reasoning Level 运行时覆盖（档位或关闭请求）、RunningStats 存储，以及待发送请求内容（供增强层做前缀快照与追加扩展轮判定）。
 - **SessionManager**：创建 session 时注入 config 中的默认推理档位。
 - **Slash Command**：`/reasoning` 指令运行时修改 session 的推理档位或提交关闭请求；`/status` 展示当前实际生效档位（含降级，见「实际生效档位」节）。
 
 ### 下游
 
 - **LLM Provider**：接收增强后的请求，返回原始响应。各 provider builder 负责 reasoning 参数注入和 cache 字段提取。
-- **Gateway**（数据流下游）：流式/非流式路径均产出 ContentBlock[] 交付 Gateway，经统一出站管道（Verbosity → Processor Chain → 出站日志 → IM Adapter 渲染）发送。
-- **RunningStats**：接收每次调用的 Usage 数据，累加统计。
+- **Gateway**（数据流下游）：流式/非流式路径均产出 ContentBlock[] 交付 Gateway，经统一出站管道（Verbosity → Processor Chain → 出站日志 → IM Adapter 渲染）发送；缓存命中异常时，增强层经 Gateway 通用系统通知接口向 Owner 定向发送系统通知。
+- **RunningStats**：接收每次调用的 Usage 数据累加统计，并承载上一轮调用的输入 token 总数等缓存命中校验状态。
 - **Compaction 模块**（间接数据依赖）：压缩阈值判断读取增强层维护的 RunningStats。
 
 ### 无关
