@@ -230,12 +230,14 @@ Source: issue #N
 Type: <type>
 ```
 
-| Footer | 含义 | 可选值 |
-|--------|------|--------|
-| `Source:` | 变更来源 | `issue #N` / `design-doc <path>` / `requirement <path>` / `CI` / `user` |
+校验口径为宽松匹配：只要存在 `Source:` 与 `Type:` 两行 footer，且行内包含指定关键词即可，不苛求其余格式。
 
-`<path>` 是相对项目根的文档路径（如 `design-doc docs/design/daemon/shutdown.md`、`requirement docs/requirements/llm.md`），路径中不能含空白
-| `Type:` | 变更类型 | 见上方分支与 Commit 类型表 |
+| Footer | 含义 | 行内需包含的关键词 |
+|--------|------|--------|
+| `Source:` | 变更来源 | `issue` / `design-doc <path>` / `requirement <path>` / `CI` / `user`（兼容 legacy：`Fixes #` / `Refs #` / `Closes #`） |
+| `Type:` | 变更类型 | 见上方分支与 Commit 类型表（`feat` `fix` `docs` `refactor` `test` `perf` `chore`） |
+
+常见写法：单 issue 用 `Source: issue #N`；多 issue 合批用 `Source: issue #A, #B`（逗号分隔）或逐行重复 `Source: issue #N`（git trailer 允许重复键），两者皆合法。`design-doc` / `requirement` 后接相对项目根的文档路径（如 `design-doc docs/design/daemon/shutdown.md`）。
 
 ### 标准开发流程
 

@@ -81,7 +81,7 @@ pre-commit 触发
 
 ### commit-msg
 
-检查 commit message 是否包含 `Source:` 和 `Type:` footer。
+检查 commit message 是否包含 `Source:` 和 `Type:` footer。校验口径宽松：行内包含指定关键词即可，不苛求格式。
 
 ```
 feat(auth): add OAuth2 support
@@ -90,8 +90,10 @@ Source: issue #123
 Type: feat
 ```
 
-Source 支持：`issue #N`、`design-doc <path>`、`requirement <path>`、`Fixes #N`、`Refs #N`、`Closes #N`、`CI`、`user`  
-Type 支持：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
+- 必须存在 `Source:` 与 `Type:` 两行 footer（可重复多行，取包含关键词的行判定）
+- `Source:` 行内包含任一来源关键词：`issue` `design-doc` `requirement` `Fixes` `Refs` `Closes` `CI` `user`
+- `Type:` 行内包含任一类型关键词：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
+- 其余格式（`#N` 写法、路径、逗号列表等）不作要求；多 issue 合批可写 `Source: issue #A, #B` 或逐行重复 `Source: issue #N`
 
 ### pre-push
 
