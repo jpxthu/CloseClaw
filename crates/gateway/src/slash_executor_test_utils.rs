@@ -1,15 +1,17 @@
 //! Shared test utilities for slash executor tests.
 //!
-//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and
-//! `first_text_block` used by `slash_executor_tests.rs` and
-//! `slash_executor_system_append_tests.rs`.
+//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and the
+//! assertion helpers `reply_blocks` / `text_block_at` / `first_text_block`
+//! used by `slash_executor_tests.rs`,
+//! `slash_executor_system_append_tests.rs` and
+//! `outbound_streaming_checkpoint_tests.rs`.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use tokio::sync::mpsc;
 
-use closeclaw_common::executor::{SideEffectContext, SlashEffectExecutor};
+use closeclaw_common::executor::{ReplyAction, SideEffectContext, SlashEffectExecutor};
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::session_lookup::SessionLookup;
 use closeclaw_common::slash_router::SystemAppendAction;
@@ -107,10 +109,7 @@ impl SlashEffectExecutor for ReasoningConfigMockExecutor {
 /// Build a [`SideEffectContext`] with the given reasoning mock executor.
 pub(crate) fn make_reasoning_ctx(
     exec: Arc<ReasoningConfigMockExecutor>,
-) -> (
-    SideEffectContext,
-    mpsc::Receiver<closeclaw_common::executor::ReplyAction>,
-) {
+) -> (SideEffectContext, mpsc::Receiver<ReplyAction>) {
     let (tx, rx) = mpsc::channel(16);
     let ctx = SideEffectContext {
         session_id: "sess-reasoning".into(),
@@ -123,8 +122,24 @@ pub(crate) fn make_reasoning_ctx(
 }
 
 // ---------------------------------------------------------------------------
-// first_text_block
+// Assertion helpers
 // ---------------------------------------------------------------------------
+
+/// Return the text of the [`ContentBlock`] at `index`.
+///
+/// Panics with an expectation/actual message when `index` is out of bounds
+/// or the block at `index` is not [`ContentBlock::Text`].
+pub(crate) fn text_block_at(blocks: &[ContentBlock], index: usize) -> &str {
+    assert!(
+        index < blocks.len(),
+        "expected ContentBlock at index {index}, got: slice of length {}",
+        blocks.len()
+    );
+    match &blocks[index] {
+        ContentBlock::Text(t) => t.as_str(),
+        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    }
+}
 
 /// Return the text of the first [`ContentBlock`].
 ///
@@ -135,9 +150,21 @@ pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
         !blocks.is_empty(),
         "expected at least one ContentBlock, got: empty slice"
     );
-    match &blocks[0] {
-        ContentBlock::Text(t) => t.as_str(),
-        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    text_block_at(blocks, 0)
+}
+
+/// Return the content blocks of the first [`ReplyAction`].
+///
+/// Panics with an expectation/actual message when `actions` is empty or the
+/// first action is not [`ReplyAction::Reply`].
+pub(crate) fn reply_blocks(actions: &[ReplyAction]) -> &[ContentBlock] {
+    assert!(
+        !actions.is_empty(),
+        "expected at least one ReplyAction, got: empty slice"
+    );
+    match &actions[0] {
+        ReplyAction::Reply(blocks) => blocks.as_slice(),
+        other => panic!("expected ReplyAction::Reply, got: {other:?}"),
     }
 }
 
@@ -175,5 +202,77 @@ mod tests {
     fn test_first_text_block_panics_on_empty_slice() {
         let blocks: Vec<ContentBlock> = vec![];
         let _ = first_text_block(&blocks);
+    }
+
+    #[test]
+    fn test_text_block_at_returns_block_at_index() {
+        let blocks = vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ];
+        assert_eq!(text_block_at(&blocks, 0), "first");
+        assert_eq!(text_block_at(&blocks, 1), "second");
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock at index 1, got: slice of length 1")]
+    fn test_text_block_at_panics_on_out_of_bounds() {
+        let blocks = vec![ContentBlock::Text("only".into())];
+        let _ = text_block_at(&blocks, 1);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ContentBlock::Text, got: Thinking")]
+    fn test_text_block_at_panics_on_non_text_variant() {
+        let blocks = vec![ContentBlock::Thinking {
+            thinking: "reasoning trace".into(),
+            signature: None,
+        }];
+        let _ = text_block_at(&blocks, 0);
+    }
+
+    #[test]
+    fn test_reply_blocks_returns_blocks_of_reply_action() {
+        let actions = vec![ReplyAction::Reply(vec![
+            ContentBlock::Text("first".into()),
+            ContentBlock::Text("second".into()),
+        ])];
+        assert_eq!(
+            reply_blocks(&actions),
+            [
+                ContentBlock::Text("first".into()),
+                ContentBlock::Text("second".into())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_reply_blocks_returns_first_action_when_multiple() {
+        let actions = vec![
+            ReplyAction::Reply(vec![ContentBlock::Text("first".into())]),
+            ReplyAction::Nothing,
+        ];
+        assert_eq!(reply_blocks(&actions), [ContentBlock::Text("first".into())]);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ReplyAction::Reply, got: TriggerCompact")]
+    fn test_reply_blocks_panics_on_trigger_compact() {
+        let actions = vec![ReplyAction::TriggerCompact { instruction: None }];
+        let _ = reply_blocks(&actions);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected ReplyAction::Reply, got: Nothing")]
+    fn test_reply_blocks_panics_on_nothing() {
+        let actions = vec![ReplyAction::Nothing];
+        let _ = reply_blocks(&actions);
+    }
+
+    #[test]
+    #[should_panic(expected = "expected at least one ReplyAction, got: empty slice")]
+    fn test_reply_blocks_panics_on_empty_actions() {
+        let actions: Vec<ReplyAction> = vec![];
+        let _ = reply_blocks(&actions);
     }
 }

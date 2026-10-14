@@ -14,6 +14,8 @@ use closeclaw_llm::types::UnifiedUsage;
 use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
+
+use super::slash_executor_test_utils::{first_text_block, text_block_at};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -471,8 +473,9 @@ async fn test_streaming_checkpoint_persisted_after_completion() {
         .map(|s| serde_json::from_str(s).unwrap())
         .unwrap_or_default();
     assert_eq!(cb.len(), 1, "should have 1 content block");
-    assert!(
-        matches!(&cb[0], ContentBlock::Text(t) if t == "Hello streaming checkpoint!"),
+    assert_eq!(
+        first_text_block(&cb),
+        "Hello streaming checkpoint!",
         "content block text should match"
     );
 }
@@ -526,12 +529,14 @@ async fn test_streaming_checkpoint_multiple_blocks() {
         .map(|s| serde_json::from_str(s).unwrap())
         .unwrap_or_default();
     assert_eq!(cb.len(), 2, "should have 2 content blocks");
-    assert!(
-        matches!(&cb[0], ContentBlock::Text(t) if t == "Hello "),
+    assert_eq!(
+        first_text_block(&cb),
+        "Hello ",
         "first block should be 'Hello '"
     );
-    assert!(
-        matches!(&cb[1], ContentBlock::Text(t) if t == "world!"),
+    assert_eq!(
+        text_block_at(&cb, 1),
+        "world!",
         "second block should be 'world!'"
     );
 }
