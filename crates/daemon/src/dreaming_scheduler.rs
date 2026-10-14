@@ -85,6 +85,41 @@ enum LoopEvent {
     /// Scheduled fire time reached — run one cycle, then advance
     /// `next_fire` per the loop's own strategy.
     Fire,
+    /// Config broadcast channel closed (sender dropped) — finish the
+    /// active cycle via the shutdown path, then exit (issue #3577).
+    ConfigClosed,
+}
+
+/// Outcome of one receive from the config broadcast channel, classified
+/// by [`classify_config_recv`].
+enum ConfigRecvOutcome {
+    /// Memory-section reload — the caller applies its reload handler.
+    MemoryReload,
+    /// Other section / non-reload event — ignore and keep polling.
+    Ignore,
+    /// Receiver lagged behind the broadcast: `n` events were lost.
+    /// Log and keep polling.
+    Lagged(u64),
+    /// Sender half dropped — the channel is permanently closed and the
+    /// loop must terminate via the shutdown path (issue #3577).
+    Closed,
+}
+
+/// Classify one config broadcast receive result.
+///
+/// Pure function, kept private and unit-testable (issue #3577): the
+/// four outcomes map to reload / ignore / warn-and-continue /
+/// terminate respectively.
+fn classify_config_recv(result: Result<ConfigChangeEvent, RecvError>) -> ConfigRecvOutcome {
+    match result {
+        Ok(ConfigChangeEvent::Reloaded {
+            section: ConfigSection::Memory,
+            ..
+        }) => ConfigRecvOutcome::MemoryReload,
+        Ok(_) => ConfigRecvOutcome::Ignore,
+        Err(RecvError::Lagged(n)) => ConfigRecvOutcome::Lagged(n),
+        Err(RecvError::Closed) => ConfigRecvOutcome::Closed,
+    }
 }
 
 // ── Standalone helpers (spawnable without borrowing scheduler) ───────
@@ -331,7 +366,7 @@ impl DreamingScheduler {
 
         loop {
             match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown => {
+                LoopEvent::Shutdown | LoopEvent::ConfigClosed => {
                     Self::finish_shutdown(&mut active_task).await;
                     break;
                 }
@@ -360,10 +395,12 @@ impl DreamingScheduler {
     /// shutdown watch, config broadcast, mining-notify channel and the
     /// `next_fire` timer — and classifies the winner as a
     /// [`LoopEvent`]. Only Memory-section reloads surface as
-    /// [`LoopEvent::ConfigReload`]; any other config outcome (other
-    /// sections, recv errors) is consumed and ignored, and polling
-    /// continues (behavior kept from the pre-refactor loops; Err
-    /// classification is issue #3577's scope).
+    /// [`LoopEvent::ConfigReload`]; other sections are consumed,
+    /// ignored and polling continues. `Err(RecvError::Lagged)` logs a
+    /// warning (with the number of lost events) and keeps polling;
+    /// `Err(RecvError::Closed)` logs an error and returns
+    /// [`LoopEvent::ConfigClosed`] so the caller exits via the shutdown
+    /// path (issue #3577).
     ///
     /// Cancellation accounting matches the pre-refactor `select!`:
     /// broadcast `recv()`, watch `changed()` and `sleep_until` are all
@@ -380,8 +417,23 @@ impl DreamingScheduler {
                     return LoopEvent::Shutdown;
                 }
                 result = self.config_rx.recv() => {
-                    if Self::is_memory_config_reload(result) {
-                        return LoopEvent::ConfigReload;
+                    match classify_config_recv(result) {
+                        ConfigRecvOutcome::MemoryReload => {
+                            return LoopEvent::ConfigReload;
+                        }
+                        ConfigRecvOutcome::Ignore => {}
+                        ConfigRecvOutcome::Lagged(n) => {
+                            warn!(
+                                lost = n,
+                                "config broadcast receiver lagged, events lost; continuing"
+                            );
+                        }
+                        ConfigRecvOutcome::Closed => {
+                            error!(
+                                "config broadcast channel closed, stopping dreaming scheduler"
+                            );
+                            return LoopEvent::ConfigClosed;
+                        }
                     }
                 }
                 Some(session_id) = async {
@@ -400,8 +452,9 @@ impl DreamingScheduler {
     }
 
     /// Shared shutdown epilogue: log the signal and give an in-flight
-    /// cycle the grace budget to finish. The caller breaks its loop
-    /// afterwards.
+    /// cycle the grace budget to finish. Also the termination path for
+    /// [`LoopEvent::ConfigClosed`] (issue #3577). The caller breaks its
+    /// loop afterwards.
     async fn finish_shutdown(
         active_task: &mut Option<JoinHandle<Result<(), DreamingSchedulerError>>>,
     ) {
@@ -422,17 +475,6 @@ impl DreamingScheduler {
             );
             self.mine_session(session_id, &agents).await;
         }
-    }
-
-    /// Check if the event is a Memory config reload.
-    fn is_memory_config_reload(result: Result<ConfigChangeEvent, RecvError>) -> bool {
-        matches!(
-            result,
-            Ok(ConfigChangeEvent::Reloaded {
-                section: ConfigSection::Memory,
-                ..
-            })
-        )
     }
 
     /// Handle a config reload within the cron loop: apply new config,
@@ -474,7 +516,7 @@ impl DreamingScheduler {
 
         loop {
             match self.next_event(shutdown, next_fire).await {
-                LoopEvent::Shutdown => {
+                LoopEvent::Shutdown | LoopEvent::ConfigClosed => {
                     Self::finish_shutdown(&mut active_task).await;
                     break;
                 }
