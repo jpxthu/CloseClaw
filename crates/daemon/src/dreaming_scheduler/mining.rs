@@ -88,3 +88,50 @@ pub(super) fn format_transcript(
         .collect::<Vec<_>>()
         .join("\n")
 }
+
+// ── Transcript format tests ───────────────────────────────────────────
+
+#[cfg(test)]
+mod tests {
+    use super::format_transcript;
+
+    #[test]
+    fn test_format_transcript_empty() {
+        let result = format_transcript(&[]);
+        assert!(result.is_empty());
+    }
+
+    #[test]
+    fn test_format_transcript_converts_messages() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![
+            PendingMessage::with_role("msg1".into(), "hello".into(), "user".into()),
+            PendingMessage::with_role("msg2".into(), "hi there".into(), "assistant".into()),
+        ];
+        let result = format_transcript(&messages);
+        assert!(result.contains("user: hello"));
+        assert!(result.contains("assistant: hi there"));
+    }
+
+    #[test]
+    fn test_format_transcript_handles_empty_role() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![PendingMessage::new("msg1".into(), "content".into())];
+        let result = format_transcript(&messages);
+        assert!(result.contains("unknown: content"));
+    }
+
+    #[test]
+    fn test_format_transcript_uses_role_not_message_id() {
+        use closeclaw_session::persistence::PendingMessage;
+        let messages = vec![
+            PendingMessage::with_role("out-12345".into(), "hello".into(), "assistant".into()),
+            PendingMessage::with_role("pending-67890".into(), "world".into(), "user".into()),
+        ];
+        let result = format_transcript(&messages);
+        assert!(result.contains("assistant: hello"));
+        assert!(result.contains("user: world"));
+        assert!(!result.contains("out-12345"));
+        assert!(!result.contains("pending-67890"));
+    }
+}
