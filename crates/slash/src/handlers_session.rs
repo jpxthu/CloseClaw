@@ -153,7 +153,7 @@ impl SlashHandler for VerboseHandler {
 
 /// `/status` — display the current session status.
 ///
-/// Reads various fields from the [`ConversationSession`] and formats them
+/// Reads various fields from the `ConversationSession` and formats them
 /// into a human-readable status report.
 #[derive(Clone)]
 pub struct StatusHandler {
