@@ -325,7 +325,7 @@ impl DreamingScheduler {
                     break;
                 }
                 result = self.config_rx.recv() => {
-                    if self.is_memory_config_reload(result) {
+                    if Self::is_memory_config_reload(result) {
                         self.handle_cron_config_reload(
                             &mut next_fire,
                         ).await;
@@ -365,7 +365,7 @@ impl DreamingScheduler {
     }
 
     /// Check if the event is a Memory config reload.
-    fn is_memory_config_reload(&self, result: Result<ConfigChangeEvent, RecvError>) -> bool {
+    fn is_memory_config_reload(result: Result<ConfigChangeEvent, RecvError>) -> bool {
         matches!(
             result,
             Ok(ConfigChangeEvent::Reloaded {
@@ -424,7 +424,7 @@ impl DreamingScheduler {
                     break;
                 }
                 result = self.config_rx.recv() => {
-                    if self.is_memory_config_reload(result) {
+                    if Self::is_memory_config_reload(result) {
                         self.handle_config_change().await;
                     }
                 }
