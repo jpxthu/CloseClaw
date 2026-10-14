@@ -1,7 +1,8 @@
 //! Shared test utilities for slash executor tests.
 //!
-//! Contains `ReasoningConfigMockExecutor` and `make_reasoning_ctx`
-//! used by `slash_executor_tests.rs` and `slash_permission_tests.rs`.
+//! Contains `ReasoningConfigMockExecutor`, `make_reasoning_ctx` and
+//! `first_text_block` used by `slash_executor_tests.rs` and
+//! `slash_permission_tests.rs`.
 
 use std::sync::Arc;
 
@@ -119,4 +120,23 @@ pub(crate) fn make_reasoning_ctx(
         executor: exec,
     };
     (ctx, rx)
+}
+
+// ---------------------------------------------------------------------------
+// first_text_block
+// ---------------------------------------------------------------------------
+
+/// Return the text of the first [`ContentBlock`].
+///
+/// Panics with an expectation/actual message when `blocks` is empty or the
+/// first block is not [`ContentBlock::Text`].
+pub(crate) fn first_text_block(blocks: &[ContentBlock]) -> &str {
+    assert!(
+        !blocks.is_empty(),
+        "expected at least one ContentBlock, got: empty slice"
+    );
+    match &blocks[0] {
+        ContentBlock::Text(t) => t.as_str(),
+        other => panic!("expected ContentBlock::Text, got: {other:?}"),
+    }
 }

@@ -20,7 +20,9 @@ use closeclaw_common::slash_router::{SlashResult, SystemAppendAction};
 use closeclaw_common::verbosity::VerbosityLevel;
 use closeclaw_session::compaction::{CompactionError, CompactionResult};
 
-use super::slash_executor_test_utils::{make_reasoning_ctx, ReasoningConfigMockExecutor};
+use super::slash_executor_test_utils::{
+    first_text_block, make_reasoning_ctx, ReasoningConfigMockExecutor,
+};
 use closeclaw_common::executor::SlashResultExecutor;
 
 /// Expected reply from the mock compact executor.
@@ -228,7 +230,7 @@ async fn test_reply_sends_text_block() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "hello world"));
+            assert_eq!(first_text_block(blocks), "hello world");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -260,7 +262,7 @@ async fn test_set_mode_sends_confirmation() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "Mode set to: plan"));
+            assert_eq!(first_text_block(blocks), "Mode set to: plan");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -283,8 +285,9 @@ async fn test_new_session_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session：mock-new-session-id")
+            assert_eq!(
+                first_text_block(blocks),
+                "已创建新 session：mock-new-session-id"
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -308,7 +311,7 @@ async fn test_stop_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已停止当前任务"));
+            assert_eq!(first_text_block(blocks), "已停止当前任务");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -334,7 +337,7 @@ async fn test_compact_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == COMPACT_REPLY));
+            assert_eq!(first_text_block(blocks), COMPACT_REPLY);
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -361,7 +364,7 @@ async fn test_compact_with_instruction_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == COMPACT_REPLY));
+            assert_eq!(first_text_block(blocks), COMPACT_REPLY);
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -392,7 +395,7 @@ async fn test_system_append_add_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已追加指令 #1"));
+            assert_eq!(first_text_block(blocks), "已追加指令 #1");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -419,7 +422,7 @@ async fn test_system_append_clear_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "已清除 1 条追加指令"));
+            assert_eq!(first_text_block(blocks), "已清除 1 条追加指令");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -445,7 +448,7 @@ async fn test_exec_calls_execute_exec_and_sends_result() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "exec output"));
+            assert_eq!(first_text_block(blocks), "exec output");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -520,7 +523,7 @@ async fn test_exec_failure_forwards_error_to_user() {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
             assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t.contains("命令执行失败")),
+                first_text_block(&blocks).contains("命令执行失败"),
                 "error message should be forwarded to user, got: {:?}",
                 blocks[0],
             );
@@ -544,7 +547,7 @@ async fn test_unknown_sends_unknown_command_text() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "Unknown command: /nope"));
+            assert_eq!(first_text_block(blocks), "Unknown command: /nope");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -571,8 +574,9 @@ async fn test_set_reasoning_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max（含 provider 降级后的值）")
+            assert_eq!(
+                first_text_block(blocks),
+                "推理深度已设为 Max（含 provider 降级后的值）"
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -596,12 +600,7 @@ async fn test_set_reasoning_no_downgrade_reply_high() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t)
-                    if t == NO_DOWNGRADE_REPLY),
-                "no-downgrade reply should contain parenthetical, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), NO_DOWNGRADE_REPLY);
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -624,13 +623,7 @@ async fn test_set_reasoning_downgrade_reply() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t)
-                    if t == DOWNGRADE_REPLY),
-                "downgrade reply should contain effective level and\
- explanation, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), DOWNGRADE_REPLY);
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -651,11 +644,7 @@ async fn test_set_reasoning_off_provider_supports_closing() {
     let actions = drain_actions(&mut rx).await;
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理输出已关闭"),
-                "Off+supports-closing should reply '推理输出已关闭', got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "推理输出已关闭");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -676,10 +665,9 @@ async fn test_set_reasoning_off_provider_cannot_close() {
     let actions = drain_actions(&mut rx).await;
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "当前模型无法关闭推理，已降至最低可用档位 Low"),
-                "Off+can't-close should indicate downgrade to lowest level, got: {:?}",
-                blocks[0],
+            assert_eq!(
+                first_text_block(blocks),
+                "当前模型无法关闭推理，已降至最低可用档位 Low"
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -701,11 +689,7 @@ async fn test_set_reasoning_none_fallback_legacy_reply() {
     let actions = drain_actions(&mut rx).await;
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "推理深度已设为 Max"),
-                "None fallback should use legacy reply, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "推理深度已设为 Max");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -732,7 +716,7 @@ async fn test_set_verbosity_calls_executor_and_sends_reply() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "输出详细度已设置为 off"));
+            assert_eq!(first_text_block(blocks), "输出详细度已设置为 off");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -755,7 +739,7 @@ async fn test_side_effect_context_normal_reply_delivered() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(matches!(&blocks[0], ContentBlock::Text(t) if t == "ping"));
+            assert_eq!(first_text_block(blocks), "ping");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -774,8 +758,9 @@ async fn test_side_effect_context_new_session_delivered() {
     assert_eq!(actions.len(), 1);
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已创建新 session：mock-new-session-id")
+            assert_eq!(
+                first_text_block(blocks),
+                "已创建新 session：mock-new-session-id"
             );
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
@@ -804,11 +789,7 @@ async fn test_set_mode_with_reply_message_uses_custom_message() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "已切换到 Plan 模式"),
-                "should use custom reply_message, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "已切换到 Plan 模式");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
@@ -832,11 +813,7 @@ async fn test_set_mode_without_reply_message_uses_default() {
     match &actions[0] {
         ReplyAction::Reply(blocks) => {
             assert_eq!(blocks.len(), 1);
-            assert!(
-                matches!(&blocks[0], ContentBlock::Text(t) if t == "Mode set to: auto"),
-                "should use default English message, got: {:?}",
-                blocks[0],
-            );
+            assert_eq!(first_text_block(blocks), "Mode set to: auto");
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
