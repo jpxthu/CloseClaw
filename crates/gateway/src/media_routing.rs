@@ -559,7 +559,7 @@ mod tests {
     #[tokio::test]
     async fn blocks_small_image_produces_image_block() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("small.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
         let pm = make_processed(
             "",
@@ -590,7 +590,7 @@ mod tests {
     #[tokio::test]
     async fn blocks_large_image_produces_text_block() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("large.png"), &[0u8; 2048]).unwrap();
+        std::fs::write(tmp.path().join("large.png"), [0u8; 2048]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
         let pm = make_processed(
             "",
@@ -643,7 +643,7 @@ mod tests {
     #[tokio::test]
     async fn blocks_mixed_content_produces_multiple_blocks() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("pic.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(tmp.path().join("pic.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -748,7 +748,7 @@ mod tests {
     #[tokio::test]
     async fn small_image_below_threshold_inlines_base64() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("small.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
+        std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -777,7 +777,7 @@ mod tests {
     #[tokio::test]
     async fn large_image_above_threshold_keeps_reference() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("large.png"), &[0u8; 2048]).unwrap();
+        std::fs::write(tmp.path().join("large.png"), [0u8; 2048]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -799,7 +799,7 @@ mod tests {
     #[tokio::test]
     async fn file_type_always_uses_reference_token() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("doc.pdf"), &[0u8; 100]).unwrap();
+        std::fs::write(tmp.path().join("doc.pdf"), [0u8; 100]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -821,7 +821,7 @@ mod tests {
     #[tokio::test]
     async fn audio_type_always_uses_reference_token() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("voice.ogg"), &[0u8; 50]).unwrap();
+        std::fs::write(tmp.path().join("voice.ogg"), [0u8; 50]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -882,7 +882,7 @@ mod tests {
     #[tokio::test]
     async fn post_text_and_small_image_inlines_base64() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("photo.jpg"), &[0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
+        std::fs::write(tmp.path().join("photo.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(
@@ -905,8 +905,8 @@ mod tests {
     #[tokio::test]
     async fn mixed_refs_inline_small_image_keep_file_reference() {
         let tmp = tempfile::tempdir().unwrap();
-        std::fs::write(tmp.path().join("small.png"), &[0x89, 0x50, 0x4E, 0x47]).unwrap();
-        std::fs::write(tmp.path().join("big.pdf"), &[0u8; 5000]).unwrap();
+        std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
+        std::fs::write(tmp.path().join("big.pdf"), [0u8; 5000]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
         let pm = make_processed(

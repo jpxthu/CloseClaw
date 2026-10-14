@@ -682,7 +682,7 @@ mod tests {
         let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}tool "));
         // Should not panic on multi-byte truncation
-        assert!(label.len() > 0);
+        assert!(!label.is_empty());
     }
 
     // ── send_shutdown_start_notification card content tests ─────────────────

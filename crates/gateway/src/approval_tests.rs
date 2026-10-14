@@ -827,12 +827,12 @@ async fn test_idle_slash_executes() {
 // ===========================================================================
 // New-user registration gate: Owner / terminal-channel exemption
 // ===========================================================================
-/// Design basis: the terminal channel's caller is Owner by default with no
-/// additional auth (design cli/README.md, requirements/cli.md §F1), and the
-/// Owner's User ID is fixed as `owner` (requirements/permission.md §F1).
-/// `check_new_user_registration` must not intercept terminal-channel
-/// messages even though their `sender_id` is the local machine UID, while
-/// unregistered non-owner IM users remain gated behind the approval flow.
+// Design basis: the terminal channel's caller is Owner by default with no
+// additional auth (design cli/README.md, requirements/cli.md §F1), and the
+// Owner's User ID is fixed as `owner` (requirements/permission.md §F1).
+// `check_new_user_registration` must not intercept terminal-channel
+// messages even though their `sender_id` is the local machine UID, while
+// unregistered non-owner IM users remain gated behind the approval flow.
 
 /// Gateway with an active ApprovalFlow and a config dir containing no
 /// `users.json` — every sender is an unregistered new user.

@@ -92,15 +92,16 @@ mod tests {
 
     #[test]
     fn mapping_preserves_all_fields_including_limits() {
-        let mut config = ConfigAgentPermissions::default();
-        config.agent_id = "agent-a".into();
-        config
-            .permissions
-            .insert("exec".to_string(), config_action(true));
-        config
-            .permissions
-            .insert("file_write".to_string(), config_action(false));
-        config.inherited_from = Some("parent".into());
+        let config = ConfigAgentPermissions {
+            agent_id: "agent-a".into(),
+            permissions: [
+                ("exec".to_string(), config_action(true)),
+                ("file_write".to_string(), config_action(false)),
+            ]
+            .into_iter()
+            .collect(),
+            inherited_from: Some("parent".into()),
+        };
 
         let mapped = to_permission_agent_permissions(&config);
 

@@ -179,11 +179,13 @@ impl OutboundMiddleware for TrackingMiddleware {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn make_plugin() -> (
+type PreflightPluginHandles = (
     Arc<dyn IMPlugin>,
     Arc<AtomicUsize>,
     Arc<std::sync::Mutex<Option<String>>>,
-) {
+);
+
+fn make_plugin() -> PreflightPluginHandles {
     let (plugin, send_count, last_text) = TrackingPlugin::new();
     (Arc::new(plugin), send_count, last_text)
 }

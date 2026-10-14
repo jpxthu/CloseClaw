@@ -24,6 +24,8 @@ use closeclaw_common::SpawnError;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
+use super::test_helpers::make_subagents_max_depth;
+
 // ---------------------------------------------------------------------------
 // Helpers (duplicated to keep this file self-contained)
 // ---------------------------------------------------------------------------
@@ -158,9 +160,11 @@ async fn test_validate_empty_allow_agents_blocks_target() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.allow_agents = vec![]; // explicitly empty
-    sub.max_spawn_depth = Some(2);
+    let sub = SubagentsConfig {
+        allow_agents: vec![], // explicitly empty
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
@@ -191,11 +195,13 @@ async fn test_validate_empty_allow_agents_no_target_requires_id() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.allow_agents = vec![];
-    sub.require_agent_id = Some(false);
-    sub.default_child_agent = None;
-    sub.max_spawn_depth = Some(2);
+    let sub = SubagentsConfig {
+        allow_agents: vec![],
+        require_agent_id: Some(false),
+        default_child_agent: None,
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -254,10 +260,12 @@ async fn test_validate_require_agent_id_false_no_target_no_default() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut sub = SubagentsConfig::default();
-    sub.require_agent_id = Some(false);
-    sub.default_child_agent = None;
-    sub.max_spawn_depth = Some(2);
+    let sub = SubagentsConfig {
+        require_agent_id: Some(false),
+        default_child_agent: None,
+        max_spawn_depth: Some(2),
+        ..Default::default()
+    };
     let parent = make_agent("parent", sub);
     inject_agents(&cm, vec![("parent", parent)]);
 
@@ -283,9 +291,7 @@ async fn test_validate_default_max_children_boundary() {
     let controller = make_controller(&cm, &sm, &pe);
 
     // Parent with default max_children=5 and max_spawn_depth=2.
-    let mut sub = SubagentsConfig::default();
-    sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
     inject_agents(&cm, vec![("parent", parent), ("child", child)]);
 

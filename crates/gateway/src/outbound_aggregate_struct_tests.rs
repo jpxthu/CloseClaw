@@ -426,7 +426,7 @@ async fn test_aggregate_ids_and_meta_full_flow() {
     let expected_dsl = dsl_result_json();
     let (gw2, persist) = setup_gw_with_persist(AggMockPlugin::new()).await;
     let sm2 = gw2.session_manager();
-    create_session(&sm2, "sess-agg-happy-cp").await;
+    create_session(sm2, "sess-agg-happy-cp").await;
     let cp_body = "::button[label:Yes;action:confirm]\naggregate checkpoint body";
     let result = gw2
         .send_outbound(
@@ -467,7 +467,7 @@ async fn test_send_outcome_branches_with_aggregates() {
     // Sent branch.
     let (gw_ok, persist_ok) = setup_gw_with_persist(AggMockPlugin::new()).await;
     let sm_ok = gw_ok.session_manager();
-    create_session(&sm_ok, "sess-outcome-sent").await;
+    create_session(sm_ok, "sess-outcome-sent").await;
     let outcome = gw_ok
         .send_outbound(
             "sess-outcome-sent",
@@ -496,7 +496,7 @@ async fn test_send_outcome_branches_with_aggregates() {
     // Notified branch.
     let (gw_fail, persist_fail) = setup_gw_with_persist(AggMockPlugin::failing()).await;
     let sm_fail = gw_fail.session_manager();
-    create_session(&sm_fail, "sess-outcome-notified").await;
+    create_session(sm_fail, "sess-outcome-notified").await;
     let outcome = gw_fail
         .send_outbound(
             "sess-outcome-notified",
@@ -837,7 +837,7 @@ async fn test_send_failure_emits_aggregated_event_then_notifies() {
 async fn test_writeahead_op_lifecycle_with_default_aggregates() {
     let (gw, persist) = setup_gw_with_persist(AggMockPlugin::new()).await;
     let sm = gw.session_manager();
-    create_session(&sm, "sess-agg-wa").await;
+    create_session(sm, "sess-agg-wa").await;
 
     let outcome = gw
         .send_outbound(
@@ -867,7 +867,7 @@ async fn test_writeahead_op_lifecycle_with_default_aggregates() {
 async fn test_writeahead_snapshot_carries_aggregated_channel() {
     let (gw, persist) = setup_gw_with_persist(AggMockPlugin::failing()).await;
     let sm = gw.session_manager();
-    create_session(&sm, "sess-agg-wa-detail").await;
+    create_session(sm, "sess-agg-wa-detail").await;
 
     let outcome = gw
         .send_outbound(

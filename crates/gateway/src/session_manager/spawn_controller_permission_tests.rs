@@ -22,6 +22,8 @@ use closeclaw_common::{SpawnError, SpawnPermissionError};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::rules::RuleSetBuilder;
 
+use super::test_helpers::make_subagents_max_depth;
+
 // ---------------------------------------------------------------------------
 // Helpers (duplicated from spawn_controller_tests.rs to keep modules self-contained)
 // ---------------------------------------------------------------------------
@@ -169,9 +171,7 @@ async fn test_validate_permission_denied_child_fully_denied() {
     let controller = make_controller(&cm, &sm, &pe);
 
     // Parent: all permissions allowed; depth budget allows child creation.
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     // Child: all permissions denied.
     let child = make_agent("child", SubagentsConfig::default());
 
@@ -240,9 +240,7 @@ async fn test_validate_permission_denied_parent_denies_all() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
 
     // Parent has everything denied; child has everything allowed.
@@ -312,9 +310,7 @@ async fn test_validate_permission_allowed_partial_overlap() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
 
     // Parent allows exec only; child allows exec + file_read.
@@ -352,9 +348,7 @@ async fn test_validate_no_permissions_configured() {
     let sm = Arc::new(make_session_manager());
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut parent_sub = SubagentsConfig::default();
-    parent_sub.max_spawn_depth = Some(2);
-    let parent = make_agent("parent", parent_sub);
+    let parent = make_agent("parent", make_subagents_max_depth(2));
     let child = make_agent("child", SubagentsConfig::default());
 
     // Inject agents but NO permissions.

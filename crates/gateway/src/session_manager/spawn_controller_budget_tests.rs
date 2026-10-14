@@ -14,6 +14,8 @@ use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::SessionCheckpoint;
 use closeclaw_session::storage::memory::MemoryStorage;
 use std::sync::Arc;
+
+use super::test_helpers::make_subagents_max_depth;
 // Helpers (duplicated from spawn_controller_tests.rs to keep this file self-contained)
 
 fn make_permission_engine() -> PermissionEngine {
@@ -44,6 +46,7 @@ fn test_config() -> GatewayConfig {
         ..Default::default()
     }
 }
+
 fn make_config_manager() -> ConfigManager {
     let tmp = tempfile::tempdir().expect("tempdir should be created");
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
@@ -129,15 +132,11 @@ async fn test_depth_budget_checkpoint_vs_config_fallback() {
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = make_controller(&cm, &sm, &pe);
     // Root: maxSpawnDepth=3
-    let mut root_sub = SubagentsConfig::default();
-    root_sub.max_spawn_depth = Some(3);
-    let root = make_agent("root", root_sub);
+    let root = make_agent("root", make_subagents_max_depth(3));
     let root_id = setup_parent_session(&sm, "root").await;
     // NO checkpoint saved → config fallback (3) is used
 
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = Some(1);
-    let child = make_agent("child", child_sub);
+    let child = make_agent("child", make_subagents_max_depth(1));
     inject_agents(&cm, vec![("root", root), ("child", child)]);
     // Fallback: effective = min(1, 3-1) = 1
     let result = controller
@@ -165,16 +164,12 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     let cm = Arc::new(make_config_manager());
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = make_controller(&cm, &sm, &pe);
-    let mut root_sub = SubagentsConfig::default();
-    root_sub.max_spawn_depth = Some(3);
-    let root = make_agent("root", root_sub);
+    let root = make_agent("root", make_subagents_max_depth(3));
     let root_id = setup_parent_session(&sm, "root").await;
     save_checkpoint_with_budget(&sm, &root_id, 0, Some(3), None).await;
 
     // child1 at depth=1, effective budget=1 (only allows one more level)
-    let mut child1_sub = SubagentsConfig::default();
-    child1_sub.max_spawn_depth = Some(1);
-    let child1 = make_agent("child1", child1_sub);
+    let child1 = make_agent("child1", make_subagents_max_depth(1));
     inject_agents(&cm, vec![("root", root), ("child1", child1)]);
     // First spawn succeeds
     let result = controller
@@ -215,9 +210,7 @@ async fn test_depth_budget_allowed_when_effective_zero() {
     // child2 attempt: effective = min(1, 1-1) = 0
     // Per design doc: child with effective=0 can be created (exists in tree)
     // but cannot spawn further children.
-    let mut child2_sub = SubagentsConfig::default();
-    child2_sub.max_spawn_depth = Some(1);
-    let child2 = make_agent("child2", child2_sub);
+    let child2 = make_agent("child2", make_subagents_max_depth(1));
     inject_agents(&cm, vec![("child2", child2)]);
     let result2 = controller
         .validate(child1_session_id, Some("child2"))
@@ -234,15 +227,11 @@ async fn test_depth_budget_child_narrows_via_min() {
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = make_controller(&cm, &sm, &pe);
 
-    let mut root_sub = SubagentsConfig::default();
-    root_sub.max_spawn_depth = Some(5);
-    let root = make_agent("root", root_sub);
+    let root = make_agent("root", make_subagents_max_depth(5));
     let root_id = setup_parent_session(&sm, "root").await;
     save_checkpoint_with_budget(&sm, &root_id, 0, Some(5), None).await;
     // child: maxSpawnDepth=2 — effective = min(2, 5-1) = 2
-    let mut child_sub = SubagentsConfig::default();
-    child_sub.max_spawn_depth = Some(2);
-    let child = make_agent("narrow-child", child_sub);
+    let child = make_agent("narrow-child", make_subagents_max_depth(2));
     inject_agents(&cm, vec![("root", root), ("narrow-child", child)]);
 
     let result = controller
@@ -282,9 +271,7 @@ async fn test_depth_budget_child_narrows_via_min() {
     save_checkpoint_with_budget(&sm, child_session_id, 1, Some(2), Some(&root_id)).await;
     // grandchild: maxSpawnDepth=5 — effective = min(5, 2-1) = 1
     // Per design doc: child with effective=1 can be created and exists in tree.
-    let mut grandchild_sub = SubagentsConfig::default();
-    grandchild_sub.max_spawn_depth = Some(5);
-    let grandchild = make_agent("grandchild", grandchild_sub);
+    let grandchild = make_agent("grandchild", make_subagents_max_depth(5));
     inject_agents(&cm, vec![("grandchild", grandchild)]);
 
     let result2 = controller
@@ -302,16 +289,12 @@ async fn test_depth_budget_full_multilevel_tree() {
     let (sm, _mem_storage) = make_session_manager_with_memory_storage();
     let controller = make_controller(&cm, &sm, &pe);
     // root: maxSpawnDepth=3
-    let mut root_sub = SubagentsConfig::default();
-    root_sub.max_spawn_depth = Some(3);
-    let root = make_agent("root", root_sub);
+    let root = make_agent("root", make_subagents_max_depth(3));
     let root_id = setup_parent_session(&sm, "root").await;
     save_checkpoint_with_budget(&sm, &root_id, 0, Some(3), None).await;
 
     // child1: maxSpawnDepth=5 — effective = min(5, 3-1) = 2
-    let mut child1_sub = SubagentsConfig::default();
-    child1_sub.max_spawn_depth = Some(5);
-    let child1 = make_agent("child1", child1_sub);
+    let child1 = make_agent("child1", make_subagents_max_depth(5));
     inject_agents(&cm, vec![("root", root), ("child1", child1)]);
     let result1 = controller
         .validate(&root_id, Some("child1"))
@@ -349,9 +332,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     save_checkpoint_with_budget(&sm, child1_sid, 1, Some(2), Some(&root_id)).await;
 
     // child2: maxSpawnDepth=5 — effective = min(5, 2-1) = 1
-    let mut child2_sub = SubagentsConfig::default();
-    child2_sub.max_spawn_depth = Some(5);
-    let child2 = make_agent("child2", child2_sub);
+    let child2 = make_agent("child2", make_subagents_max_depth(5));
     inject_agents(&cm, vec![("child2", child2)]);
     let result2 = controller
         .validate(child1_sid, Some("child2"))
@@ -390,9 +371,7 @@ async fn test_depth_budget_full_multilevel_tree() {
 
     // child3: maxSpawnDepth=1 — effective = min(1, 1-1) = 0
     // Per design doc: child3 exists in tree but cannot spawn further.
-    let mut child3_sub = SubagentsConfig::default();
-    child3_sub.max_spawn_depth = Some(1);
-    let child3 = make_agent("child3", child3_sub);
+    let child3 = make_agent("child3", make_subagents_max_depth(1));
     inject_agents(&cm, vec![("child3", child3)]);
     let result3 = controller
         .validate(child2_sid, Some("child3"))
@@ -430,9 +409,7 @@ async fn test_depth_budget_full_multilevel_tree() {
     save_checkpoint_with_budget(&sm, child3_sid, 3, Some(0), Some(child2_sid)).await;
 
     // child3 has effective budget = 0 → cannot spawn further
-    let mut child4_sub = SubagentsConfig::default();
-    child4_sub.max_spawn_depth = Some(5);
-    let child4 = make_agent("child4", child4_sub);
+    let child4 = make_agent("child4", make_subagents_max_depth(5));
     inject_agents(&cm, vec![("child4", child4)]);
     let err = controller
         .validate(child3_sid, Some("child4"))

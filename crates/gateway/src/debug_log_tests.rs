@@ -432,8 +432,7 @@ async fn test_route_decision_slash_event_emitted() {
     let events = read_events_with_timeout(temp_dir.path()).await;
     let gw_decision = events
         .iter()
-        .filter(|e| e.event_type == "route.decision" && e.source_module == "gateway")
-        .next()
+        .find(|e| e.event_type == "route.decision" && e.source_module == "gateway")
         .expect("no gateway route.decision event");
     assert_eq!(gw_decision.trace_id, trace_id);
     assert_eq!(gw_decision.payload["decision"].as_str().unwrap(), "slash");
@@ -466,8 +465,7 @@ async fn test_route_decision_normal_event_emitted() {
     let events = read_events_with_timeout(temp_dir.path()).await;
     let gw_decision = events
         .iter()
-        .filter(|e| e.event_type == "route.decision" && e.source_module == "gateway")
-        .next()
+        .find(|e| e.event_type == "route.decision" && e.source_module == "gateway")
         .expect("no gateway route.decision event");
     assert_eq!(gw_decision.trace_id, trace_id);
     assert_eq!(gw_decision.payload["decision"].as_str().unwrap(), "normal");

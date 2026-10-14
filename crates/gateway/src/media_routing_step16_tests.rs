@@ -57,7 +57,7 @@ impl closeclaw_common::MediaStoreAccess for FsStore {
 async fn exact_threshold_image_produces_image_block() {
     let tmp = tempfile::tempdir().unwrap();
     let data = [0x89, 0x50, 0x4E, 0x47]; // 4 bytes
-    std::fs::write(tmp.path().join("eq.png"), &data).unwrap();
+    std::fs::write(tmp.path().join("eq.png"), data).unwrap();
     let store = Arc::new(FsStore(tmp.path().to_path_buf()));
     let pm = make_processed(
         "",

@@ -48,7 +48,7 @@ impl SystemPromptBuilder for TestPromptBuilder {
         };
         let files =
             closeclaw_session::bootstrap::load_bootstrap_files(workspace, mode).unwrap_or_default();
-        let mut parts: Vec<String> = files.into_iter().map(|(_, v)| v).collect();
+        let mut parts: Vec<String> = files.into_values().collect();
         parts.sort();
         parts.join("\n")
     }
@@ -164,7 +164,7 @@ pub(crate) fn make_test_mgr(workspace: Option<&std::path::Path>) -> SessionManag
         workspace.map(std::path::PathBuf::from),
         ReasoningLevel::default(),
     );
-    mgr.set_config_dir_for_testing(&SHARED_CONFIG_DIR.path());
+    mgr.set_config_dir_for_testing(SHARED_CONFIG_DIR.path());
     mgr
 }
 
@@ -437,16 +437,12 @@ async fn test_find_or_create_creates_workspace_directory() {
     let mgr = SessionManager::new(
         &test_config(),
         None,
-        workspace_dir.clone(),
+        workspace_dir,
         ReasoningLevel::default(),
     );
     let msg = test_message();
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
-    let expected = workspace_dir
-        .unwrap()
-        .join("workspaces")
-        .join("agent-b")
-        .join("user-a");
+    let expected = tmp.path().join("workspaces").join("agent-b").join("user-a");
     assert!(expected.exists() && expected.is_dir());
     let session_id2 = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     assert_eq!(session_id, session_id2);
