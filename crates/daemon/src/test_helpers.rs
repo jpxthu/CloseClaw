@@ -685,7 +685,18 @@ pub fn make_config_change_scheduler(
 
 /// Setup: populate the Memory section cache with dreaming/mining enabled.
 pub fn seed_memory_section_cache(config_manager: &ConfigManager) {
-    let memory_value = serde_json::json!({
+    seed_memory_section_cache_with_schedule(config_manager, None);
+}
+
+/// Setup: [`seed_memory_section_cache`] plus a `dreaming.schedule` value
+/// — variant for the cron-loop reload tests (issue #3581), which need
+/// the schedule the reloaded Memory section carries (the schedule the
+/// cron loop re-parses in `handle_cron_config_reload`).
+pub fn seed_memory_section_cache_with_schedule(
+    config_manager: &ConfigManager,
+    schedule: Option<&str>,
+) {
+    let mut memory_value = serde_json::json!({
         "dreaming": {
             "enabled": true
         },
@@ -693,6 +704,9 @@ pub fn seed_memory_section_cache(config_manager: &ConfigManager) {
             "enabled": true
         }
     });
+    if let Some(schedule) = schedule {
+        memory_value["dreaming"]["schedule"] = serde_json::json!(schedule);
+    }
     config_manager.update_section_cache(
         closeclaw_config::ConfigSection::Memory,
         std::path::PathBuf::from("memory.json"),
