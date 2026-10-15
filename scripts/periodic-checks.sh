@@ -356,15 +356,16 @@ do_deps() (
         fails=1
     else
         # 解析直接引用者：跳过根节点 syn 行；取每行前两个 token 归一为 name@version
-        #（(*) 后缀落在行尾，天然被忽略），LC_ALL=C 排序去重后与白名单做集合比对
+        #（(*) 后缀落在行尾，天然被忽略），版本形态守卫 $2 ~ /^v[0-9]/ 过滤混入的非
+        # 引用者行（如 stderr 告警），LC_ALL=C 排序去重后与白名单做集合比对
         local actual allowed added removed
-        actual=$(awk '$1 != "syn" && NF >= 2 { v = $2; sub(/^v/, "", v); print $1 "@" v }' \
+        actual=$(awk '$1 != "syn" && NF >= 2 && $2 ~ /^v[0-9]/ { v = $2; sub(/^v/, "", v); print $1 "@" v }' \
             <<<"$tree_out" | LC_ALL=C sort -u)
         allowed=$(printf '%s\n' "${SYN2_DIRECT_ALLOW[@]}" | LC_ALL=C sort -u)
         added="" removed=""
         if [[ -n "$actual" ]]; then
-            added=$(comm -23 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
-            removed=$(comm -13 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
+            added=$(LC_ALL=C comm -23 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
+            removed=$(LC_ALL=C comm -13 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
         else
             removed="$allowed"
         fi
@@ -378,8 +379,9 @@ do_deps() (
             while IFS= read -r item; do echo "  $item"; done <<<"$removed"
         fi
         if [[ -z "$added" ]]; then
-            local n_actual
-            n_actual=$(awk 'END { print NR }' <<<"$actual")
+            local n_actual=0
+            # here-string 空串会产生一行空行，awk NR 会误报 1 项，空集合时直接置 0
+            [[ -n "$actual" ]] && n_actual=$(awk 'END { print NR }' <<<"$actual")
             echo "[ok] syn 双大版本残留检查通过（残留 $n_actual 项，均在白名单内）"
         fi
     fi
