@@ -12,8 +12,8 @@
 - **变更合并**：待重启期间（重启执行前）新到达的重启类变更并入同一次待执行集合，不重复重启；重建执行期间到达的重启类变更并入下一次待执行集合
 - **择机窗口**：Daemon 经 SessionManager 查询全部会话的四维活跃维度（与关闭流程同一套判定，见 [shutdown.md](shutdown.md)），全部为否即满足窗口；无活跃会话时立即执行。窗口判定为瞬时快照，判定通过即进入重建执行期——此后的入站消息按重建期暂存补投处理（见 [gateway 需求 §F6](../../requirements/gateway.md)）
 - **重建集合**：会话层完全不动，重启生效类配置项到重建对象的映射如下（其余组件不重建）：
-  - Gateway 与 Plugin Registry（服务参数、机器人↔Agent 绑定）：任何重启都重建 Gateway 与 Plugin Registry；Plugin Registry 全量重建后，各平台插件（含不在 `platforms/` 下、经显式注册加入的终端渠道 CLI Chat `terminal` 插件）随对应平台连接的重建而重新注册并初始化，见 [gateway](../gateway/README.md)
-  - Renderers / Plugins 与 IM Adapters（新增/停用平台的 Renderer、Plugin 封装与 Adapter 创建及连接建立/关闭）：仅当本次重启由平台启用清单变更触发时才发生，见 [im_adapter](../im_adapter/README.md)
+  - Gateway 与 Plugin Registry（服务参数、机器人↔Agent 绑定）：任何重启都重建 Gateway 与 Plugin Registry；Plugin Registry 全量重建后，各平台插件（含不在 `platforms/` 下、经显式注册加入的终端渠道 CLI Chat `terminal` 插件）在重建后按当前已连接平台重新注册并初始化，见 [gateway](../gateway/README.md)
+  - IM Adapters 连接（新增/停用平台的 Adapter 创建与连接建立/关闭）与 Renderers / Plugins：仅当本次重启由平台启用清单变更触发时才重建连接/封装；未变更时保留既有平台连接，由重建后的 Plugin Registry 重新注册既有插件，见 [im_adapter](../im_adapter/README.md)
   - LLM Registry 与 LlmCaller 接线（模型与凭据定义，见 [README 启动路径](README.md)）——经可替换的间接层重新接线，各 session 持有的对话状态不变
   - 因持有上述引用而需随之重建的下游组件（Admin RPC Server——其管理接口连接在重建期间断开）：CLI Admin 在管理接口不可达时报错退出、不重连，terminal 渠道的连接随该管理接口 socket 重建而断开（见 [cli/admin.md](../cli/admin.md)）
 - **重建执行**：重建期间的入站消息由 Gateway 的持久化入站队列承载并跨越重建窗口，新 Gateway 就绪后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)、[gateway 消息队列](../gateway/README.md)）；执行中的出站消息按 graceful 语义收尾（等待在途出站发送完成，不涉及 forceful 场景）
@@ -37,7 +37,7 @@
 
 - [SessionManager](../session/README.md)：提供全部会话的四维活跃维度查询（择机窗口判定）
 - [Gateway](../gateway/README.md)：被重建对象；重建期间的入站消息由其持久化入站队列承载
-- Admin RPC Server：随 Gateway 重建——管理接口连接在重建期间断开，CLI Chat / CLI Admin 按各自重连语义处理
+- Admin RPC Server：随 Gateway 重建——管理接口连接在重建期间断开；CLI Admin 在管理接口不可达时报错退出、不重连，terminal 渠道的连接随该 socket 重建而断开（见 [cli/admin.md](../cli/admin.md)）
 - LLM Registry（Daemon 装配的组件）：随重建重新装配，承载模型与凭据定义并重新接线 LlmCaller（经可替换的间接层，会话层不动）
 - [IM Adapters](../im_adapter/README.md)（重建侧）：平台启用清单变更时随重建创建/关闭对应平台 Adapter 与连接
 - [IM Adapters](../im_adapter/README.md)：发送重启完成 / 失败通知（失败通知含失败原因），并在重建期间按 graceful 语义收尾在途出站消息

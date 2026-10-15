@@ -98,7 +98,7 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
    停止全部系统级后台任务（清单见 [README.md](README.md) 启动依赖表）。
 
-   四个定时器型扫描任务（ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）使用统一停止机制：取消定时器。graceful 下给当前扫描迭代短 grace period（等待当前迭代完成，最长 10 秒）等其自行结束，超时强制停止；forceful 下跳过 grace period、直接强制停止（对应 [daemon 需求 §F3](../../requirements/daemon.md)（强制关闭））。
+   定时器型扫描任务（当前为 ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）使用统一停止机制：取消定时器。graceful 下给当前扫描迭代短 grace period（等待当前迭代完成，最长 10 秒）等其自行结束，超时强制停止；forceful 下跳过 grace period、直接强制停止（对应 [daemon 需求 §F3](../../requirements/daemon.md)（强制关闭））。
 
    | 系统级后台任务 | 副作用处理 |
    |---------|-----------|
@@ -115,7 +115,7 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
 6. **Phase 5：出站关闭**
    - IM Adapters 收尾在途出站后关闭出站连接：graceful 下等待「已生成、尚未发送完成」的在途出站消息发送完成（见 [daemon 需求 §F2](../../requirements/daemon.md)），确保不丢失；forceful 下不等待、直接关闭（未发送部分按 §F3 处理）
-   - Admin RPC Server 关闭管理接口（Unix domain socket）：停止接纳新的 CLI Admin / CLI Chat 连接；已建立的连接在 graceful 下随客户端断开而结束，并为连接收尾设终止上界——超过上界直接关闭，避免无限等待；forceful 下直接关闭
+   - Admin RPC Server 关闭管理接口（Unix domain socket）：停止接纳新的 CLI Admin / CLI Chat 连接；已建立的连接在 graceful 下随客户端断开而结束，并为连接收尾设终止上界（默认 10s，设计给定值）——超过上界直接关闭，避免无限等待；forceful 下直接关闭
    - Gateway 清理路由表、processor 注册表
 
 7. **Phase 6：存储关闭**
