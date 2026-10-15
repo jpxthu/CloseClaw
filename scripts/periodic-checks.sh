@@ -303,8 +303,6 @@ SYN2_DIRECT_ALLOW=(
     "windows-interface@0.59.3"
     # serial_test（dev-dependency 链）
     "serial_test_derive@3.4.0"
-    # thiserror 1.x
-    "thiserror-impl@1.0.69"
     # profiling
     "profiling-procmacros@1.0.18"
     # wasm 系（target 门控链）

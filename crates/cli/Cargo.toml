@@ -19,7 +19,7 @@ closeclaw-llm = { path = "../llm" }
 closeclaw-permission = { path = "../permission" }
 closeclaw-platform = { path = "../platform" }
 clap.workspace = true
-dialoguer = "0.11"
+dialoguer = "0.12"
 tokio.workspace = true
 tracing.workspace = true
 async-trait.workspace = true
