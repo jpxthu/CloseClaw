@@ -612,7 +612,7 @@ impl SessionManager {
     /// Look up an existing session_id from routing fields without creating
     /// a new session. Returns `None` if no matching session exists.
     ///
-    /// This avoids the side effects of `resolve` (session creation,
+    /// This avoids the side effects of [`resolve`](Self::resolve) (session creation,
     /// checkpoint persistence, etc.) and is suitable for lightweight
     /// polling (e.g. streaming-completion wait).
     pub async fn lookup_session_from_routing(

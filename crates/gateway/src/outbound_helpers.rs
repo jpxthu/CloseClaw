@@ -533,7 +533,9 @@ impl Gateway {
     ///
     /// 定向收件人（设计 `docs/design/gateway/outbound-flow.md`「定向收件人」节）：
     /// `audience` 由调用方声明投递意图，Gateway 依据当前 User 角色判定——
-    /// [`NotificationAudience::OwnerOnly`](closeclaw_session::llm_session::NotificationAudience::OwnerOnly) 仅在 `sender_id` 为 Owner
+    /// [`NotificationAudience::OwnerOnly`](
+    /// closeclaw_session::llm_session::NotificationAudience::OwnerOnly) 仅在
+    /// `sender_id` 为 Owner
     /// （单一出处 [`closeclaw_permission::is_owner`]）时投递到当前会话
     /// channel，非 Owner 静默丢弃（不报错、不影响消息流）；判定所需的
     /// sender 由调用方经 `SessionManager::get_sender_id` 解析后传入

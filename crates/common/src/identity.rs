@@ -1,8 +1,9 @@
 //! Identity mapping and resolution for cross-platform user identity.
 //!
-//! Provides `IdentityMapping` for configuration-driven platform→account_id
-//! mapping, [`IdentityResolver`] trait for uniform resolution, and
-//! `ConfigIdentityResolver` as the default config-backed implementation.
+//! Provides the [`IdentityResolver`] trait for uniform resolution. The
+//! configuration-driven `IdentityMapping` type and the config-backed
+//! implementation `ConfigIdentityResolver` are defined in
+//! `closeclaw-config` (see `crates/config/src/identity.rs`).
 
 // ---------------------------------------------------------------------------
 // IdentityResolver trait

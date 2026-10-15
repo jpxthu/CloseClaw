@@ -163,7 +163,7 @@ impl ArchiveSweeper {
         Self::wait_grace_period(running_task).await;
     }
 
-    /// Wait up to [`SWEEPER_GRACE_PERIOD_SECS`] for a running sweep to
+    /// Wait up to `SWEEPER_GRACE_PERIOD_SECS` for a running sweep to
     /// finish, then abort it if it does not complete in time.
     async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
         let Some(mut task) = task else {
