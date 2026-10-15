@@ -12,9 +12,9 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::tests::clear_global_prompt_state;
+use crate::outbound_notification_test_utils::RecordingPlugin;
 use crate::{Gateway, GatewayConfig, SessionManager};
-use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
-use closeclaw_common::processor::{ContentBlock, DslParseResult};
+use closeclaw_common::IMPlugin;
 use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::NotificationAudience;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
@@ -64,64 +64,6 @@ impl PersistenceService for MockPersist {
     }
     async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
         Ok(vec![])
-    }
-}
-
-/// Spy plugin (platform "mock") recording every delivered text.
-struct RecordingPlugin {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-#[async_trait::async_trait]
-impl IMPlugin for RecordingPlugin {
-    fn platform(&self) -> &str {
-        "mock"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        Ok(None)
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
-    ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
-    }
-
-    async fn send(
-        &self,
-        output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-        _reply_ref: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_owned();
-        if !text.is_empty() {
-            self.messages.lock().expect("spy poisoned").push(text);
-        }
-        Ok(())
     }
 }
 
@@ -192,9 +134,7 @@ async fn setup_route_test(
     let gw = Arc::new(
         Gateway::new_for_tests(test_gateway_config(), Arc::clone(&mgr)).with_checkpoint_manager(cm),
     );
-    gw.register_plugin(Arc::new(RecordingPlugin {
-        messages: Arc::clone(&messages),
-    }) as Arc<dyn IMPlugin>)
+    gw.register_plugin(Arc::new(RecordingPlugin::new(Arc::clone(&messages))) as Arc<dyn IMPlugin>)
         .await;
     (mgr, gw, messages, tmp)
 }

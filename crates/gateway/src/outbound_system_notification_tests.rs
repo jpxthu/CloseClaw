@@ -14,6 +14,7 @@ use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, Ren
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
 use closeclaw_session::llm_session::NotificationAudience;
 
+use crate::outbound_notification_test_utils::RecordingPlugin;
 use crate::{Gateway, GatewayConfig, SessionManager};
 
 fn test_gw() -> Gateway {
@@ -122,65 +123,6 @@ impl IMPlugin for SlowSendPlugin {
     }
 }
 
-/// Spy plugin recording every delivered text, for delivery/drop
-/// assertions on the Owner-only gate.
-struct RecordingPlugin {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-#[async_trait]
-impl IMPlugin for RecordingPlugin {
-    fn platform(&self) -> &str {
-        "mock"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        Ok(None)
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
-    ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
-    }
-
-    async fn send(
-        &self,
-        output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-        _reply_ref: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_owned();
-        if !text.is_empty() {
-            self.messages.lock().expect("spy poisoned").push(text);
-        }
-        Ok(())
-    }
-}
-
 // ===========================================================================
 // send_system_notification basic paths (Step 1.4)
 // ============================================================================
@@ -254,9 +196,7 @@ async fn test_send_system_notification_no_plugin_fallback() {
 async fn test_owner_only_notification_delivered_to_owner() {
     let messages = Arc::new(Mutex::new(Vec::new()));
     let gw = test_gw();
-    gw.register_plugin(Arc::new(RecordingPlugin {
-        messages: Arc::clone(&messages),
-    }) as Arc<dyn IMPlugin>)
+    gw.register_plugin(Arc::new(RecordingPlugin::new(Arc::clone(&messages))) as Arc<dyn IMPlugin>)
         .await;
     gw.send_system_notification(
         "chat-owner",
@@ -281,9 +221,7 @@ async fn test_owner_only_notification_delivered_to_owner() {
 async fn test_owner_only_notification_dropped_for_non_owner() {
     let messages = Arc::new(Mutex::new(Vec::new()));
     let gw = test_gw();
-    gw.register_plugin(Arc::new(RecordingPlugin {
-        messages: Arc::clone(&messages),
-    }) as Arc<dyn IMPlugin>)
+    gw.register_plugin(Arc::new(RecordingPlugin::new(Arc::clone(&messages))) as Arc<dyn IMPlugin>)
         .await;
     gw.send_system_notification(
         "chat-other",
@@ -305,9 +243,7 @@ async fn test_owner_only_notification_dropped_for_non_owner() {
 async fn test_owner_only_notification_dropped_without_sender() {
     let messages = Arc::new(Mutex::new(Vec::new()));
     let gw = test_gw();
-    gw.register_plugin(Arc::new(RecordingPlugin {
-        messages: Arc::clone(&messages),
-    }) as Arc<dyn IMPlugin>)
+    gw.register_plugin(Arc::new(RecordingPlugin::new(Arc::clone(&messages))) as Arc<dyn IMPlugin>)
         .await;
     gw.send_system_notification(
         "chat-anon",
@@ -329,9 +265,7 @@ async fn test_owner_only_notification_dropped_without_sender() {
 async fn test_all_audience_always_delivered() {
     let messages = Arc::new(Mutex::new(Vec::new()));
     let gw = test_gw();
-    gw.register_plugin(Arc::new(RecordingPlugin {
-        messages: Arc::clone(&messages),
-    }) as Arc<dyn IMPlugin>)
+    gw.register_plugin(Arc::new(RecordingPlugin::new(Arc::clone(&messages))) as Arc<dyn IMPlugin>)
         .await;
     // Non-owner sender: still delivered (legacy behavior unchanged).
     gw.send_system_notification(

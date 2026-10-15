@@ -2,25 +2,24 @@
 //! the real queue → drain → route → Gateway simplified-path chain (issue
 //! #3576 Step 1.2).
 //!
-//! Drives real session rounds (canned-usage caller with an explicit
-//! cache-hit drop) so the anomaly is genuinely detected by the
-//! session-side check, then applies the disposal block's public session
-//! API (`check_cache_anomaly_and_advance` → OwnerOnly-declared push) —
-//! the disposal block itself is gateway-internal; its exact production
-//! behavior (OwnerOnly declaration + text shape) is pinned by the
-//! gateway UT `session_handler_cache_check_tests.rs`. The checkpoint
-//! `sender_id` (written by `find_or_create` from the message sender) is
-//! the Gateway's current-user judgment input (outbound-flow「定向收件人」):
+//! Drives the REAL gateway dispatch path
+//! (`SessionMessageHandler::handle_message_with_gateway` → `finish_llm`
+//! → the internal disposal block in `session_handler_cache_check.rs`)
+//! with a canned-usage caller whose explicit cache-hit drop makes the
+//! session-side check genuinely flag an anomaly, then drains the
+//! announce queue through the real route — the Owner-receives /
+//! non-Owner-drops assertions directly constrain production behavior.
+//! The checkpoint `sender_id` (written by `find_or_create` from the
+//! message sender) is the Gateway's current-user judgment input
+//! (outbound-flow「定向收件人」):
 //!
 //! - sender = "owner" + anomaly → the notification reaches the plugin
 //!   with the full reference / hit / deviation text
 //! - sender non-owner + anomaly → silently dropped (no delivery, no
 //!   error, entry consumed)
 //!
-//! Step 1.3 additionally drives the *real* gateway dispatch path
-//! (`SessionMessageHandler::handle_message_with_gateway` →
-//! `finish_llm` → the internal disposal block) with a DebugLog wired on
-//! the Gateway, asserting the structured
+//! Step 1.3 additionally wires a DebugLog on the Gateway for the same
+//! dispatch path, asserting the structured
 //! `session.cache_anomaly.detected` JSONL event (level Error,
 //! `source_module="session"`, four-field payload, session_id
 //! correlation).
@@ -39,15 +38,13 @@ use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{
     ContentBlock, DslParseResult, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
-use closeclaw_common::{current_epoch_millis, NotificationPriority};
 use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
-use closeclaw_gateway::session_handler::{MessageMetadata, SessionMessageHandler};
+use closeclaw_gateway::session_handler::{HandleResult, MessageMetadata, SessionMessageHandler};
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{Gateway, GatewayConfig, Message};
-use closeclaw_llm::cache_adapter::provider_cache_ttl_ms;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_session::llm_session::{ChatSession, ConversationSession, NotificationAudience};
+use closeclaw_session::llm_session::ChatSession;
 use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
@@ -288,63 +285,77 @@ async fn setup(
     (tmp, sm, gw, messages, sid, plugin)
 }
 
-/// One production-shaped round at the public session API: append the
-/// user message → invoke (stages the request prefix snapshot) → append
-/// the keepalive response → disposal + accumulation. The disposal block
-/// mirrors `session_handler_cache_check.rs` (gateway-internal) via its
-/// public session-API surface, including the OwnerOnly declaration.
-async fn run_round(cs: &mut ConversationSession, content: &str) {
-    cs.append_user_message(content);
-    let (response, call_target) = cs.invoke_llm_with_target(content).await.unwrap();
-    cs.append_response(response.clone());
-    let call_model = call_target
-        .as_ref()
-        .map(|t| t.id_string())
-        .unwrap_or_else(|| cs.model().to_string());
-    let ttl_ms = provider_cache_ttl_ms(
-        call_target
-            .as_ref()
-            .map(|t| t.provider_id.as_str())
-            .unwrap_or_default(),
-    );
-    if let Some(info) = cs.check_cache_anomaly_and_advance(
-        &response.usage,
-        Some(&call_model),
-        current_epoch_millis(),
-        ttl_ms,
-    ) {
-        cs.push_system_notification_with_audience(
-            info.format_notification(),
-            NotificationPriority::Now,
-            NotificationAudience::OwnerOnly,
+/// Chain-less unified fallback handler for the real-dispatch-path tests:
+/// the session-level `CannedUsageCaller` installed by `setup` is what
+/// the dispatch actually invokes. The `TempDir` backing the cooldown
+/// file path is returned so it outlives the handler.
+fn dispatch_handler(sm: &Arc<SessionManager>) -> (SessionMessageHandler, TempDir) {
+    let cooldown_dir = TempDir::new().unwrap();
+    let unified = Arc::new(UnifiedFallbackClient::new(
+        vec![],
+        Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
+    ));
+    (
+        SessionMessageHandler::new_no_output(
+            Arc::clone(sm),
+            unified,
+            None,
+            closeclaw_session::compaction::CompactConfig::default(),
+        ),
+        cooldown_dir,
+    )
+}
+
+/// Drives two REAL dispatch rounds through the gateway path
+/// (`handle_message_with_gateway` → `finish_llm` → the internal disposal
+/// block): round 1 is the exempt baseline, round 2 is the tail-append
+/// full miss that triggers the anomaly disposal. Each round must
+/// dispatch to the LLM and complete with the disposal block's
+/// accumulation advanced — the round chain must not be blocked.
+async fn run_two_dispatch_rounds(
+    sm: &Arc<SessionManager>,
+    gw: &Arc<Gateway>,
+    handler: &SessionMessageHandler,
+    sid: &str,
+    sender_id: &str,
+    plugin: &Arc<dyn IMPlugin>,
+) {
+    let mut meta = MessageMetadata::default_meta();
+    meta.sender_id = sender_id.to_string();
+    meta.channel = "tracking".into();
+    for n in 1..=2 {
+        let result = handler
+            .handle_message_with_gateway(sid, "hi".into(), None, meta.clone(), gw, plugin)
+            .await;
+        assert!(
+            matches!(result, HandleResult::LlmStarted),
+            "round {n} should dispatch to the LLM"
         );
+        wait_for_round(sm, sid, n).await;
     }
-    cs.accumulate_usage(&response.usage, Some(&call_model));
 }
 
 // ── Tests ────────────────────────────────────────────────────────────
 
 /// sender = owner + real anomaly (round-2 cache hit drops 100000 → 0,
-/// deviation 100000 > 1024 tolerance) → the notification reaches the
-/// plugin with the full reference / hit / deviation text; the session
-/// round itself completes normally (stats advanced).
+/// deviation 100000 > 1024 tolerance) through the REAL gateway dispatch
+/// path → the notification reaches the plugin with the full reference /
+/// hit / deviation text; the session round itself completes normally
+/// (dispatch rounds finish — disposal never blocks the round chain).
+///
+/// The turn-end internal drain (`drain_announces_rest`) races the test's
+/// own `drain_and_inject_announces` sweep: whoever drains first delivers
+/// (the internal one prefixes `[紧急] `, the unfiltered sweep does not),
+/// so the text assertions match content, not the priority prefix — the
+/// sweep guarantees the entry is delivered exactly once either way.
 #[tokio::test]
 async fn test_owner_sender_receives_cache_anomaly_notification() {
-    let (_tmp, sm, gw, delivered, sid, _recorder) = setup("owner").await;
+    let (_tmp, sm, gw, delivered, sid, recorder) = setup("owner").await;
+    let (handler, _cooldown_dir) = dispatch_handler(&sm);
 
-    {
-        let cs = sm.get_conversation_session(&sid).await.unwrap();
-        let mut cs = cs.write().await;
-        // Round 1: baseline — exempt (no previous snapshot).
-        run_round(&mut cs, "hi").await;
-        // Round 2: tail-append extension → participates; full miss.
-        run_round(&mut cs, "hi").await;
-        assert_eq!(
-            cs.stats().request_count,
-            2,
-            "anomaly disposal must not block the round chain"
-        );
-    }
+    run_two_dispatch_rounds(&sm, &gw, &handler, &sid, "owner", &recorder).await;
 
     sm.drain_and_inject_announces(&sid, Some(&gw)).await;
 
@@ -354,26 +365,21 @@ async fn test_owner_sender_receives_cache_anomaly_notification() {
         1,
         "owner must receive exactly one notification, got: {texts:?}"
     );
-    assert!(texts[0].starts_with("[缓存命中异常]"), "text: {}", texts[0]);
+    assert!(texts[0].contains("[缓存命中异常]"), "text: {}", texts[0]);
     assert!(texts[0].contains("参考值 100000"), "text: {}", texts[0]);
     assert!(texts[0].contains("本次命中 0"), "text: {}", texts[0]);
     assert!(texts[0].contains("偏差 100000"), "text: {}", texts[0]);
 }
 
-/// sender non-owner + real anomaly → silently dropped: no plugin
-/// delivery, no error, and the queue entry is consumed (drop ≠
-/// re-queue).
+/// sender non-owner + real anomaly through the REAL gateway dispatch
+/// path → silently dropped: no plugin delivery, no error, and the queue
+/// entry is consumed (drop ≠ re-queue).
 #[tokio::test]
 async fn test_non_owner_sender_cache_anomaly_notification_dropped() {
-    let (_tmp, sm, gw, delivered, sid, _recorder) = setup("user-a").await;
+    let (_tmp, sm, gw, delivered, sid, recorder) = setup("user-a").await;
+    let (handler, _cooldown_dir) = dispatch_handler(&sm);
 
-    {
-        let cs = sm.get_conversation_session(&sid).await.unwrap();
-        let mut cs = cs.write().await;
-        run_round(&mut cs, "hi").await;
-        run_round(&mut cs, "hi").await;
-        assert_eq!(cs.stats().request_count, 2);
-    }
+    run_two_dispatch_rounds(&sm, &gw, &handler, &sid, "user-a", &recorder).await;
 
     sm.drain_and_inject_announces(&sid, Some(&gw)).await;
 
@@ -453,46 +459,9 @@ async fn test_real_gateway_path_emits_cache_anomaly_debug_log_event() {
     let (_tmp, sm, gw, _delivered, sid, recorder) = setup("owner").await;
     let debug_dir = TempDir::new().unwrap();
     gw.set_debug_log(make_debug_log(&debug_dir).await).await;
+    let (handler, _cooldown_dir) = dispatch_handler(&sm);
 
-    // Handler with a chain-less unified fallback (the session-level
-    // CannedUsageCaller set in `setup` is what the dispatch invokes).
-    let cooldown_dir = TempDir::new().unwrap();
-    let unified = Arc::new(UnifiedFallbackClient::new(
-        vec![],
-        Arc::new(CooldownManager::with_path(
-            cooldown_dir.path().join("llm_cooldowns.json"),
-        )),
-    ));
-    let handler = SessionMessageHandler::new_no_output(
-        Arc::clone(&sm),
-        unified,
-        None,
-        closeclaw_session::compaction::CompactConfig::default(),
-    );
-
-    let mut meta = MessageMetadata::default_meta();
-    meta.sender_id = "owner".into();
-    meta.channel = "tracking".into();
-
-    // Round 1: baseline (exempt) → completes normally, no event.
-    let result = handler
-        .handle_message_with_gateway(&sid, "hi".into(), None, meta.clone(), &gw, &recorder)
-        .await;
-    assert!(matches!(
-        result,
-        closeclaw_gateway::session_handler::HandleResult::LlmStarted
-    ));
-    wait_for_round(&sm, &sid, 1).await;
-
-    // Round 2: tail-append extension, full miss → anomaly.
-    let result = handler
-        .handle_message_with_gateway(&sid, "hi".into(), None, meta, &gw, &recorder)
-        .await;
-    assert!(matches!(
-        result,
-        closeclaw_gateway::session_handler::HandleResult::LlmStarted
-    ));
-    wait_for_round(&sm, &sid, 2).await;
+    run_two_dispatch_rounds(&sm, &gw, &handler, &sid, "owner", &recorder).await;
 
     let events = wait_for_cache_anomaly_events(&debug_dir).await;
     assert_eq!(

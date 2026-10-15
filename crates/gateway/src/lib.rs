@@ -56,6 +56,8 @@ mod outbound_helpers;
 #[cfg(test)]
 mod outbound_helpers_tests;
 pub mod outbound_middleware;
+#[cfg(test)]
+mod outbound_notification_test_utils;
 pub mod outbound_raw_log;
 #[cfg(test)]
 mod outbound_raw_log_seam_tests;

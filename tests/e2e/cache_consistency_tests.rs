@@ -33,11 +33,10 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use tokio::process::Child;
-
 use super::helpers;
 use super::helpers::chat::{assert_single_terminal, chat_roundtrip, collect_content_text};
 use super::helpers::config::{write_config_tree, ConfigTreeOpts};
+use super::helpers::daemon_guard::DaemonGuard;
 use super::helpers::fake_llm::start_fake_llm;
 
 /// Marker prefix of the cache-anomaly Owner system notification text
@@ -53,33 +52,10 @@ const ANOMALY_EVENT_TYPE: &str = "session.cache_anomaly.detected";
 // Daemon lifecycle + config helpers
 // ---------------------------------------------------------------------------
 
-/// Owns the spawned daemon child; SIGTERM on Drop covers panic paths
-/// (same pattern as `agent_profile_tests::DaemonGuard`).
-struct DaemonGuard(Child);
-
-impl DaemonGuard {
-    /// SIGTERM + wait for graceful exit (shared `helpers::sigterm_and_wait`).
-    async fn shutdown(mut self) -> std::process::ExitStatus {
-        helpers::sigterm_and_wait(&mut self.0).await
-    }
-}
-
-impl Drop for DaemonGuard {
-    fn drop(&mut self) {
-        // Best-effort cleanup on panic paths; kill_on_drop covers the rest.
-        if let Some(pid) = self.0.id() {
-            // SAFETY: pid belongs to this child; SIGTERM is a valid signal.
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
-            }
-        }
-    }
-}
-
 /// Start the fake LLM server, write the config tree with `model_id` as the
 /// single enabled model (scenario `match_.model_id` must equal it), enable
 /// daemon debug logging (JSONL dir inside the temp root), spawn the daemon
-/// and wait for socket readiness.
+/// (shared `helpers::daemon_guard`) and wait for socket readiness.
 ///
 /// Returns `(daemon guard, chat socket path, debug log dir)`.
 async fn spawn_scenario_daemon(
@@ -93,7 +69,7 @@ async fn spawn_scenario_daemon(
     );
     disable_skill_listing_injection(config_root);
     let log_dir = enable_debug_log(config_root);
-    let daemon = DaemonGuard(helpers::spawn_daemon(config_root));
+    let daemon = helpers::daemon_guard::spawn_daemon_guarded(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
     (daemon, config_root.join("chat.sock"), log_dir)
 }

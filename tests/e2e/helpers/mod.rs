@@ -20,6 +20,8 @@ pub mod chat;
 #[cfg(feature = "fake-llm")]
 pub mod config;
 #[cfg(feature = "fake-llm")]
+pub mod daemon_guard;
+#[cfg(feature = "fake-llm")]
 pub mod fake_llm;
 
 use std::os::unix::net::UnixStream;
@@ -140,7 +142,8 @@ pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str
 
 /// Send SIGTERM to `daemon` and wait for its exit within
 /// [`SHUTDOWN_TIMEOUT`]. Returns the exit status — the caller asserts
-/// on it. Shared by `agent_profile_tests` (DaemonGuard::shutdown) and
+/// on it. Shared by `daemon_guard::DaemonGuard::shutdown`
+/// (`agent_profile_tests`, `cache_consistency_tests`) and
 /// `gateway_restart_turn_tests` (terminate_daemon), Step 1.23.
 #[cfg(feature = "fake-llm")]
 pub async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
