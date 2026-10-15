@@ -6,6 +6,7 @@ use closeclaw_common::{UnifiedResponse, UnifiedUsage};
 mod announce_dedup_tests;
 mod announce_queue_tests;
 mod bootstrap_mode_tests;
+mod cache_prefix_check_tests;
 mod child_busy_tracking_tests;
 mod clone_messages_tests;
 mod compaction_protection_tests;
@@ -22,6 +23,7 @@ use self::log_capture::{capture_logs, capture_logs_async, is_installed};
 mod log_capture_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
+mod message_push_dedup_tests;
 mod progress_removal_session_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
@@ -38,6 +40,10 @@ mod stop_kill_path_tests;
 mod stop_tests;
 mod streaming_tests;
 mod system_appends_tests;
+mod test_helpers;
+use self::test_helpers::{
+    assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, user_msg, TTL_MS,
+};
 mod unified_queue_tests;
 mod waiting_state_tests;
 

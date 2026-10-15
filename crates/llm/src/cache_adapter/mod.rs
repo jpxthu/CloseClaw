@@ -124,6 +124,10 @@ pub fn for_provider(provider_id: &str) -> Arc<dyn CacheAdapter> {
     }
 }
 
+mod ttl;
+
+pub use ttl::{provider_cache_ttl_ms, DEFAULT_PROVIDER_CACHE_TTL_MS};
+
 #[cfg(test)]
 mod tests {
     use super::*;

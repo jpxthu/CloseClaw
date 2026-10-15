@@ -399,7 +399,49 @@ async fn test_session_delegates_to_injected_caller() {
 
 // ── cache anomaly detection (fixed 1024 tolerance) ──────────────────
 
-/// Verify that `detect_cache_anomaly_for_usage` returns `CacheAnomalyInfo`
+/// Provider cache TTL magnitude default (cache-adapter doc :27, 5 min).
+const CACHE_CHECK_TTL_MS: u64 = 300_000;
+
+/// Growing tail-append message list for cache-check rounds: a constant
+/// system prompt material with an appending message list mirrors
+/// consecutive production turns (only the tail grows).
+fn cache_check_messages(n: usize) -> Vec<closeclaw_common::InternalMessage> {
+    (1..=n)
+        .map(|i| closeclaw_common::InternalMessage {
+            role: "user".to_string(),
+            content: format!("turn-{i}"),
+            content_blocks: None,
+            tool_call_id: None,
+        })
+        .collect()
+}
+
+/// Current Unix epoch time in milliseconds.
+fn cache_check_now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Stage round `n`'s prefix snapshot (request-build point).
+fn stage_cache_check_round(session: &mut ConversationSession, n: usize) {
+    session.stage_cache_prefix_snapshot(Some("system"), None, None, &cache_check_messages(n));
+}
+
+/// Usage for cache-check rounds (completion fixed at 1000).
+fn cache_check_usage(prompt: u32, cache_read: u32) -> UnifiedUsage {
+    UnifiedUsage {
+        prompt_tokens: prompt,
+        completion_tokens: 1_000,
+        total_tokens: Some(prompt + 1_000),
+        reasoning_tokens: None,
+        cache_read_tokens: Some(cache_read),
+        cache_write_tokens: None,
+    }
+}
+
+/// Verify that `check_cache_anomaly_and_advance` returns `CacheAnomalyInfo`
 /// with all four fields when the current cache hit deviates from the
 /// previous round's prompt tokens (reference value) beyond the fixed
 /// 1024-token tolerance.
@@ -407,26 +449,28 @@ async fn test_session_delegates_to_injected_caller() {
 fn test_detect_cache_anomaly_returns_info_on_deviation() {
     let mut session =
         ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
-    // First call: no reference value yet (last_prompt_tokens is None) → exempt.
-    let first = session.detect_cache_anomaly_for_usage(Some(10_000), Some(100_000));
+    // First round: no previous snapshot (new baseline) → exempt.
+    stage_cache_check_round(&mut session, 1);
+    let first = session.check_cache_anomaly_and_advance(
+        &cache_check_usage(100_000, 10_000),
+        Some("test-model"),
+        cache_check_now_ms(),
+        CACHE_CHECK_TTL_MS,
+    );
     assert!(first.is_none(), "first call should not detect anomaly");
 
     // Establish the reference value for round 2 via accumulate.
-    session.accumulate_usage(
-        &UnifiedUsage {
-            prompt_tokens: 100_000,
-            completion_tokens: 1_000,
-            total_tokens: Some(101_000),
-            reasoning_tokens: None,
-            cache_read_tokens: Some(10_000),
-            cache_write_tokens: None,
-        },
-        Some("test-model"),
-    );
+    session.accumulate_usage(&cache_check_usage(100_000, 10_000), Some("test-model"));
 
-    // Simulate a whole-round miss: cache hit drops to 2000, deviation
-    // 98 000 exceeds the fixed tolerance.
-    let info = session.detect_cache_anomaly_for_usage(Some(2_000), Some(100_000));
+    // Round 2 (tail-append extension): whole-round miss — cache hit
+    // drops to 2000, deviation 98 000 exceeds the fixed tolerance.
+    stage_cache_check_round(&mut session, 2);
+    let info = session.check_cache_anomaly_and_advance(
+        &cache_check_usage(100_000, 2_000),
+        Some("test-model"),
+        cache_check_now_ms(),
+        CACHE_CHECK_TTL_MS,
+    );
     assert!(info.is_some(), "should detect cache anomaly");
     let info = info.unwrap();
     assert_eq!(info.previous_prompt_tokens, 100_000);
@@ -440,7 +484,7 @@ fn test_detect_cache_anomaly_returns_info_on_deviation() {
     );
 }
 
-/// Verify that `detect_cache_anomaly_for_usage` returns `None` when the
+/// Verify that `check_cache_anomaly_and_advance` returns `None` when the
 /// cache hit stays within the fixed tolerance of the reference value —
 /// in both directions (absolute-value semantics, doc:75).
 #[test]
@@ -448,38 +492,46 @@ fn test_detect_cache_anomaly_returns_none_within_tolerance() {
     let mut session =
         ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
     // Establish the reference value.
-    session.accumulate_usage(
-        &UnifiedUsage {
-            prompt_tokens: 100_000,
-            completion_tokens: 1_000,
-            total_tokens: Some(101_000),
-            reasoning_tokens: None,
-            cache_read_tokens: Some(100_000),
-            cache_write_tokens: None,
-        },
-        Some("test-model"),
-    );
+    session.accumulate_usage(&cache_check_usage(100_000, 100_000), Some("test-model"));
     // Hit 1000 below the reference (deviation 1000 ≤ 1024) — no anomaly.
-    let below = session.detect_cache_anomaly_for_usage(Some(99_000), Some(100_000));
+    stage_cache_check_round(&mut session, 1);
+    let below = session.check_cache_anomaly_and_advance(
+        &cache_check_usage(100_000, 99_000),
+        Some("test-model"),
+        cache_check_now_ms(),
+        CACHE_CHECK_TTL_MS,
+    );
     assert!(
         below.is_none(),
         "deviation within tolerance is not an anomaly"
     );
     // Hit 1000 above the reference — equally no anomaly (direction-agnostic).
-    let above = session.detect_cache_anomaly_for_usage(Some(101_000), Some(100_000));
+    stage_cache_check_round(&mut session, 2);
+    let above = session.check_cache_anomaly_and_advance(
+        &cache_check_usage(100_000, 101_000),
+        Some("test-model"),
+        cache_check_now_ms(),
+        CACHE_CHECK_TTL_MS,
+    );
     assert!(
         above.is_none(),
         "upward deviation within tolerance is also None"
     );
 }
 
-/// Verify that the first call to `detect_cache_anomaly_for_usage` returns
-/// `None` (no accumulated reference value to compare against).
+/// Verify that the first round of `check_cache_anomaly_and_advance`
+/// returns `None` (no previous snapshot — new baseline).
 #[test]
 fn test_detect_cache_anomaly_first_call_returns_none() {
     let mut session =
         ConversationSession::new("test-session".into(), "test-model".into(), tmp_path());
-    let info = session.detect_cache_anomaly_for_usage(Some(5_000), Some(50_000));
+    stage_cache_check_round(&mut session, 1);
+    let info = session.check_cache_anomaly_and_advance(
+        &cache_check_usage(50_000, 5_000),
+        Some("test-model"),
+        cache_check_now_ms(),
+        CACHE_CHECK_TTL_MS,
+    );
     assert!(info.is_none(), "first call should not detect anomaly");
 }
 

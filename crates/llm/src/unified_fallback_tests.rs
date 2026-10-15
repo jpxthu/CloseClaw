@@ -671,3 +671,133 @@ async fn test_response_to_stream_empty_blocks() {
     assert_eq!(events.len(), 1);
     assert!(matches!(events[0], StreamEvent::MessageEnd { .. }));
 }
+
+// ── *_with_target: actually-used (provider, model) returned per call ──────
+//
+// 回传随调用返回值走、无共享状态：target 由每次调用自身的返回值携带，
+// 不经过任何共享槽位，因此并发调用互不污染（见下方交错自证测试）。
+
+/// Non-streaming call that falls through a failing entry must return the
+/// entry that actually served the request.
+#[tokio::test]
+async fn test_chat_with_target_reports_actual_entry_after_fallback() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry1 = failing_entry("p-fail", "m-fail", "boom");
+    let entry2 = mock_entry("p-ok", "m-ok");
+    let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
+    let (response, target) = client
+        .chat_with_target(make_request("m-fail"))
+        .await
+        .expect("second entry should succeed");
+    let _ = response;
+    assert_eq!(
+        target,
+        Some(closeclaw_common::CallTarget {
+            provider_id: "p-ok".to_string(),
+            model_id: "m-ok".to_string(),
+        }),
+        "successful call must return the actual target"
+    );
+}
+
+/// Streaming call that falls through a failing entry must return the
+/// entry whose stream was actually returned.
+#[tokio::test]
+async fn test_chat_streaming_with_target_reports_actual_entry_after_fallback() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry_fail = streaming_fail_entry("p-fail", "m-fail", "no streaming");
+    let entry_ok = mock_entry("p-ok", "m-ok");
+    let client = UnifiedFallbackClient::new(vec![entry_fail, entry_ok], cooldown);
+    let (_stream, target) = client
+        .chat_streaming_with_target(make_request("m-fail"))
+        .await
+        .expect("second entry should serve the stream");
+    assert_eq!(
+        target,
+        Some(closeclaw_common::CallTarget {
+            provider_id: "p-ok".to_string(),
+            model_id: "m-ok".to_string(),
+        }),
+        "successful streaming call must return the actual target"
+    );
+}
+
+/// Degraded (all-streaming-failed → non-streaming) success returns the
+/// entry that served the degraded call.
+#[tokio::test]
+async fn test_degraded_stream_returns_serving_entry_target() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry1 = streaming_fail_entry("p1", "m1", "no streaming");
+    let client = UnifiedFallbackClient::new(vec![entry1], cooldown);
+    let (_stream, target) = client
+        .chat_streaming_with_target(make_request("m1"))
+        .await
+        .expect("should degrade to non-streaming");
+    assert_eq!(
+        target,
+        Some(closeclaw_common::CallTarget {
+            provider_id: "p1".to_string(),
+            model_id: "m1".to_string(),
+        }),
+        "degraded success must return the actual target"
+    );
+}
+
+/// Concurrency-safety self-check: the returned target is bound to its own
+/// call's return value, so a later call through the same shared client can
+/// neither change an already-captured target nor leak into a failed call.
+///
+/// This is the property the former shared-slot design violated: with a
+/// slot, call B's `record` between call A's `record` and `read` would make
+/// A observe B's target. Here A's target is a plain return value.
+#[tokio::test]
+async fn test_returned_target_not_affected_by_later_calls_or_failures() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let client = UnifiedFallbackClient::new(
+        vec![mock_entry("p1", "m1"), mock_entry("p2", "m2")],
+        cooldown.clone(),
+    );
+
+    // Call A: succeeds via the first entry.
+    let (_, target_a) = client
+        .chat_with_target(make_request("m1"))
+        .await
+        .expect("call A should succeed");
+    assert_eq!(
+        target_a.as_ref().map(|t| t.id_string()),
+        Some("p1/m1".to_string())
+    );
+
+    // Call B through the same shared client: put the first entry into
+    // cooldown so B must fall through to the second entry.
+    cooldown
+        .record_failure("p1", "m1", ErrorKind::Transient)
+        .await;
+    let (_, target_b) = client
+        .chat_with_target(make_request("m2"))
+        .await
+        .expect("call B should succeed via second entry");
+    assert_eq!(
+        target_b.as_ref().map(|t| t.id_string()),
+        Some("p2/m2".to_string())
+    );
+
+    // A's already-returned target is unaffected by B (no shared slot).
+    assert_eq!(
+        target_a.as_ref().map(|t| t.id_string()),
+        Some("p1/m1".to_string()),
+        "second call's target must not overwrite the first call's returned target"
+    );
+
+    // A failing call carries no target at all (nothing is recorded
+    // anywhere for a later call to observe).
+    let fail_client =
+        UnifiedFallbackClient::new(vec![failing_entry("p-fail", "m-fail", "boom")], cooldown);
+    assert!(
+        fail_client
+            .chat_with_target(make_request("m-fail"))
+            .await
+            .is_err(),
+        "all-fail chain must return an error with no target"
+    );
+}

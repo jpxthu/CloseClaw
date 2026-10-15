@@ -25,7 +25,9 @@ use closeclaw_common::{
     InjectionParams, LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder,
     ToolRegistryQuery,
 };
-use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
+use closeclaw_common::{
+    RequestPrefixSnapshot, RunningStats, StreamingSink, TurnCounter, VerbosityLevel,
+};
 
 /// Max length of an append-section item (chars).
 pub const APPEND_SECTION_MAX_LEN: usize = 500;
@@ -41,6 +43,7 @@ pub use memory_injection::{InjectionPosition, MemoryInjection};
 
 pub mod mode_transition;
 
+mod session_cache_check;
 mod session_chat;
 pub use session_chat::ChatSession;
 
@@ -202,6 +205,12 @@ pub struct ConversationSession {
     /// Workflow engine port (injected by the composition root).
     workflow_port: Option<Arc<dyn crate::workflow_port::WorkflowPort>>,
     plan_file_path: Option<String>,
+    /// Previous round's actually-sent request prefix snapshot (cache
+    /// consistency check runtime state; never persisted to checkpoint).
+    cache_prefix_prev: Option<RequestPrefixSnapshot>,
+    /// Current round's staged prefix snapshot, taken at the request-build
+    /// completion point; consumed at the unified advancement point.
+    cache_prefix_staging: Option<RequestPrefixSnapshot>,
 }
 // `impl ConversationSession` is split across multiple blocks so each
 // block stays under the CONTRIBUTING.md 100-line cap. Block A
@@ -272,6 +281,8 @@ impl ConversationSession {
             workflow_run: None,
             workflow_handler: None,
             workflow_port: None,
+            cache_prefix_prev: None,
+            cache_prefix_staging: None,
         }
     }
 
@@ -739,15 +750,6 @@ impl ConversationSession {
     /// Returns the streaming sink, if set.
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()
-    }
-    /// Detects a cache hit anomaly against the previous call's prompt tokens.
-    pub fn detect_cache_anomaly_for_usage(
-        &mut self,
-        current_cache_read: Option<u32>,
-        current_prompt_tokens: Option<u32>,
-    ) -> Option<closeclaw_common::CacheAnomalyInfo> {
-        self.stats
-            .detect_cache_anomaly_and_update(current_cache_read, current_prompt_tokens)
     }
     /// Accumulates a single API call's usage into the session stats.
     ///

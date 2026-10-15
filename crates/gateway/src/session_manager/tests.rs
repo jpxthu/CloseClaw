@@ -12,6 +12,32 @@ use tokio::sync::Mutex;
 
 mod tool_registry_injection_tests;
 
+// ── Test-only accessors for the announce drain result ───────────────────────
+// Moved out of `announce_drain.rs` (Step 1.8 ②, Step 1.9) so the production
+// file keeps line-count margin; inherent-impl methods and trait impls resolve
+// crate-wide, so all sibling announce test modules keep using them unchanged.
+impl super::announce_drain::DrainResult {
+    /// Whether both announces and system_notifications are empty.
+    pub fn is_empty(&self) -> bool {
+        self.announces.is_empty() && self.system_notifications.is_empty()
+    }
+    /// Number of announce events.
+    pub fn len(&self) -> usize {
+        self.announces.len() + self.system_notifications.len()
+    }
+    /// Iterate over announce events.
+    pub fn iter(&self) -> std::slice::Iter<'_, closeclaw_session::llm_session::AnnounceEvent> {
+        self.announces.iter()
+    }
+}
+
+impl std::ops::Index<usize> for super::announce_drain::DrainResult {
+    type Output = closeclaw_session::llm_session::AnnounceEvent;
+    fn index(&self, index: usize) -> &Self::Output {
+        &self.announces[index]
+    }
+}
+
 /// Clear section cache. No-op: the global SECTION_CACHE was removed during
 /// Step 1.5 refactor. Kept for call-site compatibility.
 pub(crate) fn clear_global_prompt_state() {}

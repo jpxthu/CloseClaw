@@ -16,6 +16,7 @@ use crate::types::{InternalRequest, UnifiedResponse};
 use crate::LLMError;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 use closeclaw_common::trace_id::generate_trace_id;
+use closeclaw_common::CallTarget;
 use closeclaw_debug_log::{DebugLog, LogLevel};
 use std::sync::Arc;
 
@@ -117,6 +118,14 @@ impl UnifiedFallbackClient {
         }
     }
 
+    /// Build the [`CallTarget`] identifying the chain entry that served a call.
+    fn call_target_of(entry: &ChainEntry) -> CallTarget {
+        CallTarget {
+            provider_id: entry.provider_id.clone(),
+            model_id: entry.model_id.clone(),
+        }
+    }
+
     /// Returns a reference to the first client in the chain.
     pub fn primary(&self) -> &Arc<UnifiedChatClient> {
         &self.chain.first().expect("chain must not be empty").client
@@ -143,8 +152,25 @@ impl UnifiedFallbackClient {
     /// the complete response as a single-chunk stream.
     pub async fn chat_streaming(
         &self,
-        mut request: InternalRequest,
+        request: InternalRequest,
     ) -> Result<OutgoingEventStream, ClientError> {
+        self.chat_streaming_with_target(request)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// Send a streaming chat request through the fallback chain and return
+    /// the actually-served entry's [`CallTarget`] with the stream.
+    ///
+    /// The target travels with this call's return value only — there is no
+    /// shared slot — so concurrent calls through clones of the same client
+    /// each observe their own target. Covers all three success points:
+    /// streaming success, non-streaming success (via [`Self::chat`]), and
+    /// the degraded stream.
+    pub async fn chat_streaming_with_target(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<(OutgoingEventStream, Option<CallTarget>), ClientError> {
         let trace_id = generate_trace_id("llm");
         // Emit llm.call.start for streaming.
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
@@ -214,7 +240,10 @@ impl UnifiedFallbackClient {
                                 }),
                                 parent: None,
                             });
-                            return Ok(stream);
+                            // Success point 1/3: streaming success — the
+                            // serving entry's target is returned with the
+                            // stream (no shared slot).
+                            return Ok((stream, Some(Self::call_target_of(entry))));
                         }
                         Err(client_err) => {
                             let llm_err: LLMError = client_err.into();
@@ -260,16 +289,18 @@ impl UnifiedFallbackClient {
     ///
     /// Walks the chain without cooldown checks (the streaming cooldown
     /// should not block a non-streaming attempt) and wraps the first
-    /// successful response as a single-chunk [`OutgoingEventStream`].
+    /// successful response as a single-chunk [`OutgoingEventStream`],
+    /// returning the serving entry's [`CallTarget`] alongside.
     async fn degraded_stream(
         &self,
         mut request: InternalRequest,
-    ) -> Result<OutgoingEventStream, ClientError> {
+    ) -> Result<(OutgoingEventStream, Option<CallTarget>), ClientError> {
         tracing::warn!("all streaming entries failed, degrading to non-streaming");
         for entry in &self.chain {
             request.model = entry.model_id.clone();
             match entry.client.chat(request.clone()).await {
-                Ok(response) => return Ok(response_to_stream(response)),
+                // Success point 3/3: degraded (non-streaming) success.
+                Ok(response) => return Ok(degraded_stream_success(entry, response)),
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();
                     tracing::warn!(
@@ -297,7 +328,22 @@ impl UnifiedFallbackClient {
     /// Iterates through [`chain`](Self::chain) entries, skipping those in
     /// cooldown. Returns the first successful [`UnifiedResponse`], or an error
     /// if all entries are exhausted.
-    pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+    pub async fn chat(&self, request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+        self.chat_with_target(request)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    /// Send a chat request through the fallback chain and return the
+    /// actually-served entry's [`CallTarget`] with the response.
+    ///
+    /// The target travels with this call's return value only — there is no
+    /// shared slot — so concurrent calls through clones of the same client
+    /// each observe their own target.
+    pub async fn chat_with_target(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         let trace_id = generate_trace_id("llm");
         // Emit llm.call.start
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
@@ -361,7 +407,10 @@ impl UnifiedFallbackClient {
                         }),
                         parent: None,
                     });
-                    return Ok(response);
+                    // Success point 2/3: non-streaming success — the
+                    // serving entry's target is returned with the response
+                    // (no shared slot).
+                    return Ok((response, Some(Self::call_target_of(entry))));
                 }
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();
@@ -401,6 +450,19 @@ impl UnifiedFallbackClient {
 // ─────────────────────────────────────────────────────────────────────────────
 // Degraded-stream helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Wraps a degraded (non-streaming) success as a single-chunk stream plus
+/// the serving entry's [`CallTarget`] (success point 3/3 of the fallback
+/// chain).
+fn degraded_stream_success(
+    entry: &ChainEntry,
+    response: UnifiedResponse,
+) -> (OutgoingEventStream, Option<CallTarget>) {
+    (
+        response_to_stream(response),
+        Some(UnifiedFallbackClient::call_target_of(entry)),
+    )
+}
 
 /// Convert a [`UnifiedResponse`] into a single-chunk [`OutgoingEventStream`].
 ///

@@ -326,6 +326,13 @@ impl SessionMessageHandler {
         } else {
             blocks
         };
+        // Explicit declaration for the session-side push dedup guard:
+        // when the current user message was pre-appended in structured
+        // blocks form (embedded small-image messages), the blocks-form
+        // tail flattens to content="" and can never string-equal the
+        // invoke content, so the invoked variant must be told the
+        // message is already at the history tail.
+        let mut blocks_pre_appended = false;
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
@@ -334,6 +341,7 @@ impl SessionMessageHandler {
             let mut session = cs.write().await;
             if let Some(blks) = blocks {
                 session.append_user_content_blocks(blks);
+                blocks_pre_appended = true;
             } else {
                 session.append_user_message(&content);
             }
@@ -342,8 +350,15 @@ impl SessionMessageHandler {
             .update_checkpoint_user_activity(session_id)
             .await;
         self.check_and_run_auto_compact(session_id).await;
-        self.dispatch_llm_call(session_id, content, meta, Some(gateway), Some(plugin))
-            .await
+        self.dispatch_llm_call(
+            session_id,
+            content,
+            meta,
+            Some(gateway),
+            Some(plugin),
+            blocks_pre_appended,
+        )
+        .await
     }
 
     /// Trigger active-searcher for a user message (best-effort, non-blocking).
@@ -445,18 +460,29 @@ impl SessionMessageHandler {
         channel: &str,
         gw: Option<&Arc<Gateway>>,
         pl: Option<&Arc<dyn IMPlugin>>,
+        user_blocks_pre_appended: bool,
     ) -> Result<super::outbound::StreamResult, closeclaw_llm::LLMError> {
         let stream_enabled = cs.read().await.stream_enabled();
         if stream_enabled {
             if let (Some(gw), Some(pl)) = (gw, pl) {
-                Self::call_llm_streaming(cs, content, meta, sm, session_id, channel, gw, pl).await
-            } else {
-                tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
-                cs.write().await.invoke_llm(content).await.map(Into::into)
+                // call_llm_streaming attaches the round's actual call
+                // target to the returned `StreamResult` itself.
+                return Self::call_llm_streaming(
+                    cs,
+                    content,
+                    meta,
+                    sm,
+                    session_id,
+                    channel,
+                    gw,
+                    pl,
+                    user_blocks_pre_appended,
+                )
+                .await;
             }
-        } else {
-            cs.write().await.invoke_llm(content).await.map(Into::into)
+            tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
         }
+        invoke_llm_with_call_target(cs, content, user_blocks_pre_appended).await
     }
 
     /// Trigger active-searcher for an assistant message.
@@ -500,6 +526,7 @@ impl SessionMessageHandler {
         gw: Option<Arc<Gateway>>,
         pl: Option<Arc<dyn IMPlugin>>,
         searcher_deps: SearcherTriggerDeps,
+        user_blocks_pre_appended: bool,
     ) {
         let sm = Arc::clone(&self.session_manager);
         let output_tx = Arc::clone(&self.output_tx);
@@ -531,6 +558,7 @@ impl SessionMessageHandler {
                 &channel,
                 gw.as_ref(),
                 pl.as_ref(),
+                user_blocks_pre_appended,
             )
             .await;
             let assistant_text = match &result {
@@ -564,6 +592,10 @@ impl SessionMessageHandler {
     }
 
     /// Dispatch an LLM call inside a `tokio::spawn` task.
+    ///
+    /// `user_blocks_pre_appended` declares that the current user message
+    /// was already appended to history in structured blocks form (see
+    /// [`Self::handle_message_with_gateway`]).
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn dispatch_llm_call(
         &self,
@@ -572,6 +604,7 @@ impl SessionMessageHandler {
         meta: MessageMetadata,
         gateway: Option<&Arc<Gateway>>,
         plugin: Option<&Arc<dyn IMPlugin>>,
+        user_blocks_pre_appended: bool,
     ) -> HandleResult {
         self.set_busy(session_id, true).await;
         let searcher_deps = self.trigger_searcher_user(session_id, &content).await;
@@ -588,6 +621,7 @@ impl SessionMessageHandler {
             gateway.map(Arc::clone),
             plugin.map(Arc::clone),
             searcher_deps,
+            user_blocks_pre_appended,
         );
         HandleResult::LlmStarted
     }
@@ -624,6 +658,38 @@ impl SessionMessageHandler {
             );
         }
     }
+}
+
+/// Non-streaming LLM invocation with the call target attached.
+///
+/// Shared by the main dispatch path and the announce drain / retry
+/// paths so every production `StreamResult` carries the actual
+/// (provider/model) target for the unified cache-check advancement
+/// point. The target is returned by the invocation itself (per-call
+/// return value, no shared state), so concurrent sessions can never
+/// read another session's target.
+///
+/// `user_blocks_pre_appended` is the caller's explicit declaration that
+/// the current user message was already appended to history in
+/// structured blocks form (main dispatch path with embedded
+/// small-image messages); drain / retry paths that do not pre-append
+/// pass `false` and keep the normal push.
+pub(super) async fn invoke_llm_with_call_target(
+    cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    content: &str,
+    user_blocks_pre_appended: bool,
+) -> Result<super::outbound::StreamResult, closeclaw_llm::LLMError> {
+    let (response, call_target) = if user_blocks_pre_appended {
+        cs.write()
+            .await
+            .invoke_llm_with_target_pre_appended_blocks(content)
+            .await?
+    } else {
+        cs.write().await.invoke_llm_with_target(content).await?
+    };
+    let mut stream_result: super::outbound::StreamResult = response.into();
+    stream_result.call_target = call_target;
+    Ok(stream_result)
 }
 
 #[cfg(test)]

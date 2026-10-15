@@ -14,6 +14,32 @@ use crate::llm_error::LLMError;
 use crate::llm_types::InternalRequest;
 use crate::processor::{StreamEvent, UnifiedResponse};
 
+/// The actually-used LLM call target of one round.
+///
+/// Reported by the production caller after a successful call (the
+/// fallback chain knows which entry actually served the request);
+/// consumed by the gateway to distinguish model/provider switches for
+/// the cache hit consistency check. Test fakes that do not report a
+/// target leave it `None`, and consumers degrade to session-config
+/// semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTarget {
+    /// Identifier of the provider that actually served the call.
+    pub provider_id: String,
+    /// Identifier of the model that actually served the call.
+    pub model_id: String,
+}
+
+impl CallTarget {
+    /// Combined `provider/model` identifier string.
+    ///
+    /// This is the model-switch exemption key stored in
+    /// [`RunningStats::last_call_model`](crate::llm_stats::RunningStats::last_call_model).
+    pub fn id_string(&self) -> String {
+        format!("{}/{}", self.provider_id, self.model_id)
+    }
+}
+
 /// Abstract interface for making LLM requests.
 ///
 /// Implementations live in the session layer (e.g., wrapping
@@ -51,5 +77,43 @@ pub trait LlmCaller: Send + Sync {
     /// Default is `false` (conservative).
     fn supports_parallel_tool_calls(&self) -> bool {
         false
+    }
+
+    /// Make a non-streaming LLM call and return the actually-used
+    /// [`CallTarget`] (provider/model) alongside the response.
+    ///
+    /// The target travels with this call's return value — implementations
+    /// hold no shared state — so concurrent callers each observe their own
+    /// target and can never read a target overwritten by another call.
+    ///
+    /// Default implementation delegates to [`LlmCaller::call`] and reports
+    /// no target, so test fakes and simple callers need no changes;
+    /// consumers degrade to session-config semantics on `None`.
+    async fn call_with_target(
+        &self,
+        request: InternalRequest,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        let response = self.call(request).await?;
+        Ok((response, None))
+    }
+
+    /// Make a streaming LLM call and return the actually-used
+    /// [`CallTarget`] (provider/model) alongside the stream.
+    ///
+    /// Like [`LlmCaller::call_with_target`], the target is bound to this
+    /// call's return value (no shared state). Default implementation
+    /// delegates to [`LlmCaller::call_streaming`] and reports no target.
+    async fn call_streaming_with_target(
+        &self,
+        request: InternalRequest,
+    ) -> Result<
+        (
+            Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
+            Option<CallTarget>,
+        ),
+        LLMError,
+    > {
+        let stream = self.call_streaming(request).await?;
+        Ok((stream, None))
     }
 }

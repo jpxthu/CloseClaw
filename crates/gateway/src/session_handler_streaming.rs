@@ -25,8 +25,8 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
-use closeclaw_session::llm_session::SessionStream;
-use closeclaw_session::llm_session::{ChatSession, ConversationSession};
+use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::llm_session::ConversationSession;
 
 /// Metadata key: marks a checkpoint message as having been interrupted
 /// by a streaming error (as opposed to normal completion).
@@ -46,6 +46,12 @@ impl SessionMessageHandler {
     ///    [`SinkUpdater`][closeclaw_llm::SinkUpdater].
     /// 2. Racing the stream against a cancellation token.
     /// 3. Dispatching through [`Gateway::send_outbound_streaming`].
+    ///
+    /// `user_blocks_pre_appended` is the caller's explicit declaration
+    /// that the current user message was already appended to history in
+    /// structured blocks form; it selects the matching session invoke
+    /// variant so the build-side push dedup guard can recognize the
+    /// blocks-form tail as the same logical message.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
         cs: &Arc<tokio::sync::RwLock<ConversationSession>>,
@@ -56,6 +62,7 @@ impl SessionMessageHandler {
         channel: &str,
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
+        user_blocks_pre_appended: bool,
     ) -> Result<StreamResult, LLMError> {
         // ── Open LLM stream via ConversationSession ──
         // Set per-request context for dynamic-layer injection before
@@ -68,7 +75,20 @@ impl SessionMessageHandler {
         super::session_handler_reasoning::resolve_before_llm_call(session_manager, session_id)
             .await;
 
-        let session_stream: SessionStream = cs.write().await.invoke_llm_streaming(content).await?;
+        // The call target (when the underlying caller reports one) is
+        // returned by the invocation itself — per-call return value, no
+        // shared state — and attached to the StreamResult below.
+        let (session_stream, call_target) = if user_blocks_pre_appended {
+            cs.write()
+                .await
+                .invoke_llm_streaming_with_target_pre_appended_blocks(content)
+                .await?
+        } else {
+            cs.write()
+                .await
+                .invoke_llm_streaming_with_target(content)
+                .await?
+        };
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
@@ -127,7 +147,7 @@ impl SessionMessageHandler {
             }
         }
 
-        let stream_result = dispatch_result.map_err(|e| {
+        let mut stream_result = dispatch_result.map_err(|e| {
             if let Some(ref s) = sink {
                 handle_stream_error(e, s.as_ref())
             } else {
@@ -135,6 +155,7 @@ impl SessionMessageHandler {
                 LLMError::ApiError(msg)
             }
         })?;
+        stream_result.call_target = call_target;
 
         // Best-effort: notify sink of stream completion with usage, so
         // CLI/websocket consumers see a matching `send_done` after the
@@ -155,6 +176,7 @@ impl SessionMessageHandler {
                 usage: stream_result.usage,
                 retry_attempts: stream_result.retry_attempts,
                 dsl_result: stream_result.dsl_result,
+                call_target: stream_result.call_target,
             });
         }
         Ok(stream_result)

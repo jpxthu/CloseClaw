@@ -5,6 +5,7 @@
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
 
+use closeclaw_common::CallTarget;
 use closeclaw_common::LLMError;
 use closeclaw_common::{
     split_static_dynamic, ContentBlock, DynamicPromptContext, InternalMessage, InternalRequest,
@@ -216,6 +217,21 @@ impl ConversationSession {
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
     ///
+    /// Test-only convenience wrapper (Step 1.8 ③): production call sites
+    /// must use [`Self::invoke_llm_with_target`] so the unified
+    /// advancement point receives the actually-used call target; this
+    /// wrapper discards it. Kept as a thin delegation because the test
+    /// call surface is wide (100+ sites across session/gateway test
+    /// modules) and migrating adds churn without behavior change.
+    pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+        self.invoke_llm_with_target(content)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    /// Make a non-streaming LLM call via the injected [`LlmCaller`] and
+    /// return the actually-used [`CallTarget`] with the response.
+    ///
     /// Corresponds to the design doc's injection flow: prepares the
     /// skill listing via [`prepare_turn_skill_listing`], injects it as
     /// the instruction block via [`build_llm_messages_with_listing`],
@@ -224,7 +240,42 @@ impl ConversationSession {
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
-    pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+    ///
+    /// The target (when the caller reports one) travels with this call's
+    /// return value — no shared state — so concurrent sessions can never
+    /// observe another session's target; `None` (test fakes / stub paths)
+    /// degrades to session-config semantics.
+    pub async fn invoke_llm_with_target(
+        &mut self,
+        content: &str,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        self.invoke_llm_with_target_inner(content, false).await
+    }
+
+    /// Pre-appended-blocks variant of [`Self::invoke_llm_with_target`].
+    ///
+    /// For the gateway production path where the current user message
+    /// was already appended to history in structured blocks form
+    /// (embedded small-image messages). The blocks-form tail flattens
+    /// to `content=""` (Image blocks are excluded from the text
+    /// flatten), so string equality with the invoke content (the
+    /// gateway-flattened `[image: key] …\nbase64` text) is structurally
+    /// unreachable. The explicit declaration lets the build-side dedup
+    /// guard treat the blocks-form tail as the same logical message and
+    /// skip the duplicate push, keeping the sent list a tail-append
+    /// extension of the previous round.
+    pub async fn invoke_llm_with_target_pre_appended_blocks(
+        &mut self,
+        content: &str,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        self.invoke_llm_with_target_inner(content, true).await
+    }
+
+    async fn invoke_llm_with_target_inner(
+        &mut self,
+        content: &str,
+        user_blocks_pre_appended: bool,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -243,15 +294,26 @@ impl ConversationSession {
         };
 
         let listing = self.prepare_turn_skill_listing(content);
-        let messages = self.build_llm_messages_with_listing(content, listing);
+        let messages =
+            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
         let request = self.build_llm_request(messages, false);
+
+        // Stage this round's prefix snapshot at the request-build
+        // completion point (cache consistency check; consumed at the
+        // unified advancement point once usage fully arrives).
+        self.stage_cache_prefix_snapshot(
+            request.system_static.as_deref(),
+            request.system_dynamic.as_deref(),
+            request.tools.as_deref(),
+            &request.messages,
+        );
 
         // ── Busy count: increment before LLM call, decrement after ──
         if let Some(sh) = self.get_shutdown_handle() {
             sh.increment_busy();
         }
-        let result = caller.call(request).await;
+        let result = caller.call_with_target(request).await;
         if let Some(sh) = self.get_shutdown_handle() {
             sh.decrement_busy();
         }
@@ -259,6 +321,14 @@ impl ConversationSession {
     }
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
+    pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+        self.invoke_llm_streaming_with_target(content)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// Make a streaming LLM call via the injected [`LlmCaller`] and return
+    /// the actually-used [`CallTarget`] with the stream.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
     /// skill listing via [`prepare_turn_skill_listing`], injects it as
@@ -271,10 +341,42 @@ impl ConversationSession {
     /// call [`SessionStream::into_content_blocks`] to extract the
     /// assembled result.
     ///
+    /// The target (when the caller reports one) travels with this call's
+    /// return value — no shared state — so concurrent sessions can never
+    /// observe another session's target; `None` (test fakes / stub paths)
+    /// degrades to session-config semantics.
+    ///
     /// The caller (Gateway) is responsible for consuming the stream
     /// for real-time rendering via
     /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
-    pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+    pub async fn invoke_llm_streaming_with_target(
+        &mut self,
+        content: &str,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
+        self.invoke_llm_streaming_with_target_inner(content, false)
+            .await
+    }
+
+    /// Pre-appended-blocks variant of [`Self::invoke_llm_streaming_with_target`].
+    ///
+    /// Same explicit declaration as
+    /// [`Self::invoke_llm_with_target_pre_appended_blocks`], for the
+    /// gateway streaming dispatch path: the current user message was
+    /// already appended to history in structured blocks form, which
+    /// string equality cannot recognize as the message being invoked.
+    pub async fn invoke_llm_streaming_with_target_pre_appended_blocks(
+        &mut self,
+        content: &str,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
+        self.invoke_llm_streaming_with_target_inner(content, true)
+            .await
+    }
+
+    async fn invoke_llm_streaming_with_target_inner(
+        &mut self,
+        content: &str,
+        user_blocks_pre_appended: bool,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM streaming calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -293,15 +395,26 @@ impl ConversationSession {
         };
 
         let listing = self.prepare_turn_skill_listing(content);
-        let messages = self.build_llm_messages_with_listing(content, listing);
+        let messages =
+            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
         let request = self.build_llm_request(messages, true);
+
+        // Stage this round's prefix snapshot at the request-build
+        // completion point (cache consistency check; consumed at the
+        // unified advancement point once usage fully arrives).
+        self.stage_cache_prefix_snapshot(
+            request.system_static.as_deref(),
+            request.system_dynamic.as_deref(),
+            request.tools.as_deref(),
+            &request.messages,
+        );
 
         // ── Busy count: increment before stream, decrement on stream end ──
         if let Some(sh) = self.get_shutdown_handle() {
             sh.increment_busy();
         }
-        let raw_stream = match caller.call_streaming(request).await {
+        let (raw_stream, call_target) = match caller.call_streaming_with_target(request).await {
             Ok(s) => s,
             Err(e) => {
                 // Stream creation failed — decrement busy count immediately.
@@ -316,8 +429,8 @@ impl ConversationSession {
         // Attach shutdown handle so SessionStream decrements busy count
         // when the stream finishes or errors.
         Ok(match self.get_shutdown_handle() {
-            Some(sh) => stream.with_shutdown_handle(sh),
-            None => stream,
+            Some(sh) => (stream.with_shutdown_handle(sh), call_target),
+            None => (stream, call_target),
         })
     }
 
@@ -336,25 +449,79 @@ impl ConversationSession {
     ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
     ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
-    /// 3. User message.
+    /// 3. User message — dedup-guarded: skipped when the history already
+    ///    ends with the identical user message (the gateway pre-appends
+    ///    the current message to history before invoking; pushing again
+    ///    would send a duplicate copy that never enters history, breaking
+    ///    the tail-append message-list semantics the cache prefix check
+    ///    relies on).
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
+    ///
+    /// `user_blocks_pre_appended` is the caller's explicit declaration
+    /// that the current user message was already appended to history in
+    /// structured blocks form (gateway production path for embedded
+    /// small-image messages). The declaration branch of the dedup guard
+    /// below requires the tail to be a **user message carrying content
+    /// blocks with empty flattened text** (`content.is_empty()` — the
+    /// image-round pre-append shape: Image blocks are excluded from the
+    /// text flatten); combined with the declaration it is treated as the
+    /// same logical message and the push is skipped. A blocks tail with
+    /// non-empty text does **not** match the declaration (the flattened
+    /// text could differ from the invoke content), so the push happens
+    /// and the message is never lost.
+    ///
+    /// Residual risk: a blocks tail with empty flattened text that is
+    /// *not* the declared message (e.g. compaction rewrote the history
+    /// between append and invoke into another image-only message) would
+    /// still be deduped and the invoke content dropped from the sent
+    /// list. When the tail does not match the declaration at all (not a
+    /// blocks-carrying user message, or its flattened text is
+    /// non-empty), the guard falls back to the string equality check and
+    /// the push still happens.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
         skill_listing: Option<String>,
+        user_blocks_pre_appended: bool,
     ) -> Vec<InternalMessage> {
         let cleaned = Self::clean_thinking_content(&self.messages);
         let mut messages = Self::convert_history_to_internal(&cleaned);
 
-        // ── Append current-turn user message ─────────────────────
-        messages.push(InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            content_blocks: None,
-            tool_call_id: None,
+        // ── Append current-turn user message (dedup-guarded) ─────
+        // The gateway production path pre-appends the user message to
+        // history (persistence/recovery semantics) before invoking, so
+        // the converted history already ends with this exact message.
+        // Pushing again would send a temporary duplicate copy that never
+        // enters history, so adjacent rounds stop being tail-append
+        // extensions and the cache prefix check reports PrefixMismatch
+        // every round. Skip the push on full equality (role + content)
+        // with the history tail, or — when the caller declared a
+        // blocks-form pre-append — on the tail being a user message
+        // carrying content blocks **with empty flattened text**: the
+        // image-round pre-append shape (Image blocks are excluded from
+        // the text flatten, so `content` is `""`). The empty-text
+        // requirement keeps blocks tails that do carry text (image +
+        // caption) outside the declaration branch — their text could
+        // differ from the invoke content, so they always push. Callers
+        // that did not pre-append (pending drain, tests) still get the
+        // push.
+        let duplicates_history_tail = messages.last().is_some_and(|tail| {
+            tail.role == "user"
+                && (tail.content == content
+                    || (user_blocks_pre_appended
+                        && tail.content.is_empty()
+                        && tail.content_blocks.is_some()))
         });
+        if !duplicates_history_tail {
+            messages.push(InternalMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+                content_blocks: None,
+                tool_call_id: None,
+            });
+        }
 
         // ── Skill listing attachment — at position 0 when non-empty ──
         if let Some(listing) = skill_listing {

@@ -365,7 +365,9 @@ impl SessionMessageHandler {
             .update_checkpoint_user_activity(session_id)
             .await;
         self.check_and_run_auto_compact(session_id).await;
-        self.dispatch_llm_call(session_id, content, meta, None, None)
+        // Text pre-append: the session-side equality dedup guard covers
+        // this form, so no blocks pre-append declaration is needed.
+        self.dispatch_llm_call(session_id, content, meta, None, None, false)
             .await
     }
 }

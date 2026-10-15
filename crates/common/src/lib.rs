@@ -8,6 +8,9 @@ pub mod agent_query;
 pub mod audit_log;
 pub mod background_task;
 pub mod bootstrap;
+pub mod cache_prefix;
+#[cfg(test)]
+pub mod cache_prefix_tests;
 pub mod communication;
 pub mod compaction;
 pub mod content_segment;
@@ -107,6 +110,10 @@ pub use background_task::{
     RunningTaskInfo, TaskState,
 };
 pub use bootstrap::BootstrapMode;
+pub use cache_prefix::{
+    build_prefix_snapshot, cache_check_eligibility, prefix_matches, CacheCheckEligibility,
+    CacheExemptReason, PreviousCallState, RequestPrefixSnapshot,
+};
 pub use compaction::CompactConfig;
 pub use content_segment::{parse_content_segments, ContentSegment};
 pub use execution_types::ExecutionStepStatus;
@@ -120,9 +127,9 @@ pub use im_plugin::{
     RenderedOutput, StreamingOutput,
 };
 pub use injection_params::InjectionParams;
-pub use llm_caller::LlmCaller;
+pub use llm_caller::{CallTarget, LlmCaller};
 pub use llm_error::{ErrorKind, LLMError};
-pub use llm_stats::{detect_cache_anomaly, CacheAnomalyInfo, RunningStats};
+pub use llm_stats::{current_epoch_millis, detect_cache_anomaly, CacheAnomalyInfo, RunningStats};
 pub use llm_streaming::{StreamDone, StreamingSink};
 pub use llm_types::{InternalMessage, InternalRequest, SystemBlock, ToolDefinition};
 pub use media_store::{MediaStoreAccess, MediaStoreError};

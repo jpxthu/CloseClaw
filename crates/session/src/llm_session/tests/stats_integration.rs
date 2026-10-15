@@ -1,24 +1,6 @@
 //! Integration tests for ConversationSession + RunningStats.
 
 use super::*;
-use closeclaw_common::UnifiedUsage;
-
-fn make_usage(
-    prompt: u32,
-    completion: u32,
-    total: Option<u32>,
-    cache_read: Option<u32>,
-    cache_write: Option<u32>,
-) -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-        total_tokens: total,
-        reasoning_tokens: None,
-        cache_read_tokens: cache_read,
-        cache_write_tokens: cache_write,
-    }
-}
 
 #[test]
 fn test_session_stats_initial_state() {
