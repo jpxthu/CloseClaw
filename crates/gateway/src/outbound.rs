@@ -39,8 +39,9 @@ pub struct StreamResult {
     /// DSL instruction result extracted from processor chain metadata.
     pub dsl_result: Option<String>,
     /// Actually-used (provider/model) call target of this round,
-    /// reported by the underlying [`LlmCaller`] via its extension
-    /// method. `None` when the caller does not report a target
+    /// returned by the underlying [`LlmCaller`] invocation via its
+    /// `call_with_target` / `call_streaming_with_target` extension
+    /// methods. `None` when the caller does not report a target
     /// (test fakes / stub paths) — consumers degrade to the session
     /// config's model semantics.
     pub call_target: Option<closeclaw_common::CallTarget>,
@@ -60,8 +61,8 @@ impl From<UnifiedResponse> for StreamResult {
             retry_attempts: response.retry_attempts,
             dsl_result: None,
             // The `From` conversion has no access to the underlying
-            // caller; the production call sites attach the actual
-            // target afterwards via `attach_call_target`.
+            // caller; production call sites attach the actual target
+            // from the invocation's returned value.
             call_target: None,
         }
     }
@@ -775,7 +776,8 @@ impl Gateway {
                 usage: usage_override.unwrap_or(state.usage),
                 retry_attempts: 0,
                 dsl_result,
-                // Attached by the production call site (see `attach_call_target`).
+                // Attached by the production call site from the
+                // invocation's returned target.
                 call_target: None,
             });
         };
@@ -792,7 +794,8 @@ impl Gateway {
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
             dsl_result,
-            // Attached by the production call site (see `attach_call_target`).
+            // Attached by the production call site from the invocation's
+            // returned target.
             call_target: None,
         })
     }

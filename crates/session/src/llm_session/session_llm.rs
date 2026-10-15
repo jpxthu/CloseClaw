@@ -5,6 +5,7 @@
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
 
+use closeclaw_common::CallTarget;
 use closeclaw_common::LLMError;
 use closeclaw_common::{
     split_static_dynamic, ContentBlock, DynamicPromptContext, InternalMessage, InternalRequest,
@@ -215,6 +216,14 @@ impl ConversationSession {
     }
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
+    pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+        self.invoke_llm_with_target(content)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    /// Make a non-streaming LLM call via the injected [`LlmCaller`] and
+    /// return the actually-used [`CallTarget`] with the response.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
     /// skill listing via [`prepare_turn_skill_listing`], injects it as
@@ -224,7 +233,15 @@ impl ConversationSession {
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`] has been injected.
-    pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
+    ///
+    /// The target (when the caller reports one) travels with this call's
+    /// return value — no shared state — so concurrent sessions can never
+    /// observe another session's target; `None` (test fakes / stub paths)
+    /// degrades to session-config semantics.
+    pub async fn invoke_llm_with_target(
+        &mut self,
+        content: &str,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -251,7 +268,7 @@ impl ConversationSession {
         if let Some(sh) = self.get_shutdown_handle() {
             sh.increment_busy();
         }
-        let result = caller.call(request).await;
+        let result = caller.call_with_target(request).await;
         if let Some(sh) = self.get_shutdown_handle() {
             sh.decrement_busy();
         }
@@ -259,6 +276,14 @@ impl ConversationSession {
     }
 
     /// Make a streaming LLM call via the injected [`LlmCaller`].
+    pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+        self.invoke_llm_streaming_with_target(content)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// Make a streaming LLM call via the injected [`LlmCaller`] and return
+    /// the actually-used [`CallTarget`] with the stream.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
     /// skill listing via [`prepare_turn_skill_listing`], injects it as
@@ -271,10 +296,18 @@ impl ConversationSession {
     /// call [`SessionStream::into_content_blocks`] to extract the
     /// assembled result.
     ///
+    /// The target (when the caller reports one) travels with this call's
+    /// return value — no shared state — so concurrent sessions can never
+    /// observe another session's target; `None` (test fakes / stub paths)
+    /// degrades to session-config semantics.
+    ///
     /// The caller (Gateway) is responsible for consuming the stream
     /// for real-time rendering via
     /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
-    pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
+    pub async fn invoke_llm_streaming_with_target(
+        &mut self,
+        content: &str,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM streaming calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -301,7 +334,7 @@ impl ConversationSession {
         if let Some(sh) = self.get_shutdown_handle() {
             sh.increment_busy();
         }
-        let raw_stream = match caller.call_streaming(request).await {
+        let (raw_stream, call_target) = match caller.call_streaming_with_target(request).await {
             Ok(s) => s,
             Err(e) => {
                 // Stream creation failed — decrement busy count immediately.
@@ -316,8 +349,8 @@ impl ConversationSession {
         // Attach shutdown handle so SessionStream decrements busy count
         // when the stream finishes or errors.
         Ok(match self.get_shutdown_handle() {
-            Some(sh) => stream.with_shutdown_handle(sh),
-            None => stream,
+            Some(sh) => (stream.with_shutdown_handle(sh), call_target),
+            None => (stream, call_target),
         })
     }
 

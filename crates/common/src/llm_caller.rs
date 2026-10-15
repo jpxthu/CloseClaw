@@ -79,15 +79,41 @@ pub trait LlmCaller: Send + Sync {
         false
     }
 
-    /// Returns the actually-used [`CallTarget`] (provider/model) of the
-    /// most recent successful call, if the implementation can report it.
+    /// Make a non-streaming LLM call and return the actually-used
+    /// [`CallTarget`] (provider/model) alongside the response.
     ///
-    /// Production fallback-backed implementations record the chain entry
-    /// that actually served the last successful call (streaming,
-    /// non-streaming, and degraded paths alike). The default returns
-    /// `None` so test fakes and simple callers need no changes; callers
-    /// of this method must degrade to session-config semantics on `None`.
-    fn last_call_target(&self) -> Option<CallTarget> {
-        None
+    /// The target travels with this call's return value — implementations
+    /// hold no shared state — so concurrent callers each observe their own
+    /// target and can never read a target overwritten by another call.
+    ///
+    /// Default implementation delegates to [`LlmCaller::call`] and reports
+    /// no target, so test fakes and simple callers need no changes;
+    /// consumers degrade to session-config semantics on `None`.
+    async fn call_with_target(
+        &self,
+        request: InternalRequest,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        let response = self.call(request).await?;
+        Ok((response, None))
+    }
+
+    /// Make a streaming LLM call and return the actually-used
+    /// [`CallTarget`] (provider/model) alongside the stream.
+    ///
+    /// Like [`LlmCaller::call_with_target`], the target is bound to this
+    /// call's return value (no shared state). Default implementation
+    /// delegates to [`LlmCaller::call_streaming`] and reports no target.
+    async fn call_streaming_with_target(
+        &self,
+        request: InternalRequest,
+    ) -> Result<
+        (
+            Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
+            Option<CallTarget>,
+        ),
+        LLMError,
+    > {
+        let stream = self.call_streaming(request).await?;
+        Ok((stream, None))
     }
 }

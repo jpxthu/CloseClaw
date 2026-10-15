@@ -68,12 +68,6 @@ pub struct UnifiedFallbackClient {
     cooldown: Arc<CooldownManager>,
     /// Optional debug-log instance for structured event emission.
     debug_log: Option<DebugLog>,
-    /// Actually-used call target of the most recent successful call.
-    ///
-    /// Shared across clones (`Arc`) so every handle of the same client
-    /// observes the same slot; overwritten only by the next successful
-    /// call (streaming, non-streaming, and degraded paths alike).
-    last_target: Arc<std::sync::Mutex<Option<CallTarget>>>,
 }
 
 impl std::fmt::Debug for UnifiedFallbackClient {
@@ -103,7 +97,6 @@ impl UnifiedFallbackClient {
             chain,
             cooldown,
             debug_log: None,
-            last_target: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -122,32 +115,15 @@ impl UnifiedFallbackClient {
             chain,
             cooldown,
             debug_log,
-            last_target: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
-    /// Returns the actually-used [`CallTarget`] of the most recent
-    /// successful call through this client.
-    ///
-    /// `None` before any call has succeeded. The slot persists until
-    /// the next successful call, so consumers that read it right after
-    /// a round's usage has fully arrived observe that round's target.
-    pub fn last_call_target(&self) -> Option<CallTarget> {
-        self.last_target
-            .lock()
-            .expect("last_call_target lock poisoned")
-            .clone()
-    }
-
-    /// Records the actually-used call target after a successful call.
-    fn record_call_target(&self, entry: &ChainEntry) {
-        *self
-            .last_target
-            .lock()
-            .expect("last_call_target lock poisoned") = Some(CallTarget {
+    /// Build the [`CallTarget`] identifying the chain entry that served a call.
+    fn call_target_of(entry: &ChainEntry) -> CallTarget {
+        CallTarget {
             provider_id: entry.provider_id.clone(),
             model_id: entry.model_id.clone(),
-        });
+        }
     }
 
     /// Returns a reference to the first client in the chain.
@@ -176,8 +152,25 @@ impl UnifiedFallbackClient {
     /// the complete response as a single-chunk stream.
     pub async fn chat_streaming(
         &self,
-        mut request: InternalRequest,
+        request: InternalRequest,
     ) -> Result<OutgoingEventStream, ClientError> {
+        self.chat_streaming_with_target(request)
+            .await
+            .map(|(stream, _)| stream)
+    }
+
+    /// Send a streaming chat request through the fallback chain and return
+    /// the actually-served entry's [`CallTarget`] with the stream.
+    ///
+    /// The target travels with this call's return value only — there is no
+    /// shared slot — so concurrent calls through clones of the same client
+    /// each observe their own target. Covers all three success points:
+    /// streaming success, non-streaming success (via [`Self::chat`]), and
+    /// the degraded stream.
+    pub async fn chat_streaming_with_target(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<(OutgoingEventStream, Option<CallTarget>), ClientError> {
         let trace_id = generate_trace_id("llm");
         // Emit llm.call.start for streaming.
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
@@ -231,7 +224,6 @@ impl UnifiedFallbackClient {
                             self.cooldown
                                 .record_success(&entry.provider_id, &entry.model_id)
                                 .await;
-                            self.record_call_target(entry);
                             // Emit llm.call.end on streaming success.
                             debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
                                 ctx: LlmDebugLogContext::new(
@@ -248,7 +240,10 @@ impl UnifiedFallbackClient {
                                 }),
                                 parent: None,
                             });
-                            return Ok(stream);
+                            // Success point 1/3: streaming success — the
+                            // serving entry's target is returned with the
+                            // stream (no shared slot).
+                            return Ok((stream, Some(Self::call_target_of(entry))));
                         }
                         Err(client_err) => {
                             let llm_err: LLMError = client_err.into();
@@ -294,18 +289,22 @@ impl UnifiedFallbackClient {
     ///
     /// Walks the chain without cooldown checks (the streaming cooldown
     /// should not block a non-streaming attempt) and wraps the first
-    /// successful response as a single-chunk [`OutgoingEventStream`].
+    /// successful response as a single-chunk [`OutgoingEventStream`],
+    /// returning the serving entry's [`CallTarget`] alongside.
     async fn degraded_stream(
         &self,
         mut request: InternalRequest,
-    ) -> Result<OutgoingEventStream, ClientError> {
+    ) -> Result<(OutgoingEventStream, Option<CallTarget>), ClientError> {
         tracing::warn!("all streaming entries failed, degrading to non-streaming");
         for entry in &self.chain {
             request.model = entry.model_id.clone();
             match entry.client.chat(request.clone()).await {
                 Ok(response) => {
-                    self.record_call_target(entry);
-                    return Ok(response_to_stream(response));
+                    // Success point 3/3: degraded (non-streaming) success.
+                    return Ok((
+                        response_to_stream(response),
+                        Some(Self::call_target_of(entry)),
+                    ));
                 }
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();
@@ -334,7 +333,22 @@ impl UnifiedFallbackClient {
     /// Iterates through [`chain`](Self::chain) entries, skipping those in
     /// cooldown. Returns the first successful [`UnifiedResponse`], or an error
     /// if all entries are exhausted.
-    pub async fn chat(&self, mut request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+    pub async fn chat(&self, request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+        self.chat_with_target(request)
+            .await
+            .map(|(response, _)| response)
+    }
+
+    /// Send a chat request through the fallback chain and return the
+    /// actually-served entry's [`CallTarget`] with the response.
+    ///
+    /// The target travels with this call's return value only — there is no
+    /// shared slot — so concurrent calls through clones of the same client
+    /// each observe their own target.
+    pub async fn chat_with_target(
+        &self,
+        mut request: InternalRequest,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         let trace_id = generate_trace_id("llm");
         // Emit llm.call.start
         debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
@@ -386,7 +400,6 @@ impl UnifiedFallbackClient {
                     self.cooldown
                         .record_success(&entry.provider_id, &entry.model_id)
                         .await;
-                    self.record_call_target(entry);
                     // Emit llm.call.end on success.
                     debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
                         ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),
@@ -399,7 +412,10 @@ impl UnifiedFallbackClient {
                         }),
                         parent: None,
                     });
-                    return Ok(response);
+                    // Success point 2/3: non-streaming success — the
+                    // serving entry's target is returned with the response
+                    // (no shared slot).
+                    return Ok((response, Some(Self::call_target_of(entry))));
                 }
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();

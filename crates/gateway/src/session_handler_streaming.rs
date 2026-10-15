@@ -25,8 +25,8 @@ use closeclaw_llm::session_state::LlmState;
 use closeclaw_llm::streaming::StreamDone;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_llm::LLMError;
-use closeclaw_session::llm_session::SessionStream;
-use closeclaw_session::llm_session::{ChatSession, ConversationSession};
+use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::llm_session::ConversationSession;
 
 /// Metadata key: marks a checkpoint message as having been interrupted
 /// by a streaming error (as opposed to normal completion).
@@ -68,7 +68,14 @@ impl SessionMessageHandler {
         super::session_handler_reasoning::resolve_before_llm_call(session_manager, session_id)
             .await;
 
-        let session_stream: SessionStream = cs.write().await.invoke_llm_streaming(content).await?;
+        // The call target (when the underlying caller reports one) is
+        // returned by the invocation itself — per-call return value, no
+        // shared state — and attached to the StreamResult below.
+        let (session_stream, call_target) = cs
+            .write()
+            .await
+            .invoke_llm_streaming_with_target(content)
+            .await?;
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =
@@ -127,7 +134,7 @@ impl SessionMessageHandler {
             }
         }
 
-        let stream_result = dispatch_result.map_err(|e| {
+        let mut stream_result = dispatch_result.map_err(|e| {
             if let Some(ref s) = sink {
                 handle_stream_error(e, s.as_ref())
             } else {
@@ -135,6 +142,7 @@ impl SessionMessageHandler {
                 LLMError::ApiError(msg)
             }
         })?;
+        stream_result.call_target = call_target;
 
         // Best-effort: notify sink of stream completion with usage, so
         // CLI/websocket consumers see a matching `send_done` after the

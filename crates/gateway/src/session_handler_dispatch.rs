@@ -449,13 +449,12 @@ impl SessionMessageHandler {
         let stream_enabled = cs.read().await.stream_enabled();
         if stream_enabled {
             if let (Some(gw), Some(pl)) = (gw, pl) {
-                let result =
-                    Self::call_llm_streaming(cs, content, meta, sm, session_id, channel, gw, pl)
-                        .await;
-                return match result {
-                    Ok(stream_result) => Ok(attach_call_target(cs, stream_result).await),
-                    Err(err) => Err(err),
-                };
+                // call_llm_streaming attaches the round's actual call
+                // target to the returned `StreamResult` itself.
+                return Self::call_llm_streaming(
+                    cs, content, meta, sm, session_id, channel, gw, pl,
+                )
+                .await;
             }
             tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
         }
@@ -629,37 +628,22 @@ impl SessionMessageHandler {
     }
 }
 
-/// Attach the round's actually-used call target to a `StreamResult`.
-///
-/// Reads the target reported by the session's injected
-/// [`LlmCaller`] via its extension method. `None` (fakes / stub
-/// paths) is preserved; consumers degrade to session-config
-/// semantics for the cache check's model identifier.
-pub(super) async fn attach_call_target(
-    cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
-    mut stream_result: super::outbound::StreamResult,
-) -> super::outbound::StreamResult {
-    stream_result.call_target = cs
-        .read()
-        .await
-        .llm_caller()
-        .and_then(|caller| caller.last_call_target());
-    stream_result
-}
-
 /// Non-streaming LLM invocation with the call target attached.
 ///
 /// Shared by the main dispatch path and the announce drain / retry
 /// paths so every production `StreamResult` carries the actual
 /// (provider/model) target for the unified cache-check advancement
-/// point.
+/// point. The target is returned by the invocation itself (per-call
+/// return value, no shared state), so concurrent sessions can never
+/// read another session's target.
 pub(super) async fn invoke_llm_with_call_target(
     cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
     content: &str,
 ) -> Result<super::outbound::StreamResult, closeclaw_llm::LLMError> {
-    let response = cs.write().await.invoke_llm(content).await?;
-    let stream_result: super::outbound::StreamResult = response.into();
-    Ok(attach_call_target(cs, stream_result).await)
+    let (response, call_target) = cs.write().await.invoke_llm_with_target(content).await?;
+    let mut stream_result: super::outbound::StreamResult = response.into();
+    stream_result.call_target = call_target;
+    Ok(stream_result)
 }
 
 #[cfg(test)]
