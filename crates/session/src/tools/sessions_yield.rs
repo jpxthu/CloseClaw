@@ -142,7 +142,7 @@ impl Tool for SessionsYieldTool {
 ///
 /// Per the design doc: `max(child timeouts) + 60s buffer`.
 /// When no child provides an explicit timeout, falls back to
-/// [`DEFAULT_YIELD_TIMEOUT_SECS`].
+/// `DEFAULT_YIELD_TIMEOUT_SECS`.
 ///
 /// This function is testable independently of the async tool call path.
 pub fn compute_overall_timeout(children: &[crate::spawn::ChildSessionInfo]) -> u64 {

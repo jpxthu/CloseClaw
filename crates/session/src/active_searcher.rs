@@ -1,6 +1,6 @@
 //! Active-searcher runner for sessions.
 //!
-//! Provides [`ActiveSearcherRunner`] which encapsulates spawning a
+//! Provides `ActiveSearcherRunner` which encapsulates spawning a
 //! background active-searcher task with lifecycle management
 //! (`JoinHandle` tracking) and configurable timeout.
 //!
@@ -21,7 +21,7 @@ type BoxFuture<T> = Pin<Box<dyn Future<Output = T> + Send + 'static>>;
 /// A lightweight snapshot of a session message, decoupled from
 /// `closeclaw-llm::session::SessionMessage`.
 ///
-/// Used by [`ActiveSearcherRunner`] to pass context messages across
+/// Used by `ActiveSearcherRunner` to pass context messages across
 /// crate boundaries without depending on the LLM crate.
 #[derive(Debug, Clone)]
 pub struct SessionMessageSnapshot {

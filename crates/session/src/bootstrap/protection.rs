@@ -48,7 +48,7 @@ impl BootstrapProtection {
         self
     }
 
-    /// Set bootstrap files based on a [`BootstrapMode`].
+    /// Set bootstrap files based on a [`super::BootstrapMode`].
     ///
     /// Minimal mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md"]`
     /// Full mode: `["AGENTS.md", "SOUL.md", "IDENTITY.md", "USER.md", "TOOLS.md", "BOOTSTRAP.md"]`
