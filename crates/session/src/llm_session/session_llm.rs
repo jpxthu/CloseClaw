@@ -46,7 +46,8 @@ impl ConversationSession {
             .take()
     }
 
-    /// Inject a [`DynamicPromptBuilder`] for per-request dynamic-layer injection.
+    /// Inject a [`DynamicPromptBuilder`](closeclaw_common::DynamicPromptBuilder)
+    /// for per-request dynamic-layer injection.
     pub fn set_dynamic_prompt_builder(
         &mut self,
         b: std::sync::Arc<dyn closeclaw_common::DynamicPromptBuilder>,
@@ -215,7 +216,8 @@ impl ConversationSession {
                 .any(|name| line.contains(&format!("**{}**:", name)))
     }
 
-    /// Make a non-streaming LLM call via the injected [`LlmCaller`].
+    /// Make a non-streaming LLM call via the injected
+    /// [`LlmCaller`](closeclaw_common::LlmCaller).
     ///
     /// Test-only convenience wrapper (Step 1.8 ③): production call sites
     /// must use [`Self::invoke_llm_with_target`] so the unified
@@ -229,17 +231,18 @@ impl ConversationSession {
             .map(|(response, _)| response)
     }
 
-    /// Make a non-streaming LLM call via the injected [`LlmCaller`] and
+    /// Make a non-streaming LLM call via the injected
+    /// [`LlmCaller`](closeclaw_common::LlmCaller) and
     /// return the actually-used [`CallTarget`] with the response.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
-    /// skill listing via [`prepare_turn_skill_listing`], injects it as
-    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// skill listing via `Self::prepare_turn_skill_listing`, injects it as
+    /// the instruction block via `Self::build_llm_messages_with_listing`,
     /// then delegates to the LLM caller.
     ///
     /// Builds an [`InternalRequest`], consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
-    /// an error if no [`LlmCaller`] has been injected.
+    /// an error if no [`LlmCaller`](closeclaw_common::LlmCaller) has been injected.
     ///
     /// The target (when the caller reports one) travels with this call's
     /// return value — no shared state — so concurrent sessions can never
@@ -320,23 +323,25 @@ impl ConversationSession {
         result
     }
 
-    /// Make a streaming LLM call via the injected [`LlmCaller`].
+    /// Make a streaming LLM call via the injected
+    /// [`LlmCaller`](closeclaw_common::LlmCaller).
     pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
         self.invoke_llm_streaming_with_target(content)
             .await
             .map(|(stream, _)| stream)
     }
 
-    /// Make a streaming LLM call via the injected [`LlmCaller`] and return
+    /// Make a streaming LLM call via the injected
+    /// [`LlmCaller`](closeclaw_common::LlmCaller) and return
     /// the actually-used [`CallTarget`] with the stream.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
-    /// skill listing via [`prepare_turn_skill_listing`], injects it as
-    /// the instruction block via [`build_llm_messages_with_listing`],
+    /// skill listing via `Self::prepare_turn_skill_listing`, injects it as
+    /// the instruction block via `Self::build_llm_messages_with_listing`,
     /// then delegates to the LLM caller.
     ///
     /// Returns a [`SessionStream`] that wraps the raw LLM event stream
-    /// and accumulates [`ContentBlock`](closeclaw_common::ContentBlock)s
+    /// and accumulates [`ContentBlock`]s
     /// as events pass through. After the stream is fully consumed,
     /// call [`SessionStream::into_content_blocks`] to extract the
     /// assembled result.
@@ -347,8 +352,7 @@ impl ConversationSession {
     /// degrades to session-config semantics.
     ///
     /// The caller (Gateway) is responsible for consuming the stream
-    /// for real-time rendering via
-    /// [`Gateway::send_outbound_streaming`](crate::Gateway::send_outbound_streaming).
+    /// for real-time rendering via `Gateway::send_outbound_streaming`.
     pub async fn invoke_llm_streaming_with_target(
         &mut self,
         content: &str,
