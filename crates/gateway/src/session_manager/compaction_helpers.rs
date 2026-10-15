@@ -80,7 +80,7 @@ impl SessionManager {
     /// Save a pre-compaction snapshot of the session messages.
     ///
     /// Must be called **before** compaction begins so that a failed
-    /// compaction can be rolled back via [`rollback_compaction`].
+    /// compaction can be rolled back via [`Self::rollback_compaction`].
     ///
     /// Delegates to the session's internal snapshot manager — no
     /// external snapshot management needed.

@@ -1,7 +1,7 @@
 //! Gateway-level permission command handlers.
 //!
 //! Contains the [`Gateway`] methods for new-user registration logic.
-//! `/perm` and `/user` commands are now routed through [`SlashDispatcher`]
+//! `/perm` and `/user` commands are now routed through `SlashDispatcher`
 //! like any other slash command, consistent with the design doc.
 
 use crate::{Gateway, HandleResult};

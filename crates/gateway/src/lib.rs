@@ -267,8 +267,9 @@ impl Gateway {
 
     /// Register an outbound middleware.
     ///
-    /// Middlewares run in insertion order between [`IMPlugin::render`]
-    /// and [`IMPlugin::send`] on every outbound message.
+    /// Middlewares run in insertion order between
+    /// [`IMPlugin::render`](closeclaw_common::IMPlugin::render)
+    /// and [`IMPlugin::send`](closeclaw_common::IMPlugin::send) on every outbound message.
     pub fn add_outbound_middleware(&self, mw: Arc<dyn closeclaw_common::OutboundMiddleware>) {
         if let Ok(mut mws) = self.outbound_middlewares.write() {
             mws.push(mw);

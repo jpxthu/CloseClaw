@@ -1,4 +1,4 @@
-//! Helper functions for [`GatewaySlashExecutor`](super::GatewaySlashExecutor).
+//! Helper functions for `GatewaySlashExecutor`.
 //!
 //! Extracted from `slash_permission.rs` to keep individual files under the
 //! 800-line soft limit. Each function is `pub(crate)` so the executor impl

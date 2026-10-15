@@ -1,7 +1,7 @@
 //! `LlmCaller` trait implementations for the gateway layer.
 //!
 //! Implements [`closeclaw_common::llm_caller::LlmCaller`] via newtype wrappers
-//! around [`UnifiedFallbackClient`](closeclaw_llm::unified_fallback::UnifiedFallbackClient)
+//! around [`UnifiedFallbackClient`]
 //! and [`UnifiedChatClient`](closeclaw_llm::client::UnifiedChatClient).
 //!
 //! These implementations live in the gateway crate because `closeclaw-session`

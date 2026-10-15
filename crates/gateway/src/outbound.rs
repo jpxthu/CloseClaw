@@ -1,7 +1,7 @@
 //! Outbound message routing for the Gateway.
 //!
 //! Handles rendering and dispatching agent responses through the unified
-//! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
+//! [`IMPlugin`] registry.
 
 use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::{
@@ -39,7 +39,7 @@ pub struct StreamResult {
     /// DSL instruction result extracted from processor chain metadata.
     pub dsl_result: Option<String>,
     /// Actually-used (provider/model) call target of this round,
-    /// returned by the underlying [`LlmCaller`] invocation via its
+    /// returned by the underlying [`LlmCaller`](closeclaw_common::LlmCaller) invocation via its
     /// `call_with_target` / `call_streaming_with_target` extension
     /// methods. `None` when the caller does not report a target
     /// (test fakes / stub paths) — consumers degrade to the session
@@ -167,7 +167,7 @@ impl Gateway {
     ///
     /// Streaming mode also runs VerbosityFilter — during the incremental phase
     /// at block boundaries — and skips it in the finish phase (see
-    /// [`finish_streaming_pipeline`]).
+    /// `finish_streaming_pipeline`).
     pub async fn send_outbound(
         &self,
         session_id: &str,
@@ -537,7 +537,7 @@ impl Gateway {
 
     /// Send a streaming LLM response via the registered IM plugin.
     ///
-    /// Delegates to [`send_outbound_streaming_inner`] for core logic.
+    /// Delegates to `send_outbound_streaming_inner` for core logic.
     pub async fn send_outbound_streaming<E: std::fmt::Display>(
         &self,
         session_id: &str,
