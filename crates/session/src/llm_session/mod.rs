@@ -1,8 +1,8 @@
 //! Session layer for LLM conversations.
 //!
 //! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`.
-//! See [`crate::session_handles`] for cancel/cascade-stop and
-//! [`super::session_chat`] for the `ChatSession` impl.
+//! See [`session_handles`] for cancel/cascade-stop and
+//! `session_chat` for the `ChatSession` impl.
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -124,27 +124,27 @@ pub struct ConversationSession {
     /// System-injected append-section items (e.g. workflow context, recovery).
     /// Not persisted — re-injected at runtime by functional modules.
     system_injection_appends: Vec<String>,
-    /// LLM interaction state. See [`super::session_state`].
+    /// LLM interaction state. See [`closeclaw_common::session_state`].
     pub llm_state: Arc<RwLock<LlmState>>,
-    /// Per-call tool states. See [`super::session_state`].
+    /// Per-call tool states. See [`closeclaw_common::session_state`].
     pub tool_states: Arc<RwLock<HashMap<String, (ToolExecState, Option<PendingOperationDetail>)>>>,
-    /// Per-child session states. See [`super::session_state`].
+    /// Per-child session states. See [`closeclaw_common::session_state`].
     pub child_states:
         Arc<RwLock<HashMap<String, (ChildSessionState, Option<PendingOperationDetail>)>>>,
     /// When this session was created (Unix seconds).
     created_at: i64,
-    /// Tool process kill handles. See [`super::session_handles`].
+    /// Tool process kill handles. See [`session_handles`].
     pub tool_handles: Arc<RwLock<HashMap<String, Arc<dyn KillHandle>>>>,
-    /// Spawned child sessions. See [`super::session_handles`].
+    /// Spawned child sessions. See [`session_handles`].
     pub child_handles:
         Arc<RwLock<HashMap<String, std::sync::Weak<tokio::sync::RwLock<ConversationSession>>>>>,
-    /// Cancellation token. See [`super::session_handles`].
+    /// Cancellation token. See [`session_handles`].
     pub cancel_token: CancellationToken,
-    /// `stop()` idempotency flag. See [`super::session_handles`].
+    /// `stop()` idempotency flag. See [`session_handles`].
     pub stopped: Arc<AtomicBool>,
     /// Per-session snapshot manager for transcript rollback safety, created lazily.
     snapshot_manager: Option<RuntimeSnapshotManager>,
-    /// Per-session health checker (Arc<Mutex> for Clone compat).
+    /// Per-session health checker (`Arc<Mutex>` for Clone compat).
     health_checker: Option<Arc<tokio::sync::Mutex<RunHealthChecker>>>,
     /// Active-yield flag; when true, user messages are queued.
     is_yielding: Arc<AtomicBool>,
@@ -288,7 +288,7 @@ impl ConversationSession {
     }
 
     /// Builder variant of `new` that wires the cancel token to a
-    /// parent-derived child token. See [`super::session_handles`].
+    /// parent-derived child token. See [`session_handles`].
     pub fn with_cancel_token(
         session_id: String,
         model: String,
@@ -420,8 +420,8 @@ impl ConversationSession {
     /// Inject a [`ToolRegistryQuery`] into this session.
     ///
     /// Called by Gateway after session creation so the builder can
-    /// propagate the registry through [`FragmentContext`] to
-    /// [`ToolsFragmentProvider`](closeclaw_tools::ToolsFragmentProvider).
+    /// propagate the registry through [`closeclaw_common::FragmentContext`] to
+    /// `ToolsFragmentProvider`.
     pub fn set_tool_registry(&mut self, registry: Arc<dyn ToolRegistryQuery>) {
         self.tool_registry = Some(registry);
     }

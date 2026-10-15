@@ -56,7 +56,8 @@ impl ConversationSession {
 
     /// Returns the phase of the active workflow run as a string.
     ///
-    /// The stored `Value` is decoded through the injected [`WorkflowPort`],
+    /// The stored `Value` is decoded through the injected
+    /// [`WorkflowPort`](crate::workflow_port::WorkflowPort),
     /// so no workflow type surfaces outside the session crate. Returns
     /// `Ok(None)` when no run is stored, the run has completed, or no port
     /// is injected, and `Err` when the stored value cannot be decoded —

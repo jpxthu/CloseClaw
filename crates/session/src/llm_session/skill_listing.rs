@@ -95,13 +95,15 @@ impl ConversationSession {
     /// Skill listing state (`skill_listing_snapshot` and
     /// `activated_conditional_skills`) is session-level state that
     /// must survive compaction. During compaction, the transcript is
-    /// rewritten via [`super::transcript_ops::apply_transcript_op`],
+    /// rewritten via
+    /// [`apply_transcript_op`](super::ConversationSession::apply_transcript_op),
     /// but these fields are independent of the transcript and are not
     /// affected by that operation. This method explicitly documents
     /// the protection intent and ensures the state remains intact:
     ///
     /// - `skill_listing_snapshot` remains valid for the next turn's
-    ///   incremental diff computation in [`compute_skill_listing_for_turn`].
+    ///   incremental diff computation in
+    ///   `Self::compute_skill_listing_for_turn`.
     /// - `activated_conditional_skills` persists so conditionally
     ///   activated skills remain available in subsequent turns.
     ///

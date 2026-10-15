@@ -23,7 +23,8 @@ pub const JUMP_MESSAGE_PREFIX: &str = "Jump Step";
 
 /// Handler lifecycle and verify-message transcript cleanup.
 impl ConversationSession {
-    /// Lazily build the [`WorkflowHandler`] if a `workflow_run` exists
+    /// Lazily build the [`WorkflowHandler`](crate::workflow_handler::WorkflowHandler)
+    /// if a `workflow_run` exists
     /// but no handler is present.
     ///
     /// Loads the workflow definition via the injected
@@ -72,7 +73,7 @@ impl ConversationSession {
     /// Remove only verify messages from the transcript.
     ///
     /// A verify message is identified by `role == "workflow"` and text
-    /// content starting with [`VERIFY_MESSAGE_PREFIX`]. Goal and
+    /// content starting with `VERIFY_MESSAGE_PREFIX`. Goal and
     /// recovered messages are preserved.
     pub fn remove_workflow_verify_messages(&mut self) {
         self.remove_workflow_messages_with_prefix(VERIFY_MESSAGE_PREFIX);
@@ -81,7 +82,7 @@ impl ConversationSession {
     /// Remove only jump messages from the transcript.
     ///
     /// A jump message is identified by `role == "workflow"` and text
-    /// content starting with [`JUMP_MESSAGE_PREFIX`]. Goal and
+    /// content starting with `JUMP_MESSAGE_PREFIX`. Goal and
     /// recovered messages are preserved.
     pub fn remove_workflow_jump_messages(&mut self) {
         self.remove_workflow_messages_with_prefix(JUMP_MESSAGE_PREFIX);

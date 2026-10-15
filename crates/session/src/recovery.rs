@@ -844,7 +844,7 @@ pub(crate) fn extract_tasks_from_content(content: &str) -> Option<String> {
 // ---------------------------------------------------------------------------
 // Layer 4: ProgressTool call history fallback
 // ---------------------------------------------------------------------------
-/// Scan a list of [`SessionMessage`]s for ProgressTool calls and return
+/// Scan a list of [`crate::llm_session::SessionMessage`]s for ProgressTool calls and return
 /// them as [`ProgressToolCallRecord`]s.
 ///
 /// Scans all assistant messages for `ContentBlock::ToolUse` blocks where
