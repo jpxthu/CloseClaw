@@ -46,6 +46,12 @@ impl SessionMessageHandler {
     ///    [`SinkUpdater`][closeclaw_llm::SinkUpdater].
     /// 2. Racing the stream against a cancellation token.
     /// 3. Dispatching through [`Gateway::send_outbound_streaming`].
+    ///
+    /// `user_blocks_pre_appended` is the caller's explicit declaration
+    /// that the current user message was already appended to history in
+    /// structured blocks form; it selects the matching session invoke
+    /// variant so the build-side push dedup guard can recognize the
+    /// blocks-form tail as the same logical message.
     #[allow(clippy::too_many_arguments)]
     pub(super) async fn call_llm_streaming(
         cs: &Arc<tokio::sync::RwLock<ConversationSession>>,
@@ -56,6 +62,7 @@ impl SessionMessageHandler {
         channel: &str,
         gateway: &Arc<Gateway>,
         plugin: &Arc<dyn IMPlugin>,
+        user_blocks_pre_appended: bool,
     ) -> Result<StreamResult, LLMError> {
         // ── Open LLM stream via ConversationSession ──
         // Set per-request context for dynamic-layer injection before
@@ -71,11 +78,17 @@ impl SessionMessageHandler {
         // The call target (when the underlying caller reports one) is
         // returned by the invocation itself — per-call return value, no
         // shared state — and attached to the StreamResult below.
-        let (session_stream, call_target) = cs
-            .write()
-            .await
-            .invoke_llm_streaming_with_target(content)
-            .await?;
+        let (session_stream, call_target) = if user_blocks_pre_appended {
+            cs.write()
+                .await
+                .invoke_llm_streaming_with_target_pre_appended_blocks(content)
+                .await?
+        } else {
+            cs.write()
+                .await
+                .invoke_llm_streaming_with_target(content)
+                .await?
+        };
 
         // Retrieve the session's streaming sink (if any) for delta notifications.
         let sink: Option<Arc<dyn closeclaw_llm::streaming::StreamingSink>> =

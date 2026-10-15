@@ -353,6 +353,7 @@ impl SessionMessageHandler {
                     super::session_handler_dispatch::invoke_llm_with_call_target(
                         &cs,
                         &pending.content,
+                        false,
                     )
                     .await
                 } else {
@@ -506,7 +507,7 @@ impl SessionMessageHandler {
             .await;
         let result: Result<StreamResult, LLMError> = {
             if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
-                super::session_handler_dispatch::invoke_llm_with_call_target(&cs, "").await
+                super::session_handler_dispatch::invoke_llm_with_call_target(&cs, "", false).await
             } else {
                 Err(LLMError::InvalidRequest(
                     "session not found for retry".to_string(),

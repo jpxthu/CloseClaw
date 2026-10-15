@@ -86,7 +86,7 @@ async fn test_skill_listing_injection_emits_event() {
     // (a descendant of `llm_session`), so it is reachable directly.
     let listing = Some("- **skill-a**: desc-a\n- **skill-b**: desc-b".to_string());
     let (_messages, output) = capture_logs(
-        || session.build_llm_messages_with_listing("hello", listing),
+        || session.build_llm_messages_with_listing("hello", listing, false),
         tracing::Level::INFO,
     );
 
@@ -112,7 +112,7 @@ async fn test_empty_listing_no_event() {
 
     let listing = Some(String::new());
     let (_messages, output) = capture_logs(
-        || session.build_llm_messages_with_listing("hello", listing),
+        || session.build_llm_messages_with_listing("hello", listing, false),
         tracing::Level::INFO,
     );
 
@@ -129,7 +129,7 @@ async fn test_none_listing_no_event() {
     let session = session_with_provider("some listing content");
 
     let (_messages, output) = capture_logs(
-        || session.build_llm_messages_with_listing("hello", None),
+        || session.build_llm_messages_with_listing("hello", None, false),
         tracing::Level::INFO,
     );
 
@@ -147,7 +147,7 @@ async fn test_single_entry_listing_event_fields() {
 
     let listing = Some("- **solo-skill**: only one".to_string());
     let (_messages, output) = capture_logs(
-        || session.build_llm_messages_with_listing("hello", listing),
+        || session.build_llm_messages_with_listing("hello", listing, false),
         tracing::Level::INFO,
     );
 
@@ -174,7 +174,7 @@ async fn test_listing_with_blank_lines_count() {
 
     let listing = Some("a\n\nb".to_string());
     let (_messages, output) = capture_logs(
-        || session.build_llm_messages_with_listing("hello", listing),
+        || session.build_llm_messages_with_listing("hello", listing, false),
         tracing::Level::INFO,
     );
 

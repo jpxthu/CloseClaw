@@ -242,6 +242,33 @@ impl ConversationSession {
         &mut self,
         content: &str,
     ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        self.invoke_llm_with_target_inner(content, false).await
+    }
+
+    /// Pre-appended-blocks variant of [`Self::invoke_llm_with_target`].
+    ///
+    /// For the gateway production path where the current user message
+    /// was already appended to history in structured blocks form
+    /// (embedded small-image messages). The blocks-form tail flattens
+    /// to `content=""` (Image blocks are excluded from the text
+    /// flatten), so string equality with the invoke content (the
+    /// gateway-flattened `[image: key] …\nbase64` text) is structurally
+    /// unreachable. The explicit declaration lets the build-side dedup
+    /// guard treat the blocks-form tail as the same logical message and
+    /// skip the duplicate push, keeping the sent list a tail-append
+    /// extension of the previous round.
+    pub async fn invoke_llm_with_target_pre_appended_blocks(
+        &mut self,
+        content: &str,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
+        self.invoke_llm_with_target_inner(content, true).await
+    }
+
+    async fn invoke_llm_with_target_inner(
+        &mut self,
+        content: &str,
+        user_blocks_pre_appended: bool,
+    ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -260,7 +287,8 @@ impl ConversationSession {
         };
 
         let listing = self.prepare_turn_skill_listing(content);
-        let messages = self.build_llm_messages_with_listing(content, listing);
+        let messages =
+            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
         let request = self.build_llm_request(messages, false);
 
@@ -318,6 +346,30 @@ impl ConversationSession {
         &mut self,
         content: &str,
     ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
+        self.invoke_llm_streaming_with_target_inner(content, false)
+            .await
+    }
+
+    /// Pre-appended-blocks variant of [`Self::invoke_llm_streaming_with_target`].
+    ///
+    /// Same explicit declaration as
+    /// [`Self::invoke_llm_with_target_pre_appended_blocks`], for the
+    /// gateway streaming dispatch path: the current user message was
+    /// already appended to history in structured blocks form, which
+    /// string equality cannot recognize as the message being invoked.
+    pub async fn invoke_llm_streaming_with_target_pre_appended_blocks(
+        &mut self,
+        content: &str,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
+        self.invoke_llm_streaming_with_target_inner(content, true)
+            .await
+    }
+
+    async fn invoke_llm_streaming_with_target_inner(
+        &mut self,
+        content: &str,
+        user_blocks_pre_appended: bool,
+    ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM streaming calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
             if sh.is_shutting_down() {
@@ -336,7 +388,8 @@ impl ConversationSession {
         };
 
         let listing = self.prepare_turn_skill_listing(content);
-        let messages = self.build_llm_messages_with_listing(content, listing);
+        let messages =
+            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
         let request = self.build_llm_request(messages, true);
 
@@ -398,10 +451,22 @@ impl ConversationSession {
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
+    ///
+    /// `user_blocks_pre_appended` is the caller's explicit declaration
+    /// that the current user message was already appended to history in
+    /// structured blocks form (gateway production path for embedded
+    /// small-image messages). Combined with the tail actually being a
+    /// blocks-carrying user message, the dedup guard below treats it as
+    /// the same logical message and skips the push. When the tail does
+    /// not match the declaration (e.g. compaction rewrote the history
+    /// between append and invoke), the guard falls back to the string
+    /// equality check and the push still happens — the message is never
+    /// lost.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
         skill_listing: Option<String>,
+        user_blocks_pre_appended: bool,
     ) -> Vec<InternalMessage> {
         let cleaned = Self::clean_thinking_content(&self.messages);
         let mut messages = Self::convert_history_to_internal(&cleaned);
@@ -413,12 +478,18 @@ impl ConversationSession {
         // Pushing again would send a temporary duplicate copy that never
         // enters history, so adjacent rounds stop being tail-append
         // extensions and the cache prefix check reports PrefixMismatch
-        // every round. Skip the push only on full equality (role +
-        // content) with the history tail: callers that did not
-        // pre-append (pending drain, tests) still get the push.
-        let duplicates_history_tail = messages
-            .last()
-            .is_some_and(|tail| tail.role == "user" && tail.content == content);
+        // every round. Skip the push on full equality (role + content)
+        // with the history tail, or — when the caller declared a
+        // blocks-form pre-append — on the tail being a user message
+        // carrying content blocks: Image blocks are excluded from the
+        // text flatten, so the blocks tail's content can never equal the
+        // gateway-flattened invoke text. Callers that did not pre-append
+        // (pending drain, tests) still get the push.
+        let duplicates_history_tail = messages.last().is_some_and(|tail| {
+            tail.role == "user"
+                && (tail.content == content
+                    || (user_blocks_pre_appended && tail.content_blocks.is_some()))
+        });
         if !duplicates_history_tail {
             messages.push(InternalMessage {
                 role: "user".to_string(),
