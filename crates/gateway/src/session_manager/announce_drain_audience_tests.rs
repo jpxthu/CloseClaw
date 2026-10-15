@@ -129,9 +129,18 @@ impl IMPlugin for RecordingPlugin {
 /// given checkpoint `sender_id`, a conversation session registered on
 /// channel "mock" (chat id via the `agent_id` convention), and a
 /// recording plugin registered under that channel.
+///
+/// The `TempDir` backing the manager's data directory is returned so it
+/// stays alive in the caller's (test) scope — dropping it here would
+/// delete the directory out from under the live SessionManager.
 async fn setup_route_test(
     sender_id: &str,
-) -> (Arc<SessionManager>, Arc<Gateway>, Arc<Mutex<Vec<String>>>) {
+) -> (
+    Arc<SessionManager>,
+    Arc<Gateway>,
+    Arc<Mutex<Vec<String>>>,
+    TempDir,
+) {
     clear_global_prompt_state();
     let tmp = TempDir::new().unwrap();
 
@@ -187,7 +196,7 @@ async fn setup_route_test(
         messages: Arc::clone(&messages),
     }) as Arc<dyn IMPlugin>)
         .await;
-    (mgr, gw, messages)
+    (mgr, gw, messages, tmp)
 }
 
 fn test_gateway_config() -> GatewayConfig {
@@ -201,7 +210,7 @@ fn test_gateway_config() -> GatewayConfig {
 /// prefixed text is delivered to the session channel via the plugin.
 #[tokio::test]
 async fn test_route_delivers_owner_only_to_owner_sender() {
-    let (mgr, gw, messages) = setup_route_test("owner").await;
+    let (mgr, gw, messages, _tmp) = setup_route_test("owner").await;
     {
         let cs = mgr.get_conversation_session(ROUTE_SID).await.unwrap();
         let mut cs = cs.write().await;
@@ -225,7 +234,7 @@ async fn test_route_delivers_owner_only_to_owner_sender() {
 /// silently dropped (plugin receives nothing, no error).
 #[tokio::test]
 async fn test_route_drops_owner_only_for_non_owner_sender() {
-    let (mgr, gw, messages) = setup_route_test("user-a").await;
+    let (mgr, gw, messages, _tmp) = setup_route_test("user-a").await;
     {
         let cs = mgr.get_conversation_session(ROUTE_SID).await.unwrap();
         let mut cs = cs.write().await;
@@ -255,7 +264,7 @@ async fn test_route_drops_owner_only_for_non_owner_sender() {
 /// sender role (legacy behavior unchanged).
 #[tokio::test]
 async fn test_route_delivers_all_audience_for_any_sender() {
-    let (mgr, gw, messages) = setup_route_test("user-a").await;
+    let (mgr, gw, messages, _tmp) = setup_route_test("user-a").await;
     {
         let cs = mgr.get_conversation_session(ROUTE_SID).await.unwrap();
         let mut cs = cs.write().await;

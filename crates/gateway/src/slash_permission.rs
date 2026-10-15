@@ -17,6 +17,7 @@ use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Caller, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+use closeclaw_session::llm_session::NotificationAudience;
 use closeclaw_session::persistence::PendingMessage;
 
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
@@ -104,14 +105,8 @@ impl Gateway {
             );
         }
         let text = closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
-        self.send_system_notification(
-            peer_id,
-            channel,
-            text,
-            closeclaw_session::llm_session::NotificationAudience::All,
-            None,
-        )
-        .await;
+        self.send_system_notification(peer_id, channel, text, NotificationAudience::All, None)
+            .await;
     }
 
     /// Dispatch a slash command with permission checks.

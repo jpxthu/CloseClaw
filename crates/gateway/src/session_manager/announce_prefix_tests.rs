@@ -14,7 +14,7 @@ use chrono::Utc;
 use closeclaw_common::ChildCompletionStatus;
 use closeclaw_common::NotificationPriority;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
+use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, NotificationAudience};
 use tempfile::TempDir;
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -827,8 +827,6 @@ async fn test_mixed_queue_only_announce_injected() {
 // the session side must survive queue → drain → route without being lost
 // and without polluting the `[紧急]`/`[注意]` text prefix (the flag is
 // carried independently of the message body).
-
-use closeclaw_session::llm_session::NotificationAudience;
 
 /// `drain_announces_filtered` carries the OwnerOnly declaration on the
 /// drained notification; the `[紧急]` prefix stays in `text` only and the

@@ -255,8 +255,28 @@ mod tests {
     fn test_load_scenarios_dir_all_fixtures() {
         let dir = fixture_scenarios_dir();
         let files = load_scenario_dir(&dir).unwrap();
-        // Should load all 12 fixture files without errors.
-        assert_eq!(files.len(), 12);
+        // Every scenario file in the directory must load without errors.
+        // Lower bound (not exact count): adding a fixture must not
+        // require touching this UT.
+        assert!(
+            files.len() >= 12,
+            "expected at least 12 scenario files, got {}",
+            files.len()
+        );
+        // Spot-check the cache-consistency fixture (added for the cache
+        // hit consistency check e2e coverage) is present and loadable.
+        let path = dir.join("cache-consistency.json");
+        let file = load_scenario_file(&path).unwrap();
+        let names: Vec<_> = file.scenarios.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(file.scenarios.len(), 3);
+        assert_eq!(
+            names,
+            vec![
+                "cache-append-normal",
+                "cache-drop-anomaly",
+                "cache-missing-exempt"
+            ]
+        );
     }
 
     #[test]

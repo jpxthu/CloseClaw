@@ -52,9 +52,11 @@ pub(crate) struct DrainResult {
 /// A drained system notification ready for outbound routing.
 ///
 /// The [`NotificationAudience`] declaration is carried **independently**
-/// of the text: the `[紧急]`/`[注意]` priority prefix is already
-/// concatenated into `text` by the drain, so the audience flag must not
-/// piggyback on the message body.
+/// of the text, so the audience flag never piggybacks on the message
+/// body. Note that the `text` prefix shape differs by drain path: only
+/// `drain_announces_filtered` concatenates the `[紧急]`/`[注意]` priority
+/// prefix into `text`; the unfiltered `drain_announces` passes the
+/// queued text through unchanged.
 #[derive(Debug, Clone)]
 pub(crate) struct OutboundSystemNotification {
     pub text: String,

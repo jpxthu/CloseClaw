@@ -29,6 +29,9 @@ pub mod mock_session_lookup;
 mod agent_permissions_tests;
 
 #[cfg(test)]
+mod owner_tests;
+
+#[cfg(test)]
 mod tests;
 
 pub use agent_permissions::{
