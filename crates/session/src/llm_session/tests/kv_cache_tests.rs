@@ -220,10 +220,8 @@ async fn test_cache_hit_rate_calculation() {
     // (deviation 700 within tolerance — no anomaly expected).
     for i in 0..5 {
         let usage = make_usage(1000, 200, Some(1200), Some(300), None);
-        let detected = {
-            session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(i + 1));
-            session.check_cache_anomaly_and_advance(&usage, None, now_ms(), TTL_MS)
-        };
+        session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(i + 1));
+        let detected = session.check_cache_anomaly_and_advance(&usage, None, now_ms(), TTL_MS);
         assert!(
             detected.is_none(),
             "within-tolerance round is not an anomaly"

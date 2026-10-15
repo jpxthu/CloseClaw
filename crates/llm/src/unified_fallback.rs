@@ -299,13 +299,8 @@ impl UnifiedFallbackClient {
         for entry in &self.chain {
             request.model = entry.model_id.clone();
             match entry.client.chat(request.clone()).await {
-                Ok(response) => {
-                    // Success point 3/3: degraded (non-streaming) success.
-                    return Ok((
-                        response_to_stream(response),
-                        Some(Self::call_target_of(entry)),
-                    ));
-                }
+                // Success point 3/3: degraded (non-streaming) success.
+                Ok(response) => return Ok(degraded_stream_success(entry, response)),
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();
                     tracing::warn!(
@@ -455,6 +450,19 @@ impl UnifiedFallbackClient {
 // ─────────────────────────────────────────────────────────────────────────────
 // Degraded-stream helper
 // ─────────────────────────────────────────────────────────────────────────────
+
+/// Wraps a degraded (non-streaming) success as a single-chunk stream plus
+/// the serving entry's [`CallTarget`] (success point 3/3 of the fallback
+/// chain).
+fn degraded_stream_success(
+    entry: &ChainEntry,
+    response: UnifiedResponse,
+) -> (OutgoingEventStream, Option<CallTarget>) {
+    (
+        response_to_stream(response),
+        Some(UnifiedFallbackClient::call_target_of(entry)),
+    )
+}
 
 /// Convert a [`UnifiedResponse`] into a single-chunk [`OutgoingEventStream`].
 ///

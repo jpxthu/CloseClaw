@@ -152,6 +152,63 @@ mod tests {
         }
     }
 
+    /// A provider whose streaming `send_streaming` always fails while its
+    /// non-streaming `send` succeeds.
+    struct StreamingFailProvider;
+
+    #[async_trait::async_trait]
+    impl closeclaw_llm::provider::Provider for StreamingFailProvider {
+        fn id(&self) -> &str {
+            "fail"
+        }
+        fn base_url(&self) -> &str {
+            ""
+        }
+        fn api_key(&self) -> &str {
+            ""
+        }
+        fn supported_protocols(&self) -> &[closeclaw_llm::types::ProtocolId] {
+            &[]
+        }
+        fn http_client(&self) -> &reqwest::Client {
+            static D: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+            D.get_or_init(reqwest::Client::new)
+        }
+        fn default_headers(&self) -> &reqwest::header::HeaderMap {
+            static H: std::sync::OnceLock<reqwest::header::HeaderMap> = std::sync::OnceLock::new();
+            H.get_or_init(reqwest::header::HeaderMap::new)
+        }
+        async fn send(
+            &self,
+            _req: closeclaw_llm::types::InternalRequest,
+            _body: serde_json::Value,
+        ) -> closeclaw_llm::provider::Result<serde_json::Value> {
+            use closeclaw_llm::types::{RawContentBlock, RawUsage};
+            let resp = closeclaw_llm::types::InternalResponse {
+                content_blocks: vec![RawContentBlock::Text("ok".to_string())],
+                usage: RawUsage {
+                    prompt_tokens: 0,
+                    completion_tokens: 0,
+                    total_tokens: Some(0),
+                    cache_read_tokens: None,
+                    cache_write_tokens: None,
+                    reasoning_tokens: None,
+                },
+                finish_reason: None,
+            };
+            Ok(serde_json::to_value(&resp).unwrap())
+        }
+        async fn send_streaming(
+            &self,
+            _req: closeclaw_llm::types::InternalRequest,
+            _body: serde_json::Value,
+        ) -> closeclaw_llm::provider::Result<closeclaw_llm::provider::SseStream> {
+            Err(closeclaw_llm::provider::ProviderError::Legacy(
+                "streaming not supported".to_string(),
+            ))
+        }
+    }
+
     fn make_request(content: &str) -> InternalRequest {
         InternalRequest {
             model: "test-model".to_string(),
@@ -567,62 +624,6 @@ mod tests {
         use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
 
         // First entry: streaming always fails; second entry (stub) serves.
-        struct StreamingFailProvider;
-
-        #[async_trait::async_trait]
-        impl closeclaw_llm::provider::Provider for StreamingFailProvider {
-            fn id(&self) -> &str {
-                "fail"
-            }
-            fn base_url(&self) -> &str {
-                ""
-            }
-            fn api_key(&self) -> &str {
-                ""
-            }
-            fn supported_protocols(&self) -> &[closeclaw_llm::types::ProtocolId] {
-                &[]
-            }
-            fn http_client(&self) -> &reqwest::Client {
-                static D: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
-                D.get_or_init(reqwest::Client::new)
-            }
-            fn default_headers(&self) -> &reqwest::header::HeaderMap {
-                static H: std::sync::OnceLock<reqwest::header::HeaderMap> =
-                    std::sync::OnceLock::new();
-                H.get_or_init(reqwest::header::HeaderMap::new)
-            }
-            async fn send(
-                &self,
-                _req: closeclaw_llm::types::InternalRequest,
-                _body: serde_json::Value,
-            ) -> closeclaw_llm::provider::Result<serde_json::Value> {
-                use closeclaw_llm::types::{RawContentBlock, RawUsage};
-                let resp = closeclaw_llm::types::InternalResponse {
-                    content_blocks: vec![RawContentBlock::Text("ok".to_string())],
-                    usage: RawUsage {
-                        prompt_tokens: 0,
-                        completion_tokens: 0,
-                        total_tokens: Some(0),
-                        cache_read_tokens: None,
-                        cache_write_tokens: None,
-                        reasoning_tokens: None,
-                    },
-                    finish_reason: None,
-                };
-                Ok(serde_json::to_value(&resp).unwrap())
-            }
-            async fn send_streaming(
-                &self,
-                _req: closeclaw_llm::types::InternalRequest,
-                _body: serde_json::Value,
-            ) -> closeclaw_llm::provider::Result<closeclaw_llm::provider::SseStream> {
-                Err(closeclaw_llm::provider::ProviderError::Legacy(
-                    "streaming not supported".to_string(),
-                ))
-            }
-        }
-
         let fail_client = Arc::new(UnifiedChatClient::new(
             Arc::new(StreamingFailProvider),
             Arc::new(OpenAiProtocol::default()),

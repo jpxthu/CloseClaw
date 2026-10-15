@@ -115,10 +115,15 @@ impl ConversationSession {
         self.cache_prefix_prev = Some(current);
         info
     }
+}
 
+/// Test audit accessors for the advancement-timing guarantees
+/// (`#[cfg(test)]`-only; kept in a separate impl block so the main
+/// implementation block stays within the 100-line limit).
+#[cfg(test)]
+impl ConversationSession {
     /// Returns the previous round's advanced prefix snapshot, if any
     /// (test audit accessor for the advancement-timing guarantees).
-    #[cfg(test)]
     pub(crate) fn cache_prefix_prev_snapshot(
         &self,
     ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
@@ -127,7 +132,6 @@ impl ConversationSession {
 
     /// Peeks at the staged snapshot without consuming it (test audit
     /// accessor for the staging-slot lifecycle).
-    #[cfg(test)]
     pub(crate) fn staged_cache_prefix_snapshot(
         &self,
     ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
