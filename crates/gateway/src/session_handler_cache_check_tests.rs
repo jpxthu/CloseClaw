@@ -1,15 +1,21 @@
 //! Gateway-side tests for the extracted unified cache-check function
 //! ([`check_cache_anomaly_and_accumulate_usage`]).
 //!
-//! Dimensions (issue #3620 Step 1.4 ③ / issue #3576 Step 1.2):
+//! Dimensions (issue #3620 Step 1.4 ③ / issue #3576 Step 1.2 + 1.3):
 //! - participating round with deviation beyond tolerance → metric
 //!   emission + Owner-directed system notification (declared
 //!   [`NotificationAudience::OwnerOnly`])
+//! - anomaly round with a `DebugLog` instance → structured
+//!   `session.cache_anomaly.detected` event written to JSONL (level
+//!   Error, `source_module="session"`, four-field payload, session_id
+//!   correlation)
 //! - participating round within tolerance → no emission, no notification
 //! - exempt rounds (first round / model switch) → no emission, no
 //!   notification; usage still accumulated
 //! - no reported call target → degrade to the session-config model
 //!   identifier without panicking (fake/stub paths)
+//! - no `DebugLog` instance → no panic, disposal chain unaffected
+//!   (every `None`-debug_log test below exercises this)
 //!
 //! Round construction note: the fake serves keepalive responses (empty
 //! content blocks — `ChatSession::append_response` treats them as a
@@ -20,6 +26,7 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{CacheAnomalyInfo, CallTarget, LLMError, LlmCaller, MetricsEmitter};
+use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{
     ChatSession, ConversationSession, NotificationAudience, QueueEntry,
@@ -141,6 +148,7 @@ async fn run_round(
     user_content: &str,
     usage: UnifiedUsage,
     emitter: &Option<Arc<dyn MetricsEmitter>>,
+    debug_log: Option<&DebugLog>,
 ) {
     cs.append_user_message(user_content);
     let (response, call_target) = cs.invoke_llm_with_target(user_content).await.unwrap();
@@ -148,7 +156,13 @@ async fn run_round(
     let mut stream_result = StreamResult::from(response);
     stream_result.call_target = call_target;
     stream_result.usage = usage;
-    check_cache_anomaly_and_accumulate_usage("sess-cache-check", cs, &stream_result, emitter);
+    check_cache_anomaly_and_accumulate_usage(
+        "sess-cache-check",
+        cs,
+        &stream_result,
+        emitter,
+        debug_log,
+    );
 }
 
 /// Drains the unified queue and returns the system notifications as
@@ -173,6 +187,53 @@ fn target(provider: &str, model: &str) -> CallTarget {
     }
 }
 
+/// Creates a `DebugLog` instance backed by a temp directory (trace
+/// min-level so every emitted event is persisted).
+async fn make_debug_log(dir: &tempfile::TempDir) -> DebugLog {
+    let config = DebugLogConfig {
+        min_level: LogLevel::Trace,
+        log_dir: dir.path().to_path_buf(),
+        retention_days: 7,
+        redaction_patterns: vec![],
+    };
+    DebugLog::new(config).await.unwrap()
+}
+
+/// Reads all JSONL log events from the temp directory.
+fn read_log_events(dir: &tempfile::TempDir) -> Vec<LogEvent> {
+    let mut events = Vec::new();
+    for entry in std::fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+    {
+        let path = entry.path();
+        if path.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
+            let content = std::fs::read_to_string(&path).unwrap();
+            for line in content.lines().filter(|l| !l.trim().is_empty()) {
+                events.push(LogEvent::from_jsonl(line).unwrap());
+            }
+        }
+    }
+    events
+}
+
+/// Bounded readiness poll (no fixed sleep): waits until at least one
+/// `session.cache_anomaly.detected` event lands in the JSONL files, up
+/// to 2s.
+async fn wait_for_cache_anomaly_events(dir: &tempfile::TempDir) -> Vec<LogEvent> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    loop {
+        let events: Vec<LogEvent> = read_log_events(dir)
+            .into_iter()
+            .filter(|e| e.event_type == "session.cache_anomaly.detected")
+            .collect();
+        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
+            return events;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+    }
+}
+
 // ── Tests ────────────────────────────────────────────────────────────
 
 /// Participating round with a cache-read drop beyond the fixed 1024
@@ -188,7 +249,7 @@ async fn test_anomaly_emits_metric_and_owner_notification() {
     let em: Option<Arc<dyn MetricsEmitter>> = Some(emitter.clone());
 
     // Round 1: baseline — exempt (no previous snapshot), usage accumulates.
-    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em, None).await;
     assert_eq!(emitter.count.load(Ordering::SeqCst), 0);
     assert!(drained_system_notifications(&mut cs).is_empty());
     assert_eq!(cs.stats().last_prompt_tokens, Some(100_000));
@@ -200,7 +261,7 @@ async fn test_anomaly_emits_metric_and_owner_notification() {
 
     // Round 2: tail-append extension, same target, within TTL →
     // participates; cache read drops to 0 → deviation 100_000 > 1024.
-    run_round(&mut cs, "hi", make_usage(100_000, Some(0)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(0)), &em, None).await;
     assert_eq!(emitter.count.load(Ordering::SeqCst), 1);
     let last = emitter.last.lock().unwrap().clone().unwrap();
     assert_eq!(last.previous_prompt_tokens, 100_000);
@@ -230,8 +291,8 @@ async fn test_participating_within_tolerance_no_emission() {
     let emitter = Arc::new(CountingEmitter::default());
     let em: Option<Arc<dyn MetricsEmitter>> = Some(emitter.clone());
 
-    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em).await;
-    run_round(&mut cs, "hi", make_usage(100_000, Some(99_500)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em, None).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(99_500)), &em, None).await;
 
     assert_eq!(
         emitter.count.load(Ordering::SeqCst),
@@ -258,10 +319,10 @@ async fn test_model_switch_round_exempt_no_emission() {
     let emitter = Arc::new(CountingEmitter::default());
     let em: Option<Arc<dyn MetricsEmitter>> = Some(emitter.clone());
 
-    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em, None).await;
     // Round 2: same prefix but a different reported target → the round
     // is exempt from the numeric comparison despite the full miss.
-    run_round(&mut cs, "hi", make_usage(100_000, Some(0)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(0)), &em, None).await;
 
     assert_eq!(
         emitter.count.load(Ordering::SeqCst),
@@ -286,7 +347,7 @@ async fn test_no_reported_target_degrades_to_session_config_model() {
     let emitter = Arc::new(CountingEmitter::default());
     let em: Option<Arc<dyn MetricsEmitter>> = Some(emitter.clone());
 
-    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em).await;
+    run_round(&mut cs, "hi", make_usage(100_000, Some(100_000)), &em, None).await;
 
     assert_eq!(emitter.count.load(Ordering::SeqCst), 0);
     assert!(drained_system_notifications(&mut cs).is_empty());
@@ -296,4 +357,92 @@ async fn test_no_reported_target_degrades_to_session_config_model() {
         "no target must degrade to the session-config model"
     );
     assert_eq!(cs.stats().request_count, 1);
+}
+
+/// Anomaly round with a `DebugLog` instance → a structured
+/// `session.cache_anomaly.detected` event lands in the JSONL files:
+/// level Error（「异常」级）、`source_module="session"`、session_id
+/// correlation（trace_id + session_key）、payload carrying the four
+/// `CacheAnomalyInfo` fields (issue #3576 Step 1.3).
+#[tokio::test]
+async fn test_anomaly_emits_debug_log_event() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let debug_dir = tempfile::TempDir::new().unwrap();
+    let debug_log = make_debug_log(&debug_dir).await;
+    let mut cs = make_session(&tmp, vec![Some(target("prov-a", "model-a"))]);
+    let em: Option<Arc<dyn MetricsEmitter>> = None;
+
+    // Round 1: baseline — exempt; round 2: full miss beyond tolerance.
+    run_round(
+        &mut cs,
+        "hi",
+        make_usage(100_000, Some(100_000)),
+        &em,
+        Some(&debug_log),
+    )
+    .await;
+    run_round(
+        &mut cs,
+        "hi",
+        make_usage(100_000, Some(0)),
+        &em,
+        Some(&debug_log),
+    )
+    .await;
+
+    let events = wait_for_cache_anomaly_events(&debug_dir).await;
+    assert_eq!(
+        events.len(),
+        1,
+        "exactly one anomaly event expected, got: {events:?}"
+    );
+    let evt = &events[0];
+    assert_eq!(evt.level, LogLevel::Error, "cache anomaly is「异常」级");
+    assert_eq!(evt.source_module, "session");
+    assert_eq!(evt.event_type, "session.cache_anomaly.detected");
+    // session_id as the correlation key (no inbound trace metadata at
+    // the advancement point).
+    assert_eq!(evt.trace_id, "sess-cache-check");
+    assert_eq!(evt.session_key.as_deref(), Some("sess-cache-check"));
+    assert_eq!(evt.payload["previous_prompt_tokens"], 100_000);
+    assert_eq!(evt.payload["current_cache_read_tokens"], 0);
+    assert_eq!(evt.payload["deviation_tokens"], 100_000);
+    assert_eq!(evt.payload["tolerance_tokens"], 1024);
+}
+
+/// Non-anomaly rounds with a `DebugLog` instance → no anomaly event
+/// written (exempt / within-tolerance rounds stay silent in JSONL).
+#[tokio::test]
+async fn test_non_anomaly_rounds_write_no_debug_log_event() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let debug_dir = tempfile::TempDir::new().unwrap();
+    let debug_log = make_debug_log(&debug_dir).await;
+    let mut cs = make_session(&tmp, vec![Some(target("prov-a", "model-a"))]);
+    let em: Option<Arc<dyn MetricsEmitter>> = None;
+
+    // Round 1: exempt baseline; round 2: within tolerance.
+    run_round(
+        &mut cs,
+        "hi",
+        make_usage(100_000, Some(100_000)),
+        &em,
+        Some(&debug_log),
+    )
+    .await;
+    run_round(
+        &mut cs,
+        "hi",
+        make_usage(100_000, Some(99_500)),
+        &em,
+        Some(&debug_log),
+    )
+    .await;
+    assert_eq!(cs.stats().request_count, 2);
+
+    // Allow any (unexpected) spawned writes to settle before asserting.
+    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    assert!(
+        read_log_events(&debug_dir).is_empty(),
+        "no debug_log event expected without an anomaly"
+    );
 }

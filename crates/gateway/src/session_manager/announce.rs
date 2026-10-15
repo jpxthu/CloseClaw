@@ -429,6 +429,10 @@ impl SessionManager {
     /// (check + accumulate), exactly like the main dispatch path.
     pub(crate) async fn drain_pending_for_session(&self, session_id: &str) {
         let gw = self.get_gateway_ref().await;
+        // Debug-log instance for the unified cache-check advancement's
+        // structured anomaly event (same wiring as the main path's
+        // `clear_busy_and_send`).
+        let debug_log = gw.as_ref().and_then(|g| g.get_debug_log());
         self.drain_and_inject_announces(session_id, gw.as_ref())
             .await;
 
@@ -490,9 +494,11 @@ impl SessionManager {
                             &mut cs_write,
                             &stream_result,
                             // No metrics emitter is plumbed into the
-                            // SessionManager recovery path; the warn log
-                            // and Owner notification still run.
+                            // SessionManager recovery path; the error
+                            // log, debug_log event and Owner
+                            // notification still run.
                             &None,
+                            debug_log.as_ref(),
                         );
                     }
                     // Send response to user via Gateway outbound pipeline.

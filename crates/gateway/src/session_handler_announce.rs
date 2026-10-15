@@ -250,12 +250,16 @@ impl SessionMessageHandler {
                     cs_write.process_workflow_tool_results(&stream_result.content_blocks);
                     // Cache hit consistency check + usage accumulation
                     // at the unified advancement point (extracted to
-                    // session_handler_cache_check.rs).
+                    // session_handler_cache_check.rs). The debug_log
+                    // instance comes from the gateway so the disposal
+                    // block can emit the structured anomaly event.
+                    let debug_log = gateway.and_then(|gw| gw.get_debug_log());
                     crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage(
                         session_id,
                         &mut cs_write,
                         &stream_result,
                         metrics_emitter,
+                        debug_log.as_ref(),
                     );
 
                     // Run health check at turn boundary.
