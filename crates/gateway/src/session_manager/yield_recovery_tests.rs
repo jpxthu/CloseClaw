@@ -11,7 +11,9 @@ use super::test_helpers::{
 };
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::NotificationPriority;
+use closeclaw_llm::types::{InternalRequest, StreamEvent, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_session::persistence::PendingMessage;
 use serial_test::serial;
 
 // ── Helper: complete a child and remove it from the SpawnTree ──────────────
@@ -431,9 +433,6 @@ async fn test_yield_no_recovery_while_child_registered() {
 
 // ── 9. Recovery drain: unified cache-check advancement (Step 1.7 ①) ────────
 
-use closeclaw_llm::types::{InternalRequest, StreamEvent, UnifiedResponse, UnifiedUsage};
-use closeclaw_session::persistence::PendingMessage;
-
 /// Fake caller for the recovery-drain cache tests: every call answers
 /// prompt 100 000 with a full cache hit (cache_read 100 000) except calls
 /// numbered `miss_from_call` and later, which are whole-round misses
@@ -541,19 +540,27 @@ async fn main_path_round(
     let info = cs_write.check_cache_anomaly_and_advance(
         &response.usage,
         Some("test-model"),
-        chrono::Utc::now().timestamp_millis() as u64,
+        closeclaw_common::current_epoch_millis(),
         300_000,
     );
     cs_write.accumulate_usage(&response.usage, Some("test-model"));
     info
 }
 
-/// 恢复轮接入统一推进（三段链，模拟恢复后的真实轮次序列）：
-/// 1. 恢复轮（drain 路径）：用量累积、参考值推进（doc :65/:73）；
-/// 2. 恢复后首轮（主路径形态）：发送列表相对恢复轮快照非尾部追加 →
-///    前缀豁免成为新基线——参考值已推进，不产生陈旧参考值误报；
-/// 3. 再下一轮（尾部追加）：以新基线参与校验——整轮未命中时以推进后的
-///    参考值报异常，证明恢复轮的快照与参考值推进真实生效。
+/// 恢复轮接入统一推进（三段链，模拟恢复后的真实轮次序列；round-2 实际
+/// 豁免分支经临时探针实测裁决——`PrefixMismatch`，非静态推断）：
+/// 1. 恢复轮（drain 路径）：pending 用户消息只进实际发送列表 [u1]、
+///    不写历史，历史仅落响应；无上一轮快照 → NoPreviousSnapshot 新基线；
+///    用量累积、参考值推进（doc :65/:73）；
+/// 2. 恢复后首轮（主路径形态）：历史此时为 [resp-1]，append u2 后实际
+///    发送列表 [resp-1, u2]——相对恢复轮快照 [u1] 首位即不同（恢复轮
+///    用户消息不在历史），按定义非尾部追加 → PrefixMismatch 豁免；
+///    参考值已推进，不产生陈旧参考值误报；
+/// 3. 再下一轮（真尾部追加）：实际发送列表 [resp-1, u2, resp-2, u3]
+///    以第 2 轮快照为前缀 → 参与校验——整轮未命中时以推进后的参考值
+///    报异常，证明恢复轮的快照与参考值推进真实生效（若前缀判定整体
+///    失效为恒匹配，round-2 参与校验即报假异常；恒不匹配则 round-3
+///    豁免、expect 失败——两个回归方向均不绿）。
 #[tokio::test]
 #[serial]
 async fn test_drain_pending_recovery_round_advances_reference_and_snapshot() {
@@ -588,14 +595,28 @@ async fn test_drain_pending_recovery_round_advances_reference_and_snapshot() {
             Some("test-model"),
             "no call target reported → degrade to session-config model"
         );
+        // History lock: the drain round's user message is sent-list-only
+        // (never enters the transcript) — this is what makes round-2's
+        // sent list diverge from the recovery snapshot at position 0.
+        let messages = cs.messages().to_vec();
+        assert_eq!(
+            messages.len(),
+            1,
+            "drain round writes only the response to history, not the \
+             pending user message"
+        );
+        assert_eq!(messages[0].role, "assistant");
     }
 
     // ── Round 2: first post-recovery round, main-path shape ──
+    // Sent list [resp-1, u2] vs recovery-round snapshot [u1]: first
+    // position differs → not a tail-append → PrefixMismatch exemption.
     let info2 = main_path_round(&mgr, &parent_id, "turn-2").await;
     assert!(
         info2.is_none(),
-        "round after recovery is not a tail-append extension of the \
-         recovery round: exempt, no stale-reference false positive"
+        "round-2 sent list [resp-1, u2] is not a tail-append of the \
+         recovery-round snapshot [u1]: exempt, no stale-reference false \
+         positive"
     );
 
     // ── Round 3: tail-append extension of round 2 → participates ──
@@ -638,7 +659,8 @@ async fn test_drain_pending_round_after_recovery_no_false_positive() {
     let info2 = main_path_round(&mgr, &parent_id, "turn-2").await;
     assert!(
         info2.is_none(),
-        "post-recovery round 2 is exempt (new baseline)"
+        "post-recovery round 2 is exempt (prefix mismatch vs the \
+         recovery-round snapshot)"
     );
     let info3 = main_path_round(&mgr, &parent_id, "turn-3").await;
     {

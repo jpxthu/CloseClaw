@@ -29,6 +29,7 @@ use tokio::sync::RwLock;
 use tracing::warn;
 mod active_session_query;
 mod announce;
+mod announce_drain;
 mod channel;
 mod checkpoint_sync;
 pub mod communication;

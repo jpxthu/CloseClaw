@@ -216,6 +216,13 @@ impl ConversationSession {
     }
 
     /// Make a non-streaming LLM call via the injected [`LlmCaller`].
+    ///
+    /// Test-only convenience wrapper (Step 1.8 ③): production call sites
+    /// must use [`Self::invoke_llm_with_target`] so the unified
+    /// advancement point receives the actually-used call target; this
+    /// wrapper discards it. Kept as a thin delegation because the test
+    /// call surface is wide (100+ sites across session/gateway test
+    /// modules) and migrating adds churn without behavior change.
     pub async fn invoke_llm(&mut self, content: &str) -> Result<UnifiedResponse, LLMError> {
         self.invoke_llm_with_target(content)
             .await
