@@ -15,6 +15,7 @@ use closeclaw_common::MetricsEmitter;
 use closeclaw_common::NotificationPriority;
 use closeclaw_llm::cache_adapter::provider_cache_ttl_ms;
 use closeclaw_session::llm_session::ConversationSession;
+use closeclaw_session::llm_session::NotificationAudience;
 
 use crate::outbound::StreamResult;
 
@@ -22,9 +23,13 @@ use crate::outbound::StreamResult;
 /// and accumulates the round's usage.
 ///
 /// Extraction of the former `clear_busy_and_send` inline block; the
-/// anomaly-disposal behavior is unchanged: warn log →
-/// [`MetricsEmitter::emit_cache_anomaly`] → Owner system notification
-/// ([`NotificationPriority::Now`]).
+/// anomaly-disposal behavior: warn log →
+/// [`MetricsEmitter::emit_cache_anomaly`] → Owner-directed system
+/// notification — declared [`NotificationAudience::OwnerOnly`] +
+/// [`NotificationPriority::Now`] (outbound-flow「定向收件人」:
+/// session 侧只声明，Gateway 在投递时依据当前 User 角色判定；
+/// [llm-session-enhancements](../../../docs/design/session/llm-session-enhancements.md)
+/// :87「当且仅当当前 User 为 Owner 时……发送系统通知」).
 ///
 /// - The check ([`ConversationSession::check_cache_anomaly_and_advance`])
 ///   must run before `accumulate_usage` so `last_prompt_tokens` /
@@ -73,7 +78,14 @@ pub(crate) fn check_cache_anomaly_and_accumulate_usage(
             emitter.emit_cache_anomaly(&info);
         }
         let notification = info.format_notification();
-        cs.push_system_notification(notification, NotificationPriority::Now);
+        // Owner-directed audience declaration (outbound-flow「定向收件人」):
+        // this disposal only declares; the Gateway performs the recipient
+        // judgment against the session's current user at delivery time.
+        cs.push_system_notification_with_audience(
+            notification,
+            NotificationPriority::Now,
+            NotificationAudience::OwnerOnly,
+        );
     }
     cs.accumulate_usage(&stream_result.usage, Some(&call_model));
 }

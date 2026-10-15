@@ -565,6 +565,7 @@ dependencies = [
  "closeclaw-tasks",
  "closeclaw-tools",
  "filetime",
+ "futures",
  "hex",
  "libc",
  "mockito",

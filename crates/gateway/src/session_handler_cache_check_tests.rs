@@ -1,9 +1,10 @@
 //! Gateway-side tests for the extracted unified cache-check function
 //! ([`check_cache_anomaly_and_accumulate_usage`]).
 //!
-//! Dimensions (issue #3620 Step 1.4 ③):
+//! Dimensions (issue #3620 Step 1.4 ③ / issue #3576 Step 1.2):
 //! - participating round with deviation beyond tolerance → metric
-//!   emission + Owner system notification
+//!   emission + Owner-directed system notification (declared
+//!   [`NotificationAudience::OwnerOnly`])
 //! - participating round within tolerance → no emission, no notification
 //! - exempt rounds (first round / model switch) → no emission, no
 //!   notification; usage still accumulated
@@ -20,7 +21,9 @@ use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{CacheAnomalyInfo, CallTarget, LLMError, LlmCaller, MetricsEmitter};
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
-use closeclaw_session::llm_session::{ChatSession, ConversationSession, QueueEntry};
+use closeclaw_session::llm_session::{
+    ChatSession, ConversationSession, NotificationAudience, QueueEntry,
+};
 
 use crate::outbound::StreamResult;
 use crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage;
@@ -148,12 +151,16 @@ async fn run_round(
     check_cache_anomaly_and_accumulate_usage("sess-cache-check", cs, &stream_result, emitter);
 }
 
-/// Drains the unified queue and returns the system notification texts.
-fn drained_system_notifications(cs: &mut ConversationSession) -> Vec<String> {
+/// Drains the unified queue and returns the system notifications as
+/// `(text, audience)` pairs — the audience assertion pins the
+/// Owner-directed declaration against semantic drift.
+fn drained_system_notifications(
+    cs: &mut ConversationSession,
+) -> Vec<(String, NotificationAudience)> {
     cs.drain_queue()
         .into_iter()
         .filter_map(|entry| match entry {
-            QueueEntry::SystemNotification(text, _, _) => Some(text),
+            QueueEntry::SystemNotification(text, _, audience) => Some((text, audience)),
             _ => None,
         })
         .collect()
@@ -169,8 +176,10 @@ fn target(provider: &str, model: &str) -> CallTarget {
 // ── Tests ────────────────────────────────────────────────────────────
 
 /// Participating round with a cache-read drop beyond the fixed 1024
-/// tolerance → metric emission + Owner system notification; usage is
-/// still accumulated with the actually-reported model identifier.
+/// tolerance → metric emission + Owner-directed system notification
+/// (queued with the `NotificationAudience::OwnerOnly` declaration);
+/// usage is still accumulated with the actually-reported model
+/// identifier.
 #[tokio::test]
 async fn test_anomaly_emits_metric_and_owner_notification() {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -199,7 +208,16 @@ async fn test_anomaly_emits_metric_and_owner_notification() {
     assert_eq!(last.tolerance_tokens, 1024);
     let notifications = drained_system_notifications(&mut cs);
     assert_eq!(notifications.len(), 1, "Owner notification must be pushed");
-    assert!(notifications[0].starts_with("[缓存命中异常]"));
+    assert!(
+        notifications[0].0.starts_with("[缓存命中异常]"),
+        "text: {}",
+        notifications[0].0
+    );
+    assert_eq!(
+        notifications[0].1,
+        NotificationAudience::OwnerOnly,
+        "cache-anomaly notification must declare the OwnerOnly audience"
+    );
     assert_eq!(cs.stats().request_count, 2);
 }
 
