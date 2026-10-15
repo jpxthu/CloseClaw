@@ -847,6 +847,27 @@ def crate_second_exports(crate_root: Path, pkg: str) -> list[str]:
     return sorted(found)
 
 
+def strip_lineno(entry: str) -> str:
+    """剥除 baseline 条目 `<文件>:<行号>` 段中的行号，返回归一化比较键。
+
+    条目格式：`<pkg>: <文件相对路径>:<行号> <源路径>[ as <别名>]`。按结构
+    逐段解析：先切 `pkg: ` 前缀，再切首个空格前的 `<文件>:<行号>` 段，段内
+    `rsplit(":", 1)` 剥纯数字行号（源路径 `::` 分隔不受影响）；不匹配预期
+    结构的条目（含文件段为空，如 `pkg: :1 <源路径>`）原样返回，保持精确
+    匹配语义。
+    """
+    prefix, sep, rest = entry.partition(": ")
+    if not sep or not prefix:
+        return entry
+    loc, sp, tail = rest.partition(" ")
+    if not sp or not tail:
+        return entry
+    file_part, colon, line = loc.rpartition(":")
+    if not colon or not file_part or not line.isdigit():
+        return entry
+    return f"{prefix}: {file_part} {tail}"
+
+
 def common_crate_dir(edge_data) -> str:
     """在 workspace 中定位 common crate 目录；找不到时 fail-loud。"""
     for directory, pkg in edge_data.dir_to_pkg.items():

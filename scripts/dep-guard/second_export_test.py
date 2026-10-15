@@ -291,5 +291,76 @@ class FindSecondExportsTest(unittest.TestCase):
             second_export.find_second_exports(edge_data)
 
 
+class StripLinenoTest(unittest.TestCase):
+    """baseline 条目归一化：剥 `<文件>:<行号>` 段行号（diff 判定键）。"""
+
+    def test_normal_entry_strips_lineno(self) -> None:
+        self.assertEqual(
+            second_export.strip_lineno(
+                "closeclaw-gateway: src/lib.rs:136 closeclaw_common::Foo"
+            ),
+            "closeclaw-gateway: src/lib.rs closeclaw_common::Foo",
+        )
+
+    def test_alias_entry_keeps_alias(self) -> None:
+        self.assertEqual(
+            second_export.strip_lineno(
+                "closeclaw-gateway: src/lib.rs:1 closeclaw_common::Foo as Bar"
+            ),
+            "closeclaw-gateway: src/lib.rs closeclaw_common::Foo as Bar",
+        )
+
+    def test_source_path_double_colon_untouched(self) -> None:
+        self.assertEqual(
+            second_export.strip_lineno(
+                "closeclaw-llm: src/lib.rs:1 closeclaw_common::streaming::Renderer"
+            ),
+            "closeclaw-llm: src/lib.rs closeclaw_common::streaming::Renderer",
+        )
+
+    def test_numeric_filename_not_over_stripped(self) -> None:
+        self.assertEqual(
+            second_export.strip_lineno(
+                "closeclaw-demo: src/foo2.rs:3 closeclaw_common::Foo"
+            ),
+            "closeclaw-demo: src/foo2.rs closeclaw_common::Foo",
+        )
+
+    def test_idempotent_on_stripped_entry(self) -> None:
+        stripped = "closeclaw-demo: src/lib.rs closeclaw_common::Foo"
+        self.assertEqual(second_export.strip_lineno(stripped), stripped)
+
+    def test_malformed_entries_returned_identically(self) -> None:
+        malformed = [
+            # 无行号（已剥条目误传回）
+            "closeclaw-demo: src/lib.rs closeclaw_common::Foo",
+            # 缺条目本体段（无空格分隔）
+            "closeclaw-demo: src/lib.rs:1",
+            # 行号非纯数字
+            "closeclaw-demo: src/lib.rs:x closeclaw_common::Foo",
+            # 缺 `pkg: ` 前缀（无冒号空格分隔）
+            "closeclaw_common::Foo",
+            # 空 pkg 前缀
+            ": src/lib.rs:1 closeclaw_common::Foo",
+            # 条目本体段为空
+            "closeclaw-demo: src/lib.rs:1 ",
+            # 文件段为空（行号紧跟 `pkg: ` 前缀）
+            "closeclaw-demo: :1 closeclaw_common::Foo",
+        ]
+        for entry in malformed:
+            with self.subTest(entry=entry):
+                self.assertEqual(second_export.strip_lineno(entry), entry)
+
+    def test_deep_line_number_stripped(self) -> None:
+        self.assertEqual(
+            second_export.strip_lineno(
+                "closeclaw-demo: crates/gateway/src/gateway/routes/mod.rs:812 "
+                "closeclaw_common::processor::ProcessedMessage"
+            ),
+            "closeclaw-demo: crates/gateway/src/gateway/routes/mod.rs "
+            "closeclaw_common::processor::ProcessedMessage",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

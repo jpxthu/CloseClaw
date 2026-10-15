@@ -91,7 +91,9 @@ def check_second_exports(repo_root: Path) -> CheckResult:
         return CheckResult("second-exports", STATUS_FAIL, lines)
 
     base_items = baseline.load_baseline(BASELINE_DIR / "second-exports.txt")
-    diff = baseline.diff_baseline(base_items, items)
+    # second-exports 条目含行号：diff 判定键去行号归一化，行号仅作定位信息，
+    # 代码移动导致的行号漂移不再触发「新增」FAIL（报告仍返回原始条目）。
+    diff = baseline.diff_baseline(base_items, items, key=second_export.strip_lineno)
 
     for item in diff.new_items:
         lines.append(f"  [FAIL] 新增二次出口: {item}")
