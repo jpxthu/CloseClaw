@@ -19,14 +19,6 @@ Owner 和 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对�
 > **交叉引用**：Session 活跃维度详见 [session §F11](session.md)（Session 活跃维度）。
 > **交叉引用**：不以 `/` 开头的普通消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 
-### F2. 模式切换
-
-模式切换指令（`/plan`、`/mode`、`/execute`）的完整语法、参数和业务行为由 Mode 模块定义。Slash 模块仅提供 Gateway 层的指令拦截和分派机制（见 F1）。`/plan` 与 `/execute` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。`/mode` 在无参数查询形态下为 Immediate，在带参数切换形态下为非 Immediate。
-
-> **交叉引用**：`/plan` 和 `/mode` 的语法和语义详见 [mode §F14](mode.md)（模式切换指令）。
-> **交叉引用**：`/execute` 的触发语义详见 [mode §F4](mode.md)（执行触发）。
-> **交叉引用**：模式类型定义和 Agent 行为约束详见 [mode §F1](mode.md)（运行模式）。
-
 ### F3. Session 管理
 
 Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
@@ -43,9 +35,8 @@ Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 Owner 和 User 可以随时查看当前 Session 的运行状态。
 
 **指令**：
-- `/status`：查询 Session 状态（模式、模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
+- `/status`：查询 Session 状态（模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
 
-> **交叉引用**：模式见 [mode §F1](mode.md)（运行模式）。
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
 > **交叉引用**：上下文用量、缓存命中率与 token 累计量见 [llm §F9](llm.md)（用量统计）。
@@ -129,12 +120,6 @@ Owner 和 User 可以查询和设置当前 Session 的展示等级。设置等�
 
 > **交叉引用**：各展示等级对应的回复内容见 [processor_chain §F4](processor_chain.md)（出站回复展示等级控制）。
 
-### F12. plan 浏览
-
-`/plans` 指令的完整语法、参数和业务行为由 Mode 模块定义。`/plans` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行。
-
-> **交叉引用**：指令语法和 plan 浏览语义详见 [mode §F6](mode.md)（plan 浏览与管理）。
-
 ### F13. 审批指令
 
 Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 将 Agent 操作单次放行、加入白名单或拒绝。三条指令均为 Immediate，仅 Owner 可用。
@@ -160,6 +145,6 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 
 ## 非功能需求
 
-- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/mode（无参数查询形态）、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
+- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
