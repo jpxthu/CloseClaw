@@ -126,7 +126,8 @@ impl ConversationSession {
         }
     }
 
-    /// Mark a snapshot as [`SnapshotStatus::Complete`](crate::run_health::SnapshotStatus::Complete).
+    /// Mark a snapshot as
+    /// [`SnapshotStatus::Complete`](crate::run_health::SnapshotStatus::Complete).
     ///
     /// Used after a guarded operation (compaction, `/system` rewrite)
     /// succeeds to transition the snapshot from `Pending` to `Complete`.

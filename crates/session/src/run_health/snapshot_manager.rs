@@ -216,9 +216,9 @@ pub struct RuntimeSnapshotManager {
 /// Wraps a [`PersistenceService`] and a session ID. Metadata is
 /// persisted independently from
 /// [`SessionCheckpoint`](crate::persistence::SessionCheckpoint) via
-/// dedicated
-/// [`PersistenceService`] methods, ensuring storage semantics and
-/// lifecycle are not shared with the session checkpoint.
+/// dedicated [`PersistenceService`] methods, ensuring storage
+/// semantics and lifecycle are not shared with the session
+/// checkpoint.
 pub struct PersistenceMetaStore {
     storage: Arc<dyn PersistenceService>,
     session_id: String,

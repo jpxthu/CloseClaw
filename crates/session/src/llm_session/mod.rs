@@ -1,7 +1,7 @@
 //! Session layer for LLM conversations.
 //!
 //! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`.
-//! See [`crate::llm_session::session_handles`] for cancel/cascade-stop and
+//! See [`session_handles`] for cancel/cascade-stop and
 //! `session_chat` for the `ChatSession` impl.
 
 use chrono::{DateTime, Utc};
