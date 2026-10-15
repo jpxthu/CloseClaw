@@ -2,18 +2,18 @@
 //!
 //! This module holds the cross-cutting "how to stop" surface that
 //! Step 1.1–1.3 of issue #858 layered on top of the four-dimensional
-//! state model implemented in [`super::session_exec`]:
+//! state model implemented in `session_exec`:
 //!
 //! - [`KillHandle`] — abstract tool-process kill adapter (the only
 //!   public trait in this module)
 //! - per-session fields `tool_handles` / `child_handles` /
-//!   `cancel_token` / `stopped` (defined in [`super::session`])
+//!   `cancel_token` / `stopped` (defined on [`ConversationSession`])
 //! - register / unregister / inspect / stop methods on
 //!   [`ConversationSession`]
 //!
 //! `stop(cascade)` is split into three small helpers
 //! ([`ConversationSession::cascade_stop_children`],
-//! [`ConversationSession::kill_tool_handles`],
+//! `ConversationSession::kill_tool_handles`,
 //! [`ConversationSession::clear_exec_state`]) so no single function
 //! crosses the CONTRIBUTING.md 50-line soft cap.
 
@@ -99,9 +99,9 @@ impl ConversationSession {
     /// Register a tool-process kill handle for a given call id.
     ///
     /// Called from `BashTool::execute_command` (foreground path) with a
-    /// [`crate::tools::builtin::bash_kill::BashKillHandle`] wrapping
+    /// `crate::tools::builtin::bash_kill::BashKillHandle` wrapping
     /// the spawned `tokio::process::Child`, and (background path)
-    /// with a [`crate::tools::builtin::bash_kill::BackgroundKillHandle`]
+    /// with a `crate::tools::builtin::bash_kill::BackgroundKillHandle`
     /// pointing at the `BackgroundTaskManager` entry.
     pub fn register_tool_handle(
         &self,
@@ -257,7 +257,8 @@ impl ConversationSession {
 
     /// Signal all foreground commands to move to background.
     ///
-    /// This fires the `manual_background_signal` [`Notify`], which
+    /// This fires the `manual_background_signal`
+    /// [`tokio::sync::Notify`], which
     /// unblocks any `tokio::select!` branch in `BashTool` waiting on
     /// the manual-background path. Each affected foreground command
     /// will be handed off to `bg_manager.backgroundize_task()` and
@@ -278,7 +279,7 @@ impl ConversationSession {
     /// Forcefully kill tool processes and cancel in-flight LLM requests.
     ///
     /// Used by the forceful-shutdown path in
-    /// [`SessionManager::stop_single_session`] to immediately terminate
+    /// `SessionManager::stop_single_session` to immediately terminate
     /// running tool processes and cancel ongoing LLM streams without
     /// clearing execution state. This allows
     /// [`collect_pending_operations`](Self::collect_pending_operations) to
