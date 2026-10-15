@@ -455,13 +455,24 @@ impl ConversationSession {
     /// `user_blocks_pre_appended` is the caller's explicit declaration
     /// that the current user message was already appended to history in
     /// structured blocks form (gateway production path for embedded
-    /// small-image messages). Combined with the tail actually being a
-    /// blocks-carrying user message, the dedup guard below treats it as
-    /// the same logical message and skips the push. When the tail does
-    /// not match the declaration (e.g. compaction rewrote the history
-    /// between append and invoke), the guard falls back to the string
-    /// equality check and the push still happens — the message is never
-    /// lost.
+    /// small-image messages). The declaration branch of the dedup guard
+    /// below requires the tail to be a **user message carrying content
+    /// blocks with empty flattened text** (`content.is_empty()` — the
+    /// image-round pre-append shape: Image blocks are excluded from the
+    /// text flatten); combined with the declaration it is treated as the
+    /// same logical message and the push is skipped. A blocks tail with
+    /// non-empty text does **not** match the declaration (the flattened
+    /// text could differ from the invoke content), so the push happens
+    /// and the message is never lost.
+    ///
+    /// Residual risk: a blocks tail with empty flattened text that is
+    /// *not* the declared message (e.g. compaction rewrote the history
+    /// between append and invoke into another image-only message) would
+    /// still be deduped and the invoke content dropped from the sent
+    /// list. When the tail does not match the declaration at all (not a
+    /// blocks-carrying user message, or its flattened text is
+    /// non-empty), the guard falls back to the string equality check and
+    /// the push still happens.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
@@ -481,14 +492,20 @@ impl ConversationSession {
         // every round. Skip the push on full equality (role + content)
         // with the history tail, or — when the caller declared a
         // blocks-form pre-append — on the tail being a user message
-        // carrying content blocks: Image blocks are excluded from the
-        // text flatten, so the blocks tail's content can never equal the
-        // gateway-flattened invoke text. Callers that did not pre-append
-        // (pending drain, tests) still get the push.
+        // carrying content blocks **with empty flattened text**: the
+        // image-round pre-append shape (Image blocks are excluded from
+        // the text flatten, so `content` is `""`). The empty-text
+        // requirement keeps blocks tails that do carry text (image +
+        // caption) outside the declaration branch — their text could
+        // differ from the invoke content, so they always push. Callers
+        // that did not pre-append (pending drain, tests) still get the
+        // push.
         let duplicates_history_tail = messages.last().is_some_and(|tail| {
             tail.role == "user"
                 && (tail.content == content
-                    || (user_blocks_pre_appended && tail.content_blocks.is_some()))
+                    || (user_blocks_pre_appended
+                        && tail.content.is_empty()
+                        && tail.content_blocks.is_some()))
         });
         if !duplicates_history_tail {
             messages.push(InternalMessage {

@@ -751,15 +751,6 @@ impl ConversationSession {
     pub fn streaming_sink(&self) -> Option<&Arc<dyn StreamingSink>> {
         self.streaming_sink.as_ref()
     }
-    /// Detects a cache hit anomaly against the previous call's prompt tokens.
-    pub fn detect_cache_anomaly_for_usage(
-        &mut self,
-        current_cache_read: Option<u32>,
-        current_prompt_tokens: Option<u32>,
-    ) -> Option<closeclaw_common::CacheAnomalyInfo> {
-        self.stats
-            .detect_cache_anomaly_and_update(current_cache_read, current_prompt_tokens)
-    }
     /// Accumulates a single API call's usage into the session stats.
     ///
     /// `model` is the model identifier used for this call (advances

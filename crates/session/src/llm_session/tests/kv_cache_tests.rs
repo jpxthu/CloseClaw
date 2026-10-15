@@ -7,7 +7,7 @@
 //!    exceeds the fixed 1024-token tolerance
 //! 3. Cache hit rate calculation is correct
 
-use super::capture_logs;
+use super::{capture_logs, make_usage, now_ms, user_msg, TTL_MS};
 use crate::llm_session::ConversationSession;
 use closeclaw_common::{CacheAnomalyInfo, InternalMessage, UnifiedUsage};
 use tempfile::TempDir;
@@ -15,33 +15,14 @@ use tempfile::TempDir;
 /// Design-fixed tolerance (llm-session-enhancements.md:75), non-configurable.
 const TOLERANCE: u32 = 1024;
 
-/// Provider cache TTL magnitude default (cache-adapter doc :27, 5 min);
-/// inter-round intervals in these tests are µs-scale, far below the TTL.
-const TTL_MS: u64 = 300_000;
-
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Current Unix epoch time in milliseconds.
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 /// Snapshot material for round `n`: a constant system prompt plus a
 /// tail-appending message list, mirroring consecutive production turns.
 fn round_messages(n: usize) -> Vec<InternalMessage> {
-    (1..=n)
-        .map(|i| InternalMessage {
-            role: "user".to_string(),
-            content: format!("turn-{i}"),
-            content_blocks: None,
-            tool_call_id: None,
-        })
-        .collect()
+    (1..=n).map(|i| user_msg(&format!("turn-{i}"))).collect()
 }
 
 /// Simulate a single LLM round: stage the prefix snapshot (request
@@ -53,24 +34,6 @@ fn simulate_round(session: &mut ConversationSession, round: usize, usage: &Unifi
     session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(round));
     session.check_cache_anomaly_and_advance(usage, None, now_ms(), TTL_MS);
     session.accumulate_usage(usage, None);
-}
-
-/// Build a `UnifiedUsage` from the given parameters.
-fn make_usage(
-    prompt: u32,
-    completion: u32,
-    total: Option<u32>,
-    cache_read: Option<u32>,
-    cache_write: Option<u32>,
-) -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-        total_tokens: total,
-        reasoning_tokens: None,
-        cache_read_tokens: cache_read,
-        cache_write_tokens: cache_write,
-    }
 }
 
 /// Build the cache anomaly scenario (issue #3112 场景分层, fixed-1024

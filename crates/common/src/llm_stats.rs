@@ -90,7 +90,12 @@ pub fn detect_cache_anomaly(
 }
 
 /// Current Unix epoch time in milliseconds.
-fn current_epoch_millis() -> u64 {
+///
+/// Shared clock for the cache hit consistency check: the unified
+/// advancement point timestamps each round with this clock, the same
+/// one [`RunningStats::accumulate`] uses for `last_call_at`, so the
+/// TTL exemption compares intervals measured by a single clock.
+pub fn current_epoch_millis() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap_or_default()

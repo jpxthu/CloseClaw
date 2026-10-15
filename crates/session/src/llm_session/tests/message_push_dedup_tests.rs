@@ -28,32 +28,16 @@ use crate::llm_session::session_chat::ChatSession;
 use crate::llm_session::ConversationSession;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::{
-    ContentBlock, InternalMessage, LLMError, LlmCaller, StreamEvent, UnifiedResponse, UnifiedUsage,
+    ContentBlock, InternalMessage, LLMError, LlmCaller, StreamEvent, UnifiedResponse,
 };
 
-use super::tmp_path;
+use super::{assistant_msg, make_usage_basic as make_usage, now_ms, tmp_path, user_msg, TTL_MS};
 
-/// Provider cache TTL magnitude default (cache-adapter doc :27: 5 min).
-const TTL_MS: u64 = 300_000;
-
-// ---------------------------------------------------------------------------
-// Helpers
 // ---------------------------------------------------------------------------
 
 fn make_session() -> ConversationSession {
     ConversationSession::new("message-push-dedup".into(), "test-model".into(), tmp_path())
         .with_system_prompt("static system")
-}
-
-fn make_usage(prompt: u32, completion: u32, cache_read: Option<u32>) -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-        total_tokens: Some(prompt + completion),
-        reasoning_tokens: None,
-        cache_read_tokens: cache_read,
-        cache_write_tokens: None,
-    }
 }
 
 fn canned_response(text: &str) -> UnifiedResponse {
@@ -62,31 +46,6 @@ fn canned_response(text: &str) -> UnifiedResponse {
         usage: make_usage(100_000, 50, Some(100_000)),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
-    }
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
-fn user_msg(content: &str) -> InternalMessage {
-    InternalMessage {
-        role: "user".to_string(),
-        content: content.to_string(),
-        content_blocks: None,
-        tool_call_id: None,
-    }
-}
-
-fn assistant_msg(content: &str) -> InternalMessage {
-    InternalMessage {
-        role: "assistant".to_string(),
-        content: content.to_string(),
-        content_blocks: None,
-        tool_call_id: None,
     }
 }
 
@@ -405,6 +364,39 @@ fn build_pushes_when_tail_is_blocks_without_declaration() {
             user_msg("[image: img_1] photo.png\nQUFB"),
         ],
         "without the declaration the flattened text is pushed as usual"
+    );
+}
+
+/// 守卫收紧（Step 1.7 ③）：blocks 尾部带非空展平文本（图 + 文字消息）时，
+/// 即使有显式声明也照常 push——声明分支只认「空展平文本」的 blocks 尾部，
+/// 防 decl 声明误删带文字的 blocks 消息（其文本可能与 invoke 内容不同）。
+#[test]
+fn pre_appended_declaration_pushes_when_blocks_tail_has_text() {
+    let mut session = make_session();
+    session.append_user_content_blocks(vec![
+        ContentBlock::Image {
+            name: "img_1".into(),
+            url: "data:image/png;base64,QUFB".into(),
+        },
+        ContentBlock::Text("caption text".into()),
+    ]);
+    let messages = session.build_llm_messages_with_listing(
+        "[image: img_1] photo.png\nQUFB\ncaption text",
+        None,
+        true,
+    );
+    assert_eq!(
+        messages.len(),
+        2,
+        "blocks tail with non-empty flattened text must not match the declaration branch: push happens"
+    );
+    assert_eq!(
+        messages[0].content, "caption text",
+        "the blocks tail's flattened text is preserved"
+    );
+    assert_eq!(
+        messages[1].content, "[image: img_1] photo.png\nQUFB\ncaption text",
+        "the invoke content is not dropped"
     );
 }
 

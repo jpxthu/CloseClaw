@@ -20,53 +20,17 @@ use async_trait::async_trait;
 use crate::llm_session::ConversationSession;
 use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::{
-    build_prefix_snapshot, CacheAnomalyInfo, ContentBlock, InternalMessage, LLMError, LlmCaller,
-    RequestPrefixSnapshot, UnifiedResponse, UnifiedUsage,
+    CacheAnomalyInfo, ContentBlock, InternalMessage, LLMError, LlmCaller, UnifiedResponse,
+    UnifiedUsage,
 };
 
-use super::tmp_path;
-
-/// Provider cache TTL magnitude default (cache-adapter doc :27: 5 min).
-const TTL_MS: u64 = 300_000;
+use super::{make_usage_basic as make_usage, now_ms, snapshot, tmp_path, user_msg, TTL_MS};
 
 // ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-fn make_usage(prompt: u32, completion: u32, cache_read: Option<u32>) -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: prompt,
-        completion_tokens: completion,
-        total_tokens: Some(prompt + completion),
-        reasoning_tokens: None,
-        cache_read_tokens: cache_read,
-        cache_write_tokens: None,
-    }
-}
-
-fn msg(content: &str) -> InternalMessage {
-    InternalMessage {
-        role: "user".to_string(),
-        content: content.to_string(),
-        content_blocks: None,
-        tool_call_id: None,
-    }
-}
 
 /// Growing tail-append message list: ["turn-1", ..., "turn-n"].
 fn turns(n: usize) -> Vec<InternalMessage> {
-    (1..=n).map(|i| msg(&format!("turn-{i}"))).collect()
-}
-
-fn snapshot(system: &str, msgs: &[InternalMessage]) -> RequestPrefixSnapshot {
-    build_prefix_snapshot(Some(system), None, None, msgs)
-}
-
-fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
+    (1..=n).map(|i| user_msg(&format!("turn-{i}"))).collect()
 }
 
 fn make_session() -> ConversationSession {
@@ -288,7 +252,7 @@ fn mid_history_rewrite_exempt() {
         now_ms(),
     );
     let mut rewritten = turns(2);
-    rewritten[0] = msg("turn-1 REWRITTEN");
+    rewritten[0] = user_msg("turn-1 REWRITTEN");
     session.stage_cache_prefix_snapshot(Some("sys"), None, None, &rewritten);
     let info = session.check_cache_anomaly_and_advance(
         &make_usage(100_000, 100, Some(0)),

@@ -18,15 +18,6 @@ use closeclaw_session::llm_session::ConversationSession;
 
 use crate::outbound::StreamResult;
 
-/// Current Unix epoch time in milliseconds (same clock as
-/// `RunningStats::accumulate`'s `last_call_at`).
-fn current_epoch_millis() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis() as u64
-}
-
 /// Runs the round's cache hit consistency check, reports any anomaly,
 /// and accumulates the round's usage.
 ///
@@ -67,7 +58,7 @@ pub(crate) fn check_cache_anomaly_and_accumulate_usage(
     if let Some(info) = cs.check_cache_anomaly_and_advance(
         &stream_result.usage,
         Some(&call_model),
-        current_epoch_millis(),
+        closeclaw_common::current_epoch_millis(),
         ttl_ms,
     ) {
         tracing::warn!(
