@@ -12,6 +12,7 @@ import allow_table
 import baseline
 import dep_edges
 import dep_guard
+import second_export
 
 FIXTURE_STANDARDS = """# 产品文档写作标准
 
@@ -283,6 +284,63 @@ class CheckErrorPathTest(unittest.TestCase):
             result = dep_guard.check_second_exports(Path("."))
         self.assertEqual(result.status, dep_guard.STATUS_FAIL)
         self.assertIn("cargo metadata 失败", result.lines[1])
+
+
+class CheckSecondExportsDiffTest(unittest.TestCase):
+    """second-exports 检查 baseline diff 集成测试（去行号归一化判定语义）。
+
+    参照 CheckDeadDepsTest：mock 扫描层（find_second_exports），baseline 经
+    临时目录真实加载，走真实 diff_baseline（key=strip_lineno）与判定链路。
+    """
+
+    BASE = "closeclaw-gateway: src/lib.rs:132 closeclaw_common::Foo"
+    DRIFTED = "closeclaw-gateway: src/lib.rs:136 closeclaw_common::Foo"
+
+    def _run_check(
+        self, tmp: str, baseline_content: str, actual_items: list[str]
+    ) -> dep_guard.CheckResult:
+        baseline_dir = Path(tmp)
+        (baseline_dir / "second-exports.txt").write_text(baseline_content, encoding="utf-8")
+        with (
+            mock.patch.object(dep_edges, "cargo_metadata", return_value=_fake_metadata()),
+            mock.patch.object(second_export, "find_second_exports", return_value=actual_items),
+            mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+        ):
+            return dep_guard.check_second_exports(Path("."))
+
+    def test_lineno_only_drift_passes(self) -> None:
+        """仅行号漂移（132→136）→ PASS；旧整行 diff 语义下同一输入会误 FAIL。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_check(tmp, f"{self.BASE}\n", [self.DRIFTED])
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertTrue(any("新增 0" in line for line in result.lines))
+        # 证伪旧行为：同一输入在旧语义（key=None 整行比较）下报新增 → FAIL。
+        self.assertTrue(baseline.diff_baseline([self.BASE], [self.DRIFTED]).has_new)
+
+    def test_true_new_export_fails_with_original_entry(self) -> None:
+        """真实新增二次出口 → FAIL，报文含原始条目（行号保留作定位信息）。"""
+        new_entry = "closeclaw-llm: src/lib.rs:2 closeclaw_common::Qux"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_check(tmp, f"{self.BASE}\n", [self.DRIFTED, new_entry])
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertTrue(any(f"新增二次出口: {new_entry}" in line for line in result.lines))
+
+    def test_eliminated_export_passes_with_info(self) -> None:
+        """baseline 条目被消除 → PASS 并按「消除」语义提示可收窄。"""
+        gone = "closeclaw-llm: src/lib.rs:1 closeclaw_common::Bar"
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_check(tmp, f"{self.BASE}\n{gone}\n", [self.DRIFTED])
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertTrue(
+            any(f"可收窄 baseline（二次出口已消除）: {gone}" in line for line in result.lines)
+        )
+
+    def test_duplicate_lineno_in_baseline_no_false_positive(self) -> None:
+        """归一化键冲突：baseline 同条目两个行号并存 → 不误报新增。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            result = self._run_check(tmp, f"{self.BASE}\n{self.DRIFTED}\n", [self.DRIFTED])
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertTrue(any("新增 0" in line for line in result.lines))
 
 
 class CliExitCodeTest(unittest.TestCase):
