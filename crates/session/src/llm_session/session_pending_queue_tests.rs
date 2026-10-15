@@ -33,7 +33,7 @@ fn entry_labels(entries: &[QueueEntry]) -> Vec<String> {
             QueueEntry::UserMessage(pm) => format!("user:{}", pm.message_id),
             QueueEntry::Announce(ev) => format!("announce:{}", ev.child_agent_id),
             QueueEntry::BackgroundToolNotification(n) => format!("bg:{}", n.task_id),
-            QueueEntry::SystemNotification(text, _) => format!("sys:{}", text),
+            QueueEntry::SystemNotification(text, _, _) => format!("sys:{}", text),
         })
         .collect()
 }
@@ -273,14 +273,16 @@ fn test_system_notification_push_adds_to_queue() {
     q.push(QueueEntry::SystemNotification(
         "warning text".into(),
         NotificationPriority::Next,
+        NotificationAudience::All,
     ));
 
     assert_eq!(q.len(), 1);
     let entry = q.pop().unwrap();
     match entry {
-        QueueEntry::SystemNotification(text, priority) => {
+        QueueEntry::SystemNotification(text, priority, audience) => {
             assert_eq!(text, "warning text");
             assert_eq!(priority, NotificationPriority::Next);
+            assert_eq!(audience, NotificationAudience::All);
         }
         other => panic!("expected SystemNotification, got {:?}", other),
     }
@@ -298,11 +300,13 @@ fn test_system_notification_priority_ordering() {
     q.push(QueueEntry::SystemNotification(
         "sys_now".into(),
         NotificationPriority::Now,
+        NotificationAudience::All,
     ));
     q.push(make_announce("a2", NotificationPriority::Next));
     q.push(QueueEntry::SystemNotification(
         "sys_later".into(),
         NotificationPriority::Later,
+        NotificationAudience::All,
     ));
     q.push(make_user_msg("u1"));
 
@@ -335,6 +339,7 @@ fn test_drain_announce_queue_preserves_system_notification() {
     q.push(QueueEntry::SystemNotification(
         "warning".into(),
         NotificationPriority::Next,
+        NotificationAudience::All,
     ));
     q.push(make_announce("a2", NotificationPriority::Later));
 
@@ -355,7 +360,7 @@ fn test_drain_announce_queue_preserves_system_notification() {
 
     let remaining = q.pop().unwrap();
     assert!(
-        matches!(remaining, QueueEntry::SystemNotification(ref t, _) if t == "warning"),
+        matches!(remaining, QueueEntry::SystemNotification(ref t, _, _) if t == "warning"),
         "SystemNotification should survive drain_announce_queue"
     );
 }
@@ -372,6 +377,7 @@ fn test_drain_all_entries_includes_system_notification() {
     q.push(QueueEntry::SystemNotification(
         "sys_msg".into(),
         NotificationPriority::Next,
+        NotificationAudience::All,
     ));
     q.push(make_user_msg("u1"));
 
@@ -380,7 +386,7 @@ fn test_drain_all_entries_includes_system_notification() {
 
     let has_sys = drained
         .iter()
-        .any(|e| matches!(e, QueueEntry::SystemNotification(text, _) if text == "sys_msg"));
+        .any(|e| matches!(e, QueueEntry::SystemNotification(text, _, _) if text == "sys_msg"));
     assert!(has_sys, "drain_all_entries must include SystemNotification");
     assert!(q.is_empty());
 }

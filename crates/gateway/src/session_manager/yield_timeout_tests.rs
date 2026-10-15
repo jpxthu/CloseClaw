@@ -588,7 +588,7 @@ async fn test_yield_legacy_single_warning_only() {
         .filter(|e| {
             matches!(
                 e,
-                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _)
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _)
                     if text.contains("超时预警")
             )
         })
@@ -759,12 +759,12 @@ async fn test_yield_warning_is_system_notification_with_next_priority() {
         let sys_entry = entries.iter().find(|e| {
             matches!(
                 e,
-                closeclaw_session::llm_session::QueueEntry::SystemNotification(_, _)
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(_, _, _)
             )
         });
         let sys_entry = sys_entry.expect("should contain a SystemNotification entry");
         match sys_entry {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, priority) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, priority, _) => {
                 assert!(
                     text.contains("超时预警"),
                     "warning text should contain '超时预警', got: {}",

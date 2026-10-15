@@ -153,7 +153,7 @@ fn drained_system_notifications(cs: &mut ConversationSession) -> Vec<String> {
     cs.drain_queue()
         .into_iter()
         .filter_map(|entry| match entry {
-            QueueEntry::SystemNotification(text, _) => Some(text),
+            QueueEntry::SystemNotification(text, _, _) => Some(text),
             _ => None,
         })
         .collect()

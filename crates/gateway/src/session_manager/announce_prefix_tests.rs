@@ -373,11 +373,13 @@ async fn test_filtered_drain_system_notification_prefix() {
         "system notification should be in DrainResult.system_notifications"
     );
     assert!(
-        drained.system_notifications[0].contains("[紧急]"),
+        drained.system_notifications[0].text.contains("[紧急]"),
         "SystemNotification must have [紧急] prefix, got: {}",
-        drained.system_notifications[0]
+        drained.system_notifications[0].text
     );
-    assert!(drained.system_notifications[0].contains("system urgent message"));
+    assert!(drained.system_notifications[0]
+        .text
+        .contains("system urgent message"));
 
     // Notification should NOT be injected into conversation transcript
     let msgs = get_system_messages(&mgr, pid).await;
@@ -414,9 +416,9 @@ async fn test_filtered_drain_system_notification_next_prefix() {
         "system notification should be in DrainResult.system_notifications"
     );
     assert!(
-        drained.system_notifications[0].contains("[注意]"),
+        drained.system_notifications[0].text.contains("[注意]"),
         "SystemNotification must have [注意] prefix, got: {}",
-        drained.system_notifications[0]
+        drained.system_notifications[0].text
     );
 
     // Should NOT be in transcript
@@ -693,7 +695,9 @@ async fn test_drain_announces_separates_notifications_from_events() {
 
     // SystemNotification goes to system_notifications.
     assert_eq!(result.system_notifications.len(), 1);
-    assert!(result.system_notifications[0].contains("urgent system msg"));
+    assert!(result.system_notifications[0]
+        .text
+        .contains("urgent system msg"));
 }
 
 /// `drain_and_inject_announces` with gateway=None does not panic.
@@ -815,4 +819,138 @@ async fn test_mixed_queue_only_announce_injected() {
         !msgs[0].contains("system text"),
         "system notification should NOT be in transcript"
     );
+}
+
+// ── Audience declaration travels the drain pipeline untouched ───────────────
+//
+// outbound-flow design doc「定向收件人」: the audience declaration made by
+// the session side must survive queue → drain → route without being lost
+// and without polluting the `[紧急]`/`[注意]` text prefix (the flag is
+// carried independently of the message body).
+
+use closeclaw_session::llm_session::NotificationAudience;
+
+/// `drain_announces_filtered` carries the OwnerOnly declaration on the
+/// drained notification; the `[紧急]` prefix stays in `text` only and the
+/// `audience` field remains clean.
+#[tokio::test]
+async fn test_filtered_drain_preserves_owner_only_audience() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-audience-owner";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    {
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification_with_audience(
+            "owner secret notice".into(),
+            NotificationPriority::Now,
+            NotificationAudience::OwnerOnly,
+        );
+    }
+
+    let drained = mgr
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now))
+        .await;
+
+    assert_eq!(drained.system_notifications.len(), 1);
+    let n = &drained.system_notifications[0];
+    assert_eq!(
+        n.audience,
+        NotificationAudience::OwnerOnly,
+        "audience declaration must survive the filtered drain"
+    );
+    assert!(
+        n.text.starts_with("[紧急] "),
+        "priority prefix must stay in text, got: {}",
+        n.text
+    );
+    assert!(n.text.contains("owner secret notice"));
+    assert!(
+        !n.text.contains("OwnerOnly"),
+        "audience flag must not leak into the text body"
+    );
+}
+
+/// A non-matching predicate re-inserts the notification with its
+/// audience declaration intact.
+#[tokio::test]
+async fn test_filtered_drain_reinsert_keeps_audience() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-audience-reinsert";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    {
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification_with_audience(
+            "deferred owner notice".into(),
+            NotificationPriority::Now,
+            NotificationAudience::OwnerOnly,
+        );
+    }
+
+    // Drain with a non-matching predicate → entry is re-inserted.
+    let drained = mgr
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Later))
+        .await;
+    assert!(drained.system_notifications.is_empty());
+
+    // A later matching drain must still see the OwnerOnly declaration.
+    let drained = mgr
+        .drain_announces_filtered(pid, |p| matches!(p, NotificationPriority::Now))
+        .await;
+    assert_eq!(drained.system_notifications.len(), 1);
+    assert_eq!(
+        drained.system_notifications[0].audience,
+        NotificationAudience::OwnerOnly
+    );
+    assert!(drained.system_notifications[0]
+        .text
+        .contains("deferred owner notice"));
+}
+
+/// The unfiltered `drain_announces` also carries the audience
+/// declaration through to `DrainResult`.
+#[tokio::test]
+async fn test_unfiltered_drain_carries_audience() {
+    clear_global_prompt_state();
+    let tmp = TempDir::new().unwrap();
+    let mgr = make_test_mgr(Some(tmp.path()));
+    let pid = "parent-audience-unfiltered";
+    setup_parent_with_conv(&mgr, pid).await;
+
+    {
+        let cs = mgr.get_conversation_session(pid).await.unwrap();
+        let mut cs = cs.write().await;
+        cs.push_system_notification_with_audience(
+            "plain notice".into(),
+            NotificationPriority::Next,
+            NotificationAudience::All,
+        );
+        cs.push_system_notification_with_audience(
+            "owner notice".into(),
+            NotificationPriority::Now,
+            NotificationAudience::OwnerOnly,
+        );
+    }
+
+    let drained = mgr.drain_announces(pid).await;
+    assert_eq!(drained.system_notifications.len(), 2);
+    let all = drained
+        .system_notifications
+        .iter()
+        .find(|n| n.text == "plain notice")
+        .expect("All-audience notification must be drained");
+    let owner = drained
+        .system_notifications
+        .iter()
+        .find(|n| n.text == "owner notice")
+        .expect("OwnerOnly notification must be drained");
+    assert_eq!(all.audience, NotificationAudience::All);
+    assert_eq!(owner.audience, NotificationAudience::OwnerOnly);
 }

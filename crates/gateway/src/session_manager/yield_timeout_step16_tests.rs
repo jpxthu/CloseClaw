@@ -129,7 +129,7 @@ async fn test_yield_timeout_structured_notification_content() {
     }
     let drained = m.drain_announces(&parent_id).await;
     assert_eq!(drained.system_notifications.len(), 1);
-    let notif_text = &drained.system_notifications[0];
+    let notif_text = &drained.system_notifications[0].text;
     assert!(notif_text.contains(&child1_id), "should mention child1");
     assert!(notif_text.contains(&child2_id), "should mention child2");
 }
@@ -542,7 +542,9 @@ async fn test_yield_timeout_with_multiple_children() {
     }
     let drained = m.drain_announces(&parent_id).await;
     assert_eq!(drained.system_notifications.len(), 1);
-    assert!(drained.system_notifications[0].contains("multiple children"));
+    assert!(drained.system_notifications[0]
+        .text
+        .contains("multiple children"));
 }
 
 // ── 22. No children timeout fires and structured notification ──────────────
@@ -599,5 +601,5 @@ async fn test_yield_timeout_no_children_structured_notification() {
     }
     let drained = m.drain_announces(&parent_id).await;
     assert_eq!(drained.system_notifications.len(), 1);
-    assert!(drained.system_notifications[0].contains("no-children"));
+    assert!(drained.system_notifications[0].text.contains("no-children"));
 }

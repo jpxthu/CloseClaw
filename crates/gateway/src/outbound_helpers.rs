@@ -530,7 +530,33 @@ impl Gateway {
     /// 供 Session 等模块发送纯文本系统通知（如"⏳ 正在排队..."、"正在恢复会话..."）。
     /// 走简化出站路径（跳过 VerbosityFilter/DslParser/中间件），2 秒超时自动丢弃。
     /// 系统通知不写入 session checkpoint（出站历史记录）。
-    pub async fn send_system_notification(&self, chat_id: &str, channel: &str, message: &str) {
+    ///
+    /// 定向收件人（设计 `docs/design/gateway/outbound-flow.md`「定向收件人」节）：
+    /// `audience` 由调用方声明投递意图，Gateway 依据当前 User 角色判定——
+    /// [`NotificationAudience::OwnerOnly`] 仅在 `sender_id` 为 Owner
+    /// （单一出处 [`closeclaw_permission::is_owner`]）时投递到当前会话
+    /// channel，非 Owner 静默丢弃（不报错、不影响消息流）；判定所需的
+    /// sender 由调用方经 `SessionManager::get_sender_id` 解析后传入
+    /// （session 侧只声明、不判定）。
+    pub async fn send_system_notification(
+        &self,
+        chat_id: &str,
+        channel: &str,
+        message: &str,
+        audience: closeclaw_session::llm_session::NotificationAudience,
+        sender_id: Option<&str>,
+    ) {
+        use closeclaw_session::llm_session::NotificationAudience;
+        if audience == NotificationAudience::OwnerOnly
+            && !closeclaw_permission::is_owner(sender_id.unwrap_or_default())
+        {
+            tracing::trace!(
+                chat_id = %chat_id,
+                channel = %channel,
+                "owner-only system notification dropped (current user is not owner)"
+            );
+            return;
+        }
         let preview: String = message.chars().take(50).collect();
         tracing::info!(
             chat_id = %chat_id,

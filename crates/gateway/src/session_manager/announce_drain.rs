@@ -16,7 +16,9 @@ use crate::outbound::SendOutboundIds;
 use crate::Gateway;
 use closeclaw_common::ChildCompletionStatus;
 use closeclaw_common::NotificationPriority;
-use closeclaw_session::llm_session::{AnnounceEvent, ChatSession, ConversationSession, QueueEntry};
+use closeclaw_session::llm_session::{
+    AnnounceEvent, ChatSession, ConversationSession, NotificationAudience, QueueEntry,
+};
 use tracing::warn;
 
 // ── Priority prefix helper ────────────────────────────────────────────────
@@ -44,7 +46,19 @@ fn priority_prefix(priority: &NotificationPriority) -> &'static str {
 #[derive(Debug)]
 pub(crate) struct DrainResult {
     pub announces: Vec<AnnounceEvent>,
-    pub system_notifications: Vec<String>,
+    pub system_notifications: Vec<OutboundSystemNotification>,
+}
+
+/// A drained system notification ready for outbound routing.
+///
+/// The [`NotificationAudience`] declaration is carried **independently**
+/// of the text: the `[紧急]`/`[注意]` priority prefix is already
+/// concatenated into `text` by the drain, so the audience flag must not
+/// piggyback on the message body.
+#[derive(Debug, Clone)]
+pub(crate) struct OutboundSystemNotification {
+    pub text: String,
+    pub audience: NotificationAudience,
 }
 
 // ── Queue accessors (push / drain) + drain pipeline ────────────────────────
@@ -92,8 +106,8 @@ impl SessionManager {
                 QueueEntry::BackgroundToolNotification(notif) => {
                     announces.push(notif_to_announce(notif));
                 }
-                QueueEntry::SystemNotification(text, _) => {
-                    system_notifications.push(text);
+                QueueEntry::SystemNotification(text, _, audience) => {
+                    system_notifications.push(OutboundSystemNotification { text, audience });
                 }
             }
         }
@@ -153,11 +167,16 @@ impl SessionManager {
                 QueueEntry::BackgroundToolNotification(ref notif) if predicate(&notif.priority) => {
                     matched_announces.push(notif_to_announce(notif.clone()));
                 }
-                QueueEntry::SystemNotification(ref text, ref priority) if predicate(priority) => {
-                    matched_notifications.push(format!("{}{}", priority_prefix(priority), text));
+                QueueEntry::SystemNotification(ref text, ref priority, ref audience)
+                    if predicate(priority) =>
+                {
+                    matched_notifications.push(OutboundSystemNotification {
+                        text: format!("{}{}", priority_prefix(priority), text),
+                        audience: *audience,
+                    });
                 }
-                QueueEntry::SystemNotification(text, priority) => {
-                    cs.push_queue_entry(QueueEntry::SystemNotification(text, priority));
+                QueueEntry::SystemNotification(text, priority, audience) => {
+                    cs.push_queue_entry(QueueEntry::SystemNotification(text, priority, audience));
                 }
                 other => {
                     cs.push_queue_entry(other);
@@ -198,10 +217,15 @@ impl SessionManager {
     }
 
     /// Route system notifications via simplified outbound path.
+    ///
+    /// Each notification's audience declaration travels with it: the
+    /// session's current sender (checkpoint `sender_id`) is resolved
+    /// once and handed to the Gateway together with the flag, so the
+    /// Gateway can perform the Owner-only judgment at delivery time.
     async fn route_system_notifications(
         &self,
         session_id: &str,
-        notifications: &[String],
+        notifications: &[OutboundSystemNotification],
         gateway: Option<&Arc<Gateway>>,
     ) {
         if notifications.is_empty() {
@@ -236,8 +260,16 @@ impl SessionManager {
             );
             return;
         };
-        for text in notifications {
-            gw.send_system_notification(&chat_id, &channel, text).await;
+        let sender_id = self.get_sender_id(session_id).await;
+        for notification in notifications {
+            gw.send_system_notification(
+                &chat_id,
+                &channel,
+                &notification.text,
+                notification.audience,
+                sender_id.as_deref(),
+            )
+            .await;
         }
     }
 

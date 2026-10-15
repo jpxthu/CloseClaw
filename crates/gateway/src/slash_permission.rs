@@ -104,7 +104,14 @@ impl Gateway {
             );
         }
         let text = closeclaw_session::notifications::QUEUE_NOTIFICATION_TEXT;
-        self.send_system_notification(peer_id, channel, text).await;
+        self.send_system_notification(
+            peer_id,
+            channel,
+            text,
+            closeclaw_session::llm_session::NotificationAudience::All,
+            None,
+        )
+        .await;
     }
 
     /// Dispatch a slash command with permission checks.

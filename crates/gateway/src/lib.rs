@@ -66,6 +66,8 @@ mod outbound_streaming_dsl_checkpoint_tests;
 #[cfg(test)]
 mod outbound_streaming_error_tests;
 #[cfg(test)]
+mod outbound_system_notification_tests;
+#[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
 mod outbound_writeahead_integration_tests;
@@ -580,7 +582,14 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            self.send_system_notification(&chat_id, channel, msg).await;
+            self.send_system_notification(
+                &chat_id,
+                channel,
+                msg,
+                closeclaw_session::llm_session::NotificationAudience::All,
+                None,
+            )
+            .await;
         }
         // Shutdown gate: reject new operations.
         if let Some(sh) = self.get_shutdown_handle() {
@@ -798,7 +807,14 @@ impl Gateway {
             HandleResult::Error(t) => t,
             _ => return,
         };
-        self.send_system_notification(peer_id, channel, text).await;
+        self.send_system_notification(
+            peer_id,
+            channel,
+            text,
+            closeclaw_session::llm_session::NotificationAudience::All,
+            None,
+        )
+        .await;
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
