@@ -4,7 +4,7 @@
 //! in the `plans/` directory of a workspace.
 
 use chrono::{DateTime, Local, Utc};
-use rand::seq::SliceRandom;
+use rand::seq::IndexedRandom;
 use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{self, Write};
@@ -86,7 +86,7 @@ pub enum PlanIdentifierFormat {
 /// Uses `rand` crate for randomness. Words are drawn from built-in
 /// adjective and noun lists (50 words each).
 pub fn generate_random_identifier() -> String {
-    let mut rng = rand::thread_rng();
+    let mut rng = rand::rng();
     let adj = ADJECTIVES
         .choose(&mut rng)
         .expect("ADJECTIVES is non-empty");
