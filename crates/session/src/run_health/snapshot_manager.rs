@@ -3,7 +3,8 @@
 //! Provides [`RuntimeSnapshotManager`] for creating and restoring
 //! transcript snapshots before destructive operations (compaction,
 //! `/system` rewrite). Each session owns one manager instance that
-//! is independent from the persistence-layer [`CheckpointManager`].
+//! is independent from the persistence-layer
+//! [`CheckpointManager`](crate::checkpoint_manager::CheckpointManager).
 //!
 //! Design reference: `docs/design/session/run-health.md`.
 
@@ -143,7 +144,8 @@ pub struct SnapshotMeta {
 /// daemon) and are injected via [`RuntimeSnapshotManager::set_meta_store`].
 /// When no store is configured, metadata is held in memory only.
 ///
-/// Metadata is persisted independently from [`SessionCheckpoint`],
+/// Metadata is persisted independently from
+/// [`SessionCheckpoint`](crate::persistence::SessionCheckpoint),
 /// ensuring storage semantics and lifecycle are not shared.
 #[async_trait::async_trait]
 pub trait SnapshotMetaStore: Send + Sync {
@@ -191,16 +193,16 @@ pub struct Snapshot {
 ///
 /// Snapshots are stored in-memory only (not persisted across process
 /// restarts) unless a [`SnapshotMetaStore`] is configured for metadata
-/// persistence. The queue is bounded to [`MAX_SNAPSHOTS`] entries;
+/// persistence. The queue is bounded to `MAX_SNAPSHOTS` entries;
 /// older entries are evicted automatically.
 ///
 /// # Usage
 ///
-/// 1. Before a destructive operation, call [`create_snapshot`] to
+/// 1. Before a destructive operation, call [`Self::create_snapshot`] to
 ///    capture the current transcript state.
-/// 2. After the operation succeeds, call [`mark_complete`] to
+/// 2. After the operation succeeds, call [`Self::mark_complete`] to
 ///    transition the snapshot status to [`SnapshotStatus::Complete`].
-/// 3. On failure, call [`rollback`] to restore the most recent
+/// 3. On failure, call [`Self::rollback`] to restore the most recent
 ///    snapshot. A pre-rollback snapshot is automatically created
 ///    so the rollback itself is undoable.
 #[derive(Clone)]
@@ -212,7 +214,9 @@ pub struct RuntimeSnapshotManager {
 /// Persistence-backed implementation of [`SnapshotMetaStore`].
 ///
 /// Wraps a [`PersistenceService`] and a session ID. Metadata is
-/// persisted independently from [`SessionCheckpoint`] via dedicated
+/// persisted independently from
+/// [`SessionCheckpoint`](crate::persistence::SessionCheckpoint) via
+/// dedicated
 /// [`PersistenceService`] methods, ensuring storage semantics and
 /// lifecycle are not shared with the session checkpoint.
 pub struct PersistenceMetaStore {
@@ -235,7 +239,8 @@ impl SnapshotMetaStore for PersistenceMetaStore {
     /// Persist snapshot metadata to the independent metadata store.
     ///
     /// Loads existing metas, appends the new entry, and saves back.
-    /// Does **not** read or write [`SessionCheckpoint`].
+    /// Does **not** read or write
+    /// [`SessionCheckpoint`](crate::persistence::SessionCheckpoint).
     async fn save_meta(&self, meta: &SnapshotMeta) -> Result<(), String> {
         let mut metas = self
             .storage
@@ -299,7 +304,7 @@ impl RuntimeSnapshotManager {
     ///
     /// If the operation does not require a snapshot ([`Append`]), this
     /// is a no-op. Otherwise the snapshot is pushed onto the queue; if
-    /// the queue exceeds [`MAX_SNAPSHOTS`], the oldest entry is evicted.
+    /// the queue exceeds `MAX_SNAPSHOTS`, the oldest entry is evicted.
     ///
     /// [`Append`]: TranscriptOp::Append
     pub fn create_snapshot(
@@ -424,7 +429,7 @@ impl RuntimeSnapshotManager {
 
     /// Create an incremental snapshot for transcript truncation rollback.
     ///
-    /// Unlike [`create_snapshot`] which always creates a `FullRewrite`
+    /// Unlike [`Self::create_snapshot`] which always creates a `FullRewrite`
     /// kind, this method creates an `Incremental` snapshot that records
     /// the `leaf_entry_id` for JSONL truncation on rollback.
     pub fn create_incremental_snapshot(

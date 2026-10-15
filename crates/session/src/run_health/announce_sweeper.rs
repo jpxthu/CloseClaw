@@ -99,7 +99,7 @@ pub trait AnnounceSweepTarget: Send + Sync {
     ///    (ended/archived).
     ///
     /// Default implementation is a no-op; gateway overrides with
-    /// [`closeclaw_gateway::spawn_reclaim_gc::sweep_spawn_tree_reclaim`].
+    /// `closeclaw_gateway::spawn_reclaim_gc::sweep_spawn_tree_reclaim`.
     async fn sweep_reclaim(&self) {}
 
     /// Reclaim a single child node from the spawn tree.
@@ -130,7 +130,7 @@ impl AnnounceSweeper {
     /// Run the sweeper loop until `shutdown` signal is received.
     ///
     /// When shutdown arrives, if a sweep is in progress the sweeper
-    /// waits up to [`ANNOUNCE_SWEEP_GRACE_PERIOD_SECS`] for it to
+    /// waits up to `ANNOUNCE_SWEEP_GRACE_PERIOD_SECS` for it to
     /// finish before forcibly aborting the task.
     pub async fn run(&self, mut shutdown: watch::Receiver<()>) {
         let interval = tokio::time::Duration::from_secs(ANNOUNCE_SWEEP_INTERVAL_SECS);
