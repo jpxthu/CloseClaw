@@ -2,9 +2,9 @@
 //!
 //! Wraps LLM calls with retry, cooldown tracking, and model-level fallback.
 //!
-//! [`FallbackClient`] supports both non-streaming ([`chat`](Self::chat),
-//! [`chat_unified`](Self::chat_unified)) and streaming
-//! ([`chat_streaming`](Self::chat_streaming)) requests.  Streaming walks the
+//! [`FallbackClient`] supports both non-streaming ([`FallbackClient::chat`],
+//! [`FallbackClient::chat_unified`]) and streaming
+//! ([`FallbackClient::chat_streaming`]) requests.  Streaming walks the
 //! provider chain calling [`Provider::send_streaming`] on each entry; when no
 //! streaming provider is available it degrades to a non-streaming call and
 //! wraps the response as a character-by-character stream.
@@ -432,11 +432,12 @@ impl FallbackClient {
     ///
     /// Walks the chain trying [`Provider::send_streaming`] on each entry,
     /// skipping cooldown entries.  On success the raw SSE stream is parsed
-    /// into [`StreamEvent`] values via the configured [`ChatProtocol`].
+    /// into [`StreamEvent`](crate::types::StreamEvent) values via the
+    /// configured [`ChatProtocol`].
     /// On failure the cooldown is recorded and the next entry is tried.
     ///
     /// If every entry's streaming call fails, degrades to a non-streaming
-    /// [`call_provider_unified`] and wraps the complete response as a
+    /// `call_provider_unified` and wraps the complete response as a
     /// character-by-character stream.
     pub async fn chat_streaming(
         &self,

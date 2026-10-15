@@ -166,11 +166,12 @@ pub trait Provider: Send + Sync {
     ///
     /// The caller is responsible for calling
     /// [`ChatProtocol::build_request`][crate::ChatProtocol::build_request]
-    /// first to convert the [`InternalRequest`][crate::InternalRequest] into a
+    /// first to convert the [`InternalRequest`] into a
     /// `serde_json::Value` that is suitable for the provider's HTTP endpoint.
     ///
     /// The [`Protocol`][crate::ChatProtocol] layer is responsible for parsing
-    /// the raw JSON into a structured [`InternalResponse`][crate::InternalResponse].
+    /// the raw JSON into a structured
+    /// [`InternalResponse`](crate::types::InternalResponse).
     /// This method intentionally returns `serde_json::Value` to enforce the
     /// separation of concerns: Provider handles HTTP I/O only; Protocol handles
     /// response parsing.
@@ -189,13 +190,13 @@ pub trait Provider: Send + Sync {
     ///
     /// The caller is responsible for calling
     /// [`ChatProtocol::build_request`][crate::ChatProtocol::build_request]
-    /// first, passing `stream: true` in the [`InternalRequest`][crate::InternalRequest].
+    /// first, passing `stream: true` in the [`InternalRequest`].
     ///
     /// The returned [`SseStream`] channel yields one [`RawSseChunk`] per
     /// SSE event received from the wire.  The caller (typically
     /// [`ChatProtocol::parse_sse_stream`][crate::ChatProtocol::parse_sse_stream])
     /// is responsible for converting these chunks into structured
-    /// [`StreamEvent`][crate::StreamEvent] values.
+    /// [`StreamEvent`](crate::types::StreamEvent) values.
     ///
     /// The channel is closed automatically when the response finishes or
     /// when an error occurs.

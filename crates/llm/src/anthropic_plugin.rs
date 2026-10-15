@@ -1,7 +1,7 @@
 //! Anthropic-specific request plugin.
 //!
 //! Reasoning level downgrade is now handled at the gateway layer via
-//! [`resolve_effective_reasoning_level`], not in the plugin.
+//! `resolve_effective_reasoning_level`, not in the plugin.
 //! This plugin is a no-op; it is kept for plugin registration.
 //!
 //! The shared helper [`resolve_anthropic_effective`] is still used by the

@@ -1,6 +1,6 @@
 //! LLM Protocol implementations — re-exports and module declarations.
 //!
-//! The [`ChatProtocol`] trait lives in [`chat_protocol`]; concrete protocol
+//! The [`ChatProtocol`] trait lives in `chat_protocol`; concrete protocol
 //! implementations are in the sibling modules.
 
 mod chat_protocol;

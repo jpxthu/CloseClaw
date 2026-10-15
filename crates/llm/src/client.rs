@@ -4,11 +4,12 @@
 //! through the LLM framework. It owns the four pillars of the call pipeline:
 //! - **Provider** — HTTP transport (OpenAI, Anthropic, GLM, DeepSeek, …)
 //! - **ChatProtocol** — request serialisation / response deserialisation
-//! - **InterpreterRegistry** — maps `(provider_id, model)` → [`ModelInterpreter`]
+//! - **InterpreterRegistry** — maps `(provider_id, model)` →
+//!   [`ModelInterpreter`](crate::ModelInterpreter)
 //! - **PluginPipeline** — before-request / after-response / on-stream-event hooks
 //!
 //! The non-streaming [`chat`](UnifiedChatClient::chat) flow is:
-//! ```ignore
+//! ```text
 //! PluginPipeline.before_request
 //!   → ChatProtocol.build_request
 //!     → Provider.send (returns raw JSON)

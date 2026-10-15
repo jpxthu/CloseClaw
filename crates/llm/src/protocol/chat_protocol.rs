@@ -67,7 +67,7 @@ pub type OutgoingEventStream =
 /// - `parse_sse_stream` is **asynchronous** and streaming; it consumes an
 ///   [`IncomingSseStream`] (from a [`Provider`][crate::Provider]'s
 ///   [`send_streaming`][crate::Provider::send_streaming]) and produces a
-///   stream of parsed [`StreamEvent`][crate::StreamEvent] values.
+///   stream of parsed [`StreamEvent`] values.
 #[async_trait]
 pub trait ChatProtocol: Send + Sync {
     // ── Identity ────────────────────────────────────────────────────────────
@@ -104,7 +104,7 @@ pub trait ChatProtocol: Send + Sync {
     /// # Errors
     ///
     /// Returns [`ProtocolError::ResponseParse`] if the response body cannot be
-    /// parsed into an [`InternalResponse`][crate::InternalResponse].
+    /// parsed into an [`InternalResponse`].
     fn parse_response(&self, body: serde_json::Value) -> Result<InternalResponse>;
 
     // ── Header decoration ───────────────────────────────────────────────────
