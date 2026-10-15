@@ -264,6 +264,16 @@ impl ConversationSession {
 
         let request = self.build_llm_request(messages, false);
 
+        // Stage this round's prefix snapshot at the request-build
+        // completion point (cache consistency check; consumed at the
+        // unified advancement point once usage fully arrives).
+        self.stage_cache_prefix_snapshot(
+            request.system_static.as_deref(),
+            request.system_dynamic.as_deref(),
+            request.tools.as_deref(),
+            &request.messages,
+        );
+
         // ── Busy count: increment before LLM call, decrement after ──
         if let Some(sh) = self.get_shutdown_handle() {
             sh.increment_busy();
@@ -329,6 +339,16 @@ impl ConversationSession {
         let messages = self.build_llm_messages_with_listing(content, listing);
 
         let request = self.build_llm_request(messages, true);
+
+        // Stage this round's prefix snapshot at the request-build
+        // completion point (cache consistency check; consumed at the
+        // unified advancement point once usage fully arrives).
+        self.stage_cache_prefix_snapshot(
+            request.system_static.as_deref(),
+            request.system_dynamic.as_deref(),
+            request.tools.as_deref(),
+            &request.messages,
+        );
 
         // ── Busy count: increment before stream, decrement on stream end ──
         if let Some(sh) = self.get_shutdown_handle() {

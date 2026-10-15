@@ -9,22 +9,49 @@
 
 use super::capture_logs;
 use crate::llm_session::ConversationSession;
-use closeclaw_common::{CacheAnomalyInfo, UnifiedUsage};
+use closeclaw_common::{CacheAnomalyInfo, InternalMessage, UnifiedUsage};
 use tempfile::TempDir;
 
 /// Design-fixed tolerance (llm-session-enhancements.md:75), non-configurable.
 const TOLERANCE: u32 = 1024;
 
+/// Provider cache TTL magnitude default (cache-adapter doc :27, 5 min);
+/// inter-round intervals in these tests are µs-scale, far below the TTL.
+const TTL_MS: u64 = 300_000;
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-/// Simulate a single LLM round: detect cache anomaly, then accumulate usage.
+/// Current Unix epoch time in milliseconds.
+fn now_ms() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Snapshot material for round `n`: a constant system prompt plus a
+/// tail-appending message list, mirroring consecutive production turns.
+fn round_messages(n: usize) -> Vec<InternalMessage> {
+    (1..=n)
+        .map(|i| InternalMessage {
+            role: "user".to_string(),
+            content: format!("turn-{i}"),
+            content_blocks: None,
+            tool_call_id: None,
+        })
+        .collect()
+}
+
+/// Simulate a single LLM round: stage the prefix snapshot (request
+/// build), check the cache anomaly (usage fully arrived), accumulate.
 ///
-/// This mirrors the session handler flow in
-/// `session_handler_announce.rs` (detect → accumulate).
-fn simulate_round(session: &mut ConversationSession, usage: &UnifiedUsage) {
-    session.detect_cache_anomaly_for_usage(usage.cache_read_tokens, Some(usage.prompt_tokens));
+/// This mirrors the production flow: invoke (stage) →
+/// `clear_busy_and_send` (check → accumulate).
+fn simulate_round(session: &mut ConversationSession, round: usize, usage: &UnifiedUsage) {
+    session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(round));
+    session.check_cache_anomaly_and_advance(usage, None, now_ms(), TTL_MS);
     session.accumulate_usage(usage, None);
 }
 
@@ -50,8 +77,8 @@ fn make_usage(
 /// semantics): a fresh `ConversationSession` under a `TempDir`, two stable
 /// rounds with a full cache hit matching the prompt tokens, then a round
 /// where the cache read drops to 0 — deviation 100 000 exceeds the fixed
-/// tolerance and triggers `detect_cache_anomaly_for_usage`. The dropped
-/// round is accumulated afterwards, mirroring detect → accumulate.
+/// tolerance and triggers the check. The dropped round is accumulated
+/// afterwards, mirroring check → accumulate.
 ///
 /// Zero environment capture, so it is a plain fn rather than inlined in
 /// the `capture_logs` closure (issue #3112 建议目标).
@@ -67,10 +94,13 @@ fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
 
     // Round 1: first round — no reference value, exempt from checking.
     let stable = make_usage(100_000, 200, Some(100_200), Some(100_000), None);
-    simulate_round(&mut session, &stable);
+    simulate_round(&mut session, 1, &stable);
 
     // Round 2: stable full hit — deviation 0, within tolerance.
-    let anomaly_free = session.detect_cache_anomaly_for_usage(Some(100_000), Some(100_000));
+    let anomaly_free = {
+        session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(2));
+        session.check_cache_anomaly_and_advance(&stable, None, now_ms(), TTL_MS)
+    };
     assert!(
         anomaly_free.is_none(),
         "stable round within tolerance must not detect an anomaly"
@@ -80,7 +110,8 @@ fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
     // Round 3: cache drops to 0 (whole-round miss) — deviation 100 000
     // exceeds the fixed 1024 tolerance.
     let dropped = make_usage(100_000, 200, Some(100_200), Some(0), None);
-    let anomaly = session.detect_cache_anomaly_for_usage(Some(0), Some(dropped.prompt_tokens));
+    session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(3));
+    let anomaly = session.check_cache_anomaly_and_advance(&dropped, None, now_ms(), TTL_MS);
 
     // Accumulate the dropped round's usage
     session.accumulate_usage(&dropped, None);
@@ -106,12 +137,13 @@ async fn test_cache_hit_accumulation() {
     );
 
     // Simulate N rounds of LLM usage accumulation.
-    // In production, the session handler calls detect → accumulate after
-    // each LLM response. We replicate that flow here.
+    // In production, the session handler runs check → accumulate after
+    // each LLM response (stage happens at request build). We replicate
+    // that flow here.
     for i in 1..=n_rounds {
         let cache_read = i as u32 * 1000;
         let usage = make_usage(500, 100, Some(600), Some(cache_read), None);
-        simulate_round(&mut session, &usage);
+        simulate_round(&mut session, i, &usage);
     }
 
     let stats = session.stats();
@@ -137,7 +169,7 @@ async fn test_cache_hit_accumulation() {
 /// Stable rounds keep the cache hit equal to the prompt tokens; the
 /// anomaly round drops the hit to 0 (whole-round miss, deviation
 /// 100 000 > 1024). Verify:
-/// - `detect_cache_anomaly_for_usage()` returns `Some(CacheAnomalyInfo)`
+/// - `check_cache_anomaly_and_advance()` returns `Some(CacheAnomalyInfo)`
 ///   with all four fields populated and `tolerance_tokens == 1024`
 /// - `tracing::warn!` is emitted with cache anomaly details
 ///
@@ -186,9 +218,12 @@ async fn test_cache_hit_rate_calculation() {
 
     // 5 rounds: each with prompt=1000, cache_read=300
     // (deviation 700 within tolerance — no anomaly expected).
-    for _ in 0..5 {
+    for i in 0..5 {
         let usage = make_usage(1000, 200, Some(1200), Some(300), None);
-        let detected = session.detect_cache_anomaly_for_usage(Some(300), Some(1000));
+        let detected = {
+            session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(i + 1));
+            session.check_cache_anomaly_and_advance(&usage, None, now_ms(), TTL_MS)
+        };
         assert!(
             detected.is_none(),
             "within-tolerance round is not an anomaly"
