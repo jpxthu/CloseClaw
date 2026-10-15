@@ -38,19 +38,13 @@ fn priority_prefix(priority: &NotificationPriority) -> &'static str {
 /// Return type for drain functions: separates announce events from
 /// system notifications (routed via simplified outbound path).
 ///
-/// The test-only accessor impl (`is_empty` / `len` / `iter`) lives in
-/// `tests.rs` (Step 1.8 ②: test block moved out of the production file).
+/// The test-only accessors (`is_empty` / `len` / `iter` / `Index<usize>`)
+/// live in `tests.rs` (Step 1.8 ② / Step 1.9: test-only code moved out of
+/// the production file).
 #[derive(Debug)]
 pub(crate) struct DrainResult {
     pub announces: Vec<AnnounceEvent>,
     pub system_notifications: Vec<String>,
-}
-
-impl std::ops::Index<usize> for DrainResult {
-    type Output = AnnounceEvent;
-    fn index(&self, index: usize) -> &Self::Output {
-        &self.announces[index]
-    }
 }
 
 // ── Queue accessors (push / drain) + drain pipeline ────────────────────────
