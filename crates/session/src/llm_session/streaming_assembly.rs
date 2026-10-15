@@ -241,7 +241,7 @@ impl Default for StreamingContentAssembler {
 /// call [`into_content_blocks`](Self::into_content_blocks) to extract
 /// the assembled result.
 ///
-/// When a [`closeclaw_common::ShutdownSignal`] is provided (via
+/// When a [`ShutdownSignal`](closeclaw_common::ShutdownSignal) is provided (via
 /// [`SessionStream::with_shutdown_handle`]), the stream calls
 /// [`ShutdownSignal::decrement_busy`](closeclaw_common::ShutdownSignal::decrement_busy)
 /// automatically when it ends (normally or with an error),
