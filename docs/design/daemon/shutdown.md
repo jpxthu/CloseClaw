@@ -12,7 +12,7 @@ ShutdownHandle 是关闭流程的中央协调器，在 Daemon 启动时创建，
 
 - **关闭门控标志**：关闭开始后置为拒绝状态，拦截新的入站消息、新会话与新 LLM 轮次；正在进行的收尾写入（工具结果、子 session 产出注入、检查点持久化）不受门控影响（见 [daemon 需求 §F2](../../requirements/daemon.md)）
 - **活跃操作计数**：原子计数器。处理组件处理工作前递增，完成后递减
-- **drain 等待**：阻塞等待活跃操作计数降至零或超时返回。用于 Phase 1 等待活跃操作（消息处理、Agent 异步调用工具、子 session）排空。超时时间可配置（默认 30s），超时后返回剩余活跃操作计数，调用方正常进入 Phase 2。超时不触发 forceful 升级——仅作为正常流转边界，剩余活跃操作由 Phase 2 的 session 停止流程处理
+- **drain 等待**：阻塞等待活跃操作计数降至零或超时返回。用于 Phase 1 等待活跃操作（消息处理、Agent 异步调用工具、子 session）排空。超时时间可配置（默认 30s），超时后返回剩余活跃操作计数，调用方正常进入 Phase 2。该超时仅是 drain 阶段的正常流转边界（不代表关闭失败或强制升级），Session 停止阶段的等待不设自动超时、时长由 Owner 掌控（见 [daemon 需求 非功能需求](../../requirements/daemon.md)）；剩余活跃操作由 Phase 2 的 session 停止流程处理
 - **drain 状态查询**：查询当前活跃操作计数和剩余等待项
 
 ShutdownHandle 实现跨模块关停接口 ShutdownSignal（定义见 [common/core-traits](../common/core-traits.md)）——llm、session 等模块经由该接口查询关停状态、忙计数并接收 graceful→forceful 升级，无需依赖 Daemon 内部结构。
@@ -81,6 +81,7 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
 2. **Phase 1：入站停摆 + Drain**
    - IM Adapters 关闭入站（长连接断开、事件订阅停止、子进程终止）
+   - Gateway 停收新消息并排空已有入站队列（见 [gateway](../gateway/README.md)），未及处理的消息由持久化入站队列留待重启重放
    - 调用 drain 等待活跃操作（消息处理、Agent 异步调用工具、子 session）排空
      - 全部排空：进入 Phase 2
      - 超时（可配，默认 30s）：记录剩余活跃操作计数，进入 Phase 2
@@ -141,7 +142,7 @@ graceful 关闭期间，向 Owner 发送实时状态，收集各组件状态汇�
 
 Owner 可选择等待或升级为 forceful；该「继续等待 / 强制关闭」交互经独立控制通道回到 ShutdownHandle，不随 Phase 1 入站关闭而失效。关闭启动时（Phase 0 模式判定后）立即发送首次通知，告知 Owner 系统正在关闭。进入 Session 停止阶段后切换为进度详情通知，有状态变化时更新（session 完成、新 session 开始停止等）。每个 session 的展示文案取其当前状态：LLM 流式输出中 / 同步工具执行中 / 后台任务执行中（Agent 异步调用的工具）/ 子任务进行中（仅有子 session 维度活跃时）；多个维度同时活跃时按「LLM 流式输出中 > 同步工具执行中 > 后台任务执行中 > 子任务进行中」取其一表示；四维均否（已就绪）的 session 在完成最终持久化前展示为「已就绪」，持久化后从列表移除。
 
-关闭等待期间若长时间无状态变化，系统按固定周期发送心跳通知，让 Owner 确认系统仍在关闭中而非卡死。心跳内容为简化格式，不逐条列出 session 详情：
+关闭等待期间若长时间无状态变化，系统按固定周期（默认 15s，作为设计给定周期，独立于 drain 超时）发送心跳通知，让 Owner 确认系统仍在关闭中而非卡死。心跳内容为简化格式，不逐条列出 session 详情：
 
 ```
 ⏳ 仍在关闭中，已等待 27s
@@ -149,7 +150,7 @@ Owner 可选择等待或升级为 forceful；该「继续等待 / 强制关闭�
 [继续等待] [强制关闭]
 ```
 
-心跳在存在等待的停止阶段生效（Phase 1 drain 等待、Phase 2 Session 停止）：期间无状态变化时按固定周期发送（周期与 drain 超时相互独立配置，避免与 drain 默认超时同值导致等待期发不出心跳）；Phase 3 系统级后台任务停止最长仅 10 秒 grace period、Phase 4 起为落盘与连接关闭等快速操作，均不再发送。
+心跳在存在等待的停止阶段生效（Phase 1 drain 等待、Phase 2 Session 停止）：期间无状态变化时按固定周期（默认 15s，与 drain 超时相互独立配置）发送；Phase 3 系统级后台任务停止最长仅 10 秒 grace period、Phase 4 起为落盘与连接关闭等快速操作，均不再发送。
 
 进度通知通过 IM Adapters 出站通道发送——Phase 1 仅关闭入站，出站在 Phase 5 才关闭，Phase 2-4 期间出站通道可用。
 

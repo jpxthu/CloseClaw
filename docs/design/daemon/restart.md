@@ -12,10 +12,10 @@
 - **变更合并**：待重启期间（重启执行前）新到达的重启类变更并入同一次待执行集合，不重复重启；重建执行期间到达的重启类变更并入下一次待执行集合
 - **择机窗口**：Daemon 经 SessionManager 查询全部会话的四维活跃维度（与关闭流程同一套判定，见 [shutdown.md](shutdown.md)），全部为否即满足窗口；无活跃会话时立即执行。窗口判定为瞬时快照，判定通过即进入重建执行期——此后的入站消息按重建期暂存补投处理（见 [gateway 需求 §F6](../../requirements/gateway.md)）
 - **重建集合**：会话层完全不动，重启生效类配置项到重建对象的映射如下（其余组件不重建）：
-  - Gateway 与 Plugin Registry（服务参数、机器人↔Agent 绑定）；Gateway 重建后 Plugin Registry 全量重建，各平台插件（含不在 `platforms/` 下、经显式注册加入的终端渠道 CLI Chat `terminal` 插件）随之重新注册，见 [gateway](../gateway/README.md)
-  - Renderers / Plugins 与 IM Adapters（平台启用清单变更时，新增/停用平台的 Renderer、Plugin 封装与 Adapter 创建及连接建立/关闭，见 [im_adapter](../im_adapter/README.md)）
+  - Gateway 与 Plugin Registry（服务参数、机器人↔Agent 绑定）：任何重启都重建 Gateway 与 Plugin Registry；Plugin Registry 全量重建后，各平台插件（含不在 `platforms/` 下、经显式注册加入的终端渠道 CLI Chat `terminal` 插件）随对应平台连接的重建而重新注册并初始化，见 [gateway](../gateway/README.md)
+  - Renderers / Plugins 与 IM Adapters（新增/停用平台的 Renderer、Plugin 封装与 Adapter 创建及连接建立/关闭）：仅当本次重启由平台启用清单变更触发时才发生，见 [im_adapter](../im_adapter/README.md)
   - LLM Registry 与 LlmCaller 接线（模型与凭据定义，见 [README 启动路径](README.md)）——经可替换的间接层重新接线，各 session 持有的对话状态不变
-  - 因持有上述引用而需随之重建的下游组件（Admin RPC Server——其管理接口连接在重建期间断开；CLI Admin 在管理接口不可达时报错退出、不重连，CLI Chat 的连接断开行为见 [cli/chat.md](../cli/chat.md)，管理接口不可达语义见 [cli/admin.md](../cli/admin.md)）
+  - 因持有上述引用而需随之重建的下游组件（Admin RPC Server——其管理接口连接在重建期间断开）：CLI Admin 在管理接口不可达时报错退出、不重连，terminal 渠道的连接随该管理接口 socket 重建而断开（见 [cli/admin.md](../cli/admin.md)）
 - **重建执行**：重建期间的入站消息由 Gateway 的持久化入站队列承载并跨越重建窗口，新 Gateway 就绪后按原到达顺序补投（见 [gateway 需求 §F6](../../requirements/gateway.md)、[gateway 消息队列](../gateway/README.md)）；执行中的出站消息按 graceful 语义收尾（等待在途出站发送完成，不涉及 forceful 场景）
 - **重建失败兜底**：新组件初始化或接线失败、或就绪后的基本可用性校验（如 LLM 能力可用性）不通过时，中止本次重建，保留旧组件与旧配置继续运行，并经 IM 通知 Owner（含失败原因，见 [daemon 需求 §F6](../../requirements/daemon.md)）、不得静默失败——避免「重建构建成功但系统不可用」被误报为重启成功；待生效变更保留在暂存区，待下次择机窗口重试；会话层始终不受影响
 - **单平台失败**：单个平台插件初始化失败时按 [im_adapter](../im_adapter/README.md) 记日志并跳过该平台、不中止整次重建，其余平台正常生效；完成通知中标注未生效的平台
