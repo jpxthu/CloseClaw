@@ -17,11 +17,8 @@ use tracing::{debug, warn};
 // ── Priority prefix helper ────────────────────────────────────────────────
 
 /// Map a [`NotificationPriority`] to a display prefix injected into
-/// system messages so the user can distinguish urgency at a glance.
-///
-/// - `Now`  → `[紧急]`
-/// - `Next` → `[注意]`
-/// - `Later` → `[后台]`
+/// system messages so the user can distinguish urgency at a glance:
+/// `Now` → `[紧急]`, `Next` → `[注意]`, `Later` → `[后台]`.
 fn priority_prefix(priority: &NotificationPriority) -> &'static str {
     match priority {
         NotificationPriority::Now => "[紧急] ",
@@ -258,10 +255,10 @@ impl SessionManager {
     /// Drain unsent outbound pending messages and re-deliver via gateway.
     ///
     /// Step 1.3: Drive source is `pending_operations` with `op_type ==
-    /// OutboundMessage` (not the entire `outbound_pending` cache).
-    /// For each op: content lookup in `outbound_pending` by `message_id`,
-    /// fallback to transcript; channel from `op.detail.target_channel` or
-    /// session fallback. On success/notified: clear the pending op.
+    /// OutboundMessage` (not the entire `outbound_pending` cache). Per op:
+    /// content lookup in `outbound_pending` by `message_id`, fallback to
+    /// transcript; channel from `op.detail.target_channel` or session
+    /// fallback. On success/notified: clear the pending op.
     pub async fn drain_outbound_pending_for_session(
         &self,
         session_id: &str,
@@ -281,9 +278,8 @@ impl SessionManager {
                 )
             })?;
 
-        // 2. Short-circuit: no OutboundMessage pending ops → nothing to do.
-        //    Collect into owned tuples to avoid holding a borrow on cp
-        //    across the mutable clear_outbound_pending_op calls.
+        // 2. Short-circuit: no OutboundMessage pending ops → nothing to
+        //    do. Owned tuples avoid holding a cp borrow across clears.
         let outbound_ops: Vec<(String, String)> = cp
             .pending_operations
             .iter()
@@ -323,8 +319,7 @@ impl SessionManager {
             );
         }
 
-        // 5. Pre-build transcript content lookup table.
-        //    HashMap<content, content> for O(1) lookups in the delivery loop.
+        // 5. Pre-build transcript content lookup (HashMap<content, content>).
         let transcript_map: HashMap<String, String> =
             if let Some(cs) = self.get_conversation_session(session_id).await {
                 let cs_read = cs.read().await;
@@ -349,8 +344,7 @@ impl SessionManager {
                 HashMap::new()
             };
 
-        // 6. Build outbound_pending content lookup: message_id → content cache.
-        //    Used for content resolution when the pending op matches a cache entry.
+        // 6. Build outbound_pending lookup: message_id → cached content.
         let cache_map: HashMap<String, String> = cp
             .outbound_pending
             .iter()
@@ -394,8 +388,7 @@ impl SessionManager {
             };
 
             // 7c. Send via gateway.
-            // Explicit SendOutboundIds::default() (not bare Default::default())
-            // to match the explicit style of all other send_outbound call sites.
+            // Explicit SendOutboundIds::default() — matches other call sites.
             let ids = SendOutboundIds::default();
             match gw
                 .send_outbound(session_id, &channel, &content, vec![], ids)
@@ -480,10 +473,9 @@ impl SessionManager {
             return;
         }
 
-        // Dedup protection: skip announce if child state is already terminal.
-        // This prevents duplicate AnnounceEvent injection when
-        // AnnounceSweeper and clear_busy_and_send race on the same child.
-        // Style matches notify_child_forced_termination / notify_child_error.
+        // Dedup protection: skip announce if child state is already terminal
+        // (prevents duplicate AnnounceEvent injection when AnnounceSweeper and
+        // clear_busy_and_send race on the same child).
         if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
             let parent_guard = parent_cs.read().await;
             let states = parent_guard
@@ -519,11 +511,9 @@ impl SessionManager {
             .resolve_child_completion_status(&parent_session_id, child_session_id)
             .await;
 
-        // Set child state to Completed before pushing announce.
-        // Push is async and other concurrent try_push_announce calls may
-        // interleave during the push. The dedup guard above checks this
-        // state before we reach here, so setting it here ensures any
-        // racing call will see Completed and skip (dedup protection).
+        // Set child state to Completed before pushing announce: push is
+        // async and racing try_push_announce calls may interleave; the
+        // dedup guard above makes any racing call see Completed and skip.
         if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
             let parent_guard = parent_cs.read().await;
             parent_guard.update_child_state(child_session_id, ChildSessionState::Completed);
@@ -569,8 +559,7 @@ impl SessionManager {
         }
 
         // ── Notify DreamingScheduler for immediate mining (design doc §触发 1).
-        // Only run-mode sub-agent sessions trigger this; owner sessions
-        // still go through the ArchiveSweeper idle→archive path.
+        // Run-mode sub-agent sessions only; owner sessions use ArchiveSweeper.
         if let Some(tx) = self.mining_notify_tx.read().unwrap().as_ref() {
             if let Err(e) = tx.try_send(child_session_id.to_string()) {
                 warn!(
@@ -582,16 +571,13 @@ impl SessionManager {
         }
 
         // ── Decrement busy count for drain tracking ────────────────────
-        // The child session result has been injected into the parent;
-        // decrement the parent's busy count that was incremented in
-        // `create_child_session`.
+        // Child result injected into parent; undo create_child_session's increment.
         if let Some(sh) = self.get_shutdown_handle().await {
             sh.decrement_busy();
         }
 
-        // Unregister child handle from parent's ConversationSession.
-        // This cleans up the Weak reference so the parent's child_handles
-        // map does not accumulate stale entries for completed children.
+        // Unregister child handle from parent's ConversationSession so
+        // child_handles does not accumulate stale Weak entries.
         if let Some(parent_cs) = self.get_conversation_session(&parent_session_id).await {
             parent_cs
                 .read()
@@ -599,8 +585,7 @@ impl SessionManager {
                 .unregister_child_handle(child_session_id);
         }
 
-        // Step 1.6: Auto-recovery — check if parent session should
-        // exit Waiting state after all run-mode children complete.
+        // Step 1.6: Auto-recovery — exit Waiting when all run-mode children complete.
         self.maybe_recover_yielded_session(&parent_session_id).await;
     }
 
@@ -835,8 +820,7 @@ impl SessionManager {
     /// Trigger recovery check for a yielded session.
     ///
     /// Public (within crate) wrapper around `maybe_recover_yielded_session`
-    /// so tests can directly trigger the recovery path without relying
-    /// on `try_push_announce` (which requires the child to be in the tree).
+    /// for tests (avoids relying on `try_push_announce`).
     #[allow(dead_code)] // used by tests in yield_recovery_tests
     pub(crate) async fn trigger_yield_recovery(&self, parent_id: &str) {
         self.maybe_recover_yielded_session(parent_id).await;
@@ -845,8 +829,10 @@ impl SessionManager {
     /// Drain pending messages for a session after recovery from Waiting.
     ///
     /// Mirrors the drain loop in `SessionMessageHandler::drain_pending_loop`
-    /// but runs directly on SessionManager. Processes queued announce
-    /// events first, then any pending user messages.
+    /// but runs directly on SessionManager: queued announce events first,
+    /// then each pending user message via the shared
+    /// `invoke_llm_with_call_target` + unified cache-check advancement
+    /// (check + accumulate), exactly like the main dispatch path.
     pub(crate) async fn drain_pending_for_session(&self, session_id: &str) {
         let gw = self.get_gateway_ref().await;
         self.drain_and_inject_announces(session_id, gw.as_ref())
@@ -875,16 +861,25 @@ impl SessionManager {
                     .await
                     .set_request_context(closeclaw_common::RequestContext::default());
                 crate::session_handler_reasoning::resolve_before_llm_call(self, session_id).await;
-                let result = cs.write().await.invoke_llm(&pending.content).await;
+                let result = crate::session_handler_dispatch::invoke_llm_with_call_target(
+                    &cs,
+                    &pending.content,
+                    false,
+                )
+                .await;
                 // Clear busy state.
                 {
                     let cs_write = cs.write().await;
                     cs_write.set_llm_busy(false);
                     cs_write.set_llm_state(closeclaw_llm::session_state::LlmState::Idle);
                 }
-                // Append response to session history and send to user.
-                if let Ok(response) = result {
-                    let text = response
+                // Append response to session history, run the unified
+                // cache-check advancement + usage accumulation, and send
+                // to user. Recovery rounds must check + accumulate exactly
+                // like the main path so the next round's reference value
+                // reflects the recovery round (doc :65/:73).
+                if let Ok(stream_result) = result {
+                    let text = stream_result
                         .content_blocks
                         .iter()
                         .filter_map(|b| match b {
@@ -895,13 +890,21 @@ impl SessionManager {
                         .join("");
                     {
                         let mut cs_write = cs.write().await;
-                        cs_write.append_response(response);
+                        cs_write.append_response(stream_result.clone().into());
+                        crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage(
+                            session_id,
+                            &mut cs_write,
+                            &stream_result,
+                            // No metrics emitter is plumbed into the
+                            // SessionManager recovery path; the warn log
+                            // and Owner notification still run.
+                            &None,
+                        );
                     }
                     // Send response to user via Gateway outbound pipeline.
                     if let (Some(ref gw), Some(ref ch)) = (&gw, &channel) {
-                        // Explicit SendOutboundIds::default() (not bare
-                        // Default::default()) to match the explicit style of
-                        // all other send_outbound call sites.
+                        // Explicit SendOutboundIds::default() — matches the
+                        // style of all other send_outbound call sites.
                         let ids = SendOutboundIds::default();
                         if let Err(e) = gw.send_outbound(session_id, ch, &text, vec![], ids).await {
                             warn!(
@@ -922,10 +925,7 @@ impl SessionManager {
 ///
 /// Each event is formatted as:
 /// `[子 agent {id}] [{priority_prefix}] {status_label}：\n{result_text}`
-///
-/// Extracted from `drain_and_inject_announces` and
-/// `drain_and_inject_announces_filtered` to avoid duplicating the
-/// injection logic.
+/// (extracted from the two drain_and_inject variants to avoid duplication).
 async fn inject_announces_as_system_messages(
     cs: &std::sync::Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
     events: &[AnnounceEvent],
@@ -949,8 +949,7 @@ async fn inject_announces_as_system_messages(
 // ── Free helpers ────────────────────────────────────────────────────────────
 
 /// Convert a background tool [`CompletionNotification`] into an
-/// [`AnnounceEvent`]. Used by `drain_announces` and
-/// `drain_announces_filtered` to avoid duplicating the conversion.
+/// [`AnnounceEvent`] (shared by `drain_announces` / `drain_announces_filtered`).
 fn notif_to_announce(notif: closeclaw_common::CompletionNotification) -> AnnounceEvent {
     use closeclaw_common::TaskState;
     let status = match notif.state {

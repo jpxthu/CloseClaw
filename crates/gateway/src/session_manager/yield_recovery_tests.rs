@@ -428,3 +428,225 @@ async fn test_yield_no_recovery_while_child_registered() {
         "parent should remain in Waiting while child is registered"
     );
 }
+
+// ── 9. Recovery drain: unified cache-check advancement (Step 1.7 ①) ────────
+
+use closeclaw_llm::types::{InternalRequest, StreamEvent, UnifiedResponse, UnifiedUsage};
+use closeclaw_session::persistence::PendingMessage;
+
+/// Fake caller for the recovery-drain cache tests: every call answers
+/// prompt 100 000 with a full cache hit (cache_read 100 000) except calls
+/// numbered `miss_from_call` and later, which are whole-round misses
+/// (cache_read 0). Reports no call target (default trait impl) —
+/// consumers degrade to session-config semantics.
+struct RecoveryCacheCaller {
+    miss_from_call: usize,
+    calls: std::sync::atomic::AtomicUsize,
+}
+
+impl RecoveryCacheCaller {
+    /// Every round is a stable full hit.
+    fn stable() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            miss_from_call: usize::MAX,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+
+    /// First round is a full hit, every later round a whole-round miss.
+    fn miss_after_first() -> std::sync::Arc<Self> {
+        std::sync::Arc::new(Self {
+            miss_from_call: 2,
+            calls: std::sync::atomic::AtomicUsize::new(0),
+        })
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::LlmCaller for RecoveryCacheCaller {
+    async fn call(
+        &self,
+        _request: InternalRequest,
+    ) -> Result<UnifiedResponse, closeclaw_llm::LLMError> {
+        let n = self.calls.fetch_add(1, std::sync::atomic::Ordering::SeqCst) + 1;
+        let cache_read = if n >= self.miss_from_call {
+            Some(0)
+        } else {
+            Some(100_000)
+        };
+        Ok(UnifiedResponse {
+            content_blocks: vec![closeclaw_llm::types::ContentBlock::Text(format!(
+                "resp-{n}"
+            ))],
+            usage: UnifiedUsage {
+                prompt_tokens: 100_000,
+                completion_tokens: 50,
+                total_tokens: Some(100_050),
+                reasoning_tokens: None,
+                cache_read_tokens: cache_read,
+                cache_write_tokens: None,
+            },
+            finish_reason: Some("stop".into()),
+            retry_attempts: 0,
+        })
+    }
+
+    async fn call_streaming(
+        &self,
+        _request: InternalRequest,
+    ) -> Result<
+        std::pin::Pin<
+            Box<dyn futures::Stream<Item = Result<StreamEvent, closeclaw_llm::LLMError>> + Send>,
+        >,
+        closeclaw_llm::LLMError,
+    > {
+        Err(closeclaw_llm::LLMError::ApiError("not implemented".into()))
+    }
+}
+
+/// Queue one pending user message and run the recovery drain path.
+async fn drain_round(mgr: &super::SessionManager, session_id: &str, content: &str) {
+    mgr.push_pending_message(
+        session_id,
+        PendingMessage::new(format!("pend-{content}"), content.to_string()),
+    )
+    .await
+    .expect("push pending message");
+    mgr.drain_pending_for_session(session_id).await;
+}
+
+/// One main-path-shaped round: pre-append the user message to history
+/// (dispatch semantics), invoke, then run the unified advancement
+/// (check + accumulate) exactly as `clear_busy_and_send` does. Returns
+/// the check's anomaly result.
+async fn main_path_round(
+    mgr: &super::SessionManager,
+    session_id: &str,
+    content: &str,
+) -> Option<closeclaw_common::CacheAnomalyInfo> {
+    let cs = mgr
+        .get_conversation_session(session_id)
+        .await
+        .expect("conversation session");
+    let (response, _target) = {
+        let mut cs_write = cs.write().await;
+        cs_write.append_user_message(content);
+        cs_write
+            .invoke_llm_with_target(content)
+            .await
+            .expect("main-path round invoke")
+    };
+    let mut cs_write = cs.write().await;
+    cs_write.append_response(response.clone());
+    let info = cs_write.check_cache_anomaly_and_advance(
+        &response.usage,
+        Some("test-model"),
+        chrono::Utc::now().timestamp_millis() as u64,
+        300_000,
+    );
+    cs_write.accumulate_usage(&response.usage, Some("test-model"));
+    info
+}
+
+/// 恢复轮接入统一推进（三段链，模拟恢复后的真实轮次序列）：
+/// 1. 恢复轮（drain 路径）：用量累积、参考值推进（doc :65/:73）；
+/// 2. 恢复后首轮（主路径形态）：发送列表相对恢复轮快照非尾部追加 →
+///    前缀豁免成为新基线——参考值已推进，不产生陈旧参考值误报；
+/// 3. 再下一轮（尾部追加）：以新基线参与校验——整轮未命中时以推进后的
+///    参考值报异常，证明恢复轮的快照与参考值推进真实生效。
+#[tokio::test]
+#[serial]
+async fn test_drain_pending_recovery_round_advances_reference_and_snapshot() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-recover-cache").await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.write()
+            .await
+            .set_llm_caller(RecoveryCacheCaller::miss_after_first());
+    }
+
+    // ── Round 1: recovery drain round ──
+    drain_round(&mgr, &parent_id, "turn-1").await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        let cs = cs.read().await;
+        assert_eq!(
+            cs.stats().request_count,
+            1,
+            "recovery round must accumulate usage (doc :65)"
+        );
+        assert_eq!(
+            cs.stats().last_prompt_tokens,
+            Some(100_000),
+            "recovery round must set the next round's reference value"
+        );
+        assert_eq!(
+            cs.stats().last_call_model.as_deref(),
+            Some("test-model"),
+            "no call target reported → degrade to session-config model"
+        );
+    }
+
+    // ── Round 2: first post-recovery round, main-path shape ──
+    let info2 = main_path_round(&mgr, &parent_id, "turn-2").await;
+    assert!(
+        info2.is_none(),
+        "round after recovery is not a tail-append extension of the recovery round: exempt, no stale-reference false positive"
+    );
+
+    // ── Round 3: tail-append extension of round 2 → participates ──
+    let info3 = main_path_round(&mgr, &parent_id, "turn-3").await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        let cs = cs.read().await;
+        assert_eq!(
+            cs.stats().request_count,
+            3,
+            "recovery round + both main-path rounds must accumulate"
+        );
+    }
+    let info = info3.expect("tail-append round must be checked against the advanced reference");
+    assert_eq!(
+        info.previous_prompt_tokens, 100_000,
+        "reference value must descend from the advanced chain, not a stale pre-recovery value"
+    );
+    assert_eq!(info.current_cache_read_tokens, 0);
+    assert_eq!(info.deviation_tokens, 100_000);
+}
+
+/// 恢复轮之后的稳定命中轮不误报：同三段链，全轮稳定命中 → 参与校验轮
+/// 偏差为 0，不报异常。
+#[tokio::test]
+#[serial]
+async fn test_drain_pending_round_after_recovery_no_false_positive() {
+    clear_global_prompt_state();
+
+    let mgr = make_test_mgr(None);
+    let parent_id = setup_parent_with_conv(&mgr, "parent-recover-cache-ok").await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        cs.write()
+            .await
+            .set_llm_caller(RecoveryCacheCaller::stable());
+    }
+
+    drain_round(&mgr, &parent_id, "turn-1").await;
+    let info2 = main_path_round(&mgr, &parent_id, "turn-2").await;
+    assert!(
+        info2.is_none(),
+        "post-recovery round 2 is exempt (new baseline)"
+    );
+    let info3 = main_path_round(&mgr, &parent_id, "turn-3").await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        let cs = cs.read().await;
+        assert_eq!(cs.stats().request_count, 3);
+        assert!(
+            info3.is_none() && cs.last_cache_anomaly().is_none(),
+            "stable full hit within tolerance after a recovery round must not be flagged"
+        );
+    }
+}
