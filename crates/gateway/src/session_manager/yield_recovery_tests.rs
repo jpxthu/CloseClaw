@@ -594,7 +594,8 @@ async fn test_drain_pending_recovery_round_advances_reference_and_snapshot() {
     let info2 = main_path_round(&mgr, &parent_id, "turn-2").await;
     assert!(
         info2.is_none(),
-        "round after recovery is not a tail-append extension of the recovery round: exempt, no stale-reference false positive"
+        "round after recovery is not a tail-append extension of the \
+         recovery round: exempt, no stale-reference false positive"
     );
 
     // ── Round 3: tail-append extension of round 2 → participates ──

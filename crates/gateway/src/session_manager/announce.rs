@@ -3,6 +3,7 @@
 use super::spawn::SpawnMode;
 use super::SessionManager;
 use crate::outbound::SendOutboundIds;
+use crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage;
 use crate::session_manager::communication::CommunicationError;
 use crate::Gateway;
 use chrono::Utc;
@@ -891,7 +892,7 @@ impl SessionManager {
                     {
                         let mut cs_write = cs.write().await;
                         cs_write.append_response(stream_result.clone().into());
-                        crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage(
+                        check_cache_anomaly_and_accumulate_usage(
                             session_id,
                             &mut cs_write,
                             &stream_result,

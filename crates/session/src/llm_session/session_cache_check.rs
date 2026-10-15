@@ -1,7 +1,7 @@
 //! Cache hit consistency check: snapshot staging, eligibility judgment,
 //! and unified snapshot advancement.
 //!
-//! Data flow ([llm-session-enhancements](../../../../docs/design/session/llm-session-enhancements.md)
+//! Data flow (see `docs/design/session/llm-session-enhancements.md`,
 //! "缓存命中一致性校验", doc :73):
 //! 1. **Staging** — both LLM invocation paths
 //!    ([`ConversationSession::invoke_llm_with_target`] /

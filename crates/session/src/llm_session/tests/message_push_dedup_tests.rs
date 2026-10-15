@@ -388,7 +388,8 @@ fn pre_appended_declaration_pushes_when_blocks_tail_has_text() {
     assert_eq!(
         messages.len(),
         2,
-        "blocks tail with non-empty flattened text must not match the declaration branch: push happens"
+        "blocks tail with non-empty flattened text must not match the \
+         declaration branch: push happens"
     );
     assert_eq!(
         messages[0].content, "caption text",
