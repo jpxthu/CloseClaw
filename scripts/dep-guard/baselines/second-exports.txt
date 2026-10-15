@@ -22,7 +22,7 @@ closeclaw-agent: src/lib.rs:6 closeclaw_common::AgentToolsConfigQuery
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::DrainStatus
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::ShutdownMode
 closeclaw-daemon: src/shutdown.rs:18 closeclaw_common::ShutdownState
-closeclaw-gateway: src/lib.rs:131 closeclaw_common::processor::ProcessorChain
+closeclaw-gateway: src/lib.rs:132 closeclaw_common::processor::ProcessorChain
 closeclaw-gateway: src/types.rs:15 closeclaw_common::session_key::compute_session_key
 closeclaw-llm: src/lib.rs:174 closeclaw_common::ErrorKind
 closeclaw-llm: src/lib.rs:174 closeclaw_common::LLMError
@@ -56,7 +56,7 @@ closeclaw-session: src/bootstrap/loader.rs:38 closeclaw_common::BootstrapMode
 closeclaw-session: src/compaction.rs:8 closeclaw_common::CompactConfig
 closeclaw-session: src/compaction.rs:8 closeclaw_common::CompactionError
 closeclaw-session: src/compaction.rs:8 closeclaw_common::CompactionResult
-closeclaw-session: src/llm_session/mod.rs:34 closeclaw_common::tool_session::KillHandle
+closeclaw-session: src/llm_session/mod.rs:36 closeclaw_common::tool_session::KillHandle
 closeclaw-session: src/persistence.rs:13 closeclaw_common::AgentRole
 closeclaw-session: src/persistence.rs:13 closeclaw_common::PendingMessage
 closeclaw-session: src/persistence.rs:13 closeclaw_common::PlanState
