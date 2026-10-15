@@ -853,7 +853,8 @@ def strip_lineno(entry: str) -> str:
     条目格式：`<pkg>: <文件相对路径>:<行号> <源路径>[ as <别名>]`。按结构
     逐段解析：先切 `pkg: ` 前缀，再切首个空格前的 `<文件>:<行号>` 段，段内
     `rsplit(":", 1)` 剥纯数字行号（源路径 `::` 分隔不受影响）；不匹配预期
-    结构的条目原样返回，保持精确匹配语义。
+    结构的条目（含文件段为空，如 `pkg: :1 <源路径>`）原样返回，保持精确
+    匹配语义。
     """
     prefix, sep, rest = entry.partition(": ")
     if not sep or not prefix:
@@ -862,7 +863,7 @@ def strip_lineno(entry: str) -> str:
     if not sp or not tail:
         return entry
     file_part, colon, line = loc.rpartition(":")
-    if not colon or not line.isdigit():
+    if not colon or not file_part or not line.isdigit():
         return entry
     return f"{prefix}: {file_part} {tail}"
 

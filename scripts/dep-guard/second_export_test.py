@@ -344,6 +344,8 @@ class StripLinenoTest(unittest.TestCase):
             ": src/lib.rs:1 closeclaw_common::Foo",
             # 条目本体段为空
             "closeclaw-demo: src/lib.rs:1 ",
+            # 文件段为空（行号紧跟 `pkg: ` 前缀）
+            "closeclaw-demo: :1 closeclaw_common::Foo",
         ]
         for entry in malformed:
             with self.subTest(entry=entry):

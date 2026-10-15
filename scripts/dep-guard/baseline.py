@@ -38,7 +38,8 @@ def diff_baseline(
 
     key 提供时（仿 sorted 的 key 惯例），新增 / 消除判定以 key(entry) 为比较
     键，报告仍返回两侧原始条目（FAIL 报文保留行号等定位信息）；key=None 时
-    与整条目字符串集合差完全一致。
+    与整条目字符串集合差完全一致。同 key 多条目并存时保留后出现者（dict
+    覆盖语义），消除侧仅报该条；两侧均按去重排序输入构建，属 no-op 说明。
     """
     keyfunc = (lambda item: item) if key is None else key
     base = {keyfunc(item): item for item in baseline_items}
