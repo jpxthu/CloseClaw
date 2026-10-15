@@ -408,7 +408,7 @@ impl ToolRegistryImpl {
     /// Register all tools from the given registrars, sorted by priority.
     ///
     /// After all registrars have been called successfully, the registry remains
-    /// unfrozen — callers must explicitly call [`freeze()`](Self::freeze) after
+    /// unfrozen — callers must explicitly call `freeze()` after
     /// all tools (including system-level tools) have been registered.
     ///
     /// # Errors

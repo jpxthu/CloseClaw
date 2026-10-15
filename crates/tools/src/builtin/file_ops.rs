@@ -1,7 +1,7 @@
 //! Built-in tools — file operations (Tool trait implementation).
 //!
 //! Each tool is an independent [`Tool`] implementation, completely separate
-//! from the [`crate::skills`] module.  All five tools share two-level
+//! from the `crate::skills` module.  All five tools share two-level
 //! permission checks via [`crate::permission_check`].
 
 use async_trait::async_trait;

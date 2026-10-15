@@ -1,7 +1,8 @@
 //! Built-in tools module.
 //!
 //! Re-exports all builtin tool implementations. Registration is
-//! handled by the individual [`ToolRegistrar`] implementations in
+//! handled by the individual [`ToolRegistrar`](crate::ToolRegistrar)
+//! implementations in
 //! `crate::registrars`.
 
 pub(crate) mod approval_utils;

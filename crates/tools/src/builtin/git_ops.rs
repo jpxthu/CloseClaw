@@ -1,7 +1,7 @@
 //! Built-in tools — git operations (Tool trait implementation).
 //!
 //! Each tool wraps a git subcommand via `std::process::Command`,
-//! independent from the [`crate::skills`] module.
+//! independent from the `crate::skills` module.
 
 use crate::{Tool, ToolFlags};
 
