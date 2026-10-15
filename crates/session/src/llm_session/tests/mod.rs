@@ -23,6 +23,7 @@ use self::log_capture::{capture_logs, capture_logs_async, is_installed};
 mod log_capture_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
+mod message_push_dedup_tests;
 mod progress_removal_session_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;

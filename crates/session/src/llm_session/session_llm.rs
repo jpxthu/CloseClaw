@@ -389,7 +389,12 @@ impl ConversationSession {
     ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
     ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
-    /// 3. User message.
+    /// 3. User message — dedup-guarded: skipped when the history already
+    ///    ends with the identical user message (the gateway pre-appends
+    ///    the current message to history before invoking; pushing again
+    ///    would send a duplicate copy that never enters history, breaking
+    ///    the tail-append message-list semantics the cache prefix check
+    ///    relies on).
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
@@ -401,13 +406,27 @@ impl ConversationSession {
         let cleaned = Self::clean_thinking_content(&self.messages);
         let mut messages = Self::convert_history_to_internal(&cleaned);
 
-        // ── Append current-turn user message ─────────────────────
-        messages.push(InternalMessage {
-            role: "user".to_string(),
-            content: content.to_string(),
-            content_blocks: None,
-            tool_call_id: None,
-        });
+        // ── Append current-turn user message (dedup-guarded) ─────
+        // The gateway production path pre-appends the user message to
+        // history (persistence/recovery semantics) before invoking, so
+        // the converted history already ends with this exact message.
+        // Pushing again would send a temporary duplicate copy that never
+        // enters history, so adjacent rounds stop being tail-append
+        // extensions and the cache prefix check reports PrefixMismatch
+        // every round. Skip the push only on full equality (role +
+        // content) with the history tail: callers that did not
+        // pre-append (pending drain, tests) still get the push.
+        let duplicates_history_tail = messages
+            .last()
+            .is_some_and(|tail| tail.role == "user" && tail.content == content);
+        if !duplicates_history_tail {
+            messages.push(InternalMessage {
+                role: "user".to_string(),
+                content: content.to_string(),
+                content_blocks: None,
+                tool_call_id: None,
+            });
+        }
 
         // ── Skill listing attachment — at position 0 when non-empty ──
         if let Some(listing) = skill_listing {
