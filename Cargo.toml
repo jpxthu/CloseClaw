@@ -135,6 +135,8 @@ tempfile.workspace = true
 serial_test.workspace = true
 filetime.workspace = true
 mockito.workspace = true
+# LlmCaller::call_streaming signature in test fakes
+futures.workspace = true
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)
 closeclaw-fake-llm = { path = "crates/fake_llm" }
 rusqlite.workspace = true

@@ -7,6 +7,7 @@ mod compaction_async_tests;
 mod debug_log_integration_tests;
 mod fake_integration_tests;
 mod feishu_message_cleaner_tests;
+mod gateway_cache_anomaly_owner_notify_tests;
 mod gateway_send_outbound_basic_tests;
 mod gateway_send_outbound_renderer_tests;
 mod im_inbound_tests;

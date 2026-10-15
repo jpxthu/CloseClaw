@@ -84,7 +84,7 @@ async fn test_cyclic_warning_notification_contains_five_elements() {
     let warning_text = entries
         .iter()
         .filter_map(|e| match e {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) => {
                 if text.contains("超时预警") {
                     Some(text.clone())
                 } else {
@@ -214,7 +214,7 @@ async fn test_legacy_warning_shows_unset_label() {
     let warning_text = entries
         .iter()
         .filter_map(|e| match e {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) => {
                 if text.contains("超时预警") {
                     Some(text.clone())
                 } else {
@@ -310,7 +310,7 @@ async fn test_cyclic_warning_no_children_no_panic() {
     let warning_text = entries
         .iter()
         .filter_map(|e| match e {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) => {
                 if text.contains("超时预警") {
                     Some(text.clone())
                 } else {
@@ -391,7 +391,7 @@ async fn test_cyclic_warning_no_llm_calls_estimation_works() {
     let warning_text = entries
         .iter()
         .filter_map(|e| match e {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) => {
                 if text.contains("超时预警") {
                     Some(text.clone())
                 } else {
@@ -550,14 +550,14 @@ async fn test_cyclic_warning_uses_next_priority() {
         .find(|e| {
             matches!(
                 e,
-                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _)
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _)
                     if text.contains("超时预警")
             )
         })
         .expect("should have a warning notification");
 
     match warning_entry {
-        closeclaw_session::llm_session::QueueEntry::SystemNotification(_, priority) => {
+        closeclaw_session::llm_session::QueueEntry::SystemNotification(_, priority, _) => {
             assert_eq!(
                 *priority,
                 NotificationPriority::Next,
@@ -606,7 +606,7 @@ async fn test_warning_no_children_structural_items() {
     let warning_text = entries
         .iter()
         .filter_map(|e| match e {
-            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _) => {
+            closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) => {
                 if text.contains("超时预警") {
                     Some(text.clone())
                 } else {

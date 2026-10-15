@@ -9,6 +9,7 @@ pub mod approval_flow;
 pub mod debug_log;
 pub mod engine;
 pub mod inter_agent_msg;
+pub mod owner;
 pub mod permission_op;
 pub mod rules;
 pub mod sandbox;
@@ -28,6 +29,9 @@ pub mod mock_session_lookup;
 mod agent_permissions_tests;
 
 #[cfg(test)]
+mod owner_tests;
+
+#[cfg(test)]
 mod tests;
 
 pub use agent_permissions::{
@@ -39,6 +43,7 @@ pub use engine::{
     PermissionEngine, PermissionRequest, PermissionRequestBody, PermissionResponse, RejectionLog,
     RejectionLogger, Rule, RuleSet, Subject, TemplateRef,
 };
+pub use owner::is_owner;
 pub use rules::{validation, RuleBuilder, RuleBuilderError, RuleSetBuilder, RuleSetBuilderError};
 pub use user_registry::{RegistryError, UserRegistry};
 

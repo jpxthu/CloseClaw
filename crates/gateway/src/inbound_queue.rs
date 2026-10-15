@@ -11,6 +11,7 @@ use tokio::sync::mpsc;
 use super::inbound_wal::{InboundWal, InboundWalEntry};
 use super::Gateway;
 use closeclaw_common::MessageType;
+use closeclaw_session::llm_session::NotificationAudience;
 
 /// An inbound message awaiting processing.
 ///
@@ -618,7 +619,13 @@ async fn process_inbound_direct(gateway: &Gateway, request: &InboundRequest) {
 /// blocking the Gateway. If the send times out, we log and move on.
 async fn send_busy_reply(gateway: &Gateway, request: &InboundRequest) {
     gateway
-        .send_system_notification(&request.peer_id, &request.platform, BUSY_REPLY_TEXT)
+        .send_system_notification(
+            &request.peer_id,
+            &request.platform,
+            BUSY_REPLY_TEXT,
+            NotificationAudience::All,
+            None,
+        )
         .await;
 }
 

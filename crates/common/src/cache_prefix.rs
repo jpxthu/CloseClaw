@@ -32,6 +32,21 @@ pub struct RequestPrefixSnapshot {
     /// Hash of the whole System Prompt (static + dynamic as sent).
     pub system_hash: u64,
     /// Hash of the stable representation of the tool definitions.
+    ///
+    /// Production shape (口径澄清): session-built requests carry
+    /// tool definitions inside the System Prompt's ToolsSection and send
+    /// the API `tools` parameter as `None` (see
+    /// `ConversationSession::build_llm_request`); the tools-via-
+    /// System-Prompt / `tools`-parameter split is grounded in design
+    /// `docs/design/llm/cache-adapter.md`「工具 Schema 缓存」. The
+    /// snapshot shape itself (whole System Prompt incl. the dynamic
+    /// section, Thinking-cleaned tool definitions and message list)
+    /// follows design
+    /// `docs/design/session/llm-session-enhancements.md:73`
+    /// (「前置条件（追加扩展轮）」). Given the production sending shape,
+    /// any tool-list change is already covered by the `system_hash`
+    /// dimension above; this separate dimension keeps the snapshot
+    /// correct for callers that do populate the API `tools` parameter.
     pub tools_hash: u64,
     /// Per-message hash sequence of the actually-sent message list.
     pub message_hashes: Vec<u64>,
@@ -189,7 +204,9 @@ fn hash_str(value: &str) -> u64 {
 ///
 /// Covers name / description / input schema in order; the per-round
 /// cache marking flag (`ToolDefinition::cache`) is not definition
-/// content and is excluded.
+/// content and is excluded. In production the `tools` parameter is
+/// `None` (tool definitions travel via the System Prompt ToolsSection,
+/// covered by `system_hash`); see [`RequestPrefixSnapshot::tools_hash`].
 fn hash_tools(tools: Option<&[ToolDefinition]>) -> u64 {
     let mut hasher = DefaultHasher::new();
     let list = tools.unwrap_or(&[]);

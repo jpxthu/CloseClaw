@@ -1,0 +1,94 @@
+{
+    "scenarios": [
+        {
+            "name": "cache-append-normal",
+            "match_": {
+                "model_id": "gpt-4o-cache-ok"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Cache baseline round done.",
+                        "usage": {
+                            "prompt_tokens": 4000,
+                            "completion_tokens": 20,
+                            "cache_fields_missing": true
+                        }
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Cache hit within tolerance.",
+                        "usage": {
+                            "prompt_tokens": 4100,
+                            "completion_tokens": 20,
+                            "cache_hit_tokens": 3900
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "cache-drop-anomaly",
+            "match_": {
+                "model_id": "gpt-4o-cache-drop"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Baseline round done.",
+                        "usage": {
+                            "prompt_tokens": 4000,
+                            "completion_tokens": 20,
+                            "cache_fields_missing": true
+                        }
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Reply after cache anomaly.",
+                        "usage": {
+                            "prompt_tokens": 4100,
+                            "completion_tokens": 20,
+                            "cache_hit_tokens": 1000
+                        }
+                    }
+                }
+            ]
+        },
+        {
+            "name": "cache-missing-exempt",
+            "match_": {
+                "model_id": "gpt-4o-cache-missing"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Missing-field baseline round done.",
+                        "usage": {
+                            "prompt_tokens": 4000,
+                            "completion_tokens": 20,
+                            "cache_fields_missing": true
+                        }
+                    }
+                },
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "Exempt round completed normally.",
+                        "usage": {
+                            "prompt_tokens": 4200,
+                            "completion_tokens": 20,
+                            "cache_fields_missing": true
+                        }
+                    }
+                }
+            ]
+        }
+    ]
+}

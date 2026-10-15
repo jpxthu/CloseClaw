@@ -46,7 +46,6 @@ use std::time::Duration;
 use closeclaw_common::test_helpers::ensure_dir;
 use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::net::UnixStream as TokioUnixStream;
-use tokio::process::Child;
 
 use super::helpers;
 use super::helpers::chat::{
@@ -70,38 +69,14 @@ use super::helpers::fake_llm::start_fake_llm;
 // Helper: daemon spawn + readiness
 // ---------------------------------------------------------------------------
 
-/// Owns the spawned daemon child. Sending SIGTERM on Drop guarantees no
-/// residual process even when an assertion fails mid-test.
-struct DaemonGuard(Child);
-
-impl DaemonGuard {
-    /// Send SIGTERM and wait for graceful exit
-    /// (shared `helpers::sigterm_and_wait`, Step 1.23).
-    async fn shutdown(mut self) -> std::process::ExitStatus {
-        helpers::sigterm_and_wait(&mut self.0).await
-    }
-}
-
-impl Drop for DaemonGuard {
-    fn drop(&mut self) {
-        // Best-effort cleanup on panic paths: kill -TERM then drop
-        // (kill_on_drop covers the rest).
-        if let Some(pid) = self.0.id() {
-            // SAFETY: pid belongs to this child; SIGTERM is valid.
-            unsafe {
-                libc::kill(pid as libc::pid_t, libc::SIGTERM);
-            }
-        }
-    }
-}
-
 /// Spawn the closeclaw daemon with the given config root.
 ///
-/// Wraps `helpers::spawn_daemon` which sets `HOME` to `config_root` for
-/// PID file isolation, then wraps the `Child` in a `DaemonGuard` for
-/// SIGTERM-on-drop safety.
-fn spawn_daemon(config_root: &Path) -> DaemonGuard {
-    DaemonGuard(helpers::spawn_daemon(config_root))
+/// Wraps the shared `helpers::daemon_guard::spawn_daemon_guarded` (HOME
+/// isolation for PID file + SIGTERM-on-drop guard; the guard type is
+/// shared with `cache_consistency_tests` since Step 1.6 so the unsafe
+/// SIGTERM block is maintained in a single place).
+fn spawn_daemon(config_root: &Path) -> helpers::daemon_guard::DaemonGuard {
+    helpers::daemon_guard::spawn_daemon_guarded(config_root)
 }
 
 // ---------------------------------------------------------------------------

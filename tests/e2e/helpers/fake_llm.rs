@@ -2,7 +2,8 @@
 
 use std::path::PathBuf;
 
-/// Path to the fake LLM scenario fixtures (basic-text + fallback).
+/// Path to the fake LLM scenario fixtures (basic-text + fallback +
+/// cache-consistency + the other shared scenario files).
 pub fn scenarios_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/fake_llm/scenarios")
 }

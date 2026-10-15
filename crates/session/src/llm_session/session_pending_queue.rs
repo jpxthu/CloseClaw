@@ -34,6 +34,24 @@ impl From<NotificationPriority> for QueuePriority {
     }
 }
 
+// ── Notification audience ──────────────────────────────────────────────────
+
+/// Audience declaration attached to a system notification.
+///
+/// The declaring side (session) only states the intent; the Gateway
+/// performs the actual recipient judgment against the session's
+/// current user (see gateway outbound-flow design doc,「定向收件人」).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum NotificationAudience {
+    /// Delivered to whoever the notification reaches next (legacy
+    /// behavior — e.g. the next user to speak in the session).
+    #[default]
+    All,
+    /// Delivered only when the session's current user is the Owner;
+    /// silently dropped otherwise (Gateway-side judgment).
+    OwnerOnly,
+}
+
 // ── Queue entry ────────────────────────────────────────────────────────────
 
 /// A single entry in the unified message queue.
@@ -48,7 +66,7 @@ pub enum QueueEntry {
     BackgroundToolNotification(closeclaw_common::CompletionNotification),
     /// A system-level notification (e.g. yield timeout warning).
     /// Injected as a `role="system"` message during drain.
-    SystemNotification(String, NotificationPriority),
+    SystemNotification(String, NotificationPriority, NotificationAudience),
 }
 
 impl QueueEntry {
@@ -58,7 +76,7 @@ impl QueueEntry {
             QueueEntry::UserMessage(_) => QueuePriority::Later,
             QueueEntry::Announce(e) => QueuePriority::from(e.priority),
             QueueEntry::BackgroundToolNotification(n) => QueuePriority::from(n.priority),
-            QueueEntry::SystemNotification(_, p) => QueuePriority::from(*p),
+            QueueEntry::SystemNotification(_, p, _) => QueuePriority::from(*p),
         }
     }
 
@@ -258,11 +276,25 @@ impl ConversationSession {
     ///
     /// Used by yield timeout handlers to enqueue warnings and timeout
     /// notifications with the specified priority (typically `Next`).
-    /// During drain, system notifications are injected as
-    /// `role="system"` messages into the conversation history.
+    /// During drain, system notifications are routed outbound via the
+    /// Gateway simplified path (audience [`NotificationAudience::All`]).
     pub fn push_system_notification(&mut self, text: String, priority: NotificationPriority) {
+        self.push_system_notification_with_audience(text, priority, NotificationAudience::All);
+    }
+
+    /// Push a system-level notification with an explicit audience
+    /// declaration (e.g. [`NotificationAudience::OwnerOnly`] for
+    /// Owner-targeted notices such as cache-hit anomalies). The
+    /// declaration only states intent — the Gateway performs the
+    /// recipient judgment at delivery time.
+    pub fn push_system_notification_with_audience(
+        &mut self,
+        text: String,
+        priority: NotificationPriority,
+        audience: NotificationAudience,
+    ) {
         self.unified_queue
-            .push(QueueEntry::SystemNotification(text, priority));
+            .push(QueueEntry::SystemNotification(text, priority, audience));
     }
 
     /// Push a `QueueEntry` directly onto the unified queue.

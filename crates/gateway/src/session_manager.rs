@@ -886,6 +886,8 @@ mod active_write_outbound_tests;
 #[cfg(test)]
 mod announce_dedup_tests;
 #[cfg(test)]
+mod announce_drain_audience_tests;
+#[cfg(test)]
 mod announce_drain_outbound_tests;
 #[cfg(test)]
 mod announce_prefix_tests;

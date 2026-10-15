@@ -56,6 +56,8 @@ mod outbound_helpers;
 #[cfg(test)]
 mod outbound_helpers_tests;
 pub mod outbound_middleware;
+#[cfg(test)]
+mod outbound_notification_test_utils;
 pub mod outbound_raw_log;
 #[cfg(test)]
 mod outbound_raw_log_seam_tests;
@@ -65,6 +67,8 @@ mod outbound_streaming_checkpoint_tests;
 mod outbound_streaming_dsl_checkpoint_tests;
 #[cfg(test)]
 mod outbound_streaming_error_tests;
+#[cfg(test)]
+mod outbound_system_notification_tests;
 #[cfg(test)]
 mod outbound_tests;
 #[cfg(test)]
@@ -140,6 +144,7 @@ use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_session::checkpoint_manager::CheckpointManager;
+use closeclaw_session::llm_session::NotificationAudience;
 use closeclaw_session::persistence::PersistenceService;
 use inbound_queue::InboundDebugCtx;
 pub use inbound_queue::{InboundQueueFull, InboundQueueHandle, InboundRequest};
@@ -580,7 +585,8 @@ impl Gateway {
             .await
         {
             let msg = custom_msg.as_deref().unwrap_or("正在恢复会话...");
-            self.send_system_notification(&chat_id, channel, msg).await;
+            self.send_system_notification(&chat_id, channel, msg, NotificationAudience::All, None)
+                .await;
         }
         // Shutdown gate: reject new operations.
         if let Some(sh) = self.get_shutdown_handle() {
@@ -798,7 +804,8 @@ impl Gateway {
             HandleResult::Error(t) => t,
             _ => return,
         };
-        self.send_system_notification(peer_id, channel, text).await;
+        self.send_system_notification(peer_id, channel, text, NotificationAudience::All, None)
+            .await;
     }
 
     /// Configure the persistence storage backend (proxied to SessionManager).
