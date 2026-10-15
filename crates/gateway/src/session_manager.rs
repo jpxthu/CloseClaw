@@ -309,7 +309,8 @@ impl SessionManager {
     }
 
     /// Queue a workflow blocked notification for a session.
-    /// The notification is consumed by [`Self::take_workflow_notification`] after
+    /// The notification is consumed by
+    /// [`take_workflow_notification`](Self::take_workflow_notification) after
     /// the Gateway sends it through the outbound chain.
     pub async fn queue_workflow_notification(&self, session_id: &str, message: String) {
         let mut pending = self.pending_workflow_notifications.write().await;

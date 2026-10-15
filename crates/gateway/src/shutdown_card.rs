@@ -61,7 +61,8 @@ impl Gateway {
     ///
     /// Displays a simple message like "⏳ 正在优雅关闭..." or
     /// "⚠️ 强制关闭中..." without per-session details. Session progress
-    /// will be shown later in Phase 2 via [`Self::send_shutdown_progress_card`].
+    /// will be shown later in Phase 2 via
+    /// [`send_shutdown_progress_card`](Self::send_shutdown_progress_card).
     pub async fn send_shutdown_start_notification(&self, mode: ShutdownMode) {
         let header_title = if mode == ShutdownMode::Graceful {
             "⏳ 正在优雅关闭..."
