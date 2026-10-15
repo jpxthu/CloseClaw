@@ -36,10 +36,10 @@ pub struct FragmentContext {
     /// (BOOTSTRAP.md) are loaded only for [`SessionRole::Main`], regardless
     /// of [`BootstrapMode`].
     pub session_role: SessionRole,
-    /// Bootstrap mode (Minimal / Full) — used by [`BootstrapFragmentProvider`]
+    /// Bootstrap mode (Minimal / Full) — used by `BootstrapFragmentProvider`
     /// to select the file set.
     pub bootstrap_mode: BootstrapMode,
-    /// Directory containing bootstrap files, used by [`BootstrapFragmentProvider`]
+    /// Directory containing bootstrap files, used by `BootstrapFragmentProvider`
     /// to locate bootstrap files.
     pub bootstrap_dir: String,
     /// Names of condition skills currently activated in the session.
@@ -55,7 +55,7 @@ pub struct FragmentContext {
     /// ToolRegistry reference for the injection chain.
     ///
     /// When `Some`, providers that need tool information (e.g.
-    /// [`ToolsFragmentProvider`]) can query the registry directly.
+    /// `ToolsFragmentProvider`) can query the registry directly.
     /// `None` falls back to the provider-level default.
     ///
     /// Carried from [`InjectionParams`][crate::injection_params::InjectionParams]

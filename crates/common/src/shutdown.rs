@@ -110,10 +110,10 @@ pub trait ShutdownSignal: Send + Sync {
 
     /// Increment busy count with a description for drain-status tracking.
     /// Returns a tracking id that must be passed to
-    /// [`decrement_busy_tracked`] to unregister.
+    /// [`decrement_busy_tracked`](Self::decrement_busy_tracked) to unregister.
     ///
-    /// Default implementation delegates to [`increment_busy`] and
-    /// returns 0 (untracked).
+    /// Default implementation delegates to [`increment_busy`](Self::increment_busy)
+    /// and returns 0 (untracked).
     fn increment_busy_tracked(&self, _desc: &str) -> u64 {
         self.increment_busy();
         0
@@ -121,8 +121,8 @@ pub trait ShutdownSignal: Send + Sync {
 
     /// Decrement busy count and remove the tracked description by id.
     ///
-    /// Default implementation delegates to [`decrement_busy`] and
-    /// ignores the id.
+    /// Default implementation delegates to [`decrement_busy`](Self::decrement_busy)
+    /// and ignores the id.
     fn decrement_busy_tracked(&self, _id: u64) {
         self.decrement_busy();
     }

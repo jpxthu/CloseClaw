@@ -1,8 +1,8 @@
 //! Identity mapping and resolution for cross-platform user identity.
 //!
-//! Provides [`IdentityMapping`] for configuration-driven platform→account_id
+//! Provides `IdentityMapping` for configuration-driven platform→account_id
 //! mapping, [`IdentityResolver`] trait for uniform resolution, and
-//! [`ConfigIdentityResolver`] as the default config-backed implementation.
+//! `ConfigIdentityResolver` as the default config-backed implementation.
 
 // ---------------------------------------------------------------------------
 // IdentityResolver trait

@@ -1,17 +1,17 @@
 //! Per-request context for dynamic-layer system prompt injection.
 //!
 //! Stores inbound message metadata needed by
-//! [`build_dynamic_sections`]
-//! ([closeclaw_system_prompt::inject::build_dynamic_sections])
+//! `build_dynamic_sections`
+//! (`closeclaw_system_prompt::inject::build_dynamic_sections`)
 //! at LLM request time. The session crate holds this type via
-//! [`ConversationSession::set_request_context`] so that the
+//! `ConversationSession::set_request_context` so that the
 //! gateway layer can pass inbound metadata without a reverse
 //! dependency.
 //!
 //! This type lives in `closeclaw-common` (Layer 0) to avoid the
 //! session → gateway dependency that
-//! [`MessageMetadata`]
-//! ([closeclaw_gateway::session_handler::MessageMetadata])
+//! `MessageMetadata`
+//! (`closeclaw_gateway::session_handler::MessageMetadata`)
 //! would require.
 
 use serde::{Deserialize, Serialize};
@@ -19,8 +19,8 @@ use serde::{Deserialize, Serialize};
 /// Metadata about the current inbound message, carried into the
 /// session for dynamic-layer construction.
 ///
-/// Set by the gateway before each [`invoke_llm`]
-/// ([closeclaw_session::llm_session::ConversationSession::invoke_llm])
+/// Set by the gateway before each `invoke_llm`
+/// (`closeclaw_session::llm_session::ConversationSession::invoke_llm`)
 /// call so the session can build fresh dynamic sections
 /// (ChannelContext, etc.) with up-to-date timestamps.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]

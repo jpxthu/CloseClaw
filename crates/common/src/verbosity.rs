@@ -1,7 +1,8 @@
 //! Verbosity level for output filtering.
 //!
 //! Controls how much content is included in outbound messages.
-//! Stored per-session and persisted in [`crate::session::persistence::SessionCheckpoint`].
+//! Stored per-session and persisted in
+//! `crate::session::persistence::SessionCheckpoint`.
 
 use serde::{Deserialize, Serialize};
 

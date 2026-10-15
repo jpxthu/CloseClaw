@@ -1,8 +1,9 @@
 //! Multi-tool parallel dispatcher types and core logic.
 //!
 //! [`ToolCallDispatcher`] routes a batch of tool calls to parallel, mutex-by-file,
-//! or serial execution based on [`ToolFlags::is_concurrency_safe`] and per-file
-//! mutex ownership.
+//! or serial execution based on
+//! [`ToolFlags::is_concurrency_safe`](crate::tool_registry::ToolFlags::is_concurrency_safe)
+//! and per-file mutex ownership.
 
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};

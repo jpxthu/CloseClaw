@@ -2,8 +2,7 @@
 //!
 //! Gateway uses this trait to intercept `/confirm` and `/cancel` commands
 //! without depending on the `closeclaw-tools` crate (where
-//! [`PlanExecConfirmFlow`](closeclaw_tools::builtin::PlanExecConfirmFlow)
-//! is defined).
+//! `PlanExecConfirmFlow` is defined).
 
 /// Trait abstracting plan execution confirmation operations.
 ///

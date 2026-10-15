@@ -6,7 +6,7 @@
 //! so that both the `tools` crate and downstream consumers can
 //! reference them without circular dependencies.
 //!
-//! [`ToolSummary`] and [`ToolError`] have moved to the `tools` crate
+//! `ToolSummary` and `ToolError` have moved to the `tools` crate
 //! (`closeclaw_tools::tool_types`).
 //!
 //! [`ToolFlags`] is re-exported from [`crate::tool_registry`] —
@@ -288,7 +288,8 @@ pub struct PromptGenerationContext {
     /// Names of all tools currently available to the LLM.
     ///
     /// Only names are passed (not descriptors) to avoid coupling
-    /// `PromptGenerationContext` back to [`ToolDescriptor`] and to
+    /// `PromptGenerationContext` back to
+    /// [`ToolDescriptor`](crate::tool_registry::ToolDescriptor) and to
     /// keep the context cheap to construct.
     pub available_tool_names: Vec<String>,
     /// Agent-level tool whitelist from config.

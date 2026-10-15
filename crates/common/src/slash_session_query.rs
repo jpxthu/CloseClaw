@@ -1,6 +1,6 @@
 //! Trait for session queries used by slash command handlers.
 //!
-//! Abstracts the [`SessionManager`] (in the gateway crate) so that slash
+//! Abstracts the `SessionManager` (in the gateway crate) so that slash
 //! handlers can query session state without depending on the gateway crate
 //! directly. This breaks the slash → gateway dependency while preserving
 //! the ability to test handlers with a mock implementation.
@@ -14,7 +14,7 @@ use crate::PlanState;
 
 /// Session query interface for slash command handlers.
 ///
-/// Implemented by [`closeclaw_gateway::SessionManager`] in the gateway crate;
+/// Implemented by `closeclaw_gateway::SessionManager` in the gateway crate;
 /// slash handlers depend only on this trait (defined in common).
 #[async_trait]
 pub trait SlashSessionQuery: Send + Sync {
