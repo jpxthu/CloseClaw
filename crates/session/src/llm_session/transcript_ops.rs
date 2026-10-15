@@ -34,7 +34,7 @@ impl ConversationSession {
     ///
     /// Unlike [`append_transcript`](Self::append_transcript) which uses the
     /// current time, this method keeps the provided `timestamp`. Used by
-    /// [`clone_messages_from`](Self::clone_messages_from) to preserve
+    /// `clone_messages_from` to preserve
     /// source message timing while going through the declaration channel.
     pub fn append_transcript_preserving_timestamp(
         &mut self,
@@ -47,7 +47,8 @@ impl ConversationSession {
 
     /// Incremental transcript append with an incremental snapshot.
     ///
-    /// Creates a [`SnapshotKind::Incremental`] snapshot recording the
+    /// Creates a [`SnapshotKind::Incremental`](crate::run_health::SnapshotKind::Incremental)
+    /// snapshot recording the
     /// given `leaf_entry_id` *before* appending. This enables
     /// JSONL-truncation rollback for the appended entry.
     ///
@@ -113,7 +114,7 @@ impl ConversationSession {
     /// the transcript.
     ///
     /// Returns the snapshot id if a snapshot was created, `None`
-    /// otherwise (e.g. for [`Append`] operations).
+    /// otherwise (e.g. for [`Append`](TranscriptOp::Append) operations).
     pub fn snapshot_current_state(&mut self, op: TranscriptOp, reason: &str) -> Option<String> {
         if op.requires_snapshot() {
             let mgr = self
@@ -125,7 +126,7 @@ impl ConversationSession {
         }
     }
 
-    /// Mark a snapshot as [`SnapshotStatus::Complete`].
+    /// Mark a snapshot as [`SnapshotStatus::Complete`](crate::run_health::SnapshotStatus::Complete).
     ///
     /// Used after a guarded operation (compaction, `/system` rewrite)
     /// succeeds to transition the snapshot from `Pending` to `Complete`.
