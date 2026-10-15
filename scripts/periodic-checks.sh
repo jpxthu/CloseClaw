@@ -51,7 +51,7 @@ usage() {
   --flaky     不稳定用例检查（nextest --retries 1，汇总 FLAKY 清单；存在 FLAKY 即该段 FAIL）
   --doctest   文档测试（cargo test --workspace --doc --no-fail-fast）
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
-  --deps      依赖检查（cargo-deny check + cargo-machete）
+  --deps      依赖检查（cargo-deny check + cargo-machete + syn 双大版本白名单检查）
   --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖）
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
@@ -274,7 +274,44 @@ do_coverage() (
     return 0
 )
 
-# ---------- --deps：cargo-deny + cargo-machete ----------
+# ---------- --deps：syn@2 直接引用者残留白名单（issue #3447 治理基线） ----------
+# baseline = 现状，只收窄不扩张（对齐 scripts/dep-guard/baselines/ 惯例）：
+#   - 白名单外新增直接引用者 → FAIL（禁止 syn 2 回流）
+#   - 残留消除 → 不 FAIL，提示收窄白名单，随上游迁移 syn 3 逐项删除直至归零
+# 条目按归属系分组注释；比对口径：cargo tree -i syn@2 --locked --target all --depth 1
+SYN2_DIRECT_ALLOW=(
+    # rav1e 系（image → ravif → rav1e / av-scenechange）
+    "arg_enum_proc_macro@0.3.4"
+    "equator-macro@0.4.2"
+    "interpolate_name@0.2.4"
+    "num-derive@0.4.2"
+    # zerocopy 系（ahash / half / ppv-lite86 多链共用）
+    "zerocopy-derive@0.8.47"
+    # tracing 系
+    "tracing-attributes@0.1.31"
+    "tracing-test-macro@0.2.6"
+    # async-stream
+    "async-stream-impl@0.3.6"
+    # icu-url 系（url → idna → icu_normalizer / icu_collections）
+    "displaydoc@0.2.5"
+    "synstructure@0.13.2"
+    "yoke-derive@0.8.1"
+    "zerofrom-derive@0.1.6"
+    "zerovec-derive@0.11.2"
+    # windows 系（target 门控链）
+    "windows-implement@0.60.2"
+    "windows-interface@0.59.3"
+    # serial_test（dev-dependency 链）
+    "serial_test_derive@3.4.0"
+    # thiserror 1.x
+    "thiserror-impl@1.0.69"
+    # profiling
+    "profiling-procmacros@1.0.18"
+    # wasm 系（target 门控链）
+    "wasm-bindgen-macro-support@0.2.114"
+)
+
+# ---------- --deps：cargo-deny + cargo-machete + syn 双大版本残留 ----------
 do_deps() (
     set -u
     local fails=0 ran=0
@@ -305,6 +342,46 @@ do_deps() (
         fi
     else
         echo "[SKIP] cargo machete --version 失败（未安装或不可用），请先安装：cargo install cargo-machete"
+    fi
+    # --- syn 双大版本残留检查：cargo tree 为内置子命令恒可运行，无需工具探测 ---
+    ran=1
+    local syn_rc=0
+    local tree_out
+    tree_out=$(cargo tree -i syn@2 --locked --target all --depth 1 --prefix none 2>&1) || syn_rc=$?
+    if [[ $syn_rc -eq 101 ]] && grep -q "did not match any packages" <<<"$tree_out"; then
+        echo "[ok] syn 双大版本残留检查通过：syn@2 已全部收敛，可移除白名单"
+    elif [[ $syn_rc -ne 0 ]]; then
+        echo "[FAIL] cargo tree -i syn@2 执行失败（退出码 $syn_rc，疑似锁文件漂移），明细："
+        printf '%s\n' "$tree_out"
+        fails=1
+    else
+        # 解析直接引用者：跳过根节点 syn 行；取每行前两个 token 归一为 name@version
+        #（(*) 后缀落在行尾，天然被忽略），LC_ALL=C 排序去重后与白名单做集合比对
+        local actual allowed added removed
+        actual=$(awk '$1 != "syn" && NF >= 2 { v = $2; sub(/^v/, "", v); print $1 "@" v }' \
+            <<<"$tree_out" | LC_ALL=C sort -u)
+        allowed=$(printf '%s\n' "${SYN2_DIRECT_ALLOW[@]}" | LC_ALL=C sort -u)
+        added="" removed=""
+        if [[ -n "$actual" ]]; then
+            added=$(comm -23 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
+            removed=$(comm -13 <(printf '%s\n' "$actual") <(printf '%s\n' "$allowed"))
+        else
+            removed="$allowed"
+        fi
+        if [[ -n "$added" ]]; then
+            echo "[FAIL] syn@2 出现白名单外新增直接引用者（禁止回流主链），逐项如下："
+            while IFS= read -r item; do echo "  $item"; done <<<"$added"
+            fails=1
+        fi
+        if [[ -n "$removed" ]]; then
+            echo "[ok] syn@2 以下残留已消除，可同步收窄白名单："
+            while IFS= read -r item; do echo "  $item"; done <<<"$removed"
+        fi
+        if [[ -z "$added" ]]; then
+            local n_actual
+            n_actual=$(awk 'END { print NR }' <<<"$actual")
+            echo "[ok] syn 双大版本残留检查通过（残留 $n_actual 项，均在白名单内）"
+        fi
     fi
     # 子工具全部缺失 → 整段 SKIP；有跑过的按其结果判定
     if [[ $ran -eq 0 ]]; then
