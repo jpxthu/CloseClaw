@@ -89,6 +89,16 @@ cargo build && cargo nextest run
 
 ---
 
+## 依赖升级政策
+
+- **先 issue 后升级**：依赖升级必须先提 issue 并给出理由，无理由不升级。
+- **理由仅限四类**：① 安全修复 ② 修复已撞到的 bug ③ 需要的新功能 ④ 生态收敛消除重复版本成本。
+- **评审与 PR 流程**：升级经计划与 changelog 评审后走 PR 流程；禁止无理由升级与自动合并。
+- **MSRV 衔接**：MSRV bump 走独立 PR（见「MSRV 政策」），不与其它升级混入同一 PR。
+- **把关机制**：自动升级提案机制已移除，依赖健康改由定期检查（见「定期检查」节的 --deps / --dep-guard）与 issue 驱动把关；GitHub 安全告警为平台独立机制，不受影响。
+
+---
+
 ## 项目结构
 
 CloseClaw 采用 Cargo workspace，每个 design doc 模块对应一个独立 crate。
