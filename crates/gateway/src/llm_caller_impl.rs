@@ -59,6 +59,10 @@ impl LlmCaller for FallbackLlmCaller {
     fn default_header_pairs(&self) -> Vec<(String, String)> {
         self.0.default_header_pairs()
     }
+
+    fn last_call_target(&self) -> Option<closeclaw_common::CallTarget> {
+        self.0.last_call_target()
+    }
 }
 
 #[cfg(test)]
@@ -464,5 +468,162 @@ mod tests {
             events.push(event);
         }
         assert!(!events.is_empty(), "degraded stream should produce events");
+    }
+
+    // ── last_call_target extension method ──────────────────────────────
+
+    /// Production impl: after a fallback switch the reported target is
+    /// the entry that actually served the call (not the first entry).
+    #[tokio::test]
+    async fn test_fallback_llm_caller_reports_actual_call_target() {
+        use closeclaw_llm::cache_adapter::NoopCacheAdapter;
+        use closeclaw_llm::interpreter::InterpreterRegistry;
+        use closeclaw_llm::plugin::PluginPipeline;
+        use closeclaw_llm::protocol::OpenAiProtocol;
+        use closeclaw_llm::retry::CooldownManager;
+        use closeclaw_llm::stub::StubProvider;
+        use closeclaw_llm::unified_fallback::{ChainEntry, UnifiedFallbackClient};
+
+        // First entry: streaming always fails; second entry (stub) serves.
+        struct StreamingFailProvider;
+
+        #[async_trait::async_trait]
+        impl closeclaw_llm::provider::Provider for StreamingFailProvider {
+            fn id(&self) -> &str {
+                "fail"
+            }
+            fn base_url(&self) -> &str {
+                ""
+            }
+            fn api_key(&self) -> &str {
+                ""
+            }
+            fn supported_protocols(&self) -> &[closeclaw_llm::types::ProtocolId] {
+                &[]
+            }
+            fn http_client(&self) -> &reqwest::Client {
+                static D: std::sync::OnceLock<reqwest::Client> = std::sync::OnceLock::new();
+                D.get_or_init(reqwest::Client::new)
+            }
+            fn default_headers(&self) -> &reqwest::header::HeaderMap {
+                static H: std::sync::OnceLock<reqwest::header::HeaderMap> =
+                    std::sync::OnceLock::new();
+                H.get_or_init(reqwest::header::HeaderMap::new)
+            }
+            async fn send(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<serde_json::Value> {
+                use closeclaw_llm::types::{RawContentBlock, RawUsage};
+                let resp = closeclaw_llm::types::InternalResponse {
+                    content_blocks: vec![RawContentBlock::Text("ok".to_string())],
+                    usage: RawUsage {
+                        prompt_tokens: 0,
+                        completion_tokens: 0,
+                        total_tokens: Some(0),
+                        cache_read_tokens: None,
+                        cache_write_tokens: None,
+                        reasoning_tokens: None,
+                    },
+                    finish_reason: None,
+                };
+                Ok(serde_json::to_value(&resp).unwrap())
+            }
+            async fn send_streaming(
+                &self,
+                _req: closeclaw_llm::types::InternalRequest,
+                _body: serde_json::Value,
+            ) -> closeclaw_llm::provider::Result<closeclaw_llm::provider::SseStream> {
+                Err(closeclaw_llm::provider::ProviderError::Legacy(
+                    "streaming not supported".to_string(),
+                ))
+            }
+        }
+
+        let fail_client = Arc::new(UnifiedChatClient::new(
+            Arc::new(StreamingFailProvider),
+            Arc::new(OpenAiProtocol::default()),
+            InterpreterRegistry::new(vec![]),
+            PluginPipeline::new(),
+            Arc::new(NoopCacheAdapter),
+        ));
+        let ok_client = Arc::new(UnifiedChatClient::new(
+            Arc::new(StubProvider::new()),
+            Arc::new(OpenAiProtocol::default()),
+            InterpreterRegistry::new(vec![]),
+            PluginPipeline::new(),
+            Arc::new(NoopCacheAdapter),
+        ));
+        let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
+        let cooldown = Arc::new(CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        ));
+        let fallback = Arc::new(UnifiedFallbackClient::new(
+            vec![
+                ChainEntry {
+                    provider_id: "fail".to_string(),
+                    model_id: "fail-model".to_string(),
+                    client: fail_client,
+                },
+                ChainEntry {
+                    provider_id: "stub".to_string(),
+                    model_id: "stub-model".to_string(),
+                    client: ok_client,
+                },
+            ],
+            cooldown,
+        ));
+        let caller = FallbackLlmCaller(fallback);
+
+        let mut request = make_request("hello");
+        request.stream = true;
+        let result = caller.call_streaming(request).await;
+        assert!(
+            result.is_ok(),
+            "call_streaming should succeed via second entry"
+        );
+        let target = caller
+            .last_call_target()
+            .expect("production impl must report the actually-hit target");
+        assert_eq!(target.provider_id, "stub");
+        assert_eq!(target.model_id, "stub-model");
+        assert_eq!(target.id_string(), "stub/stub-model");
+    }
+
+    /// Fake that relies on the default extension method (no override).
+    struct BareFakeCaller;
+
+    #[async_trait::async_trait]
+    impl LlmCaller for BareFakeCaller {
+        async fn call(&self, _request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
+            Ok(UnifiedResponse {
+                content_blocks: vec![],
+                usage: Default::default(),
+                finish_reason: None,
+                retry_attempts: 0,
+            })
+        }
+
+        async fn call_streaming(
+            &self,
+            _request: InternalRequest,
+        ) -> Result<
+            std::pin::Pin<Box<dyn Stream<Item = Result<StreamEvent, LLMError>> + Send>>,
+            LLMError,
+        > {
+            Ok(Box::pin(futures::stream::empty()))
+        }
+    }
+
+    /// Fake path: the default extension method returns `None` without
+    /// panicking — consumers degrade to session-config semantics.
+    #[test]
+    fn test_default_last_call_target_is_none_without_panic() {
+        let fake = BareFakeCaller;
+        assert!(
+            fake.last_call_target().is_none(),
+            "default implementation must report no target"
+        );
     }
 }

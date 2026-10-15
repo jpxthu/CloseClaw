@@ -38,6 +38,12 @@ pub struct StreamResult {
     pub retry_attempts: u32,
     /// DSL instruction result extracted from processor chain metadata.
     pub dsl_result: Option<String>,
+    /// Actually-used (provider/model) call target of this round,
+    /// reported by the underlying [`LlmCaller`] via its extension
+    /// method. `None` when the caller does not report a target
+    /// (test fakes / stub paths) — consumers degrade to the session
+    /// config's model semantics.
+    pub call_target: Option<closeclaw_common::CallTarget>,
 }
 
 impl From<UnifiedResponse> for StreamResult {
@@ -53,6 +59,10 @@ impl From<UnifiedResponse> for StreamResult {
             usage: response.usage,
             retry_attempts: response.retry_attempts,
             dsl_result: None,
+            // The `From` conversion has no access to the underlying
+            // caller; the production call sites attach the actual
+            // target afterwards via `attach_call_target`.
+            call_target: None,
         }
     }
 }
@@ -765,6 +775,8 @@ impl Gateway {
                 usage: usage_override.unwrap_or(state.usage),
                 retry_attempts: 0,
                 dsl_result,
+                // Attached by the production call site (see `attach_call_target`).
+                call_target: None,
             });
         };
         let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
@@ -780,6 +792,8 @@ impl Gateway {
             usage: usage_override.unwrap_or(state.usage),
             retry_attempts: 0,
             dsl_result,
+            // Attached by the production call site (see `attach_call_target`).
+            call_target: None,
         })
     }
 

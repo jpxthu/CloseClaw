@@ -363,11 +363,11 @@ impl SessionMessageHandler {
             let turn_start = Instant::now();
             let result: Result<StreamResult, LLMError> = {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
-                    cs.write()
-                        .await
-                        .invoke_llm(&pending.content)
-                        .await
-                        .map(Into::into)
+                    super::session_handler_dispatch::invoke_llm_with_call_target(
+                        &cs,
+                        &pending.content,
+                    )
+                    .await
                 } else {
                     Err(LLMError::InvalidRequest("session not found".to_string()))
                 }
@@ -519,7 +519,7 @@ impl SessionMessageHandler {
             .await;
         let result: Result<StreamResult, LLMError> = {
             if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
-                cs.write().await.invoke_llm("").await.map(Into::into)
+                super::session_handler_dispatch::invoke_llm_with_call_target(&cs, "").await
             } else {
                 Err(LLMError::InvalidRequest(
                     "session not found for retry".to_string(),

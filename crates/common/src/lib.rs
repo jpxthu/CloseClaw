@@ -127,7 +127,7 @@ pub use im_plugin::{
     RenderedOutput, StreamingOutput,
 };
 pub use injection_params::InjectionParams;
-pub use llm_caller::LlmCaller;
+pub use llm_caller::{CallTarget, LlmCaller};
 pub use llm_error::{ErrorKind, LLMError};
 pub use llm_stats::{detect_cache_anomaly, CacheAnomalyInfo, RunningStats};
 pub use llm_streaming::{StreamDone, StreamingSink};

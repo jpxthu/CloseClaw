@@ -449,14 +449,17 @@ impl SessionMessageHandler {
         let stream_enabled = cs.read().await.stream_enabled();
         if stream_enabled {
             if let (Some(gw), Some(pl)) = (gw, pl) {
-                Self::call_llm_streaming(cs, content, meta, sm, session_id, channel, gw, pl).await
-            } else {
-                tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
-                cs.write().await.invoke_llm(content).await.map(Into::into)
+                let result =
+                    Self::call_llm_streaming(cs, content, meta, sm, session_id, channel, gw, pl)
+                        .await;
+                return match result {
+                    Ok(stream_result) => Ok(attach_call_target(cs, stream_result).await),
+                    Err(err) => Err(err),
+                };
             }
-        } else {
-            cs.write().await.invoke_llm(content).await.map(Into::into)
+            tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
         }
+        invoke_llm_with_call_target(cs, content).await
     }
 
     /// Trigger active-searcher for an assistant message.
@@ -624,6 +627,39 @@ impl SessionMessageHandler {
             );
         }
     }
+}
+
+/// Attach the round's actually-used call target to a `StreamResult`.
+///
+/// Reads the target reported by the session's injected
+/// [`LlmCaller`] via its extension method. `None` (fakes / stub
+/// paths) is preserved; consumers degrade to session-config
+/// semantics for the cache check's model identifier.
+pub(super) async fn attach_call_target(
+    cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    mut stream_result: super::outbound::StreamResult,
+) -> super::outbound::StreamResult {
+    stream_result.call_target = cs
+        .read()
+        .await
+        .llm_caller()
+        .and_then(|caller| caller.last_call_target());
+    stream_result
+}
+
+/// Non-streaming LLM invocation with the call target attached.
+///
+/// Shared by the main dispatch path and the announce drain / retry
+/// paths so every production `StreamResult` carries the actual
+/// (provider/model) target for the unified cache-check advancement
+/// point.
+pub(super) async fn invoke_llm_with_call_target(
+    cs: &Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>>,
+    content: &str,
+) -> Result<super::outbound::StreamResult, closeclaw_llm::LLMError> {
+    let response = cs.write().await.invoke_llm(content).await?;
+    let stream_result: super::outbound::StreamResult = response.into();
+    Ok(attach_call_target(cs, stream_result).await)
 }
 
 #[cfg(test)]

@@ -155,6 +155,7 @@ impl SessionMessageHandler {
                 usage: stream_result.usage,
                 retry_attempts: stream_result.retry_attempts,
                 dsl_result: stream_result.dsl_result,
+                call_target: stream_result.call_target,
             });
         }
         Ok(stream_result)

@@ -16,6 +16,7 @@ use crate::types::{InternalRequest, UnifiedResponse};
 use crate::LLMError;
 use closeclaw_common::processor::{ContentBlock, ContentBlockType, ContentDelta, StreamEvent};
 use closeclaw_common::trace_id::generate_trace_id;
+use closeclaw_common::CallTarget;
 use closeclaw_debug_log::{DebugLog, LogLevel};
 use std::sync::Arc;
 
@@ -67,6 +68,12 @@ pub struct UnifiedFallbackClient {
     cooldown: Arc<CooldownManager>,
     /// Optional debug-log instance for structured event emission.
     debug_log: Option<DebugLog>,
+    /// Actually-used call target of the most recent successful call.
+    ///
+    /// Shared across clones (`Arc`) so every handle of the same client
+    /// observes the same slot; overwritten only by the next successful
+    /// call (streaming, non-streaming, and degraded paths alike).
+    last_target: Arc<std::sync::Mutex<Option<CallTarget>>>,
 }
 
 impl std::fmt::Debug for UnifiedFallbackClient {
@@ -96,6 +103,7 @@ impl UnifiedFallbackClient {
             chain,
             cooldown,
             debug_log: None,
+            last_target: Arc::new(std::sync::Mutex::new(None)),
         }
     }
 
@@ -114,7 +122,32 @@ impl UnifiedFallbackClient {
             chain,
             cooldown,
             debug_log,
+            last_target: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+
+    /// Returns the actually-used [`CallTarget`] of the most recent
+    /// successful call through this client.
+    ///
+    /// `None` before any call has succeeded. The slot persists until
+    /// the next successful call, so consumers that read it right after
+    /// a round's usage has fully arrived observe that round's target.
+    pub fn last_call_target(&self) -> Option<CallTarget> {
+        self.last_target
+            .lock()
+            .expect("last_call_target lock poisoned")
+            .clone()
+    }
+
+    /// Records the actually-used call target after a successful call.
+    fn record_call_target(&self, entry: &ChainEntry) {
+        *self
+            .last_target
+            .lock()
+            .expect("last_call_target lock poisoned") = Some(CallTarget {
+            provider_id: entry.provider_id.clone(),
+            model_id: entry.model_id.clone(),
+        });
     }
 
     /// Returns a reference to the first client in the chain.
@@ -198,6 +231,7 @@ impl UnifiedFallbackClient {
                             self.cooldown
                                 .record_success(&entry.provider_id, &entry.model_id)
                                 .await;
+                            self.record_call_target(entry);
                             // Emit llm.call.end on streaming success.
                             debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
                                 ctx: LlmDebugLogContext::new(
@@ -269,7 +303,10 @@ impl UnifiedFallbackClient {
         for entry in &self.chain {
             request.model = entry.model_id.clone();
             match entry.client.chat(request.clone()).await {
-                Ok(response) => return Ok(response_to_stream(response)),
+                Ok(response) => {
+                    self.record_call_target(entry);
+                    return Ok(response_to_stream(response));
+                }
                 Err(client_err) => {
                     let llm_err: LLMError = client_err.into();
                     tracing::warn!(
@@ -349,6 +386,7 @@ impl UnifiedFallbackClient {
                     self.cooldown
                         .record_success(&entry.provider_id, &entry.model_id)
                         .await;
+                    self.record_call_target(entry);
                     // Emit llm.call.end on success.
                     debug_log::emit_llm_event(debug_log::LlmEmitEventParams {
                         ctx: LlmDebugLogContext::new(self.debug_log.as_ref(), &trace_id, None),

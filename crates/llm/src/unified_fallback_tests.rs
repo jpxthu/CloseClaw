@@ -671,3 +671,86 @@ async fn test_response_to_stream_empty_blocks() {
     assert_eq!(events.len(), 1);
     assert!(matches!(events[0], StreamEvent::MessageEnd { .. }));
 }
+
+// ── last_call_target: actually-used (provider, model) reporting ───────────
+
+/// Before any successful call, no target has been recorded.
+#[tokio::test]
+async fn test_last_call_target_none_before_any_call() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let client = UnifiedFallbackClient::new(vec![mock_entry("p1", "m1")], cooldown);
+    assert!(
+        client.last_call_target().is_none(),
+        "fresh client should report no call target"
+    );
+}
+
+/// Non-streaming call that falls through a failing entry must report the
+/// entry that actually served the request.
+#[tokio::test]
+async fn test_chat_records_actual_call_target_after_fallback() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry1 = failing_entry("p-fail", "m-fail", "boom");
+    let entry2 = mock_entry("p-ok", "m-ok");
+    let client = UnifiedFallbackClient::new(vec![entry1, entry2], cooldown);
+    let result = client.chat(make_request("m-fail")).await;
+    assert!(result.is_ok(), "second entry should succeed");
+    let target = client
+        .last_call_target()
+        .expect("successful call must record the actual target");
+    assert_eq!(target.provider_id, "p-ok");
+    assert_eq!(target.model_id, "m-ok");
+}
+
+/// Streaming call that falls through a failing entry must report the
+/// entry whose stream was actually returned.
+#[tokio::test]
+async fn test_chat_streaming_records_actual_call_target_after_fallback() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry_fail = streaming_fail_entry("p-fail", "m-fail", "no streaming");
+    let entry_ok = mock_entry("p-ok", "m-ok");
+    let client = UnifiedFallbackClient::new(vec![entry_fail, entry_ok], cooldown);
+    let result = client.chat_streaming(make_request("m-fail")).await;
+    assert!(result.is_ok(), "second entry should serve the stream");
+    let target = client
+        .last_call_target()
+        .expect("successful streaming call must record the actual target");
+    assert_eq!(target.provider_id, "p-ok");
+    assert_eq!(target.model_id, "m-ok");
+}
+
+/// Degraded (all-streaming-failed → non-streaming) success records the
+/// entry that served the degraded call.
+#[tokio::test]
+async fn test_degraded_stream_records_serving_entry_target() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry1 = streaming_fail_entry("p1", "m1", "no streaming");
+    let client = UnifiedFallbackClient::new(vec![entry1], cooldown);
+    let result = client.chat_streaming(make_request("m1")).await;
+    assert!(result.is_ok(), "should degrade to non-streaming");
+    let target = client
+        .last_call_target()
+        .expect("degraded success must record the actual target");
+    assert_eq!(target.provider_id, "p1");
+    assert_eq!(target.model_id, "m1");
+}
+
+/// The recorded target survives a failed subsequent call (it is only
+/// overwritten by the next *successful* call).
+#[tokio::test]
+async fn test_failed_call_keeps_previous_target() {
+    let (_dir, cooldown) = isolated_cooldown();
+    let entry_ok = mock_entry("p-ok", "m-ok");
+    let entry_fail = failing_entry("p-fail", "m-fail", "boom");
+    let client = UnifiedFallbackClient::new(vec![entry_ok], cooldown.clone());
+    assert!(client.chat(make_request("m-ok")).await.is_ok());
+    assert!(client.last_call_target().is_some());
+
+    let client2 = UnifiedFallbackClient::new(vec![entry_fail], cooldown);
+    // Separate client: failed call records nothing.
+    assert!(client2.chat(make_request("m-fail")).await.is_err());
+    assert!(
+        client2.last_call_target().is_none(),
+        "failed call must not record a target"
+    );
+}

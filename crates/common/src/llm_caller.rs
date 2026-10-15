@@ -14,6 +14,32 @@ use crate::llm_error::LLMError;
 use crate::llm_types::InternalRequest;
 use crate::processor::{StreamEvent, UnifiedResponse};
 
+/// The actually-used LLM call target of one round.
+///
+/// Reported by the production caller after a successful call (the
+/// fallback chain knows which entry actually served the request);
+/// consumed by the gateway to distinguish model/provider switches for
+/// the cache hit consistency check. Test fakes that do not report a
+/// target leave it `None`, and consumers degrade to session-config
+/// semantics.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CallTarget {
+    /// Identifier of the provider that actually served the call.
+    pub provider_id: String,
+    /// Identifier of the model that actually served the call.
+    pub model_id: String,
+}
+
+impl CallTarget {
+    /// Combined `provider/model` identifier string.
+    ///
+    /// This is the model-switch exemption key stored in
+    /// [`RunningStats::last_call_model`](crate::llm_stats::RunningStats::last_call_model).
+    pub fn id_string(&self) -> String {
+        format!("{}/{}", self.provider_id, self.model_id)
+    }
+}
+
 /// Abstract interface for making LLM requests.
 ///
 /// Implementations live in the session layer (e.g., wrapping
@@ -51,5 +77,17 @@ pub trait LlmCaller: Send + Sync {
     /// Default is `false` (conservative).
     fn supports_parallel_tool_calls(&self) -> bool {
         false
+    }
+
+    /// Returns the actually-used [`CallTarget`] (provider/model) of the
+    /// most recent successful call, if the implementation can report it.
+    ///
+    /// Production fallback-backed implementations record the chain entry
+    /// that actually served the last successful call (streaming,
+    /// non-streaming, and degraded paths alike). The default returns
+    /// `None` so test fakes and simple callers need no changes; callers
+    /// of this method must degrade to session-config semantics on `None`.
+    fn last_call_target(&self) -> Option<CallTarget> {
+        None
     }
 }
