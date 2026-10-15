@@ -292,12 +292,6 @@ SYN2_DIRECT_ALLOW=(
     "tracing-test-macro@0.2.6"
     # async-stream
     "async-stream-impl@0.3.6"
-    # icu-url 系（url → idna → icu_normalizer / icu_collections）
-    "displaydoc@0.2.5"
-    "synstructure@0.13.2"
-    "yoke-derive@0.8.1"
-    "zerofrom-derive@0.1.6"
-    "zerovec-derive@0.11.2"
     # windows 系（target 门控链）
     "windows-implement@0.60.2"
     "windows-interface@0.59.3"
@@ -305,8 +299,6 @@ SYN2_DIRECT_ALLOW=(
     "serial_test_derive@3.4.0"
     # profiling
     "profiling-procmacros@1.0.18"
-    # wasm 系（target 门控链）
-    "wasm-bindgen-macro-support@0.2.114"
 )
 
 # ---------- --deps：cargo-deny + cargo-machete + syn 双大版本残留 ----------
