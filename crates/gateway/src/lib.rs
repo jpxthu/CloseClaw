@@ -76,6 +76,7 @@ mod receiving_transition_tests;
 mod resolve_session;
 pub mod session_handler;
 mod session_handler_announce;
+mod session_handler_cache_check;
 mod session_handler_compact;
 mod session_handler_dispatch;
 pub(crate) mod session_handler_reasoning;
@@ -920,6 +921,8 @@ mod rebuild_stash_tests;
 pub mod session_handler_announce_reasoning_always_tests;
 #[cfg(test)]
 pub mod session_handler_announce_turn_completion_tests;
+#[cfg(test)]
+mod session_handler_cache_check_tests;
 #[cfg(test)]
 pub mod session_handler_circuit_breaker_tests;
 #[cfg(test)]
