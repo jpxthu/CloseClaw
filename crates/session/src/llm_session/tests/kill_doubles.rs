@@ -95,15 +95,14 @@ pub(super) fn tool_handles_len(s: &ConversationSession) -> usize {
 }
 
 /// Assert the session's tool-handle map is empty, i.e. stop cleared
-/// every registered handle (the `is_empty` form). `context` names the
-/// test/scenario so a failure from inside this helper still points at
-/// the right case (issue #3172 Step 1.2).
+/// every registered handle (the zero-count form, on top of
+/// [`tool_handles_len`]). `context` names the test/scenario so a
+/// failure from inside this helper still points at the right case
+/// (issue #3172 Step 1.2).
 pub(super) fn assert_tool_handles_empty(s: &ConversationSession, context: &str) {
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
+    assert_eq!(
+        tool_handles_len(s),
+        0,
         "tool_handles map must be cleared after stop ({context})"
     );
 }

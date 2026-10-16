@@ -87,7 +87,7 @@ fn spawn_helper_child(
 
 /// [`spawn_helper_child`] entry that removes `HOME` from the child env —
 /// reproduces the home-unset failure path (e.g. `root_dir()` error) in a
-/// subprocess instead of mutating the process-global env (CONTRIBUTING §7).
+/// subprocess instead of mutating the process-global env (STANDARDS.md §7).
 pub(super) fn spawn_helper_child_without_home(
     config_dir: &str,
     envs: &[(&str, &str)],
