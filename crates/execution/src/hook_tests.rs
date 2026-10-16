@@ -282,6 +282,47 @@ async fn test_custom_hook_timeout_is_non_blocking() {
     assert_eq!(result, HookResult::Continue);
 }
 
+/// The timed-out hook child must be terminated and reaped, not leaked
+/// (issue #3393: nextest flagged the timeout test LEAKY with a stray `sleep`).
+#[tokio::test]
+async fn test_custom_hook_timeout_kills_child_process() {
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    let pidfile = dir.path().join("hook.pid");
+
+    // The hook child records its own PID (`$$` = the `sh -c` process), then
+    // sleeps far past the timeout so only the hook can end it.
+    let hook = CustomHook::new(
+        format!("echo $$ > {} && sleep 60", pidfile.display()),
+        Duration::from_millis(500),
+    );
+    let result = hook.execute(&completed_step()).await.unwrap();
+    assert_eq!(result, HookResult::Continue);
+
+    let pid: i32 = std::fs::read_to_string(&pidfile)
+        .expect("hook child wrote pidfile")
+        .trim()
+        .parse()
+        .expect("pidfile contains a numeric pid");
+
+    // Bounded async poll: the child must be gone shortly after the hook
+    // returned, proving it was killed and reaped instead of left running.
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    loop {
+        // SAFETY: kill with signal 0 is a standard POSIX existence check.
+        // No signal is delivered; the kernel merely validates the PID.
+        let alive = unsafe { libc::kill(pid, 0) } == 0
+            || std::io::Error::last_os_error().raw_os_error() == Some(libc::EPERM);
+        if !alive {
+            break;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "hook child pid {pid} still alive 2s after hook timeout"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+}
+
 #[tokio::test]
 async fn test_custom_hook_invalid_command() {
     // sh -c with nonexistent command spawns successfully but exits non-zero
