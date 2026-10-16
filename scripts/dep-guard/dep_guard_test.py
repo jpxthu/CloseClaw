@@ -478,12 +478,13 @@ class ReportHelperTest(unittest.TestCase):
         )
 
     def test_count_word_and_summary_suffix_parameterized(self) -> None:
-        """计数词「处」与 machete 后缀按 spec 拼入汇总行。"""
+        """单一检查（dead-deps）真实词表组合：计数词「处」与 machete
+        后缀按 spec 拼入汇总行；baseline 段恒为条。"""
         spec = dep_guard.DiffReportSpec(
             check_id="dead-deps",
             fail_label="新增死依赖",
             narrowed_label="死依赖已消除",
-            count_noun="二次出口",
+            count_noun="死依赖",
             count_word="处",
             summary_suffix="（machete cargo-machete 解析）",
         )
@@ -494,7 +495,7 @@ class ReportHelperTest(unittest.TestCase):
             result.lines,
             [
                 "  [FAIL] 新增死依赖: x",
-                "  二次出口 1 处 / baseline 0 条 / 新增 1 / 已消除 0 "
+                "  死依赖 1 处 / baseline 0 条 / 新增 1 / 已消除 0 "
                 "（machete cargo-machete 解析）→ FAIL",
             ],
         )

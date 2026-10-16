@@ -70,7 +70,7 @@ class DiffReportSpec:
     fail_label: str  # FAIL 新增条目措辞，如「新增越界边」
     narrowed_label: str  # info 可收窄条目措辞，如「越界边已消除」
     count_noun: str  # 汇总行计数对象名，如「越界边」
-    count_word: str = "条"  # 汇总行计数词（条 / 处）
+    count_word: str = "条"  # 汇总行计数词（条 / 处）；baseline 段恒为条（保持输出不变）
     summary_suffix: str = ""  # 汇总行后缀，如「（machete … 解析）」
 
 
@@ -96,8 +96,9 @@ def report_diff(
     ``baseline.diff_baseline`` 处选择。状态判定固定为：
     diff 有新增 → FAIL，否则 PASS。
     """
+    reasons = reason_by_path or {}
     for item in diff.new_items:
-        reason = reason_by_path.get(item) if reason_by_path is not None else None
+        reason = reasons.get(item)
         if reason is not None:
             lines.append(f"  [FAIL] {spec.fail_label}: {item}（{reason}）")
         else:
@@ -184,24 +185,26 @@ def check_common_admission(repo_root: Path) -> CheckResult:
 
 def check_dead_deps(repo_root: Path) -> CheckResult:
     """死依赖：cargo machete 未使用依赖（覆盖外部 crate）。"""
+    check_id = "dead-deps"
     lines = ["[dead-deps] 死依赖：cargo machete 未使用依赖（含外部 crate）"]
     if not dead_deps.machete_available():
         lines.append("  [SKIP] cargo-machete 不可用（cargo machete --version 失败）")
-        return CheckResult("dead-deps", STATUS_SKIP, lines)
+        return CheckResult(check_id, STATUS_SKIP, lines)
     try:
         data = dead_deps.collect_unused(repo_root)
     except dead_deps.DeadDepsError as exc:
-        return report_error(lines, "dead-deps", exc)
+        return report_error(lines, check_id, exc)
 
+    # spec 后置构造：summary_suffix 需 data.source（machete 解析来源）。
     spec = DiffReportSpec(
-        check_id="dead-deps",
+        check_id=check_id,
         fail_label="新增死依赖",
         narrowed_label="死依赖已消除",
         count_noun="死依赖",
         summary_suffix=f"（machete {data.source} 解析）",
     )
     items = dead_deps.unused_items(data.unused)
-    base_items = baseline.load_baseline(BASELINE_DIR / "dead-deps.txt")
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{check_id}.txt")
     diff = baseline.diff_baseline(base_items, items)
     return report_diff(lines, spec, diff, len(items), len(base_items))
 
