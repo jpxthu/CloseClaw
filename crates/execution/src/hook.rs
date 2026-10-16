@@ -172,17 +172,36 @@ impl CustomHook {
 #[async_trait]
 impl StepHook for CustomHook {
     async fn execute(&self, _step: &StepResult) -> Result<HookResult, HookError> {
-        let child = tokio::process::Command::new("sh")
+        let mut child = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(&self.command)
+            .process_group(0)
             .spawn()
             .map_err(|e| HookError::CustomFailed {
                 message: format!("failed to spawn command: {e}"),
             })?;
 
-        match tokio::time::timeout(self.timeout, child.wait_with_output()).await {
+        match tokio::time::timeout(self.timeout, child.wait()).await {
             Ok(Ok(_)) | Ok(Err(_)) => Ok(HookResult::Continue),
-            Err(_elapsed) => Ok(HookResult::Continue), // timeout is non-blocking per plan
+            Err(_elapsed) => {
+                if let Some(pid) = child.id() {
+                    // SAFETY: kill(2) with a pid argument performs no memory
+                    // access. The child was spawned as its own process group
+                    // leader (`process_group(0)`), so a negative pid targets
+                    // the whole hook process tree; a stale pid at worst hits
+                    // an unrelated process or fails with ESRCH.
+                    let ret = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
+                    if ret != 0 {
+                        tracing::warn!(
+                            pid,
+                            error = %std::io::Error::last_os_error(),
+                            "failed to kill timed-out hook process group"
+                        );
+                    }
+                }
+                let _ = child.wait().await;
+                Ok(HookResult::Continue) // timeout is non-blocking per plan
+            }
         }
     }
 }
