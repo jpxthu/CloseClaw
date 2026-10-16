@@ -41,7 +41,6 @@
 #![cfg(feature = "fake-llm")]
 
 use std::path::Path;
-use std::time::Duration;
 
 use closeclaw_common::test_helpers::ensure_dir;
 use tokio::io::{AsyncWriteExt, BufReader};
@@ -55,6 +54,7 @@ use super::helpers::config::{
     write_agent_config, write_agent_config_with_tools, write_agent_permissions, write_config_tree,
     ConfigTreeOpts,
 };
+use super::helpers::daemon_guard::{spawn_default_ready_daemon, spawn_ready_daemon};
 use super::helpers::fake_llm::start_fake_llm;
 
 // `noBootstrap` consumption cases (issue #3475, Step 1.7) live in the
@@ -70,20 +70,6 @@ mod no_bootstrap_tests;
 // Step 1.10; the config-tree scaffold `write_config_tree` shared with
 // `gateway_restart_turn_tests` in Step 1.14; terminal/content/SIGTERM
 // helpers shared in Step 1.23).
-
-// ---------------------------------------------------------------------------
-// Helper: daemon spawn + readiness
-// ---------------------------------------------------------------------------
-
-/// Spawn the closeclaw daemon with the given config root.
-///
-/// Wraps the shared `helpers::daemon_guard::spawn_daemon_guarded` (HOME
-/// isolation for PID file + SIGTERM-on-drop guard; the guard type is
-/// shared with `cache_consistency_tests` since Step 1.6 so the unsafe
-/// SIGTERM block is maintained in a single place).
-fn spawn_daemon(config_root: &Path) -> helpers::daemon_guard::DaemonGuard {
-    helpers::daemon_guard::spawn_daemon_guarded(config_root)
-}
 
 // ---------------------------------------------------------------------------
 // Helper: chat response assertions
@@ -145,11 +131,7 @@ async fn e2e_agent_profile_smoke() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-
-    let mut daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let mut daemon = spawn_default_ready_daemon(config_root).await;
 
     if let Some(status) = daemon.0.try_wait().expect("try_wait daemon") {
         panic!("daemon exited prematurely during startup: {status:?}");
@@ -213,11 +195,7 @@ async fn e2e_agent_model_selection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-
-    let daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let daemon = spawn_default_ready_daemon(config_root).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
 
@@ -277,8 +255,7 @@ async fn e2e_agent_system_prompt_injection() {
     )
     .expect("write bootstrap file");
 
-    let daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let daemon = spawn_ready_daemon(config_root).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "tell me a joke").await;
 
@@ -365,8 +342,7 @@ async fn e2e_agent_workspace() {
         &workspace_permission_rules().to_string(),
     );
 
-    let daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let daemon = spawn_ready_daemon(config_root).await;
 
     // Fixture `workspace-marker` issues the workdir-relative
     // Read("../../../bootstrap_marker.txt").
@@ -742,8 +718,7 @@ async fn e2e_agent_tool_allow_deny() {
         &tool_allow_deny_permission_rules().to_string(),
     );
 
-    let mut daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let mut daemon = spawn_ready_daemon(config_root).await;
     helpers::assert_daemon_alive(&mut daemon.0);
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "use tools please").await;
@@ -819,11 +794,7 @@ async fn e2e_agent_runtime_config_query() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-
-    let mut daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let mut daemon = spawn_default_ready_daemon(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "id": "master"});
@@ -853,11 +824,7 @@ async fn e2e_agent_runtime_config_query_unknown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let fake_llm_addr = start_fake_llm().await;
-    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
-
-    let mut daemon = spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let mut daemon = spawn_default_ready_daemon(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "id": "no-such-agent"});

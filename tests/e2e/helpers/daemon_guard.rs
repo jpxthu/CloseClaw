@@ -1,4 +1,4 @@
-//! Shared daemon-lifecycle guard for e2e tests.
+//! Shared daemon-lifecycle helpers for e2e tests.
 //!
 //! [`DaemonGuard`] owns the spawned daemon child and sends SIGTERM on
 //! Drop, so a mid-test assertion failure never leaves a residual daemon
@@ -6,15 +6,33 @@
 //! [`DaemonGuard::shutdown`] path goes through `sigterm_and_wait` and
 //! hands the exit status back for the caller to assert.
 //!
+//! The spawn family builds on that guard, one layer per level of
+//! boilerplate convergence (issue #3479): [`spawn_daemon_guarded`]
+//! wraps a raw daemon spawn; [`spawn_ready_daemon`] additionally polls
+//! both RPC sockets until ready, bounded by `READY_TIMEOUT` (the 30s
+//! boot deadline previously inlined at every fake-LLM call site); and
+//! [`spawn_default_ready_daemon`] converges the full default-config
+//! scaffold (`start_fake_llm` → config tree → spawn → wait). The
+//! caller keeps owning the `TempDir`, so guard/server lifetimes and
+//! the daemon-before-tempdir drop order are unchanged.
+//!
 //! Extracted from `agent_profile_tests` / `cache_consistency_tests`
 //! (line-for-line duplicates) so the unsafe SIGTERM block is maintained
 //! in a single place (STANDARDS.md shared-helper rule).
 
 use std::path::Path;
+use std::time::Duration;
 
 use tokio::process::Child;
 
-use super::sigterm_and_wait;
+use super::config::{write_config_tree, ConfigTreeOpts};
+use super::daemon_lifecycle::sigterm_and_wait;
+use super::daemon_ready::wait_for_daemon_ready_with_timeout;
+use super::fake_llm::start_fake_llm;
+
+/// Readiness budget for [`spawn_ready_daemon`]: the 30s daemon boot
+/// deadline previously inlined at every fake-LLM e2e call site.
+const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Owns the spawned daemon child. Sending SIGTERM on Drop guarantees no
 /// residual process even when an assertion fails mid-test.
@@ -48,8 +66,36 @@ impl Drop for DaemonGuard {
 /// Spawn the closeclaw daemon with the given config root, wrapped in a
 /// [`DaemonGuard`] for SIGTERM-on-drop safety.
 ///
-/// Wraps [`spawn_daemon`](super::spawn_daemon), which sets `HOME` to
-/// `config_root` for PID file isolation.
+/// Wraps [`spawn_daemon`](super::daemon_spawn::spawn_daemon), which sets
+/// `HOME` to `config_root` for PID file isolation.
 pub fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
-    DaemonGuard(super::spawn_daemon(config_root))
+    DaemonGuard(super::daemon_spawn::spawn_daemon(config_root))
+}
+
+/// Spawn the closeclaw daemon and wait until it is ready (both RPC
+/// sockets accept connections).
+///
+/// Converges the `spawn_daemon_guarded(config_root)` +
+/// `wait_for_daemon_ready_with_timeout(config_root, 30s)` pair that was
+/// duplicated at every fake-LLM e2e call site (issue #3479). Returns
+/// the [`DaemonGuard`] so callers keep asserting liveness and driving
+/// shutdown themselves; drop/SIGTERM semantics are unchanged.
+pub async fn spawn_ready_daemon(config_root: &Path) -> DaemonGuard {
+    let daemon = spawn_daemon_guarded(config_root);
+    wait_for_daemon_ready_with_timeout(config_root, READY_TIMEOUT).await;
+    daemon
+}
+
+/// [`spawn_ready_daemon`] over the default fake-LLM config scaffold.
+///
+/// Converges the full `start_fake_llm →
+/// write_config_tree(ConfigTreeOpts::new(addr)) → spawn → wait`
+/// boilerplate shared by the default-config e2e cases (issue #3479).
+/// The caller keeps owning the `TempDir` (pass its path here), so
+/// `TempDir` / [`DaemonGuard`] / fake-LLM server lifetimes and the
+/// daemon-before-tempdir drop order stay exactly as before.
+pub async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuard {
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    spawn_ready_daemon(config_root).await
 }
