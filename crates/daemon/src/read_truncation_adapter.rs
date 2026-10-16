@@ -1,8 +1,7 @@
 //! Adapter: build the Read tool's truncation provider from ConfigManager.
 //!
 //! The `tools.json` parsing (`read.max_tokens`) lives in the composition
-//! root — `closeclaw_tools` only consumes a
-//! [`ReadTruncationProvider`](closeclaw_tools::builtin::ReadTruncationProvider).
+//! root — `closeclaw_tools` only consumes a [`ReadTruncationProvider`].
 //! The provider re-reads the Tools section on every invocation so config
 //! hot-reloads take effect without a restart.
 
