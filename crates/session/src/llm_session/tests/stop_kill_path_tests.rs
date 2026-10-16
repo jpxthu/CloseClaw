@@ -253,11 +253,14 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let cs = make_session("s_slow");
     // Small budget: waiting out the production 5 s budget would push
     // this case over the STANDARDS §6 5 s line by itself.
-    let kill_budget = Duration::from_millis(500);
-    // Loose upper bound (several × the budget): distinguishes
-    // "budget enforced" from "wedged or silently fell back to the
-    // 5 s budget" without a fragile tight time comparison.
-    let loose_bound = Duration::from_secs(4);
+    let kill_budget = Duration::from_millis(250);
+    // Loose upper bound (4× the budget): distinguishes "budget
+    // enforced" from "wedged or silently fell back to the 5 s budget"
+    // without a fragile tight time comparison. A guardrail only — on
+    // the enforced path stop returns at ~kill_budget, so the bound is
+    // never waited out — and it stays within the STANDARDS §6 ≤1 s
+    // literal cap on test waits.
+    let loose_bound = Duration::from_secs(1);
 
     let (handle, release) = BlockingKillHandle::new();
     register_kill_handle(&cs, "slow", &handle).await;
@@ -348,7 +351,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 /// Boundary: a degenerate (zero) kill budget cuts the wait off at
 /// once — stop returns immediately through the budget-expiry warn
 /// branch while the kill is still blocked, and cleanup still
-/// completes. Complements the 500 ms over-budget case above by
+/// completes. Complements the 250 ms over-budget case above by
 /// pinning the extreme of the budget scale (issue #3161 Step 1.3).
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
