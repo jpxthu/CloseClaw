@@ -1,6 +1,7 @@
 //! Raw message logger processor.
 //!
-//! Writes incoming [`NormalizedMessage`] to a JSON file for audit and debugging purposes.
+//! Writes incoming [`NormalizedMessage`](closeclaw_common::NormalizedMessage)
+//! to a JSON file for audit and debugging purposes.
 //!
 //! # Conditional execution
 //!

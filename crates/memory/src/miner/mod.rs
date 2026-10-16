@@ -279,7 +279,7 @@ impl MemoryMiner {
 
     /// Mine a session from a pre-loaded checkpoint.
     ///
-    /// Same as [`mine_session`] but accepts the checkpoint directly,
+    /// Same as [`Self::mine_session`] but accepts the checkpoint directly,
     /// avoiding a redundant storage load. The caller is responsible for
     /// verifying that the session is archived and unmined.
     pub async fn mine_session_from_checkpoint(

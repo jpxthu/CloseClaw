@@ -32,7 +32,7 @@ pub trait IMAdapter: Send + Sync {
     /// Platform name (e.g., "feishu", "discord")
     fn name(&self) -> &str;
 
-    /// Parse an inbound webhook payload into a [`NormalizedMessage`].
+    /// Parse an inbound webhook payload into a [`closeclaw_common::NormalizedMessage`].
     ///
     /// Returns `Ok(Some(msg))` for recognized message events,
     /// `Ok(None)` for non-message events (e.g. card actions) or
@@ -42,7 +42,7 @@ pub trait IMAdapter: Send + Sync {
         payload: &[u8],
     ) -> Result<Option<closeclaw_common::NormalizedMessage>, AdapterError>;
 
-    /// Parse an inbound webhook payload into a [`CardActionEvent`].
+    /// Parse an inbound webhook payload into a [`closeclaw_common::CardActionEvent`].
     ///
     /// Returns `Ok(Some(event))` for card-action events,
     /// `Ok(None)` for non-card-action events, or `Err` on parse failure.
