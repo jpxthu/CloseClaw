@@ -2,6 +2,7 @@
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
 
 use super::renderer::*;
+use super::{assert_button, assert_single_action, make_selector_inst};
 
 #[test]
 fn thinking_block_with_content_produces_collapsible_panel() {
@@ -292,40 +293,6 @@ fn card_element_file_serializes_correctly() {
 // ================================================================
 // render_selectors — allow_select_static (Step 1.3)
 // ================================================================
-
-fn make_selector_inst(label: &str, options: &str, action: &str) -> DslInstruction {
-    let mut params = std::collections::HashMap::new();
-    params.insert("label".into(), label.to_string());
-    params.insert("options".into(), options.to_string());
-    params.insert("action".into(), action.to_string());
-    DslInstruction {
-        instruction_type: "selector".into(),
-        params,
-    }
-}
-
-fn assert_single_action(els: &[CardElement]) -> &[CardAction] {
-    assert_eq!(els.len(), 1);
-    match &els[0] {
-        CardElement::Action { actions } => actions,
-        other => panic!("expected Action, got {other:?}"),
-    }
-}
-
-fn assert_button(action: &CardAction, label: &str, bt: &str) {
-    match action {
-        CardAction::Button {
-            text,
-            action_type,
-            url,
-        } => {
-            assert_eq!(text.content, label);
-            assert_eq!(action_type, bt);
-            assert!(url.is_none());
-        }
-        other => panic!("expected Button, got {other:?}"),
-    }
-}
 
 #[test]
 fn render_selectors_allow_true_produces_select_menu() {
