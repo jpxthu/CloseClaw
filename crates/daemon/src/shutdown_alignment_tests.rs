@@ -7,7 +7,7 @@
 //! - Step 1.4: design-doc upgrade path (repeated signal escalates graceful → forceful)
 
 use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
-use crate::test_helpers::{common_shutdown_handle, kill_self, TestShutdownSignal};
+use crate::test_helpers::{common_shutdown_handle, kill_self, signal_step, TestShutdownSignal};
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::oneshot;
 
@@ -577,57 +577,6 @@ fn register_phase0_handlers(confirm: oneshot::Sender<()>) -> (Signal, Signal) {
 async fn wait_registered(rx: oneshot::Receiver<()>) {
     rx.await
         .expect("spawned task must confirm handler registration before signaling");
-}
-
-/// Awaits one signal-delivery step under the file-wide 10s timeout, panicking
-/// with `signal not delivered: {what}` when it does not complete (STANDARDS
-/// §6). Call sites keep unwrapping the future's own output (STANDARDS §9).
-async fn signal_step<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(std::time::Duration::from_secs(10), fut)
-        .await
-        .unwrap_or_else(|_| panic!("signal not delivered: {what}"))
-}
-
-// ── signal_step helper behavior ──────────────────────────────────────
-
-/// Normal path: a completing future's output passes through unchanged —
-/// the helper is a transparent 10s timeout wrapper.
-#[tokio::test]
-async fn test_signal_step_passes_output_through() {
-    let value = signal_step("passthrough completes in time", async { 42 }).await;
-    assert_eq!(
-        value, 42,
-        "signal_step must return the wrapped future's output"
-    );
-}
-
-/// Timeout path: a never-completing step must panic with the
-/// `signal not delivered: {what}` diagnostic instead of hanging until the
-/// 30s harness limit with no diagnosis (STANDARDS §6). Paused clock:
-/// auto-advance fires the virtual 10s deadline, so no real 10s wait.
-#[tokio::test(start_paused = true)]
-async fn test_signal_step_panics_with_diagnostic_on_timeout() {
-    let joined = tokio::spawn(async {
-        signal_step("hung step diagnostic", std::future::pending::<()>()).await
-    })
-    .await;
-    let join_err =
-        joined.expect_err("signal_step must panic when the wrapped step never completes");
-    assert!(
-        join_err.is_panic(),
-        "expected a panic JoinError, got: {join_err:?}"
-    );
-    let payload = join_err.into_panic();
-    let msg = payload
-        .downcast_ref::<String>()
-        .map(String::as_str)
-        .or_else(|| payload.downcast_ref::<&str>().copied())
-        .expect("panic payload should be a string");
-    assert!(
-        msg.contains("signal not delivered: hung step diagnostic"),
-        "expected the signal not delivered diagnostic carrying the what \
-         label, got: {msg}"
-    );
 }
 
 #[serial_test::serial]

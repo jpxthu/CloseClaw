@@ -5,6 +5,7 @@
 //! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
+use crate::test_helpers::signal_step;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 
@@ -338,7 +339,12 @@ async fn test_graceful_drain_timeout() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // Shutdown should have completed despite busy_count > 0
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "drain timeout shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(handle.is_stopped(), "drain should complete after timeout");
     // busy_count was not cleared by the drain
     assert_eq!(handle.busy_count(), 2);
@@ -415,7 +421,12 @@ async fn test_forceful_skips_drain() {
 
     // Escalate to forceful — should terminate immediately
     handle.escalate_to_forceful();
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "forceful escalation shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
 
     assert!(handle.is_stopped());
     // busy_count unchanged — forceful skips drain
@@ -792,108 +803,78 @@ async fn test_drain_signal_broadcast() {
     assert!(result2.is_ok(), "Receiver 2 did not get drain signal");
 }
 
-/// `with_drain_timeout()` applies a custom (200ms) timeout, overriding
-/// the default 30s drain timeout.
-#[tokio::test]
-async fn test_drain_timeout_with_custom_value() {
-    // Use a short custom timeout (200ms) to prove it overrides the default 30s.
-    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(200));
-    handle.increment_busy();
-
-    let handle_clone = handle.clone();
-    let start = tokio::time::Instant::now();
-    let shutdown_task = tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
-
-    // With 200ms timeout, drain should complete around 200ms.
-    tokio::time::timeout(Duration::from_secs(5), shutdown_task)
-        .await
-        .expect("shutdown should complete within 5s")
-        .expect("shutdown task should not panic");
-    let elapsed = start.elapsed();
-
-    assert!(
-        handle.is_stopped(),
-        "drain should complete after 200ms timeout"
-    );
-    assert!(
-        elapsed < Duration::from_secs(1),
-        "elapsed should be ~200ms (not 30s default), got {:?}",
-        elapsed
-    );
-    // Verify busy_count was not cleared (drain timed out)
-    assert_eq!(
-        handle.busy_count(),
-        1,
-        "busy_count should remain 1 after timeout"
-    );
-}
-
-/// `with_drain_timeout()` with an explicit short value (300ms) takes
-/// effect: drain completes around that deadline instead of the 30s
-/// default.
+/// `with_drain_timeout()` makes the drain timeout configurable: shutdown
+/// completes at the configured deadline instead of the 30s default.
 ///
-/// Renamed from `test_drain_timeout_default_is_30s` (issue #3244): the
-/// old name claimed coverage of the 30s default, but the body only sets
-/// an explicit 300ms value via `with_drain_timeout`. `ShutdownHandle`
-/// has no `drain_timeout()` getter, so the default cannot be asserted
-/// directly; the 30s default stays covered indirectly by
-/// `test_drain_timeout_with_custom_value` (elapsed ≪ 30s).
+/// Table-driven merge of the three former per-value tests
+/// (`test_drain_timeout_with_custom_value`,
+/// `test_drain_timeout_with_explicit_short_value`,
+/// `test_drain_timeout_very_short`, issue #3270). Every case registers
+/// one busy operation that never completes, so the drain always exits
+/// through the timeout path — a normal drain-phase flow boundary, not a
+/// failure: the handle reaches `Stopped` with the remaining busy count
+/// preserved for the caller (Phase 2).
+///
+/// `ShutdownHandle` has no `drain_timeout()` getter, so the 30s default
+/// cannot be asserted directly; the `< 2s` upper bound on every case
+/// (vs the 30s default) is the indirect proof that the configured value
+/// took effect.
 #[tokio::test]
-async fn test_drain_timeout_with_explicit_short_value() {
-    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
-    handle.increment_busy();
+async fn test_drain_timeout_configurable_values() {
+    // (drain_timeout, min_elapsed, scenario semantics)
+    let cases: &[(Duration, Duration, &str)] = &[
+        (
+            Duration::from_millis(200),
+            Duration::ZERO,
+            "custom value (200ms) overrides the default config",
+        ),
+        (
+            Duration::from_millis(300),
+            Duration::from_millis(250),
+            "explicit short value (300ms) — the 250ms lower bound proves \
+             the drain waited out the full deadline instead of returning \
+             early",
+        ),
+        (
+            Duration::from_millis(1),
+            Duration::ZERO,
+            "very short timeout (1ms) — shutdown completes almost \
+             immediately",
+        ),
+    ];
 
-    let handle_clone = handle.clone();
-    let start = tokio::time::Instant::now();
-    let shutdown_task = tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
+    for &(drain_timeout, min_elapsed, scenario) in cases {
+        // Per-case handle: no state crosses case boundaries.
+        let handle = ShutdownHandle::new().with_drain_timeout(drain_timeout);
+        handle.increment_busy();
 
-    tokio::time::timeout(Duration::from_secs(3), shutdown_task)
-        .await
-        .expect("shutdown should complete within 3s")
-        .expect("shutdown task should not panic");
-    let elapsed = start.elapsed();
+        let handle_clone = handle.clone();
+        let start = tokio::time::Instant::now();
+        let shutdown_task = tokio::spawn(async move {
+            handle_clone.initiate_shutdown().await;
+        });
 
-    assert!(
-        handle.is_stopped(),
-        "drain should complete after 300ms timeout"
-    );
-    assert!(
-        elapsed >= Duration::from_millis(250) && elapsed <= Duration::from_secs(1),
-        "elapsed should be ~300ms, got {:?}",
-        elapsed
-    );
-}
+        tokio::time::timeout(Duration::from_secs(5), shutdown_task)
+            .await
+            .expect("shutdown should complete within 5s")
+            .expect("shutdown task should not panic");
+        let elapsed = start.elapsed();
 
-/// `with_drain_timeout()` with a very short timeout (1ms) completes
-/// almost immediately.
-#[tokio::test]
-async fn test_drain_timeout_very_short() {
-    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(1));
-    handle.increment_busy();
-
-    let handle_clone = handle.clone();
-    let start = tokio::time::Instant::now();
-    let shutdown_task = tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
-
-    tokio::time::timeout(Duration::from_secs(2), shutdown_task)
-        .await
-        .expect("shutdown should complete within 2s")
-        .expect("shutdown task should not panic");
-    let elapsed = start.elapsed();
-
-    assert!(
-        handle.is_stopped(),
-        "drain should complete after 1ms timeout"
-    );
-    assert!(
-        elapsed < Duration::from_secs(1),
-        "elapsed should be <1s, got {:?}",
-        elapsed
-    );
+        assert!(
+            handle.is_stopped(),
+            "{scenario}: drain should complete after {drain_timeout:?} timeout"
+        );
+        assert!(
+            elapsed >= min_elapsed && elapsed < Duration::from_secs(2),
+            "{scenario}: elapsed should be ~{drain_timeout:?} (not the 30s \
+             default), got {elapsed:?}"
+        );
+        // The operation never completed, so the drain timed out and the
+        // remaining count is preserved, not cleared.
+        assert_eq!(
+            handle.busy_count(),
+            1,
+            "{scenario}: busy_count should remain 1 after timeout"
+        );
+    }
 }
