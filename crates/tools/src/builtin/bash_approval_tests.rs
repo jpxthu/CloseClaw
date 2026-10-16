@@ -185,12 +185,12 @@ async fn test_bash_approval_allow_path() {
     let stdout = output.data.get("stdout").and_then(Value::as_str);
     assert!(
         matches!(stdout, Some(s) if s.contains("hello")),
-        "allow path must execute normally and return stdout containing \"hello\", got: {:?}",
+        "allow path must execute normally and return stdout containing 'hello', got: {:?}",
         output.data
     );
     assert!(
         output.data.get("output").is_none(),
-        "payload contract uses \"stdout\", dead key \"output\" must not exist, got: {:?}",
+        "payload contract uses 'stdout', dead key 'output' must not exist, got: {:?}",
         output.data
     );
 }
