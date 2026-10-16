@@ -118,7 +118,10 @@ async fn test_edit_old_text_not_found() {
 #[tokio::test]
 async fn test_edit_empty_edits_array_rejected() {
     let tool = EditTool::new();
-    let args = serde_json::json!({"path":"/tmp/x","edits":[]});
+    let args = serde_json::json!({
+        "path": std::env::temp_dir().join("x").to_str().unwrap(),
+        "edits": []
+    });
     let result = tool.call(args, &make_ctx("a")).await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
 }
@@ -127,7 +130,10 @@ async fn test_edit_empty_edits_array_rejected() {
 async fn test_edit_missing_edits_arg() {
     let tool = EditTool::new();
     let result = tool
-        .call(serde_json::json!({ "path": "/tmp/x" }), &make_ctx("a"))
+        .call(
+            serde_json::json!({ "path": std::env::temp_dir().join("x").to_str().unwrap() }),
+            &make_ctx("a"),
+        )
         .await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
 }

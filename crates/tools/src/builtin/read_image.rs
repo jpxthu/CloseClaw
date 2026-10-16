@@ -118,8 +118,11 @@ mod tests {
 
     #[test]
     fn test_is_image_file_path_with_dirs() {
-        assert!(is_image_file("/tmp/photos/pic.jpg"));
-        assert!(!is_image_file("/tmp/data/archive.tar"));
+        let tmp = std::env::temp_dir();
+        assert!(is_image_file(tmp.join("photos/pic.jpg").to_str().unwrap()));
+        assert!(!is_image_file(
+            tmp.join("data/archive.tar").to_str().unwrap()
+        ));
     }
 
     #[test]

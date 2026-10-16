@@ -57,10 +57,8 @@ fn test_multiple_commands_semicolon() {
 
 #[test]
 fn test_trusted_simple_command() {
-    assert_eq!(
-        analyzer().analyze("ls -la /tmp").trust_level,
-        TrustLevel::Trusted
-    );
+    let cmd = format!("ls -la {}", std::env::temp_dir().to_str().unwrap());
+    assert_eq!(analyzer().analyze(&cmd).trust_level, TrustLevel::Trusted);
 }
 
 #[test]

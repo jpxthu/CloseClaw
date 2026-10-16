@@ -250,7 +250,7 @@ async fn test_read_generate_prompt_includes_git_info() {
     let no_git = PromptGenerationContext {
         agent_id: "test-agent".into(),
         workdir: Some(WorkdirContext {
-            path: "/tmp".into(),
+            path: std::env::temp_dir().to_str().unwrap().to_owned(),
             has_git: false,
             branch: None,
             recent_changes: 0,
@@ -260,7 +260,7 @@ async fn test_read_generate_prompt_includes_git_info() {
     let with_git = PromptGenerationContext {
         agent_id: "test-agent".into(),
         workdir: Some(WorkdirContext {
-            path: "/tmp".into(),
+            path: std::env::temp_dir().to_str().unwrap().to_owned(),
             has_git: true,
             branch: Some("main".into()),
             recent_changes: 3,
@@ -342,8 +342,12 @@ async fn test_read_missing_path_arg() {
 #[tokio::test]
 async fn test_write_missing_content_arg() {
     let tool = WriteTool::new();
+    let path = std::env::temp_dir().join("x");
     let result = tool
-        .call(serde_json::json!({ "path": "/tmp/x" }), &make_ctx("a"))
+        .call(
+            serde_json::json!({ "path": path.to_str().unwrap() }),
+            &make_ctx("a"),
+        )
         .await;
     assert!(matches!(result, Err(ToolCallError::InvalidArgs(_))));
 }

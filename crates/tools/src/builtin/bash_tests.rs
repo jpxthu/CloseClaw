@@ -598,7 +598,9 @@ async fn test_bash_level1_allow_level2_allow_executes() {
 async fn test_bash_level1_allow_level2_deny_routes_to_sandbox() {
     let perm = make_perm_engine(vec![allow_tool_rule("a", "bash")]);
     let tool = BashTool::new(perm_port(perm), test_bg_manager());
-    let args = json!({ "command": "rm -rf /tmp/x" });
+    let args = json!({
+        "command": format!("rm -rf {}", std::env::temp_dir().join("x").to_str().unwrap())
+    });
     let ctx = ToolContext {
         agent_id: "a".into(),
         workdir: None,

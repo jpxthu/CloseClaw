@@ -360,6 +360,21 @@ fn allow_config_write_rule(agent: &str) -> Rule {
     }
 }
 
+/// Allow-rule glob over the system temp dir, paired with [`temp_file_path`]
+/// so the rule and the checked path always share the same root. `$TMPDIR`
+/// may carry a trailing `/`; it is stripped to avoid a `//**` glob.
+/// Premise: the temp dir path contains no glob metacharacters (`*?[]{}`).
+fn temp_rule_glob() -> String {
+    let root = std::env::temp_dir();
+    let root = root.to_str().unwrap().trim_end_matches('/');
+    format!("{root}/**")
+}
+
+/// Checked path under the same temp root as [`temp_rule_glob`].
+fn temp_file_path(name: &str) -> String {
+    std::env::temp_dir().join(name).to_str().unwrap().to_owned()
+}
+
 // ---------------------------------------------------------------------------
 // check_tool_permission tests
 // ---------------------------------------------------------------------------
@@ -400,18 +415,20 @@ async fn test_tool_denied_when_wrong_skill() {
 
 #[tokio::test]
 async fn test_file_op_read_allowed() {
-    let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
+    let deps = make_deps(vec![allow_file_rule("agent-a", &temp_rule_glob(), "read")]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
+    let path = temp_file_path("test.txt");
+    let result = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
 
 #[tokio::test]
 async fn test_file_op_write_allowed() {
-    let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "write")]);
+    let deps = make_deps(vec![allow_file_rule("agent-a", &temp_rule_glob(), "write")]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/out.txt", "write", None).await;
+    let path = temp_file_path("out.txt");
+    let result = check_file_op_permission(&deps, &ctx, &path, "write", None).await;
     assert!(result.is_ok());
     assert!(result.unwrap().is_none());
 }
@@ -420,7 +437,12 @@ async fn test_file_op_write_allowed() {
 async fn test_file_op_denied_without_rule() {
     let deps = make_deps_deny(vec![]);
     let ctx = make_ctx("agent-a");
-    let result = check_file_op_permission(&deps, &ctx, "/tmp/test.txt", "read", None).await;
+    let path = std::env::temp_dir()
+        .join("test.txt")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let result = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
     assert!(result.is_err());
 }
 
@@ -558,10 +580,10 @@ async fn test_empty_inputs_are_denied() {
 
 #[tokio::test]
 async fn test_file_op_special_char_path() {
-    let deps = make_deps(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
+    let deps = make_deps(vec![allow_file_rule("agent-a", &temp_rule_glob(), "read")]);
     let ctx = make_ctx("agent-a");
-    let path = "/tmp/file with spaces & special!@#.txt";
-    let result = check_file_op_permission(&deps, &ctx, path, "read", None).await;
+    let path = temp_file_path("file with spaces & special!@#.txt");
+    let result = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
     // Should not panic on special chars
     assert!(result.is_ok() || result.is_err());
 }
@@ -574,7 +596,7 @@ async fn test_file_op_special_char_path() {
 async fn test_level1_block_prevents_level2() {
     // Agent has FileOp rule but NO ToolCall rule.
     // Level 1 (ToolCall) should deny before Level 2 (FileOp) is checked.
-    let deps = make_deps_deny(vec![allow_file_rule("agent-a", "/tmp/**", "read")]);
+    let deps = make_deps_deny(vec![allow_file_rule("agent-a", &temp_rule_glob(), "read")]);
     let ctx = make_ctx("agent-a");
 
     let level1 = check_tool_permission(&deps, &ctx, "file_ops", "call", None).await;
@@ -586,7 +608,7 @@ async fn test_level1_pass_level2_pass() {
     // Agent has both ToolCall and FileOp rules.
     let deps = make_deps(vec![
         allow_tool_rule("agent-a", "file_ops"),
-        allow_file_rule("agent-a", "/tmp/**", "read"),
+        allow_file_rule("agent-a", &temp_rule_glob(), "read"),
     ]);
     let ctx = make_ctx("agent-a");
 
@@ -594,7 +616,8 @@ async fn test_level1_pass_level2_pass() {
     assert!(level1.is_ok());
     assert!(level1.unwrap().is_none());
 
-    let level2 = check_file_op_permission(&deps, &ctx, "/tmp/file.txt", "read", None).await;
+    let path = temp_file_path("file.txt");
+    let level2 = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
     assert!(level2.is_ok());
     assert!(level2.unwrap().is_none());
 }
@@ -611,7 +634,12 @@ async fn test_level1_pass_level2_denied() {
 
     // Use deny flow for Level 2 to get a hard denial
     let deps2 = make_deps_deny(vec![allow_tool_rule("agent-a", "file_ops")]);
-    let level2 = check_file_op_permission(&deps2, &ctx, "/tmp/file.txt", "read", None).await;
+    let path = std::env::temp_dir()
+        .join("file.txt")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let level2 = check_file_op_permission(&deps2, &ctx, &path, "read", None).await;
     assert!(level2.is_err(), "Level 2 should deny");
 }
 
@@ -656,7 +684,12 @@ async fn test_is_config_file_in_workspace() {
 #[tokio::test]
 async fn test_is_config_file_normal_file() {
     let deps = make_deps(vec![]);
-    assert!(!deps.is_config_file("/tmp/regular/file.txt"));
+    let path = std::env::temp_dir()
+        .join("regular/file.txt")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    assert!(!deps.is_config_file(&path));
 }
 
 // Step 1.3: Real User ID in permission check functions

@@ -39,6 +39,16 @@ fn make_denial_request<'a>(
     DenialRequest::new(caller, body, PermRiskLevel::Low, session_id, false)
 }
 
+/// Payload path for `FileOp` bodies, derived from the system temp dir
+/// (never a hardcoded `/tmp` literal).
+fn temp_file_path() -> String {
+    std::env::temp_dir()
+        .join("test.txt")
+        .to_str()
+        .unwrap()
+        .to_owned()
+}
+
 /// Normal path: `Denied` + flow accepts → `Ok(Some(result))` whose `data`
 /// is exactly the approval-pending payload carrying the submitted request id.
 #[tokio::test]
@@ -51,7 +61,7 @@ async fn test_route_denial_flow_accept_returns_approval_pending() {
     };
     let body = PermRequestBody::FileOp {
         agent: "agent-a".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: temp_file_path(),
         op: "read".to_string(),
     };
     let verdict = denied_verdict(None);
@@ -95,7 +105,7 @@ async fn test_route_denial_sub_agent_is_silently_denied() {
     };
     let body = PermRequestBody::FileOp {
         agent: "agent-sub".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: temp_file_path(),
         op: "write".to_string(),
     };
     let verdict = denied_verdict(None);
@@ -145,7 +155,7 @@ async fn test_route_denial_existing_request_id_short_circuits() {
     };
     let body = PermRequestBody::FileOp {
         agent: "agent-a".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: temp_file_path(),
         op: "write".to_string(),
     };
     let verdict = denied_verdict(Some("req-e2e-existing".to_string()));
@@ -199,7 +209,7 @@ async fn test_route_denial_allowed_response_is_noop() {
     };
     let body = PermRequestBody::FileOp {
         agent: "agent-a".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: temp_file_path(),
         op: "read".to_string(),
     };
     let verdict = PermVerdict::Allowed;
@@ -391,7 +401,7 @@ async fn test_route_pending_result_isomorphic_to_approval_pending_helper() {
     };
     let body = PermRequestBody::FileOp {
         agent: "agent-a".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: temp_file_path(),
         op: "write".to_string(),
     };
     let verdict = denied_verdict(Some("req-ut-iso".to_string()));

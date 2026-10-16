@@ -297,7 +297,7 @@ mod tests {
         let (skill, _temp) = make_skill_with_body(
             "test",
             "Session: ${SESSION_ID}",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
@@ -314,7 +314,7 @@ mod tests {
         let (skill, _temp) = make_skill_with_body(
             "test",
             "Hello ${UNKNOWN_VAR}",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
@@ -327,10 +327,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_call_substitute_mixed_known_and_unknown() {
+        let skill_dir = std::env::temp_dir().join("my-skill");
         let (skill, _temp) = make_skill_with_body(
             "test",
             "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
-            std::path::PathBuf::from("/tmp/my-skill"),
+            skill_dir.clone(),
         );
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
@@ -341,17 +342,17 @@ mod tests {
             .unwrap();
         assert_eq!(
             result.new_messages[0].content,
-            "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
+            format!(
+                "Dir: {}, Session: s-999, Unknown: ${{FOO}}",
+                skill_dir.display()
+            )
         );
     }
 
     #[tokio::test]
     async fn test_call_no_context_modifier_for_disk_skill() {
-        let (skill, _temp) = make_skill_with_body(
-            "test",
-            "No modifier",
-            std::path::PathBuf::from("/tmp/skill"),
-        );
+        let (skill, _temp) =
+            make_skill_with_body("test", "No modifier", std::env::temp_dir().join("skill"));
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
         let tool = skill_tool_from(disk, Arc::new(BuiltinSkillRegistry::new()));
         let result = tool
@@ -369,8 +370,8 @@ mod tests {
     #[tokio::test]
     async fn test_call_disk_skill_load_body_failure() {
         // Create a DiskSkill whose readme_path does not exist on disk.
-        let nonexistent = std::path::PathBuf::from(format!(
-            "/tmp/nonexistent-skill-{}-{}",
+        let nonexistent = std::env::temp_dir().join(format!(
+            "nonexistent-skill-{}-{}",
             std::process::id(),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

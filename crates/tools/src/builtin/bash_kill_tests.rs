@@ -33,8 +33,8 @@ fn test_empty_command_unchanged() {
 
 #[test]
 fn test_short_command_unchanged() {
-    let cmd = "ls -la /tmp";
-    let out = truncate_summary(cmd);
+    let cmd = format!("ls -la {}", std::env::temp_dir().to_str().unwrap());
+    let out = truncate_summary(&cmd);
     assert_eq!(out, cmd);
     assert!(!out.contains("..."));
 }
