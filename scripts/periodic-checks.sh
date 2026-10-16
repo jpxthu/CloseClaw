@@ -52,7 +52,7 @@ usage() {
   --doctest   文档测试（cargo test --workspace --doc --no-fail-fast）
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
   --deps      依赖检查（cargo-deny check + cargo-machete + syn 双大版本白名单检查）
-  --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖 + 单测套件）
+  --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖/rust-version 声明 + 单测套件）
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
   --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv（不含 --heavy）
@@ -382,20 +382,20 @@ do_deps() (
     return "$fails"
 )
 
-# ---------- --dep-guard：解耦治理守卫（scripts/dep-guard，四项检查） ----------
+# ---------- --dep-guard：解耦治理守卫（scripts/dep-guard，五项检查） ----------
 do_dep_guard() (
     set -u
     command -v python3 >/dev/null 2>&1 || { echo "[SKIP] 未找到 python3，请先安装 python3"; return 77; }
     local guard
     guard="$(dirname "${BASH_SOURCE[0]}")/dep-guard/dep_guard.py"
     local rc=0
-    # dep_guard 自身汇总四项结果，退出码 = FAIL 项数（明细见上方输出）
+    # dep_guard 自身汇总五项结果，退出码 = FAIL 项数（明细见上方输出）
     python3 "$guard" check || rc=$?
     if [[ $rc -ne 0 ]]; then
         echo "[FAIL] dep-guard 存在新增越界（FAIL 项数 $rc），明细见上方"
         return "$rc"
     fi
-    echo "[ok] dep-guard 四项检查完成"
+    echo "[ok] dep-guard 五项检查完成"
     # 挂载单测套件：unittest discover 对 0 个匹配用例在 Python ≤3.11 下仍 exit 0
     # （3.12+ 才有 exit 5 的版本性行为），空跑守卫不能依赖退出码，
     # 需解析 Ran N tests/test 并显式断言 N > 0（discover pattern 隐错防护）
