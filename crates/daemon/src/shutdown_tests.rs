@@ -746,41 +746,6 @@ async fn test_drain_waits_until_busy_count_zero() {
     assert!(handle.is_stopped());
 }
 
-/// Drain timeout fires while busy_count is still non-zero: shutdown
-/// proceeds to Stopped and the count is left intact.
-///
-/// Renamed from `test_drain_waits_for_busy_count_zero` (issue #3244):
-/// the old name claimed the zero-count path, but the body actually
-/// exercises the timeout path — busy_count stays 1 throughout and the
-/// 300ms drain timeout is what drives the handle to Stopped.
-#[tokio::test]
-async fn test_drain_timeout_with_busy_count_nonzero() {
-    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(300));
-    handle.increment_busy();
-
-    let handle_clone = handle.clone();
-    let shutdown_task = tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
-
-    // Give it time to enter drain loop
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!handle.is_stopped(), "should still be draining");
-
-    // Wait for timeout + buffer — drain should complete even though
-    // busy_count is still 1.
-    tokio::time::timeout(Duration::from_secs(3), shutdown_task)
-        .await
-        .expect("shutdown should complete within 3s")
-        .expect("shutdown task should not panic");
-    assert!(
-        handle.is_stopped(),
-        "handle should be stopped after drain timeout"
-    );
-    // busy_count was not cleared by the drain
-    assert_eq!(handle.busy_count(), 1);
-}
-
 /// Drain signal is broadcast to all subscribers.
 #[tokio::test]
 async fn test_drain_signal_broadcast() {
@@ -809,11 +774,20 @@ async fn test_drain_signal_broadcast() {
 /// Table-driven merge of the three former per-value tests
 /// (`test_drain_timeout_with_custom_value`,
 /// `test_drain_timeout_with_explicit_short_value`,
-/// `test_drain_timeout_very_short`, issue #3270). Every case registers
-/// one busy operation that never completes, so the drain always exits
-/// through the timeout path — a normal drain-phase flow boundary, not a
-/// failure: the handle reaches `Stopped` with the remaining busy count
-/// preserved for the caller (Phase 2).
+/// `test_drain_timeout_very_short`, issue #3270) and of
+/// `test_drain_timeout_with_busy_count_nonzero` (issue #3244 rename
+/// history: formerly `test_drain_waits_for_busy_count_zero`, whose body
+/// actually exercised the timeout path — busy_count stays 1 throughout
+/// and the drain timeout drives the handle to `Stopped`). Every case
+/// registers one busy operation that never completes, so the drain
+/// always exits through the timeout path — a normal drain-phase flow
+/// boundary, not a failure: the handle reaches `Stopped` with the
+/// remaining busy count preserved for the caller (Phase 2).
+///
+/// `mid_drain_probe` optionally adds a mid-drain observation: when set,
+/// the loop sleeps that long (still before the deadline) and asserts
+/// the handle has not reached `Stopped` yet — shutdown proceeds to
+/// `Stopped` only after the timeout fires.
 ///
 /// `ShutdownHandle` has no `drain_timeout()` getter, so the 30s default
 /// cannot be asserted directly; the `< 2s` upper bound on every case
@@ -821,29 +795,43 @@ async fn test_drain_signal_broadcast() {
 /// took effect.
 #[tokio::test]
 async fn test_drain_timeout_configurable_values() {
-    // (drain_timeout, min_elapsed, scenario semantics)
-    let cases: &[(Duration, Duration, &str)] = &[
-        (
-            Duration::from_millis(200),
-            Duration::ZERO,
-            "custom value (200ms) overrides the default config",
-        ),
-        (
-            Duration::from_millis(300),
-            Duration::from_millis(250),
-            "explicit short value (300ms) — the 250ms lower bound proves \
+    struct Case {
+        drain_timeout: Duration,
+        min_elapsed: Duration,
+        mid_drain_probe: Option<Duration>,
+        scenario: &'static str,
+    }
+    let cases = [
+        Case {
+            drain_timeout: Duration::from_millis(200),
+            min_elapsed: Duration::ZERO,
+            mid_drain_probe: None,
+            scenario: "custom value (200ms) overrides the default config",
+        },
+        Case {
+            drain_timeout: Duration::from_millis(300),
+            min_elapsed: Duration::from_millis(250),
+            mid_drain_probe: Some(Duration::from_millis(200)),
+            scenario: "explicit short value (300ms) — the 250ms lower bound proves \
              the drain waited out the full deadline instead of returning \
              early",
-        ),
-        (
-            Duration::from_millis(1),
-            Duration::ZERO,
-            "very short timeout (1ms) — shutdown completes almost \
+        },
+        Case {
+            drain_timeout: Duration::from_millis(1),
+            min_elapsed: Duration::ZERO,
+            mid_drain_probe: None,
+            scenario: "very short timeout (1ms) — shutdown completes almost \
              immediately",
-        ),
+        },
     ];
 
-    for &(drain_timeout, min_elapsed, scenario) in cases {
+    for Case {
+        drain_timeout,
+        min_elapsed,
+        mid_drain_probe,
+        scenario,
+    } in cases
+    {
         // Per-case handle: no state crosses case boundaries.
         let handle = ShutdownHandle::new().with_drain_timeout(drain_timeout);
         handle.increment_busy();
@@ -853,6 +841,17 @@ async fn test_drain_timeout_configurable_values() {
         let shutdown_task = tokio::spawn(async move {
             handle_clone.initiate_shutdown().await;
         });
+
+        // Mid-drain observation: still before the deadline, so the
+        // drain must be running — not Stopped.
+        if let Some(probe_delay) = mid_drain_probe {
+            debug_assert!(
+                probe_delay < drain_timeout,
+                "{scenario}: probe must fire before the deadline"
+            );
+            tokio::time::sleep(probe_delay).await;
+            assert!(!handle.is_stopped(), "{scenario}: should still be draining");
+        }
 
         tokio::time::timeout(Duration::from_secs(5), shutdown_task)
             .await
