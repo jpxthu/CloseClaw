@@ -916,10 +916,20 @@ async fn test_perm_denied_executor_returns_error() {
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
     let result = executor.execute(&make_perm_call("denied-1")).await;
-    // Permission denied → result has "error" field with approval-pending info
+    // Permission denied → denial enqueued into the approval flow → approval_pending payload
+    assert_eq!(
+        result.data["status"], "approval_pending",
+        "expected status \"approval_pending\", got: {:?}",
+        result.data
+    );
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "denied permission should produce error or status in result, got: {:?}",
+        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
+        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("error").is_none(),
+        "approval_pending result must not carry an error field, got: {:?}",
         result.data
     );
 }
@@ -948,10 +958,20 @@ async fn test_permission_check_actually_called() {
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
     let result = executor.execute(&make_perm_call("verify-1")).await;
-    // "test" group has no allow rule → denied
+    // "test" group has no allow rule → denied → approval_pending payload
+    assert_eq!(
+        result.data["status"], "approval_pending",
+        "expected status \"approval_pending\", got: {:?}",
+        result.data
+    );
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "different group rule should not allow 'test' group, got: {:?}",
+        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
+        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("error").is_none(),
+        "approval_pending result must not carry an error field, got: {:?}",
         result.data
     );
 }
