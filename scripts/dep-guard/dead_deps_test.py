@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""dead_deps 单元测试（随套件运行：python3 -m unittest discover -s scripts/dep-guard -p "*_test.py"）。"""
+"""dead_deps 单元测试（随套件运行，运行方式见同目录 README.md）。"""
 
 from __future__ import annotations
 
