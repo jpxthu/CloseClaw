@@ -36,7 +36,7 @@ pub mod stats;
 pub mod stream_utils;
 pub mod streaming;
 pub mod stub;
-#[cfg(test)]
+#[cfg(any(test, feature = "fake-llm"))]
 pub(crate) mod test_support;
 pub mod turn;
 pub mod types;
