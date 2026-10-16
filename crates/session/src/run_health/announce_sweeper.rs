@@ -192,7 +192,10 @@ impl AnnounceSweeper {
                         info!("AnnounceSweeper sweep completed within grace period");
                     }
                     Err(e) => {
-                        error!(%e, "AnnounceSweeper run_once task panicked during graceful shutdown");
+                        error!(
+                            %e,
+                            "AnnounceSweeper run_once task panicked during graceful shutdown"
+                        );
                     }
                 }
             }

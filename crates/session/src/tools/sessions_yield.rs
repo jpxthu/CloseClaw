@@ -88,7 +88,8 @@ impl Tool for SessionsYieldTool {
         let overall = compute_overall_timeout(&children);
 
         // Resolve timeout_warning per-child using each child's agent config.
-        // Design doc: timeout_warning resolves via spawn args → target agent config → global default.
+        // Design doc: timeout_warning resolves via spawn args → target agent config
+        // → global default.
         // Each child's resolved values are stored in ChildSessionInfo during spawn.
         // When no child provides explicit values, fall back to parent agent config.
         let (timeout_warning, notify_interval_ratio) = if children.is_empty() {
