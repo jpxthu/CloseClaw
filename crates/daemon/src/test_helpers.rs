@@ -5,6 +5,7 @@
 
 use std::io;
 use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
@@ -588,7 +589,7 @@ pub(crate) fn kill_self(sig: TestShutdownSignal) {
 /// crate-shared definition instead of a file-private copy per shutdown test
 /// file.
 pub async fn signal_step<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
-    tokio::time::timeout(std::time::Duration::from_secs(10), fut)
+    tokio::time::timeout(Duration::from_secs(10), fut)
         .await
         .unwrap_or_else(|_| panic!("signal not delivered: {what}"))
 }
@@ -834,7 +835,7 @@ pub fn notify_section_reload(config_manager: &ConfigManager, section: ConfigSect
 /// flip (e.g. config taking effect) with a deadline instead of guessing a
 /// wall-clock window (STANDARDS §9: 确定性优先).
 pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + tokio::time::Duration::from_secs(1);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
     loop {
         if ready() {
             return;
@@ -843,7 +844,7 @@ pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
             tokio::time::Instant::now() < deadline,
             "timed out after 1s waiting for {what}"
         );
-        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
 }
 
@@ -864,6 +865,6 @@ pub async fn run_scheduler_briefly(
     event_consumed.await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(result.is_ok(), "scheduler should exit promptly");
 }
