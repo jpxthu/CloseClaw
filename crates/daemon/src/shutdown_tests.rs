@@ -845,6 +845,10 @@ async fn test_drain_timeout_configurable_values() {
         // Mid-drain observation: still before the deadline, so the
         // drain must be running — not Stopped.
         if let Some(probe_delay) = mid_drain_probe {
+            debug_assert!(
+                probe_delay < drain_timeout,
+                "{scenario}: probe must fire before the deadline"
+            );
             tokio::time::sleep(probe_delay).await;
             assert!(!handle.is_stopped(), "{scenario}: should still be draining");
         }
