@@ -1,10 +1,20 @@
-//! Shared daemon-lifecycle guard for e2e tests.
+//! Shared daemon-lifecycle helpers for e2e tests.
 //!
 //! [`DaemonGuard`] owns the spawned daemon child and sends SIGTERM on
 //! Drop, so a mid-test assertion failure never leaves a residual daemon
 //! behind (`kill_on_drop` on the spawn covers the rest). The explicit
 //! [`DaemonGuard::shutdown`] path goes through `sigterm_and_wait` and
 //! hands the exit status back for the caller to assert.
+//!
+//! The spawn family builds on that guard, one layer per level of
+//! boilerplate convergence (issue #3479): [`spawn_daemon_guarded`]
+//! wraps a raw daemon spawn; [`spawn_ready_daemon`] additionally polls
+//! both RPC sockets until ready, bounded by `READY_TIMEOUT` (the 30s
+//! boot deadline previously inlined at every fake-LLM call site); and
+//! [`spawn_default_ready_daemon`] converges the full default-config
+//! scaffold (`start_fake_llm` → config tree → spawn → wait). The
+//! caller keeps owning the `TempDir`, so guard/server lifetimes and
+//! the daemon-before-tempdir drop order are unchanged.
 //!
 //! Extracted from `agent_profile_tests` / `cache_consistency_tests`
 //! (line-for-line duplicates) so the unsafe SIGTERM block is maintained
