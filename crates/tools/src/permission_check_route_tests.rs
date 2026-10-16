@@ -44,8 +44,9 @@ fn make_denial_request<'a>(
 fn temp_file_path() -> String {
     std::env::temp_dir()
         .join("test.txt")
-        .to_string_lossy()
-        .into_owned()
+        .to_str()
+        .unwrap()
+        .to_owned()
 }
 
 /// Normal path: `Denied` + flow accepts → `Ok(Some(result))` whose `data`

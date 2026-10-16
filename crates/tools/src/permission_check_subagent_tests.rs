@@ -202,8 +202,9 @@ async fn test_child_session_file_op_denial_is_silent() {
     };
     let path = std::env::temp_dir()
         .join("test.txt")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .unwrap()
+        .to_owned();
     let result = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
     // Child session → silent deny → PermissionDenied
     assert!(

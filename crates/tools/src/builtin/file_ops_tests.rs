@@ -250,7 +250,7 @@ async fn test_read_generate_prompt_includes_git_info() {
     let no_git = PromptGenerationContext {
         agent_id: "test-agent".into(),
         workdir: Some(WorkdirContext {
-            path: std::env::temp_dir().to_string_lossy().into_owned(),
+            path: std::env::temp_dir().to_str().unwrap().to_owned(),
             has_git: false,
             branch: None,
             recent_changes: 0,
@@ -260,7 +260,7 @@ async fn test_read_generate_prompt_includes_git_info() {
     let with_git = PromptGenerationContext {
         agent_id: "test-agent".into(),
         workdir: Some(WorkdirContext {
-            path: std::env::temp_dir().to_string_lossy().into_owned(),
+            path: std::env::temp_dir().to_str().unwrap().to_owned(),
             has_git: true,
             branch: Some("main".into()),
             recent_changes: 3,

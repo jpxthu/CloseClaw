@@ -333,6 +333,21 @@ fn make_file_allow_rule(agent: &str, path_glob: &str, op: &str) -> Rule {
     }
 }
 
+/// Allow-rule glob over the system temp dir, paired with [`temp_file_path`]
+/// so the rule and the checked path always share the same root. `$TMPDIR`
+/// may carry a trailing `/`; it is stripped to avoid a `//**` glob.
+/// Premise: the temp dir path contains no glob metacharacters (`*?[]{}`).
+fn temp_rule_glob() -> String {
+    let root = std::env::temp_dir();
+    let root = root.to_str().unwrap().trim_end_matches('/');
+    format!("{root}/**")
+}
+
+/// Checked path under the same temp root as [`temp_rule_glob`].
+fn temp_file_path(name: &str) -> String {
+    std::env::temp_dir().join(name).to_str().unwrap().to_owned()
+}
+
 // ---------------------------------------------------------------------------
 // Bash command-level tests
 // ---------------------------------------------------------------------------
@@ -458,14 +473,13 @@ async fn test_level2_fileops_read_allowed() {
     let registry = Arc::new(crate::ToolRegistryImpl::new());
     registry.register(FileReadTool).await.unwrap();
 
-    let root = std::env::temp_dir();
-    let path = root.join("test.txt").to_string_lossy().into_owned();
     let deps = make_l2_perm_deps(vec![
         make_allow_rule("test-agent", "file_ops"),
-        make_file_allow_rule("test-agent", &format!("{}/**", root.display()), "read"),
+        make_file_allow_rule("test-agent", &temp_rule_glob(), "read"),
     ]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
+    let path = temp_file_path("test.txt");
     let call = PendingToolCall {
         id: "l2-fo-2".into(),
         tool_name: "FileRead".into(),
@@ -491,8 +505,9 @@ async fn test_level2_fileops_write_denied() {
 
     let path = std::env::temp_dir()
         .join("out.txt")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .unwrap()
+        .to_owned();
     let call = PendingToolCall {
         id: "l2-fo-3".into(),
         tool_name: "FileWrite".into(),
@@ -514,14 +529,13 @@ async fn test_level2_fileops_write_allowed() {
     let registry = Arc::new(crate::ToolRegistryImpl::new());
     registry.register(FileWriteTool).await.unwrap();
 
-    let root = std::env::temp_dir();
-    let path = root.join("out.txt").to_string_lossy().into_owned();
     let deps = make_l2_perm_deps(vec![
         make_allow_rule("test-agent", "file_ops"),
-        make_file_allow_rule("test-agent", &format!("{}/**", root.display()), "write"),
+        make_file_allow_rule("test-agent", &temp_rule_glob(), "write"),
     ]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
+    let path = temp_file_path("out.txt");
     let call = PendingToolCall {
         id: "l2-fo-4".into(),
         tool_name: "FileWrite".into(),
@@ -702,8 +716,9 @@ async fn test_workflow_permission_exempt_level1() {
 
     let plan_path = std::env::temp_dir()
         .join("plan.md")
-        .to_string_lossy()
-        .into_owned();
+        .to_str()
+        .unwrap()
+        .to_owned();
     let call = PendingToolCall {
         id: "wf-1".into(),
         tool_name: "WorkflowStart".into(),
@@ -734,10 +749,15 @@ async fn test_workflow_permission_exempt_level2() {
     let deps = make_l2_perm_deps_deny(vec![]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
+    let plan_path = std::env::temp_dir()
+        .join("plan.md")
+        .to_str()
+        .unwrap()
+        .to_owned();
     let call = PendingToolCall {
         id: "wf-2".into(),
         tool_name: "WorkflowStart".into(),
-        args: serde_json::json!({"plan_path": std::env::temp_dir().join("plan.md")}),
+        args: serde_json::json!({"plan_path": plan_path}),
         file_path: None,
         is_concurrency_safe: true,
     };
