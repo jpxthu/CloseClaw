@@ -1,6 +1,6 @@
 //! Re-exec helper scaffold for the `prepare_run` tests in `run_tests.rs`.
 //!
-//! Env mutation is prohibited by CONTRIBUTING.md §7, so env-dependent
+//! Env mutation is prohibited by STANDARDS.md §7, so env-dependent
 //! behavior is tested by re-exec'ing this test binary as a gated helper
 //! child with the target env injected (precedent:
 //! crates/platform/src/process_tests.rs). The helper child wait is bounded
