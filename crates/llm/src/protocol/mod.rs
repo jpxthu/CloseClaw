@@ -29,5 +29,3 @@ mod protocol_tests;
 mod sse_tool_calls_tests;
 #[cfg(test)]
 mod streaming_contract_tests;
-#[cfg(test)]
-mod test_support;
