@@ -125,6 +125,7 @@ pub(crate) fn test_spawn_target_config(
         skills: vec![],
         tools: vec![],
         hooks: Vec::new(),
+        no_bootstrap: false,
     }
 }
 

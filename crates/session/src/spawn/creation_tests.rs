@@ -20,7 +20,7 @@ use crate::persistence::{ReasoningLevel, SessionCheckpoint};
 ///
 /// Provides just enough to let `create_child_conversation_session` succeed
 /// without touching the gateway or LLM layer.
-struct MockCreationContext {
+pub(crate) struct MockCreationContext {
     /// Parent conversation session used for token derivation and fork.
     parent_session: Arc<RwLock<ConversationSession>>,
     /// Mock config directory path.
@@ -28,10 +28,43 @@ struct MockCreationContext {
     /// Optional override for `sender_id`: None = use default "test-user",
     /// Some(None) = return None.
     sender_id_override: Option<Option<String>>,
+    /// Optional system prompt builder injected into the child session
+    /// (used to capture the InjectionParams of the creation-time rebuild).
+    prompt_builder: Option<Arc<dyn closeclaw_common::SystemPromptBuilder>>,
+}
+
+/// Builder that captures the [`closeclaw_common::injection_params::InjectionParams`]
+/// passed during the creation-time `rebuild_system_prompt`.
+struct ParamsCaptureBuilder {
+    captured: Arc<std::sync::Mutex<Option<closeclaw_common::injection_params::InjectionParams>>>,
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::SystemPromptBuilder for ParamsCaptureBuilder {
+    async fn build_prompt(
+        &self,
+        _session_id: &str,
+        _agent_id: &str,
+        _overrides: Option<&closeclaw_common::PromptOverrides>,
+        _bootstrap_mode_override: Option<closeclaw_common::BootstrapMode>,
+        _session_role: closeclaw_common::SessionRole,
+    ) -> String {
+        "spawned-prompt".to_string()
+    }
+
+    async fn build_prompt_with_params(
+        &self,
+        params: &closeclaw_common::injection_params::InjectionParams,
+    ) -> String {
+        *self.captured.lock().unwrap() = Some(params.clone());
+        "spawned-prompt".to_string()
+    }
+
+    async fn invalidate_cache(&self) {}
 }
 
 impl MockCreationContext {
-    fn new() -> Self {
+    pub(crate) fn new() -> Self {
         let tmp = tempfile::tempdir().expect("tempdir");
         let cs = ConversationSession::new(
             "parent-session".to_string(),
@@ -43,11 +76,24 @@ impl MockCreationContext {
             parent_session: Arc::new(RwLock::new(cs)),
             config_dir,
             sender_id_override: None,
+            prompt_builder: None,
         }
     }
     fn with_no_sender_id() -> Self {
         let mut ctx = Self::new();
         ctx.sender_id_override = Some(None);
+        ctx
+    }
+    /// Context whose child sessions get a params-capturing prompt builder;
+    /// lets sibling test modules assert the creation-time rebuild's
+    /// InjectionParams.
+    pub(crate) fn with_params_capture(
+        captured: Arc<
+            std::sync::Mutex<Option<closeclaw_common::injection_params::InjectionParams>>,
+        >,
+    ) -> Self {
+        let mut ctx = Self::new();
+        ctx.prompt_builder = Some(Arc::new(ParamsCaptureBuilder { captured }));
         ctx
     }
 }
@@ -79,10 +125,6 @@ impl SpawnCreationContext for MockCreationContext {
         None
     }
 
-    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
-        None
-    }
-
     fn prompt_overrides(&self) -> Option<closeclaw_common::PromptOverrides> {
         None
     }
@@ -100,6 +142,10 @@ impl SpawnCreationContext for MockCreationContext {
             Some(override_val) => override_val.clone(),
             None => Some("test-user".to_string()),
         }
+    }
+
+    fn system_prompt_builder(&self) -> Option<Arc<dyn closeclaw_common::SystemPromptBuilder>> {
+        self.prompt_builder.clone()
     }
 
     fn config_dir(&self) -> &std::path::Path {

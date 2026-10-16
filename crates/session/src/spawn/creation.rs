@@ -123,7 +123,11 @@ pub async fn create_child_conversation_session(
         child_token,
     )
     .with_reasoning_level(ctx.default_reasoning_level())
-    .with_bootstrap_mode(bootstrap_mode);
+    .with_bootstrap_mode(bootstrap_mode)
+    // noBootstrap: target agent declares no bootstrap files — cache on the
+    // session before the first rebuild so the injection chain resolves
+    // LoadMode::None regardless of bootstrap_mode.
+    .with_no_bootstrap(config.no_bootstrap);
 
     wire_session_dependencies(ctx, &mut cs, config.hooks.clone());
 

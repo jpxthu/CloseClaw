@@ -39,6 +39,10 @@ mod controller_tests;
 mod creation_tests;
 
 #[cfg(test)]
+#[path = "no_bootstrap_creation_tests.rs"]
+mod no_bootstrap_creation_tests;
+
+#[cfg(test)]
 #[path = "spawn_role_timing_tests.rs"]
 mod spawn_role_timing_tests;
 

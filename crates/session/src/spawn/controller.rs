@@ -66,8 +66,8 @@ pub struct AgentSpawnBudget {
 /// Narrow spawn-time view of the target agent's configuration.
 ///
 /// Carries only the fields consumed by the child-session creation chain
-/// (identity, model, workspace, skills, tools, hooks) using common
-/// types — the full config profile never enters the shared structure
+/// (identity, model, workspace, skills, tools, hooks, noBootstrap) using
+/// common types — the full config profile never enters the shared structure
 /// (design doc §shared-types SpawnValidationResult).
 #[derive(Debug, Clone, Default)]
 pub struct SpawnTargetAgentConfig {
@@ -83,6 +83,9 @@ pub struct SpawnTargetAgentConfig {
     pub tools: Vec<String>,
     /// Run-health hook configuration.
     pub hooks: Vec<HookConfig>,
+    /// Whether the agent declares `noBootstrap` (no bootstrap files and no
+    /// long-term memory; overrides `bootstrap_mode`). Defaults to `false`.
+    pub no_bootstrap: bool,
 }
 
 /// Narrow query channel for spawn budget and target-agent data.
