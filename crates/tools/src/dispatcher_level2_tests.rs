@@ -458,22 +458,24 @@ async fn test_level2_fileops_read_allowed() {
     let registry = Arc::new(crate::ToolRegistryImpl::new());
     registry.register(FileReadTool).await.unwrap();
 
+    let root = std::env::temp_dir();
+    let path = root.join("test.txt").to_string_lossy().into_owned();
     let deps = make_l2_perm_deps(vec![
         make_allow_rule("test-agent", "file_ops"),
-        make_file_allow_rule("test-agent", "/tmp/**", "read"),
+        make_file_allow_rule("test-agent", &format!("{}/**", root.display()), "read"),
     ]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
     let call = PendingToolCall {
         id: "l2-fo-2".into(),
         tool_name: "FileRead".into(),
-        args: serde_json::json!({"path": "/tmp/test.txt"}),
-        file_path: Some("/tmp/test.txt".into()),
+        args: serde_json::json!({"path": path}),
+        file_path: Some(path.clone().into()),
         is_concurrency_safe: true,
     };
     let result = executor.execute(&call).await;
     assert_eq!(
-        result.data["path"], "/tmp/test.txt",
+        result.data["path"], path,
         "tool should execute when Level 2 file read is allowed"
     );
 }
@@ -487,11 +489,15 @@ async fn test_level2_fileops_write_denied() {
     let deps = make_l2_perm_deps_deny(vec![make_allow_rule("test-agent", "file_ops")]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
+    let path = std::env::temp_dir()
+        .join("out.txt")
+        .to_string_lossy()
+        .into_owned();
     let call = PendingToolCall {
         id: "l2-fo-3".into(),
         tool_name: "FileWrite".into(),
-        args: serde_json::json!({"path": "/tmp/out.txt", "content": "data"}),
-        file_path: Some("/tmp/out.txt".into()),
+        args: serde_json::json!({"path": path.clone(), "content": "data"}),
+        file_path: Some(path.into()),
         is_concurrency_safe: false,
     };
     let result = executor.execute(&call).await;
@@ -508,22 +514,24 @@ async fn test_level2_fileops_write_allowed() {
     let registry = Arc::new(crate::ToolRegistryImpl::new());
     registry.register(FileWriteTool).await.unwrap();
 
+    let root = std::env::temp_dir();
+    let path = root.join("out.txt").to_string_lossy().into_owned();
     let deps = make_l2_perm_deps(vec![
         make_allow_rule("test-agent", "file_ops"),
-        make_file_allow_rule("test-agent", "/tmp/**", "write"),
+        make_file_allow_rule("test-agent", &format!("{}/**", root.display()), "write"),
     ]);
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
     let call = PendingToolCall {
         id: "l2-fo-4".into(),
         tool_name: "FileWrite".into(),
-        args: serde_json::json!({"path": "/tmp/out.txt", "content": "data"}),
-        file_path: Some("/tmp/out.txt".into()),
+        args: serde_json::json!({"path": path.clone(), "content": "data"}),
+        file_path: Some(path.clone().into()),
         is_concurrency_safe: false,
     };
     let result = executor.execute(&call).await;
     assert_eq!(
-        result.data["path"], "/tmp/out.txt",
+        result.data["path"], path,
         "tool should execute when Level 2 file write is allowed"
     );
 }
@@ -692,10 +700,14 @@ async fn test_workflow_permission_exempt_level1() {
     let deps = make_deny_all_perm_deps();
     let executor = ToolRegistryExecutor::new(registry, make_perm_ctx(None)).with_perm_deps(deps);
 
+    let plan_path = std::env::temp_dir()
+        .join("plan.md")
+        .to_string_lossy()
+        .into_owned();
     let call = PendingToolCall {
         id: "wf-1".into(),
         tool_name: "WorkflowStart".into(),
-        args: serde_json::json!({"plan_path": "/tmp/plan.md"}),
+        args: serde_json::json!({"plan_path": plan_path.clone()}),
         file_path: None,
         is_concurrency_safe: true,
     };
@@ -707,7 +719,7 @@ async fn test_workflow_permission_exempt_level1() {
         result.data
     );
     assert_eq!(
-        result.data["plan_path"], "/tmp/plan.md",
+        result.data["plan_path"], plan_path,
         "workflow tool should return its args"
     );
 }
@@ -725,7 +737,7 @@ async fn test_workflow_permission_exempt_level2() {
     let call = PendingToolCall {
         id: "wf-2".into(),
         tool_name: "WorkflowStart".into(),
-        args: serde_json::json!({"plan_path": "/tmp/plan.md"}),
+        args: serde_json::json!({"plan_path": std::env::temp_dir().join("plan.md")}),
         file_path: None,
         is_concurrency_safe: true,
     };
