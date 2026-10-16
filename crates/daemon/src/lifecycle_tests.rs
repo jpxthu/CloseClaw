@@ -4,6 +4,7 @@ use super::*;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
+use std::time::Duration;
 use tempfile::TempDir;
 
 /// Total Phase 3 stop budget for one background task: 10s
@@ -11,7 +12,7 @@ use tempfile::TempDir;
 /// `lifecycle::bg_task_helpers::wait_all_bg_tasks`).
 /// Test-side join waits anchor on this budget as their upper bound,
 /// mirroring `phase_3_background_stop`.
-const PHASE3_STOP_TOTAL_BUDGET: std::time::Duration = std::time::Duration::from_secs(10);
+const PHASE3_STOP_TOTAL_BUDGET: Duration = Duration::from_secs(10);
 
 /// Verify `Defaults::user_defaults()` returns all Deny for every field.
 /// This is the semantic contract: non-Owner users have no privileges
@@ -262,7 +263,7 @@ async fn test_phase3_mock_exit_requires_signal() {
     });
 
     // No signal: join must still be pending after the grace period.
-    let grace = std::time::Duration::from_millis(100);
+    let grace = Duration::from_millis(100);
     let pending = tokio::time::timeout(grace, &mut handle).await;
     assert!(
         pending.is_err(),
@@ -331,7 +332,7 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
     });
 
     // Use a short timeout for testing (real code uses 15s)
-    let test_timeout = std::time::Duration::from_millis(100);
+    let test_timeout = Duration::from_millis(100);
     let start = tokio::time::Instant::now();
     let result = tokio::time::timeout(test_timeout, hang_handle).await;
     let elapsed = start.elapsed();
@@ -339,7 +340,7 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
     // Timeout should fire — the hung task is not awaited forever
     assert!(result.is_err(), "join should timeout for hung task");
     assert!(
-        elapsed < std::time::Duration::from_secs(1),
+        elapsed < Duration::from_secs(1),
         "timeout should fire well within 1s"
     );
 }
@@ -366,7 +367,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     // Signal the clean task
     let _ = tx_clean.send(());
 
-    let test_timeout = std::time::Duration::from_millis(100);
+    let test_timeout = Duration::from_millis(100);
     let start = tokio::time::Instant::now();
 
     // Join both with timeout — neither should block overall
@@ -389,7 +390,7 @@ async fn test_phase3_mixed_tasks_resolved() {
 
     // Total elapsed should be bounded (timeout, not infinite)
     assert!(
-        elapsed < std::time::Duration::from_secs(1),
+        elapsed < Duration::from_secs(1),
         "mixed join should complete within 1s"
     );
 }
@@ -467,7 +468,7 @@ async fn test_phase3_clean_task_exits_within_10s() {
     assert!(result.is_ok(), "clean task should join within 10s");
     assert!(result.unwrap().is_ok(), "clean task should not panic");
     assert!(
-        elapsed < std::time::Duration::from_secs(1),
+        elapsed < Duration::from_secs(1),
         "clean task should exit well before 10s, took {:?}",
         elapsed
     );
@@ -689,7 +690,7 @@ async fn test_plan_archive_sweeper_signal_causes_clean_exit() {
         loop {
             tokio::select! {
                 _ = shutdown_rx.changed() => break,
-                _ = tokio::time::sleep(std::time::Duration::from_secs(1)) => {}
+                _ = tokio::time::sleep(Duration::from_secs(1)) => {}
             }
         }
     });
@@ -717,13 +718,13 @@ async fn test_plan_archive_sweeper_abort_on_timeout() {
     let (_shutdown_tx, _shutdown_rx) = watch::channel(());
     let mut handle = tokio::spawn(async {
         loop {
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            tokio::time::sleep(Duration::from_secs(1)).await;
         }
     });
 
     // Simulate abort_and_join_background_task behavior
-    let join_timeout = std::time::Duration::from_millis(100);
-    let abort_grace = std::time::Duration::from_millis(50);
+    let join_timeout = Duration::from_millis(100);
+    let abort_grace = Duration::from_millis(50);
 
     match tokio::time::timeout(join_timeout, &mut handle).await {
         Ok(Ok(())) => { /* clean exit */ }

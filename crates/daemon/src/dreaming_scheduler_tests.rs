@@ -1,6 +1,7 @@
 //! Unit tests for DreamingScheduler.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::watch;
 
@@ -62,11 +63,11 @@ async fn test_dreaming_scheduler_shutdown_exits_loop() {
     });
 
     // Give the loop a moment to start, then signal shutdown.
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
     // The task should complete within a short timeout.
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler should exit promptly after shutdown signal"
@@ -160,10 +161,10 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
         scheduler.run(shutdown_rx).await;
     });
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler with cron schedule should exit promptly"
@@ -184,10 +185,10 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
         scheduler.run(shutdown_rx).await;
     });
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler with invalid cron should exit promptly (fallback)"
@@ -209,10 +210,10 @@ async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
         scheduler.run(shutdown_rx).await;
     });
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler without schedule should exit promptly"
@@ -256,10 +257,10 @@ async fn test_with_schedule_empty_string_fallback() {
         scheduler.run(shutdown_rx).await;
     });
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler with empty schedule string should exit promptly"
@@ -280,10 +281,10 @@ async fn test_dreaming_scheduler_hourly_cron() {
         scheduler.run(shutdown_rx).await;
     });
 
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler with hourly cron should exit promptly"
@@ -398,7 +399,7 @@ async fn test_config_change_non_memory_ignored() {
     // the 200ms only needs to cover the spawned loop reaching its first
     // select poll, where the buffered event is drained.
     run_scheduler_briefly(scheduler, async {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await
+        tokio::time::sleep(Duration::from_millis(200)).await
     })
     .await;
 
@@ -533,18 +534,18 @@ async fn test_dreaming_shutdown_no_active_task_exits_immediately() {
 
     // Let the loop start, then immediately send shutdown (no task will fire
     // because dreaming_interval is 600s).
-    tokio::time::sleep(tokio::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     let start = tokio::time::Instant::now();
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(tokio::time::Duration::from_secs(5), handle).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(
         result.is_ok(),
         "scheduler should exit promptly with no active task"
     );
     // Should exit well within 2 seconds (no grace period needed)
     assert!(
-        start.elapsed() < std::time::Duration::from_secs(2),
+        start.elapsed() < Duration::from_secs(2),
         "scheduler without active task should exit immediately, took {:?}",
         start.elapsed()
     );
@@ -561,7 +562,7 @@ async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
 
     // Spawn a task that takes 200ms (well under 10s grace period)
     let handle = tokio::spawn(async move {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
         Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
     });
 
@@ -571,7 +572,7 @@ async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
 
     // Should complete in ~200ms, well under the 10s grace period
     assert!(
-        elapsed < std::time::Duration::from_secs(2),
+        elapsed < Duration::from_secs(2),
         "task completing within grace period should not wait full timeout, took {:?}",
         elapsed
     );
@@ -608,7 +609,7 @@ async fn test_dreaming_shutdown_abandons_task_after_grace_period() {
     // early (the task never completes on its own).
     assert_eq!(
         elapsed,
-        std::time::Duration::from_secs(SHUTDOWN_GRACE_SECS),
+        Duration::from_secs(SHUTDOWN_GRACE_SECS),
         "task exceeding grace period should be abandoned after exactly {}s, took {:?}",
         SHUTDOWN_GRACE_SECS,
         elapsed
@@ -631,7 +632,7 @@ async fn test_dreaming_shutdown_handles_panicked_task() {
 
     // Panicked task should be detected immediately, not after grace period
     assert!(
-        elapsed < std::time::Duration::from_secs(2),
+        elapsed < Duration::from_secs(2),
         "panicked task should be detected immediately, took {:?}",
         elapsed
     );
@@ -652,7 +653,7 @@ async fn test_dreaming_shutdown_handles_errored_task() {
 
     // Error should be handled immediately
     assert!(
-        elapsed < std::time::Duration::from_secs(2),
+        elapsed < Duration::from_secs(2),
         "errored task should be handled immediately, took {:?}",
         elapsed
     );
@@ -850,7 +851,7 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
         // Completes only once the first message was dequeued by the
         // loop — proof the empty-agents guard branch executed.
         tokio::time::timeout(
-            tokio::time::Duration::from_secs(1),
+            Duration::from_secs(1),
             notify_tx.send("consumption-proof".to_string()),
         )
         .await
