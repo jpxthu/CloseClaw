@@ -11,10 +11,18 @@
 //! in a single place (STANDARDS.md shared-helper rule).
 
 use std::path::Path;
+use std::time::Duration;
 
 use tokio::process::Child;
 
+use super::config::{write_config_tree, ConfigTreeOpts};
 use super::daemon_lifecycle::sigterm_and_wait;
+use super::daemon_ready::wait_for_daemon_ready_with_timeout;
+use super::fake_llm::start_fake_llm;
+
+/// Readiness budget for [`spawn_ready_daemon`]: the 30s daemon boot
+/// deadline previously inlined at every fake-LLM e2e call site.
+const READY_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Owns the spawned daemon child. Sending SIGTERM on Drop guarantees no
 /// residual process even when an assertion fails mid-test.
@@ -52,4 +60,32 @@ impl Drop for DaemonGuard {
 /// `HOME` to `config_root` for PID file isolation.
 pub fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
     DaemonGuard(super::daemon_spawn::spawn_daemon(config_root))
+}
+
+/// Spawn the closeclaw daemon and wait until it is ready (both RPC
+/// sockets accept connections).
+///
+/// Converges the `spawn_daemon_guarded(config_root)` +
+/// `wait_for_daemon_ready_with_timeout(config_root, 30s)` pair that was
+/// duplicated at every fake-LLM e2e call site (issue #3479). Returns
+/// the [`DaemonGuard`] so callers keep asserting liveness and driving
+/// shutdown themselves; drop/SIGTERM semantics are unchanged.
+pub async fn spawn_ready_daemon(config_root: &Path) -> DaemonGuard {
+    let daemon = spawn_daemon_guarded(config_root);
+    wait_for_daemon_ready_with_timeout(config_root, READY_TIMEOUT).await;
+    daemon
+}
+
+/// [`spawn_ready_daemon`] over the default fake-LLM config scaffold.
+///
+/// Converges the full `start_fake_llm →
+/// write_config_tree(ConfigTreeOpts::new(addr)) → spawn → wait`
+/// boilerplate shared by the default-config e2e cases (issue #3479).
+/// The caller keeps owning the `TempDir` (pass its path here), so
+/// `TempDir` / [`DaemonGuard`] / fake-LLM server lifetimes and the
+/// daemon-before-tempdir drop order stay exactly as before.
+pub async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuard {
+    let fake_llm_addr = start_fake_llm().await;
+    write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
+    spawn_ready_daemon(config_root).await
 }
