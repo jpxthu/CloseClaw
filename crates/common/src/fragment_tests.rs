@@ -14,6 +14,7 @@ fn test_fragment_context_test_default() {
     assert_eq!(ctx.session_role, SessionRole::Main);
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Full);
     assert!(std::path::Path::new(&ctx.bootstrap_dir).is_dir());
+    assert!(!ctx.no_bootstrap);
 }
 
 #[test]
@@ -50,6 +51,7 @@ fn test_fragment_context_all_fields() {
         session_role: SessionRole::Sub,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/home/user/project"),
+        no_bootstrap: false,
         activated_skills: vec!["skill-a".into(), "skill-b".into()],
         tool_registry: None,
     };
@@ -57,15 +59,17 @@ fn test_fragment_context_all_fields() {
     assert_eq!(ctx.session_role, SessionRole::Sub);
     assert_eq!(ctx.bootstrap_mode, BootstrapMode::Minimal);
     assert_eq!(ctx.bootstrap_dir, String::from("/home/user/project"));
+    assert!(!ctx.no_bootstrap);
     assert_eq!(ctx.activated_skills, vec!["skill-a", "skill-b"]);
     assert!(ctx.tool_registry.is_none());
-    // Verify struct has exactly 6 fields — adding or removing a field here
+    // Verify struct has exactly 7 fields — adding or removing a field here
     // will cause a compile error, enforcing alignment with design doc.
     let FragmentContext {
         agent_id: _,
         session_role: _,
         bootstrap_mode: _,
         bootstrap_dir: _,
+        no_bootstrap: _,
         activated_skills: _,
         tool_registry: _,
     } = ctx;
@@ -78,6 +82,7 @@ fn test_fragment_context_clone() {
         session_role: SessionRole::Main,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/clone"),
+        no_bootstrap: false,
         activated_skills: vec!["activated-skill".into()],
         tool_registry: None,
     };
@@ -86,6 +91,7 @@ fn test_fragment_context_clone() {
     assert_eq!(ctx.session_role, cloned.session_role);
     assert_eq!(ctx.bootstrap_mode, cloned.bootstrap_mode);
     assert_eq!(ctx.bootstrap_dir, cloned.bootstrap_dir);
+    assert_eq!(ctx.no_bootstrap, cloned.no_bootstrap);
     assert_eq!(ctx.activated_skills, cloned.activated_skills);
 }
 
@@ -174,6 +180,7 @@ async fn test_mock_provider_generates_with_valid_fields() {
         session_role: SessionRole::Main,
         bootstrap_mode: BootstrapMode::Minimal,
         bootstrap_dir: String::from("/workspace"),
+        no_bootstrap: false,
         activated_skills: Vec::new(),
         tool_registry: None,
     };
@@ -247,6 +254,36 @@ fn test_fragment_context_debug_includes_tool_registry_placeholder() {
     let ctx = FragmentContext::test_default();
     let dbg = format!("{:?}", ctx);
     assert!(dbg.contains("tool_registry: None"));
+}
+
+// ---------------------------------------------------------------------------
+// no_bootstrap field
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_fragment_context_no_bootstrap_default_false() {
+    let ctx = FragmentContext::test_default();
+    assert!(!ctx.no_bootstrap);
+}
+
+#[test]
+fn test_fragment_context_no_bootstrap_true_preserved_by_clone() {
+    let ctx = FragmentContext {
+        no_bootstrap: true,
+        ..FragmentContext::test_default()
+    };
+    let cloned = ctx.clone();
+    assert!(cloned.no_bootstrap);
+}
+
+#[test]
+fn test_fragment_context_debug_includes_no_bootstrap() {
+    let ctx = FragmentContext {
+        no_bootstrap: true,
+        ..FragmentContext::test_default()
+    };
+    let dbg = format!("{:?}", ctx);
+    assert!(dbg.contains("no_bootstrap: true"));
 }
 
 // ---------------------------------------------------------------------------

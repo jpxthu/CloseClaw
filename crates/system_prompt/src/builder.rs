@@ -221,6 +221,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         session_role: config.session_role,
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_string_lossy().to_string(),
+        no_bootstrap: false,
         activated_skills: config.activated_skills,
         tool_registry: config.tool_registry,
     };

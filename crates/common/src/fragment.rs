@@ -42,6 +42,11 @@ pub struct FragmentContext {
     /// Directory containing bootstrap files, used by `BootstrapFragmentProvider`
     /// to locate bootstrap files.
     pub bootstrap_dir: String,
+    /// Whether the agent declared `noBootstrap: true` — the session runs as
+    /// if no bootstrap files existed: no bootstrap files and no long-term
+    /// memory are loaded, and `bootstrap_mode` has no effect. Orthogonal to
+    /// [`BootstrapMode`] and higher priority.
+    pub no_bootstrap: bool,
     /// Names of condition skills currently activated in the session.
     ///
     /// Maintained by the Session module and passed into the provider via
@@ -70,6 +75,7 @@ impl std::fmt::Debug for FragmentContext {
             .field("session_role", &self.session_role)
             .field("bootstrap_mode", &self.bootstrap_mode)
             .field("bootstrap_dir", &self.bootstrap_dir)
+            .field("no_bootstrap", &self.no_bootstrap)
             .field("activated_skills", &self.activated_skills)
             .field(
                 "tool_registry",
@@ -94,6 +100,7 @@ impl FragmentContext {
             session_role: SessionRole::Main,
             bootstrap_mode: BootstrapMode::Full,
             bootstrap_dir: std::env::temp_dir().to_string_lossy().to_string(),
+            no_bootstrap: false,
             activated_skills: Vec::new(),
             tool_registry: None,
         }

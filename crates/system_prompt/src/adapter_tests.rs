@@ -735,6 +735,7 @@ async fn test_build_prompt_with_params_propagates_tool_registry() {
         bootstrap_mode_override: None,
         activated_skills: vec![],
         session_role: SessionRole::Main,
+        no_bootstrap: false,
         tool_registry: Some(fake_registry.clone()),
     };
 

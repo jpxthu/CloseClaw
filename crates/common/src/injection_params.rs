@@ -8,9 +8,10 @@
 //! 3. Session role (Main / Sub)
 //! 4. Bootstrap mode (identity loading mode)
 //!
-//! Code already carries three additional parameters (`session_id`, `overrides`,
-//! `activated_skills`) that live alongside the contract.  [`InjectionParams`]
-//! bundles all seven into a single struct, avoiding excessive function
+//! Code already carries three additional parameters (`session_id`,
+//! `overrides`, `activated_skills`) plus the `no_bootstrap` agent
+//! declaration that live alongside the contract.  [`InjectionParams`]
+//! bundles all eight into a single struct, avoiding excessive function
 //! parameters while preserving every field needed by downstream consumers.
 
 use std::sync::Arc;
@@ -59,6 +60,12 @@ pub struct InjectionParams {
     /// memory, BOOTSTRAP.md, etc.).
     pub session_role: SessionRole,
 
+    /// Whether the agent declared `noBootstrap: true` — the session runs
+    /// as if no bootstrap files existed (no bootstrap files, no long-term
+    /// memory), regardless of `bootstrap_mode_override`. Orthogonal to
+    /// the bootstrap mode and higher priority.
+    pub no_bootstrap: bool,
+
     /// Optional ToolRegistry reference for the injection chain.
     ///
     /// When `Some`, the builder forwards it to
@@ -82,6 +89,7 @@ impl InjectionParams {
             bootstrap_mode_override: None,
             activated_skills: Vec::new(),
             session_role: SessionRole::Main,
+            no_bootstrap: false,
             tool_registry: None,
         }
     }
@@ -96,6 +104,7 @@ impl std::fmt::Debug for InjectionParams {
             .field("bootstrap_mode_override", &self.bootstrap_mode_override)
             .field("activated_skills", &self.activated_skills)
             .field("session_role", &self.session_role)
+            .field("no_bootstrap", &self.no_bootstrap)
             .field(
                 "tool_registry",
                 &self.tool_registry.as_ref().map(|_| "<ToolRegistryQuery>"),
@@ -117,6 +126,7 @@ mod tests {
         assert!(p.bootstrap_mode_override.is_none());
         assert!(p.activated_skills.is_empty());
         assert_eq!(p.session_role, SessionRole::Main);
+        assert!(!p.no_bootstrap);
         assert!(p.tool_registry.is_none());
     }
 
@@ -142,12 +152,14 @@ mod tests {
             bootstrap_mode_override: Some(BootstrapMode::Minimal),
             activated_skills: vec!["skill-x".into()],
             session_role: SessionRole::Sub,
+            no_bootstrap: false,
             tool_registry: None,
         };
         let cloned = p.clone();
         assert_eq!(cloned.session_id, "s1");
         assert_eq!(cloned.agent_id, "a1");
         assert_eq!(cloned.session_role, SessionRole::Sub);
+        assert!(!cloned.no_bootstrap);
         assert_eq!(cloned.activated_skills, vec!["skill-x"]);
     }
 }

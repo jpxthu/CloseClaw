@@ -637,6 +637,7 @@ impl ConversationSession {
             bootstrap_mode_override,
             activated_skills: activated,
             session_role,
+            no_bootstrap: false,
             tool_registry: self.tool_registry.clone(),
         };
         let prompt = builder.build_prompt_with_params(&params).await;
