@@ -155,7 +155,7 @@ impl KillHandle for FailingKillHandle {
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
     let handle = Arc::new(MockKillHandle::new());
-    register_kill_handle(&cs, "call-fast", handle.clone()).await;
+    register_kill_handle(&cs, "call-fast", &handle).await;
 
     let start = Instant::now();
     cs.read()
@@ -218,7 +218,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     let handle = Arc::new(BridgingKillHandle {
         kill_count: AtomicUsize::new(0),
     });
-    register_kill_handle(&cs, "bridge", handle.clone()).await;
+    register_kill_handle(&cs, "bridge", &handle).await;
 
     let start = Instant::now();
     cs.read()
@@ -269,7 +269,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let loose_bound = Duration::from_secs(4);
 
     let (handle, release) = BlockingKillHandle::new();
-    register_kill_handle(&cs, "slow", handle.clone()).await;
+    register_kill_handle(&cs, "slow", &handle).await;
 
     tokio::time::timeout(
         loose_bound,
@@ -325,7 +325,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
     let handle = FailingKillHandle::new();
-    register_kill_handle(&cs, "call-err", handle.clone()).await;
+    register_kill_handle(&cs, "call-err", &handle).await;
 
     let ((stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -374,7 +374,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
     let (handle, release) = BlockingKillHandle::new();
-    register_kill_handle(&cs, "zero-budget", handle.clone()).await;
+    register_kill_handle(&cs, "zero-budget", &handle).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -447,7 +447,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         }
     });
 
-    register_kill_handle(&cs, "sufficient-budget", handle.clone()).await;
+    register_kill_handle(&cs, "sufficient-budget", &handle).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -520,7 +520,7 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 
     let cs = make_session("s_kill_panic");
     let handle = Arc::new(PanickingKillHandle);
-    register_kill_handle(&cs, "panic-tool", handle.clone()).await;
+    register_kill_handle(&cs, "panic-tool", &handle).await;
 
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
         cs.read()

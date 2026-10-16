@@ -28,6 +28,9 @@ pub(super) struct MockKillHandle {
 }
 
 impl MockKillHandle {
+    /// Creates a fresh double whose kill counter starts at zero; keep
+    /// the [`Self::kill_count`] handle before the double moves into
+    /// the session's tool-handle map.
     pub(super) fn new() -> Self {
         Self {
             kill_count: Arc::new(AtomicUsize::new(0)),
@@ -59,19 +62,22 @@ pub(super) fn make_session(id: &str) -> Arc<RwLock<ConversationSession>> {
 }
 
 /// One-line registration helper: collapses the repeated
-/// "`cs.read().await` + `register_tool_handle` + `as Arc<dyn
-/// KillHandle>`" boilerplate at the test call sites into a single
-/// call (issue #3186 Step 1.1).
+/// "`cs.read().await` + `register_tool_handle`" boilerplate (with its
+/// coercion to `Arc<dyn KillHandle>`) at the test call sites into a
+/// single call (issue #3186 Step 1.1).
 ///
-/// The `Arc<dyn KillHandle>` parameter is a coercion site, so callers
-/// hand over their concrete `Arc<H>` (or an already-erased
-/// `Arc<dyn KillHandle>`) with no cast at the call site. Semantics
-/// are identical to the inlined form: take a read lock, register the
-/// handle under `call_id`.
-pub(super) async fn register_kill_handle(
+/// The `&Arc<K>` parameter is generic over the concrete handle type,
+/// so callers pass `&handle` with no `.clone()` or cast at the call
+/// site: the single `Arc` clone happens here (issue #3191 Step 1.1).
+/// Semantics are identical to the inlined form: take a read lock,
+/// register the handle under `call_id`.
+pub(super) async fn register_kill_handle<K>(
     cs: &Arc<RwLock<ConversationSession>>,
     call_id: &str,
-    handle: Arc<dyn KillHandle>,
-) {
+    handle: &Arc<K>,
+) where
+    K: KillHandle + 'static,
+{
+    let handle = Arc::clone(handle);
     cs.read().await.register_tool_handle(call_id, handle);
 }
