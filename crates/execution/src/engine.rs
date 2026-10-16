@@ -62,7 +62,7 @@ pub struct ExecutionEngine<S> {
 impl<S: SpawnAdapter> ExecutionEngine<S> {
     /// Create a new execution engine.
     ///
-    /// When no hook runner is provided via [`with_hook_runner`], a default
+    /// When no hook runner is provided via [`Self::with_hook_runner`], a default
     /// [`HookRunner`] is constructed using `config.verify_trigger`.
     pub fn new(
         config: ExecutionConfig,

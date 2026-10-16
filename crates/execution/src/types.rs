@@ -59,7 +59,7 @@ impl Default for ExecutionConfig {
 /// Sub-agent result — structured output returned after a sub-agent
 /// completes a step.
 ///
-/// Parsed from the sub-agent's notification text (see [`notification`]).
+/// Parsed from the sub-agent's notification text (see [`crate::notification`]).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubAgentResult {
     /// Index of the completed step (0-based).

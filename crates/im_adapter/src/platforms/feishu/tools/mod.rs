@@ -1,6 +1,6 @@
 //! Feishu tool definitions — individual sub-tool implementations.
 //!
-//! Registration is handled by [`ImAdapterToolsRegistrar`] in the
+//! Registration is handled by [`crate::tool_registrar::ImAdapterToolsRegistrar`] in the
 //! parent crate.  22 sub-tools correspond 1-to-1 with the tools
 //! README "各模块注册的工具一览" table.
 

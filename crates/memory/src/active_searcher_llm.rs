@@ -1,7 +1,7 @@
 //! LLM integration for the active-searcher.
 //!
 //! Provides concept extraction and LLM-based event summarisation
-//! via a mockable [`LlmCaller`] trait.
+//! via a mockable [`closeclaw_common::LlmCaller`] trait.
 
 use async_trait::async_trait;
 
