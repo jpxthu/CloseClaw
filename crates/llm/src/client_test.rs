@@ -14,10 +14,11 @@ use crate::interpreter::InterpreterRegistry;
 use crate::plugin::PluginPipeline;
 use crate::protocol::{ChatProtocol, IncomingSseStream, OutgoingEventStream};
 use crate::provider::{Provider, SseStream};
+use crate::test_support::{make_sse_chunk, make_sse_chunk_with_event};
 use crate::types::{
     ContentBlock, ContentBlockType, ContentDelta, InternalMessage, InternalRequest,
-    InternalResponse, ProtocolId, RawContentBlock, RawSseChunk, RawUsage, StreamEvent,
-    UnifiedResponse, UnifiedUsage,
+    InternalResponse, ProtocolId, RawContentBlock, RawUsage, StreamEvent, UnifiedResponse,
+    UnifiedUsage,
 };
 use closeclaw_common::ReasoningLevel;
 
@@ -85,10 +86,9 @@ impl Provider for StubProvider {
         _body: serde_json::Value,
     ) -> crate::provider::Result<SseStream> {
         let (tx, rx) = mpsc::channel(8);
-        tx.send(RawSseChunk {
-            event_type: "message".into(),
-            data: r#"{"choices":[{"delta":{"content":"hi"}}]}"#.into(),
-        })
+        tx.send(make_sse_chunk(
+            r#"{"choices":[{"delta":{"content":"hi"}}]}"#,
+        ))
         .await
         .unwrap();
         drop(tx);
@@ -663,40 +663,37 @@ impl Provider for AnthropicStubProvider {
         //   message_start -> content_block_start -> delta
         //   -> block_stop -> message_delta -> message_stop
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "message_start".into(),
-                data: r#"{"message":{"usage":{"input_tokens":10,"output_tokens":0}}}"#.into(),
-            })
+            .send(make_sse_chunk_with_event(
+                "message_start",
+                r#"{"message":{"usage":{"input_tokens":10,"output_tokens":0}}}"#,
+            ))
             .await;
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "content_block_start".into(),
-                data: r#"{"index":0,"content_block":{"type":"text"}}"#.into(),
-            })
+            .send(make_sse_chunk_with_event(
+                "content_block_start",
+                r#"{"index":0,"content_block":{"type":"text"}}"#,
+            ))
             .await;
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "content_block_delta".into(),
-                data: r#"{"index":0,"delta":{"type":"text_delta","text":"hi"}}"#.into(),
-            })
+            .send(make_sse_chunk_with_event(
+                "content_block_delta",
+                r#"{"index":0,"delta":{"type":"text_delta","text":"hi"}}"#,
+            ))
             .await;
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "content_block_stop".into(),
-                data: r#"{"index":0}"#.into(),
-            })
+            .send(make_sse_chunk_with_event(
+                "content_block_stop",
+                r#"{"index":0}"#,
+            ))
             .await;
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "message_delta".into(),
-                data: r#"{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#.into(),
-            })
+            .send(make_sse_chunk_with_event(
+                "message_delta",
+                r#"{"delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}"#,
+            ))
             .await;
         let _ = tx
-            .send(RawSseChunk {
-                event_type: "message_stop".into(),
-                data: "{}".into(),
-            })
+            .send(make_sse_chunk_with_event("message_stop", "{}"))
             .await;
         drop(tx);
         Ok(rx)

@@ -6,7 +6,8 @@
 use crate::fallback::ModelEntry;
 use crate::fallback_tests::{isolated_client, mock_provider_client, mock_provider_headers};
 use crate::provider::Provider;
-use crate::types::{InternalMessage, InternalRequest, ProtocolId, RawSseChunk};
+use crate::test_support::make_sse_chunk;
+use crate::types::{InternalMessage, InternalRequest, ProtocolId};
 use closeclaw_common::ReasoningLevel;
 use futures::StreamExt;
 use std::sync::Arc;
@@ -32,14 +33,6 @@ fn streaming_request(model: &str) -> InternalRequest {
         session_id: None,
         reasoning_level: ReasoningLevel::default(),
         turn_count: None,
-    }
-}
-
-/// Create an SSE chunk with the given JSON data.
-fn sse_chunk(data: &str) -> RawSseChunk {
-    RawSseChunk {
-        event_type: "message".to_string(),
-        data: data.to_string(),
     }
 }
 
@@ -137,9 +130,9 @@ impl Provider for StreamingProvider {
         tokio::spawn(async move {
             for text in &chunks {
                 let data = openai_content_delta(text);
-                let _ = tx.send(sse_chunk(&data)).await;
+                let _ = tx.send(make_sse_chunk(&data)).await;
             }
-            let _ = tx.send(sse_chunk("[DONE]")).await;
+            let _ = tx.send(make_sse_chunk("[DONE]")).await;
         });
         Ok(rx)
     }
