@@ -187,8 +187,10 @@ impl StepHook for CustomHook {
                 if let Some(pid) = child.id() {
                     // PIDs exceeding i32::MAX cannot exist on Unix (see
                     // closeclaw_platform::process for the same guard); a cast
-                    // would wrap and turn the negative-pgid kill into an
-                    // unintended broadcast, so skip kill instead.
+                    // would wrap such a pid to a negative value, and negating
+                    // that would turn it positive again (2^32 - pid), making
+                    // the kill target an unrelated single process rather than
+                    // the hook's group — skip kill instead.
                     if let Ok(pid_i32) = i32::try_from(pid) {
                         // SAFETY: kill(2) with a pid argument performs no memory
                         // access. The child was spawned as its own process group
