@@ -535,7 +535,11 @@ mod tests {
     async fn test_skill_content_injected_verbatim_as_system_append() {
         let temp = tempfile::tempdir().unwrap();
         let readme = temp.path().join("SKILL.md");
-        let body = "---\ndescription: verbatim test\n---\n\n# Instructions\nBe concise.\n\nRules:\n1. No hallucination\n2. Cite sources";
+        let body = concat!(
+            "---\ndescription: verbatim test\n---\n\n",
+            "# Instructions\nBe concise.\n\n",
+            "Rules:\n1. No hallucination\n2. Cite sources"
+        );
         std::fs::write(&readme, body).unwrap();
         let skill = make_disk_skill("verbatim-skill", readme, temp.path().to_path_buf());
         let disk = Arc::new(DiskSkillRegistry::new(vec![skill]));
