@@ -481,8 +481,8 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
 /// The **non-panic** `JoinError` branch (blocking pool shut down
 /// mid-kill) is exempt from testing: it needs a runtime tearing down
 /// the pool while a kill is in flight, which cannot be constructed
-/// deterministically in a unit test (reason also noted at the branch
-/// in `session_handles.rs`, issue #3161 Step 1.4).
+/// deterministically in a unit test (referenced from the branch in
+/// `session_handles.rs`, issue #3161 Step 1.4).
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_panicking_kill_handle_propagates_panic() {
