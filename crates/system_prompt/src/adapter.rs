@@ -243,6 +243,7 @@ impl SystemPromptBuilderAdapter {
             agent_id: Some(params.agent_id.clone()),
             activated_skills: params.activated_skills.clone(),
             session_role: params.session_role,
+            no_bootstrap: params.no_bootstrap,
             tool_registry: params.tool_registry.clone(),
         };
 

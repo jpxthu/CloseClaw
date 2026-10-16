@@ -178,6 +178,11 @@ pub struct WorkspaceBuildConfig {
     /// can gate identity-dependent behaviour (e.g. memory loading,
     /// bootstrap instruction injection).
     pub session_role: SessionRole,
+    /// Whether the agent declared `noBootstrap: true` — passed through to
+    /// [`FragmentContext`] so the bootstrap/memory providers load nothing
+    /// (`bootstrap_mode` has no effect). Defaults to `false` (existing
+    /// loading behaviour unchanged).
+    pub no_bootstrap: bool,
     /// ToolRegistry reference — passed through to [`FragmentContext`]
     /// so that providers like `ToolsFragmentProvider` (in the tools
     /// crate) can query the registry at generation time rather than
@@ -221,7 +226,7 @@ pub async fn build_from_workspace_with_cache<P: AsRef<Path>>(
         session_role: config.session_role,
         bootstrap_mode: bootstrap_mode.unwrap_or(BootstrapMode::Full),
         bootstrap_dir: root.to_string_lossy().to_string(),
-        no_bootstrap: false,
+        no_bootstrap: config.no_bootstrap,
         activated_skills: config.activated_skills,
         tool_registry: config.tool_registry,
     };
@@ -333,6 +338,7 @@ mod tests {
             agent_id: None,
             activated_skills: vec![],
             session_role: SessionRole::Main,
+            no_bootstrap: false,
             tool_registry: None,
         };
         assert!(config.providers.is_empty());
@@ -348,8 +354,89 @@ mod tests {
             agent_id: None,
             activated_skills: vec![],
             session_role: SessionRole::Main,
+            no_bootstrap: false,
             tool_registry: None,
         };
         assert_eq!(config.session_role, SessionRole::Main);
+    }
+
+    /// Provider that records `ctx.no_bootstrap` for propagation assertions.
+    struct NoBootstrapRecorder {
+        observed: Arc<std::sync::atomic::AtomicBool>,
+    }
+
+    #[async_trait::async_trait]
+    impl crate::fragment::PromptFragmentProvider for NoBootstrapRecorder {
+        fn name(&self) -> &str {
+            "no-bootstrap-recorder"
+        }
+
+        fn priority(&self) -> u32 {
+            1
+        }
+
+        async fn generate(&self, ctx: &FragmentContext) -> Option<crate::fragment::PromptFragment> {
+            self.observed
+                .store(ctx.no_bootstrap, std::sync::atomic::Ordering::SeqCst);
+            None
+        }
+
+        async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+            None
+        }
+    }
+
+    /// WorkspaceBuildConfig.no_bootstrap must reach FragmentContext so
+    /// providers observe the declared noBootstrap flag.
+    #[tokio::test]
+    async fn test_workspace_no_bootstrap_propagates_to_fragment_context() {
+        let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(NoBootstrapRecorder {
+            observed: Arc::clone(&observed),
+        })];
+        let config = WorkspaceBuildConfig {
+            providers,
+            dynamic_sections: vec![],
+            append_section: None,
+            bootstrap_mode_override: None,
+            agent_id: None,
+            activated_skills: vec![],
+            session_role: SessionRole::Main,
+            no_bootstrap: true,
+            tool_registry: None,
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let _ = build_from_workspace(tmp.path(), config).await;
+        assert!(
+            observed.load(std::sync::atomic::Ordering::SeqCst),
+            "no_bootstrap=true from WorkspaceBuildConfig must reach FragmentContext"
+        );
+    }
+
+    /// Default config (no_bootstrap=false) must keep the existing
+    /// behaviour: providers observe `false`.
+    #[tokio::test]
+    async fn test_workspace_default_no_bootstrap_false_reaches_fragment_context() {
+        let observed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let providers: Vec<Box<dyn PromptFragmentProvider>> = vec![Box::new(NoBootstrapRecorder {
+            observed: Arc::clone(&observed),
+        })];
+        let config = WorkspaceBuildConfig {
+            providers,
+            dynamic_sections: vec![],
+            append_section: None,
+            bootstrap_mode_override: None,
+            agent_id: None,
+            activated_skills: vec![],
+            session_role: SessionRole::Main,
+            no_bootstrap: false,
+            tool_registry: None,
+        };
+        let tmp = tempfile::tempdir().unwrap();
+        let _ = build_from_workspace(tmp.path(), config).await;
+        assert!(
+            !observed.load(std::sync::atomic::Ordering::SeqCst),
+            "default no_bootstrap=false must reach FragmentContext unchanged"
+        );
     }
 }
