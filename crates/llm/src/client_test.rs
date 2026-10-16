@@ -1,7 +1,7 @@
 //! Tests for the LLM unified chat client.
 //!
 //! These tests live here rather than in-client to keep `client.rs` under the
-//! 500-line limit imposed by the project style guide.
+//! 1000-line limit imposed by the project style guide.
 
 use futures::StreamExt;
 use std::sync::atomic::{AtomicUsize, Ordering};

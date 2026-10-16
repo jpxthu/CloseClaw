@@ -221,7 +221,7 @@ impl Default for FakeProvider {
 }
 
 // Tests live in fake_tests.rs but are compiled as part of this module.
-// This keeps fake.rs under the 500-line pre-commit limit while preserving
+// This keeps mod.rs under the 1000-line pre-commit limit while preserving
 // the original `use super::*` import semantics for the tests.
 #[cfg(all(test, feature = "fake-llm"))]
 #[path = "fake_tests.rs"]
