@@ -359,7 +359,8 @@ impl ShutdownHandle {
 
     /// Increment busy count with a tracked description.
     ///
-    /// Returns a unique id that must be passed to [`decrement_busy_tracked`]
+    /// Returns a unique id that must be passed to
+    /// [`decrement_busy_tracked`](Self::decrement_busy_tracked)
     /// to unregister.
     pub fn increment_busy_tracked(&self, desc: &str) -> u64 {
         let id = self.next_tracked_id.fetch_add(1, Ordering::SeqCst);

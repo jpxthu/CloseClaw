@@ -118,7 +118,8 @@ pub struct DiskSkill {
 impl DiskSkill {
     /// Load the skill body (instruction text) from the SKILL.md file on disk.
     ///
-    /// Reads the file at `self.readme_path` and parses it with [`parse_skill_md`]
+    /// Reads the file at `self.readme_path` and parses it with
+    /// [`parse_skill_md`](crate::disk::parse_skill_md)
     /// to extract the body text (content after the frontmatter block).
     ///
     /// # Errors

@@ -57,6 +57,8 @@ pub enum DreamingSchedulerError {
 ///
 /// Follows the same background-task pattern as [`ArchiveSweeper`]:
 /// `tokio::spawn` + `watch::Receiver` for shutdown coordination.
+///
+/// [`ArchiveSweeper`]: closeclaw_gateway::sweeper::ArchiveSweeper
 pub struct DreamingScheduler {
     storage: Arc<dyn PersistenceService>,
     /// Memory-side narrow storage port (adapter over `storage`).
@@ -148,9 +150,11 @@ impl DreamingScheduler {
         self
     }
 
-    /// Attach the mining notify channel receiver.  When a session is
-    /// archived by the [`ArchiveSweeper`], the sender emits the
+    /// Attach the mining notify channel receiver.  When a session
+    /// is archived by the [`ArchiveSweeper`], the sender emits the
     /// session ID through this channel so mining starts immediately.
+    ///
+    /// [`ArchiveSweeper`]: closeclaw_gateway::sweeper::ArchiveSweeper
     pub fn with_mining_notify_rx(mut self, rx: mpsc::Receiver<String>) -> Self {
         self.mining_notify_rx = Some(rx);
         self

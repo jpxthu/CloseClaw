@@ -2,7 +2,7 @@
 //!
 //! Resolves `{data_root}/agents/{agent_id}/permissions.json` → parses a
 //! [`RuleSet`] → merges with global rules → caches the merged result
-//! together with O(1) lookup indices built by [`build_rule_indices`].
+//! together with O(1) lookup indices built by `build_rule_indices`.
 //! Cache entries are keyed by `agent_id` and invalidated when the file's
 //! mtime changes or the file is deleted.
 

@@ -367,7 +367,7 @@ impl DiskSkillRegistry {
     /// with non-empty `paths`).
     ///
     /// Used as the base for incremental diff computation. Conditional
-    /// skills are injected separately via [`find_conditional_matches`].
+    /// skills are injected separately via [`Self::find_conditional_matches`].
     ///
     /// Returns an empty string if no non-conditional skills match.
     pub fn generate_listing_excluding_conditional(
@@ -527,7 +527,7 @@ impl DiskSkillRegistry {
 impl DiskSkillRegistry {
     /// Render a single skill's listing line.
     ///
-    /// Delegates to the shared [`crate::registry::render_skill_listing`]
+    /// Delegates to the shared `render_skill_listing`
     /// function to avoid duplicated rendering logic.
     pub fn render_single_listing(skill: &DiskSkill) -> String {
         crate::registry::render_skill_listing(&skill.manifest)

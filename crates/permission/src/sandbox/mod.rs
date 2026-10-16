@@ -122,16 +122,16 @@ impl Sandbox {
 impl Sandbox {
     /// Spawn the permission engine as a child process.
     ///
-    /// The engine binary is resolved via [`resolve_engine_binary`], which
+    /// The engine binary is resolved via `resolve_engine_binary`, which
     /// prefers an explicit test override, then `CLOSECLAW_ENGINE_BIN`, then
     /// derives the main binary from `current_exe()` (handling the `deps/`
     /// directory used by `cargo test`), and finally falls back to
     /// `current_exe()` itself.
     ///
     /// The subprocess is started with `SANDBOX_ENGINE=1` so that the binary
-    /// enters engine mode via [`try_run_engine_subprocess`].
+    /// enters engine mode via `try_run_engine_subprocess`.
     ///
-    /// After spawning, the function waits up to [`ENGINE_SPAWN_TIMEOUT_MS`] for the
+    /// After spawning, the function waits up to `ENGINE_SPAWN_TIMEOUT_MS` for the
     /// engine to become responsive on the IPC socket.
     pub async fn spawn(&mut self) -> Result<(), SandboxError> {
         if *self.state.read().await == SandboxState::Running {

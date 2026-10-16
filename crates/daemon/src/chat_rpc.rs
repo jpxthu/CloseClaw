@@ -567,7 +567,7 @@ impl RpcTerminalPlugin {
     }
 
     /// Register the agent → connection route used by sends that do not
-    /// carry the [`CHAT_CONN_ID`] task-local (LLM dispatch tasks).
+    /// carry the `CHAT_CONN_ID` task-local (LLM dispatch tasks).
     pub async fn register_agent_route(&self, agent_id: &str, conn_id: u64) {
         let mut routes = self.agent_routes.write().await;
         routes.insert(agent_id.to_string(), conn_id);
@@ -605,7 +605,7 @@ impl RpcTerminalPlugin {
     }
 
     /// Complete all in-flight chat turns: drop the registered connection
-    /// senders so [`collect_responses`] observes channel close and
+    /// senders so `collect_responses` observes channel close and
     /// finalizes the turn (content frames + `Done`).
     ///
     /// Called by the daemon's SessionMessageHandler output consumer,
@@ -635,9 +635,9 @@ impl RpcTerminalPlugin {
 /// The handler emits one `(text, blocks)` message per completed LLM
 /// turn (empty payload on failure); this consumer turns each message
 /// into an [`RpcTerminalPlugin::finish_turns`] call so waiting chat
-/// connections observe channel close and [`collect_responses`]
+/// connections observe channel close and `collect_responses`
 /// finalizes the turn instead of waiting out
-/// [`TURN_COMPLETION_TIMEOUT_SECS`]. The loop exits when the output
+/// `TURN_COMPLETION_TIMEOUT_SECS`. The loop exits when the output
 /// channel closes (handler dropped).
 ///
 /// Single assembly point for all consumers — startup path, restart

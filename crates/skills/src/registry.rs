@@ -25,7 +25,7 @@ pub trait Skill: Send + Sync {
     ///
     /// Bundled skills override this to run native code logic and
     /// return structured results as a meta message. The default
-    /// implementation delegates to [`body()`] for backward
+    /// implementation delegates to [`Self::body()`] for backward
     /// compatibility with existing skills.
     async fn execute(&self, args: Option<serde_json::Value>) -> Result<String, SkillError> {
         let _ = args;
@@ -174,7 +174,7 @@ impl BuiltinSkillRegistry {
 
     /// Return the names of all registered skills with `user_invocable: true`.
     ///
-    /// Used by [`SkillSlashHandler`] to register slash commands for
+    /// Used by `SkillSlashHandler` to register slash commands for
     /// builtin skills alongside disk-based skills.
     pub async fn user_invocable_names(&self) -> Vec<String> {
         let entries = self.sorted_skills().await;
@@ -187,7 +187,7 @@ impl BuiltinSkillRegistry {
 
     /// Render a single builtin skill's listing line.
     ///
-    /// Delegates to the shared [`render_skill_listing`] function.
+    /// Delegates to the shared `render_skill_listing` function.
     pub fn render_single_listing(manifest: &crate::disk::types::SkillManifest) -> String {
         render_skill_listing(manifest)
     }
@@ -207,7 +207,8 @@ impl BuiltinSkillRegistry {
     /// - Only includes skills where `user_invocable` is `true`
     /// - Sorts by name alphabetically (all builtin skills share
     ///   `SkillSource::Bundled` priority)
-    /// - Format matches [`DiskSkillRegistry::generate_listing`]
+    /// - Format matches
+    ///   [`DiskSkillRegistry::generate_listing`](crate::disk::DiskSkillRegistry::generate_listing)
     pub async fn generate_listing(&self) -> String {
         let entries = self.sorted_skills().await;
         let lines: Vec<String> = entries
@@ -222,7 +223,7 @@ impl BuiltinSkillRegistry {
     /// with non-empty `paths`).
     ///
     /// Used as the base for incremental diff computation. Conditional
-    /// skills are injected separately via [`find_conditional_matches`].
+    /// skills are injected separately via [`Self::find_conditional_matches`].
     pub async fn generate_listing_excluding_conditional(&self) -> String {
         let entries = self.sorted_skills().await;
         let lines: Vec<String> = entries
@@ -266,7 +267,8 @@ impl BuiltinSkillRegistry {
     /// Find conditional skills whose glob patterns match the given file
     /// paths.
     ///
-    /// Returns each matched skill as a [`ConditionalSkillMatch`] with a
+    /// Returns each matched skill as a
+    /// [`ConditionalSkillMatch`](closeclaw_common::ConditionalSkillMatch) with a
     /// rendered listing line including the `⚡ auto-activates on:`
     /// annotation.
     pub async fn find_conditional_matches(

@@ -1,7 +1,8 @@
 //! Generic JSON Lines file writer with truncation support.
 //!
-//! Shared by [`FileAuditLogger`] and [`FileRejectionLogger`] to avoid
-//! duplicating the prepend-reverse-chronological-order write logic.
+//! Shared by [`FileAuditLogger`](crate::engine::audit_log::FileAuditLogger)
+//! and [`FileRejectionLogger`](crate::engine::rejection_log::FileRejectionLogger)
+//! to avoid duplicating the prepend-reverse-chronological-order write logic.
 
 use serde::Serialize;
 use std::fs::OpenOptions;
