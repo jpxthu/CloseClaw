@@ -12,6 +12,7 @@ use super::fixture_loader::{
 };
 use super::{AnthropicProtocol, ChatProtocol, OpenAiProtocol};
 use crate::protocol::OutgoingEventStream;
+use crate::test_support::make_sse_chunk_with_event;
 use crate::types::{ContentBlockType, ContentDelta, RawSseChunk, StreamEvent};
 use futures::StreamExt;
 
@@ -57,10 +58,7 @@ fn parse_sse_text(text: &str) -> Vec<SseEvent> {
 fn to_raw_chunks(events: &[SseEvent]) -> Vec<RawSseChunk> {
     events
         .iter()
-        .map(|e| RawSseChunk {
-            event_type: e.event_type.clone(),
-            data: e.data.clone(),
-        })
+        .map(|e| make_sse_chunk_with_event(&e.event_type, &e.data))
         .collect()
 }
 

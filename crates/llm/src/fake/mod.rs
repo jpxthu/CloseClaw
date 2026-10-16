@@ -23,6 +23,7 @@ use tokio::sync::mpsc;
 use super::provider::{Provider, ProviderError, SseStream};
 use super::types::{InternalRequest, ProtocolId, RawContentBlock, RawSseChunk, RawUsage};
 use super::{ChatRequest, Message};
+use crate::test_support::make_sse_chunk_with_event;
 use delivery::{
     apply_first_token_delay, apply_overall_delay, apply_per_segment_delay, generate_anthropic_sse,
     generate_openai_sse, should_inject_http_error, should_interrupt_stream,
@@ -396,10 +397,7 @@ impl FakeProvider {
         let events = generate_openai_sse(&blocks, "fake-fallback", &usage, false, 0);
         for event in &events {
             let _ = tx
-                .send(RawSseChunk {
-                    event_type: event.event_type.clone(),
-                    data: event.data.clone(),
-                })
+                .send(make_sse_chunk_with_event(&event.event_type, &event.data))
                 .await;
         }
     }
@@ -418,10 +416,7 @@ impl FakeProvider {
                     break;
                 }
             }
-            let chunk = RawSseChunk {
-                event_type: event.event_type.clone(),
-                data: event.data.clone(),
-            };
+            let chunk = make_sse_chunk_with_event(&event.event_type, &event.data);
             if tx.send(chunk).await.is_err() {
                 break;
             }
