@@ -17,7 +17,8 @@ use std::time::Duration;
 /// at every `initiate_shutdown` call site in this file (issue #3701,
 /// replacing the former inline clones+spawns). The task yields
 /// `initiate_shutdown`'s `usize` result so call sites that assert on it
-/// can; fire-and-forget call sites drop the returned handle explicitly.
+/// can; fire-and-forget call sites discard the handle with a bare
+/// statement (a `let _ =` binding would trip `clippy::let_underscore_future`).
 fn spawn_shutdown(handle: &ShutdownHandle) -> tokio::task::JoinHandle<usize> {
     let h = handle.clone();
     tokio::spawn(async move { h.initiate_shutdown().await })
@@ -30,13 +31,16 @@ fn spawn_shutdown(handle: &ShutdownHandle) -> tokio::task::JoinHandle<usize> {
 ///
 /// Collapses the `tokio::time::timeout(..)` + double `.expect(..)` tail
 /// repeated at the awaiting call sites (issue #3701, replacing the
-/// former per-site verbatim double expects). The outer expect message is
-/// generalized to carry no fixed second count because the limit is a
-/// per-call-site parameter; the two assertions themselves are unchanged.
+/// former per-site verbatim double expects). The outer timeout assertion
+/// message carries no fixed second count because the limit is a
+/// per-call-site parameter (interpolated into the message instead); the
+/// two assertions themselves are unchanged.
 async fn await_shutdown(limit: Duration, task: tokio::task::JoinHandle<usize>) -> usize {
     tokio::time::timeout(limit, task)
         .await
-        .expect("shutdown should complete within the allotted limit")
+        .unwrap_or_else(|_| {
+            panic!("shutdown should complete within the allotted limit ({limit:?})")
+        })
         .expect("shutdown task should not panic")
 }
 
