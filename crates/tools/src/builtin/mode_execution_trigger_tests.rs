@@ -17,7 +17,6 @@ use closeclaw_common::SessionMode;
 use closeclaw_gateway::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 use serde_json::json;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -78,7 +77,7 @@ async fn register_session(sm: &SessionManager, session_id: &str, mode: SessionMo
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )
     .with_session_mode(mode);
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));

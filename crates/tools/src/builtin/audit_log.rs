@@ -359,7 +359,7 @@ mod tests {
             timestamp: "2026-01-01T00:01:00Z".to_string(),
             agent_id: "a2".to_string(),
             tool_name: "command".to_string(),
-            operation: "rm /tmp".to_string(),
+            operation: format!("rm {}", std::env::temp_dir().to_str().unwrap()),
             reason: "denied".to_string(),
             risk_level: RiskLevel::High,
             session_mode: None,

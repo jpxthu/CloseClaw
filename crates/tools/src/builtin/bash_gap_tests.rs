@@ -147,8 +147,9 @@ async fn test_generate_prompt_includes_workdir() {
 #[tokio::test]
 async fn test_generate_prompt_includes_git_info() {
     let tool = make_tool();
-    let no_git = ctx_with_workdir("/tmp", false);
-    let with_git = ctx_with_workdir("/tmp", true);
+    let workdir = std::env::temp_dir().to_str().unwrap().to_owned();
+    let no_git = ctx_with_workdir(&workdir, false);
+    let with_git = ctx_with_workdir(&workdir, true);
     let prompt_no = tool.generate_prompt(&no_git);
     let prompt_yes = tool.generate_prompt(&with_git);
     assert!(
