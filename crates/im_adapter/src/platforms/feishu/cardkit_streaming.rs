@@ -3,7 +3,8 @@
 //! Implements the three-step cardkit protocol for streaming LLM output:
 //! 1. Create a streaming card (`POST /cardkit/v1/cards`, `streaming_mode: true`)
 //! 2. Send a card-reference message (card_json with `card_id`)
-//! 3. Batch-update card element content (`PUT /cardkit/v1/cards/{card_id}/elements/{element_id}/content`)
+//! 3. Batch-update card element content
+//!    (`PUT /cardkit/v1/cards/{card_id}/elements/{element_id}/content`)
 //!
 //! Text line-buffering is delegated to [`DefaultStreamingRenderer`]
 //! (via [`super::FeishuPlugin::streaming_renderer`]). This module
