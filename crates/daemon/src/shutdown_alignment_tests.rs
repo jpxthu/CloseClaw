@@ -8,6 +8,7 @@
 
 use crate::shutdown::{ShutdownHandle, ShutdownMode, ShutdownState};
 use crate::test_helpers::{common_shutdown_handle, kill_self, signal_step, TestShutdownSignal};
+use std::time::Duration;
 use tokio::signal::unix::{signal, Signal, SignalKind};
 use tokio::sync::oneshot;
 
@@ -184,7 +185,7 @@ async fn test_graceful_mode_waits_for_operations() {
     });
 
     // Give the shutdown task time to enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     // State should be ShuttingDown (graceful), not Stopped
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
@@ -218,7 +219,7 @@ async fn test_forceful_mode_immediate_termination() {
     });
 
     // Let it enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
 
@@ -256,7 +257,7 @@ async fn test_drain_completes_before_timeout() {
 
     // Wait 1 second — drain should still be running (30s default timeout
     // has not fired)
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
 
@@ -284,7 +285,7 @@ async fn test_forceful_escalation_bypasses_drain() {
         h.initiate_shutdown().await;
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
 
     // Escalate to forceful
     handle.escalate_to_forceful();
@@ -315,12 +316,12 @@ async fn test_drain_completes_when_busy_count_reaches_zero() {
     });
 
     // Let it enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!handle.is_stopped());
 
     // Complete operations one by one
     handle.decrement_busy();
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!handle.is_stopped(), "should still be waiting for last op");
 
     handle.decrement_busy();
@@ -541,7 +542,7 @@ async fn test_common_busy_count_delegation_drain_completes() {
         h.initiate_shutdown().await;
     });
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!daemon_handle.is_stopped());
 
     // Decrement via common layer

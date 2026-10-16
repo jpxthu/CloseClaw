@@ -511,7 +511,7 @@ async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
         .send((String::new(), Vec::new()))
         .await
         .expect("output channel must be open");
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), h.conn_rx.recv())
+    let closed = tokio::time::timeout(Duration::from_secs(1), h.conn_rx.recv())
         .await
         .expect("failed turn must finalize, not hang until the 120s timeout");
     assert!(
