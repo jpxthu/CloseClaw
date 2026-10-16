@@ -605,7 +605,7 @@ async fn test_signal_step_passes_output_through() {
 /// `signal not delivered: {what}` diagnostic instead of hanging until the
 /// 30s harness limit with no diagnosis (STANDARDS §6). Paused clock:
 /// auto-advance fires the virtual 10s deadline, so no real 10s wait.
-#[tokio::test(start_paused = true, flavor = "current_thread")]
+#[tokio::test(start_paused = true)]
 async fn test_signal_step_panics_with_diagnostic_on_timeout() {
     let joined = tokio::spawn(async {
         signal_step("hung step diagnostic", std::future::pending::<()>()).await
