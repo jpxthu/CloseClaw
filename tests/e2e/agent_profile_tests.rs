@@ -58,10 +58,10 @@ use super::helpers::config::{
 use super::helpers::fake_llm::start_fake_llm;
 
 // `noBootstrap` consumption cases (issue #3475, Step 1.7) live in the
-// `no_bootstrap` submodule — split out for the CONTRIBUTING.md 1000-line
-// file cap; the module path keeps the `agent_profile_tests` segment so
-// `-E 'test(agent_profile_tests)'` selects them.
-mod no_bootstrap;
+// `no_bootstrap_tests` submodule — split out for the CONTRIBUTING.md
+// 1000-line file cap; the module path keeps the `agent_profile_tests`
+// segment so `-E 'test(agent_profile_tests)'` selects them.
+mod no_bootstrap_tests;
 
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
 // `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,

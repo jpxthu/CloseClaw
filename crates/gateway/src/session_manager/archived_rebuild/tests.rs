@@ -134,7 +134,11 @@ impl SystemPromptBuilder for ParamsCaptureBuilder {
 }
 
 /// ConfigManager pre-populated with `agent-b` whose `no_bootstrap` is set.
-fn make_config_manager(no_bootstrap: bool) -> Arc<ConfigManager> {
+///
+/// Returns the backing `TempDir` for the caller to hold — dropping it at
+/// function scope would leave the `ConfigManager` pointing at a deleted
+/// path (STANDARDS.md §8: temp dirs are dropped only when no longer used).
+fn make_config_manager(no_bootstrap: bool) -> (Arc<ConfigManager>, tempfile::TempDir) {
     let config_dir = tempfile::TempDir::new().unwrap();
     let cm = Arc::new(ConfigManager::new(config_dir.path().to_path_buf()).unwrap());
     {
@@ -161,16 +165,18 @@ fn make_config_manager(no_bootstrap: bool) -> Arc<ConfigManager> {
             },
         );
     }
-    cm
+    (cm, config_dir)
 }
 
 /// SessionManager wired with the capturing prompt builder and the agent
-/// config. Returns (mgr, capture) — caller keeps `capture` for assertions.
+/// config. Returns (mgr, capture, config_dir) — the caller keeps
+/// `capture` for assertions and `config_dir` alive for the ConfigManager.
 async fn setup_mgr(
     persist: Arc<dyn PersistenceService>,
     no_bootstrap: bool,
     captured: Arc<StdMutex<Option<InjectionParams>>>,
-) -> SessionManager {
+) -> (SessionManager, tempfile::TempDir) {
+    let (config_manager, config_dir) = make_config_manager(no_bootstrap);
     let mgr = SessionManager::new(
         &test_config(),
         Some(persist),
@@ -179,9 +185,8 @@ async fn setup_mgr(
     );
     mgr.set_system_prompt_builder(Arc::new(ParamsCaptureBuilder { captured }))
         .await;
-    mgr.set_config_manager(make_config_manager(no_bootstrap))
-        .await;
-    mgr
+    mgr.set_config_manager(config_manager).await;
+    (mgr, config_dir)
 }
 
 fn archived_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -221,7 +226,7 @@ async fn assert_flag_carried(
 #[tokio::test]
 async fn test_new_session_no_bootstrap_true_carries_into_injection() {
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::no_checkpoint()),
         true,
         capture.clone(),
@@ -237,7 +242,7 @@ async fn test_new_session_no_bootstrap_true_carries_into_injection() {
 #[tokio::test]
 async fn test_new_session_default_no_bootstrap_unchanged() {
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::no_checkpoint()),
         false,
         capture.clone(),
@@ -256,7 +261,7 @@ async fn test_new_session_default_no_bootstrap_unchanged() {
 async fn test_archived_restore_no_bootstrap_true_carries_into_injection() {
     let sid = "nb-archived-restore".to_string();
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::with_archived_checkpoint(
             archived_checkpoint(&sid),
             Some(sid.clone()),
@@ -282,7 +287,7 @@ async fn test_archived_restore_no_bootstrap_true_carries_into_injection() {
 async fn test_archived_restore_default_no_bootstrap_unchanged() {
     let sid = "nb-archived-restore-default".to_string();
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::with_archived_checkpoint(
             archived_checkpoint(&sid),
             Some(sid.clone()),
@@ -325,7 +330,7 @@ async fn pre_populate_in_memory_session(mgr: &SessionManager, session_id: &str) 
 async fn test_in_memory_rebuild_no_bootstrap_true_carries_into_injection() {
     let sid = "nb-inmem-rebuild".to_string();
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::with_archived_checkpoint(
             archived_checkpoint(&sid),
             Some(sid.clone()),
@@ -358,7 +363,7 @@ async fn test_in_memory_rebuild_no_bootstrap_true_carries_into_injection() {
 async fn test_in_memory_rebuild_default_no_bootstrap_unchanged() {
     let sid = "nb-inmem-rebuild-default".to_string();
     let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
-    let mgr = setup_mgr(
+    let (mgr, _config_dir) = setup_mgr(
         Arc::new(NbPersistMock::with_archived_checkpoint(
             archived_checkpoint(&sid),
             Some(sid.clone()),

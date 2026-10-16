@@ -1,7 +1,13 @@
 //! `Debug` implementation for [`ConversationSession`].
 //!
 //! Split from `mod.rs` for file-size governance (CONTRIBUTING.md 1000-line
-//! cap); pure move, no logic change.
+//! cap). Not a pure move: the `no_bootstrap` field line was added for the
+//! noBootstrap consumption chain (issue #3475); every other line is
+//! verbatim from `mod.rs`.
+//!
+//! The `fmt` impl below exceeds the CONTRIBUTING.md 100-line impl-block
+//! cap as an existing-migration exemption (存量搬迁豁免): the body
+//! predates the split and only field lines were appended.
 
 use std::sync::atomic::Ordering;
 

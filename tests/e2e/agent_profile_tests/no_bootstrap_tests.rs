@@ -133,7 +133,7 @@ async fn e2e_agent_no_bootstrap_control_injects_identity() {
     // config.json and the resolved config defaults to false.
     write_agent_config(config_root, "openai/gpt-4o-bootstrap-control", None, None);
 
-    let daemon = spawn_daemon_guarded(config_root);
+    let mut daemon = spawn_daemon_guarded(config_root);
     helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "who are you").await;
@@ -143,6 +143,10 @@ async fn e2e_agent_no_bootstrap_control_injects_identity() {
         text.contains("CONTROL_INJECTED_OK"),
         "control agent should still inject IDENTITY.md, got: {text}"
     );
+
+    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
+        panic!("daemon died during chat turn: {status:?}");
+    }
 
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");

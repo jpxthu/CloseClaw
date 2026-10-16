@@ -4,6 +4,7 @@ use std::path::{Path, PathBuf};
 use async_trait::async_trait;
 use closeclaw_common::BootstrapMode;
 
+use super::bootstrap_load_mode::{resolve_mode, LoadMode};
 use crate::fragment::{FragmentContext, PromptFragment, PromptFragmentProvider, SectionType};
 
 /// Function that lists the bootstrap file names for a mode, in the
@@ -48,14 +49,10 @@ impl BootstrapFragmentProvider {
     /// sessions. `None` means the provider must not load or report a cache
     /// key at all.
     fn resolve_load_mode(&self, ctx: &FragmentContext) -> Option<BootstrapMode> {
-        match super::bootstrap_load_mode::resolve_mode(
-            ctx.session_role,
-            ctx.bootstrap_mode,
-            ctx.no_bootstrap,
-        ) {
-            super::bootstrap_load_mode::LoadMode::None => None,
-            super::bootstrap_load_mode::LoadMode::Minimal => Some(BootstrapMode::Minimal),
-            super::bootstrap_load_mode::LoadMode::Full => Some(BootstrapMode::Full),
+        match resolve_mode(ctx.session_role, ctx.bootstrap_mode, ctx.no_bootstrap) {
+            LoadMode::None => None,
+            LoadMode::Minimal => Some(BootstrapMode::Minimal),
+            LoadMode::Full => Some(BootstrapMode::Full),
         }
     }
 
@@ -159,6 +156,22 @@ mod tests {
         BootstrapFragmentProvider::new(bootstrap_file_list, |dir, mode| {
             load_bootstrap_files(dir, mode).ok()
         })
+    }
+
+    /// Shared test double for the mode-fallback / file-loading tests: a
+    /// full-literal Main + Minimal `FragmentContext` with
+    /// `no_bootstrap: false` — the pre-noBootstrap shape, kept explicit so
+    /// these tests stay independent of `test_default()` defaults.
+    fn main_minimal_ctx(bootstrap_dir: &str) -> FragmentContext {
+        FragmentContext {
+            agent_id: "test-agent".into(),
+            session_role: SessionRole::Main,
+            bootstrap_mode: BootstrapMode::Minimal,
+            bootstrap_dir: bootstrap_dir.to_string(),
+            no_bootstrap: false,
+            activated_skills: vec![],
+            tool_registry: None,
+        }
     }
 
     #[test]
@@ -421,15 +434,7 @@ mod tests {
 
         let provider = test_provider();
 
-        let ctx = FragmentContext {
-            agent_id: "test-agent".into(),
-            session_role: SessionRole::Main,
-            bootstrap_mode: BootstrapMode::Minimal,
-            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
-            no_bootstrap: false,
-            activated_skills: vec![],
-            tool_registry: None,
-        };
+        let ctx = main_minimal_ctx(&tmp.path().to_string_lossy());
         let fragment = provider.generate(&ctx).await.unwrap();
         assert!(fragment.content.contains("from workdir"));
     }
@@ -459,15 +464,7 @@ mod tests {
 
         let provider = test_provider();
 
-        let ctx = FragmentContext {
-            agent_id: "test-agent".into(),
-            session_role: SessionRole::Main,
-            bootstrap_mode: BootstrapMode::Minimal,
-            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
-            no_bootstrap: false,
-            activated_skills: vec![],
-            tool_registry: None,
-        };
+        let ctx = main_minimal_ctx(&tmp.path().to_string_lossy());
 
         let fragment = provider.generate(&ctx).await.unwrap();
         assert!(fragment.content.contains("minimal content"));
