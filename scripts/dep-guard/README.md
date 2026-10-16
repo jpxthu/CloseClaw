@@ -7,7 +7,7 @@
 3. common 准入一致性（`common_admission.py`）
 4. 死依赖（`dead_deps.py`）
 
-生产检查入口：`python3 dep_guard.py check`，经 `scripts/periodic-checks.sh --dep-guard` 挂载（CI 同链路生效）。
+生产检查入口（从仓库根执行）：`python3 scripts/dep-guard/dep_guard.py check`，经 `scripts/periodic-checks.sh --dep-guard` 挂载（CI 同链路生效）。
 
 ## 单元测试
 

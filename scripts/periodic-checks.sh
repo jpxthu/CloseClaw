@@ -52,7 +52,7 @@ usage() {
   --doctest   文档测试（cargo test --workspace --doc --no-fail-fast）
   --coverage  覆盖率（cargo llvm-cov nextest --workspace）
   --deps      依赖检查（cargo-deny check + cargo-machete + syn 双大版本白名单检查）
-  --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖）
+  --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖 + 单测套件）
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
   --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv（不含 --heavy）
@@ -398,18 +398,20 @@ do_dep_guard() (
     echo "[ok] dep-guard 四项检查完成"
     # 挂载单测套件：unittest discover 对 0 个匹配用例在 Python ≤3.11 下仍 exit 0
     # （3.12+ 才有 exit 5 的版本性行为），空跑守卫不能依赖退出码，
-    # 需解析 Ran N tests 并显式断言 N > 0（discover pattern 隐错防护）
+    # 需解析 Ran N tests/test 并显式断言 N > 0（discover pattern 隐错防护）
+    local suite_dir
+    suite_dir="$(dirname "$guard")"
     local suite_log
     local suite_rc=0
-    suite_log="$(cd "$(dirname "$guard")" \
-        && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s . -p "*_test.py" 2>&1)" || suite_rc=$?
+    suite_log="$(cd "$suite_dir" && PYTHONDONTWRITEBYTECODE=1 \
+        python3 -m unittest discover -s . -p "*_test.py" 2>&1)" || suite_rc=$?
     printf '%s\n' "$suite_log"
     if [[ $suite_rc -ne 0 ]]; then
         echo "[FAIL] dep-guard 单测套件运行失败（退出码 $suite_rc），明细见上方"
         return "$suite_rc"
     fi
     local n_tests=0
-    if [[ $suite_log =~ Ran\ ([0-9]+)\ tests ]]; then
+    if [[ $suite_log =~ Ran\ ([0-9]+)\ tests? ]]; then
         n_tests="${BASH_REMATCH[1]}"
     fi
     if [[ $n_tests -eq 0 ]]; then
