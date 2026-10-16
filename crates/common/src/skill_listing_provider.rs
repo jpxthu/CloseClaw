@@ -59,7 +59,7 @@ pub trait SkillListingProvider: Send + Sync {
     ///
     /// Used for the initial turn and as the base for incremental diff
     /// computation. Conditional skills are injected separately via
-    /// [`find_conditional_matches`].
+    /// [`find_conditional_matches`](Self::find_conditional_matches).
     ///
     /// Returns an empty string if no non-conditional skills match.
     fn generate_listing_excluding_conditional(
@@ -73,7 +73,7 @@ pub trait SkillListingProvider: Send + Sync {
     ///
     /// The output is the union of:
     /// - all non-conditional skills (same as
-    ///   [`generate_listing_excluding_conditional`])
+    ///   [`generate_listing_excluding_conditional`](Self::generate_listing_excluding_conditional))
     /// - all conditional skills whose name is in `activated`
     ///
     /// Activated conditional skills are included **regardless** of their
@@ -82,9 +82,9 @@ pub trait SkillListingProvider: Send + Sync {
     /// `user-invocable` as usual.
     ///
     /// The default implementation falls back to
-    /// [`generate_listing_excluding_conditional`], ignoring the activated
-    /// set. Production implementations must override this to merge in
-    /// activated conditional skills.
+    /// [`generate_listing_excluding_conditional`](Self::generate_listing_excluding_conditional),
+    /// ignoring the activated set. Production implementations must override
+    /// this to merge in activated conditional skills.
     ///
     /// # Arguments
     ///

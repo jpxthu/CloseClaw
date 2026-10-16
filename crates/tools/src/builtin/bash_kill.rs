@@ -6,22 +6,22 @@
 //! which exceeded the CONTRIBUTING.md 500-line hard cap after the
 //! foreground/background kill integration. The
 //! extraction keeps the public surface of `BashTool` unchanged:
-//! `bash.rs` re-imports [`build_result`], [`process_output`],
-//! [`BackgroundKillHandle`] and [`BashKillHandle`]
+//! `bash.rs` re-imports `build_result`, `process_output`,
+//! `BackgroundKillHandle` and `BashKillHandle`
 //! from this module and the rest of the project uses them via
 //! `crate::builtin::bash_kill::{...}`.
 //!
 //! Contents:
-//! - Constants: [`MAX_OUTPUT_CHARS`], [`MAX_PERSISTED_BYTES`],
-//!   [`PREVIEW_BYTES`]
-//! - [`persist_dir`] — runtime-resolved directory for persisted
+//! - Constants: `MAX_OUTPUT_CHARS`, `MAX_PERSISTED_BYTES`,
+//!   `PREVIEW_BYTES`
+//! - `persist_dir` — runtime-resolved directory for persisted
 //!   output files (follows `std::env::temp_dir()`)
-//! - [`OutputProcessed`] — result of [`process_output`]
-//! - [`BashKillHandle`] / [`BackgroundKillHandle`] — `KillHandle`
+//! - `OutputProcessed` — result of `process_output`
+//! - `BashKillHandle` / `BackgroundKillHandle` — `KillHandle`
 //!   adapters for foreground child processes and background tasks
-//! - Output processing: [`safe_truncate`],
-//!   [`process_output`], [`persist_output`]
-//! - Result building: [`build_result`]
+//! - Output processing: `safe_truncate`,
+//!   `process_output`, `persist_output`
+//! - Result building: `build_result`
 
 use std::io;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

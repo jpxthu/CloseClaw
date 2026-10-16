@@ -1,8 +1,9 @@
 //! Multi-tool parallel dispatcher.
 //!
 //! [`ToolCallDispatcher`] routes a batch of tool calls to parallel, mutex-by-file,
-//! or serial execution based on [`ToolFlags::is_concurrency_safe`] and per-file
-//! mutex ownership.
+//! or serial execution based on
+//! [`ToolFlags::is_concurrency_safe`](crate::ToolFlags::is_concurrency_safe)
+//! and per-file mutex ownership.
 //!
 //! Core types and dispatch logic are defined in [`closeclaw_common::dispatcher`].
 //! This module re-exports them and adds the tools-specific
@@ -61,13 +62,15 @@ pub async fn build_pending_call(
 // ===========================================================================
 
 /// Runtime [`ToolExecutor`] that looks up tools from a
-/// [`ToolRegistryImpl`] and calls [`Tool::call`] with the
+/// [`ToolRegistryImpl`] and calls [`Tool::call`](crate::Tool::call) with the
 /// arguments carried in [`PendingToolCall`].
 ///
-/// Created per-dispatch batch; holds a base [`ToolContext`] whose
+/// Created per-dispatch batch; holds a base
+/// [`ToolContext`](crate::ToolContext) whose
 /// `call_id` is overridden from each [`PendingToolCall::id`].
 ///
-/// Optionally holds a [`DebugLog`] context for emitting structured
+/// Optionally holds a [`DebugLog`](closeclaw_debug_log::DebugLog) context for
+/// emitting structured
 /// debug-log events at tool execution start/end and full params.
 pub struct ToolRegistryExecutor {
     registry: Arc<ToolRegistryImpl>,

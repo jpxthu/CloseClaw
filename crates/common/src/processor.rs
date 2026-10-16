@@ -4,7 +4,7 @@
 //! [`ProcessError`]) and the [`ProcessorChain`]
 //! trait used by the gateway to run inbound/outbound message processing.
 //!
-//! The inbound chain accepts [`NormalizedMessage`](crate::im_plugin::NormalizedMessage)
+//! The inbound chain accepts [`NormalizedMessage`]
 //! directly — no intermediate `RawMessage` wrapper.
 
 use std::collections::HashMap;

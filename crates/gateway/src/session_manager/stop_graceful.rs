@@ -85,7 +85,7 @@ impl SessionManager {
     /// Persist a session checkpoint for runtime paths (e.g. slash commands)
     /// that need immediate durability without pending operations.
     ///
-    /// Delegates to [`persist_checkpoint_with_pending`] with an empty operation
+    /// Delegates to `persist_checkpoint_with_pending` with an empty operation
     /// list.  Use this after add/clear mutations so the checkpoint on disk
     /// always reflects the latest in-memory state.
     pub async fn persist_checkpoint(&self, session_id: &str) -> Result<(), PersistenceError> {

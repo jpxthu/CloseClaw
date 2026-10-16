@@ -86,7 +86,7 @@ impl CommandSandbox {
 
     /// Apply sandbox restrictions (landlock + seccomp) without executing.
     ///
-    /// Used by [`BashTool`] to apply restrictions before delegating to
+    /// Used by [`BashTool`](crate::builtin::BashTool) to apply restrictions before delegating to
     /// the existing `execute_command` path (which handles background
     /// execution and kill-handle integration).
     pub fn apply_sandbox_restrictions(cwd: &str) -> Result<(), ToolCallError> {

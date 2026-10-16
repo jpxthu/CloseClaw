@@ -16,7 +16,7 @@ use serde::{Deserialize, Serialize};
 /// Preset permission sets that an Owner can assign to a newly registered User.
 ///
 /// Each variant maps to a concrete set of [`Rule`](crate) entries via
-/// [`to_rules()`](InitialPermissionSet::to_rules).
+/// `to_rules()`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum InitialPermissionSet {
     /// Basic messaging: allows sending/receiving messages and reading the workspace.
@@ -46,7 +46,7 @@ pub struct UserRegistration {
     pub created_at: String,
 }
 
-/// Request payload carried through the [`ApprovalQueue`] for a new-user
+/// Request payload carried through the `ApprovalQueue` for a new-user
 /// registration that requires Owner approval.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserCreationRequest {

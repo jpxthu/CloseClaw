@@ -1,7 +1,8 @@
 //! LLM Interface — provider abstraction and chat types
 //!
 //! The LLM module's ModelInterpreter normalizes protocol responses into four
-//! core [`ContentBlock`] variants: `Text`, `Thinking`, `ToolUse`, `ToolResult`.
+//! core [`ContentBlock`](closeclaw_common::processor::ContentBlock) variants:
+//! `Text`, `Thinking`, `ToolUse`, `ToolResult`.
 //! The `Image`, `Audio`, `File` variants are extended types shared with the
 //! rendering pipeline (`im_adapter`, `processor_chain`) and are not produced
 //! by this module's response path. See `common::processor::ContentBlock` for

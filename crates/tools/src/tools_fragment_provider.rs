@@ -17,7 +17,8 @@ use crate::build_tools_section::{build_tools_section, ToolsSectionParams};
 /// Provider that contributes the tool listing to the system prompt.
 ///
 /// Holds references to the [`ToolRegistry`] and an optional
-/// [`AgentToolsConfigQuery`] for runtime agent-level tool filtering.
+/// [`AgentToolsConfigQuery`](closeclaw_common::AgentToolsConfigQuery)
+/// for runtime agent-level tool filtering.
 /// When the registry is empty or produces no content,
 /// [`generate`](Self::generate) returns `None`.
 pub struct ToolsFragmentProvider {

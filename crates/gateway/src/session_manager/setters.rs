@@ -29,7 +29,7 @@ impl SessionManager {
 
     /// Set the output channel for sending LLM responses to the user.
     ///
-    /// When set, [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
+    /// When set, `drain_pending_for_session`
     /// will send queued message responses through this channel so the
     /// user sees them after yield recovery.
     pub async fn set_output_tx(&self, tx: crate::OutputTx) {
@@ -89,8 +89,9 @@ impl SessionManager {
     /// Set the config manager for agent-level tool/skill filtering.
     ///
     /// Also caches the config directory path so
-    /// [`SpawnCreationContext::config_dir`] can return a stable `&Path`
-    /// without holding a lock.
+    /// [`SpawnCreationContext::config_dir`](
+    /// closeclaw_session::spawn::SpawnCreationContext::config_dir)
+    /// can return a stable `&Path` without holding a lock.
     pub async fn set_config_manager(&self, config_manager: Arc<ConfigManager>) {
         let config_dir = config_manager.config_dir().to_path_buf();
         *self.config_manager.write().await = Some(config_manager);
@@ -252,7 +253,7 @@ impl SessionManager {
     /// Inject the session config provider for per-agent idle/purge thresholds.
     ///
     /// Called by daemon (composition root) so that
-    /// [`get_session_config_for_agent`](Self::get_session_config_for_agent)
+    /// `get_session_config_for_agent`
     /// can resolve per-agent session config without going through
     /// ConfigManager, following the layer-2 component extraction pattern.
     pub async fn set_session_config_provider(&self, provider: Arc<dyn SessionConfigProvider>) {

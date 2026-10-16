@@ -304,7 +304,7 @@ pub trait StreamingRenderer: Send {
 ///    fires).
 /// 2. **Type routing** — incoming [`StreamEvent`]s are routed by block type:
 ///    Text deltas go through [`LineBuffer`], non-Text blocks (Thinking,
-///    ToolUse, ToolResult) are accumulated via [`BlockAccumulator`].
+///    ToolUse, ToolResult) are accumulated via `BlockAccumulator`.
 /// 3. **Incremental output** — the renderer produces [`StreamingOutput`]
 ///    containing `text_messages` (incremental text lines) and `render_blocks`
 ///    (complete non-Text [`ContentBlock`]s). The actual sending through

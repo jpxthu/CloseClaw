@@ -1,7 +1,7 @@
 //! Media reference resolution for tool execution.
 //!
 //! Scans tool arguments for `[type: key]` reference tokens and resolves
-//! them to local file paths via [`MediaStoreAccess`](closeclaw_common::MediaStoreAccess).
+//! them to local file paths via [`MediaStoreAccess`].
 //!
 //! Resolution only applies to the current tool execution — translated
 //! paths are not persisted to params or logs.

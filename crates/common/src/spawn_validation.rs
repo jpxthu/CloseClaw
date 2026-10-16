@@ -59,8 +59,9 @@ pub struct SpawnValidationResult {
 /// Implemented by `SpawnController` in the session crate; used by the tools
 /// layer's `SessionsSpawnTool` to validate spawn requests.
 ///
-/// The two-step architecture separates precondition checks ([`validate_spawn`])
-/// from permission checks ([`check_spawn_permission`]) so that tools can
+/// The two-step architecture separates precondition checks
+/// ([`validate_spawn`](Self::validate_spawn)) from permission checks
+/// ([`check_spawn_permission`](Self::check_spawn_permission)) so that tools can
 /// trigger the permission check as an independent step after preconditions
 /// pass (design doc §Spawn 控制流程 — two-step separation).
 #[async_trait]
@@ -69,7 +70,7 @@ pub trait SpawnValidator: Send + Sync {
     ///
     /// Checks depth, concurrency, agentId resolution, and whitelist.
     /// Does NOT check permissions — that is a separate step via
-    /// [`check_spawn_permission`].
+    /// [`check_spawn_permission`](Self::check_spawn_permission).
     ///
     /// Returns a [`SpawnValidationResult`] with the target agent identifier
     /// and derived parameters, or a [`SpawnError`] on failure.
@@ -82,7 +83,8 @@ pub trait SpawnValidator: Send + Sync {
     /// Check spawn permissions after preconditions have passed.
     ///
     /// Validates child permissions via intersection with parent effective
-    /// permissions. Called by the tools layer after [`validate_spawn`]
+    /// permissions. Called by the tools layer after
+    /// [`validate_spawn`](Self::validate_spawn)
     /// succeeds (design doc §Spawn 控制流程 ⑥).
     async fn check_spawn_permission(
         &self,

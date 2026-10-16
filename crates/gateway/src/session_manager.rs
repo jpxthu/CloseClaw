@@ -309,7 +309,8 @@ impl SessionManager {
     }
 
     /// Queue a workflow blocked notification for a session.
-    /// The notification is consumed by [`take_workflow_notification`] after
+    /// The notification is consumed by
+    /// [`take_workflow_notification`](Self::take_workflow_notification) after
     /// the Gateway sends it through the outbound chain.
     pub async fn queue_workflow_notification(&self, session_id: &str, message: String) {
         let mut pending = self.pending_workflow_notifications.write().await;
@@ -368,7 +369,7 @@ impl SessionManager {
     /// **Caller responsibility**: `message.to` is passed as the `agent_id`
     /// parameter to [`resolve`](Self::resolve). Callers with access to
     /// `bot_agent_bindings` (e.g. Gateway) must call
-    /// [`Gateway::resolve_agent_id`] before constructing the `Message` so
+    /// `Gateway::resolve_agent_id` before constructing the `Message` so
     /// that `message.to` carries the resolved agent_id per the design doc:
     /// "Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent".
     ///
@@ -612,7 +613,7 @@ impl SessionManager {
     /// Look up an existing session_id from routing fields without creating
     /// a new session. Returns `None` if no matching session exists.
     ///
-    /// This avoids the side effects of [`resolve`] (session creation,
+    /// This avoids the side effects of [`resolve`](Self::resolve) (session creation,
     /// checkpoint persistence, etc.) and is suitable for lightweight
     /// polling (e.g. streaming-completion wait).
     pub async fn lookup_session_from_routing(

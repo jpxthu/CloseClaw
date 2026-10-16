@@ -49,7 +49,7 @@ pub(crate) struct QueuedInbound {
 /// Handle to the inbound queue producer side.
 ///
 /// Wraps the [`mpsc::Sender`] so callers only need to call
-/// [`try_send`](InboundQueueHandle::try_send) without knowing the
+/// `try_send` without knowing the
 /// channel internals.
 pub struct InboundQueueHandle {
     tx: mpsc::Sender<QueuedInbound>,

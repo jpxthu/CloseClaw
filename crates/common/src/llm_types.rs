@@ -1,8 +1,9 @@
 //! Shared LLM request/response types.
 //!
 //! These pure data structures were moved from `closeclaw-llm` to
-//! `closeclaw-common` so that cross-layer traits (e.g., [`LlmCaller`])
-//! can reference them without creating circular dependencies.
+//! `closeclaw-common` so that cross-layer traits
+//! (e.g., [`LlmCaller`](crate::llm_caller::LlmCaller)) can reference them
+//! without creating circular dependencies.
 
 use serde::{Deserialize, Serialize};
 

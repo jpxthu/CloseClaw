@@ -75,7 +75,8 @@ pub trait SystemPromptBuilder: Send + Sync {
     /// three code-extra parameters (`session_id`, `overrides`,
     /// `activated_skills`).
     ///
-    /// The default implementation delegates to [`build_prompt_with_activated`]
+    /// The default implementation delegates to
+    /// [`build_prompt_with_activated`](Self::build_prompt_with_activated)
     /// and ignores the ToolRegistry reference, preserving backward
     /// compatibility for downstream crates that have not yet been
     /// adapted to pass the registry through the injection chain.
@@ -98,12 +99,12 @@ pub trait SystemPromptBuilder: Send + Sync {
     ///
     /// Same as [`build_prompt`](Self::build_prompt) but passes the
     /// activated skill set through to the provider pipeline via
-    /// [`FragmentContext::activated_skills`]. This is the SP rebuild
-    /// path: [`SkillsFragmentProvider`] reads the activation set to
-    /// include activated conditional skills in the listing.
+    /// [`FragmentContext::activated_skills`](crate::fragment::FragmentContext::activated_skills).
+    /// This is the SP rebuild path: `SkillsFragmentProvider` reads the
+    /// activation set to include activated conditional skills in the listing.
     ///
     /// The default implementation ignores the activated set and
-    /// delegates to [`build_prompt`], matching the pre-activation
+    /// delegates to [`build_prompt`](Self::build_prompt), matching the pre-activation
     /// behavior.
     async fn build_prompt_with_activated(
         &self,

@@ -7,7 +7,7 @@
 //! - [`ToolSummary`]：一级摘要数据，仅用于 system prompt 索引
 //! - [`ToolError`]：工具层错误类型
 //!
-//! Tool trait 是新类型体系，与 [`crate::skills::Skill`] trait 完全独立：
+//! Tool trait 是新类型体系，与 `crate::skills::Skill` trait 完全独立：
 //! - Skill = 领域知识按需读取
 //! - Tool = LLM 可调用能力
 

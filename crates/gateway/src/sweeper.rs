@@ -87,7 +87,7 @@ impl ArchiveSweeper {
 
     /// Attach a mining notify channel sender.  When a session is
     /// archived, the sender emits the session ID so the
-    /// [`DreamingScheduler`] can trigger mining immediately.
+    /// `DreamingScheduler` can trigger mining immediately.
     pub fn with_mining_notify_tx(mut self, tx: mpsc::Sender<String>) -> Self {
         self.mining_notify_tx = Some(tx);
         self
@@ -103,7 +103,7 @@ impl ArchiveSweeper {
     /// Run the sweeper loop until `shutdown` signal is received.
     ///
     /// When shutdown arrives, if a sweep is in progress the sweeper
-    /// waits up to [`SWEEPER_GRACE_PERIOD_SECS`] for it to finish
+    /// waits up to `SWEEPER_GRACE_PERIOD_SECS` for it to finish
     /// before forcibly aborting the task.
     ///
     /// # Arguments
@@ -163,7 +163,7 @@ impl ArchiveSweeper {
         Self::wait_grace_period(running_task).await;
     }
 
-    /// Wait up to [`SWEEPER_GRACE_PERIOD_SECS`] for a running sweep to
+    /// Wait up to `SWEEPER_GRACE_PERIOD_SECS` for a running sweep to
     /// finish, then abort it if it does not complete in time.
     async fn wait_grace_period(task: Option<tokio::task::JoinHandle<()>>) {
         let Some(mut task) = task else {

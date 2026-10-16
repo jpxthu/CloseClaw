@@ -1,6 +1,7 @@
 //! Two-level permission check helpers for built-in tools.
 //!
-//! Extracts the common permission-checking pattern from [`BashTool`] into
+//! Extracts the common permission-checking pattern from
+//! [`BashTool`](crate::builtin::BashTool) into
 //! reusable functions that all built-in tools can share.  The design doc
 //! mandates two levels of checking:
 //!

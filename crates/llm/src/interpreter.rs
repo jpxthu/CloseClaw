@@ -21,7 +21,8 @@ use glob::Pattern;
 /// Trait for provider-specific response and stream-event normalisation.
 ///
 /// Implementors translate protocol-internal raw types
-/// ([`RawContentBlock`], [`RawUsage`], [`StreamEvent`]) into the unified public
+/// ([`RawContentBlock`], [`RawUsage`](crate::types::RawUsage),
+/// [`StreamEvent`]) into the unified public
 /// types ([`ContentBlock`], [`UnifiedUsage`], normalised `StreamEvent`).
 ///
 /// All implementations must be `Send + Sync` to allow shared access in the
@@ -452,7 +453,7 @@ impl ModelInterpreter for AnthropicInterpreter {
     /// Pass through all SSE events.
     ///
     /// Anthropic SSE events are already correctly mapped by
-    /// [`AnthropicProtocol::parse_sse_stream`]: `thinking_delta` produces
+    /// `AnthropicProtocol::parse_sse_stream`: `thinking_delta` produces
     /// `BlockDelta{Thinking{content, signature:None}}`, `signature_delta`
     /// produces `BlockDelta{Thinking{"", signature:Some}}`. The signature
     /// is carried in the delta and attached by consumers downstream.

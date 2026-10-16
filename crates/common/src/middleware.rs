@@ -3,8 +3,10 @@
 //! Defines the [`OutboundMiddleware`] trait that allows inspecting
 //! rendered outbound messages between IM Adapter rendering and sending.
 //!
-//! The middleware chain runs after [`IMPlugin::render`] produces a
-//! [`RenderedOutput`] and before [`IMPlugin::send`] delivers it to
+//! The middleware chain runs after
+//! [`IMPlugin::render`](crate::im_plugin::IMPlugin::render) produces a
+//! [`RenderedOutput`] and before
+//! [`IMPlugin::send`](crate::im_plugin::IMPlugin::send) delivers it to
 //! the target platform.
 
 use async_trait::async_trait;
@@ -81,7 +83,8 @@ pub struct MiddlewareContext {
 ///
 /// Implementations inspect outbound messages and decide whether to
 /// allow or reject them. The middleware chain runs between
-/// [`IMPlugin::render`] and [`IMPlugin::send`]. Middlewares must not
+/// [`IMPlugin::render`](crate::im_plugin::IMPlugin::render) and
+/// [`IMPlugin::send`](crate::im_plugin::IMPlugin::send). Middlewares must not
 /// modify the message content — returning `Ok(())` signals "allow"
 /// and returning `Err(MiddlewareError::Rejected { .. })` signals
 /// "reject".

@@ -2,8 +2,8 @@
 //!
 //! - [`audit`]: records audit logs for every outbound message.
 //! - [`rate_limit`]: session-level sliding-window rate limiting.
-//! - [`register`]: registers the built-in middlewares on a new Gateway.
-//! - [`runner`]: Gateway-owned middleware chain / pre-flight execution
+//! - `register`: registers the built-in middlewares on a new Gateway.
+//! - `runner`: Gateway-owned middleware chain / pre-flight execution
 //!   (common-trait only — no concrete processor-chain dependency).
 
 pub mod audit;

@@ -58,7 +58,7 @@ impl CacheAnomalyInfo {
 /// The reference value is the previous call's total prompt tokens;
 /// it is compared against the current call's cache-read tokens. Returns
 /// `Some(CacheAnomalyInfo)` when the absolute deviation exceeds the
-/// fixed tolerance ([`CACHE_TOLERANCE_TOKENS`]) — direction-agnostic,
+/// fixed tolerance (`CACHE_TOLERANCE_TOKENS`) — direction-agnostic,
 /// so a hit count exceeding the reference is also an anomaly.
 ///
 /// Returns `None` (no check / no anomaly) when:

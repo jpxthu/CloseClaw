@@ -77,7 +77,7 @@ pub enum ChildSessionState {
     Errored,
 }
 
-/// Completion status of a child session, used in [`AnnounceEvent`]
+/// Completion status of a child session, used in `AnnounceEvent`
 /// to convey the final outcome to the parent session.
 ///
 /// This is a snapshot of [`ChildSessionState`] taken at announce time.

@@ -351,7 +351,7 @@ pub trait IMPlugin: Send + Sync {
     ) -> Result<Option<NormalizedMessage>, AdapterError>;
 
     /// Returns platform-specific metadata from the last successful
-    /// [`parse_inbound`] call (e.g. `chat_name`).
+    /// [`parse_inbound`](Self::parse_inbound) call (e.g. `chat_name`).
     ///
     /// Adapters that produce extra metadata during parsing (fields that
     /// were removed from [`NormalizedMessage`] but still need to reach
@@ -478,9 +478,10 @@ pub trait IMPlugin: Send + Sync {
 
     /// Returns a reference to the platform's streaming renderer, if any.
     ///
-    /// Platforms that hold a [`DefaultStreamingRenderer`] should override this
-    /// to return `Some(&self.streaming_renderer)`. The default streaming
-    /// methods ([`handle_stream_event`](IMPlugin::handle_stream_event),
+    /// Platforms that hold a
+    /// [`DefaultStreamingRenderer`](crate::streaming::DefaultStreamingRenderer)
+    /// should override this to return `Some(&self.streaming_renderer)`. The
+    /// default streaming methods ([`handle_stream_event`](IMPlugin::handle_stream_event),
     /// [`flush_stream`](IMPlugin::flush_stream),
     /// [`check_stream_timeout`](IMPlugin::check_stream_timeout)) will then
     /// delegate to it automatically.
