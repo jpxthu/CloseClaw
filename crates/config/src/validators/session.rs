@@ -16,7 +16,7 @@ use super::{ensure_object, validate_non_negative_field};
 /// - If `planArchiveDays` is present, it must be non-negative.
 /// - If `auditLogLimit` is present, it must be non-negative.
 /// - If `compact` is present and non-null, it must deserialize to a valid
-///   `CompactConfig` (positive `chars_per_token`, thresholds in [0,1],
+///   `CompactConfig` (positive `chars_per_token`, thresholds in \[0,1\],
 ///   `auto_compact_threshold_pct` < `warning_threshold_pct`).
 pub fn validate_session(value: &serde_json::Value) -> Result<(), String> {
     ensure_object(value, "session")?;

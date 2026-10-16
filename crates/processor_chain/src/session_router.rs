@@ -1,9 +1,9 @@
 //! Platform-agnostic session router for the unified processor chain.
 //!
-//! Computes a deterministic [`session_key`] from [`MessageContext::initial_raw()`]
+//! Computes a deterministic `session_key` from `MessageContext::initial_raw()`
 //! fields (`platform`, `sender_id`, `peer_id`) and writes it to the message
-//! metadata so that upstream consumers (e.g. [`Gateway::route_message`]) can
-//! resolve sessions via [`SessionManager::resolve`].
+//! metadata so that upstream consumers (e.g. `Gateway::route_message`) can
+//! resolve sessions via `SessionManager::resolve`.
 //!
 //! The session key algorithm follows the design doc spec:
 //! `session_key = {timestamp_ms}-{sha256(channel:from:to:account_id:timestamp_ms)}`

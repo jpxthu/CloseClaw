@@ -19,13 +19,13 @@
 //!    well-formed base_url — the models row of the validation table) →
 //!    F3, same path.
 //!
-//! Cases 3–4 are rejected by [`gate_models_value`]; all of cases 2–4
-//! share [`ConfigManager::rollback_models`] (case 2 enters rollback
+//! Cases 3–4 are rejected by `gate_models_value`; all of cases 2–4
+//! share `ConfigManager::rollback_models` (case 2 enters rollback
 //! directly from the `from_str` `Err`, without passing the gate).
 //! The cache is written at exactly one place
-//! ([`ConfigManager::set_models_cache`]): at load from the gate's typed
+//! (`ConfigManager::set_models_cache`): at load from the gate's typed
 //! parse (or the rollback outcome) and on section writes from
-//! [`ConfigManager::cache_models_config`]; [`ConfigManager::models_config`]
+//! `ConfigManager::cache_models_config`; [`ConfigManager::models_config`]
 //! only reads it (logged where filled, never per call).
 
 use crate::manager::{ConfigLoadError, ConfigManager, ConfigSection, ConfigSnapshot};
@@ -133,7 +133,7 @@ impl ConfigManager {
     /// was logged when the cache was filled, not per call. Consumers
     /// treat the default as "no provider or model configured" (empty LLM
     /// fallback chain, startup proceeds). Load-time failures of a present
-    /// file are refused earlier by [`Self::load_models_section`] (F3).
+    /// file are refused earlier by `Self::load_models_section` (F3).
     pub fn models_config(&self) -> ModelsConfigData {
         self.parsed_models_config().unwrap_or_default()
     }

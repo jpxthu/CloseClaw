@@ -319,7 +319,7 @@ impl ConfigManager {
     /// Create a `ConfigManager` using the platform default config directory.
     ///
     /// Resolves `~/.closeclaw` via `closeclaw_platform::config::root_dir()`
-    /// and delegates to [`Self::default_root_at`].
+    /// and delegates to `Self::default_root_at`.
     pub fn with_default_root_dir() -> io::Result<Self> {
         let root = closeclaw_platform::config::root_dir().map_err(io::Error::other)?;
         Self::default_root_at(root)

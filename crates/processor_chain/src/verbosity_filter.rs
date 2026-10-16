@@ -10,7 +10,8 @@
 //!   ([`ContentBlock::Text`], [`ContentBlock::Image`], [`ContentBlock::Audio`],
 //!   [`ContentBlock::File`])
 //!
-//! Priority 5 — runs before [`DslParser`] (priority 10).
+//! Priority 5 — runs before [`DslParser`](crate::processor_chain::dsl_parser::DslParser)
+//! (priority 10).
 
 use std::collections::HashMap;
 
