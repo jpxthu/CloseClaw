@@ -185,21 +185,33 @@ impl StepHook for CustomHook {
             Ok(Ok(_)) | Ok(Err(_)) => Ok(HookResult::Continue),
             Err(_elapsed) => {
                 if let Some(pid) = child.id() {
-                    // SAFETY: kill(2) with a pid argument performs no memory
-                    // access. The child was spawned as its own process group
-                    // leader (`process_group(0)`), so a negative pid targets
-                    // the whole hook process tree; a stale pid at worst hits
-                    // an unrelated process or fails with ESRCH.
-                    let ret = unsafe { libc::kill(-(pid as i32), libc::SIGKILL) };
-                    if ret != 0 {
-                        tracing::warn!(
-                            pid,
-                            error = %std::io::Error::last_os_error(),
-                            "failed to kill timed-out hook process group"
-                        );
+                    // PIDs exceeding i32::MAX cannot exist on Unix (see
+                    // closeclaw_platform::process for the same guard); a cast
+                    // would wrap and turn the negative-pgid kill into an
+                    // unintended broadcast, so skip kill instead.
+                    if let Ok(pid_i32) = i32::try_from(pid) {
+                        // SAFETY: kill(2) with a pid argument performs no memory
+                        // access. The child was spawned as its own process group
+                        // leader (`process_group(0)`), so a negative pid targets
+                        // the whole hook process tree; a stale pid (PID reuse
+                        // race) at worst hits an unrelated process or fails
+                        // with ESRCH.
+                        if unsafe { libc::kill(-pid_i32, libc::SIGKILL) } == 0 {
+                            // Reap only on confirmed delivery: waiting on a
+                            // child we failed to signal could block long past
+                            // the timeout (non-blocking contract).
+                            let _ = child.wait().await;
+                        } else {
+                            tracing::warn!(
+                                pid,
+                                error = %std::io::Error::last_os_error(),
+                                "failed to kill timed-out hook process group"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(pid, "hook pid exceeds i32::MAX, skipping kill");
                     }
                 }
-                let _ = child.wait().await;
                 Ok(HookResult::Continue) // timeout is non-blocking per plan
             }
         }
