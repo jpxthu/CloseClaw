@@ -232,6 +232,11 @@ fn test_concurrent_get_and_populate() {
     use std::sync::Arc;
     use std::thread;
 
+    const WRITER_COUNT: i32 = 50;
+    fn writer_id(i: i32) -> String {
+        format!("writer-{i}")
+    }
+
     let registry = Arc::new(AgentRegistry::new());
 
     // Spawn threads that read and write concurrently
@@ -240,8 +245,8 @@ fn test_concurrent_get_and_populate() {
     // Writer thread: populate with configs
     let reg_write = Arc::clone(&registry);
     handles.push(thread::spawn(move || {
-        for i in 0..50 {
-            let cfg = make_config(&format!("writer-{}", i));
+        for i in 0..WRITER_COUNT {
+            let cfg = make_config(&writer_id(i));
             reg_write.populate(vec![cfg]);
         }
     }));
@@ -250,8 +255,8 @@ fn test_concurrent_get_and_populate() {
     for _t in 0..5 {
         let reg_read = Arc::clone(&registry);
         handles.push(thread::spawn(move || {
-            for _i in 0..50 {
-                let id = format!("writer-{}", _i);
+            for _i in 0..WRITER_COUNT {
+                let id = writer_id(_i);
                 let _result = reg_read.get(&id);
                 // Just verify no panic — DashMap handles concurrent access
             }
@@ -263,8 +268,8 @@ fn test_concurrent_get_and_populate() {
     }
 
     // After all threads join, all 50 populated configs should be present
-    let missing: Vec<String> = (0..50)
-        .map(|i| format!("writer-{}", i))
+    let missing: Vec<String> = (0..WRITER_COUNT)
+        .map(writer_id)
         .filter(|id| registry.get(id).is_none())
         .collect();
     assert!(
