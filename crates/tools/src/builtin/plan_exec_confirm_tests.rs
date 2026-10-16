@@ -84,6 +84,14 @@ fn make_mock() -> (Arc<MockSessionLookup>, Arc<dyn SessionLookup>) {
     (mock, sm)
 }
 
+/// Plan path derived from the system temp dir (tests must not hardcode `/tmp`).
+fn plan_path() -> String {
+    std::env::temp_dir()
+        .join("plan.md")
+        .to_string_lossy()
+        .into_owned()
+}
+
 fn make_test_meta(plan_file_path: &str) -> PlanExecMetadata {
     PlanExecMetadata {
         plan_file_path: plan_file_path.to_string(),
@@ -109,7 +117,7 @@ async fn submit_generates_id_and_stores_entry() {
     });
 
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
-    let meta = make_test_meta("/tmp/test_plan.md");
+    let meta = make_test_meta(&plan_path());
     let id = flow.submit("session-1", meta).await;
 
     assert!(!id.is_empty());
@@ -144,7 +152,7 @@ async fn clear_removes_all_pending() {
         Arc::new(|_, _, _| Box::pin(async { Ok("child-1".to_string()) }));
     flow.set_create_child_session_fn(create_fn);
 
-    let meta = make_test_meta("/tmp/plan.md");
+    let meta = make_test_meta(&plan_path());
     let id = flow.submit("session-1", meta).await;
 
     flow.clear().await;
@@ -158,10 +166,11 @@ async fn confirm_same_session_transitions_to_auto() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    insert_plan_state(&mock, "session-1", "/tmp/plan.md");
+    let plan_path = plan_path();
+    insert_plan_state(&mock, "session-1", &plan_path);
 
     let meta = PlanExecMetadata {
-        plan_file_path: "/tmp/plan.md".to_string(),
+        plan_file_path: plan_path,
         step_selection: None,
         new_session: false,
         additional_instruction: None,
@@ -185,10 +194,11 @@ async fn confirm_same_session_with_additional_instruction() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    insert_plan_state(&mock, "session-1", "/tmp/plan.md");
+    let plan_path = plan_path();
+    insert_plan_state(&mock, "session-1", &plan_path);
 
     let meta = PlanExecMetadata {
-        plan_file_path: "/tmp/plan.md".to_string(),
+        plan_file_path: plan_path,
         step_selection: None,
         new_session: false,
         additional_instruction: Some("请先阅读 CONTRIBUTING.md".to_string()),
@@ -250,7 +260,7 @@ async fn cancel_removes_entry_and_pushes_message() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    let meta = make_test_meta("/tmp/plan.md");
+    let meta = make_test_meta(&plan_path());
     let id = flow.submit("session-1", meta).await;
 
     assert!(flow.cancel(&id).await);
@@ -276,9 +286,10 @@ async fn confirm_idempotent_second_confirm_returns_false() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    insert_plan_state(&mock, "session-1", "/tmp/plan.md");
+    let plan_path = plan_path();
+    insert_plan_state(&mock, "session-1", &plan_path);
 
-    let meta = make_test_meta("/tmp/plan.md");
+    let meta = make_test_meta(&plan_path);
     let id = flow.submit("session-1", meta).await;
 
     assert!(flow.confirm(&id).await);
@@ -291,10 +302,11 @@ async fn additional_instruction_whitespace_ignored() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    insert_plan_state(&mock, "session-1", "/tmp/plan.md");
+    let plan_path = plan_path();
+    insert_plan_state(&mock, "session-1", &plan_path);
 
     let meta = PlanExecMetadata {
-        plan_file_path: "/tmp/plan.md".to_string(),
+        plan_file_path: plan_path,
         step_selection: None,
         new_session: false,
         additional_instruction: Some("   ".to_string()),
@@ -487,7 +499,7 @@ async fn concurrent_confirm_same_id_only_once() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
-    let meta = make_test_meta("/tmp/plan.md");
+    let meta = make_test_meta(&plan_path());
     let id = flow.submit("session-1", meta).await;
 
     // Launch two concurrent confirm calls on the same id.
@@ -516,9 +528,11 @@ async fn confirm_plan_mode_sets_pending_auto_not_immediate() {
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
 
+    let plan_path = plan_path();
+
     // Set up session in Plan mode with a plan state
     let mut ps = PlanState::new();
-    ps.plan_file_path = "/tmp/plan.md".to_string();
+    ps.plan_file_path = plan_path.clone();
     mock.state()
         .plan_states
         .insert("session-plan".to_string(), ps);
@@ -527,7 +541,7 @@ async fn confirm_plan_mode_sets_pending_auto_not_immediate() {
         .insert("session-plan".to_string(), SessionMode::Plan);
 
     let meta = PlanExecMetadata {
-        plan_file_path: "/tmp/plan.md".to_string(),
+        plan_file_path: plan_path,
         step_selection: None,
         new_session: false,
         additional_instruction: None,
