@@ -543,6 +543,15 @@ impl SessionManager {
                                 .await
                                 .unwrap_or(BootstrapMode::Full);
                             conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
+                            // Cache no_bootstrap from the agent config: declared
+                            // `noBootstrap: true` runs the session without any
+                            // bootstrap files (priority over bootstrap_mode).
+                            let no_bootstrap = self
+                                .get_agent_config(&agent_id)
+                                .await
+                                .map(|c| c.no_bootstrap)
+                                .unwrap_or(false);
+                            conv_session = conv_session.with_no_bootstrap(no_bootstrap);
                             // Build initial system prompt via session's own builder.
                             info!(
                                 session_id = %archived_id,
@@ -721,6 +730,15 @@ impl SessionManager {
             .await
             .unwrap_or(BootstrapMode::Full);
         conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
+        // Cache no_bootstrap from the agent config: declared
+        // `noBootstrap: true` runs the session without any bootstrap
+        // files (priority over bootstrap_mode).
+        let no_bootstrap = self
+            .get_agent_config(&agent_id)
+            .await
+            .map(|c| c.no_bootstrap)
+            .unwrap_or(false);
+        conv_session = conv_session.with_no_bootstrap(no_bootstrap);
         // Build initial system prompt via session's own builder.
         info!(
             session_id = %session_id,

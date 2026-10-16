@@ -20,6 +20,11 @@ impl SessionManager {
             .query_agent_bootstrap_mode(&agent_id_for_rebuild)
             .await
             .unwrap_or(BootstrapMode::Full);
+        let no_bootstrap = self
+            .get_agent_config(&agent_id_for_rebuild)
+            .await
+            .map(|c| c.no_bootstrap)
+            .unwrap_or(false);
         let cs_arc = {
             let cs = self.conversation_sessions.read().await;
             cs.get(session_id).cloned()
@@ -44,8 +49,12 @@ impl SessionManager {
             // Inject skill listing provider and agent-level skills whitelist.
             self.wire_skill_listing_deps(&mut cs, &agent_id_for_rebuild)
                 .await;
-            // Cache bootstrap mode on the session (was only queried, not cached).
-            *cs = cs.clone().with_bootstrap_mode(bootstrap_mode);
+            // Cache bootstrap mode on the session (was only queried, not cached),
+            // plus no_bootstrap from the agent config (priority over bootstrap_mode).
+            *cs = cs
+                .clone()
+                .with_bootstrap_mode(bootstrap_mode)
+                .with_no_bootstrap(no_bootstrap);
             // Rebuild the system prompt (existing behavior).
             cs.rebuild_system_prompt(session_id, &agent_id_for_rebuild, Some(bootstrap_mode))
                 .await;
@@ -63,3 +72,6 @@ impl SessionManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests;
