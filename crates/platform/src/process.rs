@@ -114,7 +114,7 @@ pub(crate) fn pid_file_path_inner(home: &str) -> PathBuf {
 /// Returns the fixed PID file path: `~/.closeclaw/daemon.pid`.
 ///
 /// Reads the `HOME` environment variable and delegates to
-/// [`pid_file_path_inner`]. This is the sole authority for PID file
+/// `pid_file_path_inner`. This is the sole authority for PID file
 /// location — callers must not compute their own paths.
 ///
 /// # Errors

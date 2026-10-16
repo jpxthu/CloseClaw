@@ -19,11 +19,11 @@ pub type RetentionProvider = Arc<dyn Fn() -> u64 + Send + Sync>;
 pub type CleanupFn =
     Arc<dyn Fn(u64) -> Result<u64, Box<dyn std::error::Error + Send + Sync>> + Send + Sync>;
 
-/// Handle to a running [`MediaCleanupTask`].
+/// Handle to a running media cleanup task.
 ///
 /// Dropping this handle does **not** stop the task — the background
 /// task continues running until the process exits. To stop it early,
-/// use [`MediaCleanupTask::shutdown`].
+/// use [`Self::shutdown`].
 #[derive(Debug)]
 pub struct MediaCleanupHandle {
     shutdown_tx: Option<tokio::sync::oneshot::Sender<()>>,

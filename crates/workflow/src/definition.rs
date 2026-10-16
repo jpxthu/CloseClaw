@@ -72,7 +72,7 @@ impl Workflow {
     /// Parse a complete SKILL.md file containing YAML frontmatter delimited
     /// by `---` markers.
     ///
-    /// Unlike [`parse_frontmatter`], this function extracts the YAML block
+    /// Unlike [`Self::parse_frontmatter`], this function extracts the YAML block
     /// between the first pair of `---` delimiters before parsing.
     ///
     /// # Errors
