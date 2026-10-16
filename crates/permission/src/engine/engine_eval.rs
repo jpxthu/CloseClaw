@@ -337,7 +337,7 @@ impl PermissionEngine {
 impl PermissionEngine {
     /// Evaluate a permission request using the engine's current rules.
     ///
-    /// When agent rules are configured (via [`AgentRuleStore`]), the caller's
+    /// When agent rules are configured (via `AgentRuleStore`), the caller's
     /// agent rules are lazily loaded and merged with the global rules before
     /// evaluation. The merge produces a combined `RuleSet` + indices that
     /// participate in the existing two-phase evaluation logic.

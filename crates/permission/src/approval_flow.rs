@@ -1,6 +1,6 @@
 //! ApprovalFlow - Daemon-level approval orchestrator
 //!
-//! Wraps [`ApprovalQueue`] and integrates with [`SessionManager`] to provide
+//! Wraps [`ApprovalQueue`] and integrates with `SessionManager` to provide
 //! the full approval workflow: deny → queue → notify owner → approve/deny →
 //! push result message to session.
 //!
@@ -100,7 +100,7 @@ fn is_heartbeat_operation(request: &PermissionRequestBody) -> bool {
 
 /// Daemon-level approval orchestrator.
 ///
-/// Holds the [`ApprovalQueue`], a reference to [`SessionManager`] for pushing
+/// Holds the [`ApprovalQueue`], a reference to `SessionManager` for pushing
 /// result messages, an owner notification callback, a whitelist-updated
 /// callback, and a tokio runtime handle for spawning async tasks from
 /// synchronous closures.
@@ -246,7 +246,7 @@ impl ApprovalFlow {
     /// Override the trace ID for debug-log event correlation.
     ///
     /// By default, a trace ID is generated at construction via
-    /// [`generate_trace_id("permission")`]. This method allows
+    /// `generate_trace_id("permission")`. This method allows
     /// callers to set a specific trace ID (e.g. the inbound message
     /// trace) so that permission events correlate with the parent
     /// request.
@@ -459,8 +459,8 @@ impl ApprovalFlow {
     /// Submit a user creation request for owner approval.
     ///
     /// Stores the request and notifies the owner via [`ApprovalNotification`].
-    /// The request is resolved when the owner calls [`approve_request`] or
-    /// [`deny_request`] with the returned `request_id`.
+    /// The request is resolved when the owner calls [`Self::approve_request`] or
+    /// [`Self::deny_request`] with the returned `request_id`.
     ///
     /// Returns `Some(request_id)` on success, or `None` if a duplicate
     /// request (same user_id + channel) is already pending.
@@ -529,7 +529,8 @@ impl ApprovalFlow {
     /// On success, a "已批准" message is pushed to the requesting session.
     ///
     /// For user creation requests, the user is registered via
-    /// [`UserRegistry`] and initial permission rules are persisted.
+    /// [`UserRegistry`](crate::user_registry::UserRegistry) and initial
+    /// permission rules are persisted.
     ///
     /// # Errors
     /// Returns `Err(RejectWhitelistReason::HighRisk)` if `mode` is
