@@ -396,6 +396,27 @@ do_dep_guard() (
         return "$rc"
     fi
     echo "[ok] dep-guard 四项检查完成"
+    # 挂载单测套件：unittest discover 对 0 个匹配用例在 Python ≤3.11 下仍 exit 0
+    # （3.12+ 才有 exit 5 的版本性行为），空跑守卫不能依赖退出码，
+    # 需解析 Ran N tests 并显式断言 N > 0（discover pattern 隐错防护）
+    local suite_log
+    local suite_rc=0
+    suite_log="$(cd "$(dirname "$guard")" \
+        && PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s . -p "*_test.py" 2>&1)" || suite_rc=$?
+    printf '%s\n' "$suite_log"
+    if [[ $suite_rc -ne 0 ]]; then
+        echo "[FAIL] dep-guard 单测套件运行失败（退出码 $suite_rc），明细见上方"
+        return "$suite_rc"
+    fi
+    local n_tests=0
+    if [[ $suite_log =~ Ran\ ([0-9]+)\ tests ]]; then
+        n_tests="${BASH_REMATCH[1]}"
+    fi
+    if [[ $n_tests -eq 0 ]]; then
+        echo "[FAIL] dep-guard 单测套件空跑（Ran 0 tests 或解析失败），请检查 discover pattern 是否匹配 *_test.py"
+        return 1
+    fi
+    echo "[ok] dep-guard 单测套件通过（Ran $n_tests tests）"
     return 0
 )
 
