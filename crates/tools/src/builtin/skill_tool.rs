@@ -450,7 +450,7 @@ mod tests {
         let skill = make_skill_with_body(
             "test",
             "Session: ${SESSION_ID}",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let ctx = new_ctx_with_session(Some("sess-abc-123".to_string()));
         let body_str = "Session: ${SESSION_ID}";
@@ -463,7 +463,7 @@ mod tests {
         let skill = make_skill_with_body(
             "test",
             "Hello ${UNKNOWN_VAR}",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let ctx = new_ctx();
         let body_str = "Hello ${UNKNOWN_VAR}";
@@ -476,7 +476,7 @@ mod tests {
         let skill = make_skill_with_body(
             "test",
             "Plain text without variables",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let ctx = new_ctx();
         let body_str = "Plain text without variables";
@@ -486,17 +486,21 @@ mod tests {
 
     #[test]
     fn test_substitute_mixed_known_and_unknown() {
+        let skill_dir = std::env::temp_dir().join("my-skill");
         let skill = make_skill_with_body(
             "test",
             "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}",
-            std::path::PathBuf::from("/tmp/my-skill"),
+            skill_dir.clone(),
         );
         let ctx = new_ctx_with_session(Some("s-999".to_string()));
         let body_str = "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}";
         let result = SkillTool::substitute_variables(body_str, &skill.skill_dir, &ctx);
         assert_eq!(
             result,
-            "Dir: /tmp/my-skill, Session: s-999, Unknown: ${FOO}"
+            format!(
+                "Dir: {}, Session: s-999, Unknown: ${{FOO}}",
+                skill_dir.display()
+            )
         );
     }
 
@@ -505,7 +509,7 @@ mod tests {
         let skill = make_skill_with_body(
             "test",
             "Session: ${SESSION_ID}",
-            std::path::PathBuf::from("/tmp/skill"),
+            std::env::temp_dir().join("skill"),
         );
         let ctx = new_ctx_with_session(None);
         let body_str = "Session: ${SESSION_ID}";
