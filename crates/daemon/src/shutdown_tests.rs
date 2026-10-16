@@ -197,7 +197,7 @@ async fn test_initiate_shutdown_first_caller_wins() {
     spawn_shutdown(&handle);
 
     // Give it a moment to enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(handle.is_shutting_down());
 
     // Release the busy count so drain can complete
@@ -225,7 +225,7 @@ fn test_shutdown_mode_debug() {
 #[test]
 fn test_drain_poll_interval_test_mode() {
     // In test mode, drain_poll_interval should return 100ms (not 2s)
-    assert_eq!(drain_poll_interval(), std::time::Duration::from_millis(100));
+    assert_eq!(drain_poll_interval(), Duration::from_millis(100));
 }
 
 // ── Step 1.3: try_start_forceful_shutdown unit tests ──────────────
@@ -295,7 +295,7 @@ async fn test_subscribe_drain_triggers_on_escalation() {
     // Spawn initiate_shutdown — it will block on drain because busy_count > 0
     spawn_shutdown(&handle);
     // Let it enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(handle.is_shutting_down());
 
     // Escalate — drain_done_tx fires during initiate_shutdown,
@@ -305,7 +305,7 @@ async fn test_subscribe_drain_triggers_on_escalation() {
     handle.decrement_busy();
 
     // Wait for shutdown to finish
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     // The subscriber received at least one drain signal
     // (sent in initiate_shutdown before the drain loop)
@@ -353,7 +353,7 @@ fn test_is_shutting_down_false_when_stopped() {
 #[tokio::test]
 async fn test_graceful_drain_timeout() {
     // After timeout, drain completes even if busy_count > 0.
-    let handle = ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(100));
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(100));
     // Register two pending operations — neither will complete
     handle.increment_busy();
     handle.increment_busy();
@@ -362,7 +362,7 @@ async fn test_graceful_drain_timeout() {
     let shutdown_handle = spawn_shutdown(&handle);
 
     // Wait for timeout to fire + buffer
-    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    tokio::time::sleep(Duration::from_millis(300)).await;
 
     // Shutdown should have completed despite busy_count > 0
     await_shutdown(Duration::from_secs(10), shutdown_handle).await;
@@ -374,7 +374,7 @@ async fn test_graceful_drain_timeout() {
 #[tokio::test]
 async fn test_drain_timeout_returns_remaining_count() {
     // Timeout leaves busy_count intact — caller gets the remaining count.
-    let handle = ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_millis(200));
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_millis(200));
     handle.increment_busy();
     handle.increment_busy();
     handle.increment_busy();
@@ -383,7 +383,7 @@ async fn test_drain_timeout_returns_remaining_count() {
     spawn_shutdown(&handle);
 
     // Wait for timeout + buffer
-    tokio::time::sleep(std::time::Duration::from_millis(600)).await;
+    tokio::time::sleep(Duration::from_millis(600)).await;
     assert!(handle.is_stopped());
     // busy_count still reflects the 3 in-flight operations
     assert_eq!(handle.busy_count(), 3);
@@ -393,14 +393,14 @@ async fn test_drain_timeout_returns_remaining_count() {
 async fn test_drain_completes_on_zero_count() {
     // When busy_count reaches 0, drain completes immediately
     // without waiting for the full timeout.
-    let handle = ShutdownHandle::new().with_drain_timeout(std::time::Duration::from_secs(10));
+    let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_secs(10));
     handle.increment_busy();
     handle.increment_busy();
 
     let shutdown_handle = spawn_shutdown(&handle);
 
     // Let it enter the drain loop
-    tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+    tokio::time::sleep(Duration::from_millis(150)).await;
     assert!(!handle.is_stopped());
 
     // Complete both operations
@@ -423,7 +423,7 @@ async fn test_forceful_skips_drain() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(handle.is_shutting_down());
     assert!(!handle.is_stopped());
 
