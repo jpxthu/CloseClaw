@@ -537,12 +537,14 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 /// genuinely waiting out its ≤1 s bound (never vacuously early, so
 /// real callers keep a working handshake) instead of hanging the
 /// test. The clock is paused (`start_paused`), so the bound is
-/// measured in virtual time: the lower-bound assertion tightens to
-/// an exact `>= 1 s` while the real wall-clock cost collapses to
-/// µs (STANDARDS §9, determinism over real-time comparisons).
-/// Both in-suite call sites (slow / sufficient) only ever hit
-/// the notified branch; the lower-bound assertion is deterministic
-/// here precisely because no notify can fire in this setup.
+/// measured in virtual time: the assertion pins the exact
+/// `== 1 s` bound (elapsed deterministically lands on the timeout
+/// deadline, issue #3191-2) while the real wall-clock cost
+/// collapses to µs (STANDARDS §9, determinism over real-time
+/// comparisons). Both in-suite call sites (slow / sufficient) only
+/// ever hit the notified branch; the exact-bound assertion is
+/// deterministic here precisely because no notify can fire in this
+/// setup.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_wait_kill_started_returns_when_notify_never_fires() {
@@ -559,9 +561,12 @@ async fn test_wait_kill_started_returns_when_notify_never_fires() {
         0,
         "kill() never ran in this case, so no notify could fire"
     );
-    assert!(
-        elapsed >= Duration::from_secs(1),
-        "the wait must actually wait out its full 1 s bound when no notify \
-         fires; returned after {elapsed:?}"
+    assert_eq!(
+        elapsed,
+        Duration::from_secs(1),
+        "on a paused clock with the notify never firing, wait_kill_started \
+         must return exactly at its 1 s timeout bound (its only pending \
+         timer; the outer guard is 2 s), neither early nor late; \
+         actual elapsed: {elapsed:?}"
     );
 }
