@@ -549,6 +549,15 @@ async fn wait_registered(rx: oneshot::Receiver<()>) {
         .expect("spawned task must confirm handler registration before signaling");
 }
 
+/// Awaits one signal-delivery step under the file-wide 10s timeout, panicking
+/// with `signal not delivered: {what}` when it does not complete (STANDARDS
+/// §6). Call sites keep unwrapping the future's own output (STANDARDS §9).
+async fn signal_step<T>(what: &str, fut: impl std::future::Future<Output = T>) -> T {
+    tokio::time::timeout(std::time::Duration::from_secs(10), fut)
+        .await
+        .unwrap_or_else(|_| panic!("signal not delivered: {what}"))
+}
+
 #[serial_test::serial]
 #[tokio::test]
 async fn test_phase0_gate_set_during_select_branch() {
@@ -584,10 +593,12 @@ async fn test_phase0_gate_set_during_select_branch() {
 
     kill_self(TestShutdownSignal::Sigterm);
 
-    let gate_active = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
-        .await
-        .expect("signal not delivered: Phase 0 gate select did not complete within 10s")
-        .unwrap();
+    let gate_active = signal_step(
+        "Phase 0 gate select did not complete within 10s",
+        select_result,
+    )
+    .await
+    .unwrap();
     assert!(
         gate_active,
         "gate must be ShuttingDown immediately after signal (inside select branch)"
@@ -634,10 +645,12 @@ async fn test_phase0_gate_sigint_sets_gate_immediately() {
 
     kill_self(TestShutdownSignal::Sigint);
 
-    let actual = tokio::time::timeout(std::time::Duration::from_secs(10), select_result)
-        .await
-        .expect("signal not delivered: Phase 0 SIGINT gate select did not complete within 10s")
-        .unwrap();
+    let actual = signal_step(
+        "Phase 0 SIGINT gate select did not complete within 10s",
+        select_result,
+    )
+    .await
+    .unwrap();
     assert_eq!(
         actual,
         (true, false),
@@ -682,16 +695,16 @@ async fn test_repeated_signal_escalates_graceful_to_forceful() {
     wait_registered(registered_rx).await;
     kill_self(TestShutdownSignal::Sigint);
     let (first_started, first_state) =
-        tokio::time::timeout(std::time::Duration::from_secs(10), first_rx)
+        signal_step("first signal not processed within 10s", first_rx)
             .await
-            .expect("signal not delivered: first signal not processed within 10s")
             .expect("first signal not processed");
     kill_self(TestShutdownSignal::Sigterm);
-    let (escalated, final_state) =
-        tokio::time::timeout(std::time::Duration::from_secs(10), observed)
-            .await
-            .expect("signal not delivered: escalation observation did not complete within 10s")
-            .unwrap();
+    let (escalated, final_state) = signal_step(
+        "escalation observation did not complete within 10s",
+        observed,
+    )
+    .await
+    .unwrap();
     let gate_forceful = handle.is_forceful();
     assert_eq!(
         (first_started, first_state),
