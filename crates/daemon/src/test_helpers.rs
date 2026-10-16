@@ -580,7 +580,7 @@ pub(crate) fn kill_self(sig: TestShutdownSignal) {
 
 // ── Shared signal-step timeout helper ────────────────────────────────────
 
-/// Awaits one signal-delivery step under the file-wide 10s timeout, panicking
+/// Awaits one signal-delivery step under a 10s timeout, panicking
 /// with `signal not delivered: {what}` when it does not complete (STANDARDS
 /// §6). Call sites keep unwrapping the future's own output (STANDARDS §9).
 ///
