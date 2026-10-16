@@ -46,6 +46,7 @@ pub mod mode_transition;
 mod session_cache_check;
 mod session_chat;
 pub use session_chat::ChatSession;
+mod session_debug;
 
 mod session_exec;
 pub mod session_handles;
@@ -152,6 +153,11 @@ pub struct ConversationSession {
     communication_config: Option<CommunicationConfig>,
     /// Bootstrap mode cached from AgentRegistry.
     bootstrap_mode: crate::bootstrap::loader::BootstrapMode,
+    /// Whether this session runs without bootstrap files (agent declared
+    /// `noBootstrap: true`). Cached at state-establishment points
+    /// (create / restore / spawn) alongside `bootstrap_mode`; consumed by
+    /// `rebuild_system_prompt` when assembling `InjectionParams`.
+    no_bootstrap: bool,
     /// Memory-injection slot, managed by active-searcher.
     memory_injection: Arc<Mutex<Option<MemoryInjection>>>,
     /// Last activity timestamp (Unix seconds) — updated on every mutation.
@@ -253,6 +259,7 @@ impl ConversationSession {
             is_yielding: Arc::new(AtomicBool::new(false)),
             communication_config: None,
             bootstrap_mode: crate::bootstrap::loader::BootstrapMode::Full,
+            no_bootstrap: false,
             memory_injection: Arc::new(Mutex::new(None)),
             last_activity_at: Utc::now().timestamp(),
             injected_task_ids: Arc::new(Mutex::new(HashSet::new())),
@@ -351,6 +358,17 @@ impl ConversationSession {
     /// Returns the cached bootstrap mode for this session.
     pub fn bootstrap_mode(&self) -> crate::bootstrap::loader::BootstrapMode {
         self.bootstrap_mode
+    }
+    /// Sets whether this session runs without bootstrap files
+    /// (`noBootstrap: true` from the agent config). Takes priority over
+    /// `bootstrap_mode`; orthogonal to it.
+    pub fn with_no_bootstrap(mut self, no_bootstrap: bool) -> Self {
+        self.no_bootstrap = no_bootstrap;
+        self
+    }
+    /// Returns whether this session runs without bootstrap files.
+    pub fn no_bootstrap(&self) -> bool {
+        self.no_bootstrap
     }
     /// Returns the communication configuration, if set.
     pub fn communication_config(&self) -> Option<&CommunicationConfig> {
@@ -637,7 +655,7 @@ impl ConversationSession {
             bootstrap_mode_override,
             activated_skills: activated,
             session_role,
-            no_bootstrap: false,
+            no_bootstrap: self.no_bootstrap,
             tool_registry: self.tool_registry.clone(),
         };
         let prompt = builder.build_prompt_with_params(&params).await;
@@ -850,124 +868,6 @@ impl ConversationSession {
             .any(|(s, _)| *s == ChildSessionState::Running)
     }
 }
-impl std::fmt::Debug for ConversationSession {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ConversationSession")
-            .field("session_id", &self.session_id)
-            .field("messages", &self.messages)
-            .field("system_prompt", &self.system_prompt)
-            .field("turn_counter", &self.turn_counter)
-            .field("model", &self.model)
-            .field("compaction_state", &self.compaction_state)
-            .field("is_compacted", &self.is_compacted)
-            .field("is_sub_agent", &self.is_sub_agent)
-            .field("unified_queue", &self.unified_queue)
-            .field("reasoning_level", &self.reasoning_level)
-            .field("effective_reasoning_level", &self.effective_reasoning_level)
-            .field("workdir", &self.workdir)
-            .field("created_at", &self.created_at)
-            .field("stats", &self.stats)
-            .field(
-                "streaming_sink",
-                &self.streaming_sink.as_ref().map(|_| "<StreamingSink>"),
-            )
-            .field("stream_enabled", &self.stream_enabled)
-            .field(
-                "llm_state",
-                &*self.llm_state.read().expect("llm_state lock poisoned"),
-            )
-            .field(
-                "tool_states",
-                &*self.tool_states.read().expect("tool_states lock poisoned"),
-            )
-            .field(
-                "child_states",
-                &*self
-                    .child_states
-                    .read()
-                    .expect("child_states lock poisoned"),
-            )
-            .field(
-                "tool_handles",
-                &self
-                    .tool_handles
-                    .read()
-                    .expect("tool_handles lock poisoned")
-                    .len(),
-            )
-            .field(
-                "child_handles",
-                &self
-                    .child_handles
-                    .read()
-                    .expect("child_handles lock poisoned")
-                    .len(),
-            )
-            .field("cancel_token", &"<CancelToken>")
-            .field("stopped", &self.stopped.load(Ordering::SeqCst))
-            .field("is_yielding", &self.is_yielding.load(Ordering::SeqCst))
-            .field("communication_config", &self.communication_config)
-            .field("bootstrap_mode", &self.bootstrap_mode)
-            .field("verbosity_level", &self.verbosity_level)
-            .field(
-                "session_mode",
-                &*self
-                    .session_mode
-                    .lock()
-                    .expect("session_mode lock poisoned"),
-            )
-            .field(
-                "skill_listing_provider",
-                &self
-                    .skill_listing_provider
-                    .as_ref()
-                    .map(|_| "<SkillListingProvider>"),
-            )
-            .field("skill_listing_snapshot", &self.skill_listing_snapshot)
-            .field(
-                "pending_compaction_listing_reset",
-                &self.pending_compaction_listing_reset,
-            )
-            .field(
-                "activated_conditional_skills",
-                &self.activated_conditional_skills,
-            )
-            .field(
-                "tool_registry",
-                &self.tool_registry.as_ref().map(|_| "<TR>"),
-            )
-            .field("agent_skills", &self.agent_skills)
-            .field(
-                "injected_task_ids",
-                &*self
-                    .injected_task_ids
-                    .lock()
-                    .expect("injected_task_ids lock poisoned"),
-            )
-            .field(
-                "memory_injection",
-                &*self
-                    .memory_injection
-                    .lock()
-                    .expect("memory_injection lock poisoned"),
-            )
-            .field(
-                "health_checker",
-                &self.health_checker.as_ref().map(|_| "<HC>"),
-            )
-            .field("manual_background_signal", &"<Notify>")
-            .field(
-                "file_mtimes",
-                &self.file_mtimes.read().ok().map(|m| m.len()),
-            )
-            .field(
-                "file_read_ranges",
-                &self.file_read_ranges.read().ok().map(|m| m.len()),
-            )
-            .finish()
-    }
-}
-
 impl Drop for ConversationSession {
     fn drop(&mut self) {
         self.stats.reset();
