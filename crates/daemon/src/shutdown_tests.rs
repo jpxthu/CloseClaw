@@ -9,6 +9,38 @@ use crate::test_helpers::signal_step;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 
+// ── Shared initiate_shutdown spawn/await helpers (issue #3701) ──────────
+
+/// Spawns `initiate_shutdown` on a clone of `handle`, returning the
+/// task's `JoinHandle<usize>`.
+///
+/// Collapses the `handle.clone()` + `tokio::spawn(..)` skeleton repeated
+/// at every `initiate_shutdown` call site in this file (issue #3701,
+/// replacing the former inline clones+spawns). The task yields
+/// `initiate_shutdown`'s `usize` result so call sites that assert on it
+/// can; fire-and-forget call sites drop the returned handle explicitly.
+fn spawn_shutdown(handle: &ShutdownHandle) -> tokio::task::JoinHandle<usize> {
+    let h = handle.clone();
+    tokio::spawn(async move { h.initiate_shutdown().await })
+}
+
+/// Awaits a [`spawn_shutdown`] task under a `limit` timeout, asserting
+/// the shutdown completed in time and the task did not panic, and
+/// returns `initiate_shutdown`'s `usize` result for call sites that
+/// assert on it.
+///
+/// Collapses the `tokio::time::timeout(..)` + double `.expect(..)` tail
+/// repeated at the awaiting call sites (issue #3701, replacing the
+/// former per-site verbatim double expects). The outer expect message is
+/// generalized to carry no fixed second count because the limit is a
+/// per-call-site parameter; the two assertions themselves are unchanged.
+async fn await_shutdown(limit: Duration, task: tokio::task::JoinHandle<usize>) -> usize {
+    tokio::time::timeout(limit, task)
+        .await
+        .expect("shutdown should complete within the allotted limit")
+        .expect("shutdown task should not panic")
+}
+
 #[test]
 fn test_shutdown_state_from_u8() {
     assert_eq!(ShutdownState::from_u8(0), ShutdownState::Running);
@@ -715,10 +747,7 @@ async fn test_drain_waits_until_busy_count_zero() {
     handle.increment_busy();
 
     // Spawn shutdown — should not complete while busy_count > 0
-    let handle_clone = handle.clone();
-    let shutdown_task = tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
+    let shutdown_task = spawn_shutdown(&handle);
 
     // Give it a moment to enter ShuttingDown state
     tokio::time::sleep(Duration::from_millis(200)).await;
@@ -738,10 +767,7 @@ async fn test_drain_waits_until_busy_count_zero() {
     handle.decrement_busy();
 
     // Wait for shutdown to finish (3s drain timeout in test mode + buffer)
-    tokio::time::timeout(Duration::from_secs(5), shutdown_task)
-        .await
-        .expect("shutdown should complete within 5s")
-        .expect("shutdown task should not panic");
+    await_shutdown(Duration::from_secs(5), shutdown_task).await;
 
     assert!(handle.is_stopped());
 }
@@ -836,11 +862,8 @@ async fn test_drain_timeout_configurable_values() {
         let handle = ShutdownHandle::new().with_drain_timeout(drain_timeout);
         handle.increment_busy();
 
-        let handle_clone = handle.clone();
         let start = tokio::time::Instant::now();
-        let shutdown_task = tokio::spawn(async move {
-            handle_clone.initiate_shutdown().await;
-        });
+        let shutdown_task = spawn_shutdown(&handle);
 
         // Mid-drain observation: still before the deadline, so the
         // drain must be running — not Stopped.
@@ -853,10 +876,7 @@ async fn test_drain_timeout_configurable_values() {
             assert!(!handle.is_stopped(), "{scenario}: should still be draining");
         }
 
-        tokio::time::timeout(Duration::from_secs(5), shutdown_task)
-            .await
-            .expect("shutdown should complete within 5s")
-            .expect("shutdown task should not panic");
+        await_shutdown(Duration::from_secs(5), shutdown_task).await;
         let elapsed = start.elapsed();
 
         assert!(
