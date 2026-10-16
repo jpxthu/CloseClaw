@@ -15,14 +15,14 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份标识**：Agent 的唯一 ID 和显示名称
 - **模型选择**：Agent 使用的默认 LLM 模型及备用模型列表
 - **工作目录**：Agent 的默认工作目录
-- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效，子 Session 加载范围见 system_prompt §F8）
+- **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格）所在目录
-- **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行（见 [system_prompt §F8](system_prompt.md)（Session 类型适配））
+- **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
-- **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
+- **技能白名单**：Agent 可以使用的技能范围
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
 - **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
-- **记忆配置**：Agent 的记忆模块参数（可选覆盖默认值）
+- **记忆配置**：Agent 的记忆模块参数（可选；填写后覆盖默认记忆配置）
 
 Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent 的运行时行为由 Session 模块驱动。
 
@@ -30,12 +30,14 @@ Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent
 > **交叉引用**：入站消息如何映射到 Agent / User / Session（接收方机器人应用 → Agent、发送者 → User、平台+发送者+会话对端+账号标识 → Session）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）、[gateway §F4](gateway.md)（普通消息路由到对话）、[permission §F1](permission.md)（身份体系）、[session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：身份人格的定义。详见 [F2](#f2-身份与人格分离)（身份与人格分离）。
 > **交叉引用**：超时预警与硬超时的取值优先级。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
+> **交叉引用**：子 Session 的 Bootstrap 加载范围与 Session 类型适配。详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）。
+> **交叉引用**：技能的发现、目录结构与多 Agent 隔离。详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）。
 
 ### F2. 身份与人格分离
 
 配置档案中的能力配置和身份人格是两层独立的概念：
 
-- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案）
+- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，另行维护）
 - **Bootstrap 文件**定义 Agent 的身份人格
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
@@ -48,21 +50,27 @@ Agent 的身份人格文件由配置档案指定，相关字段包括身份加�
 Agent 的能力边界由配置档案中的字段组合与权限基线共同决定，不依赖预定义的类型标签：
 
 - 工具白名单/黑名单控制 Agent 可以执行的操作范围
+- 技能白名单控制 Agent 可以使用的技能范围
 - 身份加载模式控制 Agent 的上下文规模
-- 子 Session 创建控制决定 Agent 的派生能力
-- 权限基线定义 Agent 的安全边界，权限规则详见 [permission §F2](permission.md)（权限维度）
+- 子 Session 创建控制决定 Agent 派生子 Session 的能力
+- 权限基线定义 Agent 的安全边界
 
 系统提供一组预置的行为模板（如"只读研究"、"校验审计"），创建子 Session 时可通过 spawn 参数选择注入对应的行为模板；行为模板不改变 Agent 的静态配置档案。
 
+> **交叉引用**：权限规则与权限维度。详见 [permission §F2](permission.md)（权限维度）。
+
 ### F5. 初始 Agent 创建
 
-首次使用系统时，Owner 在 CLI 配置向导的引导下创建一个初始 Agent。初始 Agent 的 ID 默认为 `master`，具备全部工具和技能的访问权限，作为系统的基础入口。
+首次使用系统时，Owner 在 CLI 配置向导的引导下创建一个初始 Agent。初始 Agent 的 ID 默认为 `master`，具备全部工具和技能的访问权限（工具与技能白名单均不限制），作为系统的基础入口。
 
 ### F6. 运行时配置查询
 
-系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。查询为只读操作，返回该 Agent 在 F1 列出的全部能力维度。查询返回 Agent 的静态配置档案，不包含运行时派生的能力，例如权限过滤后的实际工具清单。
+系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。该查询为只读操作，返回该 Agent 在 F1 列出的全部静态能力维度，不包含运行时派生的能力（例如权限过滤后的实际工具清单）。
 
-配置变更的检测与重载通知由 Config 模块负责。详见 [config §F4](config.md)（配置重载）。注册清单变更（Agent 增删）或 Agent 配置变更对 Session 的生效边界详见 [session §F6](session.md)（Session 归档与清理）。
+配置变更的检测与重载通知由 Config 模块负责；注册清单变更（Agent 增删）或 Agent 配置变更对 Session 的生效边界由 Session 模块负责。
+
+> **交叉引用**：配置变更的检测与重载。详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：注册清单变更（Agent 增删）或 Agent 配置变更对 Session 的生效边界。详见 [session §F6](session.md)（Session 归档与清理）。
 
 ### F7. 子 Session 创建（Spawn）
 
@@ -98,7 +106,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 - **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示禁止 spawn）
 - **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session）
 - **并发数量**：限制同时存活的子 Session 数量上限
-- **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取父 Agent 自身）必须是注册清单中已注册、配置可加载的 Agent
+- **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取父 Agent 自身）必须是注册清单中已注册、配置有效的 Agent
 - **子 Session 默认模型**：父 Agent 配置中为子 Session 覆盖默认模型的取值（优先级低于 spawn 显式参数）
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 进一步 spawn 子 Session 时也受自身层级深度配置的约束。
@@ -126,7 +134,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 子 Session 创建时，系统自动配置父子 Session 间的通信路由，双方通过该路由互通消息。消息送达需同时满足路由配置和权限允许两个条件。
 
-默认仅直接父子 Session 之间互通。如需扩展到其他 Agent 的 Session，需要额外配置。
+默认仅直接父子 Session 之间互通。如需扩展到其他 Agent 的 Session，需要额外配置允许通信的 Agent 范围。
 
 ### F15. Spawn 层级追踪
 
