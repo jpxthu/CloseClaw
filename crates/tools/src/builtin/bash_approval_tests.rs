@@ -14,7 +14,7 @@ use closeclaw_permission::engine::engine_types::{
     Action, Effect, MatchType, Rule, RuleSet, Subject,
 };
 use closeclaw_permission::rules::RuleSetBuilder;
-use serde_json::json;
+use serde_json::{json, Value};
 use std::sync::Arc;
 use tokio::sync::Mutex as TokioMutex;
 
@@ -182,9 +182,15 @@ async fn test_bash_approval_allow_path() {
         result.err()
     );
     let output = result.unwrap();
+    let stdout = output.data.get("stdout").and_then(Value::as_str);
     assert!(
-        output.data.get("stdout").is_some() || output.data.get("output").is_some(),
-        "result should have stdout or output field, got: {:?}",
+        matches!(stdout, Some(s) if s.contains("hello")),
+        "allow path must execute normally and return stdout containing 'hello', got: {:?}",
+        output.data
+    );
+    assert!(
+        output.data.get("output").is_none(),
+        "payload contract uses 'stdout', dead key 'output' must not exist, got: {:?}",
         output.data
     );
 }
