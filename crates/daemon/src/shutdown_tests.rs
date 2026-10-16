@@ -5,6 +5,7 @@
 //! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
+use crate::test_helpers::signal_step;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 
@@ -338,7 +339,12 @@ async fn test_graceful_drain_timeout() {
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // Shutdown should have completed despite busy_count > 0
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "drain timeout shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(handle.is_stopped(), "drain should complete after timeout");
     // busy_count was not cleared by the drain
     assert_eq!(handle.busy_count(), 2);
@@ -415,7 +421,12 @@ async fn test_forceful_skips_drain() {
 
     // Escalate to forceful — should terminate immediately
     handle.escalate_to_forceful();
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "forceful escalation shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
 
     assert!(handle.is_stopped());
     // busy_count unchanged — forceful skips drain
