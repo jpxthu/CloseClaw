@@ -305,7 +305,7 @@ git checkout master && git pull
 | `--doctest` | 文档测试：`cargo test --workspace --doc`（例外：nextest 不支持 doctest） |
 | `--coverage` | 覆盖率：`cargo llvm-cov nextest --workspace` |
 | `--deps` | 依赖审计：cargo-deny check + cargo-machete + syn 双大版本白名单检查 |
-| `--dep-guard` | 依赖治理守卫：dep-guard 四项检查（依赖方向 / 禁二次出口 / common 准入一致性 / 死依赖）+ 单测套件，baseline=现状、仅对新增越界报警（细则见 `scripts/dep-guard/`） |
+| `--dep-guard` | 依赖治理守卫：dep-guard 五项检查（依赖方向 / 禁二次出口 / common 准入一致性 / 死依赖 / rust-version 声明完整性）+ 单测套件，baseline=现状、仅对新增越界报警（细则见 `scripts/dep-guard/`） |
 | `--msrv` | MSRV 下限检查：以根 Cargo.toml `rust-version` 工具链执行 `check --workspace --all-targets --locked`，与 CI msrv job 同口径（工具链缺失记 SKIP） |
 | `--heavy` | 重型检查：miri + TSAN（默认跳过，需显式传入，不在 `--all` 内） |
 | `--all` | = slow + flaky + doctest + coverage + deps + dep-guard + msrv（不含 heavy） |

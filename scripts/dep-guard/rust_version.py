@@ -79,7 +79,7 @@ def workspace_members(repo_root: Path) -> list[tuple[str, Path]]:
     if isinstance(raw_excludes, list):
         for raw in raw_excludes:
             if not isinstance(raw, str):
-                continue
+                raise RustVersionError(f"exclude 含非字符串条目: {raw!r}")
             entry = _normalize(raw)
             excludes |= _glob_expand(repo_root, entry) if _has_glob(entry) else {entry}
 

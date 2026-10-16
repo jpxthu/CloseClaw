@@ -186,8 +186,8 @@ def check_rust_version_declared(repo_root: Path) -> CheckResult:
 
     items = [path for path, _ in violations]
     base_items = baseline.load_baseline(BASELINE_DIR / "rust-version-declared.txt")
-    # 条目即成员相对路径，diff 判定键取 path；原因不参与比较，仅用于报文。
-    diff = baseline.diff_baseline(base_items, items, key=lambda item: item)
+    # 条目即成员相对路径，默认按条目整体比较；原因不参与比较，仅用于报文。
+    diff = baseline.diff_baseline(base_items, items)
 
     reason_by_path = dict(violations)
     for item in diff.new_items:

@@ -120,6 +120,15 @@ class WorkspaceMembersTest(unittest.TestCase):
         with self.assertRaises(rust_version.RustVersionError):
             rust_version.workspace_members(root)
 
+    def test_non_string_exclude_entry_raises(self) -> None:
+        """exclude 非字符串条目 fail-loud（与 members 侧口径对称，不静默跳过）。"""
+        root = _make_workspace(self, {
+            "Cargo.toml": '[workspace]\nmembers = ["crates/a"]\nexclude = [1]\n',
+            **_member("crates/a"),
+        })
+        with self.assertRaises(rust_version.RustVersionError):
+            rust_version.workspace_members(root)
+
 
 class FindViolationsTest(unittest.TestCase):
     """find_violations：workspace 继承判定、硬编码拒绝与排序确定性。"""
@@ -321,7 +330,7 @@ class RustVersionCliTest(unittest.TestCase):
 
     def _invoke(
         self, args: list[str], violations: list[tuple[str, str]]
-    ):
+    ) -> "CliRunner.Result":
         from click.testing import CliRunner
 
         with tempfile.TemporaryDirectory() as tmp:
@@ -350,20 +359,39 @@ class RustVersionCliTest(unittest.TestCase):
 
     def test_full_check_summary_contains_pass(self) -> None:
         """全量 check：其余项以假 runner 置 PASS，汇总行含本项 PASS。"""
+        from click.testing import CliRunner
+
+        def make_pass_runner(check_id: str):
+            return lambda repo_root: dep_guard.CheckResult(
+                check_id, dep_guard.STATUS_PASS, []
+            )
+
         originals = dict(dep_guard.CHECK_RUNNERS)
         dep_guard.CHECK_RUNNERS.update({
-            check_id: (lambda repo_root: dep_guard.CheckResult(
-                check_id, dep_guard.STATUS_PASS, []))
+            check_id: make_pass_runner(check_id)
             for check_id in originals
             if check_id != "rust-version-declared"
         })
         try:
-            result = self._invoke(["check"], [])
+            with tempfile.TemporaryDirectory() as tmp:
+                baseline_dir = Path(tmp)
+                (baseline_dir / "rust-version-declared.txt").write_text(
+                    "", encoding="utf-8"
+                )
+                with (
+                    mock.patch.object(rust_version, "find_violations", return_value=[]),
+                    mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+                ):
+                    result = CliRunner().invoke(dep_guard.main, ["check"])
         finally:
             dep_guard.CHECK_RUNNERS.clear()
             dep_guard.CHECK_RUNNERS.update(originals)
         self.assertEqual(result.exit_code, 0)
-        self.assertIn("rust-version-declared=PASS", result.output)
+        self.assertEqual(
+            [line for line in result.output.splitlines() if line.startswith("汇总:")],
+            ["汇总: dep-edges=PASS second-exports=PASS common-admission=PASS "
+             "dead-deps=PASS rust-version-declared=PASS"],
+        )
 
 
 if __name__ == "__main__":
