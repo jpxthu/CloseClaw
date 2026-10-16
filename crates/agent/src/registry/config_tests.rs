@@ -255,8 +255,8 @@ fn test_concurrent_get_and_populate() {
     for _t in 0..5 {
         let reg_read = Arc::clone(&registry);
         handles.push(thread::spawn(move || {
-            for _i in 0..WRITER_COUNT {
-                let id = writer_id(_i);
+            for i in 0..WRITER_COUNT {
+                let id = writer_id(i);
                 let _result = reg_read.get(&id);
                 // Just verify no panic — DashMap handles concurrent access
             }
@@ -267,14 +267,14 @@ fn test_concurrent_get_and_populate() {
         h.join().expect("thread should not panic");
     }
 
-    // After all threads join, all 50 populated configs should be present
+    // After all threads join, all WRITER_COUNT populated configs should be present
     let missing: Vec<String> = (0..WRITER_COUNT)
         .map(writer_id)
         .filter(|id| registry.get(id).is_none())
         .collect();
     assert!(
         missing.is_empty(),
-        "expected all 50 writer configs registered, missing: {:?}",
+        "expected all {WRITER_COUNT} writer configs registered, missing: {:?}",
         missing
     );
 }
