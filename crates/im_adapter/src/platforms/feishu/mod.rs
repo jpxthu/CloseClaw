@@ -37,6 +37,7 @@ mod identity_isolation_tests;
 #[cfg(test)]
 mod identity_resolver_stub;
 mod inbound;
+mod lark_types;
 #[cfg(test)]
 mod media_filter_tests;
 #[cfg(test)]
@@ -89,8 +90,10 @@ pub use renderer::should_use_card_for_blocks;
 
 // Re-export adapter internals for test modules.
 #[cfg(test)]
-pub(crate) use adapter::{
-    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
+pub(crate) use adapter::truncate_to_500;
+#[cfg(test)]
+pub(crate) use lark_types::{
+    FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;

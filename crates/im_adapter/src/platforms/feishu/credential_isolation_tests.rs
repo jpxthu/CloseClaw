@@ -124,19 +124,19 @@ fn test_adapter_debug_workspace_dir_none_format() {
 #[tokio::test]
 async fn test_adapter_profile_not_in_message_content() {
     let adapter = make_adapter_with_profile("secret_profile");
-    let event = super::adapter::FeishuEvent {
+    let event = super::lark_types::FeishuEvent {
         schema: "2.0".to_string(),
-        header: super::adapter::FeishuHeader {
+        header: super::lark_types::FeishuHeader {
             event_id: "ev_cred".to_string(),
             event_type: "im.message.receive_v1".to_string(),
             create_time: "1234567890".to_string(),
             token: "tok".to_string(),
             app_id: "test_app".to_string(),
         },
-        event: super::adapter::FeishuMessageEvent {
+        event: super::lark_types::FeishuMessageEvent {
             message_id: None,
-            sender: super::adapter::FeishuSender {
-                sender_id: super::adapter::FeishuSenderId {
+            sender: super::lark_types::FeishuSender {
+                sender_id: super::lark_types::FeishuSenderId {
                     open_id: "ou_sender".to_string(),
                 },
                 sender_type: "user".to_string(),

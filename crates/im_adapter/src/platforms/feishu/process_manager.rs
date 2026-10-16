@@ -644,8 +644,8 @@ fn opt_str_default(raw: &serde_json::Value, key: &str, default: &str) -> String 
 }
 
 /// Extract the header portion from a CLI-format event.
-fn extract_cli_header(raw: &serde_json::Value) -> Option<super::adapter::FeishuHeader> {
-    Some(super::adapter::FeishuHeader {
+fn extract_cli_header(raw: &serde_json::Value) -> Option<super::lark_types::FeishuHeader> {
+    Some(super::lark_types::FeishuHeader {
         event_id: required_str(raw, "event_id")?,
         event_type: required_str(raw, "type")?,
         create_time: opt_str_default(raw, "create_time", ""),
@@ -655,8 +655,8 @@ fn extract_cli_header(raw: &serde_json::Value) -> Option<super::adapter::FeishuH
 }
 
 /// Extract the message event portion from a CLI-format event.
-fn extract_cli_message_event(raw: &serde_json::Value) -> super::adapter::FeishuMessageEvent {
-    use super::adapter::{FeishuMessageEvent, FeishuSender, FeishuSenderId};
+fn extract_cli_message_event(raw: &serde_json::Value) -> super::lark_types::FeishuMessageEvent {
+    use super::lark_types::{FeishuMessageEvent, FeishuSender, FeishuSenderId};
     FeishuMessageEvent {
         message_id: opt_str(raw, "message_id").map(String::from),
         sender: FeishuSender {
@@ -677,10 +677,12 @@ fn extract_cli_message_event(raw: &serde_json::Value) -> super::adapter::FeishuM
 
 /// Normalize a raw CLI-format event (flat top-level fields) into
 /// the webhook-style [`FeishuEvent`] structure.
-pub(crate) fn normalize_cli_event(raw: &serde_json::Value) -> Option<super::adapter::FeishuEvent> {
+pub(crate) fn normalize_cli_event(
+    raw: &serde_json::Value,
+) -> Option<super::lark_types::FeishuEvent> {
     let header = extract_cli_header(raw)?;
     let event = extract_cli_message_event(raw);
-    Some(super::adapter::FeishuEvent {
+    Some(super::lark_types::FeishuEvent {
         schema: String::new(),
         header,
         event,
