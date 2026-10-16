@@ -6,7 +6,8 @@ Commands
 - ``check [--only <项>]``
     执行各项检查并汇总 PASS / FAIL / SKIP，退出码 = FAIL 项数。
     检查项：dep-edges（依赖方向）、second-exports（禁止二次出口）、
-    common-admission（common 准入一致性）、dead-deps（死依赖）。
+    common-admission（common 准入一致性）、dead-deps（死依赖）、
+    rust-version-declared（rust-version 声明完整性）。
 
 baseline 策略：baseline = 现状。baseline 内既有违规不报警，仅对
 baseline 外新增越界报警 FAIL；baseline 只收窄不扩张，随各 P2 解耦
@@ -27,6 +28,7 @@ import baseline
 import common_admission
 import dead_deps
 import dep_edges
+import rust_version
 import second_export
 
 SCRIPT_DIR = Path(__file__).parent.resolve()
@@ -39,7 +41,13 @@ REPO_ROOT = Path(
 )
 BASELINE_DIR = SCRIPT_DIR / "baselines"
 
-CHECK_IDS = ("dep-edges", "second-exports", "common-admission", "dead-deps")
+CHECK_IDS = (
+    "dep-edges",
+    "second-exports",
+    "common-admission",
+    "dead-deps",
+    "rust-version-declared",
+)
 
 STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
@@ -165,11 +173,41 @@ def check_dead_deps(repo_root: Path) -> CheckResult:
     return CheckResult("dead-deps", status, lines)
 
 
+def check_rust_version_declared(repo_root: Path) -> CheckResult:
+    """rust-version 声明完整性：workspace 成员须继承 workspace MSRV。"""
+    lines = [
+        "[rust-version-declared] rust-version 声明完整性：成员须 rust-version.workspace = true"
+    ]
+    try:
+        violations = rust_version.find_violations(repo_root)
+    except rust_version.RustVersionError as exc:
+        lines.append(f"  [FAIL] {exc}")
+        return CheckResult("rust-version-declared", STATUS_FAIL, lines)
+
+    items = [path for path, _ in violations]
+    base_items = baseline.load_baseline(BASELINE_DIR / "rust-version-declared.txt")
+    # 条目即成员相对路径，默认按条目整体比较；原因不参与比较，仅用于报文。
+    diff = baseline.diff_baseline(base_items, items)
+
+    reason_by_path = dict(violations)
+    for item in diff.new_items:
+        lines.append(f"  [FAIL] 新增违规: {item}（{reason_by_path[item]}）")
+    for item in diff.eliminated_items:
+        lines.append(f"  [info] 可收窄 baseline（rust-version 已声明）: {item}")
+    status = STATUS_FAIL if diff.has_new else STATUS_PASS
+    lines.append(
+        f"  违规 {len(items)} 条 / baseline {len(base_items)} 条 / "
+        f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} → {status}"
+    )
+    return CheckResult("rust-version-declared", status, lines)
+
+
 CHECK_RUNNERS: dict[str, Callable[[Path], CheckResult]] = {
     "dep-edges": check_dep_edges,
     "second-exports": check_second_exports,
     "common-admission": check_common_admission,
     "dead-deps": check_dead_deps,
+    "rust-version-declared": check_rust_version_declared,
 }
 
 
