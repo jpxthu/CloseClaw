@@ -13,6 +13,7 @@
 //! file sits near the 1000-line hard limit (CONTRIBUTING §硬性限制).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
 
@@ -47,7 +48,7 @@ async fn test_cron_config_reload_switches_schedule_and_recomputes_next_fire() {
         .with_schedule(Some("0 3 * * *".to_string()));
 
     let before = tokio::time::Instant::now();
-    let mut next_fire = before + tokio::time::Duration::from_secs(600);
+    let mut next_fire = before + Duration::from_secs(600);
 
     scheduler.handle_cron_config_reload(&mut next_fire).await;
 
@@ -61,7 +62,7 @@ async fn test_cron_config_reload_switches_schedule_and_recomputes_next_fire() {
         "recomputed next_fire must be in the future: {next_fire:?} vs {before:?}"
     );
     assert!(
-        next_fire <= before + tokio::time::Duration::from_secs(60),
+        next_fire <= before + Duration::from_secs(60),
         "every-minute schedule must fire within 60s of the reload, got {:?} after",
         next_fire - before
     );
@@ -129,8 +130,8 @@ async fn test_cron_config_reload_invalid_schedule_falls_back_to_fixed_interval()
             Some(invalid),
             "reload must store the reloaded schedule verbatim"
         );
-        let fixed_lo = before + tokio::time::Duration::from_secs(600);
-        let fixed_hi = after + tokio::time::Duration::from_secs(600);
+        let fixed_lo = before + Duration::from_secs(600);
+        let fixed_hi = after + Duration::from_secs(600);
         assert!(
             next_fire >= fixed_lo && next_fire <= fixed_hi,
             "invalid schedule {invalid:?} must fall back to fixed interval 600s, \
@@ -167,7 +168,7 @@ async fn test_cron_loop_ignores_non_memory_reload() {
     notify_section_reload(&config_manager, ConfigSection::Gateway, "gateway.json");
 
     run_scheduler_briefly(scheduler, async {
-        tokio::time::sleep(tokio::time::Duration::from_millis(200)).await
+        tokio::time::sleep(Duration::from_millis(200)).await
     })
     .await;
 
@@ -189,9 +190,9 @@ async fn await_n_fires(
     fire_rx: &mut mpsc::UnboundedReceiver<()>,
     n: usize,
     horizon_secs: u64,
-) -> tokio::time::Duration {
+) -> Duration {
     let started_at = tokio::time::Instant::now();
-    let horizon = tokio::time::Duration::from_secs(horizon_secs);
+    let horizon = Duration::from_secs(horizon_secs);
     tokio::time::timeout(horizon, async {
         for _ in 0..n {
             fire_rx
@@ -255,7 +256,7 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
 
     let elapsed = await_n_fires(&mut fire_rx, 4, 3600).await;
     assert!(
-        elapsed <= tokio::time::Duration::from_secs(300),
+        elapsed <= Duration::from_secs(300),
         "every-minute re-arms must keep the minute cadence: four fires \
          must span ≤300s (a 600s-fallback regression needs ≈1860s), \
          took {elapsed:?}"
@@ -303,7 +304,7 @@ async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
 
     let elapsed = await_n_fires(&mut fire_rx, 3, 3600).await;
     assert!(
-        elapsed >= tokio::time::Duration::from_secs(1200),
+        elapsed >= Duration::from_secs(1200),
         "each re-arm must honour the full 600s fallback interval: three \
          fires must span ≥1200s, took {elapsed:?}"
     );
