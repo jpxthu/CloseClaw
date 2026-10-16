@@ -172,17 +172,50 @@ impl CustomHook {
 #[async_trait]
 impl StepHook for CustomHook {
     async fn execute(&self, _step: &StepResult) -> Result<HookResult, HookError> {
-        let child = tokio::process::Command::new("sh")
+        let mut child = tokio::process::Command::new("sh")
             .arg("-c")
             .arg(&self.command)
+            .process_group(0)
             .spawn()
             .map_err(|e| HookError::CustomFailed {
                 message: format!("failed to spawn command: {e}"),
             })?;
 
-        match tokio::time::timeout(self.timeout, child.wait_with_output()).await {
+        match tokio::time::timeout(self.timeout, child.wait()).await {
             Ok(Ok(_)) | Ok(Err(_)) => Ok(HookResult::Continue),
-            Err(_elapsed) => Ok(HookResult::Continue), // timeout is non-blocking per plan
+            Err(_elapsed) => {
+                if let Some(pid) = child.id() {
+                    // PIDs exceeding i32::MAX cannot exist on Unix (see
+                    // closeclaw_platform::process for the same guard); a cast
+                    // would wrap such a pid to a negative value, and negating
+                    // that would turn it positive again (2^32 - pid), making
+                    // the kill target an unrelated single process rather than
+                    // the hook's group — skip kill instead.
+                    if let Ok(pid_i32) = i32::try_from(pid) {
+                        // SAFETY: kill(2) with a pid argument performs no memory
+                        // access. The child was spawned as its own process group
+                        // leader (`process_group(0)`), so a negative pid targets
+                        // the whole hook process tree; a stale pid (PID reuse
+                        // race) at worst hits an unrelated process or fails
+                        // with ESRCH.
+                        if unsafe { libc::kill(-pid_i32, libc::SIGKILL) } == 0 {
+                            // Reap only on confirmed delivery: waiting on a
+                            // child we failed to signal could block long past
+                            // the timeout (non-blocking contract).
+                            let _ = child.wait().await;
+                        } else {
+                            tracing::warn!(
+                                pid,
+                                error = %std::io::Error::last_os_error(),
+                                "failed to kill timed-out hook process group"
+                            );
+                        }
+                    } else {
+                        tracing::warn!(pid, "hook pid exceeds i32::MAX, skipping kill");
+                    }
+                }
+                Ok(HookResult::Continue) // timeout is non-blocking per plan
+            }
         }
     }
 }

@@ -719,6 +719,8 @@ version = "0.1.0"
 dependencies = [
  "async-trait",
  "closeclaw-common",
+ "closeclaw-platform",
+ "libc",
  "serde",
  "serde_json",
  "tempfile",

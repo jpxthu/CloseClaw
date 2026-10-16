@@ -282,6 +282,37 @@ async fn test_custom_hook_timeout_is_non_blocking() {
     assert_eq!(result, HookResult::Continue);
 }
 
+/// The timed-out hook child must be terminated and reaped, not leaked
+/// (issue #3393: nextest flagged the timeout test LEAKY with a stray `sleep`).
+#[tokio::test]
+async fn test_custom_hook_timeout_kills_child_process() {
+    let dir = tempfile::TempDir::new().expect("create temp dir");
+    let pidfile = dir.path().join("hook.pid");
+
+    // The hook child records its own PID (`$$` = the `sh -c` process), then
+    // sleeps far past the timeout so only the hook can end it. Quoted path:
+    // safe against TMPDIRs containing whitespace.
+    let hook = CustomHook::new(
+        format!("echo $$ > '{}' && sleep 60", pidfile.display()),
+        Duration::from_millis(500),
+    );
+    let result = hook.execute(&completed_step()).await.unwrap();
+    assert_eq!(result, HookResult::Continue);
+
+    let pid: u32 = std::fs::read_to_string(&pidfile)
+        .expect("hook child wrote pidfile")
+        .trim()
+        .parse()
+        .expect("pidfile contains a numeric pid");
+
+    // `execute` only returns after the timeout path killed the process group
+    // and reaped the child, so the recorded pid must already be gone.
+    assert!(
+        !closeclaw_platform::process::is_process_alive(pid),
+        "hook child pid {pid} still alive after hook timeout returned"
+    );
+}
+
 #[tokio::test]
 async fn test_custom_hook_invalid_command() {
     // sh -c with nonexistent command spawns successfully but exits non-zero
