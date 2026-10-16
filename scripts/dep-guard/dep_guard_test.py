@@ -286,6 +286,105 @@ class CheckErrorPathTest(unittest.TestCase):
         self.assertIn("cargo metadata 失败", result.lines[1])
 
 
+class ReportHelperTest(unittest.TestCase):
+    """report_diff / report_error 公共报文模板 UT（输出模板逐行断言）。"""
+
+    SPEC = dep_guard.DiffReportSpec(
+        check_id="test-check",
+        fail_label="新增越界边",
+        narrowed_label="越界边已消除",
+        count_noun="越界边",
+    )
+
+    def test_new_items_fail_lines_and_summary(self) -> None:
+        """有新增 → FAIL 行 + 汇总行 FAIL（默认计数词「条」）。"""
+        diff = baseline.diff_baseline(["a"], ["a", "b", "c"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 3, 1)
+        self.assertEqual(result.check_id, "test-check")
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [FAIL] 新增越界边: b",
+                "  [FAIL] 新增越界边: c",
+                "  越界边 3 条 / baseline 1 条 / 新增 2 / 已消除 0 → FAIL",
+            ],
+        )
+
+    def test_eliminated_items_info_line(self) -> None:
+        """无新增有已消除 → info 行 + 汇总行 PASS。"""
+        diff = baseline.diff_baseline(["a", "b"], ["b"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 1, 2)
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [info] 可收窄 baseline（越界边已消除）: a",
+                "  越界边 1 条 / baseline 2 条 / 新增 0 / 已消除 1 → PASS",
+            ],
+        )
+
+    def test_empty_diff_pass_summary(self) -> None:
+        """空 diff → 仅 PASS 汇总行。"""
+        diff = baseline.diff_baseline(["a"], ["a"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 1, 1)
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines,
+            ["  越界边 1 条 / baseline 1 条 / 新增 0 / 已消除 0 → PASS"],
+        )
+
+    def test_reason_by_path_injection_and_fallback(self) -> None:
+        """reason 注入 → FAIL 条目带（reason）后缀；缺 reason 条目回退基础格式。"""
+        diff = baseline.diff_baseline([], ["has-reason", "no-reason"])
+        result = dep_guard.report_diff(
+            [],
+            self.SPEC,
+            diff,
+            2,
+            0,
+            reason_by_path={"has-reason": "未继承 workspace MSRV"},
+        )
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines[:2],
+            [
+                "  [FAIL] 新增越界边: has-reason（未继承 workspace MSRV）",
+                "  [FAIL] 新增越界边: no-reason",
+            ],
+        )
+
+    def test_count_word_and_summary_suffix_parameterized(self) -> None:
+        """计数词「处」与 machete 后缀按 spec 拼入汇总行。"""
+        spec = dep_guard.DiffReportSpec(
+            check_id="dead-deps",
+            fail_label="新增死依赖",
+            narrowed_label="死依赖已消除",
+            count_noun="二次出口",
+            count_word="处",
+            summary_suffix="（machete cargo-machete 解析）",
+        )
+        diff = baseline.diff_baseline([], ["x"])
+        result = dep_guard.report_diff([], spec, diff, 1, 0)
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [FAIL] 新增死依赖: x",
+                "  二次出口 1 处 / baseline 0 条 / 新增 1 / 已消除 0 "
+                "（machete cargo-machete 解析）→ FAIL",
+            ],
+        )
+
+    def test_report_error_appends_fail_and_returns_fail(self) -> None:
+        """异常路径：追加 `[FAIL] {exc}` 早退行，状态 FAIL。"""
+        lines = ["[x] 头行"]
+        result = dep_guard.report_error(lines, "x", RuntimeError("解析失败"))
+        self.assertEqual(result.check_id, "x")
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(result.lines, ["[x] 头行", "  [FAIL] 解析失败"])
+
+
 class CheckSecondExportsDiffTest(unittest.TestCase):
     """second-exports 检查 baseline diff 集成测试（去行号归一化判定语义）。
 

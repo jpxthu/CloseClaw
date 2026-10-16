@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
@@ -59,6 +60,57 @@ class CheckResult:
         self.check_id = check_id
         self.status = status
         self.lines = lines
+
+
+@dataclass(frozen=True)
+class DiffReportSpec:
+    """check_* 报文模板的措辞参数（收敛五份重复拼装的静态差异）。"""
+
+    check_id: str
+    fail_label: str  # FAIL 新增条目措辞，如「新增越界边」
+    narrowed_label: str  # info 可收窄条目措辞，如「越界边已消除」
+    count_noun: str  # 汇总行计数对象名，如「越界边」
+    count_word: str = "条"  # 汇总行计数词（条 / 处）
+    summary_suffix: str = ""  # 汇总行后缀，如「（machete … 解析）」
+
+
+def report_error(lines: list[str], check_id: str, exc: Exception) -> CheckResult:
+    """异常早退路径公共模板：追加 `[FAIL] {exc}` 并返回 FAIL 结果。"""
+    lines.append(f"  [FAIL] {exc}")
+    return CheckResult(check_id, STATUS_FAIL, lines)
+
+
+def report_diff(
+    lines: list[str],
+    spec: DiffReportSpec,
+    diff: baseline.BaselineDiff,
+    total_count: int,
+    baseline_count: int,
+    reason_by_path: dict[str, str] | None = None,
+) -> CheckResult:
+    """baseline diff 报文公共模板：FAIL 新增 / info 可收窄 / 汇总行 → CheckResult。
+
+    措辞差异经 ``DiffReportSpec`` 参数化；reason 注入（如 rust-version 的
+    违规原因，不入 diff 仅入报文）经 ``reason_by_path`` 提供，条目缺
+    reason 时回退基础格式；baseline 归一化 key 由调用方在
+    ``baseline.diff_baseline`` 处选择。状态判定固定为：
+    diff 有新增 → FAIL，否则 PASS。
+    """
+    for item in diff.new_items:
+        reason = reason_by_path.get(item) if reason_by_path is not None else None
+        if reason is not None:
+            lines.append(f"  [FAIL] {spec.fail_label}: {item}（{reason}）")
+        else:
+            lines.append(f"  [FAIL] {spec.fail_label}: {item}")
+    for item in diff.eliminated_items:
+        lines.append(f"  [info] 可收窄 baseline（{spec.narrowed_label}）: {item}")
+    status = STATUS_FAIL if diff.has_new else STATUS_PASS
+    lines.append(
+        f"  {spec.count_noun} {total_count} {spec.count_word} / baseline {baseline_count} 条 / "
+        f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} "
+        f"{spec.summary_suffix}→ {status}"
+    )
+    return CheckResult(spec.check_id, status, lines)
 
 
 def check_dep_edges(repo_root: Path) -> CheckResult:
