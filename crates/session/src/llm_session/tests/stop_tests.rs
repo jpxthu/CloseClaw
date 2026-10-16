@@ -130,14 +130,6 @@ async fn test_child_independent_stop_does_not_affect_parent() {
 async fn test_tool_handle_register_unregister() {
     let cs = make_session("s_tool_reg");
     let h1 = Arc::new(MockKillHandle::new());
-    let h2 = Arc::new(MockKillHandle::new());
-    register_kill_handle(&cs, "call-a", &h1).await;
-    register_kill_handle(&cs, "call-b", &h2).await;
-
-    // The internal map length isn't part of the public surface, but
-    // we can verify behaviour through stop(): both handles should
-    // fire. We use the kill counts below.
-    let h1 = Arc::new(MockKillHandle::new());
     let h1_count = h1.kill_count();
     let h2 = Arc::new(MockKillHandle::new());
     let h2_count = h2.kill_count();
