@@ -5,7 +5,7 @@ use super::{
     AnthropicProtocol, ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream,
     InternalMessage, StreamEvent,
 };
-use crate::protocol::test_support::make_sse_chunk_with_event;
+use crate::test_support::make_sse_chunk_with_event;
 use crate::types::InternalRequest;
 use closeclaw_common::ReasoningLevel;
 use futures::StreamExt;

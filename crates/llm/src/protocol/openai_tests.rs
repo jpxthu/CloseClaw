@@ -2,7 +2,7 @@
 use super::{
     ChatProtocol, ContentBlockType, ContentDelta, IncomingSseStream, OpenAiProtocol, StreamEvent,
 };
-use crate::protocol::test_support::make_sse_chunk;
+use crate::test_support::make_sse_chunk;
 use crate::types::RawContentBlock;
 use futures::StreamExt;
 

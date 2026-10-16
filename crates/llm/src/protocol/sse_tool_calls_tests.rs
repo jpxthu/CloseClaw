@@ -1,6 +1,6 @@
 //! Unit tests for OpenAI SSE tool_calls parsing.
 use super::{ChatProtocol, IncomingSseStream, OpenAiProtocol};
-use crate::protocol::test_support::make_sse_chunk;
+use crate::test_support::make_sse_chunk;
 use crate::types::{ContentBlockType, ContentDelta, StreamEvent};
 use futures::StreamExt;
 
