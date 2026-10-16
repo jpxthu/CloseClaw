@@ -16,29 +16,32 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **模型选择**：Agent 使用的默认 LLM 模型及备用模型列表
 - **工作目录**：Agent 的默认工作目录
 - **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效，子 Session 加载范围见 system_prompt §F8）
-- **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格，见 F2）所在目录
+- **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格）所在目录
 - **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行（见 [system_prompt §F8](system_prompt.md)（Session 类型适配））
 - **工具白名单/黑名单**：Agent 可以使用的工具范围
 - **技能白名单**：Agent 可以使用的技能范围。技能的发现、目录结构和多 Agent 隔离详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
-- **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选，取值优先级见 F7）
+- **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
 - **记忆配置**：Agent 的记忆模块参数（可选覆盖默认值）
 
 Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent 的运行时行为由 Session 模块驱动。
 
 > **交叉引用**：配置档案的目录布局与注册清单。详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：入站消息如何映射到 Agent / User / Session（接收方机器人应用 → Agent、发送者 → User、平台+发送者+会话对端+账号标识 → Session）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）、[gateway §F4](gateway.md)（普通消息路由到对话）、[permission §F1](permission.md)（身份体系）、[session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：身份人格的定义。详见 [F2](#f2-身份与人格分离)（身份与人格分离）。
+> **交叉引用**：超时预警与硬超时的取值优先级。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
 
 ### F2. 身份与人格分离
 
 配置档案中的能力配置和身份人格是两层独立的概念：
 
-- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，见 F3）
+- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案）
 - **Bootstrap 文件**定义 Agent 的身份人格
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
 
 > **交叉引用**：Bootstrap 文件的类型清单，以及完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：权限基线与能力配置共同决定 Agent 能力边界。详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
 
 ### F3. Agent 能力组合
 
@@ -63,12 +66,12 @@ Agent 的能力边界由配置档案中的字段组合与权限基线共同决�
 
 ### F7. 子 Session 创建（Spawn）
 
-Agent 可以创建子 Session 来执行子任务。默认创建的子 Session 为一次性执行（完成后自动结束），也可选择持久存活（见 F11「持久子 Session 控制」）。创建时调用方指定：
+Agent 可以创建子 Session 来执行子任务。默认创建的子 Session 为一次性执行（完成后自动结束），也可选择持久存活。创建时调用方指定：
 
 - **目标 Agent**：spawn 的目标 Agent，使用其配置档案创建子 Session（未指定时默认取当前 Agent，即父 Agent 自身）
 - **任务描述**：子 Session 要完成的任务
-- **生命周期**：一次性执行（默认）或持久存活（见 F11「持久子 Session 控制」）
-- **上下文模式**：指定子 Session 是仅接收任务描述，还是继承父 Session 的对话历史（后者即 Fork 模式，详见 F8「子 Session 上下文继承（Fork）」）
+- **生命周期**：一次性执行（默认）或持久存活
+- **上下文模式**：指定子 Session 是仅接收任务描述，还是继承父 Session 的对话历史（后者即 Fork 模式）
 - **模型覆盖**：可选显式指定子 Session 的模型
 - **行为模板**：可选注入预置的行为模板（如"只读研究"、"校验审计"）
 - **工作目录覆盖**：可选为子 Session 指定独立的工作目录
@@ -76,6 +79,8 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 - **硬超时**：子 Session 的绝对最大执行时长。取值优先级：spawn 显式参数 > 目标 Agent 配置 > 全局默认值（默认 48 小时）
 
 > **交叉引用**：超时预警和硬超时的执行行为（预警通知、终止与级联终止）。详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：持久子 Session 的控制。详见 [F11](#f11-持久子-session-控制)（持久子 Session 控制）。
+> **交叉引用**：Fork 模式的上下文继承。详见 [F8](#f8-子-session-上下文继承fork)（子 Session 上下文继承（Fork））。
 
 子 Session 的最终模型按以下优先级确定：显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的默认模型 > 系统默认模型。
 
@@ -84,6 +89,7 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：子 Session 在创建时将父 Session 的完整对话历史作为自身对话消息继承，使其理解已发生的上下文后再执行新任务；非 Fork 模式的 Spawn 不继承父 Session 的对话历史。
 
 > **交叉引用**：任务描述的注入方式。详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：spawn 的上下文模式取值。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
 
 ### F9. 子 Session 创建控制
 
@@ -93,9 +99,11 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 - **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session）
 - **并发数量**：限制同时存活的子 Session 数量上限
 - **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取父 Agent 自身）必须是注册清单中已注册、配置可加载的 Agent
-- **子 Session 默认模型**：父 Agent 配置中为子 Session 覆盖默认模型的取值（优先级低于 spawn 显式参数，完整优先级链见 F7）
+- **子 Session 默认模型**：父 Agent 配置中为子 Session 覆盖默认模型的取值（优先级低于 spawn 显式参数）
 
 层级深度受父 Agent 配置和目标 Agent 配置的双重约束：取两者中更严格的值生效。即使父 Agent 允许更多层级，目标 Agent 进一步 spawn 子 Session 时也受自身层级深度配置的约束。
+
+> **交叉引用**：spawn 显式参数到系统默认的子 Session 模型完整优先级链。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
 
 ### F10. 子 Session 结果回传
 
