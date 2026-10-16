@@ -194,7 +194,12 @@ async fn test_graceful_mode_waits_for_operations() {
     handle.decrement_busy();
 
     // Wait for shutdown to complete
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "graceful shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(handle.is_stopped());
 }
 
@@ -222,7 +227,12 @@ async fn test_forceful_mode_immediate_termination() {
     handle.escalate_to_forceful();
 
     // Wait for shutdown to complete
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "forceful shutdown JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
 
     // Forceful mode terminated immediately even though busy_count > 0
     assert!(handle.is_stopped());
@@ -252,7 +262,12 @@ async fn test_drain_completes_before_timeout() {
 
     // Complete the operation so drain can finish naturally
     handle.decrement_busy();
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "drain completion JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(handle.is_stopped());
 }
 
@@ -273,7 +288,12 @@ async fn test_forceful_escalation_bypasses_drain() {
 
     // Escalate to forceful
     handle.escalate_to_forceful();
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "forceful escalation JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
 
     // Should be stopped immediately despite 100 pending ops
     assert!(handle.is_stopped());
@@ -304,7 +324,12 @@ async fn test_drain_completes_when_busy_count_reaches_zero() {
     assert!(!handle.is_stopped(), "should still be waiting for last op");
 
     handle.decrement_busy();
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "busy_count drain JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(
         handle.is_stopped(),
         "should be stopped after all ops complete"
@@ -523,7 +548,12 @@ async fn test_common_busy_count_delegation_drain_completes() {
     common_handle.decrement_busy();
     assert_eq!(daemon_handle.busy_count(), 0);
 
-    shutdown_handle.await.unwrap();
+    signal_step(
+        "common-layer drain JoinHandle did not complete within 10s",
+        shutdown_handle,
+    )
+    .await
+    .unwrap();
     assert!(daemon_handle.is_stopped());
 }
 
