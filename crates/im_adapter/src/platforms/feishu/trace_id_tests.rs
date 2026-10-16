@@ -3,7 +3,9 @@
 //! Verifies that `parse_message_event` stores platform-specific metadata
 //! (e.g. chat_name) in `last_metadata`, accessible via `last_parsed_metadata()`.
 
-use super::adapter::{FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId};
+use super::lark_types::{
+    FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
+};
 use super::{make_adapter, make_plugin};
 
 /// Build a minimal FeishuEvent for a message event.

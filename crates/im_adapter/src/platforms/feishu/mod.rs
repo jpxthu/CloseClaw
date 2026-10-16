@@ -37,6 +37,7 @@ mod identity_isolation_tests;
 #[cfg(test)]
 mod identity_resolver_stub;
 mod inbound;
+mod lark_types;
 #[cfg(test)]
 mod media_filter_tests;
 #[cfg(test)]
@@ -55,6 +56,8 @@ mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]
 mod renderer_decision_tests;
+#[cfg(test)]
+mod renderer_tests;
 mod send_dispatch;
 #[cfg(test)]
 mod send_fallback_tests;
@@ -87,10 +90,12 @@ pub use plugin::{register, FeishuPlugin};
 pub use renderer::build_text;
 pub use renderer::should_use_card_for_blocks;
 
-// Re-export adapter internals for test modules.
+// Re-export adapter and lark_types internals for test modules.
 #[cfg(test)]
-pub(crate) use adapter::{
-    truncate_to_500, FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
+pub(crate) use adapter::truncate_to_500;
+#[cfg(test)]
+pub(crate) use lark_types::{
+    FeishuEvent, FeishuHeader, FeishuMessageEvent, FeishuSender, FeishuSenderId,
 };
 #[cfg(test)]
 pub(crate) use post_expand::expand_post_content;
@@ -98,8 +103,9 @@ pub(crate) use post_expand::expand_post_content;
 pub(crate) use renderer::extract_card_plain_text;
 #[cfg(test)]
 pub(crate) use test_helpers::{
-    create_echo_cli, create_failing_mock_cli, create_mock_cli, make_adapter,
-    make_adapter_with_profile, make_adapter_with_store, make_plugin, make_plugin_with_store,
+    assert_button, assert_select_menu, assert_single_action, create_echo_cli,
+    create_failing_mock_cli, create_mock_cli, make_adapter, make_adapter_with_profile,
+    make_adapter_with_store, make_plugin, make_plugin_with_store, make_selector_inst,
     make_test_media_store, make_test_media_store_at, make_test_media_store_with_tmp,
     write_mock_script, CAPABILITY_ERROR_JSON,
 };

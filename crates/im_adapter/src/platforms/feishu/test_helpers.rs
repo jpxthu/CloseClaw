@@ -6,8 +6,10 @@
 //!   （ETXTBSY 根因）。
 //! - mock 脚本必须落 `tempfile::TempDir`（系统临时目录），禁止仓库固定路径。
 
+use super::renderer::{CardAction, CardElement, SelectMenu};
 use super::{FeishuAdapter, FeishuPlugin};
 use crate::media_store::MediaStore;
+use closeclaw_common::processor::DslInstruction;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -147,4 +149,53 @@ pub(crate) fn make_plugin_with_store(cli_command: &str, tmp: &TempDir) -> (Feish
 /// temp-dir-backed media store (delegates to [`make_adapter`]).
 pub(crate) fn make_plugin(cli_command: &str) -> FeishuPlugin {
     FeishuPlugin::new(Arc::new(make_adapter(cli_command)))
+}
+
+/// Build a `selector` [`DslInstruction`] with the given label / options /
+/// action params (shared by renderer and style selector tests).
+pub(crate) fn make_selector_inst(label: &str, options: &str, action: &str) -> DslInstruction {
+    let mut params = std::collections::HashMap::new();
+    params.insert("label".into(), label.to_string());
+    params.insert("options".into(), options.to_string());
+    params.insert("action".into(), action.to_string());
+    DslInstruction {
+        instruction_type: "selector".into(),
+        params,
+    }
+}
+
+/// Assert `els` holds exactly one `CardElement::Action` and return its
+/// inner actions slice.
+pub(crate) fn assert_single_action(els: &[CardElement]) -> &[CardAction] {
+    assert_eq!(els.len(), 1);
+    match &els[0] {
+        CardElement::Action { actions } => actions,
+        other => panic!("expected Action, got {other:?}"),
+    }
+}
+
+/// Assert `actions` holds exactly one `CardAction::SelectMenu` and return it.
+pub(crate) fn assert_select_menu(actions: &[CardAction]) -> &SelectMenu {
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        CardAction::SelectMenu(menu) => menu,
+        other => panic!("expected SelectMenu, got {other:?}"),
+    }
+}
+
+/// Assert `action` is a `CardAction::Button` with the expected label text
+/// and action type and no url.
+pub(crate) fn assert_button(action: &CardAction, label: &str, expected_action_type: &str) {
+    match action {
+        CardAction::Button {
+            text,
+            action_type,
+            url,
+        } => {
+            assert_eq!(text.content, label);
+            assert_eq!(action_type, expected_action_type);
+            assert!(url.is_none());
+        }
+        other => panic!("expected Button, got {other:?}"),
+    }
 }

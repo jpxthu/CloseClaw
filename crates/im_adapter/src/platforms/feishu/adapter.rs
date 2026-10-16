@@ -3,97 +3,20 @@ use crate::error::AdapterError;
 use crate::IMAdapter;
 use async_trait::async_trait;
 use closeclaw_common::{CardActionEvent, MediaRef, MediaType, MessageType, NormalizedMessage};
-use serde::Deserialize;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Duration;
 
 use super::event_dedup::{EventDeduplicator, DEFAULT_DEDUP_CAPACITY};
+use super::lark_types::{
+    FeishuCardActionEvent, FeishuChatResponse, FeishuEvent, FeishuGetMessageResponse,
+    FeishuMsgItem, ResourceResp,
+};
 use super::post_expand::{expand_post_content, extract_post_media_refs};
 use super::xml_content::extract_file_audio_from_xml;
 use crate::media_store::MediaStore;
 use reqwest::Client;
 use tokio::sync::Mutex;
-
-// Webhook event types
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct FeishuEvent {
-    #[allow(dead_code)]
-    pub(crate) schema: String,
-    pub(crate) header: FeishuHeader,
-    pub(crate) event: FeishuMessageEvent,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct FeishuHeader {
-    #[allow(dead_code)]
-    pub(crate) event_id: String,
-    #[allow(dead_code)]
-    pub(crate) event_type: String,
-    #[allow(dead_code)]
-    pub(crate) create_time: String,
-    #[allow(dead_code)]
-    pub(crate) token: String,
-    pub(crate) app_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct FeishuMessageEvent {
-    #[serde(default)]
-    pub(crate) message_id: Option<String>,
-    pub(crate) sender: FeishuSender,
-    pub(crate) content: String,
-    pub(crate) chat_id: String,
-    #[serde(default)]
-    pub(crate) chat_type: Option<String>,
-    pub(crate) message_type: String,
-    #[serde(default)]
-    pub(crate) thread_id: Option<String>,
-    #[serde(default)]
-    pub(crate) root_id: Option<String>,
-    #[serde(default)]
-    pub(crate) parent_id: Option<String>,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct FeishuSender {
-    pub(crate) sender_id: FeishuSenderId,
-    #[allow(dead_code)]
-    pub(crate) sender_type: String,
-}
-
-#[derive(Debug, Deserialize)]
-pub(crate) struct FeishuSenderId {
-    pub(crate) open_id: String,
-}
-
-/// Card action event payload (`card.action.trigger`).
-///
-/// Preserved for future use when card.action.trigger is enabled
-/// (设计文档「暂缓能力」— card.action.trigger).
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuCardActionEvent {
-    pub(crate) operator: FeishuCardOperator,
-    #[allow(dead_code)]
-    pub(crate) token: String,
-    pub(crate) action: FeishuCardAction,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuCardOperator {
-    pub(crate) open_id: String,
-}
-
-#[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-pub(crate) struct FeishuCardAction {
-    pub(crate) value: Option<serde_json::Value>,
-    #[allow(dead_code)]
-    pub(crate) tag: Option<String>,
-}
 
 /// Default lark-cli command name.
 const DEFAULT_CLI_COMMAND: &str = "lark-cli";
@@ -120,49 +43,6 @@ pub(crate) fn to_blockquote(text: &str) -> String {
         .map(|line| format!("> {}", line))
         .collect::<Vec<_>>()
         .join("\n")
-}
-
-// lark-cli response types for message retrieval
-
-#[derive(Deserialize)]
-struct FeishuMsgBody {
-    content: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct FeishuMsgItem {
-    msg_type: Option<String>,
-    body: Option<FeishuMsgBody>,
-}
-
-#[derive(Deserialize)]
-struct FeishuGetMessageResponse {
-    code: i32,
-    msg: String,
-    items: Option<Vec<FeishuMsgItem>>,
-}
-
-// lark-cli response type for chat info
-
-#[derive(Deserialize)]
-struct FeishuChatResponse {
-    code: i32,
-    msg: String,
-    data: Option<FeishuChatData>,
-}
-
-#[derive(Deserialize)]
-struct FeishuChatData {
-    name: Option<String>,
-}
-
-// lark-cli response type for media download URL
-
-#[derive(Deserialize)]
-struct ResourceResp {
-    code: i32,
-    msg: String,
-    data: Option<serde_json::Value>,
 }
 
 // FeishuAdapter
