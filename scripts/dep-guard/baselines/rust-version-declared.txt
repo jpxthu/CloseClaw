@@ -1,0 +1,6 @@
+# rust-version-declared baseline — rust-version 声明完整性（成员 crate 须 rust-version.workspace = true）
+# 格式：成员相对仓库根路径（如 crates/foo），每行一条，已排序；`#` 开头为注释。
+# 规则：baseline = 现状，只收窄不扩张。每项须注明依赖 issue 与解除条件
+#       （补齐 rust-version.workspace = true 后同步删除对应行）；
+#       baseline 外新增违规会被 dep-guard 判 FAIL。
+# 当前空清单：#3529/#3530 已解除，全部成员已声明，零豁免。
