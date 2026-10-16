@@ -28,7 +28,10 @@
 
 use super::super::KillHandle;
 use super::capture_logs_async;
-use super::kill_doubles::{make_session, register_kill_handle, MockKillHandle};
+use super::kill_doubles::{
+    assert_tool_handles_count, assert_tool_handles_empty, make_session, register_kill_handle,
+    tool_handles_len, MockKillHandle,
+};
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -166,13 +169,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_fast_kill_returns_promptly");
     assert_eq!(
         handle.kill_count().load(Ordering::SeqCst),
         1,
@@ -229,13 +226,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_sync_to_async_bridging_kill_succeeds");
     assert_eq!(
         handle.kill_count.load(Ordering::SeqCst),
         1,
@@ -301,13 +292,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_slow_kill_handle_does_not_wedge");
     drop(s);
 
     // Release the blocked kill so the blocking-pool thread exits
@@ -335,11 +320,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
                 .await;
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -391,11 +372,7 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
             let elapsed = start.elapsed();
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -459,11 +436,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
             let elapsed = start.elapsed();
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -549,13 +522,10 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
         s.is_stopped(),
         "stopped flag is set before the kill loop, panic or not"
     );
-    assert_eq!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .len(),
+    assert_tool_handles_count(
+        &s,
         1,
-        "clear_exec_state must not have run after the kill() panic"
+        "clear_exec_state must not have run after the kill() panic",
     );
 }
 

@@ -81,3 +81,41 @@ pub(super) async fn register_kill_handle<K>(
     let handle = Arc::clone(handle);
     cs.read().await.register_tool_handle(call_id, handle);
 }
+
+/// Count of registered tool handles — single point for the
+/// `tool_handles.read().expect("tool_handles lock poisoned")`
+/// boilerplate that `stop_kill_path_tests.rs` previously copy-pasted
+/// at every map assertion (issue #3172 Step 1.2). Takes the
+/// already-acquired session read guard.
+pub(super) fn tool_handles_len(s: &ConversationSession) -> usize {
+    s.tool_handles
+        .read()
+        .expect("tool_handles lock poisoned")
+        .len()
+}
+
+/// Assert the session's tool-handle map is empty, i.e. stop cleared
+/// every registered handle (the `is_empty` form). `context` names the
+/// test/scenario so a failure from inside this helper still points at
+/// the right case (issue #3172 Step 1.2).
+pub(super) fn assert_tool_handles_empty(s: &ConversationSession, context: &str) {
+    assert!(
+        s.tool_handles
+            .read()
+            .expect("tool_handles lock poisoned")
+            .is_empty(),
+        "tool_handles map must be cleared after stop ({context})"
+    );
+}
+
+/// Count form of [`assert_tool_handles_empty`]: assert the map holds
+/// exactly `expected` handles — e.g. the panic path where cleanup
+/// must *not* have run and `len == 1` is the expected state
+/// (issue #3172 Step 1.2).
+pub(super) fn assert_tool_handles_count(s: &ConversationSession, expected: usize, context: &str) {
+    assert_eq!(
+        tool_handles_len(s),
+        expected,
+        "unexpected tool_handles count ({context})"
+    );
+}
