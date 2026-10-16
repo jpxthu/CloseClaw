@@ -33,22 +33,8 @@ pub async fn wait_for_daemon_ready_with_timeout(config_dir: &Path, timeout: Dura
     let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
-        let admin_ready = matches!(
-            tokio::time::timeout(
-                SOCKET_POLL_INTERVAL,
-                TokioUnixStream::connect(&admin_socket_path),
-            )
-            .await,
-            Ok(Ok(_))
-        );
-        let chat_ready = matches!(
-            tokio::time::timeout(
-                SOCKET_POLL_INTERVAL,
-                TokioUnixStream::connect(&chat_socket_path),
-            )
-            .await,
-            Ok(Ok(_))
-        );
+        let admin_ready = socket_ready(&admin_socket_path).await;
+        let chat_ready = socket_ready(&chat_socket_path).await;
         if admin_ready && chat_ready {
             return;
         }
@@ -64,4 +50,15 @@ pub async fn wait_for_daemon_ready_with_timeout(config_dir: &Path, timeout: Dura
         }
         tokio::time::sleep(SOCKET_POLL_INTERVAL).await;
     }
+}
+
+/// Single readiness probe: async connect to `path`, capped per attempt
+/// by [`SOCKET_POLL_INTERVAL`]. The cap only guards against a hung
+/// connect — a fast failure (e.g. ENOENT) must count as not ready,
+/// hence the `matches!(.., Ok(Ok(_)))` check on the nested `Result`s.
+async fn socket_ready(path: &Path) -> bool {
+    matches!(
+        tokio::time::timeout(SOCKET_POLL_INTERVAL, TokioUnixStream::connect(path)).await,
+        Ok(Ok(_))
+    )
 }

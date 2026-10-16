@@ -49,3 +49,15 @@ async fn test_wait_for_daemon_ready_polls_until_timeout_when_only_admin_bound() 
 
     wait_for_daemon_ready_with_timeout(dir.path(), SHORT_TIMEOUT).await;
 }
+
+/// Boundary (mirror): only `chat.sock` is bound — same contract as the
+/// admin-only case, locking the `(admin_ready=false, chat_ready=true)`
+/// branch of the deadline diagnostics.
+#[tokio::test]
+#[should_panic(expected = "(admin_ready=false, chat_ready=true)")]
+async fn test_wait_for_daemon_ready_polls_until_timeout_when_only_chat_bound() {
+    let dir = tempfile::TempDir::new().expect("create temp dir under system temp");
+    let _chat = bind_socket(dir.path(), "chat.sock");
+
+    wait_for_daemon_ready_with_timeout(dir.path(), SHORT_TIMEOUT).await;
+}
