@@ -10,7 +10,7 @@ use super::run::{
     ensure_no_running_daemon, handle_run, handle_run_foreground, handle_run_with_socket_timeout,
     prepare_run, DaemonRunner,
 };
-use super::run_helper_tests::{run_helper, spawn_helper_child};
+use super::run_helper_tests::{run_helper, spawn_helper_child_without_home};
 use closeclaw_platform::process::{read_pid_file, write_pid_file};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -605,7 +605,7 @@ fn test_prepare_run_env_value_tilde_not_reexpanded() {
 /// fail: the helper child reports it on stderr and exits non-zero.
 #[test]
 fn test_prepare_run_root_dir_failure_propagates() {
-    let output = spawn_helper_child("", &[], true)
+    let output = spawn_helper_child_without_home("", &[])
         .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         !output.status.success(),

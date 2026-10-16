@@ -63,6 +63,11 @@ fn helper_child_test_name() -> String {
 
 /// Re-exec the current test binary as the `prepare_run` helper child.
 ///
+/// Raw entry keeping the explicit `remove_home` switch; call sites pick a
+/// named wrapper ([`spawn_helper_child_without_home`] /
+/// [`spawn_helper_child_with_home`]) so the intent is readable without the
+/// signature (issue #3172-3).
+///
 /// `--exact` restricts the child to the helper sub-test; `envs` /
 /// `remove_home` reproduce the isolation semantics of the old compiled
 /// helper binary (subprocess-only env, no process-global mutation).
@@ -72,12 +77,32 @@ fn helper_child_test_name() -> String {
 /// the parent gives up after [`HELPER_CHILD_TIMEOUT`], killing and reaping
 /// the child instead of hanging. `Err` carries the helper sub-test name
 /// for diagnosis.
-pub(super) fn spawn_helper_child(
+fn spawn_helper_child(
     config_dir: &str,
     envs: &[(&str, &str)],
     remove_home: bool,
 ) -> Result<std::process::Output, String> {
     spawn_helper_child_with_timeout(config_dir, envs, remove_home, HELPER_CHILD_TIMEOUT)
+}
+
+/// [`spawn_helper_child`] entry that removes `HOME` from the child env —
+/// reproduces the home-unset failure path (e.g. `root_dir()` error) in a
+/// subprocess instead of mutating the process-global env (CONTRIBUTING §7).
+pub(super) fn spawn_helper_child_without_home(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+) -> Result<std::process::Output, String> {
+    spawn_helper_child(config_dir, envs, true)
+}
+
+/// [`spawn_helper_child`] entry that keeps the parent's `HOME` in the child
+/// env — the inverse of [`spawn_helper_child_without_home`] — so home
+/// expansion cases resolve against the real parent home directory.
+pub(super) fn spawn_helper_child_with_home(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+) -> Result<std::process::Output, String> {
+    spawn_helper_child(config_dir, envs, false)
 }
 
 /// [`spawn_helper_child`] with an injectable wait bound — test-only hook so
@@ -213,7 +238,7 @@ fn test_prepare_run_helper_child() {
 /// config_dir it printed (stripped from the [`HELPER_RESULT_MARKER`] line).
 /// On failure, outputs both stdout and stderr for debugging.
 pub(super) fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
-    let output = spawn_helper_child(config_dir, envs, false)
+    let output = spawn_helper_child_with_home(config_dir, envs)
         .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         output.status.success(),
