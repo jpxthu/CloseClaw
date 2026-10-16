@@ -133,7 +133,9 @@ pub struct TurnResponse {
     /// Optional: error-only turns may omit this field.
     ///
     /// When the `error` field is also present, `error` takes priority and
-    /// this field is ignored (see [`crate::scenario::ScenarioEngine::decide`]).
+    /// this field is ignored (see [`ScenarioEngine::decide`]).
+    ///
+    /// [`ScenarioEngine::decide`]: crate::scenario::ScenarioEngine::decide
     #[serde(default)]
     pub response: ResponseOrComposite,
     /// Optional artificial delay before delivering the response (milliseconds).
@@ -152,8 +154,11 @@ pub struct TurnResponse {
     /// this error instead of a normal response.
     ///
     /// When this field is `Some`, the error takes priority over the
-    /// `response` field — [`crate::scenario::ScenarioEngine::decide`] returns immediately
-    /// with [`crate::scenario::DecisionOutcome::Error`], and `response` is never evaluated.
+    /// `response` field — [`ScenarioEngine::decide`] returns immediately
+    /// with [`DecisionOutcome::Error`], and `response` is never evaluated.
+    ///
+    /// [`ScenarioEngine::decide`]: crate::scenario::ScenarioEngine::decide
+    /// [`DecisionOutcome::Error`]: crate::scenario::DecisionOutcome::Error
     #[serde(default)]
     pub error: Option<HttpError>,
     /// Optional stream interrupt position. When set, the streaming response
