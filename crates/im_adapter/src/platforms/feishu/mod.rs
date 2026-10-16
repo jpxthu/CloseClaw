@@ -56,6 +56,8 @@ mod render_dispatch;
 pub mod renderer;
 #[cfg(test)]
 mod renderer_decision_tests;
+#[cfg(test)]
+mod renderer_tests;
 mod send_dispatch;
 #[cfg(test)]
 mod send_fallback_tests;
