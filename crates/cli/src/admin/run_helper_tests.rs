@@ -107,7 +107,9 @@ pub(super) fn spawn_helper_child_with_home(
 
 /// [`spawn_helper_child`] with an injectable wait bound — test-only hook so
 /// the hang-fault-injection case can shrink the timeout without touching the
-/// production-path bound.
+/// production-path bound. Call sites go through the named entry
+/// [`spawn_helper_child_with_home_and_timeout`]; this raw form only plumbs
+/// the `remove_home` switch between the wrappers.
 fn spawn_helper_child_with_timeout(
     config_dir: &str,
     envs: &[(&str, &str)],
@@ -198,6 +200,19 @@ fn spawn_helper_child_with_timeout(
     }
 }
 
+/// [`spawn_helper_child_with_home`] with an injectable wait bound — the
+/// hang-fault-injection entry: home semantics are irrelevant to the timeout
+/// path (the child keeps the parent's `HOME`), while the wait bound comes
+/// from the caller so the case stays under the 5s CI target (STANDARDS.md
+/// §6) without touching the production-path bound.
+fn spawn_helper_child_with_home_and_timeout(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    spawn_helper_child_with_timeout(config_dir, envs, false, timeout)
+}
+
 /// Drain a child pipe to bytes on a worker thread; read errors yield
 /// whatever was read so far (the consumers assert on content anyway).
 fn drain_pipe<R: Read>(pipe: Option<R>) -> Vec<u8> {
@@ -266,13 +281,12 @@ fn test_spawn_helper_child_timeout_kills_hung_child() {
     let pid_file = tmp.path().join("helper-child.pid");
 
     let started = Instant::now();
-    let result = spawn_helper_child_with_timeout(
+    let result = spawn_helper_child_with_home_and_timeout(
         "",
         &[(
             HELPER_CHILD_HANG,
             pid_file.to_str().expect("utf-8 tempdir path"),
         )],
-        false,
         TEST_HANG_INJECTION_TIMEOUT,
     );
     let elapsed = started.elapsed();
