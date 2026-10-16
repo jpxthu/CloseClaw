@@ -10,6 +10,7 @@ from unittest import mock
 
 import allow_table
 import baseline
+import common_admission
 import dep_edges
 import dep_guard
 import second_export
@@ -284,6 +285,228 @@ class CheckErrorPathTest(unittest.TestCase):
             result = dep_guard.check_second_exports(Path("."))
         self.assertEqual(result.status, dep_guard.STATUS_FAIL)
         self.assertIn("cargo metadata 失败", result.lines[1])
+
+
+class CheckDepEdgesDiffTest(unittest.TestCase):
+    """dep-edges 检查编排层状态转换（错误路径见 CheckErrorPathTest）。
+
+    mock 边表与 cargo metadata，走真实 find_violations / violation_items /
+    diff_baseline 判定链路。
+    """
+
+    TABLE = {
+        allow_table.ROOT_CRATE: allow_table.ALLOW_ALL,
+        "im_adapter": frozenset({"common"}),
+    }
+    VIOLATION = "closeclaw-im-adapter -> closeclaw-debug-log"
+
+    def _run_check(self, baseline_content: str) -> dep_guard.CheckResult:
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            (baseline_dir / "dep-edges.txt").write_text(baseline_content, encoding="utf-8")
+            with (
+                mock.patch.object(
+                    allow_table, "load_allow_table", return_value=self.TABLE
+                ),
+                mock.patch.object(
+                    dep_edges, "cargo_metadata", return_value=_fake_metadata()
+                ),
+                mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+            ):
+                return dep_guard.check_dep_edges(Path("."))
+
+    def test_new_violation_fails(self) -> None:
+        """baseline 空而实际有越界边 → [FAIL] 新增条目 + 汇总 FAIL。"""
+        result = self._run_check("")
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines[1:],
+            [
+                f"  [FAIL] 新增越界边: {self.VIOLATION}",
+                "  越界边 1 条 / baseline 0 条 / 新增 1 / 已消除 0 → FAIL",
+            ],
+        )
+
+    def test_eliminated_violation_passes_with_info(self) -> None:
+        """baseline 既有条目已消除 → PASS + [info] 可收窄行。"""
+        gone = "closeclaw-gateway -> closeclaw-llm"
+        result = self._run_check(f"{self.VIOLATION}\n{gone}\n")
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines[1:],
+            [
+                f"  [info] 可收窄 baseline（越界边已消除）: {gone}",
+                "  越界边 1 条 / baseline 2 条 / 新增 0 / 已消除 1 → PASS",
+            ],
+        )
+
+
+class CheckCommonAdmissionTest(unittest.TestCase):
+    """common-admission 检查编排层状态转换（重构前零覆盖的优先缺口）。
+
+    mock cargo metadata 与 find_deviations，baseline 经临时目录真实加载，
+    走真实 diff_baseline 与报文模板链路。
+    """
+
+    def _run_check(
+        self, baseline_content: str, deviations: list[str]
+    ) -> dep_guard.CheckResult:
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            (baseline_dir / "common-admission.txt").write_text(
+                baseline_content, encoding="utf-8"
+            )
+            with (
+                mock.patch.object(
+                    dep_edges, "cargo_metadata", return_value=_fake_metadata()
+                ),
+                mock.patch.object(
+                    common_admission, "find_deviations", return_value=deviations
+                ),
+                mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+            ):
+                return dep_guard.check_common_admission(Path("."))
+
+    def test_admission_error_fails(self) -> None:
+        """底层解析异常 → `[FAIL] {exc}` 早退行 + STATUS_FAIL。"""
+        with (
+            mock.patch.object(
+                dep_edges, "cargo_metadata", return_value=_fake_metadata()
+            ),
+            mock.patch.object(
+                common_admission,
+                "find_deviations",
+                side_effect=common_admission.CommonAdmissionError("读取清单文档失败"),
+            ),
+        ):
+            result = dep_guard.check_common_admission(Path("."))
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(result.lines[1], "  [FAIL] 读取清单文档失败")
+
+    def test_new_deviation_fails(self) -> None:
+        """diff 有新增偏差 → [FAIL] 新增偏差 + 汇总 FAIL。"""
+        result = self._run_check("", ["missing-in-doc: Foo"])
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines[1:],
+            [
+                "  [FAIL] 新增偏差: missing-in-doc: Foo",
+                "  偏差 1 条 / baseline 0 条 / 新增 1 / 已消除 0 → FAIL",
+            ],
+        )
+
+    def test_eliminated_deviations_pass_with_info(self) -> None:
+        """diff 仅已消除 → PASS + 逐条 [info] 可收窄行。"""
+        result = self._run_check("missing-in-code: Bar\nmissing-in-doc: Qux\n", [])
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines[1:],
+            [
+                "  [info] 可收窄 baseline（偏差已消除）: missing-in-code: Bar",
+                "  [info] 可收窄 baseline（偏差已消除）: missing-in-doc: Qux",
+                "  偏差 0 条 / baseline 2 条 / 新增 0 / 已消除 2 → PASS",
+            ],
+        )
+
+
+class ReportHelperTest(unittest.TestCase):
+    """report_diff / report_error 公共报文模板 UT（输出模板逐行断言）。"""
+
+    SPEC = dep_guard.DiffReportSpec(
+        check_id="test-check",
+        fail_label="新增越界边",
+        narrowed_label="越界边已消除",
+        count_noun="越界边",
+    )
+
+    def test_new_items_fail_lines_and_summary(self) -> None:
+        """有新增 → FAIL 行 + 汇总行 FAIL（默认计数词「条」）。"""
+        diff = baseline.diff_baseline(["a"], ["a", "b", "c"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 3, 1)
+        self.assertEqual(result.check_id, "test-check")
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [FAIL] 新增越界边: b",
+                "  [FAIL] 新增越界边: c",
+                "  越界边 3 条 / baseline 1 条 / 新增 2 / 已消除 0 → FAIL",
+            ],
+        )
+
+    def test_eliminated_items_info_line(self) -> None:
+        """无新增有已消除 → info 行 + 汇总行 PASS。"""
+        diff = baseline.diff_baseline(["a", "b"], ["b"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 1, 2)
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [info] 可收窄 baseline（越界边已消除）: a",
+                "  越界边 1 条 / baseline 2 条 / 新增 0 / 已消除 1 → PASS",
+            ],
+        )
+
+    def test_empty_diff_pass_summary(self) -> None:
+        """空 diff → 仅 PASS 汇总行。"""
+        diff = baseline.diff_baseline(["a"], ["a"])
+        result = dep_guard.report_diff([], self.SPEC, diff, 1, 1)
+        self.assertEqual(result.status, dep_guard.STATUS_PASS)
+        self.assertEqual(
+            result.lines,
+            ["  越界边 1 条 / baseline 1 条 / 新增 0 / 已消除 0 → PASS"],
+        )
+
+    def test_reason_by_path_injection_and_fallback(self) -> None:
+        """reason 注入 → FAIL 条目带（reason）后缀；缺 reason 条目回退基础格式。"""
+        diff = baseline.diff_baseline([], ["has-reason", "no-reason"])
+        result = dep_guard.report_diff(
+            [],
+            self.SPEC,
+            diff,
+            2,
+            0,
+            reason_by_path={"has-reason": "未继承 workspace MSRV"},
+        )
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines[:2],
+            [
+                "  [FAIL] 新增越界边: has-reason（未继承 workspace MSRV）",
+                "  [FAIL] 新增越界边: no-reason",
+            ],
+        )
+
+    def test_count_word_and_summary_suffix_parameterized(self) -> None:
+        """单一检查（dead-deps）真实词表组合：计数词「处」与 machete
+        后缀按 spec 拼入汇总行；baseline 段恒为条。"""
+        spec = dep_guard.DiffReportSpec(
+            check_id="dead-deps",
+            fail_label="新增死依赖",
+            narrowed_label="死依赖已消除",
+            count_noun="死依赖",
+            count_word="处",
+            summary_suffix="（machete cargo-machete 解析）",
+        )
+        diff = baseline.diff_baseline([], ["x"])
+        result = dep_guard.report_diff([], spec, diff, 1, 0)
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(
+            result.lines,
+            [
+                "  [FAIL] 新增死依赖: x",
+                "  死依赖 1 处 / baseline 0 条 / 新增 1 / 已消除 0 "
+                "（machete cargo-machete 解析）→ FAIL",
+            ],
+        )
+
+    def test_report_error_appends_fail_and_returns_fail(self) -> None:
+        """异常路径：追加 `[FAIL] {exc}` 早退行，状态 FAIL。"""
+        lines = ["[x] 头行"]
+        result = dep_guard.report_error(lines, "x", RuntimeError("解析失败"))
+        self.assertEqual(result.check_id, "x")
+        self.assertEqual(result.status, dep_guard.STATUS_FAIL)
+        self.assertEqual(result.lines, ["[x] 头行", "  [FAIL] 解析失败"])
 
 
 class CheckSecondExportsDiffTest(unittest.TestCase):
