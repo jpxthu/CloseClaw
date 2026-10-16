@@ -6,6 +6,7 @@
 //! `wait_for_background_task_with_heartbeat`.
 
 use crate::lifecycle::TaskStopStatus;
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use std::time::Duration;
 
 // =====================================================================
@@ -17,8 +18,6 @@ use std::time::Duration;
 /// within a bounded time window.
 #[tokio::test]
 async fn test_phase3_heartbeat_fires_periodically() {
-    use crate::shutdown_heartbeat::ShutdownHeartbeat;
-
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
     let mut heartbeats_sent = 0;
 
@@ -60,8 +59,6 @@ async fn test_phase3_heartbeat_fires_periodically() {
 /// from firing immediately after a task finishes.
 #[tokio::test]
 async fn test_phase3_task_completion_resets_heartbeat() {
-    use crate::shutdown_heartbeat::ShutdownHeartbeat;
-
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
     let mut heartbeats_sent = 0;
 
@@ -113,8 +110,6 @@ async fn test_phase3_task_completion_resets_heartbeat() {
 /// timer, preventing premature heartbeat sends.
 #[tokio::test]
 async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
-    use crate::shutdown_heartbeat::ShutdownHeartbeat;
-
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
     let mut heartbeats_sent = 0;
 
@@ -177,8 +172,7 @@ async fn test_phase3_stop_confirmation_clean_task_behavior() {
     let handle = tokio::spawn(async {
         // Immediate completion
     });
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     // Directly exercise the same select! + timeout logic from
     // wait_for_background_task_with_heartbeat to verify it produces
@@ -200,8 +194,7 @@ async fn test_phase3_stop_confirmation_aborted_task_behavior() {
     let handle = tokio::spawn(async {
         tokio::time::sleep(Duration::from_secs(20)).await;
     });
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
 
     let status = wait_with_heartbeat_sim(handle, &mut heartbeat).await;
 
@@ -219,8 +212,7 @@ async fn test_phase3_stop_confirmation_panicked_task_behavior() {
     let handle = tokio::spawn(async {
         panic!("test panic");
     });
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     let status = wait_with_heartbeat_sim(handle, &mut heartbeat).await;
 
@@ -240,8 +232,7 @@ async fn test_phase3_stop_confirmation_panicked_task_behavior() {
 /// 2 heartbeat cycles fire before the task completes.
 #[tokio::test]
 async fn test_wait_with_heartbeat_sends_periodically() {
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
     let mut heartbeats_sent = 0usize;
 
     // Slow task: 150ms
@@ -279,8 +270,7 @@ async fn test_wait_with_heartbeat_sends_periodically() {
 /// immediately after the task finishes.
 #[tokio::test]
 async fn test_wait_with_heartbeat_completion_resets_timer() {
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     // Fast task: 10ms
     let mut handle = tokio::spawn(async {
@@ -303,8 +293,7 @@ async fn test_wait_with_heartbeat_completion_resets_timer() {
 /// aborted and the status is Aborted.
 #[tokio::test]
 async fn test_wait_with_heartbeat_timeout_aborts_task() {
-    let mut heartbeat =
-        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
 
     // Very slow task: 5s (will be aborted)
     let handle = tokio::spawn(async {
@@ -478,12 +467,12 @@ async fn test_grace_period_halfway_completion_no_abort() {
 /// Uses a 2s timeout (instead of real Phase 3 10s) for fast tests.
 async fn wait_with_heartbeat_sim(
     mut handle: tokio::task::JoinHandle<()>,
-    heartbeat: &mut crate::shutdown_heartbeat::ShutdownHeartbeat,
+    heartbeat: &mut ShutdownHeartbeat,
 ) -> TaskStopStatus {
     // Clone the heartbeat interval into an owned future to avoid
     // capturing &mut across tokio::select! branches.
     let interval = heartbeat.interval();
-    let mut inner_heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(interval);
+    let mut inner_heartbeat = ShutdownHeartbeat::with_interval(interval);
     // Sync inner heartbeat state with the caller's.
     // (We cannot directly copy last_event; re-create fresh.)
 

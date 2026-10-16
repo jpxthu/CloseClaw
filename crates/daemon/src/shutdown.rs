@@ -19,14 +19,14 @@ pub use closeclaw_common::{DrainStatus, ShutdownMode, ShutdownState};
 
 /// Returns the drain poll interval.
 #[cfg(not(test))]
-pub(crate) const fn drain_poll_interval() -> std::time::Duration {
-    std::time::Duration::from_secs(2)
+pub(crate) const fn drain_poll_interval() -> Duration {
+    Duration::from_secs(2)
 }
 
 /// Returns the drain poll interval (test mode: 100ms).
 #[cfg(test)]
-pub(crate) const fn drain_poll_interval() -> std::time::Duration {
-    std::time::Duration::from_millis(100)
+pub(crate) const fn drain_poll_interval() -> Duration {
+    Duration::from_millis(100)
 }
 
 /// ShutdownCoordinator — coordinates graceful shutdown across all components.

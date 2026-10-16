@@ -3,6 +3,7 @@
 
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::Daemon;
+use std::time::Duration;
 use tracing::{error, info, warn};
 
 use crate::lifecycle::TaskStopStatus;
@@ -14,8 +15,8 @@ impl Daemon {
     /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
     /// DreamingScheduler, and ConfigWatcher subscriber.
     pub(crate) async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
-        let join_timeout = std::time::Duration::from_secs(7);
-        let abort_grace = std::time::Duration::from_secs(3);
+        let join_timeout = Duration::from_secs(7);
+        let abort_grace = Duration::from_secs(3);
 
         // Compile-time: total Phase 3 budget must be 10s per design doc.
         #[allow(clippy::assertions_on_constants, clippy::eq_op)]
@@ -95,8 +96,8 @@ impl Daemon {
         &self,
         mut handle: tokio::task::JoinHandle<()>,
         name: &str,
-        timeout: std::time::Duration,
-        abort_grace: std::time::Duration,
+        timeout: Duration,
+        abort_grace: Duration,
         heartbeat: &mut ShutdownHeartbeat,
     ) -> TaskStopStatus {
         let wait_with_heartbeats = async {
@@ -140,7 +141,7 @@ impl Daemon {
     pub(crate) async fn abort_task_with_grace(
         handle: tokio::task::JoinHandle<()>,
         name: &str,
-        abort_grace: std::time::Duration,
+        abort_grace: Duration,
         heartbeat: &mut ShutdownHeartbeat,
     ) -> TaskStopStatus {
         warn!("{} did not exit within timeout, aborting", name);
