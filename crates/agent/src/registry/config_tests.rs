@@ -262,8 +262,16 @@ fn test_concurrent_get_and_populate() {
         h.join().expect("thread should not panic");
     }
 
-    // After all writers, at least some configs should be present
-    assert!(registry.get("writer-0").is_some() || registry.get("writer-49").is_some());
+    // After all threads join, all 50 populated configs should be present
+    let missing: Vec<String> = (0..50)
+        .map(|i| format!("writer-{}", i))
+        .filter(|id| registry.get(id).is_none())
+        .collect();
+    assert!(
+        missing.is_empty(),
+        "expected all 50 writer configs registered, missing: {:?}",
+        missing
+    );
 }
 
 #[tokio::test]
