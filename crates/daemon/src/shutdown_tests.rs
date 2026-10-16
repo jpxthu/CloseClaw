@@ -5,7 +5,6 @@
 //! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
-use crate::test_helpers::signal_step;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 
@@ -191,10 +190,7 @@ async fn test_initiate_shutdown_first_caller_wins() {
     );
 
     // First initiate succeeds (gate already set by Phase 0)
-    let handle2 = handle.clone();
-    tokio::spawn(async move {
-        handle2.initiate_shutdown().await;
-    });
+    spawn_shutdown(&handle);
 
     // Give it a moment to enter the drain loop
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
@@ -293,10 +289,7 @@ async fn test_subscribe_drain_triggers_on_escalation() {
     handle.increment_busy();
 
     // Spawn initiate_shutdown — it will block on drain because busy_count > 0
-    let h = handle.clone();
-    tokio::spawn(async move {
-        h.initiate_shutdown().await;
-    });
+    spawn_shutdown(&handle);
     // Let it enter the drain loop
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(handle.is_shutting_down());
@@ -362,21 +355,13 @@ async fn test_graceful_drain_timeout() {
     handle.increment_busy();
     assert_eq!(handle.busy_count(), 2);
 
-    let h = handle.clone();
-    let shutdown_handle = tokio::spawn(async move {
-        h.initiate_shutdown().await;
-    });
+    let shutdown_handle = spawn_shutdown(&handle);
 
     // Wait for timeout to fire + buffer
     tokio::time::sleep(std::time::Duration::from_millis(300)).await;
 
     // Shutdown should have completed despite busy_count > 0
-    signal_step(
-        "drain timeout shutdown JoinHandle did not complete within 10s",
-        shutdown_handle,
-    )
-    .await
-    .unwrap();
+    await_shutdown(Duration::from_secs(10), shutdown_handle).await;
     assert!(handle.is_stopped(), "drain should complete after timeout");
     // busy_count was not cleared by the drain
     assert_eq!(handle.busy_count(), 2);
@@ -391,10 +376,7 @@ async fn test_drain_timeout_returns_remaining_count() {
     handle.increment_busy();
     assert_eq!(handle.busy_count(), 3);
 
-    let h = handle.clone();
-    tokio::spawn(async move {
-        h.initiate_shutdown().await;
-    });
+    spawn_shutdown(&handle);
 
     // Wait for timeout + buffer
     tokio::time::sleep(std::time::Duration::from_millis(600)).await;
@@ -411,10 +393,7 @@ async fn test_drain_completes_on_zero_count() {
     handle.increment_busy();
     handle.increment_busy();
 
-    let h = handle.clone();
-    let shutdown_handle = tokio::spawn(async move {
-        h.initiate_shutdown().await;
-    });
+    let shutdown_handle = spawn_shutdown(&handle);
 
     // Let it enter the drain loop
     tokio::time::sleep(std::time::Duration::from_millis(150)).await;
@@ -425,11 +404,7 @@ async fn test_drain_completes_on_zero_count() {
     handle.decrement_busy();
 
     // Should complete quickly, not wait for 10s timeout
-    let result = tokio::time::timeout(std::time::Duration::from_secs(2), shutdown_handle).await;
-    assert!(
-        result.is_ok(),
-        "drain should complete when busy_count hits 0"
-    );
+    await_shutdown(Duration::from_secs(2), shutdown_handle).await;
     assert!(handle.is_stopped());
     assert_eq!(handle.busy_count(), 0);
 }
@@ -442,10 +417,7 @@ async fn test_forceful_skips_drain() {
         handle.increment_busy();
     }
 
-    let h = handle.clone();
-    let shutdown_handle = tokio::spawn(async move {
-        h.initiate_shutdown().await;
-    });
+    let shutdown_handle = spawn_shutdown(&handle);
 
     tokio::time::sleep(std::time::Duration::from_millis(200)).await;
     assert!(handle.is_shutting_down());
@@ -453,12 +425,7 @@ async fn test_forceful_skips_drain() {
 
     // Escalate to forceful — should terminate immediately
     handle.escalate_to_forceful();
-    signal_step(
-        "forceful escalation shutdown JoinHandle did not complete within 10s",
-        shutdown_handle,
-    )
-    .await
-    .unwrap();
+    await_shutdown(Duration::from_secs(10), shutdown_handle).await;
 
     assert!(handle.is_stopped());
     // busy_count unchanged — forceful skips drain
@@ -559,10 +526,7 @@ async fn test_initiate_shutdown_returns_zero_when_drained() {
         h_dec.decrement_busy();
     });
 
-    let h = handle.clone();
-    let result = tokio::spawn(async move { h.initiate_shutdown().await })
-        .await
-        .unwrap();
+    let result = await_shutdown(Duration::from_secs(10), spawn_shutdown(&handle)).await;
 
     assert_eq!(result, 0, "should return 0 when all ops drained");
     assert!(handle.is_stopped());
@@ -577,10 +541,7 @@ async fn test_initiate_shutdown_returns_remaining_on_timeout() {
     handle.increment_busy();
     handle.increment_busy();
 
-    let h = handle.clone();
-    let result = tokio::spawn(async move { h.initiate_shutdown().await })
-        .await
-        .unwrap();
+    let result = await_shutdown(Duration::from_secs(10), spawn_shutdown(&handle)).await;
 
     assert_eq!(result, 3, "should return remaining busy_count on timeout");
     assert!(handle.is_stopped());
@@ -598,10 +559,7 @@ async fn test_initiate_shutdown_forceful_returns_zero() {
     handle.try_start_shutdown();
     handle.escalate_to_forceful();
 
-    let h = handle.clone();
-    let result = tokio::spawn(async move { h.initiate_shutdown().await })
-        .await
-        .unwrap();
+    let result = await_shutdown(Duration::from_secs(10), spawn_shutdown(&handle)).await;
 
     assert_eq!(result, 0, "forceful mode should return 0");
     assert!(handle.is_stopped());
@@ -781,10 +739,7 @@ async fn test_drain_signal_broadcast() {
     let mut rx2 = handle.subscribe_drain();
 
     // Spawn shutdown in background
-    let handle_clone = handle.clone();
-    tokio::spawn(async move {
-        handle_clone.initiate_shutdown().await;
-    });
+    spawn_shutdown(&handle);
 
     // Both receivers should receive the signal within 1 second
     let result1 = tokio::time::timeout(Duration::from_secs(1), rx1.recv()).await;
