@@ -26,6 +26,8 @@ pub mod config;
 pub mod daemon_guard;
 pub mod daemon_lifecycle;
 pub mod daemon_ready;
+#[cfg(test)]
+mod daemon_ready_tests;
 pub mod daemon_spawn;
 #[cfg(feature = "fake-llm")]
 pub mod fake_llm;

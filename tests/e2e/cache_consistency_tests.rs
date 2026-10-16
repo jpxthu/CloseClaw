@@ -69,8 +69,7 @@ async fn spawn_scenario_daemon(
     );
     disable_skill_listing_injection(config_root);
     let log_dir = enable_debug_log(config_root);
-    let daemon = helpers::daemon_guard::spawn_daemon_guarded(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
+    let daemon = helpers::daemon_guard::spawn_ready_daemon(config_root).await;
     (daemon, config_root.join("chat.sock"), log_dir)
 }
 

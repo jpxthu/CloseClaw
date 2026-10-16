@@ -20,7 +20,6 @@
 use std::path::Path;
 use std::time::Duration;
 
-use tokio::process::Child;
 use tokio::time::timeout;
 
 use super::helpers;
@@ -28,6 +27,7 @@ use super::helpers::chat::{
     assert_single_terminal, chat_roundtrip, collect_content_text, try_chat_roundtrip,
 };
 use super::helpers::config::{write_config_tree, ConfigTreeOpts};
+use super::helpers::daemon_guard::DaemonGuard;
 use super::helpers::fake_llm::start_fake_llm;
 
 /// How long to wait for the restart to complete (watchdog poll ≤10s +
@@ -55,7 +55,7 @@ const RESTART_WAIT: Duration = Duration::from_secs(30);
 /// the NEW chat RPC server, not the pre-restart one (the pre-restart
 /// server also answers turns — polling too early would pass even with
 /// the bug present).
-async fn trigger_gateway_restart(config_root: &Path, daemon: &mut Child) {
+async fn trigger_gateway_restart(config_root: &Path, daemon: &mut DaemonGuard) {
     let gateway_json = config_root.join("config").join("gateway.json");
     let original = std::fs::read_to_string(&gateway_json).expect("read gateway.json");
     std::fs::write(&gateway_json, &original).expect("touch gateway.json (1st)");
@@ -63,7 +63,7 @@ async fn trigger_gateway_restart(config_root: &Path, daemon: &mut Child) {
     std::fs::write(&gateway_json, &original).expect("touch gateway.json (2nd)");
 
     tokio::time::sleep(Duration::from_secs(6)).await;
-    helpers::assert_daemon_alive_with_context(daemon, Some("during gateway restart"));
+    helpers::assert_daemon_alive_with_context(&mut daemon.0, Some("during gateway restart"));
 }
 
 /// Drive one turn through the rebuilt chat RPC server, polling until
@@ -107,11 +107,11 @@ async fn wait_post_restart_turn(config_root: &Path) -> Vec<serde_json::Value> {
 
 /// Assert the daemon survived the final chat turn, then shut it down
 /// gracefully (SIGTERM → exit 0 within `helpers::SHUTDOWN_TIMEOUT`,
-/// shared `helpers::sigterm_and_wait`).
-async fn terminate_daemon(mut daemon: Child) {
-    helpers::assert_daemon_alive_with_context(&mut daemon, Some("after restart chat turn"));
+/// via [`DaemonGuard::shutdown`], the shared `helpers::sigterm_and_wait`).
+async fn terminate_daemon(mut daemon: DaemonGuard) {
+    helpers::assert_daemon_alive_with_context(&mut daemon.0, Some("after restart chat turn"));
 
-    let status = helpers::sigterm_and_wait(&mut daemon).await;
+    let status = daemon.shutdown().await;
     assert!(
         status.success(),
         "daemon should exit 0 after SIGTERM, got: {status:?}"
@@ -133,9 +133,8 @@ async fn e2e_gateway_restart_llm_turn_completes() {
         ConfigTreeOpts::with_root_gateway(fake_llm_addr),
     );
 
-    let mut daemon: Child = helpers::spawn_daemon(config_root);
-    helpers::wait_for_daemon_ready_with_timeout(config_root, Duration::from_secs(30)).await;
-    helpers::assert_daemon_alive_with_context(&mut daemon, Some("during startup"));
+    let mut daemon = helpers::daemon_guard::spawn_ready_daemon(config_root).await;
+    helpers::assert_daemon_alive_with_context(&mut daemon.0, Some("during startup"));
 
     // Pre-restart sanity: one chat turn completes with the greeting text.
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
