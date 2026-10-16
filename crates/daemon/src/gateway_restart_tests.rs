@@ -15,6 +15,7 @@ use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_config::ReloadCallback;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 // -- RestartState display ----------------------------------------------
 
@@ -458,7 +459,7 @@ async fn test_restart_path_output_consumer_finalizes_waiting_chat_turn() {
     // The waiting connection observes channel close (recv → None)
     // immediately — bounded wait so a regression hangs the test,
     // not 120s of production timeout.
-    let closed = tokio::time::timeout(std::time::Duration::from_secs(1), h.conn_rx.recv())
+    let closed = tokio::time::timeout(Duration::from_secs(1), h.conn_rx.recv())
         .await
         .expect("turn finalization must not hang (was: 120s timeout)");
     assert!(

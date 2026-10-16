@@ -16,6 +16,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::LateBoundSessionManagerOps;
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tempfile::TempDir;
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
@@ -140,8 +141,7 @@ pub(super) async fn assert_subscriber_exits(
     timeout_secs: u64,
     context: &str,
 ) {
-    let joined =
-        tokio::time::timeout(std::time::Duration::from_secs(timeout_secs), subscriber).await;
+    let joined = tokio::time::timeout(Duration::from_secs(timeout_secs), subscriber).await;
     assert!(
         joined.is_ok(),
         "{context}: must exit within {timeout_secs}s"

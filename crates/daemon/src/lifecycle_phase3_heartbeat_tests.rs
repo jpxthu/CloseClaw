@@ -6,6 +6,7 @@
 //! `wait_for_background_task_with_heartbeat`.
 
 use crate::lifecycle::TaskStopStatus;
+use std::time::Duration;
 
 // =====================================================================
 // Phase 3 heartbeat periodicity tests
@@ -18,15 +19,15 @@ use crate::lifecycle::TaskStopStatus;
 async fn test_phase3_heartbeat_fires_periodically() {
     use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
-    let mut heartbeat = ShutdownHeartbeat::with_interval(std::time::Duration::from_millis(50));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
     let mut heartbeats_sent = 0;
 
     // Simulate a long-running task that completes after 200ms
     let mut handle = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+        tokio::time::sleep(Duration::from_millis(200)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(250);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
 
     while tokio::time::Instant::now() < deadline {
         tokio::select! {
@@ -61,16 +62,16 @@ async fn test_phase3_heartbeat_fires_periodically() {
 async fn test_phase3_task_completion_resets_heartbeat() {
     use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
-    let mut heartbeat = ShutdownHeartbeat::with_interval(std::time::Duration::from_millis(50));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
     let mut heartbeats_sent = 0;
 
     // Task 1: completes at 40ms
     let mut handle1 = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(40)).await;
+        tokio::time::sleep(Duration::from_millis(40)).await;
     });
 
     // Wait for task 1 to complete
-    let _ = tokio::time::timeout(std::time::Duration::from_millis(100), &mut handle1).await;
+    let _ = tokio::time::timeout(Duration::from_millis(100), &mut handle1).await;
     heartbeat.record_event(); // Task 1 completed
 
     // After task 1, heartbeat should NOT fire immediately
@@ -78,10 +79,10 @@ async fn test_phase3_task_completion_resets_heartbeat() {
 
     // Task 2: completes at 100ms after task 1
     let mut handle2 = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        tokio::time::sleep(Duration::from_millis(100)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(150);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(150);
 
     while tokio::time::Instant::now() < deadline {
         tokio::select! {
@@ -114,21 +115,21 @@ async fn test_phase3_task_completion_resets_heartbeat() {
 async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
     use crate::shutdown_heartbeat::ShutdownHeartbeat;
 
-    let mut heartbeat = ShutdownHeartbeat::with_interval(std::time::Duration::from_millis(30));
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
     let mut heartbeats_sent = 0;
 
     // Simulate 4 tasks completing every 20ms (faster than 30ms interval)
     for i in 0..4 {
         let mut handle = tokio::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+            tokio::time::sleep(Duration::from_millis(20)).await;
             i
         });
-        let _ = tokio::time::timeout(std::time::Duration::from_millis(50), &mut handle).await;
+        let _ = tokio::time::timeout(Duration::from_millis(50), &mut handle).await;
         heartbeat.record_event();
     }
 
     // After all tasks, check if heartbeat fires during quiet period
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(100);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
     while tokio::time::Instant::now() < deadline {
         tokio::select! {
             _ = tokio::time::sleep_until(
@@ -140,7 +141,7 @@ async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
                 }
             }
             _ = async {
-                tokio::time::sleep(std::time::Duration::from_millis(100))
+                tokio::time::sleep(Duration::from_millis(100))
                     .await;
             } => { break; }
         }
@@ -176,9 +177,8 @@ async fn test_phase3_stop_confirmation_clean_task_behavior() {
     let handle = tokio::spawn(async {
         // Immediate completion
     });
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(50),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     // Directly exercise the same select! + timeout logic from
     // wait_for_background_task_with_heartbeat to verify it produces
@@ -198,11 +198,10 @@ async fn test_phase3_stop_confirmation_clean_task_behavior() {
 async fn test_phase3_stop_confirmation_aborted_task_behavior() {
     // Create a task that never completes (20s sleep)
     let handle = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(Duration::from_secs(20)).await;
     });
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(30),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
 
     let status = wait_with_heartbeat_sim(handle, &mut heartbeat).await;
 
@@ -220,9 +219,8 @@ async fn test_phase3_stop_confirmation_panicked_task_behavior() {
     let handle = tokio::spawn(async {
         panic!("test panic");
     });
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(50),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     let status = wait_with_heartbeat_sim(handle, &mut heartbeat).await;
 
@@ -242,17 +240,16 @@ async fn test_phase3_stop_confirmation_panicked_task_behavior() {
 /// 2 heartbeat cycles fire before the task completes.
 #[tokio::test]
 async fn test_wait_with_heartbeat_sends_periodically() {
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(30),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
     let mut heartbeats_sent = 0usize;
 
     // Slow task: 150ms
     let mut handle = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
+        tokio::time::sleep(Duration::from_millis(150)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(200);
+    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
 
     while tokio::time::Instant::now() < deadline {
         tokio::select! {
@@ -282,17 +279,16 @@ async fn test_wait_with_heartbeat_sends_periodically() {
 /// immediately after the task finishes.
 #[tokio::test]
 async fn test_wait_with_heartbeat_completion_resets_timer() {
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(50),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(50));
 
     // Fast task: 10ms
     let mut handle = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        tokio::time::sleep(Duration::from_millis(10)).await;
     });
 
     // Wait for task completion
-    let result = tokio::time::timeout(std::time::Duration::from_millis(100), &mut handle).await;
+    let result = tokio::time::timeout(Duration::from_millis(100), &mut handle).await;
     assert!(result.is_ok(), "task should complete in time");
     heartbeat.record_event(); // record completion event
 
@@ -307,13 +303,12 @@ async fn test_wait_with_heartbeat_completion_resets_timer() {
 /// aborted and the status is Aborted.
 #[tokio::test]
 async fn test_wait_with_heartbeat_timeout_aborts_task() {
-    let mut heartbeat = crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(
-        std::time::Duration::from_millis(30),
-    );
+    let mut heartbeat =
+        crate::shutdown_heartbeat::ShutdownHeartbeat::with_interval(Duration::from_millis(30));
 
     // Very slow task: 5s (will be aborted)
     let handle = tokio::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(Duration::from_secs(5)).await;
     });
 
     let status = wait_with_heartbeat_sim(handle, &mut heartbeat).await;
@@ -347,12 +342,12 @@ async fn test_grace_period_within_boundary_no_abort() {
     // Single source of truth for the task duration: both the task body's
     // sleep and the elapsed assertion below reuse this binding (Duration
     // is Copy, so `async move` copies it into the task).
-    let task_duration = std::time::Duration::from_millis(9900);
+    let task_duration = Duration::from_millis(9900);
     let mut task = tokio::task::spawn(async move {
         tokio::time::sleep(task_duration).await;
     });
 
-    let grace = std::time::Duration::from_secs(10);
+    let grace = Duration::from_secs(10);
     let start = tokio::time::Instant::now();
 
     tokio::select! {
@@ -388,10 +383,10 @@ async fn test_grace_period_within_boundary_no_abort() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_grace_period_past_boundary_aborts() {
     let mut task = tokio::task::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_secs(20)).await;
+        tokio::time::sleep(Duration::from_secs(20)).await;
     });
 
-    let grace = std::time::Duration::from_secs(10);
+    let grace = Duration::from_secs(10);
     let start = tokio::time::Instant::now();
 
     match tokio::time::timeout(grace, &mut task).await {
@@ -446,12 +441,12 @@ async fn test_grace_period_halfway_completion_no_abort() {
     // Single source of truth for the task duration: both the task body's
     // sleep and the elapsed assertion below reuse this binding (Duration
     // is Copy, so `async move` copies it into the task).
-    let task_duration = std::time::Duration::from_secs(5);
+    let task_duration = Duration::from_secs(5);
     let mut task = tokio::task::spawn(async move {
         tokio::time::sleep(task_duration).await;
     });
 
-    let grace = std::time::Duration::from_secs(10);
+    let grace = Duration::from_secs(10);
     let start = tokio::time::Instant::now();
 
     tokio::select! {
@@ -507,7 +502,7 @@ async fn wait_with_heartbeat_sim(
         }
     };
 
-    let timeout = std::time::Duration::from_secs(2);
+    let timeout = Duration::from_secs(2);
     match tokio::time::timeout(timeout, wait_with_heartbeats).await {
         Ok(Ok(())) => {
             heartbeat.record_event();
@@ -557,14 +552,14 @@ async fn test_config_watcher_subscriber_exits_on_channel_close() {
     });
 
     // Give the subscriber time to start
-    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    tokio::time::sleep(Duration::from_millis(50)).await;
     assert!(!subscriber.is_finished(), "subscriber should be running");
 
     // Drop the sender — closes the channel, subscriber should exit
     drop(tx);
 
     // Wait for subscriber to exit
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), subscriber).await;
     assert!(result.is_ok(), "subscriber should exit after channel close");
     let join_result = result.unwrap();
     assert!(join_result.is_ok(), "subscriber should not panic");
@@ -590,7 +585,7 @@ async fn test_config_watcher_subscriber_handles_lag() {
                 Ok(_) => {
                     events_received += 1;
                     // Slow consumer — simulate processing delay
-                    tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+                    tokio::time::sleep(Duration::from_millis(10)).await;
                 }
                 Err(RecvError::Lagged(_)) => {
                     // Subscriber lagged — skip missed events, keep running
@@ -614,7 +609,7 @@ async fn test_config_watcher_subscriber_handles_lag() {
     // Close channel
     drop(tx);
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), subscriber).await;
     assert!(result.is_ok(), "subscriber should exit after channel close");
     // Subscriber should have processed at least some events
     let count = result.unwrap().unwrap();

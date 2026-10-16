@@ -10,6 +10,7 @@ use super::tests::{
 use closeclaw_config::events::ConfigChangeEvent;
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
 use std::sync::Arc;
+use std::time::Duration;
 
 // ---------------------------------------------------------------------------
 // ConfigWatcherHandle tests
@@ -105,7 +106,7 @@ async fn test_config_watcher_handle_holds_both_handles() {
         r#"{"update": {"checkOnStart": false}}"#,
     )
     .expect("rewrite watched system.json");
-    let event = tokio::time::timeout(std::time::Duration::from_secs(5), event_rx.recv())
+    let event = tokio::time::timeout(Duration::from_secs(5), event_rx.recv())
         .await
         .expect("holds_both_handles: no config event within 5s — held watcher is not listening")
         .expect("holds_both_handles: config change channel failed");
@@ -202,7 +203,7 @@ async fn test_phase3_config_watcher_subscriber_in_task_list() {
     // Simulate Phase 3: drop watcher (closes channel), subscriber should exit
     drop(tx);
 
-    let result = tokio::time::timeout(std::time::Duration::from_secs(5), subscriber).await;
+    let result = tokio::time::timeout(Duration::from_secs(5), subscriber).await;
     assert!(
         result.is_ok(),
         "ConfigWatcher subscriber should exit after channel close in Phase 3"
