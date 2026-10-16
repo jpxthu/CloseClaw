@@ -20,11 +20,7 @@ impl SessionManager {
             .query_agent_bootstrap_mode(&agent_id_for_rebuild)
             .await
             .unwrap_or(BootstrapMode::Full);
-        let no_bootstrap = self
-            .get_agent_config(&agent_id_for_rebuild)
-            .await
-            .map(|c| c.no_bootstrap)
-            .unwrap_or(false);
+        let no_bootstrap = self.query_agent_no_bootstrap(&agent_id_for_rebuild).await;
         let cs_arc = {
             let cs = self.conversation_sessions.read().await;
             cs.get(session_id).cloned()

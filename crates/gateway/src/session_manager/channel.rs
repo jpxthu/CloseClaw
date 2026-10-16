@@ -102,6 +102,11 @@ impl SessionManager {
             .await
             .unwrap_or(BootstrapMode::Full);
         conv_session = conv_session.with_bootstrap_mode(bootstrap_mode);
+        // Cache no_bootstrap: declared `noBootstrap: true` runs the
+        // session without any bootstrap files (priority over
+        // bootstrap_mode).
+        let no_bootstrap = self.query_agent_no_bootstrap(agent_id).await;
+        conv_session = conv_session.with_no_bootstrap(no_bootstrap);
         // Build initial system prompt via session's own builder.
         conv_session
             .rebuild_system_prompt(&session_id, agent_id, Some(bootstrap_mode))

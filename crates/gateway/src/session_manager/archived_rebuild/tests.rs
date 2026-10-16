@@ -275,6 +275,30 @@ async fn test_archived_restore_no_bootstrap_true_carries_into_injection() {
     assert_flag_carried(&mgr, &sid, &capture, true).await;
 }
 
+/// E2-A control: an agent without `noBootstrap` (default `false`) restored
+/// from the archive must keep loading bootstrap files — the flag carried
+/// into cache and InjectionParams stays `false`.
+#[tokio::test]
+async fn test_archived_restore_default_no_bootstrap_unchanged() {
+    let sid = "nb-archived-restore-default".to_string();
+    let capture = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mgr = setup_mgr(
+        Arc::new(NbPersistMock::with_archived_checkpoint(
+            archived_checkpoint(&sid),
+            Some(sid.clone()),
+        )),
+        false,
+        capture.clone(),
+    )
+    .await;
+
+    let msg = test_message();
+    let resolved = mgr.find_or_create("feishu", &msg, None).await.unwrap();
+    assert_eq!(resolved, sid);
+
+    assert_flag_carried(&mgr, &sid, &capture, false).await;
+}
+
 // ── Scenario 3: in-memory rebuild (rebuild_archived_session_prompt) ──────
 
 /// Marker workdir for the pre-populated session: the in-place rebuild must

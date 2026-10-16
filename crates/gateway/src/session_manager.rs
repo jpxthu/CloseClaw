@@ -5,9 +5,7 @@
 use crate::shutdown_handle::ShutdownHandle;
 use crate::{compute_session_key, GatewayConfig, Message, Session};
 use closeclaw_common::processor::ProcessError;
-use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_common::tool_session::ToolSession;
-use closeclaw_common::IMPlugin;
+use closeclaw_common::{shutdown::ShutdownMode, tool_session::ToolSession, IMPlugin};
 use closeclaw_common::{
     DynamicPromptBuilder, LlmCaller, PromptOverrides, SessionActivityDimensions,
     SkillListingProvider, SkillRegistryQuery, SystemPromptBuilder, ToolRegistryQuery,
@@ -128,7 +126,6 @@ pub struct SessionManager {
     /// Background task manager for draining completion notifications
     /// and cleaning up finished task output files.
     task_manager: RwLock<Option<Arc<dyn closeclaw_common::TaskManager>>>,
-    /// Per-session runtime snapshot managers for transcript rollback.
     /// Per-agent mutexes for serializing resolve() requests.
     /// Keyed by agent_id. Ensures the same agent's lookup/restore/create
     /// operations are serialized while different agents run in parallel.
@@ -919,6 +916,8 @@ mod graceful_stop_tests;
 mod is_active_tests;
 #[cfg(test)]
 mod key_registry_tests;
+#[cfg(test)]
+mod no_bootstrap_step18_tests;
 #[cfg(test)]
 mod rebuild_spawn_tree_tests;
 #[cfg(test)]

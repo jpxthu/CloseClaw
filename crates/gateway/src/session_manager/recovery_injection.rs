@@ -134,11 +134,16 @@ impl SessionManager {
             .query_agent_bootstrap_mode(agent_id)
             .await
             .unwrap_or(BootstrapMode::Full);
+        // Cache no_bootstrap: declared `noBootstrap: true` runs the
+        // session without any bootstrap files (priority over
+        // bootstrap_mode).
+        let no_bootstrap = self.query_agent_no_bootstrap(agent_id).await;
         let mut conv =
             ConversationSession::new(session_id.to_string(), "default".to_string(), workdir)
                 .with_system_prompt("")
                 .with_reasoning_level(self.default_reasoning_level)
-                .with_bootstrap_mode(bootstrap_mode);
+                .with_bootstrap_mode(bootstrap_mode)
+                .with_no_bootstrap(no_bootstrap);
         // Force invalidate all static layer caches before rebuild to ensure
         // the recovered session gets the latest file contents, even when
         // file mtimes haven't changed.

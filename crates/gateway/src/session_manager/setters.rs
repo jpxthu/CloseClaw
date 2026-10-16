@@ -143,6 +143,18 @@ impl SessionManager {
         registry.query_bootstrap_mode(agent_id).await
     }
 
+    /// Query per-agent no_bootstrap flag via the config manager.
+    ///
+    /// Returns `true` only when the agent is configured with
+    /// `noBootstrap: true`; unknown agents default to `false`,
+    /// preserving the standard bootstrap-file loading behavior.
+    pub(super) async fn query_agent_no_bootstrap(&self, agent_id: &str) -> bool {
+        self.get_agent_config(agent_id)
+            .await
+            .map(|c| c.no_bootstrap)
+            .unwrap_or(false)
+    }
+
     /// Set priority prompt overrides.
     pub async fn set_prompt_overrides(&self, overrides: Option<PromptOverrides>) {
         *self.prompt_overrides.write().await = overrides;
