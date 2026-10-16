@@ -28,7 +28,10 @@
 
 use super::super::KillHandle;
 use super::capture_logs_async;
-use super::kill_doubles::{make_session, register_kill_handle, MockKillHandle};
+use super::kill_doubles::{
+    assert_tool_handles_count, assert_tool_handles_empty, make_session, register_kill_handle,
+    tool_handles_len, MockKillHandle,
+};
 use closeclaw_common::shutdown::ShutdownMode;
 use std::io;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -155,7 +158,7 @@ impl KillHandle for FailingKillHandle {
 async fn test_stop_with_fast_kill_returns_promptly() {
     let cs = make_session("s_kill_fast");
     let handle = Arc::new(MockKillHandle::new());
-    register_kill_handle(&cs, "call-fast", handle.clone()).await;
+    register_kill_handle(&cs, "call-fast", &handle).await;
 
     let start = Instant::now();
     cs.read()
@@ -166,13 +169,7 @@ async fn test_stop_with_fast_kill_returns_promptly() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_fast_kill_returns_promptly");
     assert_eq!(
         handle.kill_count().load(Ordering::SeqCst),
         1,
@@ -218,7 +215,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
     let handle = Arc::new(BridgingKillHandle {
         kill_count: AtomicUsize::new(0),
     });
-    register_kill_handle(&cs, "bridge", handle.clone()).await;
+    register_kill_handle(&cs, "bridge", &handle).await;
 
     let start = Instant::now();
     cs.read()
@@ -229,13 +226,7 @@ async fn test_stop_with_sync_to_async_bridging_kill_succeeds() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_sync_to_async_bridging_kill_succeeds");
     assert_eq!(
         handle.kill_count.load(Ordering::SeqCst),
         1,
@@ -262,14 +253,17 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
     let cs = make_session("s_slow");
     // Small budget: waiting out the production 5 s budget would push
     // this case over the STANDARDS §6 5 s line by itself.
-    let kill_budget = Duration::from_millis(500);
-    // Loose upper bound (several × the budget): distinguishes
-    // "budget enforced" from "wedged or silently fell back to the
-    // 5 s budget" without a fragile tight time comparison.
-    let loose_bound = Duration::from_secs(4);
+    let kill_budget = Duration::from_millis(250);
+    // Loose upper bound (4× the budget): distinguishes "budget
+    // enforced" from "wedged or silently fell back to the 5 s budget"
+    // without a fragile tight time comparison. A guardrail only — on
+    // the enforced path stop returns at ~kill_budget, so the bound is
+    // never waited out — and it stays within the STANDARDS §6 ≤1 s
+    // literal cap on test waits.
+    let loose_bound = Duration::from_secs(1);
 
     let (handle, release) = BlockingKillHandle::new();
-    register_kill_handle(&cs, "slow", handle.clone()).await;
+    register_kill_handle(&cs, "slow", &handle).await;
 
     tokio::time::timeout(
         loose_bound,
@@ -301,13 +295,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 
     let s = cs.read().await;
     assert!(s.is_stopped(), "stopped flag must be set");
-    assert!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .is_empty(),
-        "tool_handles map must be cleared after stop"
-    );
+    assert_tool_handles_empty(&s, "test_stop_with_slow_kill_handle_does_not_wedge");
     drop(s);
 
     // Release the blocked kill so the blocking-pool thread exits
@@ -325,7 +313,7 @@ async fn test_stop_with_slow_kill_handle_does_not_wedge() {
 async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
     let cs = make_session("s_kill_err");
     let handle = FailingKillHandle::new();
-    register_kill_handle(&cs, "call-err", handle.clone()).await;
+    register_kill_handle(&cs, "call-err", &handle).await;
 
     let ((stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -335,11 +323,7 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
                 .await;
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -367,14 +351,14 @@ async fn test_stop_with_failing_kill_handle_warns_and_cleans_up() {
 /// Boundary: a degenerate (zero) kill budget cuts the wait off at
 /// once — stop returns immediately through the budget-expiry warn
 /// branch while the kill is still blocked, and cleanup still
-/// completes. Complements the 500 ms over-budget case above by
+/// completes. Complements the 250 ms over-budget case above by
 /// pinning the extreme of the budget scale (issue #3161 Step 1.3).
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
     let cs = make_session("s_kill_zero_budget");
     let (handle, release) = BlockingKillHandle::new();
-    register_kill_handle(&cs, "zero-budget", handle.clone()).await;
+    register_kill_handle(&cs, "zero-budget", &handle).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -391,11 +375,7 @@ async fn test_stop_with_near_zero_kill_budget_returns_immediately() {
             let elapsed = start.elapsed();
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -447,7 +427,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
         }
     });
 
-    register_kill_handle(&cs, "sufficient-budget", handle.clone()).await;
+    register_kill_handle(&cs, "sufficient-budget", &handle).await;
 
     let ((elapsed, stopped, handles_len), logs) = capture_logs_async(
         || async {
@@ -459,11 +439,7 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
             let elapsed = start.elapsed();
             let s = cs.read().await;
             let stopped = s.is_stopped();
-            let handles_len = s
-                .tool_handles
-                .read()
-                .expect("tool_handles lock poisoned")
-                .len();
+            let handles_len = tool_handles_len(&s);
             (elapsed, stopped, handles_len)
         },
         tracing::Level::WARN,
@@ -505,8 +481,8 @@ async fn test_stop_with_sufficient_budget_awaits_kill_completion() {
 /// The **non-panic** `JoinError` branch (blocking pool shut down
 /// mid-kill) is exempt from testing: it needs a runtime tearing down
 /// the pool while a kill is in flight, which cannot be constructed
-/// deterministically in a unit test (reason also noted at the branch
-/// in `session_handles.rs`, issue #3161 Step 1.4).
+/// deterministically in a unit test (referenced from the branch in
+/// `session_handles.rs`, issue #3161 Step 1.4).
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_stop_with_panicking_kill_handle_propagates_panic() {
@@ -520,7 +496,7 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 
     let cs = make_session("s_kill_panic");
     let handle = Arc::new(PanickingKillHandle);
-    register_kill_handle(&cs, "panic-tool", handle.clone()).await;
+    register_kill_handle(&cs, "panic-tool", &handle).await;
 
     let outcome = futures::FutureExt::catch_unwind(std::panic::AssertUnwindSafe(async {
         cs.read()
@@ -549,13 +525,10 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
         s.is_stopped(),
         "stopped flag is set before the kill loop, panic or not"
     );
-    assert_eq!(
-        s.tool_handles
-            .read()
-            .expect("tool_handles lock poisoned")
-            .len(),
+    assert_tool_handles_count(
+        &s,
         1,
-        "clear_exec_state must not have run after the kill() panic"
+        "clear_exec_state must not have run after the kill() panic",
     );
 }
 
@@ -567,12 +540,14 @@ async fn test_stop_with_panicking_kill_handle_propagates_panic() {
 /// genuinely waiting out its ≤1 s bound (never vacuously early, so
 /// real callers keep a working handshake) instead of hanging the
 /// test. The clock is paused (`start_paused`), so the bound is
-/// measured in virtual time: the lower-bound assertion tightens to
-/// an exact `>= 1 s` while the real wall-clock cost collapses to
-/// µs (STANDARDS §9, determinism over real-time comparisons).
-/// Both in-suite call sites (slow / sufficient) only ever hit
-/// the notified branch; the lower-bound assertion is deterministic
-/// here precisely because no notify can fire in this setup.
+/// measured in virtual time: the assertion pins the exact
+/// `== 1 s` bound (elapsed deterministically lands on the timeout
+/// deadline, issue #3191-2) while the real wall-clock cost
+/// collapses to µs (STANDARDS §9, determinism over real-time
+/// comparisons). Both in-suite call sites (slow / sufficient) only
+/// ever hit the notified branch; the exact-bound assertion is
+/// deterministic here precisely because no notify can fire in this
+/// setup.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_wait_kill_started_returns_when_notify_never_fires() {
@@ -589,9 +564,12 @@ async fn test_wait_kill_started_returns_when_notify_never_fires() {
         0,
         "kill() never ran in this case, so no notify could fire"
     );
-    assert!(
-        elapsed >= Duration::from_secs(1),
-        "the wait must actually wait out its full 1 s bound when no notify \
-         fires; returned after {elapsed:?}"
+    assert_eq!(
+        elapsed,
+        Duration::from_secs(1),
+        "on a paused clock with the notify never firing, wait_kill_started \
+         must return exactly at its 1 s timeout bound (its only pending \
+         timer; the outer guard is 2 s), neither early nor late; \
+         actual elapsed: {elapsed:?}"
     );
 }

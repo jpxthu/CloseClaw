@@ -1,6 +1,6 @@
 //! Re-exec helper scaffold for the `prepare_run` tests in `run_tests.rs`.
 //!
-//! Env mutation is prohibited by CONTRIBUTING.md §7, so env-dependent
+//! Env mutation is prohibited by STANDARDS.md §7, so env-dependent
 //! behavior is tested by re-exec'ing this test binary as a gated helper
 //! child with the target env injected (precedent:
 //! crates/platform/src/process_tests.rs). The helper child wait is bounded
@@ -63,6 +63,11 @@ fn helper_child_test_name() -> String {
 
 /// Re-exec the current test binary as the `prepare_run` helper child.
 ///
+/// Raw entry keeping the explicit `remove_home` switch; call sites pick a
+/// named wrapper ([`spawn_helper_child_without_home`] /
+/// [`spawn_helper_child_with_home`]) so the intent is readable without the
+/// signature (issue #3172-3).
+///
 /// `--exact` restricts the child to the helper sub-test; `envs` /
 /// `remove_home` reproduce the isolation semantics of the old compiled
 /// helper binary (subprocess-only env, no process-global mutation).
@@ -72,7 +77,7 @@ fn helper_child_test_name() -> String {
 /// the parent gives up after [`HELPER_CHILD_TIMEOUT`], killing and reaping
 /// the child instead of hanging. `Err` carries the helper sub-test name
 /// for diagnosis.
-pub(super) fn spawn_helper_child(
+fn spawn_helper_child(
     config_dir: &str,
     envs: &[(&str, &str)],
     remove_home: bool,
@@ -80,9 +85,31 @@ pub(super) fn spawn_helper_child(
     spawn_helper_child_with_timeout(config_dir, envs, remove_home, HELPER_CHILD_TIMEOUT)
 }
 
+/// [`spawn_helper_child`] entry that removes `HOME` from the child env —
+/// reproduces the home-unset failure path (e.g. `root_dir()` error) in a
+/// subprocess instead of mutating the process-global env (STANDARDS.md §7).
+pub(super) fn spawn_helper_child_without_home(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+) -> Result<std::process::Output, String> {
+    spawn_helper_child(config_dir, envs, true)
+}
+
+/// [`spawn_helper_child`] entry that keeps the parent's `HOME` in the child
+/// env — the inverse of [`spawn_helper_child_without_home`] — so home
+/// expansion cases resolve against the real parent home directory.
+pub(super) fn spawn_helper_child_with_home(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+) -> Result<std::process::Output, String> {
+    spawn_helper_child(config_dir, envs, false)
+}
+
 /// [`spawn_helper_child`] with an injectable wait bound — test-only hook so
 /// the hang-fault-injection case can shrink the timeout without touching the
-/// production-path bound.
+/// production-path bound. Call sites go through the named entry
+/// [`spawn_helper_child_with_home_and_timeout`]; this raw form only plumbs
+/// the `remove_home` switch between the wrappers.
 fn spawn_helper_child_with_timeout(
     config_dir: &str,
     envs: &[(&str, &str)],
@@ -173,6 +200,19 @@ fn spawn_helper_child_with_timeout(
     }
 }
 
+/// [`spawn_helper_child_with_home`] with an injectable wait bound — the
+/// hang-fault-injection entry: home semantics are irrelevant to the timeout
+/// path (the child keeps the parent's `HOME`), while the wait bound comes
+/// from the caller so the case stays under the 5s CI target (STANDARDS.md
+/// §6) without touching the production-path bound.
+fn spawn_helper_child_with_home_and_timeout(
+    config_dir: &str,
+    envs: &[(&str, &str)],
+    timeout: Duration,
+) -> Result<std::process::Output, String> {
+    spawn_helper_child_with_timeout(config_dir, envs, false, timeout)
+}
+
 /// Drain a child pipe to bytes on a worker thread; read errors yield
 /// whatever was read so far (the consumers assert on content anyway).
 fn drain_pipe<R: Read>(pipe: Option<R>) -> Vec<u8> {
@@ -213,7 +253,7 @@ fn test_prepare_run_helper_child() {
 /// config_dir it printed (stripped from the [`HELPER_RESULT_MARKER`] line).
 /// On failure, outputs both stdout and stderr for debugging.
 pub(super) fn run_helper(config_dir: &str, envs: &[(&str, &str)]) -> String {
-    let output = spawn_helper_child(config_dir, envs, false)
+    let output = spawn_helper_child_with_home(config_dir, envs)
         .unwrap_or_else(|e| panic!("helper child did not complete: {e}"));
     assert!(
         output.status.success(),
@@ -241,13 +281,12 @@ fn test_spawn_helper_child_timeout_kills_hung_child() {
     let pid_file = tmp.path().join("helper-child.pid");
 
     let started = Instant::now();
-    let result = spawn_helper_child_with_timeout(
+    let result = spawn_helper_child_with_home_and_timeout(
         "",
         &[(
             HELPER_CHILD_HANG,
             pid_file.to_str().expect("utf-8 tempdir path"),
         )],
-        false,
         TEST_HANG_INJECTION_TIMEOUT,
     );
     let elapsed = started.elapsed();

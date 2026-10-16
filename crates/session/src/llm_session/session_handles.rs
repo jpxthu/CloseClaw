@@ -720,12 +720,10 @@ impl ConversationSession {
                     // so a panicking kill keeps the pre-existing
                     // "panic propagates out of stop()" semantics.
                     // A shutdown join error (executor going down)
-                    // is treated like a failed kill. Not covered by
-                    // a dedicated UT (issue #3161 Step 1.4): the
-                    // non-panic variant needs the runtime to tear
-                    // down the blocking pool mid-kill, which
-                    // cannot be built deterministically in a unit
-                    // test.
+                    // is treated like a failed kill. UT exemption
+                    // for the non-panic variant: see the doc of
+                    // `test_stop_with_panicking_kill_handle_propagates_panic`
+                    // in `tests/stop_kill_path_tests.rs`.
                     if join_err.is_panic() {
                         std::panic::resume_unwind(join_err.into_panic());
                     }
