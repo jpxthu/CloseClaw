@@ -371,10 +371,16 @@ async fn test_level2_bash_command_denied() {
         is_concurrency_safe: false,
     };
     let result = executor.execute(&call).await;
-    // Level 2 command denied → error in result
+    // Level 2 command denied by deny-all flow → hard error, not approval-pending
+    let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "Level 2 command denial should produce error or status, got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("permission denied")),
+        "expected error containing \"permission denied\", got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("status").is_none(),
+        "hard denial must not carry a status field, got: {:?}",
         result.data
     );
 }
@@ -459,10 +465,16 @@ async fn test_level2_fileops_read_denied() {
         is_concurrency_safe: true,
     };
     let result = executor.execute(&call).await;
-    // Level 2 file read denied → error or status in result
+    // Level 2 file read denied by deny-all flow → hard error, not approval-pending
+    let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "Level 2 file read denial should produce error or status, got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("permission denied")),
+        "expected error containing \"permission denied\", got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("status").is_none(),
+        "hard denial must not carry a status field, got: {:?}",
         result.data
     );
 }
@@ -516,9 +528,16 @@ async fn test_level2_fileops_write_denied() {
         is_concurrency_safe: false,
     };
     let result = executor.execute(&call).await;
+    // Level 2 file write denied by deny-all flow → hard error, not approval-pending
+    let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "Level 2 file write denial should produce error or status, got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("permission denied")),
+        "expected error containing \"permission denied\", got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("status").is_none(),
+        "hard denial must not carry a status field, got: {:?}",
         result.data
     );
 }
@@ -788,10 +807,20 @@ async fn test_non_workflow_permission_not_exempt() {
         is_concurrency_safe: true,
     };
     let result = executor.execute(&call).await;
-    // Non-workflow tool should be denied by empty rules
+    // Non-workflow tool denied → denial enqueued into the approval flow → approval_pending payload
+    assert_eq!(
+        result.data["status"], "approval_pending",
+        "expected status \"approval_pending\", got: {:?}",
+        result.data
+    );
     assert!(
-        result.data.get("error").is_some() || result.data.get("status").is_some(),
-        "non-workflow tool should be denied, got: {:?}",
+        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
+        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("error").is_none(),
+        "approval_pending result must not carry an error field, got: {:?}",
         result.data
     );
 }
