@@ -14,7 +14,7 @@ use std::path::Path;
 
 use tokio::process::Child;
 
-use super::sigterm_and_wait;
+use super::daemon_lifecycle::sigterm_and_wait;
 
 /// Owns the spawned daemon child. Sending SIGTERM on Drop guarantees no
 /// residual process even when an assertion fails mid-test.
@@ -48,8 +48,8 @@ impl Drop for DaemonGuard {
 /// Spawn the closeclaw daemon with the given config root, wrapped in a
 /// [`DaemonGuard`] for SIGTERM-on-drop safety.
 ///
-/// Wraps [`spawn_daemon`](super::spawn_daemon), which sets `HOME` to
-/// `config_root` for PID file isolation.
+/// Wraps [`spawn_daemon`](super::daemon_spawn::spawn_daemon), which sets
+/// `HOME` to `config_root` for PID file isolation.
 pub fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
-    DaemonGuard(super::spawn_daemon(config_root))
+    DaemonGuard(super::daemon_spawn::spawn_daemon(config_root))
 }
