@@ -33,18 +33,22 @@ pub async fn wait_for_daemon_ready_with_timeout(config_dir: &Path, timeout: Dura
     let deadline = tokio::time::Instant::now() + timeout;
 
     loop {
-        let admin_ready = tokio::time::timeout(
-            SOCKET_POLL_INTERVAL,
-            TokioUnixStream::connect(&admin_socket_path),
-        )
-        .await
-        .is_ok();
-        let chat_ready = tokio::time::timeout(
-            SOCKET_POLL_INTERVAL,
-            TokioUnixStream::connect(&chat_socket_path),
-        )
-        .await
-        .is_ok();
+        let admin_ready = matches!(
+            tokio::time::timeout(
+                SOCKET_POLL_INTERVAL,
+                TokioUnixStream::connect(&admin_socket_path),
+            )
+            .await,
+            Ok(Ok(_))
+        );
+        let chat_ready = matches!(
+            tokio::time::timeout(
+                SOCKET_POLL_INTERVAL,
+                TokioUnixStream::connect(&chat_socket_path),
+            )
+            .await,
+            Ok(Ok(_))
+        );
         if admin_ready && chat_ready {
             return;
         }
