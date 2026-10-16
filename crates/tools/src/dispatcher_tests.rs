@@ -923,8 +923,13 @@ async fn test_perm_denied_executor_returns_error() {
         result.data
     );
     assert!(
-        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
-        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data.get("request_id").is_some(),
+        "approval_pending payload must carry request_id, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("message").is_some(),
+        "approval_pending payload must carry message, got: {:?}",
         result.data
     );
     assert!(
@@ -965,8 +970,13 @@ async fn test_permission_check_actually_called() {
         result.data
     );
     assert!(
-        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
-        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data.get("request_id").is_some(),
+        "approval_pending payload must carry request_id, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("message").is_some(),
+        "approval_pending payload must carry message, got: {:?}",
         result.data
     );
     assert!(

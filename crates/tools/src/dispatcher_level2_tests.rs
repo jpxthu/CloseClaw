@@ -374,8 +374,8 @@ async fn test_level2_bash_command_denied() {
     // Level 2 command denied by deny-all flow → hard error, not approval-pending
     let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        matches!(&error, Some(msg) if msg.contains("permission denied")),
-        "expected error containing \"permission denied\", got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("command permission denied")),
+        "expected error containing \"command permission denied\", got: {:?}",
         result.data
     );
     assert!(
@@ -468,8 +468,8 @@ async fn test_level2_fileops_read_denied() {
     // Level 2 file read denied by deny-all flow → hard error, not approval-pending
     let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        matches!(&error, Some(msg) if msg.contains("permission denied")),
-        "expected error containing \"permission denied\", got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("permission denied for skill")),
+        "expected error containing \"permission denied for skill\", got: {:?}",
         result.data
     );
     assert!(
@@ -531,8 +531,8 @@ async fn test_level2_fileops_write_denied() {
     // Level 2 file write denied by deny-all flow → hard error, not approval-pending
     let error = result.data.get("error").and_then(Value::as_str);
     assert!(
-        matches!(&error, Some(msg) if msg.contains("permission denied")),
-        "expected error containing \"permission denied\", got: {:?}",
+        matches!(&error, Some(msg) if msg.contains("permission denied for skill")),
+        "expected error containing \"permission denied for skill\", got: {:?}",
         result.data
     );
     assert!(
@@ -814,8 +814,13 @@ async fn test_non_workflow_permission_not_exempt() {
         result.data
     );
     assert!(
-        result.data.get("request_id").is_some() && result.data.get("message").is_some(),
-        "approval_pending payload must carry request_id/message, got: {:?}",
+        result.data.get("request_id").is_some(),
+        "approval_pending payload must carry request_id, got: {:?}",
+        result.data
+    );
+    assert!(
+        result.data.get("message").is_some(),
+        "approval_pending payload must carry message, got: {:?}",
         result.data
     );
     assert!(
