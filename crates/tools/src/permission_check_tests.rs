@@ -584,8 +584,9 @@ async fn test_file_op_special_char_path() {
     let ctx = make_ctx("agent-a");
     let path = temp_file_path("file with spaces & special!@#.txt");
     let result = check_file_op_permission(&deps, &ctx, &path, "read", None).await;
-    // Should not panic on special chars
-    assert!(result.is_ok() || result.is_err());
+    // Special-char path matches the same read rule → Allowed, same as normal path
+    assert!(result.is_ok());
+    assert!(result.unwrap().is_none(), "allowed → None");
 }
 
 // ---------------------------------------------------------------------------
