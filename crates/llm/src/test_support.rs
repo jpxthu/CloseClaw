@@ -3,19 +3,17 @@
 
 use crate::types::RawSseChunk;
 
-#[cfg(test)]
-use crate::retry::CooldownManager;
-#[cfg(test)]
-use std::sync::Arc;
-
 /// Cooldown manager isolated from the real home dir (TempDir-backed persist path).
 ///
 /// The returned `TempDir` must be kept alive for as long as the manager is used.
 #[cfg(test)]
-pub(crate) fn isolated_cooldown() -> (tempfile::TempDir, Arc<CooldownManager>) {
+pub(crate) fn isolated_cooldown() -> (
+    tempfile::TempDir,
+    std::sync::Arc<crate::retry::CooldownManager>,
+) {
     let dir = tempfile::TempDir::new().expect("create temp dir");
-    let manager = CooldownManager::with_path(dir.path().join("llm_cooldowns.json"));
-    (dir, Arc::new(manager))
+    let manager = crate::retry::CooldownManager::with_path(dir.path().join("llm_cooldowns.json"));
+    (dir, std::sync::Arc::new(manager))
 }
 
 /// Creates a raw SSE chunk with the standard `"message"` event type.
