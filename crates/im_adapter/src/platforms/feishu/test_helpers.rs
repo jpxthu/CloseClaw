@@ -6,7 +6,7 @@
 //!   （ETXTBSY 根因）。
 //! - mock 脚本必须落 `tempfile::TempDir`（系统临时目录），禁止仓库固定路径。
 
-use super::renderer::{CardAction, CardElement};
+use super::renderer::{CardAction, CardElement, SelectMenu};
 use super::{FeishuAdapter, FeishuPlugin};
 use crate::media_store::MediaStore;
 use closeclaw_common::processor::DslInstruction;
@@ -174,9 +174,18 @@ pub(crate) fn assert_single_action(els: &[CardElement]) -> &[CardAction] {
     }
 }
 
+/// Assert `actions` holds exactly one `CardAction::SelectMenu` and return it.
+pub(crate) fn assert_select_menu(actions: &[CardAction]) -> &SelectMenu {
+    assert_eq!(actions.len(), 1);
+    match &actions[0] {
+        CardAction::SelectMenu(menu) => menu,
+        other => panic!("expected SelectMenu, got {other:?}"),
+    }
+}
+
 /// Assert `action` is a `CardAction::Button` with the expected label text
 /// and action type and no url.
-pub(crate) fn assert_button(action: &CardAction, label: &str, bt: &str) {
+pub(crate) fn assert_button(action: &CardAction, label: &str, expected_action_type: &str) {
     match action {
         CardAction::Button {
             text,
@@ -184,7 +193,7 @@ pub(crate) fn assert_button(action: &CardAction, label: &str, bt: &str) {
             url,
         } => {
             assert_eq!(text.content, label);
-            assert_eq!(action_type, bt);
+            assert_eq!(action_type, expected_action_type);
             assert!(url.is_none());
         }
         other => panic!("expected Button, got {other:?}"),

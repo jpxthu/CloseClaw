@@ -62,7 +62,6 @@ pub(crate) struct FeishuSenderId {
 #[allow(dead_code)]
 pub(crate) struct FeishuCardActionEvent {
     pub(crate) operator: FeishuCardOperator,
-    #[allow(dead_code)]
     pub(crate) token: String,
     pub(crate) action: FeishuCardAction,
 }

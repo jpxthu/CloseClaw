@@ -1,7 +1,7 @@
 //! Unit tests for Feishu text_run style rendering and selector rendering.
 use super::post_expand::{expand_element, expand_post_content};
-use super::renderer::{render_selectors, CardAction};
-use super::{assert_single_action, make_selector_inst};
+use super::renderer::render_selectors;
+use super::{assert_select_menu, assert_single_action, make_selector_inst};
 use closeclaw_common::processor::DslInstruction;
 
 // ================================================================
@@ -99,18 +99,13 @@ fn test_render_selectors_single_selector_returns_select_action() {
     let inst = make_selector_inst("Choose", "A,B,C", "pick");
     let result = render_selectors(&[inst], true);
     let actions = assert_single_action(&result);
-    assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        CardAction::SelectMenu(sel) => {
-            assert_eq!(sel.placeholder.content, "Choose");
-            assert_eq!(sel.options.len(), 3);
-            assert_eq!(sel.options[0].text.content, "A");
-            assert_eq!(sel.options[0].value, "A");
-            assert_eq!(sel.options[2].text.content, "C");
-            assert_eq!(sel.action_name.as_deref(), Some("pick"));
-        }
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let sel = assert_select_menu(actions);
+    assert_eq!(sel.placeholder.content, "Choose");
+    assert_eq!(sel.options.len(), 3);
+    assert_eq!(sel.options[0].text.content, "A");
+    assert_eq!(sel.options[0].value, "A");
+    assert_eq!(sel.options[2].text.content, "C");
+    assert_eq!(sel.action_name.as_deref(), Some("pick"));
 }
 
 #[test]
@@ -123,10 +118,8 @@ fn test_render_selectors_mixed_with_buttons() {
     let result = render_selectors(&[btn, sel], true);
     // render_selectors only processes selector instructions
     let actions = assert_single_action(&result);
-    match &actions[0] {
-        CardAction::SelectMenu(sel) => assert_eq!(sel.options.len(), 2),
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let sel = assert_select_menu(actions);
+    assert_eq!(sel.options.len(), 2);
 }
 
 #[test]
@@ -134,10 +127,8 @@ fn test_render_selectors_empty_options_returns_empty_vec() {
     let inst = make_selector_inst("Pick", "", "choose");
     let result = render_selectors(&[inst], true);
     let actions = assert_single_action(&result);
-    match &actions[0] {
-        CardAction::SelectMenu(sel) => assert_eq!(sel.options.len(), 0),
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let sel = assert_select_menu(actions);
+    assert_eq!(sel.options.len(), 0);
 }
 
 #[test]
@@ -145,15 +136,11 @@ fn test_render_selectors_options_with_spaces_are_trimmed() {
     let inst = make_selector_inst("Pick", " A , B , C ", "choose");
     let result = render_selectors(&[inst], true);
     let actions = assert_single_action(&result);
-    match &actions[0] {
-        CardAction::SelectMenu(sel) => {
-            assert_eq!(sel.options.len(), 3);
-            assert_eq!(sel.options[0].text.content, "A");
-            assert_eq!(sel.options[1].text.content, "B");
-            assert_eq!(sel.options[2].text.content, "C");
-        }
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let sel = assert_select_menu(actions);
+    assert_eq!(sel.options.len(), 3);
+    assert_eq!(sel.options[0].text.content, "A");
+    assert_eq!(sel.options[1].text.content, "B");
+    assert_eq!(sel.options[2].text.content, "C");
 }
 
 #[test]

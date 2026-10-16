@@ -2,7 +2,7 @@
 use closeclaw_common::processor::{ContentBlock, DslInstruction, DslParseResult};
 
 use super::renderer::*;
-use super::{assert_button, assert_single_action, make_selector_inst};
+use super::{assert_button, assert_select_menu, assert_single_action, make_selector_inst};
 
 #[test]
 fn thinking_block_with_content_produces_collapsible_panel() {
@@ -299,18 +299,13 @@ fn render_selectors_allow_true_produces_select_menu() {
     let inst = make_selector_inst("Pick", "A,B,C", "pick_action");
     let els = render_selectors(&[inst], true);
     let actions = assert_single_action(&els);
-    assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        CardAction::SelectMenu(menu) => {
-            assert_eq!(menu.placeholder.content, "Pick");
-            assert_eq!(menu.options.len(), 3);
-            assert_eq!(menu.options[0].text.content, "A");
-            assert_eq!(menu.options[1].text.content, "B");
-            assert_eq!(menu.options[2].text.content, "C");
-            assert_eq!(menu.action_name.as_deref(), Some("pick_action"));
-        }
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let menu = assert_select_menu(actions);
+    assert_eq!(menu.placeholder.content, "Pick");
+    assert_eq!(menu.options.len(), 3);
+    assert_eq!(menu.options[0].text.content, "A");
+    assert_eq!(menu.options[1].text.content, "B");
+    assert_eq!(menu.options[2].text.content, "C");
+    assert_eq!(menu.action_name.as_deref(), Some("pick_action"));
 }
 
 #[test]
@@ -348,11 +343,8 @@ fn render_selectors_empty_options_returns_empty_action() {
     let inst = make_selector_inst("Pick", "", "act");
     let els = render_selectors(&[inst], true);
     let actions = assert_single_action(&els);
-    assert_eq!(actions.len(), 1);
-    match &actions[0] {
-        CardAction::SelectMenu(menu) => assert!(menu.options.is_empty()),
-        other => panic!("expected SelectMenu, got {other:?}"),
-    }
+    let menu = assert_select_menu(actions);
+    assert!(menu.options.is_empty());
 }
 
 #[test]
