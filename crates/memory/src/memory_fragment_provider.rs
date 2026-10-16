@@ -90,7 +90,9 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
         // MEMORY.md is gated by session role, not bootstrap mode.
         // Sub sessions never receive long-term memory.
-        if ctx.session_role == SessionRole::Sub {
+        // Agents declaring `no_bootstrap` run as if no bootstrap files exist,
+        // so even Main sessions must not load long-term memory.
+        if ctx.session_role == SessionRole::Sub || ctx.no_bootstrap {
             return None;
         }
 
@@ -113,7 +115,8 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
     /// identical mtime values produce distinct cache keys.
     async fn cache_key(&self, ctx: &FragmentContext) -> Option<String> {
         // Sub sessions never produce a memory fragment, so no cache key.
-        if ctx.session_role == SessionRole::Sub {
+        // Same gate as generate: `no_bootstrap` agents skip long-term memory.
+        if ctx.session_role == SessionRole::Sub || ctx.no_bootstrap {
             return None;
         }
         let path = self.resolve_path(ctx);
@@ -414,6 +417,96 @@ mod tests {
             bootstrap_dir: tmp.path().to_string_lossy().to_string(),
             bootstrap_mode: BootstrapMode::Full,
             session_role: SessionRole::Sub,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    // --- no_bootstrap gating tests ---
+
+    // Main + no_bootstrap=true → must NOT inject MEMORY.md (file is not read)
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_main_no_bootstrap_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Should not load").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
+            no_bootstrap: true,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+    }
+
+    // Main + no_bootstrap=true → cache_key must return None (consistent with generate gate)
+    #[tokio::test]
+    async fn test_cache_key_none_for_main_no_bootstrap() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "content").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
+            no_bootstrap: true,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.cache_key(&ctx).await.is_none());
+    }
+
+    // Main + no_bootstrap=false (default) → injects MEMORY.md as before
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_main_no_bootstrap_false_injects_memory() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Default behavior").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
+            no_bootstrap: false,
+            ..FragmentContext::test_default()
+        };
+        let fragment = provider.generate(&ctx).await;
+        assert!(fragment.is_some());
+        assert_eq!(fragment.unwrap().content, "Default behavior");
+    }
+
+    // Sub + no_bootstrap=true → must NOT inject MEMORY.md (role guard still applies)
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_sub_no_bootstrap_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        fs::write(tmp.path().join("MEMORY.md"), "Should not load").unwrap();
+        let provider = MemoryFragmentProvider::new();
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Sub,
+            no_bootstrap: true,
+            ..FragmentContext::test_default()
+        };
+        assert!(provider.generate(&ctx).await.is_none());
+        assert!(provider.cache_key(&ctx).await.is_none());
+    }
+
+    // Main + no_bootstrap=true with custom path → must still return None
+    #[serial_test::serial]
+    #[tokio::test]
+    async fn test_with_path_main_no_bootstrap_returns_none() {
+        let tmp = tempfile::tempdir().unwrap();
+        let abs_path = tmp.path().join("MEMORY.md");
+        fs::write(&abs_path, "Should not be read").unwrap();
+        let provider = MemoryFragmentProvider::with_path(&abs_path);
+        let ctx = FragmentContext {
+            bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+            bootstrap_mode: BootstrapMode::Full,
+            session_role: SessionRole::Main,
+            no_bootstrap: true,
             ..FragmentContext::test_default()
         };
         assert!(provider.generate(&ctx).await.is_none());

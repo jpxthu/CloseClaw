@@ -124,6 +124,7 @@ impl SpawnBudgetLookup for MockSpawnBudgetLookup {
             skills: cfg.skills.clone(),
             tools: cfg.tools.clone(),
             hooks: cfg.hooks.clone(),
+            no_bootstrap: cfg.no_bootstrap,
         })
     }
 }

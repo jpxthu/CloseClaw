@@ -177,7 +177,14 @@ impl SessionManager {
             .query_agent_bootstrap_mode(agent_id)
             .await
             .unwrap_or(BootstrapMode::Full);
-        *conv = conv.clone().with_bootstrap_mode(bootstrap_mode);
+        // Cache no_bootstrap: declared `noBootstrap: true` runs the
+        // session without any bootstrap files (priority over
+        // bootstrap_mode).
+        let no_bootstrap = self.query_agent_no_bootstrap(agent_id).await;
+        *conv = conv
+            .clone()
+            .with_bootstrap_mode(bootstrap_mode)
+            .with_no_bootstrap(no_bootstrap);
         info!(
             session_id = %session_id,
             event = "session_injection",

@@ -46,6 +46,7 @@ impl SpawnBudgetLookup for ConfigManagerSpawnBudgetLookup {
             skills: cfg.skills.clone(),
             tools: cfg.tools.clone(),
             hooks: cfg.hooks.clone(),
+            no_bootstrap: cfg.no_bootstrap,
         })
     }
 }

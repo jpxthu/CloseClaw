@@ -877,3 +877,63 @@ async fn test_rebuild_no_registry_params_none() {
         "tool_registry must be None when not set"
     );
 }
+
+// ── no_bootstrap: with_no_bootstrap setter / getter ───────────────────────
+
+#[test]
+fn test_no_bootstrap_default_false() {
+    let session = new_session();
+    assert!(!session.no_bootstrap());
+}
+
+#[test]
+fn test_with_no_bootstrap_sets_true() {
+    let session = new_session().with_no_bootstrap(true);
+    assert!(session.no_bootstrap());
+}
+
+#[test]
+fn test_with_no_bootstrap_overwrites_previous() {
+    let session = new_session()
+        .with_no_bootstrap(true)
+        .with_no_bootstrap(false);
+    assert!(!session.no_bootstrap());
+}
+
+#[test]
+fn test_no_bootstrap_clone_preserves_value() {
+    let session = new_session().with_no_bootstrap(true);
+    let cloned = session.clone();
+    assert!(cloned.no_bootstrap());
+}
+
+// ── no_bootstrap: rebuild chain carries the flag into InjectionParams ─────
+
+/// Default session (setter never called): params.no_bootstrap is false.
+#[tokio::test]
+async fn test_rebuild_params_no_bootstrap_default_false() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())));
+
+    session.rebuild_system_prompt("sess", "agent-1", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert!(!p.no_bootstrap, "default must be false");
+}
+
+/// `with_no_bootstrap(true)` propagates into params.no_bootstrap on rebuild.
+#[tokio::test]
+async fn test_rebuild_params_no_bootstrap_set_true() {
+    let captured = Arc::new(StdMutex::new(None::<InjectionParams>));
+    let mut session =
+        new_session_with_builder(Arc::new(ParamsCapturingBuilder::new(captured.clone())))
+            .with_no_bootstrap(true);
+
+    session.rebuild_system_prompt("sess", "agent-1", None).await;
+
+    let p = captured.lock().unwrap();
+    let p = p.as_ref().unwrap();
+    assert!(p.no_bootstrap, "setter must propagate into params");
+}

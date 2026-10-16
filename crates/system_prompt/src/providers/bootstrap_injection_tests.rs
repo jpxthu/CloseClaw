@@ -5,6 +5,7 @@
 //! and mode propagation (Sub → Minimal downgrade).
 
 use super::*;
+use closeclaw_common::SessionRole;
 use std::fs;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -155,4 +156,79 @@ async fn test_main_role_passes_full_mode_to_injected_fns() {
     };
     let fragment = provider.generate(&ctx).await.unwrap();
     assert_eq!(fragment.content, "## BOOTSTRAP.md\nmode=Full");
+}
+
+// ============================================================
+// no_bootstrap short-circuit tests (LoadMode::None)
+// ============================================================
+
+/// These fns only exist to prove the short-circuit: with
+/// `no_bootstrap: true` the provider must never reach them. Any call
+/// panics, failing the test.
+fn unreachable_lister(_mode: BootstrapMode) -> Vec<&'static str> {
+    panic!("lister must not be called when no_bootstrap=true");
+}
+
+fn unreachable_loader(_dir: &Path, _mode: BootstrapMode) -> Option<HashMap<String, String>> {
+    panic!("loader must not be called when no_bootstrap=true");
+}
+
+fn no_bootstrap_ctx(session_role: SessionRole, bootstrap_mode: BootstrapMode) -> FragmentContext {
+    FragmentContext {
+        bootstrap_dir: "/unused".to_string(),
+        bootstrap_mode,
+        session_role,
+        no_bootstrap: true,
+        ..FragmentContext::test_default()
+    }
+}
+
+/// no_bootstrap=true → generate() and cache_key() must consistently
+/// return None for every role × bootstrap_mode combination, without
+/// touching the injected lister/loader (LoadMode::None short-circuit).
+#[tokio::test]
+async fn test_no_bootstrap_generate_and_cache_key_both_none() {
+    let provider = BootstrapFragmentProvider::new(unreachable_lister, unreachable_loader);
+
+    for role in [SessionRole::Main, SessionRole::Sub] {
+        for mode in [BootstrapMode::Full, BootstrapMode::Minimal] {
+            let ctx = no_bootstrap_ctx(role, mode);
+            assert!(
+                provider.generate(&ctx).await.is_none(),
+                "generate must return None with no_bootstrap=true (role={role:?}, mode={mode:?})"
+            );
+            assert!(
+                provider.cache_key(&ctx).await.is_none(),
+                "cache_key must return None with no_bootstrap=true (role={role:?}, mode={mode:?})"
+            );
+        }
+    }
+}
+
+/// no_bootstrap=true overrides bootstrap_mode: even a Full-mode Main
+/// session with an existing bootstrap dir loads nothing — the agent
+/// runs as if no bootstrap files existed.
+#[tokio::test]
+async fn test_no_bootstrap_overrides_full_mode_with_existing_files() {
+    let tmp = tempfile::tempdir().unwrap();
+    fs::write(tmp.path().join("AGENTS.md"), "agents content").unwrap();
+    fs::write(tmp.path().join("BOOTSTRAP.md"), "bootstrap content").unwrap();
+
+    let provider = BootstrapFragmentProvider::new(unreachable_lister, unreachable_loader);
+    let ctx = FragmentContext {
+        bootstrap_dir: tmp.path().to_string_lossy().to_string(),
+        bootstrap_mode: BootstrapMode::Full,
+        session_role: SessionRole::Main,
+        no_bootstrap: true,
+        ..FragmentContext::test_default()
+    };
+
+    assert!(
+        provider.generate(&ctx).await.is_none(),
+        "no_bootstrap=true must suppress loading even when files exist"
+    );
+    assert!(
+        provider.cache_key(&ctx).await.is_none(),
+        "no_bootstrap=true must suppress the cache key even when files exist"
+    );
 }

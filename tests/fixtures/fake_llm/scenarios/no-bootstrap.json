@@ -1,0 +1,64 @@
+{
+    "scenarios": [
+        {
+            "name": "nobootstrap-leak-identity",
+            "match_": {
+                "model_id": "gpt-4o-nobootstrap",
+                "message_contains": "NOBOOTSTRAP_IDENTITY_7X9K2"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "LEAKED_IDENTITY"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "nobootstrap-leak-memory",
+            "match_": {
+                "model_id": "gpt-4o-nobootstrap",
+                "message_contains": "NOBOOTSTRAP_MEMORY_4P8Q1"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "LEAKED_MEMORY"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "nobootstrap-clean",
+            "match_": {
+                "model_id": "gpt-4o-nobootstrap",
+                "message_contains": "keep a secret"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "NO_BOOTSTRAP_OK"
+                    }
+                }
+            ]
+        },
+        {
+            "name": "control-identity-injected",
+            "match_": {
+                "model_id": "gpt-4o-bootstrap-control",
+                "message_contains": "CONTROL_IDENTITY_2M5N8"
+            },
+            "turns": [
+                {
+                    "response": {
+                        "type": "text",
+                        "content": "CONTROL_INJECTED_OK"
+                    }
+                }
+            ]
+        }
+    ]
+}

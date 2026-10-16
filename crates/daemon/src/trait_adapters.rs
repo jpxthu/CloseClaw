@@ -172,5 +172,10 @@ pub(super) fn spawn_target_agent_config(
         skills: cfg.skills.clone(),
         tools: cfg.tools.clone(),
         hooks: cfg.hooks.clone(),
+        no_bootstrap: cfg.no_bootstrap,
     }
 }
+
+#[cfg(test)]
+#[path = "trait_adapters_tests.rs"]
+mod tests;

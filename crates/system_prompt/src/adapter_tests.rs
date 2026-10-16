@@ -735,6 +735,7 @@ async fn test_build_prompt_with_params_propagates_tool_registry() {
         bootstrap_mode_override: None,
         activated_skills: vec![],
         session_role: SessionRole::Main,
+        no_bootstrap: false,
         tool_registry: Some(fake_registry.clone()),
     };
 
@@ -771,5 +772,97 @@ async fn test_build_prompt_passes_tool_registry_none() {
     assert!(
         registries[0].is_none(),
         "tool_registry should be None when not provided via params"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// no_bootstrap propagation (InjectionParams → WorkspaceBuildConfig →
+// FragmentContext)
+// ---------------------------------------------------------------------------
+
+/// Provider that records `ctx.no_bootstrap` for propagation assertions.
+struct NoBootstrapRecordingProvider {
+    observed: Arc<std::sync::atomic::AtomicBool>,
+}
+
+#[async_trait]
+impl PromptFragmentProvider for NoBootstrapRecordingProvider {
+    fn name(&self) -> &str {
+        "no-bootstrap-recorder"
+    }
+
+    fn priority(&self) -> u32 {
+        1
+    }
+
+    async fn generate(&self, ctx: &FragmentContext) -> Option<PromptFragment> {
+        self.observed
+            .store(ctx.no_bootstrap, std::sync::atomic::Ordering::SeqCst);
+        None
+    }
+
+    async fn cache_key(&self, _ctx: &FragmentContext) -> Option<String> {
+        None
+    }
+}
+
+/// build_prompt_with_params propagates no_bootstrap=true from
+/// InjectionParams through WorkspaceBuildConfig into FragmentContext.
+#[tokio::test]
+async fn test_build_prompt_with_params_propagates_no_bootstrap_true() {
+    use closeclaw_common::injection_params::InjectionParams;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let provider = NoBootstrapRecordingProvider {
+        observed: Arc::clone(&observed),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    let params = InjectionParams {
+        session_id: "session-1".to_string(),
+        agent_id: agent_id.to_string(),
+        overrides: None,
+        bootstrap_mode_override: None,
+        activated_skills: vec![],
+        session_role: SessionRole::Main,
+        no_bootstrap: true,
+        tool_registry: None,
+    };
+
+    let _ = adapter.build_prompt_with_params(&params).await;
+
+    assert!(
+        observed.load(std::sync::atomic::Ordering::SeqCst),
+        "no_bootstrap=true must reach FragmentContext via build_prompt_with_params"
+    );
+}
+
+/// build_prompt (legacy entry point) keeps no_bootstrap=false — existing
+/// behaviour for agents without the flag is unchanged.
+#[tokio::test]
+async fn test_build_prompt_legacy_entry_keeps_no_bootstrap_false() {
+    let tmp = tempfile::tempdir().unwrap();
+    let agent_id = "test-agent";
+    let ws = tmp.path().join("agents").join(agent_id);
+    std::fs::create_dir_all(&ws).unwrap();
+
+    let observed = Arc::new(std::sync::atomic::AtomicBool::new(true));
+    let provider = NoBootstrapRecordingProvider {
+        observed: Arc::clone(&observed),
+    };
+    let adapter = test_adapter(tmp.path(), vec![Arc::new(provider)]);
+
+    let _ = adapter
+        .build_prompt("session-1", agent_id, None, None, SessionRole::Main)
+        .await;
+
+    assert!(
+        !observed.load(std::sync::atomic::Ordering::SeqCst),
+        "legacy build_prompt must keep no_bootstrap=false (unchanged behaviour)"
     );
 }

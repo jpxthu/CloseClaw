@@ -57,6 +57,12 @@ use super::helpers::config::{
 };
 use super::helpers::fake_llm::start_fake_llm;
 
+// `noBootstrap` consumption cases (issue #3475, Step 1.7) live in the
+// `no_bootstrap_tests` submodule — split out for the CONTRIBUTING.md
+// 1000-line file cap; the module path keeps the `agent_profile_tests`
+// segment so `-E 'test(agent_profile_tests)'` selects them.
+mod no_bootstrap_tests;
+
 // Shared constants/helpers (`helpers::chat::CHAT_TURN_TIMEOUT`,
 // `helpers::SHUTDOWN_TIMEOUT`, `chat_roundtrip`, `read_frame`,
 // `assert_single_terminal`, `collect_content_text`, `sigterm_and_wait`,
@@ -349,7 +355,7 @@ async fn e2e_agent_workspace() {
     let ws_path = workspace_dir
         .to_str()
         .expect("workspace path is valid UTF-8");
-    write_agent_config(config_root, "openai/gpt-4o-workspace", Some(ws_path));
+    write_agent_config(config_root, "openai/gpt-4o-workspace", Some(ws_path), None);
 
     // Agent + User∩Agent allow pair per dimension (Level-1 ToolCall +
     // Level-2 FileOp read); full rationale lives on the helper.

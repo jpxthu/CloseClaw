@@ -173,10 +173,21 @@ fn models_json(opts: &ConfigTreeOpts) -> serde_json::Value {
 /// Write a custom agent `config.json` into the config tree.
 ///
 /// Overwrites the master agent config created by the shared
-/// `write_config_tree` scaffold to set a specific `model` and/or
-/// `workspace` field. Uses `serde_json::json!` as the single
+/// `write_config_tree` scaffold to set a specific `model`, `workspace`
+/// and/or `noBootstrap` field. Uses `serde_json::json!` as the single
 /// authoritative agent-config construction point.
-pub fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&str>) {
+///
+/// `no_bootstrap = Some(v)` writes the on-disk camelCase key
+/// `"noBootstrap": v` (the `AgentConfig` parser renames it to
+/// `no_bootstrap`; a snake_case key would be silently ignored as an
+/// unknown field). `None` omits the key — the resolved config defaults
+/// to `false`, keeping the normal bootstrap load behavior.
+pub fn write_agent_config(
+    config_root: &Path,
+    model: &str,
+    workspace: Option<&str>,
+    no_bootstrap: Option<bool>,
+) {
     let agent_dir = config_root.join("agents").join("master");
     ensure_dir(&agent_dir).expect("create agent dir");
     let mut config = serde_json::json!({
@@ -188,6 +199,9 @@ pub fn write_agent_config(config_root: &Path, model: &str, workspace: Option<&st
     });
     if let Some(ws) = workspace {
         config["workspace"] = serde_json::Value::String(ws.to_string());
+    }
+    if let Some(nb) = no_bootstrap {
+        config["noBootstrap"] = serde_json::Value::Bool(nb);
     }
     std::fs::write(
         agent_dir.join("config.json"),
@@ -246,7 +260,7 @@ fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
             .first()
             .expect("model_ids must declare at least one id")
     );
-    write_agent_config(root, &model, None);
+    write_agent_config(root, &model, None, None);
 }
 
 /// Write `<root>/agents/<agent_id>/permissions.json` — a permission

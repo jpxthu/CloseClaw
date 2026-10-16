@@ -12,3 +12,4 @@
 //! it is the system_prompt crate's own provider.
 
 pub mod bootstrap;
+pub mod bootstrap_load_mode;

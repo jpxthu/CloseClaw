@@ -146,6 +146,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             bootstrap_mode_override,
             activated_skills: vec![],
             session_role,
+            no_bootstrap: false,
             tool_registry: None,
         };
         self.build_prompt_inner(&params).await
@@ -183,6 +184,7 @@ impl SystemPromptBuilder for SystemPromptBuilderAdapter {
             bootstrap_mode_override,
             activated_skills,
             session_role,
+            no_bootstrap: false,
             tool_registry: None,
         };
         self.build_prompt_inner(&params).await
@@ -241,6 +243,7 @@ impl SystemPromptBuilderAdapter {
             agent_id: Some(params.agent_id.clone()),
             activated_skills: params.activated_skills.clone(),
             session_role: params.session_role,
+            no_bootstrap: params.no_bootstrap,
             tool_registry: params.tool_registry.clone(),
         };
 
