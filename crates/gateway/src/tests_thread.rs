@@ -108,6 +108,7 @@ impl IMPlugin for CapturingPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("CapturingPlugin has no streaming renderer")
             .lock()
             .expect("CapturingPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -115,6 +116,7 @@ impl IMPlugin for CapturingPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("CapturingPlugin has no streaming renderer")
             .lock()
             .expect("CapturingPlugin streaming renderer lock poisoned")
             .flush()
@@ -122,8 +124,8 @@ impl IMPlugin for CapturingPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -234,7 +236,10 @@ async fn setup_with_thread_id(
     let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    let msg = make_message("agent-1", "hello");
+    // thread_id 需经现行管线写入 checkpoint：消息携带 thread_id → resolve()
+    // 持久化到 checkpoint → send_outbound 读回并转发给 plugin.send。
+    let mut msg = make_message("agent-1", "hello");
+    msg.thread_id = thread_id.map(String::from);
     let _sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     (gw, sm, plugin)
 }
@@ -244,7 +249,10 @@ async fn setup_with_thread_id(
 #[tokio::test]
 async fn test_send_outbound_forwards_thread_id() {
     let (gw, _sm, plugin) = setup_with_thread_id(Some("omt_from_ckpt")).await;
-    let msg = make_message("agent-1", "hello");
+    // 二次 find_or_create（registry hit）会以消息 thread_id 刷新 checkpoint，
+    // 必须携带同值，避免覆盖掉 setup 写入的 thread_id。
+    let mut msg = make_message("agent-1", "hello");
+    msg.thread_id = Some("omt_from_ckpt".to_string());
     let sid = _sm.find_or_create("mock", &msg, None).await.unwrap();
     gw.send_outbound(
         &sid,
@@ -305,7 +313,9 @@ async fn test_route_message_forwards_thread_id() {
     let gw = Gateway::new_for_tests(make_config(), Arc::clone(&sm));
     gw.register_plugin(Arc::clone(&plugin) as Arc<dyn IMPlugin>)
         .await;
-    let setup_msg = make_message("agent-1", "hello");
+    // thread_id 先经 find_or_create 写入 checkpoint，route_message 再读回转发。
+    let mut setup_msg = make_message("agent-1", "hello");
+    setup_msg.thread_id = Some("omt_route_tid".to_string());
     let sid = sm.find_or_create("mock", &setup_msg, None).await.unwrap();
     let mut msg = make_message("agent-1", "hello");
     msg.metadata.insert("session_id".into(), sid);
@@ -342,7 +352,10 @@ async fn test_send_outbound_streaming_forwards_thread_id() {
     let gw = Gateway::with_processor_registry(config, Arc::clone(&sm), chain);
     gw.register_plugin(Arc::clone(&plugin_for_stream) as Arc<dyn IMPlugin>)
         .await;
-    let msg = make_message("agent-1", "hello");
+    // thread_id 需经现行管线写入 checkpoint（消息携带 → resolve 持久化），
+    // send_outbound_streaming 才能读回并转发给 plugin.send。
+    let mut msg = make_message("agent-1", "hello");
+    msg.thread_id = Some("omt_stream_tid".to_string());
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     let events = vec![
         Ok::<_, String>(StreamEvent::BlockStart {
@@ -452,6 +465,7 @@ impl IMPlugin for IndexCapturingPlugin {
             *self.captured_index.lock().unwrap() = Some(*index);
         }
         self.streaming_renderer()
+            .expect("IndexCapturingPlugin has no streaming renderer")
             .lock()
             .unwrap()
             .handle_event(event)
@@ -459,8 +473,8 @@ impl IMPlugin for IndexCapturingPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 

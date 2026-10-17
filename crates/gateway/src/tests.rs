@@ -3,16 +3,20 @@
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
 use crate::compute_session_key;
-use crate::{GatewayConfig, GatewayError, Message, SessionManager};
+use crate::shutdown_handle::ShutdownHandle;
+use crate::{GatewayConfig, GatewayError, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
+use closeclaw_common::StreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
@@ -90,6 +94,7 @@ impl IMPlugin for MockPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -97,6 +102,7 @@ impl IMPlugin for MockPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .flush()
@@ -104,8 +110,8 @@ impl IMPlugin for MockPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -327,7 +333,7 @@ fn test_gateway_error_display() {
 
 #[tokio::test]
 async fn test_per_channel_peer_different_senders() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = Message {
         id: "1".into(),
@@ -366,7 +372,7 @@ async fn test_per_channel_peer_different_senders() {
 
 #[tokio::test]
 async fn test_main_scope_all_share_one_session() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = make_message("bob", "hi");
     let mut m2 = make_message("bob", "hi");
@@ -386,7 +392,7 @@ async fn test_main_scope_all_share_one_session() {
 
 #[tokio::test]
 async fn test_per_account_peer_different_accounts() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "ch").await;
     let mut m1 = make_message("bob", "hi");
     let mut m2 = make_message("bob", "hi");
@@ -399,7 +405,7 @@ async fn test_per_account_peer_different_accounts() {
 
 #[tokio::test]
 async fn test_account_id_from_metadata() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
     msg.metadata.insert("account_id".into(), "t_abc".into());
@@ -413,7 +419,7 @@ async fn test_account_id_from_metadata() {
 
 #[tokio::test]
 async fn test_explicit_account_id_overrides_metadata() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut msg = make_message("agent-1", "hello");
     msg.metadata.insert("account_id".into(), "meta_t".into());
@@ -428,7 +434,7 @@ async fn test_explicit_account_id_overrides_metadata() {
 
 #[tokio::test]
 async fn test_feishu_session_isolation() {
-    let mut cfg = make_config();
+    let cfg = make_config();
     let (gw, sm) = setup(cfg, "feishu").await;
     let mut m_a = make_message("agent-1", "hi");
     m_a.from = "ou_alice".into();
@@ -454,46 +460,119 @@ async fn test_feishu_session_isolation() {
 
 // ── Shutdown alignment tests (Step 1.1–1.2) ──────────────────────────────
 
-use crate::shutdown_handle::ShutdownHandle;
+/// Minimal `ShutdownSignal` mock for shutdown gate tests.
+struct TestShutdownSignal {
+    state: AtomicU8,
+    busy_count: AtomicUsize,
+}
+
+impl TestShutdownSignal {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            state: AtomicU8::new(ShutdownState::Running as u8),
+            busy_count: AtomicUsize::new(0),
+        })
+    }
+
+    fn start_shutdown(&self) {
+        self.state
+            .store(ShutdownState::Draining as u8, Ordering::SeqCst);
+    }
+}
+
+impl ShutdownSignal for TestShutdownSignal {
+    fn is_shutting_down(&self) -> bool {
+        ShutdownState::from_u8(self.state.load(Ordering::SeqCst)).is_shutting_down_state()
+    }
+
+    fn increment_busy(&self) {
+        self.busy_count.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn decrement_busy(&self) {
+        if self.busy_count.load(Ordering::SeqCst) > 0 {
+            self.busy_count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+
+    fn busy_count(&self) -> usize {
+        self.busy_count.load(Ordering::SeqCst)
+    }
+
+    fn escalate_to_forceful(&self) -> bool {
+        let current = ShutdownState::from_u8(self.state.load(Ordering::SeqCst));
+        if matches!(
+            current,
+            ShutdownState::ShuttingDown | ShutdownState::Draining | ShutdownState::Stopped
+        ) {
+            self.state
+                .store(ShutdownState::ForcefulShuttingDown as u8, Ordering::SeqCst);
+            true
+        } else {
+            false
+        }
+    }
+
+    fn is_forceful(&self) -> bool {
+        let current = ShutdownState::from_u8(self.state.load(Ordering::SeqCst));
+        current == ShutdownState::ForcefulShuttingDown
+    }
+
+    fn drain_status(&self) -> DrainStatus {
+        let state = ShutdownState::from_u8(self.state.load(Ordering::SeqCst));
+        DrainStatus {
+            state,
+            busy_count: self.busy_count.load(Ordering::SeqCst),
+            is_draining: state == ShutdownState::Draining,
+            pending_items: Vec::new(),
+        }
+    }
+}
 
 /// Helper: create a gateway with a shutdown handle wired in.
 async fn setup_with_shutdown(
     channel: &str,
-) -> (crate::Gateway, Arc<SessionManager>, Arc<ShutdownHandle>) {
+) -> (
+    crate::Gateway,
+    Arc<SessionManager>,
+    Arc<ShutdownHandle>,
+    Arc<TestShutdownSignal>,
+) {
     let (gw, sm) = setup(make_config(), channel).await;
-    let sh = Arc::new(ShutdownHandle::new());
+    let signal = TestShutdownSignal::new();
+    let sh = Arc::new(ShutdownHandle::new(signal.clone()));
     gw.set_shutdown_handle(Arc::clone(&sh));
-    (gw, sm, sh)
+    (gw, sm, sh, signal)
 }
 
 #[tokio::test]
 async fn test_shutdown_gate_rejects_inbound_message() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, _sh, sig) = setup_with_shutdown("mock").await;
 
     // Start shutdown
-    sh.start_shutdown_for_test();
+    sig.start_shutdown();
 
     // Create a session so we have a valid session_id
     let mut msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     msg.metadata.insert("session_id".into(), sid.clone());
 
-    // handle_inbound_message should return None (rejected) when shutting down
+    // handle_inbound_message should be gate-rejected (MessageQueued) when shutting down
     let result = gw
         .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
-        result.is_none(),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "message should be rejected during shutdown"
     );
 }
 
 #[tokio::test]
 async fn test_shutdown_gate_rejects_inbound_message_forceful() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh, sig) = setup_with_shutdown("mock").await;
 
     // Start forceful shutdown
-    sh.start_shutdown_for_test();
+    sig.start_shutdown();
     sh.escalate_to_forceful();
 
     let mut msg = make_message("agent-1", "hello");
@@ -504,14 +583,14 @@ async fn test_shutdown_gate_rejects_inbound_message_forceful() {
         .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
-        result.is_none(),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "message should be rejected during forceful shutdown"
     );
 }
 
 #[tokio::test]
 async fn test_shutdown_gate_allows_inbound_message_when_running() {
-    let (gw, sm, _sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, _sh, _sig) = setup_with_shutdown("mock").await;
 
     let mut msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
@@ -533,7 +612,7 @@ async fn test_shutdown_gate_allows_inbound_message_when_running() {
 
 #[tokio::test]
 async fn test_inbound_message_increments_busy_count() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh, _sig) = setup_with_shutdown("mock").await;
 
     let mut msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
@@ -555,9 +634,9 @@ async fn test_inbound_message_increments_busy_count() {
 
 #[tokio::test]
 async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh, sig) = setup_with_shutdown("mock").await;
 
-    sh.start_shutdown_for_test();
+    sig.start_shutdown();
 
     let mut msg = make_message("agent-1", "hello");
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
@@ -580,10 +659,10 @@ async fn test_shutdown_gate_rejects_message_busy_count_decremented() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_intercept() {
-    let (gw, sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, sm, sh, sig) = setup_with_shutdown("mock").await;
 
     // Start shutdown so escalate_to_forceful has effect
-    sh.start_shutdown_for_test();
+    sig.start_shutdown();
 
     // Create a session so session resolution succeeds
     let msg = make_message("agent-1", "test");
@@ -626,7 +705,7 @@ async fn test_card_action_forceful_shutdown_no_shutdown_handle() {
 
 #[tokio::test]
 async fn test_card_action_forceful_shutdown_not_shutting_down() {
-    let (gw, _sm, sh) = setup_with_shutdown("mock").await;
+    let (gw, _sm, sh, _sig) = setup_with_shutdown("mock").await;
 
     // Shutdown handle exists but shutdown hasn't started
     gw.handle_card_action(CardActionEvent {

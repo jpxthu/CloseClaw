@@ -4,37 +4,16 @@
 //! routing behavior when composed across multiple steps (1.5–1.7).
 
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use crate::slash_permission_test_utils::*;
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
+use closeclaw_common::SlashSessionQuery;
 
 // ---------------------------------------------------------------------------
 // Mock handlers
 // ---------------------------------------------------------------------------
-
-struct SafeHandler;
-
-#[async_trait::async_trait]
-impl SlashHandler for SafeHandler {
-    fn clone_box(&self) -> Box<dyn SlashHandler> {
-        Box::new(SafeHandler)
-    }
-
-    fn commands(&self) -> &[&str] {
-        &["help"]
-    }
-    fn description(&self) -> &str {
-        "help"
-    }
-    fn requires_permission(&self) -> bool {
-        false
-    }
-    async fn handle(&self, _args: &str, _ctx: &SlashContext) -> SlashResult {
-        SlashResult::Reply("ok".to_owned())
-    }
-}
 
 struct CountingHandler {
     counter: Arc<AtomicU32>,
@@ -65,47 +44,34 @@ impl SlashHandler for CountingHandler {
 
 struct CountingRouter {
     command: &'static str,
-    requires_permission: bool,
     counter: Arc<AtomicU32>,
 }
 
 #[async_trait::async_trait]
 impl SlashRouter for CountingRouter {
-    fn dispatch(&self, command: &str, ctx: &SlashContext) -> Option<SlashResult> {
+    async fn dispatch(&self, command: &str, _ctx: &SlashContext) -> Option<SlashResult> {
         if command == self.command {
-            let handler: Arc<dyn SlashHandler> = Arc::new(CountingHandler {
-                counter: Arc::clone(&self.counter),
-            });
-            Some(SlashResult::Route {
-                handler,
-                args: String::new(),
-            })
+            Some(SlashResult::Reply("ok".to_owned()))
         } else {
             None
         }
     }
 
-    fn is_immediate(&self, command: &str) -> bool {
-        command == self.command
-    }
-
-    fn requires_permission(&self, command: &str) -> bool {
-        command == self.command && self.requires_permission
-    }
-}
-
-struct EmptyRouter;
-
-#[async_trait::async_trait]
-impl SlashRouter for EmptyRouter {
-    fn dispatch(&self, _command: &str, _ctx: &SlashContext) -> Option<SlashResult> {
-        None
-    }
     fn is_immediate(&self, _command: &str) -> bool {
+        // 对齐真实 ModeHandler 等非 immediate 命令处理器：恒返回 false。
+        // （SlashRouter::is_immediate 收到的是完整原始 content（如 "/help"），
+        // 与 self.command 的裸命令名比较恒为 false，属死比较，故直接写 false。）
         false
     }
-    fn requires_permission(&self, _command: &str) -> bool {
-        false
+
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+        if command == self.command {
+            Some(Box::new(CountingHandler {
+                counter: Arc::clone(&self.counter),
+            }))
+        } else {
+            None
+        }
     }
 }
 
@@ -113,16 +79,8 @@ impl SlashRouter for EmptyRouter {
 // Helpers
 // ---------------------------------------------------------------------------
 
-fn counting_dispatcher(
-    command: &'static str,
-    requires_permission: bool,
-    counter: Arc<AtomicU32>,
-) -> Arc<dyn SlashRouter> {
-    Arc::new(CountingRouter {
-        command,
-        requires_permission,
-        counter,
-    })
+fn counting_dispatcher(command: &'static str, counter: Arc<AtomicU32>) -> Arc<dyn SlashRouter> {
+    Arc::new(CountingRouter { command, counter })
 }
 
 async fn register_session(
@@ -193,7 +151,7 @@ async fn test_cross_step_stop_flag_combinations() {
 async fn test_cross_step_mode_not_immediate_enqueues_when_busy() {
     let counter = Arc::new(AtomicU32::new(0));
     let gw = make_gateway();
-    gw.set_slash_dispatcher(counting_dispatcher("mode", false, Arc::clone(&counter)))
+    gw.set_slash_dispatcher(counting_dispatcher("mode", Arc::clone(&counter)))
         .await;
 
     let cs = register_session(&gw, "sess-mode-busy").await;
@@ -259,9 +217,11 @@ async fn test_cross_step_git_all_subcommands_route_to_exec() {
     let gw = Arc::new(Gateway::new_for_tests(config, sm));
 
     // Register a real WorkdirHandler.
-    let registry = closeclaw_slash::HandlerRegistry::new();
-    let workdir_handler =
-        closeclaw_slash::handlers::WorkdirHandler::new(Arc::clone(&gw.session_manager));
+    let registry = closeclaw_slash::registry::HandlerRegistry::new();
+    let workdir_handler = closeclaw_slash::handlers::WorkdirHandler::new(Arc::clone(
+        &gw.session_manager,
+    )
+        as Arc<dyn SlashSessionQuery>);
     registry.register(Arc::new(workdir_handler));
     gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
         .await;
@@ -290,7 +250,8 @@ async fn test_cross_step_git_all_subcommands_route_to_exec() {
 /// in the "追加指令" field.
 #[tokio::test]
 async fn test_cross_step_system_append_reflected_in_status() {
-    use closeclaw_slash::{SlashHandler as _, StatusHandler, SystemHandler};
+    use closeclaw_slash::handlers::SystemHandler;
+    use closeclaw_slash::{SlashHandler as _, StatusHandler};
 
     let config = crate::GatewayConfig {
         name: String::new(),
@@ -307,7 +268,7 @@ async fn test_cross_step_system_append_reflected_in_status() {
     ));
 
     // Create a session.
-    let msg = closeclaw_gateway::Message {
+    let msg = crate::Message {
         id: "cross-test-msg".to_string(),
         from: "user-a".to_string(),
         to: "agent-b".to_string(),
@@ -334,7 +295,7 @@ async fn test_cross_step_system_append_reflected_in_status() {
     };
 
     // Append a system instruction.
-    let sys_handler = SystemHandler::new(Arc::clone(&sm));
+    let sys_handler = SystemHandler::new(Arc::clone(&sm) as Arc<dyn SlashSessionQuery>);
     match sys_handler.handle("add 请始终使用中文", &ctx).await {
         SlashResult::SystemAppend {
             action: closeclaw_common::slash_router::SystemAppendAction::Add(_),
@@ -350,7 +311,7 @@ async fn test_cross_step_system_append_reflected_in_status() {
     }
 
     // Check status shows the appended instruction.
-    let status_handler = StatusHandler::new(Arc::clone(&sm));
+    let status_handler = StatusHandler::new(Arc::clone(&sm) as Arc<dyn SlashSessionQuery>);
     match status_handler.handle("", &ctx).await {
         SlashResult::Reply(text) => {
             assert!(

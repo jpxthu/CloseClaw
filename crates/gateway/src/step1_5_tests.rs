@@ -3,19 +3,20 @@
 //! Unit tests for Step 1.1–1.4 design doc alignment changes.
 //!
 //! Covers:
-//! 1. Verbosity filtering order: filter happens BEFORE processor chain
-//! 2. Gateway does NOT directly call LLM or build System Prompt
+//! 1. Verbosity filtering: VerbosityFilter is an in-chain processor running
+//!    before downstream processors
+//! 2. Gateway delegates LLM calls via the injected LlmCaller
 //! 3. Slash permission check timing: Handler → Permission → execute()
 //! 4. Restore notification routed through Gateway outbound chain
 
+use crate::slash_permission_test_utils::allow_engine;
 use crate::{GatewayConfig, Message, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::processor::ProcessError;
-use closeclaw_common::processor::{
-    MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
-};
+use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_common::StreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_processor_chain::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,6 +89,7 @@ impl IMPlugin for MockPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -95,6 +97,7 @@ impl IMPlugin for MockPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .flush()
@@ -102,8 +105,8 @@ impl IMPlugin for MockPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -168,6 +171,9 @@ fn make_message(to: &str, content: &str) -> Message {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
@@ -230,7 +236,12 @@ async fn setup_with_verbosity(
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    // VerbosityFilter（priority 5）先于 trace（priority 200）执行：
+    // 现行架构中 verbosity 过滤是链内 processor，验证下游 processor 看到的是过滤后的 blocks。
+    registry.register(Arc::new(
+        closeclaw_processor_chain::verbosity_filter::VerbosityFilter,
+    ));
     registry.register(Arc::new(trace));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
     gw.register_plugin(Arc::new(MockPlugin::new("mock"))).await;
@@ -262,12 +273,14 @@ async fn setup_with_verbosity(
     gw
 }
 
-/// Step 1.1 — Verbosity filtering happens BEFORE the processor chain.
+/// Step 1.1 — Verbosity filtering is an in-chain processor
+/// (VerbosityFilter, priority 5) that runs before downstream processors
+/// (e.g. the priority-200 trace processor registered after it).
 ///
 /// When session verbosity is `Off` (only Text blocks), Thinking blocks
-/// must be stripped BEFORE the processor chain sees them.
+/// are stripped before downstream processors see them.
 #[tokio::test]
-async fn test_verbosity_filter_before_processor_chain() {
+async fn test_verbosity_filter_precedes_downstream_processors() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Off,
@@ -306,9 +319,10 @@ async fn test_verbosity_filter_before_processor_chain() {
     );
 }
 
-/// Step 1.1 — Verbosity Level::Normal strips Thinking before chain.
+/// Step 1.1 — Verbosity Level::Normal strips Thinking within the chain,
+/// before downstream processors see them.
 #[tokio::test]
-async fn test_verbosity_normal_strips_thinking_before_chain() {
+async fn test_verbosity_normal_strips_thinking_in_chain() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Normal,
@@ -350,9 +364,10 @@ async fn test_verbosity_normal_strips_thinking_before_chain() {
     assert!(matches!(&received[1], ContentBlock::ToolUse { .. }));
 }
 
-/// Step 1.1 — Verbosity Level::Full: all blocks pass through before chain.
+/// Step 1.1 — Verbosity Level::Full: all blocks pass through the chain
+/// to downstream processors.
 #[tokio::test]
-async fn test_verbosity_full_all_blocks_before_chain() {
+async fn test_verbosity_full_all_blocks_pass_through_chain() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Full,
@@ -390,20 +405,6 @@ async fn test_verbosity_full_all_blocks_before_chain() {
 // ═════════════════════════════════════════════════════════════════════════════
 // 2. Gateway Does NOT Directly Call LLM Tests (Step 1.2)
 // ═════════════════════════════════════════════════════════════════════════════
-
-/// Step 1.2 — Gateway module does NOT import System Prompt construction
-/// functions from `system_prompt::inject`.
-///
-/// This is a compile-time assertion: if Gateway code imports
-/// `build_dynamic_sections`, `build_full_system_prompt`, or
-/// `split_static_dynamic`, this module will fail to compile.
-#[test]
-fn test_gateway_no_direct_system_prompt_imports() {
-    assert!(
-        true,
-        "Gateway module compiles without direct System Prompt imports"
-    );
-}
 
 /// Verify that `SessionMessageHandler` delegates LLM calls
 /// through `Arc<dyn closeclaw_common::LlmCaller>` (injected into
@@ -459,7 +460,13 @@ struct TimingHandler {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_common::slash_router::handler::SlashHandler for TimingHandler {
+impl closeclaw_slash::SlashHandler for TimingHandler {
+    fn clone_box(&self) -> Box<dyn closeclaw_slash::SlashHandler> {
+        Box::new(TimingHandler {
+            order: Arc::clone(&self.order),
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         &["timing"]
     }
@@ -475,29 +482,14 @@ impl closeclaw_common::slash_router::handler::SlashHandler for TimingHandler {
     async fn handle(
         &self,
         _args: &str,
-        _ctx: &closeclaw_common::slash_router::context::SlashContext,
-    ) -> closeclaw_common::slash_router::handler::SlashResult {
+        _ctx: &closeclaw_slash::SlashContext,
+    ) -> closeclaw_slash::SlashResult {
         self.order
             .lock()
             .expect("lock")
             .push("handler.handle()".to_string());
-        closeclaw_common::slash_router::handler::SlashResult::Reply("timing ok".to_owned())
+        closeclaw_slash::SlashResult::Reply("timing ok".to_owned())
     }
-}
-
-/// A PermissionEngine that always allows.
-fn allow_engine() -> Arc<closeclaw_permission::engine::engine_eval::PermissionEngine> {
-    use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
-    let rules = RuleSet {
-        rules: vec![],
-        defaults: Defaults::default(),
-        template_includes: vec![],
-    };
-    Arc::new(
-        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
-            rules,
-        ),
-    )
 }
 
 /// Step 1.2 — Permission check happens BEFORE handler.handle(), BEFORE execute().
@@ -515,14 +507,12 @@ async fn test_permission_check_after_handler_before_execute() {
     ));
     let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
-    let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
+    let registry = closeclaw_slash::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
         order: Arc::clone(&order),
     }));
-    gw.set_slash_dispatcher(Arc::new(
-        closeclaw_common::slash_router::dispatcher::SlashDispatcher::new(registry),
-    ))
-    .await;
+    gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
+        .await;
     gw.set_permission_engine(allow_engine()).await;
 
     let result = gw
@@ -559,22 +549,22 @@ async fn test_permission_denied_handler_still_invoked() {
     ));
     let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
-    let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
+    let registry = closeclaw_slash::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
         order: Arc::clone(&order),
     }));
-    gw.set_slash_dispatcher(Arc::new(
-        closeclaw_common::slash_router::dispatcher::SlashDispatcher::new(registry),
-    ))
-    .await;
+    gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
+        .await;
 
-    use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
+    use closeclaw_permission::engine::engine_types::{
+        Action, Effect, MatchType, Rule, RuleSet, Subject,
+    };
     let deny_rules = RuleSet {
         rules: vec![Rule {
             name: "deny-all".to_owned(),
             subject: Subject::AgentOnly {
                 agent: "*".to_owned(),
-                match_type: Default::default(),
+                match_type: MatchType::Glob,
             },
             effect: Effect::Deny,
             actions: vec![Action::All],
@@ -582,13 +572,15 @@ async fn test_permission_denied_handler_still_invoked() {
             priority: 100,
         }],
         defaults: Default::default(),
+        user_defaults: Default::default(),
         template_includes: vec![],
+        ..Default::default()
     };
-    gw.set_permission_engine(Arc::new(
+    gw.set_permission_engine(Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
             deny_rules,
         ),
-    ))
+    )))
     .await;
 
     let result = gw
@@ -604,8 +596,12 @@ async fn test_permission_denied_handler_still_invoked() {
     assert!(matches!(result, Some(crate::HandleResult::SlashHandled)));
 
     let ops = order.lock().expect("lock");
-    assert_eq!(ops.len(), 0);
-    // handler.handle() should NOT be invoked because permission was denied before execution.
+    // 现行语义（deny 分支改为 handle-then-gate，参照
+    // slash_permission_tests::test_non_owner_high_risk_denied_handler_called_execute_skipped）：
+    // 权限拒绝时 handler.handle() 仍被调用一次（用于产出 SlashResult），
+    // 但 result.execute() 被跳过。
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0], "handler.handle()");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════

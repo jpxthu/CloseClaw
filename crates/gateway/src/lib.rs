@@ -125,13 +125,13 @@ mod sweeper_tests;
 mod test_support_workflow_port;
 #[cfg(test)]
 pub mod tests_checkpoint;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 mod tests_plugin;
 #[cfg(test)]
 mod tests_slash_dispatcher_routing;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 mod tests_slash_permission;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 mod tests_slash_permission_integration;
 pub mod types;
 pub mod workflow_owner;
@@ -921,7 +921,7 @@ pub mod inbound_chain_tests;
 pub mod non_text_interception_tests;
 #[cfg(test)]
 pub mod notification_tests;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 #[path = "priority_prompt_tests.rs"]
 pub mod priority_prompt_tests;
 pub(crate) mod rebuild_stash;
@@ -941,7 +941,7 @@ pub mod session_handler_compact_config_tests;
 pub mod session_handler_compact_truncate_tests;
 #[cfg(test)]
 pub mod session_handler_dispatch_child_session_tests;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod session_handler_dynamic_tests;
 #[cfg(test)]
 pub mod session_handler_recovery_tests;
@@ -959,15 +959,15 @@ pub mod shutdown_phase_tests;
 mod step1_3_tests;
 #[cfg(test)]
 pub mod step1_4_idle_verify_tests;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod step1_5_tests;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod tests;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod tests_dmscope;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod tests_processor_chain;
-#[cfg(feature = "full-tests")]
+#[cfg(all(test, feature = "full-tests"))]
 pub mod tests_thread;
 #[cfg(test)]
 pub mod types_tests;

@@ -1,6 +1,5 @@
 //! Tests for Gateway slash-command permission routing.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -190,8 +189,9 @@ impl SlashRouter for ImmediateCountingRouter {
     async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
         None
     }
-    fn is_immediate(&self, command: &str) -> bool {
-        command == self.command
+    fn is_immediate(&self, content: &str) -> bool {
+        // SlashRouter::is_immediate 收到完整原始 content（如 "/stop"），需自行解析命令名。
+        content.trim_start_matches('/').split_whitespace().next() == Some(self.command)
     }
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
         if command == self.command {

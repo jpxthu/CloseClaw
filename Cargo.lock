@@ -763,6 +763,8 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-processor-chain",
  "closeclaw-session",
+ "closeclaw-slash",
+ "closeclaw-system-prompt",
  "closeclaw-test-support",
  "closeclaw-workflow",
  "dirs",

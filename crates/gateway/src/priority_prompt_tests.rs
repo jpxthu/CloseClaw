@@ -2,35 +2,33 @@
 // Priority Prompt Override Tests (build_full_system_prompt)
 // ═══════════════════════════════════════════════════════════════════════════
 
-use super::session_handler::MessageMetadata;
-use closeclaw_common::system_prompt::builder::PromptOverrides;
-use closeclaw_common::system_prompt::inject::{
+use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_common::RequestContext;
+use closeclaw_common::SessionMode;
+use closeclaw_system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams,
 };
-use closeclaw_common::SessionMode;
 
-fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-    MessageMetadata {
+fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
+    RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
+        // ChannelContext 现仅渲染 chat_name，复用 channel 实参使断言可观测。
+        chat_name: channel.to_string(),
         timestamp: ts,
-        trace_id: None,
-        session_key: None,
-        span_id: None,
-        chat_name: String::new(),
     }
 }
 
-fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+fn make_params(meta: &RequestContext, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        session_timestamp: None,
         session_mode,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
         mode_transition: None,
+        plan_file_path: None,
     }
 }
 
@@ -164,7 +162,7 @@ fn test_priority_no_hit_normal_behavior() {
     // Boundary marker present
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic layers injected
-    assert!(full.contains("sender_id: bob"));
+    assert!(full.contains("chat_name: feishu"));
 }
 
 /// Test (e): None overrides behaves identically to normal path.
@@ -185,7 +183,7 @@ fn test_priority_none_overrides_normal_behavior() {
     assert_eq!(full_none, full_default);
     // Both contain static + dynamic
     assert!(full_none.contains("static"));
-    assert!(full_none.contains("sender_id: carol"));
+    assert!(full_none.contains("chat_name: ch"));
     assert!(full_none.contains("appendix"));
 }
 

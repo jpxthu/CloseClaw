@@ -1,15 +1,17 @@
-use super::session_handler::MessageMetadata;
 use super::*;
-use closeclaw_common::system_prompt::inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic, DynamicSectionsParams,
-};
-use closeclaw_common::system_prompt::sections::Section;
+use closeclaw_common::system_prompt::split_static_dynamic;
+use closeclaw_common::LlmCaller;
+use closeclaw_common::RequestContext;
 use closeclaw_common::SessionMode;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams,
+};
+use closeclaw_system_prompt::sections::Section;
 
-fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
+async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
     let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
     let ufc = Arc::new(UnifiedFallbackClient::new(
         vec![],
@@ -17,6 +19,9 @@ fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile:
             cooldown_dir.path().join("llm_cooldowns.json"),
         )),
     ));
+    let llm_caller: Arc<dyn LlmCaller> = Arc::new(llm_caller_impl::FallbackLlmCaller(ufc.clone()));
+    // Set LLM caller on SessionManager so ConversationSession gets it at creation.
+    sm.set_llm_caller(llm_caller).await;
     (
         SessionMessageHandler::new_no_output(
             sm,
@@ -40,32 +45,33 @@ fn make_msg() -> crate::Message {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
-fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-    MessageMetadata {
+fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
+    RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
+        // ChannelContext 现仅渲染 chat_name，复用 channel 实参使断言可观测。
+        chat_name: channel.to_string(),
         timestamp: ts,
-        chat_name: String::new(),
-        trace_id: None,
-        session_key: None,
-        span_id: None,
     }
 }
 
 /// Helper: build a `DynamicSectionsParams` with defaults for optional fields.
-fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+fn make_params(meta: &RequestContext, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        session_timestamp: None,
         session_mode,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
         mode_transition: None,
+        plan_file_path: None,
     }
 }
 
@@ -81,52 +87,25 @@ fn test_build_dynamic_sections_channel_context() {
         .find(|s: &&Section| s.name() == "channel_context");
     assert!(cc.is_some(), "ChannelContext should always be present");
     let rendered = cc.unwrap().render();
-    assert!(rendered.contains("sender_id: user_42"));
-    assert!(rendered.contains("chat_name: feishu"));
-    // Timestamp should be a valid RFC3339 string
-    assert!(rendered.contains("timestamp:"));
-}
-
-/// session_timestamp parameter overrides meta.timestamp in ChannelContext.
-#[test]
-fn test_build_dynamic_sections_session_timestamp_override() {
-    let meta = make_meta("user_42", "feishu", 1700000000);
-    let session_ts: i64 = 1700000042;
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        session_timestamp: Some(session_ts),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let cc = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "channel_context")
-        .unwrap();
-    let rendered = cc.render();
-    // The timestamp should be derived from session_ts, not meta.timestamp
-    let expected_dt = chrono::DateTime::from_timestamp(session_ts, 0).unwrap();
     assert!(
-        rendered.contains(&expected_dt.to_rfc3339()),
-        "ChannelContext timestamp should use session_timestamp when provided"
+        rendered.contains("chat_name: feishu"),
+        "ChannelContext should render the actual chat_name, got: {}",
+        rendered
     );
 }
 
-/// When session_timestamp is None, ChannelContext falls back to meta.timestamp.
-#[test]
-fn test_build_dynamic_sections_session_timestamp_fallback() {
-    let meta = make_meta("user_42", "feishu", 1700000000);
-    let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
-    let cc = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "channel_context")
-        .unwrap();
-    let rendered = cc.render();
-    // The timestamp should be derived from meta.timestamp
-    let expected_dt = chrono::DateTime::from_timestamp(meta.timestamp, 0).unwrap();
-    assert!(
-        rendered.contains(&expected_dt.to_rfc3339()),
-        "ChannelContext timestamp should fallback to meta.timestamp when session_timestamp is None"
-    );
-}
+// [已移除] 原 `test_build_dynamic_sections_session_timestamp_override`：
+// `DynamicSectionsParams::session_timestamp` 字段已随模块迁移删除（时间戳
+// 现恒取自 `RequestContext::timestamp`，无 override 机制），该用例所测概念
+// 无等价物，故按最小改动移除。行为语义变化由调用方（gateway 构造
+// RequestContext 时填 timestamp）承载。
 
+// [已移除] 原 `test_build_dynamic_sections_session_timestamp_fallback`：
+// ChannelContext 渲染已随模块迁移瘦身为仅含 `chat_name`（sender_id/timestamp
+// 字段渲染已删除，时间戳由调用方在 RequestContext 层承载），该用例所测概念
+// 无等价物，故按最小改动移除。
+
+#[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));
@@ -137,7 +116,7 @@ fn test_build_full_system_prompt_composition() {
     // Contains boundary marker
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Contains dynamic ChannelContext
-    assert!(full.contains("sender_id: alice"));
+    assert!(full.contains("chat_name: telegram"));
 }
 
 /// build_full_system_prompt with no static prompt uses only dynamic sections.
@@ -150,7 +129,7 @@ fn test_build_full_system_prompt_no_static() {
     // No boundary marker when no static prompt
     assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Still contains dynamic content
-    assert!(full.contains("sender_id: bob"));
+    assert!(full.contains("chat_name: ch"));
 }
 
 /// build_full_system_prompt with static but empty dynamic sections.
@@ -181,8 +160,8 @@ async fn test_handle_message_backward_compat() {
         None,
         ReasoningLevel::default(),
     ));
+    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm)).await;
     let sid = sm.find_or_create("ch", &make_msg(), None).await.unwrap();
-    let (handler, _cooldown_dir) = handler_with_sm(Arc::clone(&sm));
 
     // Original handle_message (no meta) should still return LlmStarted
     let result = handler.handle_message(&sid, "test input".to_string()).await;
@@ -233,6 +212,7 @@ fn test_build_dynamic_sections_git_status_with_path() {
     let manifest_dir = env!("CARGO_MANIFEST_DIR");
     let sections = build_dynamic_sections(&DynamicSectionsParams {
         workdir_path: Some(manifest_dir),
+        is_git_status_enabled: true,
         ..make_params(&meta, SessionMode::Normal)
     });
     let has_wd = sections.iter().any(|s| s.name() == "working_directory");
@@ -286,7 +266,7 @@ fn test_working_directory_render_sanitization() {
 /// workdir path with workspaces/ prefix does not expose config_dir root.
 #[test]
 fn test_workdir_path_no_config_dir_exposure() {
-    use closeclaw_common::system_prompt::sections::sanitize_workdir_path;
+    use closeclaw_system_prompt::sections::sanitize_workdir_path;
     let path = "/home/alice/.closeclaw/workspaces/my-agent/u123/";
     let sanitized = sanitize_workdir_path(path);
     assert_eq!(sanitized, "~/my-agent/u123/");
@@ -376,10 +356,10 @@ fn test_appends_after_dynamic_layer() {
     // Dynamic boundary exists
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic content present
-    assert!(full.contains("sender_id: alice"));
+    assert!(full.contains("chat_name: feishu"));
     // Appends section follows dynamic content
     let append_pos = full.find("## Append").unwrap();
-    let dynamic_pos = full.find("sender_id: alice").unwrap();
+    let dynamic_pos = full.find("chat_name: feishu").unwrap();
     assert!(
         append_pos > dynamic_pos,
         "## Append must come after dynamic layer content"
@@ -406,11 +386,11 @@ fn test_appends_without_static_prompt() {
     let appends = vec!["custom note".to_string()];
     let full = build_full_system_prompt(None, &sections, &appends, None);
     assert!(!full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
-    assert!(full.contains("sender_id: bob"));
+    assert!(full.contains("chat_name: telegram"));
     assert!(full.contains("## Append"));
     assert!(full.contains("custom note"));
     let append_pos = full.find("## Append").unwrap();
-    let dynamic_pos = full.find("sender_id: bob").unwrap();
+    let dynamic_pos = full.find("chat_name: telegram").unwrap();
     assert!(append_pos > dynamic_pos);
 }
 
@@ -422,13 +402,13 @@ fn test_empty_appends_no_append_section() {
     let full = build_full_system_prompt(Some("static"), &sections, &[], None);
     assert!(!full.contains("## Append"));
     // Dynamic content still present
-    assert!(full.contains("sender_id: u"));
+    assert!(full.contains("chat_name: ch"));
 }
 
 /// Dimension 7: Empty appends with priority prompt — no Append section.
 #[test]
 fn test_empty_appends_priority_prompt() {
-    use closeclaw_common::system_prompt::builder::PromptOverrides;
+    use closeclaw_common::system_prompt::PromptOverrides;
     let overrides = PromptOverrides {
         override_prompt: Some("override".into()),
         ..Default::default()
