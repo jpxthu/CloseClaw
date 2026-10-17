@@ -24,11 +24,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::{ContentBlock, DslParseResult};
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
 use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
 
+use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
 use crate::outbound::SendOutcome;
 use crate::outbound_helpers::{CheckpointMeta, SendDebugCtx};
 use crate::{Gateway, GatewayConfig, SendOutboundIds, Session, SessionManager};
@@ -160,16 +160,6 @@ fn make_config(name: &str) -> GatewayConfig {
         max_message_size: 65536,
         ..Default::default()
     }
-}
-
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
 }
 
 /// Gateway + feishu mock plugin (no checkpoint manager, optional debug log).
@@ -313,32 +303,6 @@ async fn wait_for_pending_message(
             session_id
         );
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-}
-
-/// Poll the debug-log JSONL files under `dir` (max ~2s).
-async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        let mut events = Vec::new();
-        if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
-            while let Ok(Some(entry)) = entries.next_entry().await {
-                let path = entry.path();
-                if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-                    if let Ok(content) = tokio::fs::read_to_string(&path).await {
-                        for line in content.lines().filter(|l| !l.trim().is_empty()) {
-                            if let Ok(evt) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                                events.push(evt);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
 }
 
