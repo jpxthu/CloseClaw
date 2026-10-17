@@ -10,13 +10,12 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use closeclaw_common::processor::loader::{
+use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_processor_chain::loader::{
     ProcessorChainConfig, ProcessorChainLoader, ProcessorConfig,
 };
-use closeclaw_common::processor::ProcessError;
-use closeclaw_common::processor::{
-    MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
-};
+use closeclaw_processor_chain::ProcessError;
+use closeclaw_processor_chain::{MessageContext, MessageProcessor, ProcessPhase};
 use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
@@ -129,6 +128,7 @@ impl IMPlugin for MockAdapter {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockAdapter has no streaming renderer")
             .lock()
             .expect("MockAdapter streaming renderer lock poisoned")
             .handle_event(event)
@@ -136,6 +136,7 @@ impl IMPlugin for MockAdapter {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockAdapter has no streaming renderer")
             .lock()
             .expect("MockAdapter streaming renderer lock poisoned")
             .flush()
@@ -143,8 +144,8 @@ impl IMPlugin for MockAdapter {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -233,7 +234,7 @@ async fn test_processor_chain_applies_processors() {
 /// Scenario 4: Processors execute in priority order (ascending priority value).
 #[tokio::test]
 async fn test_processor_chain_execution_order_by_priority() {
-    use closeclaw_common::processor::ProcessorRegistry;
+    use closeclaw_processor_chain::ProcessorRegistry;
 
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
@@ -249,7 +250,7 @@ async fn test_processor_chain_execution_order_by_priority() {
         tag: "T20".into(),
     }));
     registry.register(Arc::new(
-        closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
+        closeclaw_processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
 
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
@@ -321,7 +322,7 @@ async fn test_processor_chain_metadata_merge() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(MetadataInjector(20)));
 
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
@@ -366,9 +367,7 @@ async fn msg_with_session(sm: &SessionManager, channel: &str, to: &str, content:
 }
 
 /// Build a Gateway with the given ProcessorRegistry (shared across E2E tests).
-fn make_gw_with_registry(
-    registry: closeclaw_common::processor::ProcessorRegistry,
-) -> crate::Gateway {
+fn make_gw_with_registry(registry: closeclaw_processor_chain::ProcessorRegistry) -> crate::Gateway {
     let config = make_config();
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -448,9 +447,9 @@ async fn test_process_inbound_chain_with_normalizer() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(
-        closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
+        closeclaw_processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
@@ -489,8 +488,8 @@ async fn test_process_inbound_chain_with_session_router() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(closeclaw_processor_chain::SessionRouter::new()));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let result = gw
@@ -535,8 +534,8 @@ async fn test_process_inbound_chain_uses_system_time() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(closeclaw_processor_chain::SessionRouter::new()));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
     let before_ms = chrono::Utc::now().timestamp_millis();
@@ -586,9 +585,9 @@ async fn test_process_inbound_chain_uses_system_time() {
 /// during processing — platform format conversion is handled by adapters.
 #[tokio::test]
 async fn test_content_normalizer_does_not_strip_platform_residue() {
-    use closeclaw_common::processor::processor::MessageProcessor;
+    use closeclaw_processor_chain::MessageProcessor;
 
-    let processor = closeclaw_common::processor::content_normalizer::ContentNormalizer::new();
+    let processor = closeclaw_processor_chain::content_normalizer::ContentNormalizer::new();
     let msg = closeclaw_common::im_plugin::NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: "user1".to_string(),
@@ -605,7 +604,7 @@ async fn test_content_normalizer_does_not_strip_platform_residue() {
         account_id: String::new(),
         ..Default::default()
     };
-    let ctx = closeclaw_common::processor::MessageContext::from_normalized(msg);
+    let ctx = closeclaw_processor_chain::MessageContext::from_normalized(msg);
     let result = processor.process(&ctx).await.unwrap().unwrap();
     // <at> tags should be preserved (not converted to @Alice)
     assert!(
@@ -651,7 +650,7 @@ async fn test_process_inbound_chain_processor_error() {
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(FailProcessor));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
 
@@ -690,10 +689,10 @@ async fn test_process_inbound_chain_processor_error() {
 /// injected into metadata after the chain completes.
 #[tokio::test]
 async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(closeclaw_processor_chain::SessionRouter::new()));
     registry.register(Arc::new(
-        closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
+        closeclaw_processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
     let gw = make_gw_with_registry(registry);
 
@@ -736,10 +735,10 @@ async fn test_e2e_inbound_full_stack_strips_ansi_and_injects_session_key() {
 /// when no session handler is installed — expected in unit test context).
 #[tokio::test]
 async fn test_e2e_processed_content_feeds_into_handle_inbound() {
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
-    registry.register(Arc::new(closeclaw_common::processor::SessionRouter::new()));
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    registry.register(Arc::new(closeclaw_processor_chain::SessionRouter::new()));
     registry.register(Arc::new(
-        closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
+        closeclaw_processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
     let gw = make_gw_with_registry(registry);
 
@@ -780,10 +779,10 @@ async fn test_e2e_processed_content_feeds_into_handle_inbound() {
 /// is still available for inspection.
 #[tokio::test]
 async fn test_e2e_suppress_flag_propagates_through_chain() {
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(SuppressTestProcessor));
     registry.register(Arc::new(
-        closeclaw_common::processor::content_normalizer::ContentNormalizer::new(),
+        closeclaw_processor_chain::content_normalizer::ContentNormalizer::new(),
     ));
     let gw = make_gw_with_registry(registry);
 
