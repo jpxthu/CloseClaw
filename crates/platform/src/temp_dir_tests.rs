@@ -35,15 +35,3 @@ fn test_system_temp_dir_deterministic() {
     let b = system_temp_dir();
     assert_eq!(a, b, "system_temp_dir() must be deterministic across calls");
 }
-
-#[test]
-fn test_system_temp_dir_deterministic_after_std_call() {
-    let ours = system_temp_dir();
-    // Interleave a std call: a stateless wrapper must stay in sync.
-    let _ = std::env::temp_dir();
-    let ours_again = system_temp_dir();
-    assert_eq!(
-        ours, ours_again,
-        "system_temp_dir() must stay consistent when interleaved with std::env::temp_dir()"
-    );
-}

@@ -2,7 +2,8 @@
 //!
 //! Provides unified interfaces for OS-specific operations including
 //! terminal capability detection, process management, configuration
-//! directory resolution, and file path normalization.
+//! directory resolution, file path normalization, and system
+//! temporary directory resolution.
 
 pub mod config;
 pub mod fs;
