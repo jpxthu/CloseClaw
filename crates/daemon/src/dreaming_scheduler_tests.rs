@@ -4,6 +4,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::watch;
+use tokio::time::Instant;
 
 use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::{
@@ -535,7 +536,7 @@ async fn test_dreaming_shutdown_no_active_task_exits_immediately() {
     // Let the loop start, then immediately send shutdown (no task will fire
     // because dreaming_interval is 600s).
     tokio::time::sleep(Duration::from_millis(50)).await;
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     shutdown_tx.send(()).unwrap();
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
@@ -566,7 +567,7 @@ async fn test_dreaming_shutdown_waits_for_active_task_within_grace() {
         Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
     });
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     crate::dreaming_scheduler::wait_for_active_task(handle).await;
     let elapsed = start.elapsed();
 
@@ -600,7 +601,7 @@ async fn test_dreaming_shutdown_abandons_task_after_grace_period() {
         Ok::<(), crate::dreaming_scheduler::DreamingSchedulerError>(())
     });
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     crate::dreaming_scheduler::wait_for_active_task(handle).await;
     let elapsed = start.elapsed();
 
@@ -626,7 +627,7 @@ async fn test_dreaming_shutdown_handles_panicked_task() {
         panic!("test panic in dreaming task");
     });
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     crate::dreaming_scheduler::wait_for_active_task(handle).await;
     let elapsed = start.elapsed();
 
@@ -647,7 +648,7 @@ async fn test_dreaming_shutdown_handles_errored_task() {
         ))
     });
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     crate::dreaming_scheduler::wait_for_active_task(handle).await;
     let elapsed = start.elapsed();
 

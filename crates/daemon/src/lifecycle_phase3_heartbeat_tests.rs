@@ -8,6 +8,7 @@
 use crate::lifecycle::TaskStopStatus;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use std::time::Duration;
+use tokio::time::Instant;
 
 // =====================================================================
 // Phase 3 heartbeat periodicity tests
@@ -26,9 +27,9 @@ async fn test_phase3_heartbeat_fires_periodically() {
         tokio::time::sleep(Duration::from_millis(200)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(250);
+    let deadline = Instant::now() + Duration::from_millis(250);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             _result = &mut handle => {
                 // Task completed
@@ -79,9 +80,9 @@ async fn test_phase3_task_completion_resets_heartbeat() {
         tokio::time::sleep(Duration::from_millis(100)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(150);
+    let deadline = Instant::now() + Duration::from_millis(150);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             _result = &mut handle2 => {
                 heartbeat.record_event();
@@ -124,8 +125,8 @@ async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
     }
 
     // After all tasks, check if heartbeat fires during quiet period
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(100);
-    while tokio::time::Instant::now() < deadline {
+    let deadline = Instant::now() + Duration::from_millis(100);
+    while Instant::now() < deadline {
         tokio::select! {
             _ = tokio::time::sleep_until(
                 heartbeat.next_deadline(),
@@ -240,9 +241,9 @@ async fn test_wait_with_heartbeat_sends_periodically() {
         tokio::time::sleep(Duration::from_millis(150)).await;
     });
 
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let deadline = Instant::now() + Duration::from_millis(200);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             result = &mut handle => {
                 // Task completed
@@ -337,7 +338,7 @@ async fn test_grace_period_within_boundary_no_abort() {
     });
 
     let grace = Duration::from_secs(10);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
 
     tokio::select! {
         result = &mut task => {
@@ -376,7 +377,7 @@ async fn test_grace_period_past_boundary_aborts() {
     });
 
     let grace = Duration::from_secs(10);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
 
     match tokio::time::timeout(grace, &mut task).await {
         Ok(Ok(())) => panic!("task should not complete within grace"),
@@ -436,7 +437,7 @@ async fn test_grace_period_halfway_completion_no_abort() {
     });
 
     let grace = Duration::from_secs(10);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
 
     tokio::select! {
         result = &mut task => {

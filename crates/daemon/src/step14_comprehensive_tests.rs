@@ -14,6 +14,7 @@ use crate::shutdown::ShutdownHandle;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::time::Instant;
 
 // =====================================================================
 // 1. Parallel Initialization: tokio::join! behavior verification
@@ -27,7 +28,7 @@ async fn test_parallel_join_runs_concurrently() {
     let delay_a = Duration::from_millis(80);
     let delay_b = Duration::from_millis(80);
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let (a, b) = tokio::join!(
         async {
             tokio::time::sleep(delay_a).await;
@@ -190,9 +191,9 @@ async fn test_heartbeat_phase1_drain_with_signal_interruption() {
     let mut events_received = 0;
 
     // Simulate Phase 1 loop with a few events
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let deadline = Instant::now() + Duration::from_millis(200);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             _ = tokio::time::sleep_until(hb.next_deadline()) => {
                 if hb.should_send_heartbeat() {
@@ -223,9 +224,9 @@ async fn test_heartbeat_phase2_progress_resets_timer() {
     let mut heartbeats_sent = 0;
 
     // Simulate: progress event at 40ms, quiet until 120ms, heartbeat fires
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(150);
+    let deadline = Instant::now() + Duration::from_millis(150);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             _ = tokio::time::sleep_until(hb.next_deadline()) => {
                 if hb.should_send_heartbeat() {
@@ -262,9 +263,9 @@ async fn test_heartbeat_phase3_task_completion_resets() {
     let deadlines = [25, 50, 75];
     let mut next_task_idx = 0;
 
-    let deadline = tokio::time::Instant::now() + Duration::from_millis(200);
+    let deadline = Instant::now() + Duration::from_millis(200);
 
-    while tokio::time::Instant::now() < deadline {
+    while Instant::now() < deadline {
         tokio::select! {
             _ = tokio::time::sleep_until(hb.next_deadline()) => {
                 if hb.should_send_heartbeat() {
@@ -333,7 +334,7 @@ async fn test_heartbeat_phase4plus_silent() {
 /// Verify next_deadline advances correctly after record_event.
 #[tokio::test]
 async fn test_heartbeat_next_deadline_advances() {
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let mut hb = ShutdownHeartbeat::with_start(start, Duration::from_secs(30));
     let deadline1 = hb.next_deadline();
 
@@ -359,7 +360,7 @@ async fn test_heartbeat_next_deadline_advances() {
 #[tokio::test]
 async fn test_heartbeat_elapsed_secs_tracks_phase_start() {
     // Create heartbeat with a start time 2 seconds in the past
-    let start = tokio::time::Instant::now() - Duration::from_secs(2);
+    let start = Instant::now() - Duration::from_secs(2);
     let mut hb = ShutdownHeartbeat::with_start(start, Duration::from_millis(10));
 
     let elapsed1 = hb.elapsed_secs();
@@ -631,7 +632,7 @@ async fn test_parallel_init_one_failure_other_completes() {
 async fn test_heartbeat_select_does_not_block() {
     let hb = ShutdownHeartbeat::with_interval(Duration::from_secs(30));
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(Duration::from_millis(50), async {
         tokio::select! {
             _ = tokio::time::sleep_until(hb.next_deadline()) => {
@@ -664,6 +665,6 @@ async fn test_heartbeat_select_does_not_block() {
 fn test_heartbeat_next_deadline_is_future() {
     let hb = ShutdownHeartbeat::new();
     let deadline = hb.next_deadline();
-    let now = tokio::time::Instant::now();
+    let now = Instant::now();
     assert!(deadline > now, "next_deadline should be in the future");
 }

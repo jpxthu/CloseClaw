@@ -23,6 +23,7 @@ use closeclaw_session::persistence::{
     AgentRole, DreamingStatus, PersistenceError, PersistenceService, SessionCheckpoint,
 };
 use tokio::sync::{mpsc, watch};
+use tokio::time::Instant;
 
 use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
 use crate::dreaming_scheduler::DreamingScheduler;
@@ -835,13 +836,13 @@ pub fn notify_section_reload(config_manager: &ConfigManager, section: ConfigSect
 /// flip (e.g. config taking effect) with a deadline instead of guessing a
 /// wall-clock window (STANDARDS §9: 确定性优先).
 pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(1);
+    let deadline = Instant::now() + Duration::from_secs(1);
     loop {
         if ready() {
             return;
         }
         assert!(
-            tokio::time::Instant::now() < deadline,
+            Instant::now() < deadline,
             "timed out after 1s waiting for {what}"
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
