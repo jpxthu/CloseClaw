@@ -38,7 +38,7 @@ Bootstrap 文件按文件名格式化渲染，每文件以 `## 文件名` 为标
 | SkillsSection | 技能清单（user-invocable 技能 + 当前 session 已激活的条件技能） | SkillRegistry |
 | MemorySection | 跨 session 的长期记忆 | MEMORY.md |
 
-动态层的 ChannelContext、WorkingDirectory、ModeInstruction、GitStatus 四个 Section 不属于静态层，由每次请求即时构建，详见 [dynamic-layer.md](dynamic-layer.md)。
+动态层的 ChannelContext、WorkingDirectory、GitStatus 三个 Section 不属于静态层，由每次请求即时构建，详见 [dynamic-layer.md](dynamic-layer.md)。
 
 单个 Section 组装失败时跳过该 Section，其余继续。
 

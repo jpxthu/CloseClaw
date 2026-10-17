@@ -3,7 +3,7 @@
 ## 概述
 
 - 关联需求文档：[requirements/tools.md](../../requirements/tools.md)
-- Tools 模块是 CloseClaw 的工具注册基础设施——提供统一接口、并发安全的注册中心、索引构建和工具发现能力。各模块通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) 注册自身工具、由 Tools 模块编排调用（Mode 执行触发工具与 Workflow 工具属注册编排的例外，见「架构 · 各模块注册的工具一览」）；Tools 模块不硬编码任何工具列表。
+- Tools 模块是 CloseClaw 的工具注册基础设施——提供统一接口、并发安全的注册中心、索引构建和工具发现能力。各模块通过 [ToolRegistrar](../common/core-traits.md#toolregistrar) 注册自身工具、由 Tools 模块编排调用（Workflow 工具属注册编排的例外，见「架构 · 各模块注册的工具一览」）；Tools 模块不硬编码任何工具列表。
 
 核心设计：
 
@@ -90,7 +90,6 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 | 注册模块 | 分组 | 工具 | 加载策略 |
 |---------|------|------|---------|
-| [Mode](../mode/README.md) | mode | 执行触发工具 | 延迟加载 |
 | [Session](../session/README.md) | sessions | sessions_spawn、sessions_steer、sessions_kill、sessions_yield | 始终加载 |
 | [Skills](../skills/README.md) | skills | SkillTool | 延迟加载 |
 | [Workflow](../workflow/README.md) | workflow | workflow_start、workflow_verify、workflow_jump、workflow_blocked | 延迟加载 |
@@ -98,7 +97,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 补充说明：
 
-- **注册编排**：Mode 的执行触发工具、Workflow 工具在 ToolRegistry 初始化阶段、冻结之前注册，不经 [tool-registrar.md](tool-registrar.md) 的四个标准 Registrar（tools、session、skills、im_adapter）编排；其中仅 Workflow 工具为系统级工具、跳过权限校验（见 [mode/execution.md](../mode/execution.md)、[workflow-tools.md](../workflow/workflow-tools.md)）。
+- **注册编排**：Workflow 工具在 ToolRegistry 初始化阶段、冻结之前注册，不经 [tool-registrar.md](tool-registrar.md) 的四个标准 Registrar（tools、session、skills、im_adapter）编排；Workflow 工具为系统级工具、跳过权限校验（见 [workflow-tools.md](../workflow/workflow-tools.md)）。
 - **SkillCreator** 是 Skills 模块的 Bundled 技能，经 SkillTool 分发执行，不作为独立工具注册（见 [skills/skill-execution.md](../skills/skill-execution.md)）。
 
 ## 数据流
@@ -107,7 +106,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 1. 系统启动，Tools 模块收集各模块的 ToolRegistrar 实现者
 2. 按优先级数值升序排序，依次调用其注册方法，各模块向 ToolRegistry 注册自身工具
-3. Mode 执行触发工具、Workflow 工具在冻结之前另行注册
+3. Workflow 工具在冻结之前另行注册
 4. 全部注册完成，ToolRegistry 冻结，进入运行态
 5. system prompt 构建时经 ToolsFragmentProvider 触发索引构建，生成分组索引字符串
 6. 分组索引注入 system prompt 的工具区，LLM 在对话初始化时看到一级索引（常用工具为名称、危险度标记与行为描述，延迟工具仅名称与危险度标记）
@@ -154,7 +153,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 
 ### 共享类型 / 核心 trait
 
-- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费：ToolSession、AgentToolsConfigQuery、TaskManager、SpawnValidator、AuditLogger）
+- [common/core-traits](../common/core-traits.md)（实现：PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费：ToolSession、AgentToolsConfigQuery、TaskManager、SpawnValidator、AuditLogger）
 
 ### 代码映射
 

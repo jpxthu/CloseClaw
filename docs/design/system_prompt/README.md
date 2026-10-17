@@ -42,7 +42,7 @@ Session 创建 / 恢复 / Compaction
 | 文档 | 内容 |
 |------|------|
 | [static-layer.md](static-layer.md) | 静态层：bootstrap 文件、系统生成的 Section、Section 级缓存与失效规则 |
-| [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / ModeInstruction / GitStatus（可配置关闭） |
+| [dynamic-layer.md](dynamic-layer.md) | 动态层：每请求即时注入的 ChannelContext / WorkingDirectory / GitStatus（可配置关闭） |
 | [kv-cache.md](kv-cache.md) | 边界标记 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 的位置和语义，作为静态/动态区切分的接口合约 |
 | [appends.md](appends.md) | 追加区：Owner 动态指令（`/system` 管理）与系统注入内容（如 workflow 上下文）两部分独立分区，Owner 内容持久化不受压缩影响 |
 | [fragment-provider.md](fragment-provider.md) | PromptFragmentProvider trait：静态层各数据来源的统一抽象接口 |
@@ -57,7 +57,7 @@ Session 创建 / 恢复 / Compaction
 
 1. API 请求到达
 2. ConversationSession 取出静态层（构建时缓存的完整结果）
-3. ConversationSession 即时构建动态层（ChannelContext + WorkingDirectory + ModeInstruction + GitStatus，GitStatus 默认关闭）
+3. ConversationSession 即时构建动态层（ChannelContext + WorkingDirectory + GitStatus，GitStatus 默认关闭）
 4. ConversationSession 从运行时字段读取追加条目
 5. 拼接：静态层 + `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` + 动态层 + 追加区
 6. 以边界标记为切分点，分离静态区和动态区为独立字段，传入 [InternalRequest](../common/shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition)
@@ -81,7 +81,6 @@ Session 创建 / 恢复 / Compaction
 - **Agent 模块**：提供 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，System Prompt 据此加载身份人格文件（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup) 按 agent_id 查询，agent 配置数据源详见 [agent 模块](../agent/README.md)）。
 - **Memory 模块**：提供 MEMORY.md，作为 static system prompt 的长期记忆段来源。
 - **Skills 模块**：提供技能清单数据（从 SkillRegistry 获取技能元数据），由 system_prompt 模块的 SkillsFragmentProvider 消费并渲染为 SkillsSection。清单的过滤、排序、格式化规则见 [skills/skill-listing-injection](../skills/skill-listing-injection.md)。
-- **Mode 模块**：提供当前 Session 模式的指令内容（Plan Mode 双路径工作流指令 / Auto Mode 连续执行指令），注入动态层 ModeInstruction Section。
 - **Slash 模块**：`/system` 指令向 Session 写入 system_appends，system prompt 在每次 API 请求时从 Session 读取并拼入追加区。详细交互见 [slash/system-append](../slash/system-append.md)。
 
 ### 下游

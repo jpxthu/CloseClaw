@@ -179,7 +179,7 @@ Fork 是 spawn 的装载阶段变体，不改变 spawn_tree 结构：fork 标记
 
 #### Prompt 模板
 
-sessions_spawn 支持通过 `promptTemplate` 参数选择预定义的行为约束模板，在子 Session 的 task 前注入对应的行为指引。可用模板：`explore` / `plan` / `executor` / `validation`。各模板的完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md) 第 7 节，模板索引见 agent-config.md「Prompt 模板」。模板不影响 agent 配置，仅在 spawn 时作为 prompt 前缀注入。未指定 `promptTemplate` 时子 Session 无额外行为约束。
+sessions_spawn 支持通过 `promptTemplate` 参数选择预定义的行为约束模板，在子 Session 的 task 前注入对应的行为指引。可用模板：`explore` / `plan` / `executor` / `validation`。各模板的用途与效果见 agent-config.md「Prompt 模板」。模板不影响 agent 配置，仅在 spawn 时作为 prompt 前缀注入。未指定 `promptTemplate` 时子 Session 无额外行为约束。
 
 #### 父 Agent 的 Task 编写指引
 

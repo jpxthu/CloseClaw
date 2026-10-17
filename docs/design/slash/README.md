@@ -20,8 +20,6 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 | Handler | 负责指令 | Immediate |
 |---------|---------|-----------|
-| ModeSwitchHandler | plan, mode, execute | ❌（`/mode` 查询除外） |
-| PlanBrowseHandler | plans | ❌ |
 | NewSessionHandler | new | ❌ |
 | StopHandler | stop | ✅ |
 | StatusHandler | status | ✅ |
@@ -38,8 +36,6 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 - [上下文压缩](compact.md) — `/compact` 触发对话历史压缩
 - [命令执行](exec.md) — `/exec` owner 特权命令执行
 - [帮助](help.md) — `/help` 动态生成帮助文本
-- [模式切换](mode-switching.md) — `/plan`、`/mode`、`/execute`，切换 Normal/Plan/Auto 模式
-- [plan 浏览](plan-browse.md) — `/plans` 列出/查看 plan
 - [会话管理](session-management.md) — `/new` 创建新会话，`/stop` 终止当前运行
 - [推理深度控制](reasoning.md) — `/reasoning` 查询或设置推理档位，或请求关闭推理输出
 - [信息展示等级](verbose.md) — `/verbose` 查询或设置信息展示等级
@@ -70,7 +66,7 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 - **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
 - **下游**：
-  - Session 模块 — 模式切换、会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
+  - Session 模块 — 会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
 - **间接下游**（通过 Gateway 调用）：
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec [SlashResult](../common/shared-types.md#slashresult) 后、实际执行前调用 Permission 引擎）
 - **间接下游**（通过 Session 生效）：

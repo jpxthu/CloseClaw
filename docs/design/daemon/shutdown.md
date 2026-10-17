@@ -47,7 +47,7 @@ ShutdownHandle 不管理系统级后台任务——这些有自己的停止接�
 
 系统级后台任务清单以 [README.md](README.md) 启动依赖表为权威来源（不在此重复枚举）。新增系统级后台任务时必须同时更新启动依赖表与本节。系统级后台任务的有序停止与「Session 停止策略」中 Session 的等待条件是两条互相独立的收尾路径——前者在 Phase 3 按本节停止，后者在 Phase 2 委托 SessionManager 处理。
 
-各任务的用途与调度详见对应模块文档：会话归档见 [session/session-lifecycle.md](../session/session-lifecycle.md)，完成通知补推与僵死检测见 [session/run-health.md](../session/run-health.md)，plan 归档规则见 [mode/README.md](../mode/README.md)，记忆挖掘见 [memory/dreaming.md](../memory/dreaming.md)，配置监听见 [config/hot-reload.md](../config/hot-reload.md)。
+各任务的用途与调度详见对应模块文档：会话归档见 [session/session-lifecycle.md](../session/session-lifecycle.md)，完成通知补推与僵死检测见 [session/run-health.md](../session/run-health.md)，记忆挖掘见 [memory/dreaming.md](../memory/dreaming.md)，配置监听见 [config/hot-reload.md](../config/hot-reload.md)。
 
 ### Session 停止策略
 
@@ -98,13 +98,12 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
    停止全部系统级后台任务（清单见 [README.md](README.md) 启动依赖表）。
 
-   定时器型扫描任务（当前为 ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）使用统一停止机制：取消定时器。graceful 下给当前扫描迭代短 grace period（等待当前迭代完成，最长 10 秒）等其自行结束，超时强制停止；forceful 下跳过 grace period、直接强制停止（对应 [daemon 需求 §F3](../../requirements/daemon.md)（强制关闭））。
+   定时器型扫描任务（当前为 ArchiveSweeper、AnnounceSweeper、DreamingScheduler）使用统一停止机制：取消定时器。graceful 下给当前扫描迭代短 grace period（等待当前迭代完成，最长 10 秒）等其自行结束，超时强制停止；forceful 下跳过 grace period、直接强制停止（对应 [daemon 需求 §F3](../../requirements/daemon.md)（强制关闭））。
 
    | 系统级后台任务 | 副作用处理 |
    |---------|-----------|
    | ArchiveSweeper | 强制停止时若残留未完成的归档操作，由启动恢复扫描处理，不产生持久副作用 |
    | AnnounceSweeper | 补推与僵死检测均为幂等巡检，中断的扫描周期不影响正确性；未完成的补推由下次启动后的定时巡检继续收敛 |
-   | PlanArchiveSweeper | 归档是单文件移动操作，中断即视为未发生，无持久副作用 |
    | DreamingScheduler | 强制停止时当前迭代中止。产出只写入 MEMORY.md 与 Dream Diary 文件、不回写 SQLite，源 event 保留未消费，中断的迭代在下次调度时安全重跑并经语义去重收敛 |
    | Config Hot Reload | 取消文件监听即停。重载为内存操作（校验 → 更新内存 → 事件通知），中断后停留在最近一次有效配置，无持久副作用 |
 

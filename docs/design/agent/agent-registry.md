@@ -2,7 +2,7 @@
 
 ## 概述
 
-AgentRegistry 是 Agent 模块的运行时配置查询入口，以 `agent_id` 为键提供 [ResolvedAgentConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig) 的只读查找。启动时由 Daemon 从 Config 加载结果一次性填充，运行时只读查询。查询返回的是 Agent 的静态配置档案（不含运行时派生能力，见 [agent §F6](../../requirements/agent.md)）——`tools` / `skills` 为静态字面值，权限过滤后的工具清单、运行模式决定的工具范围等派生视图由下游消费模块计算。
+AgentRegistry 是 Agent 模块的运行时配置查询入口，以 `agent_id` 为键提供 [ResolvedAgentConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig) 的只读查找。启动时由 Daemon 从 Config 加载结果一次性填充，运行时只读查询。查询返回的是 Agent 的静态配置档案（不含运行时派生能力，见 [agent §F6](../../requirements/agent.md)）——`tools` / `skills` 为静态字面值，权限过滤后的工具清单等派生视图由下游消费模块计算。
 
 ## 架构
 
@@ -14,7 +14,7 @@ AgentRegistry 是轻量级内存查找表，不管理 agent 生命周期、不�
 
 - 启动时由 Daemon 从 Config 加载结果一次性填充注册表
 - 运行时各消费模块通过 agent_id 查询获取只读配置，命中的返回完整配置，未命中由调用方自行处理
-- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentRegistry 通过 common 核心 trait 暴露按 agent 的查询接口（接口契约定义见 [common 模块](../common/core-traits.md)）：合并查询接口 [AgentRegistryQuery](../common/core-traits.md#agentregistryquery)（自身不新增方法，合并 [AgentLookup](../common/core-traits.md#agentlookup) / [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) / [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery)），另实现最小配置查询接口 [AgentConfigLookup](../common/core-traits.md#agentconfiglookup)。skills/tools 白名单为 `["*"]` 或空时返回不限制，黑名单为空时同样不限制。当白名单和黑名单同时非空且有交集时，黑名单优先——黑名单中列出的工具即使在白名单中也不可用（显式拒绝优先于显式允许）。返回的配置为静态视图——`tools` / `skills` 保留静态字面值（`["*"]` 即字面 `["*"]`），权限过滤、运行模式适配等派生工具/技能集由消费方计算。
+- 提供遍历所有已注册 agent 配置的能力，用于启动时全量初始化等批量操作场景（消费方见下游表）。AgentRegistry 通过 common 核心 trait 暴露按 agent 的查询接口（接口契约定义见 [common 模块](../common/core-traits.md)）：合并查询接口 [AgentRegistryQuery](../common/core-traits.md#agentregistryquery)（自身不新增方法，合并 [AgentLookup](../common/core-traits.md#agentlookup) / [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) / [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery)），另实现最小配置查询接口 [AgentConfigLookup](../common/core-traits.md#agentconfiglookup)。skills/tools 白名单为 `["*"]` 或空时返回不限制，黑名单为空时同样不限制。当白名单和黑名单同时非空且有交集时，黑名单优先——黑名单中列出的工具即使在白名单中也不可用（显式拒绝优先于显式允许）。返回的配置为静态视图——`tools` / `skills` 保留静态字面值（`["*"]` 即字面 `["*"]`），权限过滤等派生工具/技能集由消费方计算。
 
 **热重载策略**：Config Hot Reload 检测到 agent 配置变更 → 重新加载 → 通知 Daemon → Daemon 触发全量替换。已运行的 session 是否感知变更由各消费模块自行决定——AgentRegistry 只负责提供最新数据，不推送变更通知。
 

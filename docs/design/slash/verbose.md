@@ -6,15 +6,9 @@
 
 ## 架构
 
-Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，priority 5），在回复内容进入 DSL 解析之前执行过滤。Agent 照常工作——LLM 按设定的推理深度执行推理、按需调用工具、Plan 工作流按规则运转——但 VerbosityFilter 根据展示等级决定哪些内容块进入后续出站链路。
+Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，priority 5），在回复内容进入 DSL 解析之前执行过滤。Agent 照常工作——LLM 按设定的推理深度执行推理、按需调用工具——但 VerbosityFilter 根据展示等级决定哪些内容块进入后续出站链路。
 
-三个等级：
-
-- `full`（默认）：展示全部——思考过程、工具调用、工具结果、最终回复
-- `normal`：展示工具调用和结果作为进度提示，隐藏思考过程
-- `off`：仅展示最终回复（含作为交付物的媒体块），隐藏思考/工具调用/工具结果等全部中间产物
-
-Verbosity 过滤的仅是 Agent 的中间产物，不影响对用户的最终交付内容——最终回复文本与作为交付内容的媒体块（Image/Audio/File）在任意等级下均展示。中间产物与最终回复内容块的划分、各等级过滤语义见 [common/shared-types VerbosityLevel](../common/shared-types.md#verbositylevel)。
+三个等级的取值与各等级的过滤语义（中间产物与最终交付内容的划分、各等级显隐对象）以 [common/shared-types VerbosityLevel](../common/shared-types.md#verbositylevel) 为唯一定义，此处不重复；本模块只定义 `/verbose` 指令的查询/设置行为与处理器流程。
 
 展示等级由 Session 存储，出站过滤层作为 Processor Chain 的第一个 Processor 读取并过滤。切换等级不影响当前正在输出的消息——只对后续新消息生效。
 
@@ -29,15 +23,14 @@ Verbosity 过滤的仅是 Agent 的中间产物，不影响对用户的最终交
    - 工具结果 → 展示
    - 最终回复 → 展示
 
-### 与 Thinking、Streaming、Plan 模式的关系
+### 与 Thinking、Streaming 的关系
 
-三者与 Verbosity 各自独立，可任意组合：
+二者与 Verbosity 各自独立，可任意组合：
 
 | 轴 | 指令 | 控制什么 | 与 Verbosity 关系 |
 |---|---|---|---|
 | Thinking | `/reasoning` | LLM 推理深度（API 参数） | 互不影响。推理深度设为高等级 + 展示等级设为 off = 深度推理但只看最终结果 |
 | Streaming | 无独立指令 | 传输方式（流式/非流式） | 互不影响。Verbosity 过滤在流式和非流式路径均生效 |
-| Plan 模式 | `/plan` `/mode` | Agent 行为模式（工作流 + 工具集） | 互不影响。切换到 Plan 模式 + 展示等级设为 off = 按规划工作流执行但只看最终规划结果 |
 
 ## 数据流
 
@@ -60,4 +53,4 @@ Verbosity 过滤的仅是 Agent 的中间产物，不影响对用户的最终交
 
 - **上游**：Gateway 通过 Dispatcher 路由到 VerboseHandler 处理指令
 - **下游**：Session 模块（存储和读取展示等级）；出站 Processor Chain（VerbosityFilter 作为链的第一个 Processor 执行过滤，过滤后内容进入 DslParser → OutboundRawLog）
-- **无关**：LLM 模块（Verbosity 是纯客户端过滤，不改变 API 参数）、Plan 模式切换（独立的行为控制）、Streaming 路径（过滤逻辑在 Processor Chain 入口统一执行，与流式/非流式无关）
+- **无关**：LLM 模块（Verbosity 是纯客户端过滤，不改变 API 参数）、Streaming 路径（过滤逻辑在 Processor Chain 入口统一执行，与流式/非流式无关）
