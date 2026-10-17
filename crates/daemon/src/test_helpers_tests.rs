@@ -7,15 +7,19 @@
 //! - the [`run_scheduler_briefly`] shutdown scaffolding (issue #3708): the
 //!   normal path returns after the shutdown signal, and the `what` context
 //!   surfaces in the panic message when the 5s exit deadline is missed.
+//! - the [`observe_heartbeat_until`] observation window (issue #3718):
+//!   heartbeat counting inside the deadline window.
 //!
 //! Placement (plan Step 1.3): this dedicated helpers-test file (the #3140
 //! precedent) instead of inline next to the helper — `test_helpers.rs` sits
 //! near the 1000-line hard limit (CONTRIBUTING §硬性限制).
 
 use crate::dreaming_scheduler::DreamingScheduler;
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::test_helpers::{
     kill_self, make_config_change_scheduler, make_disabled_pipeline_and_miner,
-    make_test_config_manager, run_scheduler_briefly, MockConfig, TestShutdownSignal,
+    make_test_config_manager, observe_heartbeat_until, run_scheduler_briefly, MockConfig,
+    TestShutdownSignal,
 };
 use async_trait::async_trait;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
@@ -23,6 +27,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 /// Locks the variant → libc signal-number encoding: `Sigterm` must be
 /// `libc::SIGTERM`, `Sigint` must be `libc::SIGINT`. A swapped mapping
@@ -188,5 +193,39 @@ async fn test_run_scheduler_briefly_panics_with_what_context_on_timeout() {
     assert!(
         msg.contains("scheduler should exit promptly: helper timeout diagnostic"),
         "expected the prompt-exit diagnostic carrying the what label, got: {msg}"
+    );
+}
+
+// ── observe_heartbeat_until helper behavior (issue #3718) ─────────────
+
+/// Normal path: with the channel open and no events arriving, the helper
+/// counts one heartbeat per interval until the window deadline and stops
+/// at the deadline — 10ms interval inside a 50ms window fires at
+/// 10/20/30/40/50ms → exactly 5 (issue #3718). Every counted heartbeat
+/// invokes `on_heartbeat`. Paused clock: auto-advance drives the whole
+/// window in zero real time.
+#[tokio::test(start_paused = true)]
+async fn test_observe_heartbeat_until_counts_heartbeats_until_deadline() {
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(10));
+    let (_tx, rx) = mpsc::unbounded_channel::<()>();
+    let mut heartbeat_calls = 0usize;
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |_| false,
+        || heartbeat_calls += 1,
+    )
+    .await;
+
+    assert_eq!(
+        sent, 5,
+        "one heartbeat per 10ms interval inside the 50ms window, got {sent}"
+    );
+    assert_eq!(
+        heartbeat_calls, sent,
+        "every counted heartbeat must invoke the on_heartbeat callback"
     );
 }
