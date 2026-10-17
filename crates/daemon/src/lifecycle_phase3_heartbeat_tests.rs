@@ -7,7 +7,9 @@
 
 use crate::lifecycle::TaskStopStatus;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
+use crate::test_helpers::observe_heartbeat_until;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 // =====================================================================
@@ -20,32 +22,18 @@ use tokio::time::Instant;
 #[tokio::test]
 async fn test_phase3_heartbeat_fires_periodically() {
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
-    let mut heartbeats_sent = 0;
 
     // Simulate a long-running task that completes after 200ms
-    let mut handle = tokio::spawn(async {
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
+        let _ = tx.send(());
     });
 
     let deadline = Instant::now() + Duration::from_millis(250);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            _result = &mut handle => {
-                // Task completed
-                heartbeat.record_event();
-                break;
-            }
-            _ = tokio::time::sleep_until(
-                heartbeat.next_deadline(),
-            ) => {
-                if heartbeat.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    heartbeat.record_event();
-                }
-            }
-        }
-    }
+    let heartbeats_sent =
+        observe_heartbeat_until(&mut heartbeat, deadline, rx, |_| true, || {}).await;
 
     // With 50ms interval and 200ms task, heartbeat should fire
     // at least 3 times (at ~50ms, ~100ms, ~150ms)
@@ -61,7 +49,6 @@ async fn test_phase3_heartbeat_fires_periodically() {
 #[tokio::test]
 async fn test_phase3_task_completion_resets_heartbeat() {
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(50));
-    let mut heartbeats_sent = 0;
 
     // Task 1: completes at 40ms
     let mut handle1 = tokio::spawn(async {
@@ -76,28 +63,16 @@ async fn test_phase3_task_completion_resets_heartbeat() {
     assert!(!heartbeat.should_send_heartbeat());
 
     // Task 2: completes at 100ms after task 1
-    let mut handle2 = tokio::spawn(async {
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = tx.send(());
     });
 
     let deadline = Instant::now() + Duration::from_millis(150);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            _result = &mut handle2 => {
-                heartbeat.record_event();
-                break;
-            }
-            _ = tokio::time::sleep_until(
-                heartbeat.next_deadline(),
-            ) => {
-                if heartbeat.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    heartbeat.record_event();
-                }
-            }
-        }
-    }
+    let heartbeats_sent =
+        observe_heartbeat_until(&mut heartbeat, deadline, rx, |_| true, || {}).await;
 
     // Heartbeat should fire during the quiet period after task 2
     assert!(
@@ -112,7 +87,6 @@ async fn test_phase3_task_completion_resets_heartbeat() {
 #[tokio::test]
 async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
-    let mut heartbeats_sent = 0;
 
     // Simulate 4 tasks completing every 20ms (faster than 30ms interval)
     for i in 0..4 {
@@ -124,24 +98,17 @@ async fn test_phase3_sequential_tasks_prevent_premature_heartbeat() {
         heartbeat.record_event();
     }
 
-    // After all tasks, check if heartbeat fires during quiet period
+    // After all tasks, check if heartbeat fires during quiet period.
+    // The one-shot 100ms quiet-period signal ends the observation stream.
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let _ = tx.send(());
+    });
+
     let deadline = Instant::now() + Duration::from_millis(100);
-    while Instant::now() < deadline {
-        tokio::select! {
-            _ = tokio::time::sleep_until(
-                heartbeat.next_deadline(),
-            ) => {
-                if heartbeat.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    heartbeat.record_event();
-                }
-            }
-            _ = async {
-                tokio::time::sleep(Duration::from_millis(100))
-                    .await;
-            } => { break; }
-        }
-    }
+    let heartbeats_sent =
+        observe_heartbeat_until(&mut heartbeat, deadline, rx, |_| true, || {}).await;
 
     // With 20ms task interval and 30ms heartbeat interval,
     // tasks reset the timer before heartbeat can fire.
@@ -234,31 +201,30 @@ async fn test_phase3_stop_confirmation_panicked_task_behavior() {
 #[tokio::test]
 async fn test_wait_with_heartbeat_sends_periodically() {
     let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
-    let mut heartbeats_sent = 0usize;
 
-    // Slow task: 150ms
-    let mut handle = tokio::spawn(async {
-        tokio::time::sleep(Duration::from_millis(150)).await;
+    // Slow task: 150ms — the producer awaits the task's JoinHandle and
+    // forwards its result as the completion event
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let handle = tokio::spawn(async {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+        });
+        let _ = tx.send(handle.await);
     });
 
     let deadline = Instant::now() + Duration::from_millis(200);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            result = &mut handle => {
-                // Task completed
-                assert!(result.is_ok(), "task should not panic");
-                heartbeat.record_event();
-                break;
-            }
-            _ = tokio::time::sleep_until(heartbeat.next_deadline()) => {
-                if heartbeat.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    heartbeat.record_event();
-                }
-            }
-        }
-    }
+    let heartbeats_sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |result| {
+            assert!(result.is_ok(), "task should not panic");
+            true
+        },
+        || {},
+    )
+    .await;
 
     assert!(
         heartbeats_sent >= 2,
