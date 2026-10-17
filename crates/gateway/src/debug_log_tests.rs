@@ -13,7 +13,7 @@ use crate::outbound::SendOutboundIds;
 use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+use closeclaw_debug_log::LogLevel;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
@@ -114,13 +114,7 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
     let rt = tokio::runtime::Runtime::new().unwrap();
     rt.block_on(async {
         let temp_dir = TempDir::new().unwrap();
-        let config = DebugLogConfig {
-            min_level: LogLevel::Trace,
-            log_dir: temp_dir.path().to_path_buf(),
-            retention_days: 7,
-            redaction_patterns: vec![],
-        };
-        let debug_log = DebugLog::new(config).await.unwrap();
+        let debug_log = make_debug_log(&temp_dir).await;
         crate::debug_log_emitter::emit_debug_event(crate::debug_log_emitter::EmitEventParams {
             ctx: crate::debug_log_emitter::DebugLogContext::new(
                 Some(&debug_log),

@@ -2,7 +2,7 @@
 //!
 //! Consumed via `crate::debug_log_test_utils::...` from test modules.
 
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
 use tempfile::TempDir;
 
 /// Create a [`DebugLog`] writing to a temp directory with Trace-level logging.
@@ -17,7 +17,7 @@ pub async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
 }
 
 /// Read all [`LogEvent`] entries from JSONL files in `dir`.
-pub async fn read_events(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
+pub async fn read_events(dir: &std::path::Path) -> Vec<LogEvent> {
     let mut events = Vec::new();
     if let Ok(mut entries) = tokio::fs::read_dir(dir).await {
         while let Ok(Some(entry)) = entries.next_entry().await {
@@ -39,7 +39,7 @@ pub async fn read_events(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogE
 }
 
 /// Poll [`read_events`] until events appear, up to 3 seconds.
-pub async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
+pub async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<LogEvent> {
     let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
     loop {
         let events = read_events(dir).await;
@@ -51,10 +51,7 @@ pub async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_de
 }
 
 /// Filter events by event type.
-pub fn filter_events_by_type<'a>(
-    events: &'a [closeclaw_debug_log::LogEvent],
-    event_type: &str,
-) -> Vec<&'a closeclaw_debug_log::LogEvent> {
+pub fn filter_events_by_type<'a>(events: &'a [LogEvent], event_type: &str) -> Vec<&'a LogEvent> {
     events
         .iter()
         .filter(|e| e.event_type == event_type)
@@ -63,10 +60,10 @@ pub fn filter_events_by_type<'a>(
 
 /// Filter events by event type and trace_id.
 pub fn filter_events_by_type_and_trace<'a>(
-    events: &'a [closeclaw_debug_log::LogEvent],
+    events: &'a [LogEvent],
     event_type: &str,
     trace_id: &str,
-) -> Vec<&'a closeclaw_debug_log::LogEvent> {
+) -> Vec<&'a LogEvent> {
     events
         .iter()
         .filter(|e| e.event_type == event_type && e.trace_id == trace_id)
