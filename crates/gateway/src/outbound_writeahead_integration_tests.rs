@@ -20,6 +20,7 @@
 #[path = "outbound_writeahead_test_utils.rs"]
 mod utils;
 use crate::outbound::SendOutboundIds;
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::session_manager::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::IMPlugin;
 use closeclaw_session::persistence::{PendingOperationType, PersistenceService, SessionCheckpoint};

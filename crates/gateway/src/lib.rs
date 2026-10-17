@@ -74,6 +74,8 @@ mod outbound_tests;
 #[cfg(test)]
 mod outbound_writeahead_integration_tests;
 #[cfg(test)]
+mod persist_test_utils;
+#[cfg(test)]
 mod processor_registry_test_utils;
 #[cfg(test)]
 mod receiving_transition_tests;
