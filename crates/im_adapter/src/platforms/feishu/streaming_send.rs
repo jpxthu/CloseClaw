@@ -35,10 +35,18 @@ impl FeishuPlugin {
         if let Err(e) =
             CardkitStreamingRenderer::send_card_ref(adapter, peer_id, &card_id, root_id).await
         {
-            tracing::warn!(error = %e, card_id = %card_id, "Failed to send streaming card reference");
+            tracing::warn!(
+                error = %e,
+                card_id = %card_id,
+                "Failed to send streaming card reference"
+            );
             return None;
         }
-        tracing::info!(card_id = %card_id, peer_id = %peer_id, "Streaming card created and reference sent");
+        tracing::info!(
+            card_id = %card_id,
+            peer_id = %peer_id,
+            "Streaming card created and reference sent"
+        );
         Some(card_id)
     }
 
@@ -171,7 +179,11 @@ impl FeishuPlugin {
             )
             .await
             {
-                tracing::warn!(error = %e, card_id = %card_id, "Failed to update streaming card element");
+                tracing::warn!(
+                    error = %e,
+                    card_id = %card_id,
+                    "Failed to update streaming card element"
+                );
             }
         });
     }
