@@ -534,14 +534,19 @@ fn test_escalate_from_stopped() {
 
 // ── Step 1.4: Gap 2 — initiate_shutdown return value tests ─────
 
-#[tokio::test]
+/// Runs on a paused (virtual) clock: the decrement's 200ms delay and the
+/// drain loop's `drain_poll_interval` polls all advance the same virtual
+/// timeline, so auto-advance deterministically lets the drain enter its
+/// wait loop (busy_count = 1) before the decrement fires — the race the
+/// former real-time 200ms buffer only probabilistically won (issue #3706).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_initiate_shutdown_returns_zero_when_drained() {
     // When busy_count reaches 0, initiate_shutdown returns 0.
     let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_secs(10));
     handle.increment_busy();
 
-    // Spawn a task that decrements busy_count after a short delay,
-    // allowing the drain to complete.
+    // Spawn a task that decrements busy_count after a 200ms *virtual*
+    // delay, allowing the drain to complete.
     let h_dec = handle.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -802,7 +807,15 @@ async fn test_drain_signal_broadcast() {
 /// cannot be asserted directly; the `< 2s` upper bound on every case
 /// (vs the 30s default) is the indirect proof that the configured value
 /// took effect.
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the drain deadline, the mid-drain
+/// probe sleep, and the `elapsed` assertions all measure the same virtual
+/// timeline — `wait_for_drain` internally uses `tokio::time` primitives
+/// (shutdown.rs), matching this test's `tokio::time::Instant`, so the
+/// 250ms lower bound still proves the drain waited out the full deadline
+/// while wall-clock cost drops to milliseconds (issue #3706, replacing
+/// the former real-time probe buffer).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_drain_timeout_configurable_values() {
     struct Case {
         drain_timeout: Duration,
@@ -849,7 +862,9 @@ async fn test_drain_timeout_configurable_values() {
         let shutdown_task = spawn_shutdown(&handle);
 
         // Mid-drain observation: still before the deadline, so the
-        // drain must be running — not Stopped.
+        // drain must be running — not Stopped. Virtual time: the probe
+        // fires at exactly 200ms while the earliest possible Stopped is
+        // the 300ms deadline, so the assertion is deterministic.
         if let Some(probe_delay) = mid_drain_probe {
             debug_assert!(
                 probe_delay < drain_timeout,
