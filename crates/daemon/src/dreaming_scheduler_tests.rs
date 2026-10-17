@@ -54,25 +54,14 @@ async fn test_dreaming_scheduler_shutdown_exits_loop() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler = make_scheduler(storage, config, tmp.path());
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-
-    // Spawn the scheduler, then immediately send shutdown.
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    // Give the loop a moment to start, then signal shutdown.
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    // The task should complete within a short timeout.
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler should exit promptly after shutdown signal"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler should exit promptly after shutdown signal",
+    )
+    .await;
 }
 
 /// run_once calls dreaming pipeline first, then mining scan.
@@ -154,22 +143,15 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 3 * * *".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with cron schedule should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler with cron schedule should exit promptly",
+    )
+    .await;
 }
 
 /// Scheduler with invalid cron falls back to fixed interval.
@@ -178,22 +160,15 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("not-a-cron".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with invalid cron should exit promptly (fallback)"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler with invalid cron should exit promptly (fallback)",
+    )
+    .await;
 }
 
 /// Scheduler with no schedule uses fixed interval (backward compat).
@@ -202,23 +177,16 @@ async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler = make_scheduler(storage, config, tmp.path());
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     assert!(scheduler.schedule.is_none());
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler without schedule should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler without schedule should exit promptly",
+    )
+    .await;
 }
 
 // ── Step 1.6: Cron schedule consumption tests ─────────────────────────
@@ -250,22 +218,14 @@ async fn test_with_schedule_empty_string_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
-        make_scheduler(storage, config, tmp.path()).with_schedule(Some(String::new()));
+    let scheduler = make_scheduler(storage, config, tmp.path()).with_schedule(Some(String::new()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with empty schedule string should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler with empty schedule string should exit promptly",
+    )
+    .await;
 }
 
 /// Scheduler with hourly cron parses and runs correctly.
@@ -274,22 +234,15 @@ async fn test_dreaming_scheduler_hourly_cron() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 * * * *".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with hourly cron should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "scheduler with hourly cron should exit promptly",
+    )
+    .await;
 }
 
 // ── Step 1.5: Config hot-reload tests ────────────────────────────────
