@@ -33,7 +33,7 @@ use crate::outbound::SendOutcome;
 use crate::outbound_helpers::{CheckpointMeta, SendDebugCtx};
 use crate::{Gateway, GatewayConfig, SendOutboundIds, Session, SessionManager};
 use closeclaw_debug_log::test_utils::{
-    make_debug_log, poll_events_with_deadline, read_events_with_timeout,
+    make_debug_log, read_events_with_deadline, read_events_with_timeout,
 };
 use tempfile::TempDir;
 
@@ -524,12 +524,7 @@ async fn test_send_outbound_ids_none_vs_some_boundary() {
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let events_none = poll_events_with_deadline(
-        temp_none.path(),
-        |events| !events.is_empty(),
-        Duration::from_millis(500),
-    )
-    .await;
+    let events_none = read_events_with_deadline(temp_none.path(), Duration::from_millis(500)).await;
     assert!(
         events_none
             .iter()
@@ -728,12 +723,7 @@ async fn test_none_trace_id_with_some_session_key_skip_and_complete() {
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    let events = poll_events_with_deadline(
-        temp_dir.path(),
-        |events| !events.is_empty(),
-        Duration::from_millis(500),
-    )
-    .await;
+    let events = read_events_with_deadline(temp_dir.path(), Duration::from_millis(500)).await;
     assert!(
         events.iter().all(|e| e.event_type != "feishu.api.send"),
         "None trace_id must keep feishu.api.send skipped"
