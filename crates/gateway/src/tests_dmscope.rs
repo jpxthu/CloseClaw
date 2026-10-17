@@ -5,6 +5,7 @@ use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::StreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
@@ -68,6 +69,7 @@ impl IMPlugin for MockPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -75,6 +77,7 @@ impl IMPlugin for MockPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .flush()
@@ -82,8 +85,8 @@ impl IMPlugin for MockPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 

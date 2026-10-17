@@ -108,6 +108,7 @@ impl IMPlugin for CapturingPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("CapturingPlugin has no streaming renderer")
             .lock()
             .expect("CapturingPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -115,6 +116,7 @@ impl IMPlugin for CapturingPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("CapturingPlugin has no streaming renderer")
             .lock()
             .expect("CapturingPlugin streaming renderer lock poisoned")
             .flush()
@@ -122,8 +124,8 @@ impl IMPlugin for CapturingPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -452,6 +454,7 @@ impl IMPlugin for IndexCapturingPlugin {
             *self.captured_index.lock().unwrap() = Some(*index);
         }
         self.streaming_renderer()
+            .expect("IndexCapturingPlugin has no streaming renderer")
             .lock()
             .unwrap()
             .handle_event(event)
@@ -459,8 +462,8 @@ impl IMPlugin for IndexCapturingPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 

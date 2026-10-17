@@ -1,6 +1,5 @@
 //! Tests for Gateway slash-command permission routing.
 
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
