@@ -7,8 +7,11 @@
 //! 4. emit_debug_event: empty trace_id is no-op
 //! 5. Chained child spans: grandchild's parent_span_id matches child's span_id
 
-use closeclaw_debug_log::test_utils::{make_debug_log, read_events_with_timeout};
+use closeclaw_debug_log::test_utils::{
+    make_debug_log, poll_events_with_deadline, read_events_with_timeout,
+};
 use closeclaw_debug_log::{LogLevel, TraceContext};
+use std::time::Duration;
 use tempfile::TempDir;
 
 // ── Tests ────────────────────────────────────────────────────────────────────
@@ -120,7 +123,12 @@ async fn test_event_empty_trace_id_no_op() {
         parent: None,
     });
 
-    let events = read_events_with_timeout(temp_dir.path()).await;
+    let events = poll_events_with_deadline(
+        temp_dir.path(),
+        |events| !events.is_empty(),
+        Duration::from_millis(500),
+    )
+    .await;
     assert!(events.is_empty(), "empty trace_id should produce no events");
 }
 

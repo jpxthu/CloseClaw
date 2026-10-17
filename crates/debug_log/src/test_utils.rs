@@ -236,4 +236,112 @@ mod tests {
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].event_type, "type.info");
     }
+
+    #[tokio::test]
+    async fn poll_returns_immediately_when_events_already_exist() {
+        let tmp = TempDir::new().unwrap();
+        let log = make_debug_log(&tmp).await;
+        log.log(test_event("t", "type.ready", LogLevel::Info)).await;
+
+        let start = std::time::Instant::now();
+        let events =
+            poll_events_with_deadline(tmp.path(), |events| !events.is_empty(), POLL_DEADLINE).await;
+        assert_eq!(events.len(), 1);
+        assert!(
+            start.elapsed() < Duration::from_millis(500),
+            "existing events must satisfy the predicate on the first poll"
+        );
+    }
+
+    #[tokio::test]
+    async fn poll_captures_event_written_after_delay() {
+        let tmp = TempDir::new().unwrap();
+        let dir = tmp.path().to_path_buf();
+        let line = test_event("t-late", "type.late", LogLevel::Info)
+            .to_jsonl()
+            .unwrap();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::fs::write(dir.join("late.jsonl"), format!("{line}\n"))
+                .await
+                .unwrap();
+        });
+
+        let events =
+            poll_events_with_deadline(tmp.path(), |e| !e.is_empty(), Duration::from_secs(1)).await;
+        assert_eq!(
+            events.len(),
+            1,
+            "event written within the window must be captured"
+        );
+        assert_eq!(events[0].event_type, "type.late");
+    }
+
+    #[tokio::test]
+    async fn poll_short_deadline_timeout_returns_last_snapshot() {
+        let tmp = TempDir::new().unwrap();
+
+        let start = std::time::Instant::now();
+        let events =
+            poll_events_with_deadline(tmp.path(), |e| !e.is_empty(), Duration::from_millis(150))
+                .await;
+        assert!(
+            events.is_empty(),
+            "timeout must return the last (empty) snapshot"
+        );
+        assert!(start.elapsed() >= Duration::from_millis(150));
+        assert!(
+            start.elapsed() < Duration::from_millis(900),
+            "short deadline must not wait out the full 5s default"
+        );
+    }
+
+    #[tokio::test]
+    async fn poll_predicate_ignores_interference_until_target_event() {
+        let tmp = TempDir::new().unwrap();
+        let log = make_debug_log(&tmp).await;
+        log.log(test_event("t", "type.noise", LogLevel::Info)).await;
+        let dir = tmp.path().to_path_buf();
+        let line = test_event("t", "type.target", LogLevel::Info)
+            .to_jsonl()
+            .unwrap();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            tokio::fs::write(dir.join("target.jsonl"), format!("{line}\n"))
+                .await
+                .unwrap();
+        });
+
+        let start = std::time::Instant::now();
+        let events = poll_events_with_deadline(
+            tmp.path(),
+            |e| e.iter().any(|e| e.event_type == "type.target"),
+            Duration::from_secs(1),
+        )
+        .await;
+        let elapsed = start.elapsed();
+        assert!(
+            elapsed >= Duration::from_millis(100),
+            "interference events must not trigger the stop condition"
+        );
+        assert!(
+            elapsed < Duration::from_millis(900),
+            "target event must stop the poll before the deadline"
+        );
+        assert_eq!(events.len(), 2);
+        assert!(events.iter().any(|e| e.event_type == "type.target"));
+    }
+
+    #[tokio::test]
+    async fn wait_for_event_type_returns_filtered_subset_only() {
+        let tmp = TempDir::new().unwrap();
+        let log = make_debug_log(&tmp).await;
+        log.log(test_event("t", "type.hit", LogLevel::Info)).await;
+        log.log(test_event("t", "type.miss", LogLevel::Info)).await;
+        log.log(test_event("t", "type.hit", LogLevel::Info)).await;
+
+        let hits = wait_for_event_type(tmp.path(), "type.hit").await;
+        assert_eq!(hits.len(), 2, "only the requested event type is returned");
+        assert!(hits.iter().all(|e| e.event_type == "type.hit"));
+    }
 }

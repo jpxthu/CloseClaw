@@ -12,13 +12,16 @@ use crate::outbound::SendOutboundIds;
 use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
-use closeclaw_debug_log::test_utils::{make_debug_log, read_events_with_timeout};
+use closeclaw_debug_log::test_utils::{
+    make_debug_log, poll_events_with_deadline, read_events_with_timeout,
+};
 use closeclaw_debug_log::LogLevel;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -454,7 +457,12 @@ async fn test_no_trace_id_no_session_resolved_or_route_decision() {
         .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    let events = read_events_with_timeout(temp_dir.path()).await;
+    let events = poll_events_with_deadline(
+        temp_dir.path(),
+        |events| !events.is_empty(),
+        Duration::from_millis(500),
+    )
+    .await;
     assert!(
         events.iter().all(|e| e.event_type != "session.resolved"),
         "no session.resolved event expected when trace_id is empty"
@@ -747,7 +755,12 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
     gw.enqueue_inbound(request).await.unwrap();
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_events_with_timeout(temp_dir.path()).await;
+    let events = poll_events_with_deadline(
+        temp_dir.path(),
+        |events| !events.is_empty(),
+        Duration::from_millis(500),
+    )
+    .await;
     assert!(
         events
             .iter()
