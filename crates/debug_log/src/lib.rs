@@ -15,6 +15,9 @@ mod retention;
 mod trace_context;
 mod writer;
 
+#[cfg(feature = "test-util")]
+pub mod test_utils;
+
 pub use config::{DebugLogConfig, DebugLogConfigError};
 pub use consumer::{ConsumerError, JsonlLogConsumer, LogConsumer, NormalizedEvent};
 pub use debug_log::{DebugLog, DebugLogError};
