@@ -9,6 +9,7 @@
 
 use closeclaw_config::providers::MemoryConfigData;
 use closeclaw_config::ConfigSection;
+use tokio::time::Instant;
 use tracing::{error, info};
 
 use super::cron::{cron_next_fire, parse_cron_schedule};
@@ -52,7 +53,7 @@ impl DreamingScheduler {
 
     /// Handle a config reload within the cron loop: apply new config,
     /// re-parse the schedule, and recompute next fire time.
-    pub(crate) async fn handle_cron_config_reload(&mut self, next_fire: &mut tokio::time::Instant) {
+    pub(crate) async fn handle_cron_config_reload(&mut self, next_fire: &mut Instant) {
         self.handle_config_change().await;
         let new_sched = self.schedule.as_deref().and_then(parse_cron_schedule);
         if let Some(ref new_sched) = new_sched {

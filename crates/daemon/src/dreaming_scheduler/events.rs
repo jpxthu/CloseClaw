@@ -8,6 +8,7 @@ use closeclaw_config::{ConfigChangeEvent, ConfigSection};
 use tokio::sync::broadcast::error::RecvError;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::{error, info, warn};
 
 use super::{
@@ -54,7 +55,7 @@ impl DreamingScheduler {
     pub(super) async fn next_event(
         &mut self,
         shutdown: &mut watch::Receiver<()>,
-        next_fire: tokio::time::Instant,
+        next_fire: Instant,
     ) -> LoopEvent {
         loop {
             tokio::select! {

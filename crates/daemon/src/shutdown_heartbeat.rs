@@ -9,6 +9,7 @@
 //! Session 停止、Phase 3 后台任务停止）：期间无状态变化时每 30 秒发送一次；
 
 use std::time::Duration;
+use tokio::time::Instant;
 
 /// Default heartbeat interval: 30 seconds.
 pub(crate) const DEFAULT_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(30);
@@ -41,9 +42,9 @@ pub(crate) struct ShutdownHeartbeat {
     /// Interval between heartbeats.
     interval: Duration,
     /// Timestamp of the last event or heartbeat send.
-    last_event: tokio::time::Instant,
+    last_event: Instant,
     /// When this heartbeat tracker was created (phase start).
-    phase_start: tokio::time::Instant,
+    phase_start: Instant,
 }
 
 impl ShutdownHeartbeat {
@@ -58,14 +59,14 @@ impl ShutdownHeartbeat {
     pub(crate) fn with_interval(interval: Duration) -> Self {
         Self {
             interval,
-            last_event: tokio::time::Instant::now(),
-            phase_start: tokio::time::Instant::now(),
+            last_event: Instant::now(),
+            phase_start: Instant::now(),
         }
     }
 
     /// Create a heartbeat tracker for testing with a custom start time.
     #[cfg(test)]
-    pub(crate) fn with_start(start: tokio::time::Instant, interval: Duration) -> Self {
+    pub(crate) fn with_start(start: Instant, interval: Duration) -> Self {
         Self {
             interval,
             last_event: start,
@@ -80,7 +81,7 @@ impl ShutdownHeartbeat {
     /// before the deadline, the select branch is not taken (the future
     /// is still pending). After the branch fires, call
     /// `should_send_heartbeat()` to confirm, then `record_event()`.
-    pub(crate) fn next_deadline(&self) -> tokio::time::Instant {
+    pub(crate) fn next_deadline(&self) -> Instant {
         self.last_event + self.interval
     }
 
@@ -99,7 +100,7 @@ impl ShutdownHeartbeat {
     /// Resets the heartbeat timer so the next heartbeat won't fire
     /// until `interval` after this event.
     pub(crate) fn record_event(&mut self) {
-        self.last_event = tokio::time::Instant::now();
+        self.last_event = Instant::now();
     }
 
     /// Returns the elapsed time since the phase started, in seconds.
@@ -141,7 +142,7 @@ mod tests {
 
     #[test]
     fn test_should_send_heartbeat_after_interval() {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         let hb = ShutdownHeartbeat::with_start(start, Duration::from_millis(10));
         // Immediately: should NOT send
         assert!(!hb.should_send_heartbeat());
@@ -155,7 +156,7 @@ mod tests {
 
     #[test]
     fn test_record_event_resets_timer() {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         let mut hb = ShutdownHeartbeat::with_start(start, Duration::from_millis(10));
         // Simulate time passing
         let hb_old = ShutdownHeartbeat::with_start(
@@ -171,7 +172,7 @@ mod tests {
 
     #[test]
     fn test_next_deadline_is_last_event_plus_interval() {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         let hb = ShutdownHeartbeat::with_start(start, Duration::from_secs(30));
         let deadline = hb.next_deadline();
         // Deadline should be ~30s from start
@@ -185,7 +186,7 @@ mod tests {
 
     #[test]
     fn test_elapsed_secs_reflects_phase_start() {
-        let start = tokio::time::Instant::now() - Duration::from_secs(5);
+        let start = Instant::now() - Duration::from_secs(5);
         let hb = ShutdownHeartbeat::with_start(start, Duration::from_secs(30));
         let elapsed = hb.elapsed_secs();
         assert!(

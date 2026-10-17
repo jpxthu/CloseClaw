@@ -12,6 +12,7 @@ use std::sync::atomic::{AtomicU64, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::broadcast;
+use tokio::time::Instant;
 use tracing::{info, warn};
 
 // Re-export types defined in closeclaw-common.
@@ -256,7 +257,7 @@ impl ShutdownHandle {
     ///
     /// Returns the remaining `busy_count` (0 when all drained or forceful).
     async fn wait_for_drain(&self) -> usize {
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
 
         loop {
             // If upgraded to forceful mid-drain, finalize immediately
