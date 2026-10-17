@@ -307,12 +307,11 @@ async fn test_subscribe_drain_triggers_on_escalation() {
     // Release busy count so drain can finalize
     handle.decrement_busy();
 
-    // Wait for shutdown to finish
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    // The subscriber received at least one drain signal
-    // (sent in initiate_shutdown before the drain loop)
-    assert!(rx.try_recv().is_ok());
+    // The subscriber receives at least one drain signal
+    // (sent in initiate_shutdown before the drain loop) — wait on the
+    // message itself instead of a fixed buffer (issue #3706)
+    let result = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+    assert!(result.is_ok(), "Subscriber did not get drain signal");
 }
 
 #[test]
@@ -388,9 +387,15 @@ async fn test_drain_timeout_returns_remaining_count() {
 
     spawn_shutdown(&handle);
 
-    // Wait for timeout + buffer
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    assert!(handle.is_stopped());
+    // Wait for the drain timeout to fire and the shutdown to finalize.
+    // The busy operations never complete, so Stopped is only reachable
+    // through the timeout path — polling the state flip keeps this
+    // event-driven (issue #3706, replacing the former 600ms buffer).
+    wait_until("shutdown to reach Stopped after drain timeout", || {
+        handle.is_stopped()
+    })
+    .await;
+
     // busy_count still reflects the 3 in-flight operations
     assert_eq!(handle.busy_count(), 3);
 }
