@@ -155,13 +155,17 @@ async fn test_run_scheduler_briefly_panics_with_what_context_on_timeout() {
 
     // The fire signal is `list_agents` starting the first cycle, i.e. the
     // proof the (now-stuck) active task exists before shutdown is sent.
+    // Virtual horizon (await_n_fires precedent, #3608): under the paused
+    // clock the recv completes at ~zero virtual time, while a loop that
+    // never fires fails the horizon assert instead of hanging the test —
+    // the deadline is virtual, so real elapsed time stays milliseconds.
     let joined = tokio::spawn(async move {
         run_scheduler_briefly(
             scheduler,
             async {
-                fire_rx
-                    .recv()
+                tokio::time::timeout(Duration::from_secs(3600), fire_rx.recv())
                     .await
+                    .expect("fire signal must arrive within the virtual horizon")
                     .expect("fire signal channel stays open while the loop runs");
             },
             "helper timeout diagnostic",

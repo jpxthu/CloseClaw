@@ -59,7 +59,7 @@ async fn test_dreaming_scheduler_shutdown_exits_loop() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler should exit promptly after shutdown signal",
+        "after shutdown signal",
     )
     .await;
 }
@@ -149,7 +149,7 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler with cron schedule should exit promptly",
+        "with cron schedule",
     )
     .await;
 }
@@ -166,7 +166,7 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler with invalid cron should exit promptly (fallback)",
+        "with invalid cron (fallback)",
     )
     .await;
 }
@@ -184,7 +184,7 @@ async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler without schedule should exit promptly",
+        "without schedule",
     )
     .await;
 }
@@ -223,7 +223,7 @@ async fn test_with_schedule_empty_string_fallback() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler with empty schedule string should exit promptly",
+        "with empty schedule string",
     )
     .await;
 }
@@ -240,7 +240,7 @@ async fn test_dreaming_scheduler_hourly_cron() {
     run_scheduler_briefly(
         scheduler,
         tokio::time::sleep(Duration::from_millis(50)),
-        "scheduler with hourly cron should exit promptly",
+        "with hourly cron",
     )
     .await;
 }
