@@ -3,17 +3,20 @@
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
 use crate::compute_session_key;
+use crate::shutdown_handle::ShutdownHandle;
 use crate::{GatewayConfig, GatewayError, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, NormalizedMessage};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
 use closeclaw_common::StreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
 use serde_json::json;
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::Arc;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
@@ -456,11 +459,6 @@ async fn test_feishu_session_isolation() {
 }
 
 // ── Shutdown alignment tests (Step 1.1–1.2) ──────────────────────────────
-
-use closeclaw_common::shutdown::{DrainStatus, ShutdownSignal, ShutdownState};
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
-
-use crate::shutdown_handle::ShutdownHandle;
 
 /// Minimal `ShutdownSignal` mock for shutdown gate tests.
 struct TestShutdownSignal {

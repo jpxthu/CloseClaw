@@ -3,11 +3,13 @@
 //! Unit tests for Step 1.1–1.4 design doc alignment changes.
 //!
 //! Covers:
-//! 1. Verbosity filtering order: filter happens BEFORE processor chain
-//! 2. Gateway does NOT directly call LLM or build System Prompt
+//! 1. Verbosity filtering: VerbosityFilter is an in-chain processor running
+//!    before downstream processors
+//! 2. Gateway delegates LLM calls via the injected LlmCaller
 //! 3. Slash permission check timing: Handler → Permission → execute()
 //! 4. Restore notification routed through Gateway outbound chain
 
+use crate::slash_permission_test_utils::allow_engine;
 use crate::{GatewayConfig, Message, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
@@ -271,12 +273,14 @@ async fn setup_with_verbosity(
     gw
 }
 
-/// Step 1.1 — Verbosity filtering happens BEFORE the processor chain.
+/// Step 1.1 — Verbosity filtering is an in-chain processor
+/// (VerbosityFilter, priority 5) that runs before downstream processors
+/// (e.g. the priority-200 trace processor registered after it).
 ///
 /// When session verbosity is `Off` (only Text blocks), Thinking blocks
-/// must be stripped BEFORE the processor chain sees them.
+/// are stripped before downstream processors see them.
 #[tokio::test]
-async fn test_verbosity_filter_before_processor_chain() {
+async fn test_verbosity_filter_precedes_downstream_processors() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Off,
@@ -315,9 +319,10 @@ async fn test_verbosity_filter_before_processor_chain() {
     );
 }
 
-/// Step 1.1 — Verbosity Level::Normal strips Thinking before chain.
+/// Step 1.1 — Verbosity Level::Normal strips Thinking within the chain,
+/// before downstream processors see them.
 #[tokio::test]
-async fn test_verbosity_normal_strips_thinking_before_chain() {
+async fn test_verbosity_normal_strips_thinking_in_chain() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Normal,
@@ -359,9 +364,10 @@ async fn test_verbosity_normal_strips_thinking_before_chain() {
     assert!(matches!(&received[1], ContentBlock::ToolUse { .. }));
 }
 
-/// Step 1.1 — Verbosity Level::Full: all blocks pass through before chain.
+/// Step 1.1 — Verbosity Level::Full: all blocks pass through the chain
+/// to downstream processors.
 #[tokio::test]
-async fn test_verbosity_full_all_blocks_before_chain() {
+async fn test_verbosity_full_all_blocks_pass_through_chain() {
     let received_blocks = Arc::new(std::sync::Mutex::new(Vec::<ContentBlock>::new()));
     let gw = setup_with_verbosity(
         closeclaw_common::VerbosityLevel::Full,
@@ -399,17 +405,6 @@ async fn test_verbosity_full_all_blocks_before_chain() {
 // ═════════════════════════════════════════════════════════════════════════════
 // 2. Gateway Does NOT Directly Call LLM Tests (Step 1.2)
 // ═════════════════════════════════════════════════════════════════════════════
-
-/// Step 1.2 — Gateway module does NOT import System Prompt construction
-/// functions from `system_prompt::inject`.
-///
-/// This is a compile-time assertion: if Gateway code imports
-/// `build_dynamic_sections`, `build_full_system_prompt`, or
-/// `split_static_dynamic`, this module will fail to compile.
-#[test]
-fn test_gateway_no_direct_system_prompt_imports() {
-    // 编译期断言：gateway 若直接导入 system_prompt 构建函数，本模块即编译失败。
-}
 
 /// Verify that `SessionMessageHandler` delegates LLM calls
 /// through `Arc<dyn closeclaw_common::LlmCaller>` (injected into
@@ -495,24 +490,6 @@ impl closeclaw_slash::SlashHandler for TimingHandler {
             .push("handler.handle()".to_string());
         closeclaw_slash::SlashResult::Reply("timing ok".to_owned())
     }
-}
-
-/// A PermissionEngine that always allows.
-fn allow_engine(
-) -> Arc<tokio::sync::RwLock<closeclaw_permission::engine::engine_eval::PermissionEngine>> {
-    use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
-    let rules = RuleSet {
-        rules: vec![],
-        defaults: Defaults::default(),
-        user_defaults: Defaults::default(),
-        template_includes: vec![],
-        ..Default::default()
-    };
-    Arc::new(tokio::sync::RwLock::new(
-        closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
-            rules,
-        ),
-    ))
 }
 
 /// Step 1.2 — Permission check happens BEFORE handler.handle(), BEFORE execute().

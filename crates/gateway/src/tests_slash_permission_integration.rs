@@ -57,8 +57,11 @@ impl SlashRouter for CountingRouter {
         }
     }
 
-    fn is_immediate(&self, command: &str) -> bool {
-        command == self.command
+    fn is_immediate(&self, _command: &str) -> bool {
+        // 对齐真实 ModeHandler 等非 immediate 命令处理器：恒返回 false。
+        // （SlashRouter::is_immediate 收到的是完整原始 content（如 "/help"），
+        // 与 self.command 的裸命令名比较恒为 false，属死比较，故直接写 false。）
+        false
     }
 
     fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
