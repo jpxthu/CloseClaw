@@ -206,13 +206,13 @@ async fn test_heartbeat_phase1_drain_with_signal_interruption() {
 
     let deadline = Instant::now() + Duration::from_millis(200);
 
-    let events_received = observe_heartbeat_until(&mut hb, deadline, rx, |_| false, || {}).await;
+    let heartbeats_sent = observe_heartbeat_until(&mut hb, deadline, rx, |_| false, || {}).await;
 
     // Heartbeat should have fired at least once (200ms window, 30ms interval)
     assert!(
-        events_received >= 1,
+        heartbeats_sent >= 1,
         "heartbeat should fire at least once in 200ms window, got {}",
-        events_received
+        heartbeats_sent
     );
 }
 

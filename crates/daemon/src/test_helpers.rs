@@ -854,7 +854,7 @@ pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
 /// caller's signal that the pending config event has been received and
 /// applied (an observable state flip; or a bounded window when the event
 /// intentionally produces no observable change) — then shut the loop down
-/// and verify prompt exit.
+/// and verify prompt, panic-free exit.
 ///
 /// `what` describes the scenario under test and is surfaced in the
 /// assertion message when the shutdown wait fails (same pattern as
@@ -875,8 +875,12 @@ pub async fn run_scheduler_briefly<T>(
     let output = event_consumed.await;
     shutdown_tx.send(()).unwrap();
 
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(result.is_ok(), "scheduler should exit promptly: {what}");
+    let joined = tokio::time::timeout(Duration::from_secs(5), handle).await;
+    assert!(joined.is_ok(), "scheduler should exit promptly: {what}");
+    assert!(
+        joined.expect("timeout already asserted above").is_ok(),
+        "scheduler task must not panic: {what}"
+    );
     output
 }
 
