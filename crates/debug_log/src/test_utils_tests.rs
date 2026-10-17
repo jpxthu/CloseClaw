@@ -3,7 +3,7 @@
 use super::*;
 use crate::TraceContext;
 
-fn test_event(trace_id: &str, event_type: &str, level: LogLevel) -> LogEvent {
+fn make_event(trace_id: &str, event_type: &str, level: LogLevel) -> LogEvent {
     let ctx = TraceContext::new_root(trace_id.to_string());
     LogEvent::new(
         &ctx,
@@ -16,10 +16,10 @@ fn test_event(trace_id: &str, event_type: &str, level: LogLevel) -> LogEvent {
 }
 
 #[tokio::test]
-async fn write_then_read_roundtrip() {
+async fn test_write_then_read_roundtrip() {
     let tmp = TempDir::new().unwrap();
     let log = make_debug_log(&tmp).await;
-    log.log(test_event("trace-rt", "test.roundtrip", LogLevel::Info))
+    log.log(make_event("trace-rt", "test.roundtrip", LogLevel::Info))
         .await;
 
     let events = read_events(tmp.path()).await;
@@ -29,10 +29,10 @@ async fn write_then_read_roundtrip() {
 }
 
 #[tokio::test]
-async fn read_events_skips_blank_malformed_and_non_jsonl() {
+async fn test_read_events_skips_blank_malformed_and_non_jsonl() {
     let tmp = TempDir::new().unwrap();
-    let good_a = test_event("t-a", "type.a", LogLevel::Info);
-    let good_b = test_event("t-b", "type.b", LogLevel::Info);
+    let good_a = make_event("t-a", "type.a", LogLevel::Info);
+    let good_b = make_event("t-b", "type.b", LogLevel::Info);
     let content = format!(
         "{}\n\n   \nnot-json\n{{\"broken\": 1}}\n{}\n",
         good_a.to_jsonl().unwrap(),
@@ -52,11 +52,11 @@ async fn read_events_skips_blank_malformed_and_non_jsonl() {
 }
 
 #[tokio::test]
-async fn filter_combinators_select_by_type_and_trace() {
+async fn test_filter_combinators_select_by_type_and_trace() {
     let events = vec![
-        test_event("t1", "type.a", LogLevel::Info),
-        test_event("t1", "type.b", LogLevel::Info),
-        test_event("t2", "type.a", LogLevel::Info),
+        make_event("t1", "type.a", LogLevel::Info),
+        make_event("t1", "type.b", LogLevel::Info),
+        make_event("t2", "type.a", LogLevel::Info),
     ];
 
     let by_type = filter_events_by_type(&events, "type.a");
@@ -71,36 +71,36 @@ async fn filter_combinators_select_by_type_and_trace() {
 }
 
 #[tokio::test]
-async fn level_baseline_difference_between_make_and_at_level() {
+async fn test_level_baseline_difference_between_make_and_at_level() {
     let tmp_trace = TempDir::new().unwrap();
     let log = make_debug_log(&tmp_trace).await;
     assert_eq!(log.min_level(), LogLevel::Trace);
-    log.log(test_event("t", "type.trace", LogLevel::Trace))
+    log.log(make_event("t", "type.trace", LogLevel::Trace))
         .await;
     assert_eq!(read_events(tmp_trace.path()).await.len(), 1);
 
     let tmp_info = TempDir::new().unwrap();
     let log = make_debug_log_at_level(&tmp_info, LogLevel::Info).await;
     assert_eq!(log.min_level(), LogLevel::Info);
-    log.log(test_event("t", "type.trace", LogLevel::Trace))
+    log.log(make_event("t", "type.trace", LogLevel::Trace))
         .await;
-    log.log(test_event("t", "type.debug", LogLevel::Debug))
+    log.log(make_event("t", "type.debug", LogLevel::Debug))
         .await;
     assert!(
         read_events(tmp_info.path()).await.is_empty(),
         "below-baseline events must be dropped"
     );
-    log.log(test_event("t", "type.info", LogLevel::Info)).await;
+    log.log(make_event("t", "type.info", LogLevel::Info)).await;
     let events = read_events(tmp_info.path()).await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].event_type, "type.info");
 }
 
 #[tokio::test]
-async fn poll_returns_immediately_when_events_already_exist() {
+async fn test_poll_returns_immediately_when_events_already_exist() {
     let tmp = TempDir::new().unwrap();
     let log = make_debug_log(&tmp).await;
-    log.log(test_event("t", "type.ready", LogLevel::Info)).await;
+    log.log(make_event("t", "type.ready", LogLevel::Info)).await;
 
     let start = std::time::Instant::now();
     let events =
@@ -113,10 +113,10 @@ async fn poll_returns_immediately_when_events_already_exist() {
 }
 
 #[tokio::test]
-async fn poll_captures_event_written_after_delay() {
+async fn test_poll_captures_event_written_after_delay() {
     let tmp = TempDir::new().unwrap();
     let dir = tmp.path().to_path_buf();
-    let line = test_event("t-late", "type.late", LogLevel::Info)
+    let line = make_event("t-late", "type.late", LogLevel::Info)
         .to_jsonl()
         .unwrap();
     tokio::spawn(async move {
@@ -137,7 +137,7 @@ async fn poll_captures_event_written_after_delay() {
 }
 
 #[tokio::test]
-async fn poll_short_deadline_timeout_returns_last_snapshot() {
+async fn test_poll_short_deadline_timeout_returns_last_snapshot() {
     let tmp = TempDir::new().unwrap();
 
     let start = std::time::Instant::now();
@@ -155,12 +155,12 @@ async fn poll_short_deadline_timeout_returns_last_snapshot() {
 }
 
 #[tokio::test]
-async fn poll_predicate_ignores_interference_until_target_event() {
+async fn test_poll_predicate_ignores_interference_until_target_event() {
     let tmp = TempDir::new().unwrap();
     let log = make_debug_log(&tmp).await;
-    log.log(test_event("t", "type.noise", LogLevel::Info)).await;
+    log.log(make_event("t", "type.noise", LogLevel::Info)).await;
     let dir = tmp.path().to_path_buf();
-    let line = test_event("t", "type.target", LogLevel::Info)
+    let line = make_event("t", "type.target", LogLevel::Info)
         .to_jsonl()
         .unwrap();
     tokio::spawn(async move {
@@ -191,12 +191,12 @@ async fn poll_predicate_ignores_interference_until_target_event() {
 }
 
 #[tokio::test]
-async fn wait_for_event_type_returns_filtered_subset_only() {
+async fn test_wait_for_event_type_returns_filtered_subset_only() {
     let tmp = TempDir::new().unwrap();
     let log = make_debug_log(&tmp).await;
-    log.log(test_event("t", "type.hit", LogLevel::Info)).await;
-    log.log(test_event("t", "type.miss", LogLevel::Info)).await;
-    log.log(test_event("t", "type.hit", LogLevel::Info)).await;
+    log.log(make_event("t", "type.hit", LogLevel::Info)).await;
+    log.log(make_event("t", "type.miss", LogLevel::Info)).await;
+    log.log(make_event("t", "type.hit", LogLevel::Info)).await;
 
     let hits = wait_for_event_type(tmp.path(), "type.hit").await;
     assert_eq!(hits.len(), 2, "only the requested event type is returned");

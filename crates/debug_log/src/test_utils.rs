@@ -125,7 +125,7 @@ pub async fn wait_for_event_type(dir: &Path, event_type: &str) -> Vec<LogEvent> 
 /// Poll until any event appears (legacy convenience, gateway
 /// semantics) with the unified default deadline/interval.
 pub async fn read_events_with_timeout(dir: &Path) -> Vec<LogEvent> {
-    poll_events(dir, |events| !events.is_empty()).await
+    read_events_with_deadline(dir, POLL_DEADLINE).await
 }
 
 /// Filter events by event type.
