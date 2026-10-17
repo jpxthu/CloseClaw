@@ -6,8 +6,10 @@
 //! hands it to the single parameterized scheduling loop
 //! [`DreamingScheduler::run_loop`].
 
+use std::time::Duration;
 use tokio::sync::watch;
 use tokio::task::JoinHandle;
+use tokio::time::Instant;
 use tracing::info;
 
 use super::cron::{cron_next_fire, parse_cron_schedule};
@@ -35,7 +37,7 @@ enum FirePolicy {
     Cron,
     /// Fixed interval: every arm is `now + interval`. `ConfigReload`
     /// goes through [`DreamingScheduler::handle_config_change`].
-    FixedInterval(tokio::time::Duration),
+    FixedInterval(Duration),
 }
 
 impl FirePolicy {
@@ -44,19 +46,15 @@ impl FirePolicy {
     /// fixed-interval uses `now + interval`. The initial arm instead
     /// comes from [`DreamingScheduler::run`], which already parsed the
     /// startup schedule.
-    fn next_fire(&self, scheduler: &DreamingScheduler) -> tokio::time::Instant {
+    fn next_fire(&self, scheduler: &DreamingScheduler) -> Instant {
         match self {
             FirePolicy::Cron => scheduler.next_fire_from_current_schedule(),
-            FirePolicy::FixedInterval(interval) => tokio::time::Instant::now() + *interval,
+            FirePolicy::FixedInterval(interval) => Instant::now() + *interval,
         }
     }
 
     /// Apply a `ConfigReload` event per this policy.
-    async fn on_config_reload(
-        &self,
-        scheduler: &mut DreamingScheduler,
-        next_fire: &mut tokio::time::Instant,
-    ) {
+    async fn on_config_reload(&self, scheduler: &mut DreamingScheduler, next_fire: &mut Instant) {
         match self {
             FirePolicy::Cron => scheduler.handle_cron_config_reload(next_fire).await,
             FirePolicy::FixedInterval(_) => scheduler.handle_config_change().await,
@@ -85,10 +83,10 @@ impl DreamingScheduler {
                 "DreamingScheduler started with fixed interval {}s",
                 interval_secs
             );
-            let interval = tokio::time::Duration::from_secs(interval_secs);
+            let interval = Duration::from_secs(interval_secs);
             (
                 FirePolicy::FixedInterval(interval),
-                tokio::time::Instant::now() + interval,
+                Instant::now() + interval,
             )
         };
 
@@ -105,7 +103,7 @@ impl DreamingScheduler {
         &mut self,
         shutdown: &mut watch::Receiver<()>,
         policy: FirePolicy,
-        mut next_fire: tokio::time::Instant,
+        mut next_fire: Instant,
     ) {
         let mut active_task: Option<JoinHandle<Result<(), DreamingSchedulerError>>> = None;
 
@@ -139,9 +137,8 @@ impl DreamingScheduler {
     /// fallback branch of
     /// [`DreamingScheduler::handle_cron_config_reload`] so the same
     /// semantics cannot drift apart across two copies.
-    pub(super) fn fallback_next_fire(&self) -> tokio::time::Instant {
-        tokio::time::Instant::now()
-            + tokio::time::Duration::from_secs(self.config.dreaming_interval_secs())
+    pub(super) fn fallback_next_fire(&self) -> Instant {
+        Instant::now() + Duration::from_secs(self.config.dreaming_interval_secs())
     }
 
     /// Recompute the next fire instant from the current `schedule`
@@ -149,7 +146,7 @@ impl DreamingScheduler {
     /// expression so a reloaded schedule keeps governing every re-arm,
     /// falling back to [`DreamingScheduler::fallback_next_fire`] when it
     /// is missing or invalid.
-    fn next_fire_from_current_schedule(&self) -> tokio::time::Instant {
+    fn next_fire_from_current_schedule(&self) -> Instant {
         match self.schedule.as_deref().and_then(parse_cron_schedule) {
             Some(sched) => cron_next_fire(&sched),
             None => self.fallback_next_fire(),

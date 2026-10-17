@@ -8,6 +8,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
@@ -544,10 +545,8 @@ impl crate::Daemon {
                             info!("watchdog: idle window detected — signaling rebuild");
                             let _ = ready_tx.send(changes.clone()).await;
                         } else {
-                            tokio::time::sleep(tokio::time::Duration::from_millis(
-                                WATCHDOG_POLL_INTERVAL_MS,
-                            ))
-                            .await;
+                            tokio::time::sleep(Duration::from_millis(WATCHDOG_POLL_INTERVAL_MS))
+                                .await;
                         }
                     }
                     RestartState::Idle | RestartState::Executing => {}

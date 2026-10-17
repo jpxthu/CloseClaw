@@ -19,6 +19,7 @@ use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 use tokio::sync::watch;
 use tracing::{info, warn};
 
@@ -176,8 +177,7 @@ impl Daemon {
                 .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
                 .await;
             let recovery_result =
-                tokio::time::timeout(std::time::Duration::from_secs(10), recovery_svc.recover())
-                    .await;
+                tokio::time::timeout(Duration::from_secs(10), recovery_svc.recover()).await;
             match recovery_result {
                 Ok(Ok(report)) => {
                     if !report.dirty_sessions.is_empty() {
@@ -275,7 +275,7 @@ impl Daemon {
             let rp: closeclaw_tasks::media_cleanup::RetentionProvider =
                 Arc::new(move || retention_days);
             let handle = closeclaw_tasks::media_cleanup::start_media_cleanup(
-                std::time::Duration::from_secs(3600),
+                Duration::from_secs(3600),
                 rp,
                 cleanup_fn,
             );
@@ -322,8 +322,8 @@ impl Daemon {
             .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
             .map(|sys| sys.effective_shutdown().drain_timeout_secs)
             .unwrap_or(30);
-        let shutdown = shutdown::ShutdownHandle::new()
-            .with_drain_timeout(std::time::Duration::from_secs(drain_timeout));
+        let shutdown =
+            shutdown::ShutdownHandle::new().with_drain_timeout(Duration::from_secs(drain_timeout));
         session_manager
             .set_shutdown_handle(crate::bridge::common_shutdown_handle(&shutdown))
             .await;
