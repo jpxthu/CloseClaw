@@ -189,7 +189,7 @@ async fn test_simplified_path_skips_middleware() {
 /// platform, and peer_id to the DebugLog.
 #[tokio::test]
 async fn test_queue_full_rejection_emits_debug_event() {
-    use closeclaw_debug_log::test_utils::make_debug_log;
+    use closeclaw_debug_log::test_utils::{make_debug_log, wait_for_event_type};
     use tempfile::TempDir;
 
     let temp_dir = TempDir::new().expect("TempDir::new failed");
@@ -232,33 +232,20 @@ async fn test_queue_full_rejection_emits_debug_event() {
         .await;
     assert!(result.is_err(), "queue full should return Err");
 
-    // Give the spawned debug-log task time to write.
-    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
-
-    // Read JSONL files in the log dir and look for queue.rejected event.
-    let mut found = false;
-    for entry in std::fs::read_dir(temp_dir.path()).expect("read_dir") {
-        let path = entry.expect("entry").path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            let content = std::fs::read_to_string(&path).expect("read jsonl");
-            for line in content.lines() {
-                if line.contains("queue.rejected")
-                    && line.contains("trace-rejected")
-                    && line.contains("feishu")
-                {
-                    found = true;
-                    break;
-                }
-            }
-        }
-        if found {
-            break;
-        }
-    }
-    assert!(
-        found,
-        "queue.rejected event with trace_id should be written to DebugLog"
+    // Poll until the spawned debug-log task writes the queue.rejected event,
+    // then assert on its structured fields.
+    let rejected = wait_for_event_type(temp_dir.path(), "queue.rejected").await;
+    assert_eq!(
+        rejected.len(),
+        1,
+        "expected exactly one queue.rejected event, got {}",
+        rejected.len()
     );
+    let evt = &rejected[0];
+    assert_eq!(evt.trace_id, "trace-rejected");
+    assert_eq!(evt.payload["platform"].as_str().unwrap(), "feishu");
+    assert_eq!(evt.payload["peer_id"].as_str().unwrap(), "p_rejected");
+    assert_eq!(evt.payload["reason"].as_str().unwrap(), "queue_full");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
