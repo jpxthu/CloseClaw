@@ -1,13 +1,14 @@
-use super::session_handler::MessageMetadata;
 use super::*;
-use closeclaw_common::system_prompt::inject::{
-    build_dynamic_sections, build_full_system_prompt, split_static_dynamic, DynamicSectionsParams,
-};
-use closeclaw_common::system_prompt::sections::Section;
+use closeclaw_common::system_prompt::split_static_dynamic;
+use closeclaw_common::RequestContext;
 use closeclaw_common::SessionMode;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_system_prompt::inject::{
+    build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams,
+};
+use closeclaw_system_prompt::sections::Section;
 
 fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
     let cooldown_dir = tempfile::TempDir::new().expect("create temp dir");
@@ -40,32 +41,32 @@ fn make_msg() -> crate::Message {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
-fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-    MessageMetadata {
+fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
+    RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
         timestamp: ts,
         chat_name: String::new(),
-        trace_id: None,
-        session_key: None,
-        span_id: None,
     }
 }
 
 /// Helper: build a `DynamicSectionsParams` with defaults for optional fields.
-fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+fn make_params(meta: &RequestContext, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        session_timestamp: None,
         session_mode,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
         mode_transition: None,
+        plan_file_path: None,
     }
 }
 
@@ -87,29 +88,13 @@ fn test_build_dynamic_sections_channel_context() {
     assert!(rendered.contains("timestamp:"));
 }
 
-/// session_timestamp parameter overrides meta.timestamp in ChannelContext.
-#[test]
-fn test_build_dynamic_sections_session_timestamp_override() {
-    let meta = make_meta("user_42", "feishu", 1700000000);
-    let session_ts: i64 = 1700000042;
-    let sections = build_dynamic_sections(&DynamicSectionsParams {
-        session_timestamp: Some(session_ts),
-        ..make_params(&meta, SessionMode::Normal)
-    });
-    let cc = sections
-        .iter()
-        .find(|s: &&Section| s.name() == "channel_context")
-        .unwrap();
-    let rendered = cc.render();
-    // The timestamp should be derived from session_ts, not meta.timestamp
-    let expected_dt = chrono::DateTime::from_timestamp(session_ts, 0).unwrap();
-    assert!(
-        rendered.contains(&expected_dt.to_rfc3339()),
-        "ChannelContext timestamp should use session_timestamp when provided"
-    );
-}
+/// [已移除] 原 `test_build_dynamic_sections_session_timestamp_override`：
+/// `DynamicSectionsParams::session_timestamp` 字段已随模块迁移删除（时间戳
+/// 现恒取自 `RequestContext::timestamp`，无 override 机制），该用例所测概念
+/// 无等价物，故按最小改动移除。行为语义变化由调用方（gateway 构造
+/// RequestContext 时填 timestamp）承载。
 
-/// When session_timestamp is None, ChannelContext falls back to meta.timestamp.
+/// ChannelContext timestamp derives from meta.timestamp.
 #[test]
 fn test_build_dynamic_sections_session_timestamp_fallback() {
     let meta = make_meta("user_42", "feishu", 1700000000);
@@ -286,7 +271,7 @@ fn test_working_directory_render_sanitization() {
 /// workdir path with workspaces/ prefix does not expose config_dir root.
 #[test]
 fn test_workdir_path_no_config_dir_exposure() {
-    use closeclaw_common::system_prompt::sections::sanitize_workdir_path;
+    use closeclaw_system_prompt::sections::sanitize_workdir_path;
     let path = "/home/alice/.closeclaw/workspaces/my-agent/u123/";
     let sanitized = sanitize_workdir_path(path);
     assert_eq!(sanitized, "~/my-agent/u123/");
@@ -428,7 +413,7 @@ fn test_empty_appends_no_append_section() {
 /// Dimension 7: Empty appends with priority prompt — no Append section.
 #[test]
 fn test_empty_appends_priority_prompt() {
-    use closeclaw_common::system_prompt::builder::PromptOverrides;
+    use closeclaw_common::system_prompt::PromptOverrides;
     let overrides = PromptOverrides {
         override_prompt: Some("override".into()),
         ..Default::default()

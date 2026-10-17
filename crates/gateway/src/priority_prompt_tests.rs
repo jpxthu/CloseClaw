@@ -2,35 +2,32 @@
 // Priority Prompt Override Tests (build_full_system_prompt)
 // ═══════════════════════════════════════════════════════════════════════════
 
-use super::session_handler::MessageMetadata;
-use closeclaw_common::system_prompt::builder::PromptOverrides;
-use closeclaw_common::system_prompt::inject::{
+use closeclaw_common::system_prompt::PromptOverrides;
+use closeclaw_common::RequestContext;
+use closeclaw_common::SessionMode;
+use closeclaw_system_prompt::inject::{
     build_dynamic_sections, build_full_system_prompt, DynamicSectionsParams,
 };
-use closeclaw_common::SessionMode;
 
-fn make_meta(sender: &str, channel: &str, ts: i64) -> MessageMetadata {
-    MessageMetadata {
+fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
+    RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
         timestamp: ts,
-        trace_id: None,
-        session_key: None,
-        span_id: None,
         chat_name: String::new(),
     }
 }
 
-fn make_params(meta: &MessageMetadata, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
+fn make_params(meta: &RequestContext, session_mode: SessionMode) -> DynamicSectionsParams<'_> {
     DynamicSectionsParams {
         meta,
         workdir_path: None,
-        session_timestamp: None,
         session_mode,
         is_compacted: false,
         is_sub_agent: false,
         is_git_status_enabled: false,
         mode_transition: None,
+        plan_file_path: None,
     }
 }
 
