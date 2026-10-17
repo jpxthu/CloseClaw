@@ -21,11 +21,11 @@
 //! baseline naturally (doc :85). Snapshots are session runtime state and
 //! are never persisted to the checkpoint.
 
-use closeclaw_common::{
-    build_prefix_snapshot, cache_check_eligibility, CacheAnomalyInfo, CacheCheckEligibility,
-    InternalMessage, PreviousCallState, ToolDefinition, UnifiedUsage,
-};
+use closeclaw_common::{CacheAnomalyInfo, InternalMessage, ToolDefinition, UnifiedUsage};
 
+use super::cache_prefix::{
+    build_prefix_snapshot, cache_check_eligibility, CacheCheckEligibility, PreviousCallState,
+};
 use super::ConversationSession;
 
 impl ConversationSession {
@@ -126,7 +126,7 @@ impl ConversationSession {
     /// (test audit accessor for the advancement-timing guarantees).
     pub(crate) fn cache_prefix_prev_snapshot(
         &self,
-    ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
+    ) -> Option<&super::cache_prefix::RequestPrefixSnapshot> {
         self.cache_prefix_prev.as_ref()
     }
 
@@ -134,7 +134,7 @@ impl ConversationSession {
     /// accessor for the staging-slot lifecycle).
     pub(crate) fn staged_cache_prefix_snapshot(
         &self,
-    ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
+    ) -> Option<&super::cache_prefix::RequestPrefixSnapshot> {
         self.cache_prefix_staging.as_ref()
     }
 }

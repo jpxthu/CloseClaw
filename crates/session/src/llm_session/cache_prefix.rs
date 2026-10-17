@@ -7,7 +7,7 @@
 //! Once the next request has been built, the snapshot decides whether
 //! that round is a tail-append extension of the previous one and thus
 //! participates in the numeric cache hit consistency check
-//! ([llm-session-enhancements](../../../docs/design/session/llm-session-enhancements.md)
+//! ([llm-session-enhancements](../../../../docs/design/session/llm-session-enhancements.md)
 //! "缓存命中一致性校验").
 //!
 //! All hashing is process-local deterministic (`DefaultHasher` over the
@@ -18,7 +18,7 @@
 use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 
-use crate::llm_types::{InternalMessage, ToolDefinition};
+use closeclaw_common::{InternalMessage, ToolDefinition};
 
 // ── Prefix snapshot ──────────────────────────────────────────────
 

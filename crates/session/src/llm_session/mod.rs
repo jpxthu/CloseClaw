@@ -4,6 +4,7 @@
 //! See [`session_handles`] for cancel/cascade-stop and
 //! `session_chat` for the `ChatSession` impl.
 
+use cache_prefix::RequestPrefixSnapshot;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -25,9 +26,7 @@ use closeclaw_common::{
     InjectionParams, LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder,
     ToolRegistryQuery,
 };
-use closeclaw_common::{
-    RequestPrefixSnapshot, RunningStats, StreamingSink, TurnCounter, VerbosityLevel,
-};
+use closeclaw_common::{RunningStats, StreamingSink, TurnCounter, VerbosityLevel};
 
 /// Max length of an append-section item (chars).
 pub const APPEND_SECTION_MAX_LEN: usize = 500;
@@ -38,6 +37,7 @@ pub use closeclaw_common::tool_session::KillHandle;
 // `ChatSession` trait + `impl ChatSession for ConversationSession` live in
 // the sibling file `session_chat.rs`. Re-exported here so existing
 // `use closeclaw_session::ChatSession;` call sites keep working.
+mod cache_prefix;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
 
