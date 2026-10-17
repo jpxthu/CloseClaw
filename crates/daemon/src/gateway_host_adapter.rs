@@ -86,6 +86,8 @@ mod tests {
     use closeclaw_gateway::{GatewayConfig, SessionManager};
     use closeclaw_session::persistence::ReasoningLevel;
     use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+    use tokio::time::Instant;
 
     /// Gateway with a capacity-1 inbound queue and no WAL (keeps the test
     /// inside the sandbox — the default WAL dir lives under `~`).
@@ -191,13 +193,13 @@ mod tests {
         // First payload: the consumer dequeues it and parks in `parse_inbound`,
         // so it stops draining the queue.
         assert!(enqueuer.enqueue(payload("feishu", "p1")).await.is_ok());
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(3);
+        let deadline = Instant::now() + Duration::from_secs(3);
         while !plugin.parse_called.load(Ordering::SeqCst) {
             assert!(
-                tokio::time::Instant::now() < deadline,
+                Instant::now() < deadline,
                 "consumer never started parsing the first payload"
             );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            tokio::time::sleep(Duration::from_millis(10)).await;
         }
 
         // Second payload fills the capacity-1 queue; third is rejected.

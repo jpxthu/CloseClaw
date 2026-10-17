@@ -9,6 +9,7 @@ use closeclaw_common::AuditLogger;
 use closeclaw_platform::process;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 use tracing::{debug, error, info, warn};
 
 /// Resolves the effective PID file path for a daemon start: the injected
@@ -503,9 +504,7 @@ impl Daemon {
             self.config_manager
                 .section(ConfigSection::System)
                 .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
-                .map(|sys| {
-                    std::time::Duration::from_secs(sys.effective_shutdown().graceful_timeout_secs)
-                })
+                .map(|sys| Duration::from_secs(sys.effective_shutdown().graceful_timeout_secs))
                 .unwrap_or(
                     closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT,
                 )
@@ -530,8 +529,8 @@ impl Daemon {
         let mut last_mode = mode;
         let mut stop_completed = false;
         let mut stop_result = None;
-        let mut last_card_update = std::time::Instant::now();
-        let throttle_interval = std::time::Duration::from_secs(2);
+        let mut last_card_update = Instant::now();
+        let throttle_interval = Duration::from_secs(2);
 
         while !stop_completed {
             tokio::select! {
@@ -555,7 +554,7 @@ impl Daemon {
 
                 Some(progress) = progress_rx.recv() => {
                     // Progress event: update card with throttle
-                    let now = std::time::Instant::now();
+                    let now = Instant::now();
                     heartbeat.record_event();
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
@@ -604,7 +603,7 @@ impl Daemon {
                     .await
                     .send_shutdown_progress_card(current_mode)
                     .await;
-                last_card_update = std::time::Instant::now();
+                last_card_update = Instant::now();
                 last_mode = current_mode;
             }
         }

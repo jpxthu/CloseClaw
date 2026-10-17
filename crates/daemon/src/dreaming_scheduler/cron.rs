@@ -2,6 +2,8 @@
 //! DreamingScheduler (5-field cron via `dreaming.schedule`).
 
 use chrono::{Datelike, Local, Timelike};
+use std::time::Duration;
+use tokio::time::Instant;
 
 /// Parsed cron schedule (minute, hour, day-of-month, month,
 /// day-of-week).
@@ -118,12 +120,12 @@ fn match_field(field: &CronField, value: u32) -> bool {
 /// (issue #3578).
 /// Falls back to a 1s delay when the wall-clock delta is negative or
 /// unrepresentable (clock moved backwards past the fire instant).
-pub(super) fn cron_next_fire(schedule: &CronSchedule) -> tokio::time::Instant {
+pub(super) fn cron_next_fire(schedule: &CronSchedule) -> Instant {
     let next = schedule.next_fire_time(Local::now());
     let delay = (next - Local::now())
         .to_std()
-        .unwrap_or_else(|_| tokio::time::Duration::from_secs(1));
-    tokio::time::Instant::now() + delay
+        .unwrap_or_else(|_| Duration::from_secs(1));
+    Instant::now() + delay
 }
 
 /// Display a cron field for logging.
