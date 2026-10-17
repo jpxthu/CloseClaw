@@ -371,6 +371,66 @@ async fn test_empty_dirty_list() {
 }
 
 // =========================================================================
+// Issue #3739 Step 1.2: workdir fallback branch tests
+// =========================================================================
+
+/// 无 workspace 配置时，recovery 注入链产生的会话 workdir
+/// 回退系统临时目录（missing-workspace 分支）。
+#[tokio::test]
+async fn test_injection_workdir_without_workspace_falls_back_to_temp_dir() {
+    let cp = SessionCheckpoint::new("sess-ws-none".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("agent-ws-none".to_string())
+        .with_recovery_notification(Some("通知".to_string()));
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = make_recovery_test_mgr(Arc::clone(&persist));
+
+    mgr.inject_startup_recovery_notifications(&["sess-ws-none".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-ws-none")
+        .await
+        .expect("ConversationSession should exist");
+    assert_eq!(
+        conv.read().await.workdir(),
+        std::env::temp_dir().as_path(),
+        "missing workspace_dir must fall back to temp dir"
+    );
+}
+
+/// ensure_workspace_dir 失败（agent_id 含 `/`，纯验证层报错）→ 静默回退
+/// 系统临时目录，会话仍创建、不 panic、不向上传播错误。
+#[tokio::test]
+async fn test_injection_ensure_failed_falls_back_to_temp_dir() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let cp = SessionCheckpoint::new("sess-ws-err".to_string())
+        .with_status(SessionStatus::Active)
+        .with_agent_id("bad/agent".to_string())
+        .with_recovery_notification(Some("通知".to_string()));
+    let persist = Arc::new(RecoveryMockPersist::with_checkpoint(cp));
+    let mgr = SessionManager::new(
+        &super::tests::test_config(),
+        Some(persist),
+        Some(tmp.path().to_path_buf()),
+        closeclaw_session::persistence::ReasoningLevel::default(),
+    );
+
+    mgr.inject_startup_recovery_notifications(&["sess-ws-err".to_string()])
+        .await;
+
+    let conv = mgr
+        .get_conversation_session("sess-ws-err")
+        .await
+        .expect("ConversationSession should exist");
+    assert_eq!(
+        conv.read().await.workdir(),
+        std::env::temp_dir().as_path(),
+        "ensure failure must silently fall back to temp dir"
+    );
+}
+
+// =========================================================================
 // Static cache invalidation tests (Step 1.3)
 // =========================================================================
 
