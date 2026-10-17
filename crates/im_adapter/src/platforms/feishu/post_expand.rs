@@ -11,7 +11,8 @@ use closeclaw_common::{MediaRef, MediaType};
 ///
 /// - `title` becomes the first line (if present).
 /// - Each sub-array in `content` becomes one line; elements are concatenated.
-/// - Supported tags: `text`, `a`, `at`, `code_block`, `code`/`inline_code`, unknown tags use `text` if available.
+/// - Supported tags: `text`, `a`, `at`, `code_block`, `code`/`inline_code`,
+///   unknown tags use `text` if available.
 pub(crate) fn expand_post_content(content: &serde_json::Value) -> String {
     let mut lines: Vec<String> = Vec::new();
 
