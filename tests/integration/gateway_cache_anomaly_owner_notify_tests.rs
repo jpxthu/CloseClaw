@@ -38,7 +38,8 @@ use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{
     ContentBlock, DslParseResult, StreamEvent, UnifiedResponse, UnifiedUsage,
 };
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
+use closeclaw_debug_log::test_utils::{make_debug_log, wait_for_event_type};
+use closeclaw_debug_log::LogLevel;
 use closeclaw_gateway::session_handler::{HandleResult, MessageMetadata, SessionMessageHandler};
 use closeclaw_gateway::session_manager::SessionManager;
 use closeclaw_gateway::{Gateway, GatewayConfig, Message};
@@ -400,52 +401,6 @@ async fn test_non_owner_sender_cache_anomaly_notification_dropped() {
 
 // ── Step 1.3: debug_log event through the real gateway path ─────────
 
-/// Creates a `DebugLog` instance backed by a temp directory.
-async fn make_debug_log(dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.unwrap()
-}
-
-/// Reads all JSONL log events from the temp directory.
-fn read_log_events(dir: &TempDir) -> Vec<LogEvent> {
-    let mut events = Vec::new();
-    for entry in std::fs::read_dir(dir.path())
-        .unwrap()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
-            let content = std::fs::read_to_string(&path).unwrap();
-            for line in content.lines().filter(|l| !l.trim().is_empty()) {
-                events.push(LogEvent::from_jsonl(line).unwrap());
-            }
-        }
-    }
-    events
-}
-
-/// Bounded readiness poll (no fixed sleep): waits until at least one
-/// `session.cache_anomaly.detected` event lands in the JSONL files, up
-/// to 5s (two full dispatch rounds must complete first).
-async fn wait_for_cache_anomaly_events(dir: &TempDir) -> Vec<LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(5);
-    loop {
-        let events: Vec<LogEvent> = read_log_events(dir)
-            .into_iter()
-            .filter(|e| e.event_type == "session.cache_anomaly.detected")
-            .collect();
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-    }
-}
-
 /// Drives the REAL gateway dispatch path
 /// (`handle_message_with_gateway` → `finish_llm` → internal disposal
 /// block) for two rounds with a DebugLog wired on the Gateway: the
@@ -463,7 +418,7 @@ async fn test_real_gateway_path_emits_cache_anomaly_debug_log_event() {
 
     run_two_dispatch_rounds(&sm, &gw, &handler, &sid, "owner", &recorder).await;
 
-    let events = wait_for_cache_anomaly_events(&debug_dir).await;
+    let events = wait_for_event_type(debug_dir.path(), "session.cache_anomaly.detected").await;
     assert_eq!(
         events.len(),
         1,

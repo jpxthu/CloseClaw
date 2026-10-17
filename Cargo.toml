@@ -139,6 +139,8 @@ mockito.workspace = true
 futures.workspace = true
 # Fake LLM HTTP server for black-box e2e (feature-gated tests)
 closeclaw-fake-llm = { path = "crates/fake_llm" }
+# Shared debug-log test helpers (feature-gated `test_utils` module)
+closeclaw-debug-log = { path = "crates/debug_log", features = ["test-util"] }
 rusqlite.workspace = true
 sha2.workspace = true
 hex.workspace = true

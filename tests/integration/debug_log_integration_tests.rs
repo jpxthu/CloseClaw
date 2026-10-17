@@ -7,7 +7,8 @@
 //! - JSONL file format correctness and field completeness
 
 use closeclaw_common::trace_id::generate_trace_id;
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel, TraceContext};
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events};
+use closeclaw_debug_log::{LogLevel, TraceContext};
 use closeclaw_llm::debug_log::{emit_llm_event, LlmDebugLogContext, LlmEmitEventParams};
 use closeclaw_permission::debug_log::{
     emit_permission_event, PermissionDebugLogContext, PermissionEmitEventParams,
@@ -20,38 +21,6 @@ use closeclaw_session::debug_log::{
 };
 use closeclaw_slash::debug_log::{emit_slash_event, SlashDebugLogContext, SlashEmitEventParams};
 use closeclaw_tools::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
-use tempfile::TempDir;
-
-/// Helper: create a `DebugLog` instance backed by a temp directory.
-async fn make_debug_log(dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.unwrap()
-}
-
-/// Helper: read all JSONL log events from the temp directory.
-fn read_log_events(dir: &TempDir) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    for entry in std::fs::read_dir(dir.path())
-        .unwrap()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
-            let content = std::fs::read_to_string(&path).unwrap();
-            for line in content.lines() {
-                if !line.trim().is_empty() {
-                    events.push(serde_json::from_str(line).unwrap());
-                }
-            }
-        }
-    }
-    events
-}
 
 // ---------------------------------------------------------------------------
 // Scenario 1: Message chain trace_id propagation
@@ -125,7 +94,7 @@ async fn test_message_chain_trace_id_propagation() {
     // Allow async writes to complete
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 5, "expected 5 events in message chain");
 
     // All events share the same trace_id
@@ -192,7 +161,7 @@ async fn test_span_id_parent_child_derivation() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Read back the root event to capture its actual span_id
-    let root_events = read_log_events(&tmp);
+    let root_events = read_events(tmp.path()).await;
     assert_eq!(root_events.len(), 1);
     let root_span_id = root_events[0].span_id.clone();
 
@@ -214,7 +183,7 @@ async fn test_span_id_parent_child_derivation() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Read back to get the child's span_id
-    let two_events = read_log_events(&tmp);
+    let two_events = read_events(tmp.path()).await;
     assert_eq!(two_events.len(), 2);
     let child_span_id = two_events[1].span_id.clone();
 
@@ -236,7 +205,7 @@ async fn test_span_id_parent_child_derivation() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 3);
 
     // All share the same trace_id
@@ -314,7 +283,7 @@ async fn test_non_message_event_trace_id_generation() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].trace_id, trace_id_tasks);
     assert!(events[0].trace_id.starts_with("tasks_"));
@@ -345,7 +314,7 @@ async fn test_jsonl_file_format_correctness() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 1);
 
     let e = &events[0];
@@ -459,7 +428,7 @@ async fn test_cross_module_unique_span_ids() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 6);
 
     // All share the same trace_id
@@ -506,7 +475,7 @@ async fn test_permission_approval_child_span() {
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
     // Read back to get the root span_id
-    let root_events = read_log_events(&tmp);
+    let root_events = read_events(tmp.path()).await;
     assert_eq!(root_events.len(), 1);
     let perm_root_span_id = root_events[0].span_id.clone();
 
@@ -528,7 +497,7 @@ async fn test_permission_approval_child_span() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 2);
 
     // Root has no parent
@@ -592,7 +561,7 @@ async fn test_llm_retry_and_failure_events() {
 
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
 
-    let events = read_log_events(&tmp);
+    let events = read_events(tmp.path()).await;
     assert_eq!(events.len(), 3);
 
     assert_eq!(events[0].level, LogLevel::Info);
