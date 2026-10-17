@@ -72,6 +72,8 @@ mod step1_8_gap_tests;
 mod streaming_render_tests;
 pub(crate) mod streaming_send;
 #[cfg(test)]
+mod streaming_send_tests;
+#[cfg(test)]
 mod style_tests;
 #[cfg(test)]
 mod test_helpers;

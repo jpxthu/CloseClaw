@@ -23,7 +23,9 @@ enum StreamingAction {
 
 impl FeishuPlugin {
     /// Lock the cardkit streaming state, panicking if the lock is poisoned.
-    fn lock_streaming_state(&self) -> std::sync::MutexGuard<'_, CardkitStreamingRenderer> {
+    pub(super) fn lock_streaming_state(
+        &self,
+    ) -> std::sync::MutexGuard<'_, CardkitStreamingRenderer> {
         self.cardkit_streaming
             .lock()
             .expect("cardkit streaming lock poisoned")
