@@ -119,12 +119,12 @@ impl ConversationSession {
     }
 }
 
-/// Test audit accessors for the advancement-timing guarantees
-/// (`#[cfg(test)]`-only; kept in a separate impl block so the main
-/// implementation block stays within the 100-line limit).
 #[cfg(test)]
 use super::cache_prefix::RequestPrefixSnapshot;
 
+/// Test audit accessors for the advancement-timing guarantees
+/// (`#[cfg(test)]`-only; kept in a separate impl block so the main
+/// implementation block stays within the 100-line limit).
 #[cfg(test)]
 impl ConversationSession {
     /// Returns the previous round's advanced prefix snapshot, if any
