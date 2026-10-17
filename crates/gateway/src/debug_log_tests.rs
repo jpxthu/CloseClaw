@@ -8,6 +8,7 @@
 //! 5. Step 1.8: send.completed event uses inbound trace_id (not fabricated)
 //! 6. Step 1.3: session.resolved and route.decision events
 
+use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
 use crate::outbound::SendOutboundIds;
 use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
@@ -38,16 +39,6 @@ fn make_session_manager(config: &GatewayConfig) -> Arc<SessionManager> {
         None,
         ReasoningLevel::default(),
     ))
-}
-
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
 }
 
 fn make_processed_with_trace(trace_id: &str, session_key: &str) -> ProcessedMessage {
@@ -149,26 +140,6 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
 
 // ── Step 1.3 helpers ────────────────────────────────────────────────────────
 
-/// Read all LogEvent entries from the JSONL files in `dir`.
-async fn read_events_from_dir(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    let mut entries = tokio::fs::read_dir(dir).await.unwrap();
-    while let Some(entry) = entries.next_entry().await.unwrap() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            let content = tokio::fs::read_to_string(&path).await.unwrap();
-            for line in content.lines() {
-                if !line.trim().is_empty() {
-                    if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                        events.push(event);
-                    }
-                }
-            }
-        }
-    }
-    events
-}
-
 /// Create a SessionMessageHandler for route.decision tests.
 /// Sets the LLM caller on SessionManager so sessions can be created.
 async fn handler_with_sm(sm: Arc<SessionManager>) -> (SessionMessageHandler, tempfile::TempDir) {
@@ -244,18 +215,6 @@ async fn create_session_and_timestamp(
         .expect("find_or_create failed");
     let sk = compute_session_key(channel, sender_id, peer_id, None, ts * 1000);
     (sk, ts)
-}
-
-/// Poll `read_events_from_dir` until events appear, up to 2s.
-async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        let events = read_events_from_dir(dir).await;
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
 }
 
 /// Create a ProcessedMessage with trace_id, session_key, content, and
