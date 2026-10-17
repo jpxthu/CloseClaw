@@ -186,7 +186,7 @@ async fn test_simplified_path_skips_middleware() {
 
 /// When the inbound queue is full and `enqueue_inbound` rejects a message,
 /// `emit_debug_event` writes a "queue.rejected" event with the trace_id,
-/// platform, and peer_id to the DebugLog.
+/// platform, peer_id, and reason to the DebugLog.
 #[tokio::test]
 async fn test_queue_full_rejection_emits_debug_event() {
     use closeclaw_debug_log::test_utils::{make_debug_log, wait_for_event_type};
