@@ -13,8 +13,9 @@ fn make_meta(sender: &str, channel: &str, ts: i64) -> RequestContext {
     RequestContext {
         sender_id: sender.to_string(),
         channel: channel.to_string(),
+        // ChannelContext 现仅渲染 chat_name，复用 channel 实参使断言可观测。
+        chat_name: channel.to_string(),
         timestamp: ts,
-        chat_name: String::new(),
     }
 }
 
@@ -161,7 +162,7 @@ fn test_priority_no_hit_normal_behavior() {
     // Boundary marker present
     assert!(full.contains("__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__"));
     // Dynamic layers injected
-    assert!(full.contains("sender_id: bob"));
+    assert!(full.contains("chat_name: feishu"));
 }
 
 /// Test (e): None overrides behaves identically to normal path.
@@ -182,7 +183,7 @@ fn test_priority_none_overrides_normal_behavior() {
     assert_eq!(full_none, full_default);
     // Both contain static + dynamic
     assert!(full_none.contains("static"));
-    assert!(full_none.contains("sender_id: carol"));
+    assert!(full_none.contains("chat_name: ch"));
     assert!(full_none.contains("appendix"));
 }
 

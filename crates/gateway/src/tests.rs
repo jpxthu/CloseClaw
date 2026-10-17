@@ -3,7 +3,7 @@
 //! All tests live here so that src/gateway/mod.rs stays under 500 lines.
 
 use crate::compute_session_key;
-use crate::{GatewayConfig, GatewayError, Message, SessionManager};
+use crate::{GatewayConfig, GatewayError, HandleResult, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::im_plugin::{AdapterError, CardActionEvent, IMPlugin, NormalizedMessage};
@@ -559,12 +559,12 @@ async fn test_shutdown_gate_rejects_inbound_message() {
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     msg.metadata.insert("session_id".into(), sid.clone());
 
-    // handle_inbound_message should return None (rejected) when shutting down
+    // handle_inbound_message should be gate-rejected (MessageQueued) when shutting down
     let result = gw
         .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
-        result.is_none(),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "message should be rejected during shutdown"
     );
 }
@@ -585,7 +585,7 @@ async fn test_shutdown_gate_rejects_inbound_message_forceful() {
         .handle_inbound_message(make_processed_msg(&msg, "mock"), Some("sender"), "mock")
         .await;
     assert!(
-        result.is_none(),
+        matches!(result, Some(HandleResult::MessageQueued(_))),
         "message should be rejected during forceful shutdown"
     );
 }

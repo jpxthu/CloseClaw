@@ -235,6 +235,11 @@ async fn setup_with_verbosity(
         ReasoningLevel::default(),
     ));
     let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
+    // VerbosityFilter（priority 5）先于 trace（priority 200）执行：
+    // 现行架构中 verbosity 过滤是链内 processor，验证下游 processor 看到的是过滤后的 blocks。
+    registry.register(Arc::new(
+        closeclaw_processor_chain::verbosity_filter::VerbosityFilter,
+    ));
     registry.register(Arc::new(trace));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
     gw.register_plugin(Arc::new(MockPlugin::new("mock"))).await;
@@ -403,10 +408,7 @@ async fn test_verbosity_full_all_blocks_before_chain() {
 /// `split_static_dynamic`, this module will fail to compile.
 #[test]
 fn test_gateway_no_direct_system_prompt_imports() {
-    assert!(
-        true,
-        "Gateway module compiles without direct System Prompt imports"
-    );
+    // 编译期断言：gateway 若直接导入 system_prompt 构建函数，本模块即编译失败。
 }
 
 /// Verify that `SessionMessageHandler` delegates LLM calls
@@ -577,13 +579,15 @@ async fn test_permission_denied_handler_still_invoked() {
     gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
         .await;
 
-    use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
+    use closeclaw_permission::engine::engine_types::{
+        Action, Effect, MatchType, Rule, RuleSet, Subject,
+    };
     let deny_rules = RuleSet {
         rules: vec![Rule {
             name: "deny-all".to_owned(),
             subject: Subject::AgentOnly {
                 agent: "*".to_owned(),
-                match_type: Default::default(),
+                match_type: MatchType::Glob,
             },
             effect: Effect::Deny,
             actions: vec![Action::All],
@@ -615,8 +619,12 @@ async fn test_permission_denied_handler_still_invoked() {
     assert!(matches!(result, Some(crate::HandleResult::SlashHandled)));
 
     let ops = order.lock().expect("lock");
-    assert_eq!(ops.len(), 0);
-    // handler.handle() should NOT be invoked because permission was denied before execution.
+    // 现行语义（deny 分支改为 handle-then-gate，参照
+    // slash_permission_tests::test_non_owner_high_risk_denied_handler_called_execute_skipped）：
+    // 权限拒绝时 handler.handle() 仍被调用一次（用于产出 SlashResult），
+    // 但 result.execute() 被跳过。
+    assert_eq!(ops.len(), 1);
+    assert_eq!(ops[0], "handler.handle()");
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
