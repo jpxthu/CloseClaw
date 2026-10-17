@@ -54,25 +54,14 @@ async fn test_dreaming_scheduler_shutdown_exits_loop() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler = make_scheduler(storage, config, tmp.path());
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-
-    // Spawn the scheduler, then immediately send shutdown.
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    // Give the loop a moment to start, then signal shutdown.
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    // The task should complete within a short timeout.
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler should exit promptly after shutdown signal"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "after shutdown signal",
+    )
+    .await;
 }
 
 /// run_once calls dreaming pipeline first, then mining scan.
@@ -154,22 +143,15 @@ async fn test_dreaming_scheduler_cron_schedule_shutdown() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 3 * * *".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with cron schedule should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "with cron schedule",
+    )
+    .await;
 }
 
 /// Scheduler with invalid cron falls back to fixed interval.
@@ -178,22 +160,15 @@ async fn test_dreaming_scheduler_invalid_cron_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("not-a-cron".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with invalid cron should exit promptly (fallback)"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "with invalid cron (fallback)",
+    )
+    .await;
 }
 
 /// Scheduler with no schedule uses fixed interval (backward compat).
@@ -202,23 +177,16 @@ async fn test_dreaming_scheduler_no_schedule_uses_fixed() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler = make_scheduler(storage, config, tmp.path());
+    let scheduler = make_scheduler(storage, config, tmp.path());
 
     assert!(scheduler.schedule.is_none());
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler without schedule should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "without schedule",
+    )
+    .await;
 }
 
 // ── Step 1.6: Cron schedule consumption tests ─────────────────────────
@@ -250,22 +218,14 @@ async fn test_with_schedule_empty_string_fallback() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
-        make_scheduler(storage, config, tmp.path()).with_schedule(Some(String::new()));
+    let scheduler = make_scheduler(storage, config, tmp.path()).with_schedule(Some(String::new()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with empty schedule string should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "with empty schedule string",
+    )
+    .await;
 }
 
 /// Scheduler with hourly cron parses and runs correctly.
@@ -274,22 +234,15 @@ async fn test_dreaming_scheduler_hourly_cron() {
     let storage: Arc<dyn PersistenceService> = Arc::new(TestStorage::default());
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let mut scheduler =
+    let scheduler =
         make_scheduler(storage, config, tmp.path()).with_schedule(Some("0 * * * *".to_string()));
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move {
-        scheduler.run(shutdown_rx).await;
-    });
-
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    shutdown_tx.send(()).unwrap();
-
-    let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(
-        result.is_ok(),
-        "scheduler with hourly cron should exit promptly"
-    );
+    run_scheduler_briefly(
+        scheduler,
+        tokio::time::sleep(Duration::from_millis(50)),
+        "with hourly cron",
+    )
+    .await;
 }
 
 // ── Step 1.5: Config hot-reload tests ────────────────────────────────
@@ -358,6 +311,7 @@ async fn test_config_change_memory_section_updates_components() {
         wait_until("Memory section reload applied (miner enabled)", || {
             miner.is_enabled()
         }),
+        "config change applies Memory section reload",
     )
     .await;
 
@@ -399,9 +353,11 @@ async fn test_config_change_non_memory_ignored() {
     // receiver subscribed at construction, so the event is already buffered;
     // the 200ms only needs to cover the spawned loop reaching its first
     // select poll, where the buffered event is drained.
-    run_scheduler_briefly(scheduler, async {
-        tokio::time::sleep(Duration::from_millis(200)).await
-    })
+    run_scheduler_briefly(
+        scheduler,
+        async { tokio::time::sleep(Duration::from_millis(200)).await },
+        "non-Memory event ignored by config change loop",
+    )
     .await;
 
     // Assert: pipeline stays disabled, so the pending session is untouched
@@ -752,29 +708,33 @@ async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
     .with_mining_notify_rx(notify_rx);
 
     let observed = Arc::clone(&test_storage);
-    run_scheduler_briefly(scheduler, async move {
-        // A configured-agent session must be mined immediately.
-        notify_tx.send("notify-mined".to_string()).await.unwrap();
-        wait_until("notified session mined", || {
-            test_storage
-                .mined_ids()
-                .iter()
-                .any(|id| id == "notify-mined")
-        })
-        .await;
+    run_scheduler_briefly(
+        scheduler,
+        async move {
+            // A configured-agent session must be mined immediately.
+            notify_tx.send("notify-mined".to_string()).await.unwrap();
+            wait_until("notified session mined", || {
+                test_storage
+                    .mined_ids()
+                    .iter()
+                    .any(|id| id == "notify-mined")
+            })
+            .await;
 
-        // An unconfigured-agent session is silently ignored (no panic);
-        // the confirm session after it proves the ignored one was consumed.
-        notify_tx.send("notify-foreign".to_string()).await.unwrap();
-        notify_tx.send("notify-confirm".to_string()).await.unwrap();
-        wait_until("confirm session mined", || {
-            test_storage
-                .mined_ids()
-                .iter()
-                .any(|id| id == "notify-confirm")
-        })
-        .await;
-    })
+            // An unconfigured-agent session is silently ignored (no panic);
+            // the confirm session after it proves the ignored one was consumed.
+            notify_tx.send("notify-foreign".to_string()).await.unwrap();
+            notify_tx.send("notify-confirm".to_string()).await.unwrap();
+            wait_until("confirm session mined", || {
+                test_storage
+                    .mined_ids()
+                    .iter()
+                    .any(|id| id == "notify-confirm")
+            })
+            .await;
+        },
+        "mining notify handled configured and unconfigured sessions",
+    )
     .await;
 
     assert!(
@@ -844,21 +804,25 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
     .with_mining_notify_rx(notify_rx);
 
     let observed = Arc::clone(&test_storage);
-    run_scheduler_briefly(scheduler, async move {
-        notify_tx
-            .send("notify-no-agents".to_string())
+    run_scheduler_briefly(
+        scheduler,
+        async move {
+            notify_tx
+                .send("notify-no-agents".to_string())
+                .await
+                .unwrap();
+            // Completes only once the first message was dequeued by the
+            // loop — proof the empty-agents guard branch executed.
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                notify_tx.send("consumption-proof".to_string()),
+            )
             .await
+            .expect("loop must consume the notify message within 1s")
             .unwrap();
-        // Completes only once the first message was dequeued by the
-        // loop — proof the empty-agents guard branch executed.
-        tokio::time::timeout(
-            Duration::from_secs(1),
-            notify_tx.send("consumption-proof".to_string()),
-        )
-        .await
-        .expect("loop must consume the notify message within 1s")
-        .unwrap();
-    })
+        },
+        "empty-agents guard suppressed mining",
+    )
     .await;
 
     assert!(
@@ -906,6 +870,7 @@ async fn test_config_broadcast_lagged_loop_survives_and_applies_reload() {
     run_scheduler_briefly(
         scheduler,
         wait_until("post-lag memory reload applied", || miner.is_enabled()),
+        "loop survives broadcast lag and applies reload",
     )
     .await;
 
