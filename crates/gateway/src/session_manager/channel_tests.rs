@@ -7,6 +7,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 /// `workspace_dir` 缺失时 `/new` 新建会话的 workdir 回退系统临时目录。
 #[tokio::test]
 async fn test_force_new_workspace_none_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let mgr = make_test_mgr(None);
 
     let session_id = mgr.force_new_for_channel("feishu", "agent-ws-none").await;
@@ -17,7 +18,7 @@ async fn test_force_new_workspace_none_falls_back_to_temp_dir() {
         .expect("ConversationSession should exist");
     assert_eq!(
         conv.read().await.workdir(),
-        std::env::temp_dir().as_path(),
+        expected.as_path(),
         "missing workspace_dir must fall back to temp dir"
     );
 }
@@ -26,6 +27,7 @@ async fn test_force_new_workspace_none_falls_back_to_temp_dir() {
 /// 系统临时目录，会话仍创建、不 panic、不向上传播错误。
 #[tokio::test]
 async fn test_force_new_ensure_failed_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let tmp = tempfile::TempDir::new().unwrap();
     let mgr = SessionManager::new(
         &super::tests::test_config(),
@@ -42,7 +44,7 @@ async fn test_force_new_ensure_failed_falls_back_to_temp_dir() {
         .expect("ConversationSession should exist");
     assert_eq!(
         conv.read().await.workdir(),
-        std::env::temp_dir().as_path(),
+        expected.as_path(),
         "ensure failure must silently fall back to temp dir"
     );
 }

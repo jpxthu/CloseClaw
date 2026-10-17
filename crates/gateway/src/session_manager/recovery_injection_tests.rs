@@ -3,7 +3,7 @@
 use super::SessionManager;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 use closeclaw_session::persistence::{
-    PersistenceError, PersistenceService, SessionCheckpoint, SessionStatus,
+    PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint, SessionStatus,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -89,8 +89,6 @@ impl PersistenceService for RecoveryMockPersist {
 
 /// Helper: create a SessionManager with a mock persistence service.
 fn make_recovery_test_mgr(persist: Arc<RecoveryMockPersist>) -> SessionManager {
-    use closeclaw_session::persistence::ReasoningLevel;
-
     SessionManager::new(
         &super::tests::test_config(),
         Some(persist),
@@ -378,6 +376,7 @@ async fn test_empty_dirty_list() {
 /// 回退系统临时目录（missing-workspace 分支）。
 #[tokio::test]
 async fn test_injection_workdir_without_workspace_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let cp = SessionCheckpoint::new("sess-ws-none".to_string())
         .with_status(SessionStatus::Active)
         .with_agent_id("agent-ws-none".to_string())
@@ -394,7 +393,7 @@ async fn test_injection_workdir_without_workspace_falls_back_to_temp_dir() {
         .expect("ConversationSession should exist");
     assert_eq!(
         conv.read().await.workdir(),
-        std::env::temp_dir().as_path(),
+        expected.as_path(),
         "missing workspace_dir must fall back to temp dir"
     );
 }
@@ -403,6 +402,7 @@ async fn test_injection_workdir_without_workspace_falls_back_to_temp_dir() {
 /// 系统临时目录，会话仍创建、不 panic、不向上传播错误。
 #[tokio::test]
 async fn test_injection_ensure_failed_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let tmp = tempfile::TempDir::new().unwrap();
     let cp = SessionCheckpoint::new("sess-ws-err".to_string())
         .with_status(SessionStatus::Active)
@@ -413,7 +413,7 @@ async fn test_injection_ensure_failed_falls_back_to_temp_dir() {
         &super::tests::test_config(),
         Some(persist),
         Some(tmp.path().to_path_buf()),
-        closeclaw_session::persistence::ReasoningLevel::default(),
+        ReasoningLevel::default(),
     );
 
     mgr.inject_startup_recovery_notifications(&["sess-ws-err".to_string()])
@@ -425,7 +425,7 @@ async fn test_injection_ensure_failed_falls_back_to_temp_dir() {
         .expect("ConversationSession should exist");
     assert_eq!(
         conv.read().await.workdir(),
-        std::env::temp_dir().as_path(),
+        expected.as_path(),
         "ensure failure must silently fall back to temp dir"
     );
 }

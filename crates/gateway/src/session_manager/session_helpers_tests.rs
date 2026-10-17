@@ -182,7 +182,8 @@ async fn test_restored_agent_id_missing_fallback_to_message_to() {
 }
 
 #[tokio::test]
-async fn test_restored_workspace_dir_none_returns_tmp() {
+async fn test_restored_workspace_dir_none_returns_temp_dir() {
+    let expected = std::env::temp_dir();
     let cp = SessionCheckpoint::new("s4".to_string())
         .with_agent_id("cp-agent".to_string())
         .with_sender_id("cp-user".to_string());
@@ -193,7 +194,7 @@ async fn test_restored_workspace_dir_none_returns_tmp() {
         .await
         .unwrap();
 
-    assert_eq!(result, std::env::temp_dir());
+    assert_eq!(result, expected.as_path());
 }
 
 #[tokio::test]
@@ -227,11 +228,12 @@ async fn test_restored_no_checkpoint_fallback_to_message() {
 /// → 静默回退系统临时目录，不 panic、不向上传播错误。
 #[tokio::test]
 async fn test_restored_ensure_failed_silently_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let tmp = tempfile::TempDir::new().unwrap();
     let wd = Some(tmp.path().to_path_buf());
     let cp = SessionCheckpoint::new("s-ensure-fail".to_string())
         .with_agent_id("bad/agent".to_string())
-        .with_sender_id("bad/user".to_string());
+        .with_sender_id("cp-user".to_string());
     let cm = make_cm(Some(cp));
     let msg = test_message();
 
@@ -244,7 +246,7 @@ async fn test_restored_ensure_failed_silently_falls_back_to_temp_dir() {
     );
     assert_eq!(
         result.unwrap(),
-        std::env::temp_dir(),
+        expected.as_path(),
         "restored ensure failure must silently fall back to temp dir"
     );
 }
@@ -252,16 +254,18 @@ async fn test_restored_ensure_failed_silently_falls_back_to_temp_dir() {
 /// 全新会话（restored=false）且 workspace_dir 缺失 → 回退系统临时目录。
 #[tokio::test]
 async fn test_new_session_workspace_none_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let cm = make_cm(None);
     let msg = test_message();
+    let wd: Option<PathBuf> = None;
 
-    let result = compute_session_workdir(false, "s-new-none", &msg, &None, &cm)
+    let result = compute_session_workdir(false, "s-new-none", &msg, &wd, &cm)
         .await
         .unwrap();
 
     assert_eq!(
         result,
-        std::env::temp_dir(),
+        expected.as_path(),
         "new session without workspace_dir must fall back to temp dir"
     );
 }
