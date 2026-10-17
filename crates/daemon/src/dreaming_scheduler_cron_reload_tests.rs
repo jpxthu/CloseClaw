@@ -92,6 +92,7 @@ async fn test_cron_loop_applies_memory_reload() {
     run_scheduler_briefly(
         scheduler,
         wait_until("cron loop applied Memory reload", || miner.is_enabled()),
+        "cron loop applies Memory reload",
     )
     .await;
 
@@ -168,9 +169,11 @@ async fn test_cron_loop_ignores_non_memory_reload() {
 
     notify_section_reload(&config_manager, ConfigSection::Gateway, "gateway.json");
 
-    run_scheduler_briefly(scheduler, async {
-        tokio::time::sleep(Duration::from_millis(200)).await
-    })
+    run_scheduler_briefly(
+        scheduler,
+        async { tokio::time::sleep(Duration::from_millis(200)).await },
+        "cron loop ignores non-Memory reload",
+    )
     .await;
 
     assert!(

@@ -854,9 +854,14 @@ pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
 /// applied (an observable state flip; or a bounded window when the event
 /// intentionally produces no observable change) — then shut the loop down
 /// and verify prompt exit.
+///
+/// `what` describes the scenario under test and is surfaced in the
+/// assertion message when the shutdown wait fails (same pattern as
+/// [`wait_until`]).
 pub async fn run_scheduler_briefly(
     mut scheduler: DreamingScheduler,
     event_consumed: impl std::future::Future<Output = ()>,
+    what: &str,
 ) {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
@@ -867,5 +872,5 @@ pub async fn run_scheduler_briefly(
     shutdown_tx.send(()).unwrap();
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
-    assert!(result.is_ok(), "scheduler should exit promptly");
+    assert!(result.is_ok(), "scheduler should exit promptly: {what}");
 }

@@ -358,6 +358,7 @@ async fn test_config_change_memory_section_updates_components() {
         wait_until("Memory section reload applied (miner enabled)", || {
             miner.is_enabled()
         }),
+        "config change applies Memory section reload",
     )
     .await;
 
@@ -399,9 +400,11 @@ async fn test_config_change_non_memory_ignored() {
     // receiver subscribed at construction, so the event is already buffered;
     // the 200ms only needs to cover the spawned loop reaching its first
     // select poll, where the buffered event is drained.
-    run_scheduler_briefly(scheduler, async {
-        tokio::time::sleep(Duration::from_millis(200)).await
-    })
+    run_scheduler_briefly(
+        scheduler,
+        async { tokio::time::sleep(Duration::from_millis(200)).await },
+        "non-Memory event ignored by config change loop",
+    )
     .await;
 
     // Assert: pipeline stays disabled, so the pending session is untouched
@@ -752,29 +755,33 @@ async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
     .with_mining_notify_rx(notify_rx);
 
     let observed = Arc::clone(&test_storage);
-    run_scheduler_briefly(scheduler, async move {
-        // A configured-agent session must be mined immediately.
-        notify_tx.send("notify-mined".to_string()).await.unwrap();
-        wait_until("notified session mined", || {
-            test_storage
-                .mined_ids()
-                .iter()
-                .any(|id| id == "notify-mined")
-        })
-        .await;
+    run_scheduler_briefly(
+        scheduler,
+        async move {
+            // A configured-agent session must be mined immediately.
+            notify_tx.send("notify-mined".to_string()).await.unwrap();
+            wait_until("notified session mined", || {
+                test_storage
+                    .mined_ids()
+                    .iter()
+                    .any(|id| id == "notify-mined")
+            })
+            .await;
 
-        // An unconfigured-agent session is silently ignored (no panic);
-        // the confirm session after it proves the ignored one was consumed.
-        notify_tx.send("notify-foreign".to_string()).await.unwrap();
-        notify_tx.send("notify-confirm".to_string()).await.unwrap();
-        wait_until("confirm session mined", || {
-            test_storage
-                .mined_ids()
-                .iter()
-                .any(|id| id == "notify-confirm")
-        })
-        .await;
-    })
+            // An unconfigured-agent session is silently ignored (no panic);
+            // the confirm session after it proves the ignored one was consumed.
+            notify_tx.send("notify-foreign".to_string()).await.unwrap();
+            notify_tx.send("notify-confirm".to_string()).await.unwrap();
+            wait_until("confirm session mined", || {
+                test_storage
+                    .mined_ids()
+                    .iter()
+                    .any(|id| id == "notify-confirm")
+            })
+            .await;
+        },
+        "mining notify handled configured and unconfigured sessions",
+    )
     .await;
 
     assert!(
@@ -844,21 +851,25 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
     .with_mining_notify_rx(notify_rx);
 
     let observed = Arc::clone(&test_storage);
-    run_scheduler_briefly(scheduler, async move {
-        notify_tx
-            .send("notify-no-agents".to_string())
+    run_scheduler_briefly(
+        scheduler,
+        async move {
+            notify_tx
+                .send("notify-no-agents".to_string())
+                .await
+                .unwrap();
+            // Completes only once the first message was dequeued by the
+            // loop — proof the empty-agents guard branch executed.
+            tokio::time::timeout(
+                Duration::from_secs(1),
+                notify_tx.send("consumption-proof".to_string()),
+            )
             .await
+            .expect("loop must consume the notify message within 1s")
             .unwrap();
-        // Completes only once the first message was dequeued by the
-        // loop — proof the empty-agents guard branch executed.
-        tokio::time::timeout(
-            Duration::from_secs(1),
-            notify_tx.send("consumption-proof".to_string()),
-        )
-        .await
-        .expect("loop must consume the notify message within 1s")
-        .unwrap();
-    })
+        },
+        "empty-agents guard suppressed mining",
+    )
     .await;
 
     assert!(
@@ -906,6 +917,7 @@ async fn test_config_broadcast_lagged_loop_survives_and_applies_reload() {
     run_scheduler_briefly(
         scheduler,
         wait_until("post-lag memory reload applied", || miner.is_enabled()),
+        "loop survives broadcast lag and applies reload",
     )
     .await;
 
