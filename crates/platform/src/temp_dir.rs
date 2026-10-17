@@ -24,6 +24,7 @@ use std::path::PathBuf;
 /// directory. The system temporary directory is guaranteed to exist by the
 /// operating system; writability and temporary file lifecycle are the
 /// responsibility of the caller.
+#[must_use]
 pub fn system_temp_dir() -> PathBuf {
     std::env::temp_dir()
 }
