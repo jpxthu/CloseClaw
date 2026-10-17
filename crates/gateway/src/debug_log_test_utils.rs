@@ -26,7 +26,7 @@ pub async fn read_events(dir: &std::path::Path) -> Vec<LogEvent> {
                 if let Ok(content) = tokio::fs::read_to_string(&path).await {
                     for line in content.lines() {
                         if !line.trim().is_empty() {
-                            if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
+                            if let Ok(event) = LogEvent::from_jsonl(line) {
                                 events.push(event);
                             }
                         }
