@@ -131,7 +131,7 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
             parent: None,
         });
         // Give the spawned task a moment to complete.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     });
 }
 
@@ -702,7 +702,7 @@ async fn test_inbound_parsed_event_emitted() {
     gw.enqueue_inbound(request).await.unwrap();
 
     // Give spawned tasks time to write events.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let inbound_events: Vec<_> = events
@@ -748,7 +748,7 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
         span_id: None,
     };
     gw.enqueue_inbound(request).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_deadline(temp_dir.path(), Duration::from_millis(500)).await;
     assert!(
@@ -802,7 +802,7 @@ async fn test_outbound_feishu_events_emitted() {
     assert!(result.is_ok(), "send_outbound should succeed");
 
     // Give spawned tasks time to write events.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
 
@@ -893,7 +893,7 @@ async fn test_outbound_non_feishu_no_feishu_events() {
         .await;
     assert!(result.is_ok(), "send_outbound should succeed for discord");
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     assert!(

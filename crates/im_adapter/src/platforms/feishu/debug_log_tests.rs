@@ -356,6 +356,10 @@ async fn test_send_duration_non_negative() {
 
 // ===========================================================================
 // 5. Event structure completeness
+//
+// Required fields present and well-formed (missing or mistyped fields
+// fail LogEvent deserialization and get skipped by read_events,
+// surfacing here as an empty/absent event).
 // ===========================================================================
 
 /// inbound.parse JSONL contains all required fields.
@@ -374,9 +378,6 @@ async fn test_inbound_parse_event_structure() {
     assert!(!events.is_empty(), "inbound.parse event should exist");
     let evt = &events[0];
 
-    // Required fields present and well-formed (missing or mistyped
-    // fields fail LogEvent deserialization and get skipped by
-    // read_events, surfacing here as an empty/absent event).
     assert!(!evt.trace_id.is_empty(), "missing trace_id");
     assert!(!evt.span_id.is_empty(), "missing span_id");
     assert!(evt.timestamp > 0, "missing timestamp");
@@ -404,9 +405,6 @@ async fn test_outbound_render_event_structure() {
     assert!(!events.is_empty(), "outbound.render event should exist");
     let evt = &events[0];
 
-    // Required fields present and well-formed (missing or mistyped
-    // fields fail LogEvent deserialization and get skipped by
-    // read_events, surfacing here as an empty/absent event).
     assert!(!evt.trace_id.is_empty(), "missing trace_id");
     assert!(!evt.span_id.is_empty(), "missing span_id");
     assert!(evt.timestamp > 0, "missing timestamp");
@@ -436,9 +434,6 @@ async fn test_outbound_send_event_structure() {
     assert!(!events.is_empty(), "outbound.send event should exist");
     let evt = &events[0];
 
-    // Required fields present and well-formed (missing or mistyped
-    // fields fail LogEvent deserialization and get skipped by
-    // read_events, surfacing here as an empty/absent event).
     assert!(!evt.trace_id.is_empty(), "missing trace_id");
     assert!(!evt.span_id.is_empty(), "missing span_id");
     assert!(evt.timestamp > 0, "missing timestamp");

@@ -229,7 +229,7 @@ async fn wait_for_checkpoint(
     persist: &RecordingMockPersist,
     session_id: &str,
 ) -> SessionCheckpoint {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         let snap = persist.checkpoint.lock().await.clone();
         if let Some(cp) = snap {
@@ -242,7 +242,7 @@ async fn wait_for_checkpoint(
             "checkpoint for {} not persisted in time",
             session_id
         );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
 
@@ -256,7 +256,7 @@ async fn wait_for_sent_flow_checkpoint(
     persist: &RecordingMockPersist,
     session_id: &str,
 ) -> SessionCheckpoint {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         let snap = persist.checkpoint.lock().await.clone();
         if let Some(cp) = snap {
@@ -275,7 +275,7 @@ async fn wait_for_sent_flow_checkpoint(
             "sent-flow terminal checkpoint for {} not reached in time",
             session_id
         );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
 
@@ -285,7 +285,7 @@ async fn wait_for_pending_message(
     persist: &RecordingMockPersist,
     session_id: &str,
 ) -> (SessionCheckpoint, closeclaw_common::PendingMessage) {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
     loop {
         let snap = persist.checkpoint.lock().await.clone();
         if let Some(cp) = snap {
@@ -305,7 +305,7 @@ async fn wait_for_pending_message(
             "checkpoint for {} missing assistant pending message in time",
             session_id
         );
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        tokio::time::sleep(Duration::from_millis(25)).await;
     }
 }
 
@@ -364,7 +364,7 @@ async fn test_aggregate_ids_and_meta_full_flow() {
 
     // SendDebugCtx happy path: both aggregated emits fired with the struct's
     // identity fields, and each emitter kept its own payload fields.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let events = read_events_with_timeout(temp_dir.path()).await;
 
     let api_sends: Vec<_> = events
@@ -523,7 +523,7 @@ async fn test_send_outbound_ids_none_vs_some_boundary() {
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let events_none = read_events_with_deadline(temp_none.path(), Duration::from_millis(500)).await;
     assert!(
         events_none
@@ -557,7 +557,7 @@ async fn test_send_outbound_ids_none_vs_some_boundary() {
         )
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let events_some = read_events_with_timeout(temp_some.path()).await;
     assert_eq!(
         events_some
@@ -722,7 +722,7 @@ async fn test_none_trace_id_with_some_session_key_skip_and_complete() {
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Sent)));
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let events = read_events_with_deadline(temp_dir.path(), Duration::from_millis(500)).await;
     assert!(
         events.iter().all(|e| e.event_type != "feishu.api.send"),
@@ -783,7 +783,7 @@ async fn test_send_failure_emits_aggregated_event_then_notifies() {
         .await;
     assert!(matches!(outcome, Ok(SendOutcome::Notified)));
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
     let events = read_events_with_timeout(temp_dir.path()).await;
     let api_sends: Vec<_> = events
         .iter()
