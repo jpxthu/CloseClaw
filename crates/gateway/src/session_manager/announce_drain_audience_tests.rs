@@ -7,65 +7,21 @@
 //! together with the audience declaration, so an OwnerOnly notification
 //! reaches the plugin only for the Owner sender (silent drop otherwise).
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use super::tests::clear_global_prompt_state;
 use crate::outbound_notification_test_utils::RecordingPlugin;
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_common::IMPlugin;
 use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::NotificationAudience;
-use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
 use tempfile::TempDir;
 
 const ROUTE_SID: &str = "parent-audience-route";
 const ROUTE_CHAT_ID: &str = "chat-audience-1";
-
-/// Minimal in-memory mock persistence holding checkpoints with sender ids.
-struct MockPersist(tokio::sync::Mutex<HashMap<String, SessionCheckpoint>>);
-
-impl MockPersist {
-    fn new() -> Self {
-        Self(tokio::sync::Mutex::new(HashMap::new()))
-    }
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersist {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.0
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp.clone());
-        Ok(())
-    }
-    async fn load_checkpoint(
-        &self,
-        sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.0.lock().await.get(sid).cloned())
-    }
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn purge_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn restore_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-}
 
 /// Build SessionManager + Gateway wired to mock persistence with the
 /// given checkpoint `sender_id`, a conversation session registered on
@@ -88,7 +44,7 @@ async fn setup_route_test(
 
     // Checkpoint storage carrying the current user — the route reads it
     // via SessionManager::get_sender_id (workflow_owner.rs 取法).
-    let persist = Arc::new(MockPersist::new());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let mut cp = SessionCheckpoint::new(ROUTE_SID.to_string());
     cp.sender_id = Some(sender_id.to_string());
     persist.save_checkpoint(&cp).await.unwrap();

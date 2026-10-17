@@ -17,75 +17,19 @@
 
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
+use crate::persist_test_utils::SnapshotMockPersist;
 use closeclaw_session::persistence::PendingMessage;
 use closeclaw_session::persistence::{
     PendingOperationType, PersistenceError, PersistenceService, SessionCheckpoint,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::Mutex;
-
-// ── Mock persistence service ──────────────────────────────────────────────
-
-struct MockPersistence {
-    checkpoints: Mutex<HashMap<String, SessionCheckpoint>>,
-}
-
-impl MockPersistence {
-    fn new() -> Self {
-        Self {
-            checkpoints: Mutex::new(HashMap::new()),
-        }
-    }
-
-    async fn insert_checkpoint(&self, cp: SessionCheckpoint) {
-        self.checkpoints
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp);
-    }
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersistence {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.checkpoints.lock().await.get(session_id).cloned())
-    }
-
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn purge_checkpoint(&self, _id: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-}
 
 // ── Test helpers ──────────────────────────────────────────────────────────
 
 /// Create a SessionManager with a mock persistence service.
-async fn setup_with_mock_persistence() -> (Arc<SessionManager>, Arc<MockPersistence>) {
+async fn setup_with_mock_persistence() -> (Arc<SessionManager>, Arc<SnapshotMockPersist>) {
     let mgr = Arc::new(make_test_mgr(None));
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     let storage: Arc<dyn PersistenceService> = mock.clone() as Arc<dyn PersistenceService>;
     let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(storage));
     mgr.set_checkpoint_manager(cm).await;
@@ -144,8 +88,9 @@ async fn test_push_does_not_write_outbound_pending_ops() {
     )
     .await;
 
-    mock.insert_checkpoint(SessionCheckpoint::new(session_id.to_string()))
-        .await;
+    mock.save_checkpoint(&SessionCheckpoint::new(session_id.to_string()))
+        .await
+        .unwrap();
 
     let msg =
         PendingMessage::with_target_channel("msg-aw1".into(), "hello".into(), "feishu".into());
@@ -199,8 +144,9 @@ async fn test_push_persists_checkpoint_synchronously() {
         mock.clone() as Arc<dyn PersistenceService>,
     )
     .await;
-    mock.insert_checkpoint(SessionCheckpoint::new(session_id.to_string()))
-        .await;
+    mock.save_checkpoint(&SessionCheckpoint::new(session_id.to_string()))
+        .await
+        .unwrap();
 
     let msg = PendingMessage::new("msg-sync".into(), "sync test".into());
     mgr.push_pending_message(session_id, msg)
@@ -253,8 +199,9 @@ async fn test_multiple_pushes_no_outbound_ops() {
         mock.clone() as Arc<dyn PersistenceService>,
     )
     .await;
-    mock.insert_checkpoint(SessionCheckpoint::new(session_id.to_string()))
-        .await;
+    mock.save_checkpoint(&SessionCheckpoint::new(session_id.to_string()))
+        .await
+        .unwrap();
 
     for i in 0..3 {
         let msg = PendingMessage::new(format!("msg-{}", i), format!("content {}", i));
@@ -307,7 +254,7 @@ async fn test_push_no_checkpoint_manager_is_noop() {
     register_conversation_session(
         &mgr,
         session_id,
-        Arc::new(MockPersistence::new()) as Arc<dyn PersistenceService>,
+        Arc::new(SnapshotMockPersist::new()) as Arc<dyn PersistenceService>,
     )
     .await;
 
@@ -365,8 +312,9 @@ async fn test_crash_recovery_queue_entries_survive_reload() {
         mock.clone() as Arc<dyn PersistenceService>,
     )
     .await;
-    mock.insert_checkpoint(SessionCheckpoint::new(session_id.to_string()))
-        .await;
+    mock.save_checkpoint(&SessionCheckpoint::new(session_id.to_string()))
+        .await
+        .unwrap();
 
     let msg = PendingMessage::with_target_channel(
         "msg-crash".into(),

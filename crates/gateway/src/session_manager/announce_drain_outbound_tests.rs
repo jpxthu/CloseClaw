@@ -18,105 +18,17 @@
 
 use super::tests::{clear_global_prompt_state, make_test_mgr};
 use super::SessionManager;
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, NormalizedMessage, RenderedOutput};
 use closeclaw_session::pending_operation_detail::PendingOperationDetail;
 use closeclaw_session::persistence::{
-    AgentRole, PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceError,
-    PersistenceService, SessionCheckpoint,
+    PendingOperation, PendingOperationStatus, PendingOperationType, PersistenceService,
+    SessionCheckpoint,
 };
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::Mutex;
-
-// ── Mock persistence service ──────────────────────────────────────────────
-
-struct MockPersistence {
-    checkpoints: Mutex<HashMap<String, SessionCheckpoint>>,
-}
-
-impl MockPersistence {
-    fn new() -> Self {
-        Self {
-            checkpoints: Mutex::new(HashMap::new()),
-        }
-    }
-
-    async fn insert_checkpoint(&self, cp: SessionCheckpoint) {
-        self.checkpoints
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp);
-    }
-}
-
-#[async_trait]
-impl PersistenceService for MockPersistence {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.checkpoints
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.checkpoints.lock().await.get(session_id).cloned())
-    }
-
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn restore_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn purge_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn invalidate_session(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_idle_sessions_for_agent(
-        self: &Self,
-        _: &str,
-        _: AgentRole,
-        _: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_expired_archived_sessions_for_agent(
-        self: &Self,
-        _: &str,
-        _: AgentRole,
-        _: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(Vec::new())
-    }
-}
 
 // ── Mock IM plugin ────────────────────────────────────────────────────────
 
@@ -267,7 +179,7 @@ async fn register_session(mgr: &SessionManager, session_id: &str, channel: &str)
     );
 }
 
-async fn set_checkpoint_manager(mgr: &SessionManager, mock: Arc<MockPersistence>) {
+async fn set_checkpoint_manager(mgr: &SessionManager, mock: Arc<SnapshotMockPersist>) {
     let storage: Arc<dyn PersistenceService> = mock as Arc<dyn PersistenceService>;
     let cm = Arc::new(closeclaw_session::checkpoint_manager::CheckpointManager::new(storage));
     mgr.set_checkpoint_manager(cm).await;
@@ -314,14 +226,14 @@ async fn test_drain_outbound_normal_path() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-normal";
     register_session(&mgr, session_id, "other_channel").await;
 
     let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "hello world");
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -349,7 +261,7 @@ async fn test_drain_outbound_transcript_fallback() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-transcript";
@@ -384,7 +296,7 @@ async fn test_drain_outbound_transcript_fallback() {
             "latest transcript content".into(),
             "test_channel".into(),
         ));
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -417,7 +329,7 @@ async fn test_drain_outbound_partial_failure() {
 
     // Plugin that fails after 1 successful send.
     let (mgr, _gw, plugin) = setup_with_failing_gateway(1).await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-partial";
@@ -437,7 +349,7 @@ async fn test_drain_outbound_partial_failure() {
                 "test_channel".into(),
             ));
     }
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -483,14 +395,14 @@ async fn test_drain_outbound_no_pending_ops() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-empty";
     register_session(&mgr, session_id, "test_channel").await;
 
     let cp = SessionCheckpoint::new(session_id.into());
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -507,7 +419,7 @@ async fn test_drain_outbound_no_checkpoint() {
     clear_global_prompt_state();
 
     let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-no-cp";
@@ -542,7 +454,7 @@ async fn test_drain_outbound_no_content_source_skipped() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-no-content";
@@ -551,7 +463,7 @@ async fn test_drain_outbound_no_content_source_skipped() {
     // OutboundMessage op with no matching cache entry and no transcript.
     let mut cp = SessionCheckpoint::new(session_id.into());
     cp.record_outbound_pending_op(make_outbound_op("missing-msg", "test_channel"));
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(
@@ -586,14 +498,14 @@ async fn test_drain_outbound_uses_target_channel() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-target-ch";
     register_session(&mgr, session_id, "session_channel").await;
 
     let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "target msg");
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -611,7 +523,7 @@ async fn test_drain_outbound_fallback_to_session_channel() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-fallback";
@@ -625,7 +537,7 @@ async fn test_drain_outbound_fallback_to_session_channel() {
             "msg-1".into(),
             "fallback msg".into(),
         ));
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -643,7 +555,7 @@ async fn test_drain_outbound_no_session_no_channel_skipped() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-no-sess";
@@ -656,7 +568,7 @@ async fn test_drain_outbound_no_session_no_channel_skipped() {
             "msg-1".into(),
             "hello".into(),
         ));
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -673,7 +585,7 @@ async fn test_drain_outbound_mixed_op_types() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-mixed-ops";
@@ -711,7 +623,7 @@ async fn test_drain_outbound_mixed_op_types() {
             "outbound content".into(),
             "test_channel".into(),
         ));
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -749,14 +661,14 @@ async fn test_drain_outbound_notified_clears_op_on_failure() {
 
     // Plugin that fails immediately — all sends → Notified.
     let (mgr, _gw, plugin) = setup_with_failing_gateway(0).await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-err";
     register_session(&mgr, session_id, "test_channel").await;
 
     let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "will fail");
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -791,14 +703,14 @@ async fn test_drain_outbound_no_gateway() {
     clear_global_prompt_state();
 
     let mgr = Arc::new(make_test_mgr(None));
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-no-gw";
     register_session(&mgr, session_id, "test_channel").await;
 
     let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "hello");
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_err());
@@ -816,7 +728,7 @@ async fn test_drain_outbound_pending_op_survives_crash() {
     clear_global_prompt_state();
 
     let (mgr, _gw, _plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-crash-sim";
@@ -828,7 +740,7 @@ async fn test_drain_outbound_pending_op_survives_crash() {
     let mut cp = SessionCheckpoint::new(session_id.into());
     cp.record_outbound_pending_op(make_outbound_op("msg-crash", "test_channel"));
     // outbound_pending is empty — no cache entry.
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -857,7 +769,7 @@ async fn test_drain_outbound_no_conv_session_uses_cache() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-no-conv";
@@ -865,7 +777,7 @@ async fn test_drain_outbound_no_conv_session_uses_cache() {
     // No ConversationSession registered.
 
     let cp = make_cp_with_op_and_cache(session_id, "msg-1", "test_channel", "cached content");
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok(), "drain should succeed: {:?}", result.err());
@@ -887,7 +799,7 @@ async fn test_drain_outbound_cache_entries_no_ops_ignored() {
     clear_global_prompt_state();
 
     let (mgr, _gw, plugin) = setup_with_mock_gateway().await;
-    let mock = Arc::new(MockPersistence::new());
+    let mock = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr, mock.clone()).await;
 
     let session_id = "drain-cache-no-ops";
@@ -903,7 +815,7 @@ async fn test_drain_outbound_cache_entries_no_ops_ignored() {
             "test_channel".into(),
         ));
     // No record_outbound_pending_op call — no matching op.
-    mock.insert_checkpoint(cp).await;
+    mock.save_checkpoint(&cp).await.unwrap();
 
     let result = mgr.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -928,14 +840,14 @@ async fn test_drain_outbound_repeated_restart_no_redelivery() {
 
     // --- First restart: op present → delivered → op cleared ---
     let (mgr1, _gw1, _plugin1) = setup_with_mock_gateway().await;
-    let mock1 = Arc::new(MockPersistence::new());
+    let mock1 = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr1, mock1.clone()).await;
 
     let session_id = "drain-repeat";
     register_session(&mgr1, session_id, "test_channel").await;
 
     let cp1 = make_cp_with_op_and_cache(session_id, "msg-repeat", "test_channel", "repeat content");
-    mock1.insert_checkpoint(cp1).await;
+    mock1.save_checkpoint(&cp1).await.unwrap();
 
     let result = mgr1.drain_outbound_pending_for_session(session_id).await;
     assert!(result.is_ok());
@@ -956,13 +868,13 @@ async fn test_drain_outbound_repeated_restart_no_redelivery() {
     // Since op was cleared in step 1, the loaded checkpoint has no
     // OutboundMessage ops → drain returns Ok(0).
     let (mgr2, _gw2, plugin2) = setup_with_mock_gateway().await;
-    let mock2 = Arc::new(MockPersistence::new());
+    let mock2 = Arc::new(SnapshotMockPersist::new());
     set_checkpoint_manager(&mgr2, mock2.clone()).await;
     register_session(&mgr2, session_id, "test_channel").await;
 
     // Load the checkpoint that was saved after first drain (op cleared).
     let cp2 = mock1.load_checkpoint(session_id).await.unwrap().unwrap();
-    mock2.insert_checkpoint(cp2).await;
+    mock2.save_checkpoint(&cp2).await.unwrap();
 
     let result2 = mgr2.drain_outbound_pending_for_session(session_id).await;
     assert!(result2.is_ok());

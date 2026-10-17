@@ -2,6 +2,7 @@
 //! workflow-state accessors it exposes (erased run storage, phase query,
 //! post-compaction workflow context re-injection).
 
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{GatewayConfig, SessionManager};
 use closeclaw_common::{BootstrapMode, ModelSpec, SlashSessionQuery};
 use closeclaw_session::llm_session::ConversationSession;
@@ -11,99 +12,6 @@ use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tokio::sync::RwLock;
-
-// ── Mock persistence service ─────────────────────────────────────────────────
-
-#[derive(Default)]
-struct MockPersistence {
-    checkpoints: RwLock<std::collections::HashMap<String, SessionCheckpoint>>,
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersistence {
-    async fn save_checkpoint(
-        &self,
-        checkpoint: &SessionCheckpoint,
-    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-        self.checkpoints
-            .write()
-            .await
-            .insert(checkpoint.session_id.clone(), checkpoint.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError> {
-        Ok(self.checkpoints.read().await.get(session_id).cloned())
-    }
-
-    async fn delete_checkpoint(
-        &self,
-        _session_id: &str,
-    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_active_sessions(
-        &self,
-    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn archive_checkpoint(
-        &self,
-        _checkpoint: &SessionCheckpoint,
-    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-        Ok(())
-    }
-
-    async fn restore_checkpoint(
-        &self,
-        _session_id: &str,
-    ) -> Result<Option<SessionCheckpoint>, closeclaw_session::persistence::PersistenceError> {
-        Ok(None)
-    }
-
-    async fn purge_checkpoint(
-        &self,
-        _session_id: &str,
-    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_archived_sessions(
-        &self,
-    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn invalidate_session(
-        &self,
-        _session_id: &str,
-    ) -> Result<(), closeclaw_session::persistence::PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_idle_sessions_for_agent(
-        &self,
-        _agent_id: &str,
-        _role: closeclaw_session::persistence::AgentRole,
-        _idle_minutes: i64,
-    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-        Ok(Vec::new())
-    }
-
-    async fn list_expired_archived_sessions_for_agent(
-        &self,
-        _agent_id: &str,
-        _role: closeclaw_session::persistence::AgentRole,
-        _purge_after_minutes: i64,
-    ) -> Result<Vec<String>, closeclaw_session::persistence::PersistenceError> {
-        Ok(Vec::new())
-    }
-}
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -116,7 +24,7 @@ fn make_config() -> GatewayConfig {
     }
 }
 
-async fn make_sm_with_storage(persistence: Arc<MockPersistence>) -> SessionManager {
+async fn make_sm_with_storage(persistence: Arc<SnapshotMockPersist>) -> SessionManager {
     SessionManager::new(
         &make_config(),
         Some(persistence as Arc<dyn PersistenceService>),
@@ -156,7 +64,7 @@ async fn push_pending(sm: &SessionManager, session_id: &str, msg: PendingMessage
 /// Normal path: after compaction, outbound_pending is synced to checkpoint.
 #[tokio::test]
 async fn test_save_checkpoint_after_compact_syncs_outbound_pending() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "test-session-1";
 
@@ -178,22 +86,16 @@ async fn test_save_checkpoint_after_compact_syncs_outbound_pending() {
     // Pre-populate checkpoint in storage (as if it existed before compaction)
     let mut old_cp = SessionCheckpoint::new(session_id.to_string());
     old_cp.touch();
-    persistence
-        .checkpoints
-        .write()
-        .await
-        .insert(session_id.to_string(), old_cp);
+    persistence.save_checkpoint(&old_cp).await.unwrap();
 
     // Act
     sm.save_checkpoint_after_compact(session_id).await;
 
     // Assert: checkpoint's outbound_pending matches ConversationSession
     let saved = persistence
-        .checkpoints
-        .read()
+        .load_checkpoint(session_id)
         .await
-        .get(session_id)
-        .cloned()
+        .unwrap()
         .expect("checkpoint should be saved");
     assert_eq!(
         saved.outbound_pending.len(),
@@ -209,16 +111,12 @@ async fn test_save_checkpoint_after_compact_syncs_outbound_pending() {
 /// Boundary: ConversationSession does not exist — method returns silently.
 #[tokio::test]
 async fn test_save_checkpoint_after_compact_no_session_returns_silently() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
 
     // Pre-populate checkpoint in storage
     let cp = SessionCheckpoint::new("nonexistent-session".to_string());
-    persistence
-        .checkpoints
-        .write()
-        .await
-        .insert("nonexistent-session".to_string(), cp);
+    persistence.save_checkpoint(&cp).await.unwrap();
 
     // Act: session_id has no ConversationSession — should not panic
     sm.save_checkpoint_after_compact("nonexistent-session")
@@ -226,11 +124,9 @@ async fn test_save_checkpoint_after_compact_no_session_returns_silently() {
 
     // Assert: checkpoint still saved (outbound_pending unchanged from original)
     let saved = persistence
-        .checkpoints
-        .read()
+        .load_checkpoint("nonexistent-session")
         .await
-        .get("nonexistent-session")
-        .cloned()
+        .unwrap()
         .expect("checkpoint should still be saved");
     assert!(
         saved.outbound_pending.is_empty(),
@@ -337,7 +233,7 @@ fn write_workflow_definition(dir: &std::path::Path) {
 
 /// Store a checkpoint carrying `run` (optionally bound to an agent).
 async fn seed_workflow_checkpoint(
-    persistence: &Arc<MockPersistence>,
+    persistence: &Arc<SnapshotMockPersist>,
     session_id: &str,
     run: WorkflowRun,
     agent_id: Option<&str>,
@@ -346,11 +242,7 @@ async fn seed_workflow_checkpoint(
     cp.agent_id = agent_id.map(str::to_string);
     cp.workflow_run = Some(serde_json::to_value(run).unwrap());
     cp.touch();
-    persistence
-        .checkpoints
-        .write()
-        .await
-        .insert(session_id.to_string(), cp);
+    persistence.save_checkpoint(&cp).await.unwrap();
 }
 
 fn count_workflow_contexts(appends: &[String]) -> usize {
@@ -410,22 +302,21 @@ fn captured_logs(buffer: &Arc<Mutex<Vec<u8>>>) -> String {
 }
 
 /// Store a checkpoint whose `workflow_run` value is not a decodable run.
-async fn seed_malformed_workflow_checkpoint(persistence: &Arc<MockPersistence>, session_id: &str) {
+async fn seed_malformed_workflow_checkpoint(
+    persistence: &Arc<SnapshotMockPersist>,
+    session_id: &str,
+) {
     let mut cp = SessionCheckpoint::new(session_id.to_string());
     cp.agent_id = Some("agent-x".to_string());
     cp.workflow_run = Some(serde_json::json!({ "not": "a run" }));
     cp.touch();
-    persistence
-        .checkpoints
-        .write()
-        .await
-        .insert(session_id.to_string(), cp);
+    persistence.save_checkpoint(&cp).await.unwrap();
 }
 
 /// Erased `set_workflow_run` stores the run on the session and persists it.
 #[tokio::test]
 async fn test_set_workflow_run_erased_sets_run_and_persists() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "wf-set-1";
 
@@ -434,11 +325,7 @@ async fn test_set_workflow_run_erased_sets_run_and_persists() {
     cs.write().await.set_checkpoint_storage(persistence.clone());
     let mut cp = SessionCheckpoint::new(session_id.to_string());
     cp.touch();
-    persistence
-        .checkpoints
-        .write()
-        .await
-        .insert(session_id.to_string(), cp);
+    persistence.save_checkpoint(&cp).await.unwrap();
 
     let run = make_workflow_run(Phase::Executing);
     let erased = serde_json::to_value(&run).unwrap();
@@ -460,11 +347,9 @@ async fn test_set_workflow_run_erased_sets_run_and_persists() {
     );
 
     let saved = persistence
-        .checkpoints
-        .read()
+        .load_checkpoint(session_id)
         .await
-        .get(session_id)
-        .cloned()
+        .unwrap()
         .expect("checkpoint should be persisted");
     let persisted = serde_json::from_value::<WorkflowRun>(saved.workflow_run.unwrap()).unwrap();
     assert_eq!(
@@ -524,7 +409,7 @@ async fn test_get_active_workflow_run_phase_query() {
 /// context re-injected exactly once.
 #[tokio::test]
 async fn test_reinject_workflow_context_after_compact_injects_missing_context() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "wf-reinject-1";
     register_conv_session(&sm, session_id).await;
@@ -562,7 +447,7 @@ async fn test_reinject_workflow_context_after_compact_injects_missing_context() 
 /// Context already present → no duplicate injection.
 #[tokio::test]
 async fn test_reinject_workflow_context_after_compact_skips_existing_context() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "wf-reinject-2";
     register_conv_session(&sm, session_id).await;
@@ -597,7 +482,7 @@ async fn test_reinject_workflow_context_after_compact_skips_existing_context() {
 /// Completed run / empty definition name → no injection.
 #[tokio::test]
 async fn test_reinject_workflow_context_after_compact_skips_inactive_runs() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
 
     let completed_id = "wf-reinject-complete";
@@ -668,7 +553,7 @@ async fn test_phase_query_decode_failure_warns_from_gateway_target() {
 #[tokio::test]
 #[serial_test::serial]
 async fn test_reinject_decode_failure_warns_from_gateway_target() {
-    let persistence = Arc::new(MockPersistence::default());
+    let persistence = Arc::new(SnapshotMockPersist::new());
     let sm = make_sm_with_storage(persistence.clone()).await;
     let session_id = "wf-reinject-undecodable";
     register_conv_session(&sm, session_id).await;
