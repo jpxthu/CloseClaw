@@ -13,7 +13,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use tempfile::TempDir;
 
 use super::inbound_queue_test_utils::{make_gateway, make_request, queued};
-use crate::debug_log_test_utils::{
+use closeclaw_debug_log::test_utils::{
     filter_events_by_type, make_debug_log, read_events_with_timeout,
 };
 

@@ -74,7 +74,7 @@ pub fn make_gateway() -> Arc<Gateway> {
     Arc::new(Gateway::new_for_tests(config, sm))
 }
 
-// ── Shared debug-log helpers live in `crate::debug_log_test_utils` ──────────
+// ── Shared debug-log helpers live in `closeclaw_debug_log::test_utils` ──────
 
 /// Poll until the WAL at `wal_dir` has zero pending entries, up to 5 seconds.
 /// Panics if deadline is exceeded.

@@ -28,10 +28,10 @@ use closeclaw_session::persistence::{
     PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
 };
 
-use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
 use crate::outbound::SendOutcome;
 use crate::outbound_helpers::{CheckpointMeta, SendDebugCtx};
 use crate::{Gateway, GatewayConfig, SendOutboundIds, Session, SessionManager};
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events_with_timeout};
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------

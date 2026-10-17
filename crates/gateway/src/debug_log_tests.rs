@@ -8,11 +8,11 @@
 //! 5. Step 1.8: send.completed event uses inbound trace_id (not fabricated)
 //! 6. Step 1.3: session.resolved and route.decision events
 
-use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
 use crate::outbound::SendOutboundIds;
 use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events_with_timeout};
 use closeclaw_debug_log::LogLevel;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;

@@ -7,7 +7,7 @@
 //! 4. emit_debug_event: empty trace_id is no-op
 //! 5. Chained child spans: grandchild's parent_span_id matches child's span_id
 
-use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events_with_timeout};
 use closeclaw_debug_log::{LogLevel, TraceContext};
 use tempfile::TempDir;
 
