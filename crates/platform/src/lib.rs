@@ -30,4 +30,6 @@ mod fs_tests;
 #[cfg(test)]
 mod process_tests;
 #[cfg(test)]
+mod temp_dir_tests;
+#[cfg(test)]
 mod terminal_tests;
