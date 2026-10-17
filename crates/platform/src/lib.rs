@@ -7,6 +7,7 @@
 pub mod config;
 pub mod fs;
 pub mod process;
+pub mod temp_dir;
 pub mod terminal;
 
 pub use config::root_dir;
@@ -16,6 +17,7 @@ pub use process::{
     stop_daemon, subscribe_shutdown_signals, wait_for_exit, write_pid_file,
     ShutdownSignalSubscription, SpawnOptions, StopOutcome,
 };
+pub use temp_dir::system_temp_dir;
 pub use terminal::{
     current_uid, detect, is_terminal, read_line_raw, resolve_terminal_width, supports_ansi,
     write_raw, TerminalInfo,
