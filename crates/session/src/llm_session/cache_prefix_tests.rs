@@ -6,11 +6,11 @@
 //! natural-expiry exemptions), per llm-session-enhancements.md
 //! "缓存命中一致性校验" (:67-87).
 
-use super::{
+use super::cache_prefix::{
     build_prefix_snapshot, cache_check_eligibility, prefix_matches, CacheCheckEligibility,
     CacheExemptReason, PreviousCallState, RequestPrefixSnapshot,
 };
-use crate::llm_types::{InternalMessage, ToolDefinition};
+use closeclaw_common::{InternalMessage, ToolDefinition};
 
 const TTL_MS: u64 = 300_000;
 
