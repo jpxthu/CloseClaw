@@ -19,7 +19,7 @@
 │   ├── accounts.json        # 账户注册与 4 方向 IM 平台身份绑定（机器人↔Agent、IM 用户↔User）
 │   ├── gateway.json         # Gateway 服务配置（监听端口、入站队列容量、超时等）
 │   ├── plugins.json         # 插件列表与配置
-│   ├── session.json         # 会话生命周期与执行持久化配置（idle 超时、purge TTL、扫描间隔、compaction 阈值、plan 归档天数、审计日志存储上限等）
+│   ├── session.json         # 会话生命周期与执行持久化配置（idle 超时、purge TTL、扫描间隔、compaction 阈值、审计日志存储上限等）
 │   ├── memory.json          # 记忆模块全局配置（挖掘、做梦、搜索、遗忘等子系统参数）
 │   ├── media.json           # 媒体存储配置（存储目录、保留期、图片内容阈值等）
 │   ├── agents.json          # Agent 注册清单（显式 ID 列表，JSONC）
@@ -47,7 +47,7 @@
 
   | Provider | 配置源 | 职责 |
   |----------|--------|------|
-  | SessionConfigProvider | `config/session.json` | 解析会话生命周期与执行持久化参数（idle 超时、purge TTL、扫描间隔、compaction 阈值、plan 归档天数、审计日志存储上限等），支持 per-agent 的 idle 超时与 purge 阈值查询（按 agent_id 与角色，字段定义见 [session-lifecycle](../session/session-lifecycle.md)） |
+  | SessionConfigProvider | `config/session.json` | 解析会话生命周期与执行持久化参数（idle 超时、purge TTL、扫描间隔、compaction 阈值、审计日志存储上限等），支持 per-agent 的 idle 超时与 purge 阈值查询（按 agent_id 与角色，字段定义见 [session-lifecycle](../session/session-lifecycle.md)） |
   | AccountsConfigProvider | `config/accounts.json` | 加载账户身份映射（4 方向：机器人↔Agent、IM 用户↔User）、校验发送者标识。生效类别按方向：机器人↔Agent（入站路由、出站选择）属重启生效类（绑定承载与路由见 [gateway §F4](../gateway/README.md)）；IM 用户↔User（入站解析、出站解析）即时生效（见 [permission §F1](../permission/README.md)） |
   | MediaConfigProvider | `config/media.json` | 解析媒体存储目录、保留期、图片内容阈值等媒体存储参数（详见 [im_adapter media-store](../im_adapter/media-store.md)） |
   | MemoryConfigProvider | `config/memory.json` | 解析记忆模块全局配置（挖掘、做梦、搜索、遗忘等子系统参数，字段语义与默认值详见 [memory/config](../memory/config.md)） |
@@ -108,7 +108,7 @@ Config 模块启动时依次执行以下步骤：
 | channels | 渠道类型为已知类型、绑定目标非空 |
 | gateway | 监听端口在有效范围、超时非负、入站队列容量为正 |
 | plugins | 插件名非空、插件可解析 |
-| session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正、planArchiveDays 非负、auditLogLimit 非负；compaction 告警阈值与压缩阈值为合法百分比（按上下文窗口剩余空间触发，告警阈值大于压缩阈值以保证先告警后压缩） |
+| session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正、auditLogLimit 非负；compaction 告警阈值与压缩阈值为合法百分比（按上下文窗口剩余空间触发，告警阈值大于压缩阈值以保证先告警后压缩） |
 | accounts | 账户 ID 非空且唯一、发送者标识非空；同一渠道内「接收方机器人应用 × 发送者标识」组合唯一；同一机器人应用唯一绑定一个 Agent；单个 IM 平台下 IM 用户↔User、机器人↔Agent 各自 1:1，单个 User / Agent 可对应多平台（跨平台 1:N） |
 | media | 存储目录路径合法、保留期为非负整数（0 表示禁用定期清理）、图片内容阈值为非负整数 |
 | memory | 各子系统 enabled 为布尔、模型/路径等字段合法、数值参数为非负（字段定义见 [memory/config](../memory/config.md)） |

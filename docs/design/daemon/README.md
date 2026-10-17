@@ -26,7 +26,6 @@
 | 2 | SkillRegistry | ConfigManager |
 | 2 | Renderers / Plugins | ConfigManager |
 | 2 | Permission Engine | ConfigManager |
-| 2 | PlanArchiveSweeper | ConfigManager |
 | 3 | IM Adapters | Renderers, ConfigManager |
 | 3 | ToolRegistry | SkillRegistry |
 | 3 | ArchiveSweeper | SqliteStorage, SessionConfigProvider |
@@ -39,7 +38,7 @@
 | 5 | Gateway | SessionManager, IM Adapters, Permission Engine, ApprovalFlow, Renderers / Plugins |
 | 6 | Admin RPC Server | Gateway |
 
-上表中的后台任务类组件（Config Hot Reload、ArchiveSweeper、AnnounceSweeper、PlanArchiveSweeper、DreamingScheduler）构成系统级后台任务的权威清单；新增系统级后台任务时必须同步更新本表与 [shutdown.md](shutdown.md) 的停止设计。
+上表中的后台任务类组件（Config Hot Reload、ArchiveSweeper、AnnounceSweeper、DreamingScheduler）构成系统级后台任务的权威清单；新增系统级后台任务时必须同步更新本表与 [shutdown.md](shutdown.md) 的停止设计。
 
 初始化完成后进入消息循环，由 Gateway 接管所有消息处理。
 
@@ -71,7 +70,6 @@ Daemon 启动时先经 [platform 模块](../platform/process.md) 的进程管理
    - LLM Registry（Daemon 侧的模型装配组件：从 ConfigManager 取得 models.json 供应商定义与凭据，构造统一 LLM Client（UnifiedChatClient）实例，见 [llm/README.md](../llm/README.md)；无可用模型/供应商时构造为空、不阻塞启动）
    - Renderers / Plugins（各平台 Renderer 封装为 Plugin 并注册）
    - Permission Engine（加载全局默认策略，Agent 维度规则延迟加载）
-   - PlanArchiveSweeper（spawn 后台任务，定时扫描「全部步骤终态」的 plan，将最后访问超过配置天数的自动归档；终态定义与归档规则详见 [mode/README.md](../mode/README.md)）
 3. **层 3**（依赖层 2）：
    - IM Adapters（各平台 Adapter 创建，注入对应 Renderer）
    - ToolRegistry（各模块注册工具定义）
@@ -124,7 +122,6 @@ graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | SessionConfigProvider | Daemon 持有的配置查询组件；提供 per-agent 会话配置（字段定义见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | MemoryConfigProvider | Daemon 持有的配置查询组件；提供记忆子系统配置（字段语义见 [memory/config](../memory/config.md)） |
 | Permission Engine | Daemon 持有；提供权限判定（Agent 维度规则延迟加载） |
-| PlanArchiveSweeper | Daemon spawn 的系统级后台任务；归档终态 plan（规则见 [mode/README.md](../mode/README.md)） |
 | AgentRegistry | Daemon 持有；提供 Agent 配置档案（由 ConfigManager 加载结果填充） |
 | ToolRegistry | Daemon 持有；提供工具注册表 |
 | SkillRegistry | Daemon 持有；提供技能注册表（含 bundled skills） |

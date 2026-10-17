@@ -28,8 +28,6 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 | `agentId` | 目标 agent 的 ID | 否 | 当前 Agent 的 ID（spawn 自身分身） |
 | `task` | 任务描述，注入子 session 的 system prompt（不属于对话消息，压缩时不受影响） | 是 | — |
 | `mode` | `"run"`（一次性）/ `"session"`（持久线程） | 否 | `"run"` |
-
-> `mode` 描述子 session 的持久化策略，与 SessionCheckpoint 中的 `session_mode` 字段（对话模式：normal/plan/auto）含义不同——二者作用于不同数据结构。
 | `fork` | 是否 fork 父 agent 上下文 | 否 | `false` |
 | `model` | 覆盖目标 agent 的默认模型（解析优先级见下方） | 否 | 按优先级链自动解析 |
 | `timeout` | 子 session 硬超时（秒），达到后系统自动终止。覆盖目标 agent 配置和全局默认值 | 否 | 目标 agent.subagents.timeout → 全局默认（48h） |
@@ -45,7 +43,7 @@ Session 模块实现 [ToolRegistrar](../common/core-traits.md#toolregistrar) tra
 - `executor`：注入自主执行模式的行为指令
 - `validation`：注入"逐条校验并报告差异"的结构化输出要求
 
-各模板的完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md) 第 7 节。模板不影响 agent 配置，仅在 spawn 调用时作为 prompt 前缀注入。
+模板不影响 agent 配置，仅在 spawn 调用时作为 prompt 前缀注入。
 
 `model` 参数解析优先级（未指定时按以下顺序回退，直到找到非空值）：
 
@@ -118,7 +116,6 @@ sessions_steer / sessions_kill：
 |------|---------|
 | ToolRegistry | Session 模块实现 ToolRegistrar trait，Daemon 启动时 ToolRegistry 调用其注册方法 |
 | Agent 模块 | spawn 时读取父 agent 的 subagents 配置 |
-| Mode 模块 | Mode 切换时设置 session 模式标记（normal/plan/auto），session 读取标记以控制工具可用性和行为约束 |
 
 ### 下游
 

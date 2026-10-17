@@ -134,7 +134,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 构建 | 给定 session_id、agent_id、优先级覆盖项（override/agent/custom）与 bootstrap 模式覆盖，返回渲染后的 system prompt 字符串 |
+| 构建 | 给定 session_id、agent_id 与 bootstrap 模式覆盖，返回渲染后的 system prompt 字符串 |
 | 缓存失效 | 文件变更（bootstrap/MEMORY.md，按 Section）、工具定义变更（ToolsSection）、技能注册中心变更（SkillsSection）、`/clear` 与 `/system clear`（全部失效）、Session 恢复与 compaction 回调（强制重建全部）；详见 [system_prompt/static-layer](../system_prompt/static-layer.md) |
 
 #### DynamicPromptBuilder
@@ -276,22 +276,20 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SlashSessionQuery
 
-**用途**：供斜杠指令 handler 查询会话状态的接口。Gateway 的 SessionManager 实现，slash handler 消费——查计划状态、推送待处理消息、重建系统提示词、读写会话状态，打破 slash → gateway 的依赖。与 [SessionLookup](#sessionlookup) 的部分字段重叠是分层选择：SessionLookup 面向 permission/slash 的通用只读查询，SlashSessionQuery 面向 slash handler 的读写；两者均由 Gateway SessionManager 同一实例实现。
+**用途**：供斜杠指令 handler 查询会话状态的接口。Gateway 的 SessionManager 实现，slash handler 消费——推送待处理消息、重建系统提示词、读写会话状态，打破 slash → gateway 的依赖。与 [SessionLookup](#sessionlookup) 的部分字段重叠是分层选择：SessionLookup 面向 permission/slash 的通用只读查询，SlashSessionQuery 面向 slash handler 的读写；两者均由 Gateway SessionManager 同一实例实现。
 
 **接口契约**：
 
 | 要素 | 说明 |
-|------|------|
-| 计划状态 | 读取/更新会话的 PlanState |
 | 待处理消息 | 向统一消息队列推送一条待处理消息（排队规则见 [session 统一消息队列](../session/session-execution.md#统一消息队列)） |
 | 后台触发 | 触发会话的手动后台执行 |
 | workflow 状态 | 设置并持久化 workflow run、查询当前活跃 workflow phase（类型擦除，避免依赖 workflow crate） |
 | 系统提示词 | 失效静态层缓存、重建会话 system prompt、追加 system append |
-| 会话状态查询 | model、reasoning、verbosity、mode、workdir、LLM busy、token 统计、缓存统计（命中率、读写累计）、子会话句柄数 |
+| 会话状态查询 | model、reasoning、verbosity、workdir、LLM busy、token 统计、缓存统计（命中率、读写累计）、子会话句柄数 |
 
 #### SlashEffectExecutor
 
-**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置模式/推理深度/信息展示等级、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。被 [SlashResultExecutor](#slashresultexecutor) 按变体调用以完成各变体的原子副作用（经 SideEffectContext.executor 持有）。
+**用途**：斜杠指令副作用执行接口。Gateway 实现（拥有完整 SessionManager 与 SessionMessageHandler），SlashResult 执行流程消费——停止、建新会话、压缩、系统提示词操作、设置推理深度/信息展示等级、执行 shell 命令。common 定义接口、gateway 提供实现，打破循环依赖。被 [SlashResultExecutor](#slashresultexecutor) 按变体调用以完成各变体的原子副作用（经 SideEffectContext.executor 持有）。
 
 **接口契约**：
 
@@ -301,7 +299,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 新会话 | 为指定渠道创建新会话，返回新 session_id |
 | 压缩 | 触发上下文压缩（可携带自定义指令） |
 | 系统提示词 | 应用 append/clear 动作，返回相关计数 |
-| 模式/推理深度/信息展示等级 | 设置会话模式、推理深度档位（[ReasoningLevel](shared-types.md#reasoninglevel--agentrole--sessionmode)）、信息展示等级（[VerbosityLevel](shared-types.md#verbositylevel)） |
+| 推理深度/信息展示等级 | 设置推理深度档位（[ReasoningLevel](shared-types.md#reasoninglevel--agentrole)）、信息展示等级（[VerbosityLevel](shared-types.md#verbositylevel)） |
 | shell 执行 | 以指定 agent 执行命令，权限由 Gateway 层先行校验 |
 
 #### SlashResultExecutor
@@ -313,19 +311,6 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 执行 | 接收 SideEffectContext，按 SlashResult 变体分发到对应副作用并回发 ReplyAction |
-
-### 计划执行确认
-
-#### PlanConfirmationHandler
-
-**用途**：计划执行确认/取消接口。tools 的 PlanExecConfirmFlow 实现，Gateway 消费——驱动计划执行启动确认的确认或取消分支，避免 Gateway 直接依赖 tools crate。
-
-**接口契约**：
-
-| 要素 | 说明 |
-|------|------|
-| 确认 | 确认待处理的计划执行，返回是否处理成功 |
-| 取消 | 取消待处理的计划执行，返回是否取消成功 |
 
 ### 权限评估与审批
 
@@ -363,7 +348,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AuditLogger
 
-**用途**：审计日志记录与查询接口。permission 的文件审计日志实现，permission 权限引擎、daemon 与 tools（审计查看工具）消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置）、按条件查询审计条目，使审计读写与权限判定解耦。审计的生成时机与查看需求见 [mode 需求](../../requirements/mode.md)；审计日志的查看统一走本 trait 的查询能力，落盘与查询的实现由 permission 的文件日志承担。
+**用途**：审计日志记录与查询接口。permission 的文件审计日志实现，permission 权限引擎、daemon 与 tools（审计查看工具）消费——记录危险操作审批/拒绝的结构化审计条目（操作内容、风险级别与最终处置）、按条件查询审计条目，使审计读写与权限判定解耦。审计日志的查看统一走本 trait 的查询能力，落盘与查询的实现由 permission 的文件日志承担。
 
 **接口契约**：
 
@@ -376,7 +361,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SessionLookup
 
-**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID、计划状态，并向统一消息队列推送待处理消息，避免直接依赖 gateway。与 [SlashSessionQuery](#slashsessionquery) 的重叠为分层选择（见该节）。
+**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID，并向统一消息队列推送待处理消息，避免直接依赖 gateway。与 [SlashSessionQuery](#slashsessionquery) 的重叠为分层选择（见该节）。
 
 **接口契约**：
 
@@ -385,18 +370,6 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 父会话查询 | 给定子会话 ID 返回父会话 ID |
 | 聊天 ID 查询 | 给定会话 ID 返回关联聊天 ID |
 | 待处理消息 | 向统一消息队列推送一条待处理消息（排队规则见 [session 统一消息队列](../session/session-execution.md#统一消息队列)） |
-| 计划状态 | 读取/更新会话的 PlanState |
-| 会话模式切换 | 设置会话模式（如 plan → auto） |
-
-#### SessionModeQuery
-
-**用途**：会话模式查询接口。session 模块桥接实现，permission 消费——按 agent 查询当前 SessionMode，避免硬依赖 session 模块。
-
-**接口契约**：
-
-| 要素 | 说明 |
-|------|------|
-| 模式查询 | 给定 agent_id 返回当前 SessionMode，未知返回 None（同步，内存级查询） |
 
 #### SpawnValidator
 
@@ -599,19 +572,19 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、PlanConfirmationHandler、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator、AuditLogger）
-  - **session**（实现 ToolRegistrar、SessionModeQuery、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup、MetricsEmitter）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator、AuditLogger）
+  - **session**（实现 ToolRegistrar、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup、MetricsEmitter）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、MediaStoreAccess；消费 IdentityResolver、StreamingRenderer、StreamingSink）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、PlanConfirmationHandler、TaskManager、AgentRegistryQuery）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery）
   - **cli**（实现 IMPlugin；消费 StreamingRenderer、StreamingSink）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
-  - **permission**（实现 AuditLogger；消费 SessionLookup、SessionModeQuery）
+  - **permission**（实现 AuditLogger；消费 SessionLookup）
   - **processor_chain**（实现 ProcessorChain）
   - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费 LlmCaller、MetricsEmitter、TaskManager、SpawnValidator、AgentConfigLookup、AgentRegistryQuery、AuditLogger）
   - **config**（实现 IdentityResolver）
   - **llm**（消费 ShutdownSignal）
-- **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费；workflow、mode 不实现也不消费本文档收录的 core-trait，但经 shared-types 中的共享类型（PlanState 等）与 common 建立数据流关联，故不计为「无关联」的无关模块。
+- **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费；workflow 不实现也不消费本文档收录的 core-trait，但经 shared-types 中的共享类型与 common 建立数据流关联，故不计为「无关联」的无关模块。

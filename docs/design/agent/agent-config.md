@@ -31,7 +31,6 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `subagents` | 子 Session 创建控制参数（类型 [SubagentsConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)） | 否 | 见子字段 |
 | `memory` | per-agent memory 配置覆盖（类型 [MemoryConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)），仅在明确需要覆盖默认值时使用，详见 [memory 模块设计文档](../memory/config.md) | 否 | null |
 | `hooks` | run-health hook 审查配置列表（类型 [HookConfig](../common/shared-types.md#hookconfig--hookparams--hooktype)） | 否 | `[]` |
-| `parallelToolCalls` | 是否允许并行工具调用；`false` 时全部工具调用串行执行 | 否 | `true` |
 
 `tools` / `disallowedTools` / `skills` 的取值分别为[工具注册表](../common/core-traits.md#toolregistry)与 [skill 注册表](../common/core-traits.md#skillregistryquery)登记的名称，须与之完全一致（区分大小写）；名称不匹配的条目不会命中。
 
@@ -122,7 +121,7 @@ Agent 的能力边界由配置档案的字段组合与权限基线共同决定�
 | `executor` | 自主执行 | 注入自主执行模式的行为指令 |
 | `validation` | 校验审计 | 注入"逐条校验并报告差异"的结构化输出要求 |
 
-模板不影响 agent 配置，仅在 spawn 子 Session 时作为 prompt 前缀注入；完整 prompt 内容定义见 [mode/references/prompts.md](../mode/references/prompts.md)（模板的注册与注入机制见 [agent-spawn.md](agent-spawn.md) §Prompt 模板）。
+模板不影响 agent 配置，仅在 spawn 子 Session 时作为 prompt 前缀注入（模板的注册与注入机制见 [agent-spawn.md](agent-spawn.md) §Prompt 模板）。
 
 > Agent 配置不包含独立的工具使用指导字段；工具使用指导统一由 Prompt 模板机制（spawn 时按需选择）提供。
 

@@ -12,13 +12,13 @@
 
 ### NormalizedMessage
 
-NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平台（飞书、Discord、Telegram 等）和 terminal 渠道的差异。各渠道的 IM Adapter 入站解析产出此结构，Processor Chain 消费（读取内容做标准化和 session_key 计算）。Gateway 消费的是 Processor Chain 产出的 ProcessedMessage，不直接接触 NormalizedMessage。
+NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平台（飞书、Discord、Telegram 等）和 terminal 渠道的差异。各渠道的 IM Adapter 入站解析产出此结构，Processor Chain 消费（读取内容做标准化和 session_key 计算）。Gateway 消费的是 Processor Chain 产出的 ProcessedMessage；链后补充路由元数据时会读取本结构的少量字段（见下方元数据键表），不参与消息内容处理。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `platform` | string | 平台标识，如 `"feishu"`、`"terminal"` |
 | `sender_id` | string | 发送者的平台内 ID |
-| `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同（如私聊的「对方用户 + 话题」组合、群聊的群 ID） |
+| `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同（如私聊的「对方用户 + 话题」组合、群聊的群 ID）；terminal 渠道取目标 Agent 标识（由 `--agent-id` 指定，默认取默认 Agent），使不同 Agent 的对话落到不同会话路由键 |
 | `thread_id` | string? | 话题/线程 ID（支持线程的平台上用于线程回复）；不参与 session_key 计算 |
 | `reply_ref` | string? | 出站定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用（如话题根消息标识），用于把回复投递回原会话位置。不参与 session 路由。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
 | `account_id` | string | CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到。参与 session 路由 |
@@ -57,7 +57,7 @@ NormalizedMessage 引用的子结构：
 
 `key` 与出站 [ContentBlock](#contentblock) 非文本变体的 `name` 均表示资源标识，语义等价——命名差异源于入站（MediaRef）与出站（ContentBlock）两套独立结构。落盘、上下文形态与生命周期机制见 [im_adapter media-store](../im_adapter/media-store.md)。
 
-**建模边界**：NormalizedMessage 建模用户主动发送的消息（文本、图片、文件、音频）。卡片交互事件——用户点击消息中嵌入的按钮、选择器等交互控件——属于工具调用的回执，走 tool_result 通道注入对话，不经过 NormalizedMessage 入站通路。各 IM 平台在 Adapter 解析阶段须区分消息事件和交互事件，仅将消息事件转为 NormalizedMessage。卡片交互事件的载荷结构为 [CardActionEvent](#cardactionevent)，平台解析阶段的识别规则见 [im_adapter feishu](../im_adapter/platforms/feishu.md)（事件区分段落）。
+**建模边界**：NormalizedMessage 建模用户主动发送的消息（文本、图片、文件、音频）。卡片交互事件——用户点击消息中嵌入的按钮、选择器等交互控件——属于工具调用的回执，走 tool_result 通道注入对话，不经过 NormalizedMessage 入站通路。各 IM 平台在 Adapter 解析阶段须区分消息事件和交互事件，仅将消息事件转为 NormalizedMessage。卡片交互事件的载荷结构为 [CardActionEvent](#cardactionevent)，平台解析阶段的识别规则见 [im_adapter feishu](../im_adapter/platforms/feishu.md)（事件分流）。
 
 #### CardActionEvent
 
@@ -80,7 +80,7 @@ CardActionEvent 是用户与消息内嵌交互控件（按钮、选择器等）�
 
 ContentBlock 是跨模块传递的结构化内容单元。所有出站内容——LLM 回复和斜杠指令回复——均以 ContentBlock[] 数组形式传递，贯穿 Verbosity 过滤、DSL 解析、出站日志记录和平台渲染全链路。入站方向经 Processor Chain 处理后，标准化文本以 ContentBlock::Text 形式放入 [ProcessedMessage](#processedmessage) 的 content_blocks 字段，入站不涉及 ContentBlock 的其他变体。流式场景下，同一份内容以 [StreamEvent](#streamevent) 增量事件形式传递，完整块由消费方按事件边界组装。
 
-ContentBlock 共 7 种变体，按语义和渲染策略分为两类（变体来源：LLM 协议层归一化产出 Text/Thinking/ToolUse/ToolResult 四种，详见 [llm protocol-mapping](../llm/protocol-mapping.md)；Image/Audio/File 三种不由 LLM 产出，用于非流式路径的媒体交付）：
+ContentBlock 共 7 种变体，按语义和渲染策略分为两类（变体来源：LLM 协议层归一化产出 Text/Thinking/ToolUse 三种为响应体内容，ToolResult 为历史消息中工具回执的归一化形态，详见 [llm protocol-mapping](../llm/protocol-mapping.md)；Image/Audio/File 三种不由 LLM 产出，用于非流式路径的媒体交付）：
 
 **文本类变体**：
 
@@ -94,7 +94,7 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类（变体来�
 | 变体 | 语义 | 渲染行为 |
 |------|------|------|
 | ToolUse | 工具调用请求，含工具名和参数 | 渲染为工具调用信息展示（终端文本，IM 平台卡片）。参数以原始结构渲染 |
-| ToolResult | 工具执行结果 | 渲染为结果内容展示。终端按宽度截断，IM 平台富格式渲染 |
+| ToolResult | 工具执行结果 | 渲染为结果内容展示。终端按行截断（默认保留前 20 行，超出以省略号标注），超终端宽度的行再按宽度截断；IM 平台富格式渲染。需求见 [cli §F2](../../requirements/cli.md) |
 | Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: name]`，IM 平台渲染为图片元素 |
 | Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: name]`，IM 平台渲染为音频元素 |
 | File | 文件引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[file: name]`，IM 平台渲染为文件元素 |
@@ -111,9 +111,9 @@ Image/Audio/File 三个变体结构相同，字段定义：
 - **Text 是唯一可能包含 DSL 指令的变体**。DslParser 仅遍历 Text 块逐行扫描 DSL，解析后从 Text 块中移除 DSL 行。其余 6 种变体由 DslParser 透传
 - **流式渲染差异化**：Text 块逐行缓冲输出（以句末标点或换行符为行边界）；Thinking/ToolUse 块等待全块就绪后一次交付渲染；Image/Audio/File 不以流式事件形式出现，在非流式路径中交由平台格式渲染器处理
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
-- **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [slash 模块 verbose 指令](../slash/verbose.md)
+- **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [§VerbosityLevel](#verbositylevel)
 
-DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中。批量模式下供下游 Renderer 消费（渲染为平台交互元素）；流式模式下仅用于日志记录和出站历史写入，不产生渲染输出。DslInstruction 是单条 DSL 指令的结构化表示。
+DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中。批量模式下供下游 Renderer 消费（渲染为平台交互元素）；流式模式下仅用于日志记录和出站历史写入，不产生渲染输出——原因：流式路径以渐进文本增量交付，交互元素需定位到一条完整消息上放置，而需求 [im_adapter §F4](../../requirements/im_adapter.md) 的流式口径只覆盖文本/代码块/Thinking/Tool 块、未含交互指令，故 DSL 渲染属批量交付路径的能力，流式仅作日志与出站历史。DslInstruction 是单条 DSL 指令的结构化表示。
 
 DSL 指令是消息中的交互元素（按钮、选择器等），每条为一行，格式为 `::type[key1:value1;key2:value2;...]`。例如 `::button[label:确认;action:confirm;value:1]` 和 `::selector[label:选颜色;options:红,蓝;action:pick]`。DslParser 遍历 ContentBlock::Text 逐行扫描，匹配 DSL 格式的行解析为 DslInstruction，从 Text 块中移除 DSL 行后与其他 ContentBlock 一并传递。DslParser 仅处理 Text 变体，其余变体透传。
 
@@ -217,7 +217,6 @@ UnifiedResponse 是各 LLM Provider 非流式调用的统一响应结构。Sessi
 | `last_prompt_tokens` | int? | 最近一次调用的输入 token 总数（作为下一轮校验的参考值），尚无调用时为空 |
 | `last_completion_tokens` | int? | 最近一次调用的输出 token 数，供上下文占用估算 |
 | `last_call_at` | timestamp? | 最近一次调用的毫秒级时间戳，供缓存自然过期判定 |
-| `last_call_model` | string? | 最近一次调用使用的模型/供应商标识，供模型切换豁免判定 |
 
 除原始累计外，RunningStats 还提供累计缓存命中率等派生指标的查询。累计口径：单次用量缺省 total_tokens 时按 prompt + completion 求和后累加；可空的缓存/推理 token 缺省按 0 计入累计。RunningStats 保留最近一次调用的输入 token 总数，作为下一轮缓存命中一致性校验的参考值；校验仅在「追加扩展轮」参与，其前置条件、容忍余量固定值与异常上报行为（需求见 [llm §F9](../../requirements/llm.md)）定义于 [llm-session-enhancements](../session/llm-session-enhancements.md)。
 
@@ -232,6 +231,17 @@ UnifiedResponse 是各 LLM Provider 非流式调用的统一响应结构。Sessi
 
 CacheAnomalyInfo 可格式化为用户可读的缓存命中异常提示文本（含参考值、本次命中数与偏差、容忍余量与常见原因说明）。
 
+### CallTarget
+
+CallTarget 是一次 LLM 调用实际由哪个供应方/模型服务的标识，随 [LlmCaller](core-traits.md#llmcaller) 的带目标调用返回——由生产调用方在成功调用后上报，session 与 gateway 消费，用于记录本次调用实际服务的供应方与模型（如用量归属与调试展示）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `provider_id` | string | 实际服务该次调用的供应商标识 |
+| `model_id` | string | 实际服务该次调用的模型标识 |
+
+未主动上报的调用（如测试替身）留空，消费方退化为按会话配置语义处理。缓存命中一致性校验的判定状态（前缀快照、上次调用态、资格判定）为 session 模块内部状态，不在本清单。
+
 ### ProcessedMessage
 
 ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口。入站和出站方向共用同一结构，content_blocks 在不同方向携带不同复杂度的内容，metadata 携带方向相关的计算结果。
@@ -239,7 +249,30 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `content_blocks` | ContentBlock[] | 处理后的内容块数组。入站方向为单个 ContentBlock::Text（ContentNormalizer 标准化后的文本；非 text 消息跳过标准化，此格为原样内容的 Text 包装，后续由 Gateway 按媒体可得性分型路由，见下方数据流），出站方向为经 DslParser 处理后的 ContentBlock[]（Text 块已剥离 DSL 行，其余块透传） |
-| `metadata` | map(string→string) | 方向相关的键值对。入站含 `session_key`（SessionRouter 计算的消息级标识，用于日志追踪）、`trace_id`（IM Adapter 入站生成、随消息流转）、`platform` / `sender_id` / `peer_id`（SessionRouter 写入的稳定路由键组成部分）、`message_type`（来自原始 NormalizedMessage，由 Processor Chain 在构建 ProcessedMessage 时从 NormalizedMessage 复制，供 Gateway 做分型路由判断）和 `unavailable_media`（不可得媒体资源标识列表，JSON 序列化，同样复制，供 Gateway 做媒体可得性判断）；出站含 `dsl_result`（DslParser 产出的 DslParseResult，JSON 序列化）。metadata 字段的复制均发生在链调度构建 ProcessedMessage 时——各 Processor 不修改 NormalizedMessage 字段，复制不构成对消息的修改 |
+| `metadata` | map(string→string) | 方向相关的键值对，值均为字符串（复杂结构以 JSON 序列化）。入站的键由链调度在构建 ProcessedMessage 时从 NormalizedMessage 复制，并由 SessionRouter 与 Gateway 补充；出站的键由出站链与 Gateway 补充。完整键集见下方元数据键表 |
+
+**元数据键**（标「条件」的键仅在满足条件时写入）：
+
+| 键 | 方向 | 写入方 | 取值来源 |
+|----|------|--------|----------|
+| `message_type` | 入站 | 链调度（构建时从 NormalizedMessage 复制） | 原始 message_type，供 Gateway 做分型路由判断 |
+| `unavailable_media` | 入站 | 链调度（同上复制） | 不可得媒体资源标识列表（JSON），供 Gateway 做媒体可得性判断 |
+| `media_refs` | 入站 | Gateway | Gateway 从 NormalizedMessage.media_refs 序列化写入的媒体引用列表（JSON），供 Gateway 做上下文形态决策 |
+| `thread_id` | 入站（条件） | Gateway | NormalizedMessage.thread_id |
+| `reply_ref` | 入站（条件） | Gateway | NormalizedMessage.reply_ref |
+| `account_id` | 入站（条件） | Gateway | NormalizedMessage.account_id |
+| `chat_name` | 入站（条件） | Gateway | NormalizedMessage.chat_name |
+| `trace_id` | 入站（条件） | Gateway | NormalizedMessage.trace_id（webhook 到达时生成） |
+| `session_key` | 入站（条件） | SessionRouter | 计算所得的消息级标识，用于日志追踪 |
+| `platform` / `sender_id` / `peer_id` | 入站 | SessionRouter | NormalizedMessage 对应字段（稳定路由键组成部分） |
+| `span_id` | 入站（条件） | Gateway（链后） | 追踪 span 标识，供子 span 派生 |
+| `agent_id` | 入站（条件） | Gateway（机器人→Agent 绑定）/ daemon chat RPC（CLI） | 本会话的目标 Agent |
+| `channel` | 出站 | 出站链 / Gateway | 出站目标渠道 |
+| `session_id` | 出站 | 出站链 / Gateway | 会话标识（出站链本地路由用途） |
+| `verbosity_level` | 出站 | 出站链 / Gateway | 当前展示等级 |
+| `dsl_result` | 出站（条件） | DslParser | DslParseResult（JSON，仅解析出指令时写入） |
+
+元数据的复制与写入均不构成对消息的修改——各 Processor 不修改 NormalizedMessage 字段。`metadata` 不包含 `message_id`（无生产写入方）；NormalizedMessage 上的 `message_id` 是 Adapter 解析出的平台消息标识字段，二者不是同一键。
 
 入站和出站不区分类型——同一个 ProcessedMessage 结构，内容形态和 metadata 字段按方向不同而不同。
 
@@ -247,26 +280,25 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 
 SlashResult 是斜杠指令 Handler 返回的执行结果类型。每个变体封装一种指令的副作用逻辑。Handler 返回 SlashResult 后，由 Gateway 构造 SideEffectContext 并触发 SlashResult 执行，各变体自行完成对应的 session 操作和消息回复。
 
-SlashResult 共 10 种变体：
+SlashResult 共 9 种变体：
 
-| 变体 | 用途 | 产出 |
-|------|------|------|
-| SetMode | 设置会话运行模式（Normal/Plan/Auto） | ContentBlock::Text（确认信息） |
-| SetReasoning | 设置推理深度 | ContentBlock::Text（确认信息） |
-| SetVerbosity | 设置信息展示等级 | ContentBlock::Text（确认信息） |
-| Reply | 纯文本回复，用于 /help、/status 等仅需回复文本的指令 | ContentBlock::Text（回复文本） |
-| NewSession | 创建新会话 | ContentBlock::Text（确认信息） |
-| Stop | 终止当前运行（含级联终止子 session） | ContentBlock::Text（确认信息） |
-| Compact | 触发对话历史压缩 | ContentBlock::Text（压缩结果） |
-| SystemAppend | 向 system prompt 追加内容 | ContentBlock::Text（确认信息） |
-| Exec | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
-| Unknown | 未知指令回退 | ContentBlock::Text（提示信息） |
+| 变体 | 载荷 | 用途 | 产出 |
+|------|------|------|------|
+| SetReasoning | `level`（[ReasoningLevel](#reasoninglevel--agentrole)） | 设置推理深度 | ContentBlock::Text（确认信息） |
+| SetVerbosity | `level`（[VerbosityLevel](#verbositylevel)） | 设置信息展示等级 | ContentBlock::Text（确认信息） |
+| Reply | 回复文本（string） | 纯文本回复，用于 /help、/status 等仅需回复文本的指令 | ContentBlock::Text（回复文本） |
+| NewSession | 无 | 创建新会话（强制新建，即使当前标识下已有未归档 Session，见 [slash §F3](../../requirements/slash.md)） | ContentBlock::Text（确认信息） |
+| Stop | 无 | 终止当前运行（含级联终止子 session） | ContentBlock::Text（确认信息） |
+| Compact | `instruction`（可选） | 触发对话历史压缩 | ContentBlock::Text（压缩结果） |
+| SystemAppend | `action`（[SystemAppendAction](#slash-执行辅助类型)） | 向 system prompt 追加内容 | ContentBlock::Text（确认信息） |
+| Exec | `command`、`requires_permission`（默认真，只读命令须显式置假） | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
+| Unknown | 未匹配的指令名（string） | 未知指令回退 | ContentBlock::Text（提示信息） |
 
 **执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。高危指令（Exec、Git 写操作）的权限校验由 Gateway 在触发执行前经 Permission 引擎完成（校验通过方继续，拒绝则返回权限错误），不属于变体自身副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
 
 **边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（如 `/perm <subcmd>` 系列（allow-file/deny-file/allow-cmd/deny-cmd））同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——新用户注册的载荷结构见 [UserRegistration / UserCreationRequest / InitialPermissionSet](#userregistration--usercreationrequest--initialpermissionset)。
 
-**SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于模式切换、会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
+**SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -308,9 +340,10 @@ FragmentContext 是 PromptFragmentProvider 片段生成时的输入上下文，�
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
-| `agent_id` | string | Agent 标识。Skills 按此过滤可见 skill |
-| `session_role` | enum | Session 角色：SessionRole::Main（主 Agent Session）或 SessionRole::Sub（子 Session）。长期记忆（MEMORY.md）与自定义引导指令（BOOTSTRAP.md）按此角色门控加载，与身份加载模式无关 |
-| `bootstrap_mode` | enum | 身份加载模式，取值来自 agent 配置的 `bootstrapMode`：BootstrapMode::Minimal（精简）或 BootstrapMode::Full（完整），仅在主 Agent Session 决定是否注入自定义引导指令（BOOTSTRAP.md）。子 Session 不据此注入可选内容 |
+| `agent_id` | string | Agent 标识。Skills / Tools / Memory 等 Provider 按此决定可见范围 |
+| `session_role` | enum | Session 角色：SessionRole::Main（主 Agent Session）或 SessionRole::Sub（子 Session）。长期记忆（MEMORY.md）按此角色门控（仅主 Session 加载，与身份加载模式无关）；自定义引导指令（BOOTSTRAP.md）另行按 `bootstrap_mode` 门控（仅主 Session 且完整模式加载，见 [system_prompt §F1/F8](../../requirements/system_prompt.md)） |
+| `bootstrap_mode` | enum | 身份加载模式，取值来自 agent 配置的 `bootstrapMode`：BootstrapMode::Minimal（精简）或 BootstrapMode::Full（完整），仅主 Agent Session 下决定是否注入自定义引导指令（BOOTSTRAP.md）。子 Session 不据此注入可选内容 |
+| `no_bootstrap` | bool | Agent 是否显式声明无 Bootstrap 文件。为真时该 Session 按「无 Bootstrap 文件的 Session」处理——仅加载工具清单，不加载任何 Bootstrap 文件与长期记忆（见 [system_prompt §F8](../../requirements/system_prompt.md)） |
 | `bootstrap_dir` | string | bootstrap 文件所在目录，BootstrapFragmentProvider 按此查找 bootstrap 文件。值来源于 agent 配置的 agentDir 字段 |
 | `activated_skills` | list(string) | 当前 session 已条件激活的技能名列表，由 Session 模块在 SP 重建时按值传入，SkillsFragmentProvider 据此把已激活条件技能纳入清单（仅 SP 重建路径有效） |
 | `tool_registry` | ToolRegistryQuery? | 供需要工具信息的 Provider（如 ToolsFragmentProvider）直接查询的工具注册表引用；来自 InjectionParams，缺省回退 Provider 默认 |
@@ -340,7 +373,7 @@ RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构�
 
 #### StreamingOutput
 
-StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投递的文本内容列表（完整文本行或强制输出时的行内片段），加本批内累积完整的非文本块。被 common 的 [StreamingRenderer](core-traits.md#streamingrenderer) 处理单批事件产出、各平台插件持有并委托调用；其流式发送逻辑将本批内容组装为 RenderedOutput 后经 IMPlugin 的发送能力投递（不经 IMPlugin 的渲染方法），gateway 在流式出站管线中传递该结构——满足共享类型准入条件。
+StreamingOutput 是流式渲染过程中单批事件的处理产出：本批投递的文本内容列表（完整文本行或强制输出时的行内片段），加本批内累积完整的非文本块。被 common 的 [StreamingRenderer](core-traits.md#streamingrenderer) 处理单批事件产出、各平台插件持有并委托调用；其流式发送逻辑将本批内容组装为 RenderedOutput 后经 IMPlugin 的发送能力投递（不经 IMPlugin 的渲染方法）。组装以**本批**为粒度：`msg_type` 取平台流式形态（如飞书卡片 `"interactive"`），`payload` 由平台流式发送逻辑按本批 `text_messages` 与 `render_blocks` 增量更新平台消息；每批各自组装并投递一份增量 RenderedOutput，而非等待整条消息完成——与 [RenderedOutput](#renderedoutput) 的「不预先组装为最终整条消息」一致。gateway 在流式出站管线中传递该结构——满足共享类型准入条件。
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -374,32 +407,15 @@ CodeBlock 承载代码块内容，字段定义：
 
 VerbosityLevel 是出站信息展示等级的枚举，控制 VerbosityFilter 对 ContentBlock 的过滤策略。由 `/verbose` 指令设置，Session 存储，出站 Processor Chain 的第一道过滤（VerbosityFilter，priority 5）消费。
 
-**过滤对象边界**：Verbosity 控制的是 Agent 工作过程中的**中间产物**，不影响交付给用户的**最终回复内容**。结合上文 [ContentBlock](#contentblock) 的分类：
-- **中间产物块**：Thinking（思考过程）、ToolUse（工具调用请求）、ToolResult（工具执行结果）——记录 Agent 内部工作过程与进度，是 Verbosity 各等级按档位显隐的对象
-- **最终回复内容块**：Text，以及作为交付物出现的 Image / Audio / File——是对用户的实际交付，不属于中间产物，不随展示等级被过滤，在任意等级下均展示
-
-只有中间产物块参与等级过滤，最终回复内容块始终展示。三个等级：
+**过滤范围**：三个等级的过滤口径以需求 [processor_chain §F4](../../requirements/processor_chain.md) 为准：
 
 | 等级 | 值 | 过滤行为 |
 |------|---|---------|
-| full | `"full"` | 展示全部：思考过程、工具调用与结果等中间产物与最终回复内容均展示，不过滤 |
-| normal | `"normal"` | 保留工具调用与结果作为进度提示，隐藏思考过程（Thinking） |
-| off | `"off"` | 移除全部中间产物（Thinking / ToolUse / ToolResult），仅展示最终回复内容（Text 与作为交付物的 Image / Audio / File） |
+| full | `"full"` | 展示全部内容块：文本、思维链、工具调用与结果、媒体块（Image / Audio / File） |
+| normal | `"normal"` | 移除思维链块（Thinking），保留文本、工具调用与结果、媒体块 |
+| off | `"off"` | 仅保留纯文本块（Text），移除 Thinking / ToolUse / ToolResult 与媒体块 |
 
 **作用范围**：Verbosity 控制展示内容，不影响 LLM 推理深度和 Agent 行为模式。仅有 `/verbose` 指令通过 VerboseHandler 写入 Session 的 Verbosity 字段，无其他写入者。切换等级不影响当前正在输出的消息——仅对后续新消息生效。
-
-### PlanState
-
-PlanState 是 Plan Mode 下的规划状态结构，由 mode 模块管理，Session 持久化。Compaction 对此状态做隔离保护（不压缩 plan 相关消息），Session 恢复时重建 PlanState。
-
-PlanState 描述当前规划所处阶段：
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| `phase` | enum | 当前阶段：Research / Design / Review / FinalPlan（标准路径四阶段，阶段流转语义见 [mode/plan-mode.md](../mode/plan-mode.md)） |
-| `plan_file_path` | string | plan 文件路径，规划阶段 Agent 写入与读取的唯一目标 |
-
-**边界**：PlanState 仅承载会话恢复和 compaction 隔离保护所需的最小状态。执行步骤的完成状态（未开始/进行中/已完成/失败/已跳过）由 Agent 写在 plan 文件中管理，系统不介入进度判断——PlanState 不包含执行步骤状态机（执行步骤状态定义见 [mode 执行引擎](../mode/execution.md)）。
 
 ### CompactionResult / CompactionError
 
@@ -407,15 +423,24 @@ compaction（对话历史压缩）操作的产出与错误。CompactionResult �
 
 **边界**：本题只承载跨 trait 边界的压缩产出与错误。压缩的触发条件、保留区、熔断与摘要格式等**行为语义**归 session 模块，设计定义见 [session compact-process](../session/compact-process.md) 与 [session lifecycle](../session/session-lifecycle.md)；压缩配置的**跨模块共享数据结构** CompactConfig 定义于 common（见下）。
 
-- **CompactConfig**：压缩相关配置的共享数据结构（按 Agent 配置的压缩阈值、保留区、熔断、摘要模型等项；逐项语义与默认值见 [session compact-process](../session/compact-process.md)）。被 session（执行压缩）、gateway、config（解析与校验）、cli、daemon 多模块消费；因 cli、config 等消费方按 [STANDARDS 依赖方向允许边表](../STANDARDS.md)不依赖 session，该数据结构随 common 定义（配置的行为语义仍归 session）。
+- **CompactConfig**：压缩相关配置的共享数据结构，被 session（执行压缩）、gateway、config（解析与校验）、cli、daemon 多模块消费；因 cli、config 等消费方按 [STANDARDS 依赖方向允许边表](../STANDARDS.md)不依赖 session，该数据结构随 common 定义（配置的行为语义仍归 session）：
 
-### ReasoningLevel / AgentRole / SessionMode
+| 配置项 | 类型 | 默认值 | 说明 |
+|------|------|------|------|
+| 告警阈值 | float | 0.25 | 剩余空间占上下文窗口百分比不高于此值时提示 User 即将压缩 |
+| 压缩阈值 | float | 0.20 | 剩余空间占上下文窗口百分比不高于此值时触发自动压缩；须低于告警阈值 |
+| 保留区比例 | float | 0.16 | 自动压缩保留原文的 token 数占上下文窗口百分比；手动/溢出兜底压缩按 0 处理 |
+| 熔断失败次数 | int | 3 | 连续自动压缩失败达此次数后进入保护暂停 |
+| 摘要模型 | string? | 未配置时取当前 Session 的模型 | 生成压缩摘要所用模型；配置为独立摘要模型时覆盖当前 Session 模型（按 Agent 独立配置，无全局默认） |
+
+各配置项语义与默认值以 [session §F3](../../requirements/session.md)（长对话压缩）为准，压缩执行细节见 [session compact-process](../session/compact-process.md)。
+
+### ReasoningLevel / AgentRole
 
 会话行为相关的跨模块枚举。
 
 - **ReasoningLevel**：推理深度档位——low / medium / high / max，默认 high；off 表示关闭推理输出（供应商不支持关闭时降至最低可用档位）。作为 [InternalRequest](#internalrequest--internalmessage--systemblock--tooldefinition) 字段随 LLM 请求传递，各协议映射为供应商原生参数；`/reasoning` 指令经 [SlashEffectExecutor](core-traits.md#slasheffectexecutor) 设置，由网关层解析生效档位——当所选模型不支持请求档位时自动降级到该模型支持的最高档位（需求见 [llm §F4](../../requirements/llm.md)）。
 - **AgentRole**：Agent 身份枚举——MainAgent（主 Agent）/ SubAgent（分身 Agent），标识 Agent 层级（与 [FragmentContext](#fragmentcontext) 的 SessionRole（主/子 Session）相关但不同层：前者描述 Agent 身份，后者描述 Session 角色）。
-- **SessionMode**：会话运行模式——Normal / Plan / Auto，控制工具可见性、权限边界与 system prompt 指令；由 `/mode` 设置，作为 [SessionModeQuery](core-traits.md#sessionmodequery) 的返回类型跨模块查询（语义见 [mode 模块](../mode/README.md)）。
 
 ### InternalRequest / InternalMessage / SystemBlock / ToolDefinition
 
@@ -427,15 +452,15 @@ compaction（对话历史压缩）操作的产出与错误。CompactionResult �
 |------|------|------|
 | `model` | string | 本次请求使用的模型标识 |
 | `messages` | list(InternalMessage) | 有序对话消息序列 |
-| `temperature` | float | 采样温度，默认 0 |
+| `temperature` | float | 采样温度。调用方未显式指定时取该模型配置的推荐默认温度（内置知识库填充，见 [llm §F7](../../requirements/llm.md)）；模型配置未提供时为 0 |
 | `max_tokens` | int? | 生成上限，可选 |
 | `stream` | bool | 是否流式，默认否 |
 | `system_static` / `system_dynamic` | string? | system prompt 静态（可缓存）段与动态段，两段契约见 [system_prompt kv-cache](../system_prompt/kv-cache.md) |
 | `system_blocks` | list(SystemBlock)? | 缓存适配器产出的结构化 system 块，可选 |
 | `tools` | list(ToolDefinition)? | 随请求传入的工具 schema 定义，可选 |
-| `session_id` | string? | 供应商级缓存键使用的会话标识 |
+| `session_id` | string? | 会话标识，可选。与缓存命中校验无关——供应商前缀缓存依据内容前缀（见 [llm cache-adapter](../llm/cache-adapter.md)），本字段不参与命中判定 |
 | `extra_body` | map(string→any) | 供应商特定附加参数，可选 |
-| `reasoning_level` | [ReasoningLevel](#reasoninglevel--agentrole--sessionmode) | 推理深度档位，各协议映射为原生参数（默认 high） |
+| `reasoning_level` | [ReasoningLevel](#reasoninglevel--agentrole) | 推理深度档位，各协议映射为原生参数（默认 high） |
 | `turn_count` | int? | 会话内轮次计数，用于 API 元数据 |
 
 **InternalMessage**：请求中的单条消息——`role`（角色）、`content`（文本）、`content_blocks`（多模态内容块，存在时优先于 content）、`tool_call_id`（工具结果消息标识）。
@@ -565,7 +590,6 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 | `operation` | string | 操作描述（如 `write <path>`、命令文本） |
 | `reason` | string | 处置的人类可读原因 |
 | `risk_level` | [RiskLevel](#risklevel--permissionevalresponse--callerinfo--permissiondenied--spawnpermissionerror) | 操作风险级别 |
-| `session_mode` | [SessionMode](#reasoninglevel--agentrole--sessionmode)? | 事件发生时的会话模式，可选 |
 | `disposition` | AuditDisposition | 最终处置（批准/拒绝） |
 
 **AuditDisposition**——审计处置枚举：Approved（被批准）、Rejected（被拒绝）。
@@ -622,9 +646,8 @@ Agent 配置档案是 Agent 模块的核心数据对象（语义与需求见 [ag
 | `subagents` | SubagentsConfig | 子 Session 创建控制参数 |
 | `memory` | MemoryConfig? | 记忆子系统 per-agent 覆盖，未声明为 `null`（回退全局默认） |
 | `hooks` | list([HookConfig](#hookconfig--hookparams--hooktype)) | run-health hook 审查配置 |
-| `parallel_tool_calls` | bool | 是否允许并行工具调用 |
 
-ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析（默认值补齐），但不含运行时派生能力（权限过滤后的工具清单、运行模式决定的工具范围等由下游消费模块按需派生，见 [agent-registry §架构](../agent/agent-registry.md)）。`tools` / `skills` 保留静态字面值（`["*"]` 即字面 `["*"]`，不展开为具体工具名）。
+ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析（默认值补齐），但不含运行时派生能力（权限过滤后的工具清单等由下游消费模块按需派生，见 [agent-registry §架构](../agent/agent-registry.md)）。`tools` / `skills` 保留静态字面值（`["*"]` 即字面 `["*"]`，不展开为具体工具名）。
 
 **SubagentsConfig 字段**（子 Session 创建控制，由 agent 配置定义、session 的 spawn 流程消费）：
 
@@ -639,78 +662,246 @@ ResolvedAgentConfig 是**静态配置视图**——所有字段已完成解析�
 | `timeout_notify_interval_ratio` | float? | 预警后循环通知间隔比例（相对 timeout_warning），取值 [0.1, 2.0]，默认 0.5 |
 | `model` | [ModelSpec](#modelspec)? | 子 Session 默认模型覆盖 |
 
-**MemoryConfig**：记忆子系统的 per-agent 覆盖结构（字段级覆盖全局 `memory.json`）。作为 ResolvedAgentConfig 的 `memory` 字段类型在此收录；其字段结构与默认值以 [memory/config](../memory/config.md) 为权威定义，本文档不重复。
+**MemoryConfig**：记忆子系统的 per-agent 覆盖结构（字段级覆盖全局 `memory.json`）。作为 ResolvedAgentConfig 的 `memory` 字段类型在此收录；字段结构与默认值以 [memory/config](../memory/config.md) 为权威定义，本文档不重复。**字段级合并契约（本共享结构的跨模块语义）**：其全部叶子字段为可选（None=继承全局），合并方向为 per-agent 覆盖全局（agent 值优先，未声明处回退全局 `memory.json`）；ResolvedAgentConfig.memory 为 null 表示不声明 memory 段、整体回退全局。三种声明形态的最终状态：不声明 → 全部继承全局；声明空对象 → 字段均未声明、等价全部继承全局；声明部分字段 → 仅覆盖声明项。
 
 MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见上述权威定义）：
 
-- **MemoryStorageConfig**：`storage` 字段类型
-- **MiningConfig**：`mining` 字段类型
-- **TranscriptCleanRules**：`mining.transcript_clean_rules` 字段类型
-- **DreamingConfig**：`dreaming` 字段类型
-- **DreamingScoringConfig**：`dreaming.scoring` 字段类型
-- **DreamingThresholdConfig**：`dreaming.threshold` 字段类型
-- **DreamingCapacityConfig**：`dreaming.capacity` 字段类型
-- **DreamingDiaryConfig**：`dreaming.diary` 字段类型
-- **SearchConfig**：`search` 字段类型
-- **ForgettingConfig**：`forgetting` 字段类型
+#### MemoryStorageConfig
+
+`storage` 字段类型。
+
+#### MiningConfig
+
+`mining` 字段类型。
+
+#### TranscriptCleanRules
+
+`mining.transcript_clean_rules` 字段类型。
+
+#### DreamingConfig
+
+`dreaming` 字段类型。
+
+#### DreamingScoringConfig
+
+`dreaming.scoring` 字段类型。
+
+#### DreamingThresholdConfig
+
+`dreaming.threshold` 字段类型。
+
+#### DreamingCapacityConfig
+
+`dreaming.capacity` 字段类型。
+
+#### DreamingDiaryConfig
+
+`dreaming.diary` 字段类型。
+
+#### SearchConfig
+
+`search` 字段类型。
+
+#### ForgettingConfig
+
+`forgetting` 字段类型。
 
 ### 消息/内容辅助类型
 
-- **ContentBlockType**：ContentBlock 的块类型分类枚举（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），用作 [StreamEvent](#streamevent) 的 `block_type` 与流式渲染的分类。
-- **MessageType**：入站消息类型枚举（text / image / file / audio / post），为 [NormalizedMessage](#normalizedmessage) 字段。
-- **MediaType**：媒体类型枚举（image / file / audio），为 [MediaRef](#normalizedmessage) 字段。
-- **ProcessError**：Processor Chain 入站/出站处理的错误类型。
-- **AdapterError**：IM Adapter 操作的错误类型，为 [IMPlugin](core-traits.md#implugin) 契约的错误载荷。
+**ContentBlockType**——ContentBlock 的块类型分类枚举，用作 [StreamEvent](#streamevent) 的 `block_type` 与流式渲染的分类：Text / Thinking / ToolUse / ToolResult / Image / Audio / File。
+
+**MessageType**——入站消息类型枚举，为 [NormalizedMessage](#normalizedmessage) 的 `message_type` 字段：
+
+| 变体 | 说明 |
+|------|------|
+| Text | 纯文本消息（默认变体） |
+| Image | 图片消息 |
+| File | 文件消息 |
+| Audio | 音频消息 |
+| Post | 含内嵌媒体的富文本 post——展开文本进 `content`，内嵌媒体引用进 `media_refs` |
+
+**MediaType**——媒体类型枚举，为 [MediaRef](#normalizedmessage) 的 `media_type` 字段：Image（图片）/ File（文件）/ Audio（音频）。
+
+**ProcessError**——Processor Chain 入站/出站处理的错误：
+
+| 变体 | 载荷 | 说明 |
+|------|------|------|
+| ProcessorFailed | `name`、`source` | 链中某个 processor 失败 |
+| InvalidMessage | `string` | 进出站消息格式非法 |
+| ChainFailed | `string` | 链自身失败（如空链配置错误） |
+
+**AdapterError**——IM Adapter 操作的错误，为 [IMPlugin](core-traits.md#implugin) 契约的错误载荷：
+
+| 变体 | 载荷 | 说明 |
+|------|------|------|
+| InvalidPayload | `string` | 平台事件 payload 非法 |
+| AuthFailed | — | 平台鉴权失败 |
+| SendFailed | `string` | 发送失败 |
+| InvalidSignature | — | 签名校验失败 |
+| IoError | `io::Error` | IO 错误 |
+| UnsupportedOperation | — | 平台不支持的操作 |
 
 ### 会话/注入辅助类型
 
-- **SessionRole**：会话角色枚举（Main 主 Agent Session / Sub 子 Session），为 [FragmentContext](#fragmentcontext) 字段。
-- **SectionType**：[PromptFragment](#promptfragment) 的片段类型枚举（bootstrap 文件 / 工具列表 / skill 清单 / 长期记忆）。
-- **BootstrapMode**：身份加载模式枚举（Minimal 精简 / Full 完整），取自 agent 配置的 `bootstrapMode`，为 [FragmentContext](#fragmentcontext) 字段。
-- **PlanPhase**：[PlanState](#planstate) 的阶段枚举（Research / Design / Review / FinalPlan）。
-- **RequestContext**：当前入站消息的元数据（发送者、渠道、时间戳、聊天名），由 Gateway 在每次 LLM 调用前写入 session，供动态层构建使用；置于 common 以避免 session→gateway 反向依赖。
-- **InjectionParams**：system prompt 注入链的参数契约。设计文档要求的必选输入为 agent_id、ToolRegistry 引用、Session 角色、身份加载模式四项；另含既有参数 session_id、overrides、activated_skills。由 SessionManager → session → System Prompt Builder 传递。
-- **TurnCounter**：会话轮次计数器（工具结果计入轮次）。
-- **PendingMessage**：待处理消息（未最终确认、等待注入对话的消息），为 [SessionLookup](core-traits.md#sessionlookup) / [SlashSessionQuery](core-traits.md#slashsessionquery) 「向统一消息队列推送」的载荷。
+**SessionRole**——会话角色枚举，为 [FragmentContext](#fragmentcontext) 字段：Main（顶层 Agent 会话，加载 MEMORY.md 与 BOOTSTRAP.md 等受身份门控内容）/ Sub（被 spawn 的子会话，无论身份加载模式为何都抑制受门控内容）。
+
+**SectionType**——[PromptFragment](#promptfragment) 的片段类型枚举：Bootstrap（bootstrap 文件）/ Tools（工具清单）/ Skills（技能清单）/ Memory（长期记忆）。
+
+**BootstrapMode**——身份加载模式枚举，取自 agent 配置的 `bootstrapMode`，为 [FragmentContext](#fragmentcontext) 字段：Minimal（精简，仅运行时必需的身份/工具文件）/ Full（完整文件集，含需持久上下文/记忆的文件）。
+
+**RequestContext**——当前入站消息的元数据，由 Gateway 在每次 LLM 调用前写入 session，供动态层构建使用；置于 common 以避免 session→gateway 反向依赖：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `sender_id` | string | 消息发送者标识（Open ID） |
+| `channel` | string | 渠道标识（如 `"feishu"`、`"telegram"`） |
+| `timestamp` | int | 消息创建时的 Unix 时间戳（秒） |
+| `chat_name` | string | 会话/群名称，无则为空串 |
+
+**InjectionParams**——system prompt 注入链的参数契约，由 SessionManager → session → System Prompt Builder 传递；设计契约要求 agent_id、ToolRegistry 引用、Session 角色、身份加载模式四项必选输入，另含既有参数：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 会话标识，用于日志与追踪透传 |
+| `agent_id` | string | Agent 标识，决定加载哪个 agent 的 bootstrap 文件及工具/技能可见性规则 |
+| `bootstrap_mode_override` | BootstrapMode? | 身份加载模式覆写；空表示用 agent 配置默认值 |
+| `activated_skills` | list(string) | 本会话条件激活的技能名，供 SkillsFragmentProvider 纳入清单 |
+| `session_role` | SessionRole | 会话角色，决定身份门控行为 |
+| `no_bootstrap` | bool | agent 是否声明 `noBootstrap: true`；为真时视为无 bootstrap 文件，与 `bootstrap_mode_override` 正交且优先级更高 |
+| `tool_registry` | ToolRegistryQuery? | 可选 ToolRegistry 引用；空时回落到 Provider 级默认 |
+
+**TurnCounter**——会话轮次计数器（一「轮」= 一次 User 消息进入至 Agent 完成响应，与 [session §F3](../../requirements/session.md) 的压缩检测轮次口径一致）；计数器内部私有，仅暴露新建 / 自增 / 读取。
+
+**PendingMessage**——待处理消息（未最终确认、等待注入对话的消息），为 [SessionLookup](core-traits.md#sessionlookup) / [SlashSessionQuery](core-traits.md#slashsessionquery)「向统一消息队列推送」的载荷：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `message_id` | string | 消息标识 |
+| `content` | string | 消息内容 |
+| `created_at` | timestamp | 创建时间 |
+| `sent` | bool | 是否已发送 |
+| `role` | string? | 消息角色（user / assistant），用于 transcript 格式化 |
+| `target_channel` | string | 目标渠道标识 |
+| `platform` | string? | 出站消息的平台标识 |
+| `dsl_result` | string? | DSL 解析结果（序列化 JSON） |
+| `content_blocks` | string? | 出站消息内容块（序列化 JSON，ContentBlock[]） |
+
+`content_blocks` 存在时优先于 `content`（与 InternalMessage 同口径）；两者均为序列化载荷，反序列化失败时按该项缺失处理。本结构与 SessionCheckpoint 的 `pending_messages` 字段不同物——后者是 transcript 快照，本结构是统一消息队列的入队载荷。
 
 ### Slash 执行辅助类型
 
-- **SlashContext**：斜杠指令执行上下文——`command` / `sender_id` / `session_id` / `channel`，为 [SlashHandler](core-traits.md#slashhandler) 的入参。
-- **SystemAppendAction**：`/system` 追加动作——Add（追加指令）/ Clear（清空追加），为 [SlashResult](#slashresult) 变体载荷。
-- **ReplyAction**：[SlashResultExecutor](core-traits.md#slashresultexecutor) 产出、Gateway 分派的回复动作——Reply（内容块回复）/ TriggerCompact（触发压缩）/ Nothing。
+**SlashContext**——斜杠指令执行上下文，为 [SlashHandler](core-traits.md#slashhandler) 的入参：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `command` | string | 指令名（不含前导 `/`）；多命令 handler（如 workdir 系列）据此分支 |
+| `sender_id` | string | 消息发送者标识 |
+| `session_id` | string | 指令被调用的会话 ID |
+| `channel` | string | 渠道标识 |
+
+**SystemAppendAction**——`/system` 追加动作，为 [SlashResult](#slashresult) 变体载荷：Add（携带要追加的指令文本）/ Clear（清空全部已追加指令）。
+
+**ReplyAction**——[SlashResultExecutor](core-traits.md#slashresultexecutor) 产出、Gateway 分派的回复动作：
+
+| 变体 | 载荷 | 说明 |
+|------|------|------|
+| Reply | ContentBlock[] | 内容块回复（经出站 Processor Chain：Verbosity 过滤 → DslParser → 出站日志 → IM Adapter 渲染） |
+| TriggerCompact | `instruction`（可选） | 触发手动压缩 |
+| Nothing | — | 无需动作 |
 
 ### LLM/流式/中间件辅助类型
 
-- **LLMError**：LLM 操作的错误类型，为 [LlmCaller](core-traits.md#llmcaller) 的错误载荷（[StreamEvent](#streamevent) 的 Error 事件载荷为错误消息文本）。
-- **ErrorKind**：LLM 错误的分类（用于重试策略判定）。
-- **StreamDone**：流式完成通知载荷（model + usage），为 [StreamingSink](core-traits.md#streamingsink) 的完成通知参数。
-- **MiddlewareContext** / **MiddlewareError**：[OutboundMiddleware](core-traits.md#outboundmiddleware) 契约的上下文与错误载荷。
+**LLMError**——LLM 操作的错误，为 [LlmCaller](core-traits.md#llmcaller) 的错误载荷（[StreamEvent](#streamevent) 的 Error 事件载荷为错误消息文本）：
+
+| 变体 | 载荷 | 说明 |
+|------|------|------|
+| AuthFailed | `string` | 鉴权失败 |
+| RateLimitExceeded | — | 触发限流 |
+| ModelNotFound | `string` | 模型不存在 |
+| InvalidRequest | `string` | 请求非法 |
+| ApiError | `string` | 供应商 API 错误 |
+| NetworkError | `string` | 网络错误 |
+| Cancelled | — | 请求被会话取消（级联停止或显式 /stop），永不重试 |
+| PartialContent | `reason`、`thinking_blocks` | 流式中断错误，保留完整的 Thinking 块以写入会话历史 |
+
+**ErrorKind**——LLM 错误的分类，用于重试策略判定：Transient（瞬时：429/5xx/超时，退避重试）/ Auth（认证错误，轮换凭据）/ Billing（计费/配额，长冷却）/ InvalidRequest（无效请求，不重试、切换模型）/ Unknown（未知，按瞬时处理但限制次数）。
+
+**StreamDone**——流式完成通知载荷，为 [StreamingSink](core-traits.md#streamingsink) 完成通知的参数：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `model` | string | 产生最终响应的模型名 |
+| `usage` | [UnifiedUsage](#unifiedresponse--unifiedusage)? | 供应商上报的 token 用量；部分供应商流式响应不带 usage 时为空 |
+
+其 `usage` 与流式收尾 [StreamEvent](#streamevent) 的 MessageEnd 载荷 [UnifiedUsage](#unifiedresponse--unifiedusage) 同源（均为本次流式调用的最终用量）——StreamDone 是 StreamingSink 侧对同一次完成事件的载荷，MessageEnd 是 LLM 事件流侧的收尾事件，两者携带同一次流式完成的用量，不由各自独立统计。
+
+**MiddlewareContext**——[OutboundMiddleware](core-traits.md#outboundmiddleware) 契约的上下文（链运行于 IMPlugin 渲染后、发送前，以不可变引用传入，中间件不得修改）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `session_id` | string | 该消息所属会话标识 |
+| `channel` | string | 目标 IM 渠道 |
+| `chat_id` | string | 目标平台 chat / group 标识 |
+
+**MiddlewareError**——[OutboundMiddleware](core-traits.md#outboundmiddleware) 契约的错误：MiddlewareFailed（链中某中间件失败）/ Rejected（显式拒绝出站消息，短路整条链、消息不发送）。
 
 ### 工具契约载荷族
 
 围绕 [Tool](core-traits.md#tool-trait)、[ToolRegistry](core-traits.md#toolregistry)、[ToolRegistrar](core-traits.md#toolregistrar)、[ToolRegistryQuery](core-traits.md#toolregistryquery)、[ToolSession](core-traits.md#toolsession)、[ToolExecutor](core-traits.md#toolexecutor) 的载荷类型：
 
-- **ToolFlags**：工具运行时标记（是否只读 / 破坏性 / 昂贵 / 默认延迟加载 / 并发安全）。
-- **ToolDescriptor**：工具摘要信息（name / group / summary / detail / input_schema / flags），用于 system prompt 生成。
-- **ToolBox**：桥接 `Tool` 与类型擦除注册的包装（`Arc<dyn Tool>`）。
-- **RegistryError**：工具注册表操作错误（区别于 ToolRegistrarError）。
-- **ToolRegistrarError**：Registrar 级注册错误（冲突报告、内部失败）。
-- **ToolContext**：工具调用时的运行时上下文（含 session、workdir、session_mode、media_store 等句柄）。
-- **ToolResult**：工具调用链路的结果结构（data / new_messages / context_modifier）。与 [ContentBlock](#contentblock) 的 ToolResult **变体**（出站内容块）同名但不同物。
-- **ToolMessage**：注入 agent 上下文的消息。
-- **ContextModifier**：工具结果中携带的、用于在工具执行后修改会话上下文的动作（[ToolResult](#工具契约载荷族) 字段）。
-- **ToolCallError**：工具执行错误。
-- **PromptGenerationContext** / **WorkdirContext**：`generate_prompt` / workdir 上下文构建的输入。
-- **ReadRange** / **ToolProgress**：文件读取范围与工具进度快照，为 [ToolSession](core-traits.md#toolsession) 契约载荷。
-- **FileReadCache**：文件读取去重缓存的载荷——记录 per-turn 已读文件的 mtime 与已读范围，供同一轮内重复读取判定文件是否变更（去重语义见 [tools read-tool](../tools/read-tool.md)）。为 [ToolSession](core-traits.md#toolsession) 契约的文件读取载荷：session（实现方）产出、tools（消费方）经契约读取，跨 2+ 模块消费，故收录 common。
-- **PendingToolCall** / **ToolCallDispatcher**：多工具并行调度的调用描述与调度器（gateway 与 tools 共用）；**DispatchGroup** 为调度分组枚举。其执行抽象 ToolExecutor 为 DI trait，见 [core-traits](core-traits.md#toolexecutor)。
-- **FileMutexMap**：同文件并发写的按路径互斥映射（gateway 与 tools 共用）；**TryAcquireResult** 为其非阻塞获取结果。
+**ToolFlags**——工具运行时标记：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `is_concurrency_safe` | bool | 工具可被多个 agent 并发调用 |
+| `is_read_only` | bool | 工具只读，不修改文件或状态 |
+| `is_destructive` | bool | 工具可能覆盖或删除数据，需显式确认 |
+| `is_expensive` | bool | 工具可能较慢或消耗显著资源 |
+| `is_deferred_by_default` | bool | 工具详情默认不载入 system prompt |
+
+**ToolDescriptor**——工具摘要信息（system prompt 生成用）：`name`（工具名）、`group`（分组）、`summary`（清单用简短摘要）、`detail`（写入 system prompt 的详细描述）、`input_schema`（入参 JSON Schema）、`flags`（[ToolFlags](#工具契约载荷族)）。
+
+**ToolBox**——桥接 `Tool` 与类型擦除注册的包装（`Arc<dyn Tool>`）。
+
+**RegistryError**——工具注册表操作错误（区别于 ToolRegistrarError）：AlreadyRegistered（工具名已注册）/ Conflict（完整冲突详情：工具名、已注册方、尝试注册方）/ Frozen（注册表已冻结、不再接受注册）/ Internal（注册内部错误）。
+
+**ToolRegistrarError**——Registrar 级注册错误：Conflict（工具名已被另一 Registrar 注册）/ Internal（Registrar 内部错误）。
+
+**ToolContext**——工具调用时的运行时上下文：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `agent_id` | string | 调用该工具的 agent ID |
+| `workdir` | WorkdirContext? | 当前工作目录上下文（若已设置） |
+| `session_id` | string? | 拥有本次工具调用的会话 ID（若已知） |
+| `call_id` | string? | LLM 侧的工具调用标识 |
+| `session` | ToolSession? | 所属会话的强引用（经 ToolSession 抽象） |
+| `manual_background_signal` | 异步通知? | 来自 Session 的手动后台化信号，工具可等待该通知 |
+| `media_store` | MediaStoreAccess? | 可选媒体存储，用于解析 `[type: key]` 引用 |
+
+**ToolResult**——工具调用链路的结果结构（Tool::execute 返回类型）：`data`（结构化结果 JSON）、`new_messages`（待注入 agent 上下文的消息）。与 [ContentBlock](#contentblock) 的 ToolResult **变体**（出站内容块）同名但不同物。
+
+**ToolMessage**——注入 agent 上下文的消息：`content`（消息内容）、`is_meta`（是否为元信息）。
+
+**ToolCallError**——工具执行错误：NotFound（未找到）/ PermissionDenied（权限被拒）/ InvalidArgs（参数非法）/ ExecutionFailed（执行失败）/ NotImplemented（该工具未实现该调用）。
+
+**PromptGenerationContext**——`generate_prompt` 的输入上下文：`agent_id`、`workdir`（可选）、`available_tool_names`（当前可用工具名，只传名字不传 descriptor）、`tools`（agent 级白名单）、`disallowed_tools`（黑名单，白名单过滤后应用）、`agent_role`、`agent_type`。
+
+**WorkdirContext**——workdir 上下文构建的产出：`path`（工作目录绝对路径）、`has_git`（是否为 git 仓库）、`branch`（当前分支，has_git 时有效）、`recent_changes`（未提交改动数，has_git 时有效）。
+
+**ReadRange** / **ToolProgress**——[ToolSession](core-traits.md#toolsession) 契约载荷：ReadRange 为文件读取范围（`offset` 起始行、`limit` 最多行数）；ToolProgress 为工具进度快照（`lines` 已输出行数、`bytes` 已输出字节数、`elapsed` 启动至今耗时）。
+
+**FileReadCache**——文件读取去重缓存的载荷：记录 per-turn 已读文件的 `mtime` 与已读 `ranges`，供同一轮内重复读取判定文件是否变更（去重语义见 [tools read-tool](../tools/read-tool.md)）。为 [ToolSession](core-traits.md#toolsession) 契约的文件读取载荷：session（实现方）产出、tools（消费方）经契约读取。
+
+**PendingToolCall** / **ToolCallDispatcher**——多工具并行调度的调用描述与调度器（gateway 与 tools 共用）：PendingToolCall 字段 `id`（调用标识）、`tool_name`、`args`（JSON 参数）、`file_path`（目标文件路径，可选）、`is_concurrency_safe`；ToolCallDispatcher 依据并发安全标记与按文件互斥所有权把一批调用路由到并行 / 按文件互斥 / 串行执行，不直接调工具，由调用方注入 [ToolExecutor](core-traits.md#toolexecutor)。**DispatchGroup** 为分发策略枚举：Parallel / MutexByFile / Serial。
+
+**FileMutexMap**——同文件并发写的按路径互斥映射（gateway 与 tools 共用）：key 为规范化路径，每项持锁、无引用时惰性移除。**TryAcquireResult** 为其非阻塞获取结果：Acquired（已获取，返回 owned guard）/ WouldBlock（锁被其他任务持有）。
 
 ### 其他契约辅助类型
 
-- **PromptOverrides** / **ModeTransition** / **DynamicPromptContext**：[SystemPromptBuilder](core-traits.md#systempromptbuilder) 与 [DynamicPromptBuilder](core-traits.md#dynamicpromptbuilder) 契约的覆盖项、模式切换信号与动态构建上下文。
-- **AgentToolsConfig**：Agent 工具白/黑名单配置，为 [AgentToolsConfigQuery](core-traits.md#agenttoolsconfigquery) 的返回类型。
-- **ConditionalSkillMatch**：条件技能匹配结果，为 [SkillListingProvider](core-traits.md#skilllistingprovider) 的载荷。
+- **DynamicPromptContext**：[DynamicPromptBuilder](core-traits.md#dynamicpromptbuilder) 契约的动态层构建上下文：已存储的 system prompt、当前请求元数据（[RequestContext](#requestcontext)）、工作目录、会话 append 条目、会话创建时间、是否已压缩、是否面向子 agent、是否启用 GitStatus。
+- **AgentToolsConfig**：Agent 工具白/黑名单配置（`tools` 白名单、`disallowed_tools` 黑名单，均可选；`tools` 为 `None` / 空数组 / `["*"]` 表示全部工具），为 [AgentToolsConfigQuery](core-traits.md#agenttoolsconfigquery) 的返回类型。
+- **ConditionalSkillMatch**：条件技能匹配结果（`name` 技能名、`listing_line` 含 ⚡ 注解的渲染清单行），为 [SkillListingProvider](core-traits.md#skilllistingprovider) 的载荷。
 
 ## 数据流
 
@@ -764,7 +955,7 @@ IM Adapter 发送到目标平台
 
 图中出现的两处日志是不同层次的两份记录：链内的 OutboundRawLog 是 Processor Chain 出站的调试日志（按 Verbosity 过滤后的内容）；[Gateway 出站日志] 指发送成功后 Gateway 写入 session checkpoint 的出站历史记录（含 timestamp、session_id、platform、ContentBlock[]、dsl_result），规则详见 [gateway outbound-flow](../gateway/outbound-flow.md)。
 
-ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。流式模式下增量内容以 [StreamEvent](#streamevent) 事件流形式在链上传递：VerbosityFilter 按块边界逐事件过滤；DslParser 零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段对完整 ContentBlock[] 执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出。
+ContentBlock[] 流式与非流式走同一条预处理管线——Verbosity 过滤和 DslParser 解析同时适用于批量和流式。流式模式下增量内容以 [StreamEvent](#streamevent) 事件流形式在链上传递：VerbosityFilter 按块边界逐事件过滤；DslParser 零开销透传（不解析 DSL），DSL 完整解析推迟到收尾阶段对完整 ContentBlock[] 执行。非 DSL 内容不引入额外缓冲或拷贝。两者的差异在渲染阶段：批量模式一次性渲染，流式模式增量渲染；流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出（原因见 §架构 DslParseResult 节）。
 
 各共享类型流动路径的详细描述见下文各类型的数据流节。
 
@@ -834,7 +1025,7 @@ SlashResult 的执行流程：
 5. 高危指令（Exec、Git 写操作）：Gateway 调用 Permission 引擎校验权限（校验通过方继续执行，拒绝则返回权限错误）
 6. 权限校验通过后，SlashResult 变体通过 SideEffectContext 触发执行，完成副作用，分两条路径：
    - 回复路径：产出 ContentBlock[] → 出站 Processor Chain → IM Adapter 渲染发送
-   - 会话路径：执行 Session 操作（模式切换、创建、停止、压缩等）
+   - 会话路径：执行 Session 操作（创建、停止、压缩等）
 
 SlashResult 的生命周期：Handler 返回 → Gateway 构造 SideEffectContext 并触发执行 → 各变体通过 SideEffectContext 完成副作用后销毁。
 
@@ -948,22 +1139,6 @@ usage (UnifiedUsage) → RunningStats 累加 → 用量统计、缓存命中一�
 
 流式调用不走 UnifiedResponse：增量以 StreamEvent 交付，收尾时 MessageEnd 携带 Optional UnifiedUsage 提供同一套用量口径（见 StreamEvent 节），同样汇入 RunningStats。
 
-### PlanState
-
-PlanState 的管理路径：
-
-```
-/plan 指令 → mode 模块创建 PlanState
-  ↓
-Session 存储 PlanState（随 checkpoint 持久化）
-  ↓
-Compaction 时隔离保护 PlanState 相关消息（不压缩）
-  ↓
-Session 恢复时从 checkpoint 重建 PlanState
-  ↓
-Plan Mode 结束时销毁 PlanState
-```
-
 ### CompactionResult / CompactionError
 
 ```
@@ -1053,7 +1228,7 @@ TaskManager 生成 / 接管后台任务 → BackgroundTask（Running）
   ↓
 运行中检测到卡住（交互式提示）→ 生成任务通知（state=Running，priority=Next，带建议）
   │
-任务到达终态（Completed / Failed / Killed）→ 生成任务通知（带 NotificationPriority）
+任务到达终态（Completed / Failed / Killed）→ 生成任务通知（带 NotificationPriority）；例外：被 Agent 主动终止的任务、以及 Session 停止引发的批量终止不生成终态通知（需求 [tools §F5](../../requirements/tools.md)）
   ↓
 TaskManager 取出待处理通知 → 会话统一消息队列按优先级注入（见 session 消息注入）
   ↓
@@ -1106,15 +1281,29 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 消费方读取主模型与回退列表
 ```
 
+### ResolvedAgentConfig / SubagentsConfig / MemoryConfig
+
+```
+config 按注册清单加载各 Agent config.json、补齐默认值 → ResolvedAgentConfig（含 subagents: SubagentsConfig、memory: MemoryConfig?）
+  ↓
+daemon 装配填充 AgentRegistry（以 agent_id 为键）
+  ↓
+下游模块经 AgentRegistry 只读查询：session / permission / system_prompt / tools / skills / gateway 消费配置字段
+  ↓
+memory 子模块（memory-miner / dreaming / active-searcher）按 ResolvedAgentConfig.memory 覆盖各自命名空间配置
+```
+
+ResolvedAgentConfig 由 config 一次性产出、运行期只读；其 `subagents` / `memory` 子结构随主结构整体流动。MemoryConfig 的 per-agent 字段级合并契约见 §架构 MemoryConfig 节。
+
 ### 会话/工具/斜杠/LLM 等辅助契约类型
 
 这些辅助类型不构成独立的跨模块流动，而作为其宿主契约的载荷随调用传递：
 
-- **会话/注入辅助**（SessionRole / SectionType / BootstrapMode / PlanPhase / RequestContext / InjectionParams / TurnCounter / PendingMessage）：随 session 构建、system prompt 注入、消息排队等流程传递。
+- **会话/注入辅助**（SessionRole / SectionType / BootstrapMode / RequestContext / InjectionParams / TurnCounter / PendingMessage）：随 session 构建、system prompt 注入、消息排队等流程传递。
 - **工具契约载荷族**：随 Tool / ToolRegistry / ToolRegistrar / ToolSession / ToolExecutor 的注册与调用传递。
 - **Slash 执行辅助**（SlashContext / SystemAppendAction / ReplyAction）：随斜杠指令分派与 SideEffectContext 执行传递。
 - **LLM/流式/中间件辅助**（LLMError / ErrorKind / StreamDone / MiddlewareContext / MiddlewareError）：随 LlmCaller / StreamingSink / OutboundMiddleware 调用传递。
-- **system prompt 辅助**（PromptOverrides / ModeTransition / DynamicPromptContext）：随 SystemPromptBuilder / DynamicPromptBuilder 调用传递。
+- **system prompt 辅助**（DynamicPromptContext）：随 DynamicPromptBuilder 调用传递。
 - **其他**（AgentToolsConfig / ConditionalSkillMatch）：随 AgentToolsConfigQuery / SkillListingProvider 调用传递。
 
 ## 模块关系
@@ -1187,6 +1376,12 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **消费者**：session（compaction 阈值判断、缓存命中一致性校验）、slash（/status 呈现命中率与累计用量）、llm（re-export 供模块内使用）
 - **无关**：Processor Chain 出站过滤、IM Adapter 渲染
 
+### CallTarget
+
+- **生产者**：gateway 生产调用方与 llm 回退链（成功调用后上报实际服务的供应方/模型）
+- **消费者**：session 与 gateway（记录本次调用实际服务的供应方/模型）
+- **无关**：Processor Chain、IM Adapter、LLM 协议映射层
+
 ### ProcessedMessage
 
 - **生产者**：Processor Chain 入站（ContentNormalizer 包装标准化文本为 ContentBlock::Text + SessionRouter 写 session_key 到 metadata）、Processor Chain 出站（DslParser 处理 ContentBlock[] + 写 dsl_result 到 metadata）
@@ -1226,22 +1421,15 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 - **消费者**：Processor Chain 出站（VerbosityFilter 读取并过滤 ContentBlock[]）；Session（存储当前等级，供下次出站过滤）
 - **无关**：LLM Provider（Verbosity 不影响 LLM 推理，仅控制展示）、IM Adapter 入站（入站不涉及展示过滤）
 
-### PlanState
-
-- **生产者**：mode 模块（Plan Mode 进入时创建）
-- **消费者**：Session（持久化和 compaction 保护）；mode 模块（恢复时重建、阶段切换时更新）
-- **无关**：LLM Provider（PlanState 不直接传给 LLM，通过 system prompt 的 plan 上下文间接生效）、IM Adapter（消息路由不感知 PlanState）
-
 ### CompactionResult / CompactionError
 
 - **生产者**：session 模块（经 SlashEffectExecutor）→ **消费者**：Gateway（回发结果/错误）
 - **无关**：LLM Provider、IM Adapter；压缩配置（阈值/保留区/熔断/摘要模型）语义归 session 模块，本文档不定义
 
-### ReasoningLevel / AgentRole / SessionMode
+### ReasoningLevel / AgentRole
 
 - **ReasoningLevel 生产者**：slash 模块（`/reasoning` 指令经 SlashEffectExecutor 设置）、config 的 `llm.reasoning_level` 全局默认档位；**消费者**：session / LLM 协议层（映射为原生参数）
 - **AgentRole**：随 Agent 配置 / 会话创建确定；**消费者**：session、gateway（会话角色门控）
-- **SessionMode 生产者**：slash 模块（`/mode`）、mode 模块；**消费者**：session、permission、gateway、system_prompt（经 SessionModeQuery 与共享类型）
 - **无关**：IM Adapter、Processor Chain
 
 ### InternalRequest / InternalMessage / SystemBlock / ToolDefinition
@@ -1319,7 +1507,7 @@ agent 配置解析（config）产出 ModelSpec（主模型 + 回退列表）
 ### ResolvedAgentConfig / SubagentsConfig / MemoryConfig
 
 - **生产者**：config（按注册清单加载 `config.json`、补齐默认值产出 ResolvedAgentConfig）
-- **消费者**：agent（AgentRegistry 以 `agent_id` 为键存储并提供只读查询）、daemon（装配填充注册表）、gateway（经 AgentRegistry 查询）、session / permission / system_prompt / tools / skills（经 AgentRegistry 查询消费配置字段）
+- **消费者**：agent（AgentRegistry 以 `agent_id` 为键存储并提供只读查询）、daemon（装配填充注册表）、gateway（经 AgentRegistry 查询）、session / permission / system_prompt / tools / skills（经 AgentRegistry 查询消费配置字段）、memory 子模块（memory-miner / dreaming / active-searcher 按 ResolvedAgentConfig.memory 覆盖各自命名空间配置）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
 ### 会话/工具/斜杠/LLM 等辅助契约类型

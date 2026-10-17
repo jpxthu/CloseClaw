@@ -14,7 +14,7 @@
 - 出站定向字段：reply_ref（出站定向引用，可选。由插件按平台语义填入——如飞书话题的根消息 ID、顶层消息的消息 ID。不参与 session 路由与 session_key 计算，仅用于出站时定向投递到原会话位置）
 - 生命周期状态：status（active / migrating / archived）、created_at
 - 未完成操作：pending_operations（操作发起前持久化、完成后清除。恢复扫描使用，详见 [session-recovery.md](session-recovery.md)）。运行时归档判定使用活跃维度（详见 [session-execution.md](session-execution.md)），不依赖 pending_operations
-- 运行时快照：pending_messages（transcript，含消息列表）、session_mode（对话模式：normal/plan/auto）、mode_state（模式的推理步骤状态）、plan_state（Plan Mode 规划阶段状态 [PlanState](../common/shared-types.md#planstate)，mode 模块管理）
+- 运行时快照：pending_messages（transcript，含消息列表）
 - 工作流状态：workflow_run（workflow 模块的 WorkflowRun，随 checkpoint 持久化的附加状态；进入 workflow 模式时写入、退出时清空，恢复语义见 [workflow/session-integration.md](../workflow/session-integration.md)）
 - 出站交付记录：outbound_pending（记录每条出站消息含过滤后内容与 dsl_result、发送标记 sent；未发送成功的条目崩溃/停止后重投递，需求 [session F7](../../requirements/session.md)）
 - system prompt 追加区：system_appends（由 `/system` 斜杠指令增删的追加条目列表。持久化在 checkpoint 中，归档/恢复时完整保留。追加区独立于对话消息流，不参与 compaction）
@@ -40,18 +40,6 @@
 - `Active`：正常运行中或待恢复
 - `Migrating`：归档进行中——Sweeper 已将状态置为 migrating、正在移动 transcript。若此时崩溃，由恢复扫描处置：存在未完成操作的恢复为 active，无未完成操作的完成归档（详见 [session-recovery.md](session-recovery.md) 启动扫描节）。归档完成后状态变为 Archived
 - `Archived`：已归档，transcript 从 sessions/ 移至 archived_sessions/
-
-### 模式切换（deferred switch）
-
-对话模式（normal / plan / auto）的切换遵循延迟生效语义（需求 [mode F1](../../requirements/mode.md)）：`/mode` 指令只将新模式写入 `pending_session_mode`（待应用值，**仅存于内存的 session 运行时字段，不随 SessionCheckpoint 持久化**），**不立即生效**——下一条用户消息前才应用新模式的约束（惰性应用）。
-
-- `/mode` 时：写入 `pending_session_mode`，set 待切换值。
-- 下条消息到达、session_mode 首次被访问时：惰性应用待切换值 → 更新 `session_mode` 并回写 checkpoint，同时重置与新模式不兼容的关联状态（如 plan 的推理步骤状态 mode_state）。
-- 引入待应用态的目的：切换后到下一条消息前存在一条消息的延迟，期间 session 沿用旧模式行为，避免模式变更在对话中间凭空生效。应用后，新模式对应的行为指令（ModeInstruction）在下次动态层组装时注入——切换类型（首次进入 / 重新进入 / 退出 / 自动退出）决定注入的具体行为提示，详见 [mode/README.md](../mode/README.md) 模式生效机制与 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) ModeInstruction。
-
-> 待应用值仅存内存：进程重启会丢弃未应用的模式切换，session 沿用已生效的 session_mode；因其应用后立即回写 checkpoint，故不会产生持久化不一致。
-
-模式的控制语义（工具可用性、权限边界）见 [mode/execution.md](../mode/execution.md)。
 
 ### 存储架构
 
@@ -115,7 +103,7 @@ SessionConfigProvider
 
 子 agent 的 session 有独立的 session_id、独立的生命周期配置，不与主 agent session 混淆。
 
-**配置生效时机**：会话生命周期配置属边界生效类，分两类边界——**会话实体参数**（如 session_mode 等随会话创建而定的状态）新会话创建时使用当次配置，已在运行的 Session 沿用创建时的实体参数、不随配置变更而变（session_mode 本身可经运行时 `/mode` 切换，见「模式切换」节）；**Sweeper 扫描参数**（`sweeperIntervalSeconds`、`idleMinutes`、`purgeAfterMinutes` 等）不按会话快照，由 Sweeper 在每次扫描时按 agent_id 从 [config SessionConfigProvider](../config/README.md) 现读（见上文 Sweeper 机制），因此变更后自下一次扫描起对同一 agent 下所有会话（含运行中）统一生效。配置重载机制详见 [config 热重载](../config/hot-reload.md)，需求见 [session §F6](../../requirements/session.md)（会话归档与清理）。
+**配置生效时机**：会话生命周期配置属边界生效类，分两类边界——**会话实体参数**（随会话创建而定的状态）新会话创建时使用当次配置，已在运行的 Session 沿用创建时的实体参数、不随配置变更而变；**Sweeper 扫描参数**（`sweeperIntervalSeconds`、`idleMinutes`、`purgeAfterMinutes` 等）不按会话快照，由 Sweeper 在每次扫描时按 agent_id 从 [config SessionConfigProvider](../config/README.md) 现读（见上文 Sweeper 机制），因此变更后自下一次扫描起对同一 agent 下所有会话（含运行中）统一生效。配置重载机制详见 [config 热重载](../config/hot-reload.md)，需求见 [session §F6](../../requirements/session.md)（会话归档与清理）。
 
 ## 数据流
 

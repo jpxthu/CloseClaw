@@ -2,7 +2,7 @@
 
 ## 概述
 
-ToolRegistrar 是工具注册能力的统一 trait，定义在 [common 模块](../common/core-traits.md#toolregistrar)，抽象各模块「我能注册工具」的接口契约。Tools 模块收集所有 ToolRegistrar 实现者、按优先级数值升序依次调用其注册方法，完成全局工具编排；Mode 执行触发工具、Workflow 工具属系统级例外，不经标准 Registrar 编排。
+ToolRegistrar 是工具注册能力的统一 trait，定义在 [common 模块](../common/core-traits.md#toolregistrar)，抽象各模块「我能注册工具」的接口契约。Tools 模块收集所有 ToolRegistrar 实现者、按优先级数值升序依次调用其注册方法，完成全局工具编排；Workflow 工具属系统级例外，不经标准 Registrar 编排。
 
 ## 架构
 
@@ -12,7 +12,7 @@ ToolRegistrar 的完整接口定义见 [common/core-traits.md](../common/core-tr
 
 ### 编排流程
 
-Registrar 以「工具分组」为单位注册——注册一个分组即注册该组的全部工具。Tools 模块在启动编排阶段收集所有 ToolRegistrar 实现者，按优先级数值升序排序后依次调用其注册方法，将各分组写入 ToolRegistry；Mode 执行触发工具、Workflow 工具在冻结前另行注册，不经标准 Registrar 编排；全部注册完成后 ToolRegistry 冻结、进入运行态。逐步输入 → 处理 → 输出路径见「数据流」节。
+Registrar 以「工具分组」为单位注册——注册一个分组即注册该组的全部工具。Tools 模块在启动编排阶段收集所有 ToolRegistrar 实现者，按优先级数值升序排序后依次调用其注册方法，将各分组写入 ToolRegistry；Workflow 工具在冻结前另行注册，不经标准 Registrar 编排；全部注册完成后 ToolRegistry 冻结、进入运行态。逐步输入 → 处理 → 输出路径见「数据流」节。
 
 ### 四个标准 Registrar
 
@@ -25,7 +25,7 @@ Registrar 以「工具分组」为单位注册——注册一个分组即注册�
 
 优先级数值决定调用顺序；新增工具提供模块时选择合适的优先级值即可加入编排链，Tools 模块无需修改。
 
-Mode 执行触发工具、Workflow 工具在启动编排阶段、冻结之前注册，不经标准 Registrar 编排（见 [mode/execution.md](../mode/execution.md)、[workflow-tools.md](../workflow/workflow-tools.md)）。
+Workflow 工具在启动编排阶段、冻结之前注册，不经标准 Registrar 编排（见 [workflow-tools.md](../workflow/workflow-tools.md)）。
 
 ### 冻结语义
 
@@ -39,7 +39,7 @@ Mode 执行触发工具、Workflow 工具在启动编排阶段、冻结之前注
 
 1. 系统启动，Tools 模块收集所有 ToolRegistrar 实现者，按优先级数值升序排序
 2. 依次调用各 Registrar 的注册方法，将其工具分组写入 ToolRegistry（各 Registrar 及其分组见「四个标准 Registrar」表）
-3. Mode 执行触发工具、Workflow 工具在冻结之前另行注册
+3. Workflow 工具在冻结之前另行注册
 4. 全部注册完成，ToolRegistry 冻结，进入运行态
 5. 运行期由 ToolRegistry 对外提供详情查询与分组查询；索引构建在 System Prompt 组装时进行（见 [tools-prompt-injection.md](tools-prompt-injection.md)）
 
