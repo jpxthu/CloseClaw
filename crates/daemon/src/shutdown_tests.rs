@@ -5,6 +5,7 @@
 //! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
+use crate::test_helpers::wait_until;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -197,9 +198,13 @@ async fn test_initiate_shutdown_first_caller_wins() {
     // First initiate succeeds (gate already set by Phase 0)
     spawn_shutdown(&handle);
 
-    // Give it a moment to enter the drain loop
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(handle.is_shutting_down());
+    // The gate was already set synchronously by try_start_shutdown above,
+    // so this predicate holds on the first check — it documents the gate
+    // state but cannot by itself observe the spawned task
+    wait_until("gate active after spawn_shutdown", || {
+        handle.is_shutting_down()
+    })
+    .await;
 
     // Release the busy count so drain can complete
     handle.decrement_busy();
@@ -295,9 +300,8 @@ async fn test_subscribe_drain_triggers_on_escalation() {
 
     // Spawn initiate_shutdown — it will block on drain because busy_count > 0
     spawn_shutdown(&handle);
-    // Let it enter the drain loop
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(handle.is_shutting_down());
+    // Poll until the spawned shutdown sets the gate
+    wait_until("gate set by spawned shutdown", || handle.is_shutting_down()).await;
 
     // Escalate — drain_done_tx fires during initiate_shutdown,
     // so the subscriber should receive the signal
@@ -305,12 +309,11 @@ async fn test_subscribe_drain_triggers_on_escalation() {
     // Release busy count so drain can finalize
     handle.decrement_busy();
 
-    // Wait for shutdown to finish
-    tokio::time::sleep(Duration::from_millis(300)).await;
-
-    // The subscriber received at least one drain signal
-    // (sent in initiate_shutdown before the drain loop)
-    assert!(rx.try_recv().is_ok());
+    // The subscriber receives at least one drain signal
+    // (sent in initiate_shutdown before the drain loop) — wait on the
+    // message itself instead of a fixed buffer (issue #3706)
+    let result = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+    assert!(result.is_ok(), "Subscriber did not get drain signal");
 }
 
 #[test]
@@ -362,8 +365,11 @@ async fn test_graceful_drain_timeout() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    // Wait for timeout to fire + buffer
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Wait for the drain timeout to fire and the shutdown to finalize
+    wait_until("shutdown to complete after drain timeout", || {
+        handle.is_stopped()
+    })
+    .await;
 
     // Shutdown should have completed despite busy_count > 0
     await_shutdown(Duration::from_secs(10), shutdown_handle).await;
@@ -383,9 +389,15 @@ async fn test_drain_timeout_returns_remaining_count() {
 
     spawn_shutdown(&handle);
 
-    // Wait for timeout + buffer
-    tokio::time::sleep(Duration::from_millis(600)).await;
-    assert!(handle.is_stopped());
+    // Wait for the drain timeout to fire and the shutdown to finalize.
+    // The busy operations never complete, so Stopped is only reachable
+    // through the timeout path — polling the state flip keeps this
+    // event-driven (issue #3706, replacing the former 600ms buffer).
+    wait_until("shutdown to reach Stopped after drain timeout", || {
+        handle.is_stopped()
+    })
+    .await;
+
     // busy_count still reflects the 3 in-flight operations
     assert_eq!(handle.busy_count(), 3);
 }
@@ -398,10 +410,18 @@ async fn test_drain_completes_on_zero_count() {
     handle.increment_busy();
     handle.increment_busy();
 
+    // Deterministic sync point: initiate_shutdown sends the drain signal
+    // right before entering wait_for_drain, so receiving it proves the
+    // drain loop has been entered (same pattern as
+    // test_drain_signal_broadcast; issue #3706, replacing the former
+    // always-true wait_until that could not actually observe the drain).
+    let mut rx = handle.subscribe_drain();
     let shutdown_handle = spawn_shutdown(&handle);
+    let result = tokio::time::timeout(Duration::from_secs(1), rx.recv()).await;
+    assert!(result.is_ok(), "did not get drain signal within 1s");
 
-    // Let it enter the drain loop
-    tokio::time::sleep(Duration::from_millis(150)).await;
+    // The drain loop is running with busy_count = 2: nothing may have
+    // reached Stopped before the busy operations complete
     assert!(!handle.is_stopped());
 
     // Complete both operations
@@ -424,8 +444,11 @@ async fn test_forceful_skips_drain() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(handle.is_shutting_down());
+    // Poll until the spawned graceful shutdown sets the gate
+    wait_until("gate set by spawned graceful shutdown", || {
+        handle.is_shutting_down()
+    })
+    .await;
     assert!(!handle.is_stopped());
 
     // Escalate to forceful — should terminate immediately
@@ -517,14 +540,19 @@ fn test_escalate_from_stopped() {
 
 // ── Step 1.4: Gap 2 — initiate_shutdown return value tests ─────
 
-#[tokio::test]
+/// Runs on a paused (virtual) clock: the decrement's 200ms delay and the
+/// drain loop's `drain_poll_interval` polls all advance the same virtual
+/// timeline, so auto-advance deterministically lets the drain enter its
+/// wait loop (busy_count = 1) before the decrement fires — the race the
+/// former real-time 200ms buffer only probabilistically won (issue #3706).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_initiate_shutdown_returns_zero_when_drained() {
     // When busy_count reaches 0, initiate_shutdown returns 0.
     let handle = ShutdownHandle::new().with_drain_timeout(Duration::from_secs(10));
     handle.increment_busy();
 
-    // Spawn a task that decrements busy_count after a short delay,
-    // allowing the drain to complete.
+    // Spawn a task that decrements busy_count after a 200ms *virtual*
+    // delay, allowing the drain to complete.
     let h_dec = handle.clone();
     tokio::spawn(async move {
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -700,7 +728,14 @@ fn test_daemon_handle_untracked_increment_decrement_works() {
 
 /// Drain waits until busy_count reaches zero before exiting.
 /// Covers the multi-decrement path (3x busy → decrement one-by-one).
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: each 200ms virtual sleep between
+/// decrements spans two 100ms `drain_poll_interval` polls, so the drain
+/// loop deterministically observes the intermediate counts (2, then 1)
+/// and the bare `!is_stopped()` assertions prove it did not finalize
+/// early — the timing-observation dimension the former always-true
+/// `wait_until` predicates lost (issue #3706).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_drain_waits_until_busy_count_zero() {
     let handle = ShutdownHandle::new();
 
@@ -712,12 +747,15 @@ async fn test_drain_waits_until_busy_count_zero() {
     // Spawn shutdown — should not complete while busy_count > 0
     let shutdown_task = spawn_shutdown(&handle);
 
-    // Give it a moment to enter ShuttingDown state
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(handle.state(), crate::shutdown::ShutdownState::ShuttingDown);
+    // Poll until the shutdown task enters ShuttingDown state
+    wait_until("shutdown task to enter ShuttingDown", || {
+        handle.state() == crate::shutdown::ShutdownState::ShuttingDown
+    })
+    .await;
     assert_eq!(handle.busy_count(), 3);
 
-    // Decrement one at a time and verify state doesn't change yet
+    // Decrement one at a time; between decrements let the drain loop run
+    // on the virtual clock and verify it did not reach Stopped yet
     handle.decrement_busy();
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!handle.is_stopped());
@@ -729,7 +767,8 @@ async fn test_drain_waits_until_busy_count_zero() {
     // Last decrement — drain should complete
     handle.decrement_busy();
 
-    // Wait for shutdown to finish (3s drain timeout in test mode + buffer)
+    // Wait for shutdown to finish (30s default drain timeout + buffer;
+    // virtual clock, so the 5s limit only bounds scheduling progress)
     await_shutdown(Duration::from_secs(5), shutdown_task).await;
 
     assert!(handle.is_stopped());
@@ -779,7 +818,15 @@ async fn test_drain_signal_broadcast() {
 /// cannot be asserted directly; the `< 2s` upper bound on every case
 /// (vs the 30s default) is the indirect proof that the configured value
 /// took effect.
-#[tokio::test]
+///
+/// Runs on a paused (virtual) clock: the drain deadline, the mid-drain
+/// probe sleep, and the `elapsed` assertions all measure the same virtual
+/// timeline — `wait_for_drain` internally uses `tokio::time` primitives
+/// (shutdown.rs), matching this test's `tokio::time::Instant`, so the
+/// 250ms lower bound still proves the drain waited out the full deadline
+/// while wall-clock cost drops to milliseconds (issue #3706, replacing
+/// the former real-time probe buffer).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_drain_timeout_configurable_values() {
     struct Case {
         drain_timeout: Duration,
@@ -826,7 +873,9 @@ async fn test_drain_timeout_configurable_values() {
         let shutdown_task = spawn_shutdown(&handle);
 
         // Mid-drain observation: still before the deadline, so the
-        // drain must be running — not Stopped.
+        // drain must be running — not Stopped. Virtual time: the probe
+        // fires at exactly 200ms while the earliest possible Stopped is
+        // the 300ms deadline, so the assertion is deterministic.
         if let Some(probe_delay) = mid_drain_probe {
             debug_assert!(
                 probe_delay < drain_timeout,
