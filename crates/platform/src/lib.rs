@@ -2,11 +2,13 @@
 //!
 //! Provides unified interfaces for OS-specific operations including
 //! terminal capability detection, process management, configuration
-//! directory resolution, and file path normalization.
+//! directory resolution, file path normalization, and system
+//! temporary directory resolution.
 
 pub mod config;
 pub mod fs;
 pub mod process;
+pub mod temp_dir;
 pub mod terminal;
 
 pub use config::root_dir;
@@ -16,6 +18,7 @@ pub use process::{
     stop_daemon, subscribe_shutdown_signals, wait_for_exit, write_pid_file,
     ShutdownSignalSubscription, SpawnOptions, StopOutcome,
 };
+pub use temp_dir::system_temp_dir;
 pub use terminal::{
     current_uid, detect, is_terminal, read_line_raw, resolve_terminal_width, supports_ansi,
     write_raw, TerminalInfo,
@@ -27,5 +30,7 @@ mod config_tests;
 mod fs_tests;
 #[cfg(test)]
 mod process_tests;
+#[cfg(test)]
+mod temp_dir_tests;
 #[cfg(test)]
 mod terminal_tests;
