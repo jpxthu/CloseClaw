@@ -22,6 +22,15 @@ enum StreamingAction {
 }
 
 impl FeishuPlugin {
+    /// Lock the cardkit streaming state, panicking if the lock is poisoned.
+    pub(super) fn lock_streaming_state(
+        &self,
+    ) -> std::sync::MutexGuard<'_, CardkitStreamingRenderer> {
+        self.cardkit_streaming
+            .lock()
+            .expect("cardkit streaming lock poisoned")
+    }
+
     /// Create a streaming card via cardkit API and send a reference message.
     ///
     /// Returns `Some(card_id)` on success, `None` on failure.
@@ -58,10 +67,7 @@ impl FeishuPlugin {
         reply_ref: Option<&super::send_helpers::ReplyTarget>,
     ) -> Result<(), CommonAdapterError> {
         let should_batch = {
-            let state = self
-                .cardkit_streaming
-                .lock()
-                .expect("cardkit streaming lock poisoned");
+            let state = self.lock_streaming_state();
             !state.state.is_active
         };
         if should_batch {
@@ -99,10 +105,7 @@ impl FeishuPlugin {
         if text.is_empty() {
             return StreamingAction::Skip;
         }
-        let mut state = self
-            .cardkit_streaming
-            .lock()
-            .expect("cardkit streaming lock poisoned");
+        let mut state = self.lock_streaming_state();
         state.state.pending_text.push_str(text);
         if !state.should_update_now() {
             return StreamingAction::Skip;
@@ -148,10 +151,7 @@ impl FeishuPlugin {
             None => return Ok(()),
         };
         {
-            let mut state = self
-                .cardkit_streaming
-                .lock()
-                .expect("cardkit streaming lock poisoned");
+            let mut state = self.lock_streaming_state();
             state.state.card_id = Some(card_id.clone());
         }
         self.spawn_card_update(adapter, &card_id, &content, seq);
