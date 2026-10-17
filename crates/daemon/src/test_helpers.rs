@@ -858,19 +858,23 @@ pub async fn wait_until(what: &str, mut ready: impl FnMut() -> bool) {
 /// `what` describes the scenario under test and is surfaced in the
 /// assertion message when the shutdown wait fails (same pattern as
 /// [`wait_until`]).
-pub async fn run_scheduler_briefly(
+///
+/// Returns the value produced by `event_consumed`, so callers can
+/// observe data gathered while waiting (e.g. elapsed virtual time).
+pub async fn run_scheduler_briefly<T>(
     mut scheduler: DreamingScheduler,
-    event_consumed: impl std::future::Future<Output = ()>,
+    event_consumed: impl std::future::Future<Output = T>,
     what: &str,
-) {
+) -> T {
     let (shutdown_tx, shutdown_rx) = watch::channel(());
     let handle = tokio::spawn(async move {
         scheduler.run(shutdown_rx).await;
     });
 
-    event_consumed.await;
+    let output = event_consumed.await;
     shutdown_tx.send(()).unwrap();
 
     let result = tokio::time::timeout(Duration::from_secs(5), handle).await;
     assert!(result.is_ok(), "scheduler should exit promptly: {what}");
+    output
 }
