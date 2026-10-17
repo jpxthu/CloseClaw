@@ -5,6 +5,7 @@
 //! unit tests merged from `daemon_shutdown_tests.rs` (issue #3244).
 
 use crate::shutdown::*;
+use crate::test_helpers::wait_until;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
 use tokio::time::Instant;
@@ -197,9 +198,11 @@ async fn test_initiate_shutdown_first_caller_wins() {
     // First initiate succeeds (gate already set by Phase 0)
     spawn_shutdown(&handle);
 
-    // Give it a moment to enter the drain loop
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(handle.is_shutting_down());
+    // Poll until the spawned initiate_shutdown is running under the gate
+    wait_until("gate active after spawn_shutdown", || {
+        handle.is_shutting_down()
+    })
+    .await;
 
     // Release the busy count so drain can complete
     handle.decrement_busy();
@@ -295,9 +298,8 @@ async fn test_subscribe_drain_triggers_on_escalation() {
 
     // Spawn initiate_shutdown — it will block on drain because busy_count > 0
     spawn_shutdown(&handle);
-    // Let it enter the drain loop
-    tokio::time::sleep(Duration::from_millis(50)).await;
-    assert!(handle.is_shutting_down());
+    // Poll until the spawned shutdown sets the gate
+    wait_until("gate set by spawned shutdown", || handle.is_shutting_down()).await;
 
     // Escalate — drain_done_tx fires during initiate_shutdown,
     // so the subscriber should receive the signal
@@ -362,8 +364,11 @@ async fn test_graceful_drain_timeout() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    // Wait for timeout to fire + buffer
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // Wait for the drain timeout to fire and the shutdown to finalize
+    wait_until("shutdown to complete after drain timeout", || {
+        handle.is_stopped()
+    })
+    .await;
 
     // Shutdown should have completed despite busy_count > 0
     await_shutdown(Duration::from_secs(10), shutdown_handle).await;
@@ -400,9 +405,13 @@ async fn test_drain_completes_on_zero_count() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    // Let it enter the drain loop
-    tokio::time::sleep(Duration::from_millis(150)).await;
-    assert!(!handle.is_stopped());
+    // Poll while the drain loop is running: nothing may have reached
+    // Stopped before the busy operations complete
+    wait_until(
+        "drain still running (not stopped) before decrements",
+        || !handle.is_stopped(),
+    )
+    .await;
 
     // Complete both operations
     handle.decrement_busy();
@@ -424,8 +433,11 @@ async fn test_forceful_skips_drain() {
 
     let shutdown_handle = spawn_shutdown(&handle);
 
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(handle.is_shutting_down());
+    // Poll until the spawned graceful shutdown sets the gate
+    wait_until("gate set by spawned graceful shutdown", || {
+        handle.is_shutting_down()
+    })
+    .await;
     assert!(!handle.is_stopped());
 
     // Escalate to forceful — should terminate immediately
@@ -712,19 +724,25 @@ async fn test_drain_waits_until_busy_count_zero() {
     // Spawn shutdown — should not complete while busy_count > 0
     let shutdown_task = spawn_shutdown(&handle);
 
-    // Give it a moment to enter ShuttingDown state
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(handle.state(), crate::shutdown::ShutdownState::ShuttingDown);
+    // Poll until the shutdown task enters ShuttingDown state
+    wait_until("shutdown task to enter ShuttingDown", || {
+        handle.state() == crate::shutdown::ShutdownState::ShuttingDown
+    })
+    .await;
     assert_eq!(handle.busy_count(), 3);
 
     // Decrement one at a time and verify state doesn't change yet
     handle.decrement_busy();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!handle.is_stopped());
+    wait_until("drain still running after first decrement", || {
+        !handle.is_stopped()
+    })
+    .await;
 
     handle.decrement_busy();
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert!(!handle.is_stopped());
+    wait_until("drain still running after second decrement", || {
+        !handle.is_stopped()
+    })
+    .await;
 
     // Last decrement — drain should complete
     handle.decrement_busy();
