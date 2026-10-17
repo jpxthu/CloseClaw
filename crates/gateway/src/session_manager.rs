@@ -899,6 +899,8 @@ mod announce_tests;
 #[cfg(test)]
 mod bug904_tests;
 #[cfg(test)]
+mod channel_tests;
+#[cfg(test)]
 mod consistency_check_tests;
 #[cfg(test)]
 mod flush_tests;

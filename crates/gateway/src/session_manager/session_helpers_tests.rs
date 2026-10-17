@@ -182,7 +182,8 @@ async fn test_restored_agent_id_missing_fallback_to_message_to() {
 }
 
 #[tokio::test]
-async fn test_restored_workspace_dir_none_returns_tmp() {
+async fn test_restored_workspace_dir_none_returns_temp_dir() {
+    let expected = std::env::temp_dir();
     let cp = SessionCheckpoint::new("s4".to_string())
         .with_agent_id("cp-agent".to_string())
         .with_sender_id("cp-user".to_string());
@@ -193,7 +194,7 @@ async fn test_restored_workspace_dir_none_returns_tmp() {
         .await
         .unwrap();
 
-    assert_eq!(result, PathBuf::from("/tmp"));
+    assert_eq!(result, expected.as_path());
 }
 
 #[tokio::test]
@@ -215,6 +216,75 @@ async fn test_restored_no_checkpoint_fallback_to_message() {
     assert!(
         result.to_string_lossy().contains("user-fallback"),
         "no checkpoint → user_id from message.from: {:?}",
+        result
+    );
+}
+
+// ===================================================================
+// Issue #3739 Step 1.2: workdir fallback branch tests
+// ===================================================================
+
+/// restored=true 且 ensure_workspace_dir 失败（agent_id 含 `/`，纯验证层报错）
+/// → 静默回退系统临时目录，不 panic、不向上传播错误。
+#[tokio::test]
+async fn test_restored_ensure_failed_silently_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
+    let tmp = tempfile::TempDir::new().unwrap();
+    let wd = Some(tmp.path().to_path_buf());
+    let cp = SessionCheckpoint::new("s-ensure-fail".to_string())
+        .with_agent_id("bad/agent".to_string())
+        .with_sender_id("cp-user".to_string());
+    let cm = make_cm(Some(cp));
+    let msg = test_message();
+
+    let result = compute_session_workdir(true, "s-ensure-fail", &msg, &wd, &cm).await;
+
+    assert!(
+        result.is_ok(),
+        "restored ensure failure must not propagate an error: {:?}",
+        result
+    );
+    assert_eq!(
+        result.unwrap(),
+        expected.as_path(),
+        "restored ensure failure must silently fall back to temp dir"
+    );
+}
+
+/// 全新会话（restored=false）且 workspace_dir 缺失 → 回退系统临时目录。
+#[tokio::test]
+async fn test_new_session_workspace_none_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
+    let cm = make_cm(None);
+    let msg = test_message();
+    let wd: Option<PathBuf> = None;
+
+    let result = compute_session_workdir(false, "s-new-none", &msg, &wd, &cm)
+        .await
+        .unwrap();
+
+    assert_eq!(
+        result,
+        expected.as_path(),
+        "new session without workspace_dir must fall back to temp dir"
+    );
+}
+
+/// 全新会话且 ensure_workspace_dir 失败 → 传播 Err（非静默回退），
+/// 锁定该分支防误改为静默回退。
+#[tokio::test]
+async fn test_new_session_ensure_failure_propagates_err() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let wd = Some(tmp.path().to_path_buf());
+    let cm = make_cm(None);
+    let mut msg = test_message();
+    msg.to = "bad/agent".to_string();
+
+    let result = compute_session_workdir(false, "s-new-err", &msg, &wd, &cm).await;
+
+    assert!(
+        result.is_err(),
+        "new-session ensure failure must propagate Err, got: {:?}",
         result
     );
 }

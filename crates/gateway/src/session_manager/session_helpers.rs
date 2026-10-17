@@ -40,9 +40,9 @@ pub(super) async fn compute_session_workdir(
             .unwrap_or_else(|| message.from.clone());
         if let Some(ref wd) = workspace_dir {
             Ok(workspace::ensure_workspace_dir(wd, &aid, &uid)
-                .unwrap_or_else(|_| PathBuf::from("/tmp")))
+                .unwrap_or_else(|_| std::env::temp_dir()))
         } else {
-            Ok(PathBuf::from("/tmp"))
+            Ok(std::env::temp_dir())
         }
     } else if let Some(ref workspace_dir) = workspace_dir {
         workspace::ensure_workspace_dir(workspace_dir, &message.to, &message.from).map_err(|e| {
@@ -52,7 +52,7 @@ pub(super) async fn compute_session_workdir(
             ))
         })
     } else {
-        Ok(PathBuf::from("/tmp"))
+        Ok(std::env::temp_dir())
     }
 }
 

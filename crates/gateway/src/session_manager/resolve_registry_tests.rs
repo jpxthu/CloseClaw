@@ -161,9 +161,10 @@ async fn test_resolve_falls_back_to_global_workspace() {
 }
 
 /// When both AgentRegistry and global workspace_dir are None,
-/// the session should fall back to /tmp.
+/// the session should fall back to the system temp dir.
 #[tokio::test]
-async fn test_resolve_no_workspace_falls_back_to_tmp() {
+async fn test_resolve_no_workspace_falls_back_to_temp_dir() {
+    let expected = std::env::temp_dir();
     let mock = PerAgentMock::new().with_workspace("agent-b", None);
 
     let mgr = SessionManager::new(&test_config(), None, None, ReasoningLevel::default());
@@ -173,8 +174,7 @@ async fn test_resolve_no_workspace_falls_back_to_tmp() {
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let conv = mgr.get_conversation_session(&session_id).await.unwrap();
     let conv = conv.read().await;
-    let workdir = conv.workdir();
-    assert_eq!(workdir, PathBuf::from("/tmp"));
+    assert_eq!(conv.workdir(), expected.as_path());
 }
 
 // ── Bootstrap mode from registry tests ─────────────────────────────────────
@@ -274,9 +274,11 @@ async fn test_resolve_agent_not_found_bootstrap_defaults_to_full() {
     assert_eq!(conv.bootstrap_mode(), BootstrapMode::Full);
 }
 
-/// When agent is not found, workspace falls back to global or /tmp.
+/// When agent is not found, workspace falls back to global or the system
+/// temp dir.
 #[tokio::test]
 async fn test_resolve_agent_not_found_workspace_fallback() {
+    let expected = std::env::temp_dir();
     let mgr = SessionManager::new(&test_config(), None, None, ReasoningLevel::default());
     mgr.set_agent_registry(Arc::new(NotFoundMock)).await;
     let msg = test_message();
@@ -284,8 +286,8 @@ async fn test_resolve_agent_not_found_workspace_fallback() {
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let conv = mgr.get_conversation_session(&session_id).await.unwrap();
     let conv = conv.read().await;
-    // No registry workspace + no global workspace → /tmp
-    assert_eq!(conv.workdir(), PathBuf::from("/tmp"));
+    // No registry workspace + no global workspace → system temp dir
+    assert_eq!(conv.workdir(), expected.as_path());
 }
 
 // ── Bootstrap mode propagation to rebuild_system_prompt ────────────────────
