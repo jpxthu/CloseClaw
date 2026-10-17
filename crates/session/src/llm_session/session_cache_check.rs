@@ -21,12 +21,14 @@
 //! baseline naturally (doc :85). Snapshots are session runtime state and
 //! are never persisted to the checkpoint.
 
-use closeclaw_common::{
-    build_prefix_snapshot, cache_check_eligibility, CacheAnomalyInfo, CacheCheckEligibility,
-    InternalMessage, PreviousCallState, ToolDefinition, UnifiedUsage,
-};
+use closeclaw_common::{CacheAnomalyInfo, InternalMessage, ToolDefinition, UnifiedUsage};
 
-use super::ConversationSession;
+use super::{
+    cache_prefix::{
+        build_prefix_snapshot, cache_check_eligibility, CacheCheckEligibility, PreviousCallState,
+    },
+    ConversationSession,
+};
 
 impl ConversationSession {
     /// Stages the current round's prefix snapshot (request-build point).
@@ -117,6 +119,9 @@ impl ConversationSession {
     }
 }
 
+#[cfg(test)]
+use super::cache_prefix::RequestPrefixSnapshot;
+
 /// Test audit accessors for the advancement-timing guarantees
 /// (`#[cfg(test)]`-only; kept in a separate impl block so the main
 /// implementation block stays within the 100-line limit).
@@ -124,17 +129,13 @@ impl ConversationSession {
 impl ConversationSession {
     /// Returns the previous round's advanced prefix snapshot, if any
     /// (test audit accessor for the advancement-timing guarantees).
-    pub(crate) fn cache_prefix_prev_snapshot(
-        &self,
-    ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
+    pub(crate) fn cache_prefix_prev_snapshot(&self) -> Option<&RequestPrefixSnapshot> {
         self.cache_prefix_prev.as_ref()
     }
 
     /// Peeks at the staged snapshot without consuming it (test audit
     /// accessor for the staging-slot lifecycle).
-    pub(crate) fn staged_cache_prefix_snapshot(
-        &self,
-    ) -> Option<&closeclaw_common::RequestPrefixSnapshot> {
+    pub(crate) fn staged_cache_prefix_snapshot(&self) -> Option<&RequestPrefixSnapshot> {
         self.cache_prefix_staging.as_ref()
     }
 }

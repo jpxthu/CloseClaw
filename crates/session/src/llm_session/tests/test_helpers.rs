@@ -8,9 +8,8 @@
 //! (`use super::make_usage_basic as make_usage;`) to keep call sites
 //! unchanged.
 
-use closeclaw_common::{
-    build_prefix_snapshot, InternalMessage, RequestPrefixSnapshot, UnifiedUsage,
-};
+use crate::llm_session::cache_prefix::{build_prefix_snapshot, RequestPrefixSnapshot};
+use closeclaw_common::{InternalMessage, UnifiedUsage};
 
 /// Provider cache TTL magnitude default (cache-adapter doc :27: 5 min).
 pub(super) const TTL_MS: u64 = 300_000;

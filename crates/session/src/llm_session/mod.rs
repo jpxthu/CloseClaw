@@ -4,6 +4,7 @@
 //! See [`session_handles`] for cancel/cascade-stop and
 //! `session_chat` for the `ChatSession` impl.
 
+use cache_prefix::RequestPrefixSnapshot;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
@@ -22,11 +23,8 @@ use closeclaw_common::{
 };
 use closeclaw_common::{ContentBlock, UnifiedUsage};
 use closeclaw_common::{
-    InjectionParams, LlmCaller, PromptOverrides, SessionRole, SystemPromptBuilder,
-    ToolRegistryQuery,
-};
-use closeclaw_common::{
-    RequestPrefixSnapshot, RunningStats, StreamingSink, TurnCounter, VerbosityLevel,
+    InjectionParams, LlmCaller, PromptOverrides, RunningStats, SessionRole, StreamingSink,
+    SystemPromptBuilder, ToolRegistryQuery, TurnCounter, VerbosityLevel,
 };
 
 /// Max length of an append-section item (chars).
@@ -35,15 +33,16 @@ pub const APPEND_SECTION_MAX_LEN: usize = 500;
 // `use closeclaw_session::KillHandle` keep working.
 pub use closeclaw_common::tool_session::KillHandle;
 
-// `ChatSession` trait + `impl ChatSession for ConversationSession` live in
-// the sibling file `session_chat.rs`. Re-exported here so existing
-// `use closeclaw_session::ChatSession;` call sites keep working.
+mod cache_prefix;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
 
 pub mod mode_transition;
 
 mod session_cache_check;
+// `ChatSession` trait + `impl ChatSession for ConversationSession` live in
+// the sibling file `session_chat.rs`. Re-exported here so existing
+// `use closeclaw_session::ChatSession;` call sites keep working.
 mod session_chat;
 pub use session_chat::ChatSession;
 mod session_debug;
@@ -880,6 +879,8 @@ impl Drop for ConversationSession {
 pub fn tmp_path() -> std::path::PathBuf {
     tempfile::tempdir().unwrap().into_path()
 }
+#[cfg(test)]
+mod cache_prefix_tests;
 #[cfg(test)]
 mod session_exec_tests;
 #[cfg(test)]
