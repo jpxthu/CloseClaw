@@ -26,12 +26,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{CacheAnomalyInfo, CallTarget, LLMError, LlmCaller, MetricsEmitter};
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
+use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel};
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{
     ChatSession, ConversationSession, NotificationAudience, QueueEntry,
 };
 
+use crate::debug_log_test_utils::make_debug_log;
 use crate::outbound::StreamResult;
 use crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage;
 
@@ -185,18 +186,6 @@ fn target(provider: &str, model: &str) -> CallTarget {
         provider_id: provider.to_string(),
         model_id: model.to_string(),
     }
-}
-
-/// Creates a `DebugLog` instance backed by a temp directory (trace
-/// min-level so every emitted event is persisted).
-async fn make_debug_log(dir: &tempfile::TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.unwrap()
 }
 
 /// Reads all JSONL log events from the temp directory.

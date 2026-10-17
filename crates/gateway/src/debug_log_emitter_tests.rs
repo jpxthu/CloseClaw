@@ -7,50 +7,9 @@
 //! 4. emit_debug_event: empty trace_id is no-op
 //! 5. Chained child spans: grandchild's parent_span_id matches child's span_id
 
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel, TraceContext};
+use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
+use closeclaw_debug_log::{LogLevel, TraceContext};
 use tempfile::TempDir;
-
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
-}
-
-async fn read_events_from_dir(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    let mut entries = tokio::fs::read_dir(dir).await.unwrap();
-    while let Some(entry) = entries.next_entry().await.unwrap() {
-        let path = entry.path();
-        if path.extension().and_then(|e| e.to_str()) == Some("jsonl") {
-            let content = tokio::fs::read_to_string(&path).await.unwrap();
-            for line in content.lines() {
-                if !line.trim().is_empty() {
-                    if let Ok(event) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                        events.push(event);
-                    }
-                }
-            }
-        }
-    }
-    events
-}
-
-async fn read_events_with_timeout(dir: &std::path::Path) -> Vec<closeclaw_debug_log::LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        let events = read_events_from_dir(dir).await;
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    }
-}
 
 // ── Tests ────────────────────────────────────────────────────────────────────
 
