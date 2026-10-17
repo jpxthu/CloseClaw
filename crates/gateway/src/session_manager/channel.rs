@@ -59,9 +59,9 @@ impl SessionManager {
         // Compute workdir
         let workdir_path = if let Some(ref workspace_dir) = self.workspace_dir {
             closeclaw_session::workspace::ensure_workspace_dir(workspace_dir, agent_id, agent_id)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+                .unwrap_or_else(|_| std::env::temp_dir())
         } else {
-            std::path::PathBuf::from("/tmp")
+            std::env::temp_dir()
         };
 
         // Create ConversationSession

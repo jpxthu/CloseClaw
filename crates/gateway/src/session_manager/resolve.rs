@@ -14,7 +14,6 @@ use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint, SessionStatus};
 use closeclaw_session::run_health::TranscriptOp;
 use closeclaw_session::workspace;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 use tracing::{info, warn};
@@ -680,7 +679,7 @@ impl SessionManager {
                 |e| ProcessError::ChainFailed(format!("workspace creation failed: {}", e)),
             )?
         } else {
-            PathBuf::from("/tmp")
+            std::env::temp_dir()
         };
 
         // Create ConversationSession

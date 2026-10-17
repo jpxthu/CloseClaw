@@ -117,9 +117,9 @@ impl SessionManager {
     fn compute_workdir_for_agent(&self, agent_id: &str) -> std::path::PathBuf {
         if let Some(ref wd) = self.workspace_dir {
             workspace::ensure_workspace_dir(wd, agent_id, agent_id)
-                .unwrap_or_else(|_| std::path::PathBuf::from("/tmp"))
+                .unwrap_or_else(|_| std::env::temp_dir())
         } else {
-            std::path::PathBuf::from("/tmp")
+            std::env::temp_dir()
         }
     }
 

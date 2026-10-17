@@ -174,7 +174,7 @@ async fn test_resolve_no_workspace_falls_back_to_tmp() {
     let conv = mgr.get_conversation_session(&session_id).await.unwrap();
     let conv = conv.read().await;
     let workdir = conv.workdir();
-    assert_eq!(workdir, PathBuf::from("/tmp"));
+    assert_eq!(workdir, std::env::temp_dir());
 }
 
 // ── Bootstrap mode from registry tests ─────────────────────────────────────
@@ -284,8 +284,8 @@ async fn test_resolve_agent_not_found_workspace_fallback() {
     let session_id = mgr.find_or_create("feishu", &msg, None).await.unwrap();
     let conv = mgr.get_conversation_session(&session_id).await.unwrap();
     let conv = conv.read().await;
-    // No registry workspace + no global workspace → /tmp
-    assert_eq!(conv.workdir(), PathBuf::from("/tmp"));
+    // No registry workspace + no global workspace → system temp dir
+    assert_eq!(conv.workdir(), std::env::temp_dir());
 }
 
 // ── Bootstrap mode propagation to rebuild_system_prompt ────────────────────

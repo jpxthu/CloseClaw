@@ -193,7 +193,7 @@ async fn test_restored_workspace_dir_none_returns_tmp() {
         .await
         .unwrap();
 
-    assert_eq!(result, PathBuf::from("/tmp"));
+    assert_eq!(result, std::env::temp_dir());
 }
 
 #[tokio::test]
