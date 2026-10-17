@@ -12,7 +12,8 @@ use super::make_adapter;
 use super::FeishuPlugin;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::IMPlugin;
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events, wait_for_event_type};
+use closeclaw_debug_log::LogLevel;
 use std::sync::Arc;
 use tempfile::TempDir;
 
@@ -25,16 +26,6 @@ use tempfile::TempDir;
 async fn set_test_trace_id(adapter: &FeishuAdapter, trace_id: &str) {
     let mut meta = adapter.last_metadata.lock().await;
     meta.insert("trace_id".to_string(), trace_id.to_string());
-}
-
-async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 1,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
 }
 
 fn make_text_payload(text: &str) -> Vec<u8> {
@@ -60,41 +51,6 @@ fn make_text_payload(text: &str) -> Vec<u8> {
     serde_json::to_vec(&payload).unwrap()
 }
 
-/// Read all JSONL lines from the first .jsonl file in the directory.
-fn read_jsonl_lines(dir: &std::path::Path) -> Vec<String> {
-    let entries: Vec<_> = std::fs::read_dir(dir)
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "jsonl")
-                .unwrap_or(false)
-        })
-        .collect();
-    if entries.is_empty() {
-        return vec![];
-    }
-    let content = std::fs::read_to_string(entries[0].path()).unwrap();
-    content
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(String::from)
-        .collect()
-}
-
-/// Wait for a JSONL line to appear (handles async spawn timing).
-async fn wait_for_jsonl_lines(dir: &std::path::Path, expected: usize) -> Vec<String> {
-    for _ in 0..50 {
-        let lines = read_jsonl_lines(dir);
-        if lines.len() >= expected {
-            return lines;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-    }
-    read_jsonl_lines(dir)
-}
-
 // ===========================================================================
 // 1. Normal path: debug_log set → parse_inbound/render/send write JSONL
 // ===========================================================================
@@ -111,15 +67,14 @@ async fn test_parse_inbound_writes_jsonl() {
     let payload = make_text_payload("hello jsonl");
     let _ = plugin.parse_inbound(&payload).await.unwrap();
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty(), "parse_inbound should write JSONL");
-
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    assert_eq!(parsed["event_type"], "inbound.parse");
-    assert_eq!(parsed["payload"]["platform"], "feishu");
-    assert_eq!(parsed["payload"]["message_type"], "text");
+    let events = wait_for_event_type(temp_dir.path(), "inbound.parse").await;
+    assert!(!events.is_empty(), "parse_inbound should write JSONL");
+    let evt = &events[0];
+    assert_eq!(evt.event_type, "inbound.parse");
+    assert_eq!(evt.payload["platform"], "feishu");
+    assert_eq!(evt.payload["message_type"], "text");
     assert!(
-        parsed["payload"]["parse_duration_ms"].is_number(),
+        evt.payload["parse_duration_ms"].is_number(),
         "parse_duration_ms should be a number"
     );
 }
@@ -139,18 +94,17 @@ async fn test_render_writes_jsonl() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty(), "render should write JSONL");
-
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    assert_eq!(parsed["event_type"], "outbound.render");
-    assert_eq!(parsed["payload"]["platform"], "feishu");
+    let events = wait_for_event_type(temp_dir.path(), "outbound.render").await;
+    assert!(!events.is_empty(), "render should write JSONL");
+    let evt = &events[0];
+    assert_eq!(evt.event_type, "outbound.render");
+    assert_eq!(evt.payload["platform"], "feishu");
     assert!(
-        parsed["payload"]["msg_type"].is_string(),
+        evt.payload["msg_type"].is_string(),
         "msg_type should be a string"
     );
     assert!(
-        parsed["payload"]["render_duration_ms"].is_number(),
+        evt.payload["render_duration_ms"].is_number(),
         "render_duration_ms should be a number"
     );
 }
@@ -172,20 +126,19 @@ async fn test_send_writes_jsonl() {
     let result = plugin.send(&output, "ou_peer", None, None).await;
     assert!(result.is_ok());
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty(), "send should write JSONL");
-
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    assert_eq!(parsed["event_type"], "outbound.send");
-    assert_eq!(parsed["payload"]["platform"], "feishu");
-    assert_eq!(parsed["payload"]["peer_id"], "ou_peer");
-    assert_eq!(parsed["payload"]["msg_type"], "text");
+    let events = wait_for_event_type(temp_dir.path(), "outbound.send").await;
+    assert!(!events.is_empty(), "send should write JSONL");
+    let evt = &events[0];
+    assert_eq!(evt.event_type, "outbound.send");
+    assert_eq!(evt.payload["platform"], "feishu");
+    assert_eq!(evt.payload["peer_id"], "ou_peer");
+    assert_eq!(evt.payload["msg_type"], "text");
     assert!(
-        parsed["payload"]["send_duration_ms"].is_number(),
+        evt.payload["send_duration_ms"].is_number(),
         "send_duration_ms should be a number"
     );
     assert!(
-        parsed["payload"]["success"].is_boolean(),
+        evt.payload["success"].is_boolean(),
         "success should be a boolean"
     );
 }
@@ -271,20 +224,12 @@ async fn test_trace_id_propagation_render() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 2).await;
-    let render_line = lines
-        .iter()
-        .find(|l| {
-            serde_json::from_str::<serde_json::Value>(l)
-                .map(|v| v["event_type"] == "outbound.render")
-                .unwrap_or(false)
-        })
-        .expect("render event should exist");
-
-    let parsed: serde_json::Value = serde_json::from_str(render_line).unwrap();
+    let events = wait_for_event_type(temp_dir.path(), "outbound.render").await;
+    assert!(!events.is_empty(), "render event should exist");
+    let evt = &events[0];
     assert_eq!(
-        parsed["trace_id"].as_str(),
-        Some(trace_id.as_str()),
+        evt.trace_id.as_str(),
+        trace_id,
         "render trace_id should match parse_inbound trace_id"
     );
 }
@@ -314,20 +259,12 @@ async fn test_trace_id_propagation_send() {
     };
     let _ = plugin.send(&output, "ou_peer", None, None).await;
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 2).await;
-    let send_line = lines
-        .iter()
-        .find(|l| {
-            serde_json::from_str::<serde_json::Value>(l)
-                .map(|v| v["event_type"] == "outbound.send")
-                .unwrap_or(false)
-        })
-        .expect("send event should exist");
-
-    let parsed: serde_json::Value = serde_json::from_str(send_line).unwrap();
+    let events = wait_for_event_type(temp_dir.path(), "outbound.send").await;
+    assert!(!events.is_empty(), "send event should exist");
+    let evt = &events[0];
     assert_eq!(
-        parsed["trace_id"].as_str(),
-        Some(trace_id.as_str()),
+        evt.trace_id.as_str(),
+        trace_id,
         "send trace_id should match parse_inbound trace_id"
     );
 }
@@ -348,9 +285,10 @@ async fn test_parse_duration_non_negative() {
     let payload = make_text_payload("timing parse");
     let _ = plugin.parse_inbound(&payload).await.unwrap();
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    let ms = parsed["payload"]["parse_duration_ms"]
+    let events = wait_for_event_type(temp_dir.path(), "inbound.parse").await;
+    assert!(!events.is_empty());
+    let evt = &events[0];
+    let ms = evt.payload["parse_duration_ms"]
         .as_u64()
         .expect("parse_duration_ms should be u64");
     assert!(
@@ -374,10 +312,10 @@ async fn test_render_duration_non_negative() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty());
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    let ms = parsed["payload"]["render_duration_ms"]
+    let events = wait_for_event_type(temp_dir.path(), "outbound.render").await;
+    assert!(!events.is_empty());
+    let evt = &events[0];
+    let ms = evt.payload["render_duration_ms"]
         .as_u64()
         .expect("render_duration_ms should be u64");
     assert!(
@@ -403,9 +341,10 @@ async fn test_send_duration_non_negative() {
     };
     let _ = plugin.send(&output, "ou_peer", None, None).await;
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    let ms = parsed["payload"]["send_duration_ms"]
+    let events = wait_for_event_type(temp_dir.path(), "outbound.send").await;
+    assert!(!events.is_empty());
+    let evt = &events[0];
+    let ms = evt.payload["send_duration_ms"]
         .as_u64()
         .expect("send_duration_ms should be u64");
     assert!(
@@ -431,18 +370,20 @@ async fn test_inbound_parse_event_structure() {
     let payload = make_text_payload("structure test");
     let _ = plugin.parse_inbound(&payload).await.unwrap();
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+    let events = wait_for_event_type(temp_dir.path(), "inbound.parse").await;
+    assert!(!events.is_empty(), "inbound.parse event should exist");
+    let evt = &events[0];
 
-    // Required top-level fields
-    assert!(parsed["trace_id"].is_string(), "missing trace_id");
-    assert!(parsed["span_id"].is_string(), "missing span_id");
-    assert!(parsed["timestamp"].is_number(), "missing timestamp");
-    assert!(parsed["level"].is_string(), "missing level");
-    assert!(parsed["source_module"].is_string(), "missing source_module");
-    assert!(parsed["event_type"].is_string(), "missing event_type");
-    assert!(parsed["payload"].is_object(), "missing payload");
-    assert_eq!(parsed["source_module"], "feishu");
+    // Required fields present and well-formed (missing or mistyped
+    // fields fail LogEvent deserialization and get skipped by
+    // read_events, surfacing here as an empty/absent event).
+    assert!(!evt.trace_id.is_empty(), "missing trace_id");
+    assert!(!evt.span_id.is_empty(), "missing span_id");
+    assert!(evt.timestamp > 0, "missing timestamp");
+    assert_eq!(evt.level, LogLevel::Info, "missing level");
+    assert_eq!(evt.source_module, "feishu", "missing source_module");
+    assert_eq!(evt.event_type, "inbound.parse", "missing event_type");
+    assert!(evt.payload.is_object(), "missing payload");
 }
 
 /// outbound.render JSONL contains all required fields.
@@ -459,18 +400,20 @@ async fn test_outbound_render_event_structure() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let _ = plugin.render(&blocks, None);
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty());
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+    let events = wait_for_event_type(temp_dir.path(), "outbound.render").await;
+    assert!(!events.is_empty(), "outbound.render event should exist");
+    let evt = &events[0];
 
-    assert!(parsed["trace_id"].is_string(), "missing trace_id");
-    assert!(parsed["span_id"].is_string(), "missing span_id");
-    assert!(parsed["timestamp"].is_number(), "missing timestamp");
-    assert!(parsed["level"].is_string(), "missing level");
-    assert!(parsed["source_module"].is_string(), "missing source_module");
-    assert!(parsed["event_type"].is_string(), "missing event_type");
-    assert!(parsed["payload"].is_object(), "missing payload");
-    assert_eq!(parsed["source_module"], "feishu");
+    // Required fields present and well-formed (missing or mistyped
+    // fields fail LogEvent deserialization and get skipped by
+    // read_events, surfacing here as an empty/absent event).
+    assert!(!evt.trace_id.is_empty(), "missing trace_id");
+    assert!(!evt.span_id.is_empty(), "missing span_id");
+    assert!(evt.timestamp > 0, "missing timestamp");
+    assert_eq!(evt.level, LogLevel::Info, "missing level");
+    assert_eq!(evt.source_module, "feishu", "missing source_module");
+    assert_eq!(evt.event_type, "outbound.render", "missing event_type");
+    assert!(evt.payload.is_object(), "missing payload");
 }
 
 /// outbound.send JSONL contains all required fields.
@@ -489,17 +432,20 @@ async fn test_outbound_send_event_structure() {
     };
     let _ = plugin.send(&output, "ou_peer", None, None).await;
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
+    let events = wait_for_event_type(temp_dir.path(), "outbound.send").await;
+    assert!(!events.is_empty(), "outbound.send event should exist");
+    let evt = &events[0];
 
-    assert!(parsed["trace_id"].is_string(), "missing trace_id");
-    assert!(parsed["span_id"].is_string(), "missing span_id");
-    assert!(parsed["timestamp"].is_number(), "missing timestamp");
-    assert!(parsed["level"].is_string(), "missing level");
-    assert!(parsed["source_module"].is_string(), "missing source_module");
-    assert!(parsed["event_type"].is_string(), "missing event_type");
-    assert!(parsed["payload"].is_object(), "missing payload");
-    assert_eq!(parsed["source_module"], "feishu");
+    // Required fields present and well-formed (missing or mistyped
+    // fields fail LogEvent deserialization and get skipped by
+    // read_events, surfacing here as an empty/absent event).
+    assert!(!evt.trace_id.is_empty(), "missing trace_id");
+    assert!(!evt.span_id.is_empty(), "missing span_id");
+    assert!(evt.timestamp > 0, "missing timestamp");
+    assert_eq!(evt.level, LogLevel::Info, "missing level");
+    assert_eq!(evt.source_module, "feishu", "missing source_module");
+    assert_eq!(evt.event_type, "outbound.send", "missing event_type");
+    assert!(evt.payload.is_object(), "missing payload");
 }
 
 /// send failure (success=false) still records JSONL event.
@@ -520,12 +466,10 @@ async fn test_send_failure_records_event() {
     let result = plugin.send(&output, "ou_peer", None, None).await;
     assert!(result.is_err(), "unsupported type should error");
 
-    let lines = wait_for_jsonl_lines(temp_dir.path(), 1).await;
-    assert!(!lines.is_empty(), "send failure should still write JSONL");
-
-    let parsed: serde_json::Value = serde_json::from_str(&lines[0]).unwrap();
-    assert_eq!(parsed["event_type"], "outbound.send");
-    assert_eq!(parsed["payload"]["success"], false);
+    let events = wait_for_event_type(temp_dir.path(), "outbound.send").await;
+    assert!(!events.is_empty(), "send failure should still write JSONL");
+    let evt = &events[0];
+    assert_eq!(evt.payload["success"], false);
 }
 
 // ===========================================================================
@@ -551,10 +495,10 @@ async fn test_render_without_trace_id_skips_event() {
     // to run, then assert nothing reached the JSONL file.
     // G1 豁免：负向断言 settle window（确认无写入，非等待异步事件到达）。
     tokio::time::sleep(std::time::Duration::from_millis(500)).await;
-    let lines = read_jsonl_lines(temp_dir.path());
+    let events = read_events(temp_dir.path()).await;
     assert!(
-        lines.is_empty(),
+        events.is_empty(),
         "event without trace_id must be skipped, but got JSONL: {:?}",
-        lines
+        events
     );
 }
