@@ -15,7 +15,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use tokio::sync::{mpsc, watch};
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 use crate::test_helpers::{
@@ -210,12 +210,6 @@ async fn await_n_fires(
     started_at.elapsed()
 }
 
-/// Signal shutdown and join the loop.
-async fn shutdown_and_join(shutdown_tx: watch::Sender<()>, handle: tokio::task::JoinHandle<()>) {
-    shutdown_tx.send(()).expect("shutdown send");
-    handle.await.expect("scheduler loop joins after shutdown");
-}
-
 /// Loop-level regression (issue #3608, normal path): after a
 /// Memory-section reload switches the cron from the daily `0 3 * * *` to
 /// the every-minute `* * * * *`, every subsequent Fire must re-arm on the
@@ -245,7 +239,7 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
         &tmp.path().join("MEMORY-cron-fire-persist.md"),
     );
     let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
-    let mut scheduler = make_config_change_scheduler_with_config(
+    let scheduler = make_config_change_scheduler_with_config(
         pipeline,
         miner,
         config_manager.clone(),
@@ -255,18 +249,18 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
 
     notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move { scheduler.run(shutdown_rx).await });
-
-    let elapsed = await_n_fires(&mut fire_rx, 4, 3600).await;
+    let elapsed = run_scheduler_briefly(
+        scheduler,
+        await_n_fires(&mut fire_rx, 4, 3600),
+        "cron loop keeps reloaded schedule across fires",
+    )
+    .await;
     assert!(
         elapsed <= Duration::from_secs(300),
         "every-minute re-arms must keep the minute cadence: four fires \
          must span ≤300s (a 600s-fallback regression needs ≈1860s), \
          took {elapsed:?}"
     );
-
-    shutdown_and_join(shutdown_tx, handle).await;
 }
 
 /// Loop-level regression (issue #3608, boundary): a reload to an INVALID
@@ -293,7 +287,7 @@ async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
         &tmp.path().join("MEMORY-cron-fallback-persist.md"),
     );
     let (fire_tx, mut fire_rx) = mpsc::unbounded_channel();
-    let mut scheduler = make_config_change_scheduler_with_config(
+    let scheduler = make_config_change_scheduler_with_config(
         pipeline,
         miner,
         config_manager.clone(),
@@ -303,15 +297,15 @@ async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
 
     notify_section_reload(&config_manager, ConfigSection::Memory, "memory.json");
 
-    let (shutdown_tx, shutdown_rx) = watch::channel(());
-    let handle = tokio::spawn(async move { scheduler.run(shutdown_rx).await });
-
-    let elapsed = await_n_fires(&mut fire_rx, 3, 3600).await;
+    let elapsed = run_scheduler_briefly(
+        scheduler,
+        await_n_fires(&mut fire_rx, 3, 3600),
+        "invalid-reload fallback persists across fires",
+    )
+    .await;
     assert!(
         elapsed >= Duration::from_secs(1200),
         "each re-arm must honour the full 600s fallback interval: three \
          fires must span ≥1200s, took {elapsed:?}"
     );
-
-    shutdown_and_join(shutdown_tx, handle).await;
 }
