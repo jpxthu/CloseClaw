@@ -5,17 +5,24 @@
 //!   both the type-level variant → libc encoding and the end-to-end delivery
 //!   each variant promises to its callers.
 //! - the [`run_scheduler_briefly`] shutdown scaffolding (issue #3708): the
-//!   normal path returns after the shutdown signal, and the `what` context
+//!   normal path returns after the shutdown signal and passes the event
+//!   future's output through to the caller, and the `what` context
 //!   surfaces in the panic message when the 5s exit deadline is missed.
+//! - the [`observe_heartbeat_until`] observation window (issue #3718):
+//!   heartbeat counting inside the deadline window, the deadline-expiry
+//!   exit, event-triggered and producer-closed breaks, and event
+//!   suppression of the heartbeat gate.
 //!
 //! Placement (plan Step 1.3): this dedicated helpers-test file (the #3140
 //! precedent) instead of inline next to the helper — `test_helpers.rs` sits
 //! near the 1000-line hard limit (CONTRIBUTING §硬性限制).
 
 use crate::dreaming_scheduler::DreamingScheduler;
+use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::test_helpers::{
     kill_self, make_config_change_scheduler, make_disabled_pipeline_and_miner,
-    make_test_config_manager, run_scheduler_briefly, MockConfig, TestShutdownSignal,
+    make_test_config_manager, observe_heartbeat_until, run_scheduler_briefly, MockConfig,
+    TestShutdownSignal,
 };
 use async_trait::async_trait;
 use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
@@ -23,6 +30,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::signal::unix::{signal, SignalKind};
 use tokio::sync::mpsc;
+use tokio::time::Instant;
 
 /// Locks the variant → libc signal-number encoding: `Sigterm` must be
 /// `libc::SIGTERM`, `Sigint` must be `libc::SIGINT`. A swapped mapping
@@ -188,5 +196,198 @@ async fn test_run_scheduler_briefly_panics_with_what_context_on_timeout() {
     assert!(
         msg.contains("scheduler should exit promptly: helper timeout diagnostic"),
         "expected the prompt-exit diagnostic carrying the what label, got: {msg}"
+    );
+}
+
+/// Return-value path: a non-`()` event-future output passes through the
+/// helper to the caller — the #3720 cron_reload form, where the awaited
+/// fires' elapsed virtual time escapes the helper for post-hoc assertion.
+/// Paused clock + current_thread: the watch-channel shutdown wakeup needs
+/// no timer, so the test runs in zero virtual time (same rationale as the
+/// normal-path test above).
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_run_scheduler_briefly_returns_event_future_output() {
+    let tmp = tempfile::tempdir().expect("temp dir");
+    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let (pipeline, miner) = make_disabled_pipeline_and_miner(
+        &tmp.path().join("memory-helper-return.db"),
+        &tmp.path().join("MEMORY-helper-return.md"),
+    );
+    let scheduler = make_config_change_scheduler(pipeline, miner, config_manager);
+
+    let output = run_scheduler_briefly(
+        scheduler,
+        async { Duration::from_millis(300) },
+        "helper return-value passthrough",
+    )
+    .await;
+    assert_eq!(
+        output,
+        Duration::from_millis(300),
+        "run_scheduler_briefly must return the event future's output"
+    );
+}
+
+// ── observe_heartbeat_until helper behavior (issue #3718) ─────────────
+
+/// Normal path: with the channel open and no events arriving, the helper
+/// counts one heartbeat per interval until the window deadline and stops
+/// at the deadline — 10ms interval inside a 50ms window fires at
+/// 10/20/30/40/50ms → exactly 5 (issue #3718). Every counted heartbeat
+/// invokes `on_heartbeat`. Paused clock: auto-advance drives the whole
+/// window in zero real time.
+#[tokio::test(start_paused = true)]
+async fn test_observe_heartbeat_until_counts_heartbeats_until_deadline() {
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(10));
+    let (_tx, rx) = mpsc::unbounded_channel::<()>();
+    let mut heartbeat_calls = 0usize;
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |_| false,
+        || heartbeat_calls += 1,
+    )
+    .await;
+
+    assert_eq!(
+        sent, 5,
+        "one heartbeat per 10ms interval inside the 50ms window, got {sent}"
+    );
+    assert_eq!(
+        heartbeat_calls, sent,
+        "every counted heartbeat must invoke the on_heartbeat callback"
+    );
+}
+
+/// Event-triggered break: `on_event` returning `true` exits the window
+/// early, keeping the heartbeats counted before the event (issue #3718:
+/// the one-shot task-completion form). current_thread + paused clock:
+/// the spawned producer and the timer branches advance timer-by-timer, so
+/// the 25ms event lands strictly between the 20ms and 30ms heartbeat
+/// deadlines — no random-order `select!` coincidence can flip the count.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_observe_heartbeat_until_event_break_exits_early_with_count() {
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(10));
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        let _ = tx.send(7u32);
+    });
+    let mut heartbeat_calls = 0usize;
+    let mut seen_event = None;
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |event| {
+            seen_event = Some(event);
+            true
+        },
+        || heartbeat_calls += 1,
+    )
+    .await;
+
+    assert_eq!(
+        seen_event,
+        Some(7),
+        "the breaking event's payload must reach the on_event callback"
+    );
+    assert_eq!(
+        sent, 2,
+        "heartbeats at 10/20ms fire before the 25ms event breaks the window, got {sent}"
+    );
+    assert_eq!(
+        heartbeat_calls, sent,
+        "every counted heartbeat must invoke the on_heartbeat callback"
+    );
+}
+
+/// Producer-closed break: after the buffered event is consumed, a dropped
+/// sender yields `recv()` → `None` and ends the window with the heartbeats
+/// counted before the close preserved (issue #3718: the producer-exit
+/// form). current_thread + paused clock: the 15ms event lands strictly
+/// between the 10ms heartbeat and its 20ms successor — no random-order
+/// `select!` coincidence can flip the count.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_observe_heartbeat_until_breaks_when_producer_closes() {
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(10));
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(15)).await;
+        let _ = tx.send(());
+    });
+    let mut heartbeat_calls = 0usize;
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |_| false,
+        || heartbeat_calls += 1,
+    )
+    .await;
+
+    assert_eq!(
+        sent, 1,
+        "only the 10ms heartbeat fires before the 15ms event + dropped sender \
+         end the window, got {sent}"
+    );
+    assert_eq!(
+        heartbeat_calls, sent,
+        "heartbeats counted before the close must keep their callbacks"
+    );
+}
+
+/// Heartbeat gate: events arriving strictly inside the interval reset the
+/// timer (`record_event`) before any heartbeat deadline can fire, so no
+/// heartbeat is counted and `on_heartbeat` is never invoked (issue #3718:
+/// progress suppresses heartbeats — the gate stays unsatisfied at every
+/// would-be fire time). Events at 5/14/23/32/41ms against a 10ms interval
+/// keep each deadline (10/15/24/33/42ms) strictly behind the next event;
+/// the producer then exits and ends the window. Note: the timer arm's
+/// literal `should_send_heartbeat()` re-check is defensive — the helper's
+/// deadline is always `last_event + interval`, so a firing timer implies a
+/// satisfied gate; the suppressible state is reachable only via the event
+/// resets pinned here. current_thread + paused clock: timer-by-timer
+/// auto-advance keeps every event strictly ahead of its deadline.
+#[tokio::test(start_paused = true, flavor = "current_thread")]
+async fn test_observe_heartbeat_until_frequent_events_suppress_all_heartbeats() {
+    let mut heartbeat = ShutdownHeartbeat::with_interval(Duration::from_millis(10));
+    let (tx, rx) = mpsc::unbounded_channel();
+    tokio::spawn(async move {
+        let marks = [5u64, 14, 23, 32, 41];
+        let mut prev = 0;
+        for at in marks {
+            tokio::time::sleep(Duration::from_millis(at - prev)).await;
+            prev = at;
+            let _ = tx.send(());
+        }
+    });
+    let mut heartbeat_calls = 0usize;
+    let deadline = Instant::now() + Duration::from_millis(50);
+
+    let sent = observe_heartbeat_until(
+        &mut heartbeat,
+        deadline,
+        rx,
+        |_| false,
+        || heartbeat_calls += 1,
+    )
+    .await;
+
+    assert_eq!(
+        sent, 0,
+        "events inside the interval must suppress every heartbeat in the 50ms \
+         window, got {sent}"
+    );
+    assert_eq!(
+        heartbeat_calls, 0,
+        "suppressed heartbeats must not invoke the on_heartbeat callback"
     );
 }

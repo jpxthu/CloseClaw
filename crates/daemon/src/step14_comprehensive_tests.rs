@@ -12,8 +12,10 @@
 
 use crate::shutdown::ShutdownHandle;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
+use crate::test_helpers::observe_heartbeat_until;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::mpsc;
 use tokio::time::Instant;
 
 // =====================================================================
@@ -188,31 +190,29 @@ async fn test_heartbeat_multiple_events_coalesce() {
 #[tokio::test]
 async fn test_heartbeat_phase1_drain_with_signal_interruption() {
     let mut hb = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
-    let mut events_received = 0;
 
-    // Simulate Phase 1 loop with a few events
+    // Simulate Phase 1 loop with a few events: a repeating signal timer
+    // fires every ~50ms for the whole window. The producer keeps sending
+    // while the window is open and the test holds `tx` so the stream
+    // never ends before the deadline.
+    let (tx, rx) = mpsc::unbounded_channel();
+    let signal_tx = tx.clone();
+    tokio::spawn(async move {
+        for _ in 0..4 {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = signal_tx.send(());
+        }
+    });
+
     let deadline = Instant::now() + Duration::from_millis(200);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            _ = tokio::time::sleep_until(hb.next_deadline()) => {
-                if hb.should_send_heartbeat() {
-                    events_received += 1;
-                    hb.record_event();
-                }
-            }
-            // Simulate signal event arriving at ~50ms
-            _ = tokio::time::sleep(Duration::from_millis(50)) => {
-                hb.record_event();
-            }
-        }
-    }
+    let heartbeats_sent = observe_heartbeat_until(&mut hb, deadline, rx, |_| false, || {}).await;
 
     // Heartbeat should have fired at least once (200ms window, 30ms interval)
     assert!(
-        events_received >= 1,
+        heartbeats_sent >= 1,
         "heartbeat should fire at least once in 200ms window, got {}",
-        events_received
+        heartbeats_sent
     );
 }
 
@@ -221,27 +221,22 @@ async fn test_heartbeat_phase1_drain_with_signal_interruption() {
 #[tokio::test]
 async fn test_heartbeat_phase2_progress_resets_timer() {
     let mut hb = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
-    let mut heartbeats_sent = 0;
 
-    // Simulate: progress event at 40ms, quiet until 120ms, heartbeat fires
+    // Simulate: progress event at 40ms, quiet until 120ms, heartbeat fires.
+    // A sequence producer sends at the original time points; the test
+    // holds `tx` so the window keeps observing until the deadline.
+    let (tx, rx) = mpsc::unbounded_channel();
+    let progress_tx = tx.clone();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(40)).await;
+        let _ = progress_tx.send(());
+        tokio::time::sleep(Duration::from_millis(80)).await;
+        let _ = progress_tx.send(());
+    });
+
     let deadline = Instant::now() + Duration::from_millis(150);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            _ = tokio::time::sleep_until(hb.next_deadline()) => {
-                if hb.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    hb.record_event();
-                }
-            }
-            _ = async {
-                tokio::time::sleep(Duration::from_millis(40)).await;
-                hb.record_event();
-                tokio::time::sleep(Duration::from_millis(80)).await;
-                hb.record_event();
-            } => {}
-        }
-    }
+    let heartbeats_sent = observe_heartbeat_until(&mut hb, deadline, rx, |_| false, || {}).await;
 
     // After two progress events (40ms, 120ms) with 30ms interval,
     // heartbeat should fire during the 30ms quiet window after 120ms
@@ -257,40 +252,25 @@ async fn test_heartbeat_phase2_progress_resets_timer() {
 #[tokio::test]
 async fn test_heartbeat_phase3_task_completion_resets() {
     let mut hb = ShutdownHeartbeat::with_interval(Duration::from_millis(30));
-    let mut heartbeats_sent = 0;
 
-    // Simulate: task 1 completes at 25ms, task 2 at 50ms, task 3 at 75ms
-    let deadlines = [25, 50, 75];
-    let mut next_task_idx = 0;
+    // Simulate: task 1 completes at 25ms, task 2 at 50ms, task 3 at 75ms.
+    // A sequence producer sends at the original time points and then idles
+    // (original: `pending()`); the test holds `tx` to keep the window open.
+    let (tx, rx) = mpsc::unbounded_channel();
+    let task_tx = tx.clone();
+    tokio::spawn(async move {
+        let deadlines = [25u64, 50, 75];
+        let mut prev = 0;
+        for at in deadlines {
+            tokio::time::sleep(Duration::from_millis(at - prev)).await;
+            prev = at;
+            let _ = task_tx.send(());
+        }
+    });
 
     let deadline = Instant::now() + Duration::from_millis(200);
 
-    while Instant::now() < deadline {
-        tokio::select! {
-            _ = tokio::time::sleep_until(hb.next_deadline()) => {
-                if hb.should_send_heartbeat() {
-                    heartbeats_sent += 1;
-                    hb.record_event();
-                }
-            }
-            _ = async {
-                if next_task_idx < deadlines.len() {
-                    let delay = if next_task_idx == 0 {
-                        Duration::from_millis(deadlines[0])
-                    } else {
-                        Duration::from_millis(
-                            deadlines[next_task_idx] - deadlines[next_task_idx - 1],
-                        )
-                    };
-                    tokio::time::sleep(delay).await;
-                    next_task_idx += 1;
-                    hb.record_event();
-                } else {
-                    std::future::pending::<()>().await;
-                }
-            } => {}
-        }
-    }
+    let heartbeats_sent = observe_heartbeat_until(&mut hb, deadline, rx, |_| false, || {}).await;
 
     // Tasks complete every 25ms with 30ms interval — heartbeat should
     // fire at least once after all tasks complete (125ms–200ms quiet window)
