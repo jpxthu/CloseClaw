@@ -15,9 +15,9 @@ use std::sync::{Arc, Mutex as StdMutex};
 use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct SaveSnapshot {
     pub(crate) outbound_ops_count: usize,
+    #[allow(dead_code)] // recorded for diagnostics; no test reads it yet
     pub(crate) outbound_pending_count: usize,
 }
 
@@ -31,19 +31,18 @@ pub(crate) struct SnapshotMockPersist {
 
 impl SnapshotMockPersist {
     pub(crate) fn new() -> Self {
-        Self {
-            checkpoints: Mutex::new(HashMap::new()),
-            snapshots: Arc::new(StdMutex::new(Vec::new())),
-            fail_on_save: StdMutex::new(None),
-            call_count: StdMutex::new(0),
-        }
+        Self::with_fail_on_save_impl(None)
     }
 
-    pub(crate) fn fail_on_save(n: usize) -> Self {
+    pub(crate) fn with_fail_on_save(n: usize) -> Self {
+        Self::with_fail_on_save_impl(Some(n))
+    }
+
+    fn with_fail_on_save_impl(fail_on_save: Option<usize>) -> Self {
         Self {
             checkpoints: Mutex::new(HashMap::new()),
             snapshots: Arc::new(StdMutex::new(Vec::new())),
-            fail_on_save: StdMutex::new(Some(n)),
+            fail_on_save: StdMutex::new(fail_on_save),
             call_count: StdMutex::new(0),
         }
     }
