@@ -34,9 +34,6 @@ pub const APPEND_SECTION_MAX_LEN: usize = 500;
 // `use closeclaw_session::KillHandle` keep working.
 pub use closeclaw_common::tool_session::KillHandle;
 
-// `ChatSession` trait + `impl ChatSession for ConversationSession` live in
-// the sibling file `session_chat.rs`. Re-exported here so existing
-// `use closeclaw_session::ChatSession;` call sites keep working.
 mod cache_prefix;
 mod memory_injection;
 pub use memory_injection::{InjectionPosition, MemoryInjection};
@@ -44,6 +41,9 @@ pub use memory_injection::{InjectionPosition, MemoryInjection};
 pub mod mode_transition;
 
 mod session_cache_check;
+// `ChatSession` trait + `impl ChatSession for ConversationSession` live in
+// the sibling file `session_chat.rs`. Re-exported here so existing
+// `use closeclaw_session::ChatSession;` call sites keep working.
 mod session_chat;
 pub use session_chat::ChatSession;
 mod session_debug;
