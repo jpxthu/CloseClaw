@@ -189,18 +189,11 @@ async fn test_simplified_path_skips_middleware() {
 /// platform, and peer_id to the DebugLog.
 #[tokio::test]
 async fn test_queue_full_rejection_emits_debug_event() {
-    use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+    use closeclaw_debug_log::test_utils::make_debug_log;
     use tempfile::TempDir;
 
     let temp_dir = TempDir::new().expect("TempDir::new failed");
-    let debug_log = DebugLog::new(DebugLogConfig {
-        min_level: LogLevel::Trace,
-        log_dir: temp_dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    })
-    .await
-    .expect("DebugLog::new failed");
+    let debug_log = make_debug_log(&temp_dir).await;
 
     let config = make_config();
     let sm = Arc::new(SessionManager::new(

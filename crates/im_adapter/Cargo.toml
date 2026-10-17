@@ -47,6 +47,7 @@ inventory = "0.3"
 dirs.workspace = true
 
 [dev-dependencies]
+closeclaw-debug-log = { path = "../debug_log", features = ["test-util"] }
 closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true
 serial_test.workspace = true

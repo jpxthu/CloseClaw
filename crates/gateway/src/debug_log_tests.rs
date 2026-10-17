@@ -8,17 +8,20 @@
 //! 5. Step 1.8: send.completed event uses inbound trace_id (not fabricated)
 //! 6. Step 1.3: session.resolved and route.decision events
 
-use crate::debug_log_test_utils::{make_debug_log, read_events_with_timeout};
 use crate::outbound::SendOutboundIds;
 use crate::session_handler::SessionMessageHandler;
 use crate::{compute_session_key, GatewayConfig, SessionManager};
 use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_debug_log::test_utils::{
+    make_debug_log, read_events_with_deadline, read_events_with_timeout,
+};
 use closeclaw_debug_log::LogLevel;
 use closeclaw_llm::retry::CooldownManager;
 use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
+use std::time::Duration;
 use tempfile::TempDir;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -128,7 +131,7 @@ fn test_emit_debug_event_with_debug_log_no_panic() {
             parent: None,
         });
         // Give the spawned task a moment to complete.
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+        tokio::time::sleep(Duration::from_millis(50)).await;
     });
 }
 
@@ -454,7 +457,7 @@ async fn test_no_trace_id_no_session_resolved_or_route_decision() {
         .handle_inbound_message(processed, Some(sender_id), "feishu")
         .await;
 
-    let events = read_events_with_timeout(temp_dir.path()).await;
+    let events = read_events_with_deadline(temp_dir.path(), Duration::from_millis(500)).await;
     assert!(
         events.iter().all(|e| e.event_type != "session.resolved"),
         "no session.resolved event expected when trace_id is empty"
@@ -699,7 +702,7 @@ async fn test_inbound_parsed_event_emitted() {
     gw.enqueue_inbound(request).await.unwrap();
 
     // Give spawned tasks time to write events.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     let inbound_events: Vec<_> = events
@@ -745,9 +748,9 @@ async fn test_no_debug_log_no_inbound_parsed_event() {
         span_id: None,
     };
     gw.enqueue_inbound(request).await.unwrap();
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
-    let events = read_events_with_timeout(temp_dir.path()).await;
+    let events = read_events_with_deadline(temp_dir.path(), Duration::from_millis(500)).await;
     assert!(
         events
             .iter()
@@ -799,7 +802,7 @@ async fn test_outbound_feishu_events_emitted() {
     assert!(result.is_ok(), "send_outbound should succeed");
 
     // Give spawned tasks time to write events.
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
 
@@ -890,7 +893,7 @@ async fn test_outbound_non_feishu_no_feishu_events() {
         .await;
     assert!(result.is_ok(), "send_outbound should succeed for discord");
 
-    tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    tokio::time::sleep(Duration::from_millis(100)).await;
 
     let events = read_events_with_timeout(temp_dir.path()).await;
     assert!(

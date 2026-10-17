@@ -17,5 +17,6 @@ closeclaw-debug-log = { path = "../debug_log" }
 
 [dev-dependencies]
 tempfile.workspace = true
+closeclaw-debug-log = { path = "../debug_log", features = ["test-util"] }
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }

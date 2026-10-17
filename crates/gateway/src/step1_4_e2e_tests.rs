@@ -21,7 +21,7 @@ use closeclaw_session::persistence::ReasoningLevel;
 use tempfile::TempDir;
 
 use super::inbound_queue_test_utils::{make_request, wait_wal_empty};
-use crate::debug_log_test_utils::{
+use closeclaw_debug_log::test_utils::{
     filter_events_by_type_and_trace, make_debug_log, read_events_with_timeout,
 };
 

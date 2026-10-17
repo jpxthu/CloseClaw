@@ -12,46 +12,14 @@ use std::sync::Arc;
 use std::time::Duration;
 use tempfile::TempDir;
 
-use closeclaw_debug_log::{DebugLog, DebugLogConfig, LogLevel};
+use closeclaw_debug_log::test_utils::{make_debug_log_at_level, read_events};
+use closeclaw_debug_log::LogLevel;
 
 // ── helpers ──────────────────────────────────────────────────────────────
 
-async fn make_debug_log(dir: &TempDir) -> DebugLog {
-    let config = DebugLogConfig {
-        min_level: LogLevel::Debug,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.unwrap()
-}
-
 async fn make_manager_with_debug(dir: &TempDir) -> BackgroundTaskManager {
-    let dlog = make_debug_log(dir).await;
+    let dlog = make_debug_log_at_level(dir, LogLevel::Debug).await;
     BackgroundTaskManager::with_temp_dir(dir.path()).with_debug_log(Arc::new(dlog))
-}
-
-fn read_jsonl_events(dir: &TempDir) -> Vec<closeclaw_debug_log::LogEvent> {
-    let mut events = Vec::new();
-    let entries: Vec<_> = std::fs::read_dir(dir.path())
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "jsonl")
-                .unwrap_or(false)
-        })
-        .collect();
-    for entry in entries {
-        let content = std::fs::read_to_string(entry.path()).unwrap();
-        for line in content.lines() {
-            if let Ok(ev) = closeclaw_debug_log::LogEvent::from_jsonl(line) {
-                events.push(ev);
-            }
-        }
-    }
-    events
 }
 
 async fn wait_for_terminal(mgr: &BackgroundTaskManager, task_id: &str) -> BackgroundTask {
@@ -84,7 +52,7 @@ async fn test_debug_log_started_event() {
     // Give the spawned log task time to write.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let started: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "background.task.started")
@@ -128,7 +96,7 @@ async fn test_debug_log_terminal_completed_event() {
     // Give spawned log tasks time to finish writing.
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let terminal: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "background.task.terminal")
@@ -159,7 +127,7 @@ async fn test_debug_log_terminal_failed_event() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let terminal: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "background.task.terminal")
@@ -189,7 +157,7 @@ async fn test_debug_log_terminal_killed_event() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let terminal: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "background.task.terminal")
@@ -216,7 +184,7 @@ async fn test_debug_log_trace_id_shared() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let task_events: Vec<_> = events
         .iter()
         .filter(|e| {
@@ -255,7 +223,7 @@ async fn test_debug_log_event_count() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let task_events: Vec<_> = events
         .iter()
         .filter(|e| e.payload["task_id"] == task.id)
@@ -285,18 +253,15 @@ async fn test_no_debug_log_no_events() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(200)).await;
 
-    let entries: Vec<_> = std::fs::read_dir(tmp.path())
-        .unwrap()
-        .filter_map(|e| e.ok())
-        .filter(|e| {
-            e.path()
-                .extension()
-                .map(|ext| ext == "jsonl")
-                .unwrap_or(false)
-        })
-        .collect();
-    assert!(
-        entries.is_empty(),
+    let mut dir = tokio::fs::read_dir(tmp.path()).await.unwrap();
+    let mut jsonl_count = 0;
+    while let Ok(Some(entry)) = dir.next_entry().await {
+        if entry.path().extension().and_then(|e| e.to_str()) == Some("jsonl") {
+            jsonl_count += 1;
+        }
+    }
+    assert_eq!(
+        jsonl_count, 0,
         "no JSONL files should exist when debug_log is None"
     );
 }
@@ -308,7 +273,7 @@ async fn test_no_debug_log_no_events() {
 #[tokio::test]
 async fn test_debug_log_max_execution_kill_emits_terminal() {
     let tmp = TempDir::new().unwrap();
-    let dlog = make_debug_log(&tmp).await;
+    let dlog = make_debug_log_at_level(&tmp, LogLevel::Debug).await;
     let mgr = BackgroundTaskManager::with_max_execution_secs_unchecked(tmp.path(), 1)
         .with_debug_log(Arc::new(dlog));
     let task = mgr
@@ -318,7 +283,7 @@ async fn test_debug_log_max_execution_kill_emits_terminal() {
     wait_for_terminal(&mgr, &task.id).await;
     tokio::time::sleep(Duration::from_millis(300)).await;
 
-    let events = read_jsonl_events(&tmp);
+    let events = read_events(tmp.path()).await;
     let terminal: Vec<_> = events
         .iter()
         .filter(|e| e.event_type == "background.task.terminal")

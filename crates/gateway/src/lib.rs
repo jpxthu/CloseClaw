@@ -11,8 +11,6 @@ mod debug_log_emitter;
 #[cfg(test)]
 mod debug_log_emitter_tests;
 #[cfg(test)]
-mod debug_log_test_utils;
-#[cfg(test)]
 pub mod debug_log_tests;
 #[cfg(test)]
 mod dependency_boundary_tests;

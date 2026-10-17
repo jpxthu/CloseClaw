@@ -26,13 +26,13 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
 use closeclaw_common::{CacheAnomalyInfo, CallTarget, LLMError, LlmCaller, MetricsEmitter};
-use closeclaw_debug_log::{DebugLog, LogEvent, LogLevel};
+use closeclaw_debug_log::test_utils::{make_debug_log, read_events, wait_for_event_type};
+use closeclaw_debug_log::{DebugLog, LogLevel};
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
 use closeclaw_session::llm_session::{
     ChatSession, ConversationSession, NotificationAudience, QueueEntry,
 };
 
-use crate::debug_log_test_utils::make_debug_log;
 use crate::outbound::StreamResult;
 use crate::session_handler_cache_check::check_cache_anomaly_and_accumulate_usage;
 
@@ -185,41 +185,6 @@ fn target(provider: &str, model: &str) -> CallTarget {
     CallTarget {
         provider_id: provider.to_string(),
         model_id: model.to_string(),
-    }
-}
-
-/// Reads all JSONL log events from the temp directory.
-fn read_log_events(dir: &tempfile::TempDir) -> Vec<LogEvent> {
-    let mut events = Vec::new();
-    for entry in std::fs::read_dir(dir.path())
-        .unwrap()
-        .filter_map(|e| e.ok())
-    {
-        let path = entry.path();
-        if path.extension().map(|ext| ext == "jsonl").unwrap_or(false) {
-            let content = std::fs::read_to_string(&path).unwrap();
-            for line in content.lines().filter(|l| !l.trim().is_empty()) {
-                events.push(LogEvent::from_jsonl(line).unwrap());
-            }
-        }
-    }
-    events
-}
-
-/// Bounded readiness poll (no fixed sleep): waits until at least one
-/// `session.cache_anomaly.detected` event lands in the JSONL files, up
-/// to 2s.
-async fn wait_for_cache_anomaly_events(dir: &tempfile::TempDir) -> Vec<LogEvent> {
-    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-    loop {
-        let events: Vec<LogEvent> = read_log_events(dir)
-            .into_iter()
-            .filter(|e| e.event_type == "session.cache_anomaly.detected")
-            .collect();
-        if !events.is_empty() || tokio::time::Instant::now() >= deadline {
-            return events;
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(20)).await;
     }
 }
 
@@ -379,7 +344,7 @@ async fn test_anomaly_emits_debug_log_event() {
     )
     .await;
 
-    let events = wait_for_cache_anomaly_events(&debug_dir).await;
+    let events = wait_for_event_type(debug_dir.path(), "session.cache_anomaly.detected").await;
     assert_eq!(
         events.len(),
         1,
@@ -431,7 +396,7 @@ async fn test_non_anomaly_rounds_write_no_debug_log_event() {
     // Allow any (unexpected) spawned writes to settle before asserting.
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     assert!(
-        read_log_events(&debug_dir).is_empty(),
+        read_events(debug_dir.path()).await.is_empty(),
         "no debug_log event expected without an anomaly"
     );
 }
