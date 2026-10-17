@@ -11,11 +11,10 @@
 use crate::{GatewayConfig, Message, SendOutboundIds, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::processor::ProcessError;
-use closeclaw_common::processor::{
-    MessageContext, MessageProcessor, ProcessPhase, ProcessedMessage,
-};
+use closeclaw_common::processor::ProcessedMessage;
+use closeclaw_common::StreamingRenderer;
 use closeclaw_llm::types::ContentBlock;
+use closeclaw_processor_chain::{MessageContext, MessageProcessor, ProcessError, ProcessPhase};
 use closeclaw_session::persistence::{PersistenceError, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -88,6 +87,7 @@ impl IMPlugin for MockPlugin {
         event: closeclaw_common::processor::StreamEvent,
     ) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .handle_event(event)
@@ -95,6 +95,7 @@ impl IMPlugin for MockPlugin {
 
     fn flush_stream(&self) -> closeclaw_common::im_plugin::StreamingOutput {
         self.streaming_renderer()
+            .expect("MockPlugin has no streaming renderer")
             .lock()
             .expect("MockPlugin streaming renderer lock poisoned")
             .flush()
@@ -102,8 +103,8 @@ impl IMPlugin for MockPlugin {
 
     fn streaming_renderer(
         &self,
-    ) -> &std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer> {
-        &self.renderer
+    ) -> Option<&std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>> {
+        Some(&self.renderer)
     }
 }
 
@@ -168,6 +169,9 @@ fn make_message(to: &str, content: &str) -> Message {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
@@ -230,7 +234,7 @@ async fn setup_with_verbosity(
         None,
         ReasoningLevel::default(),
     ));
-    let mut registry = closeclaw_common::processor::ProcessorRegistry::new();
+    let mut registry = closeclaw_processor_chain::ProcessorRegistry::new();
     registry.register(Arc::new(trace));
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
     gw.register_plugin(Arc::new(MockPlugin::new("mock"))).await;
@@ -459,7 +463,13 @@ struct TimingHandler {
 }
 
 #[async_trait::async_trait]
-impl closeclaw_common::slash_router::handler::SlashHandler for TimingHandler {
+impl closeclaw_slash::SlashHandler for TimingHandler {
+    fn clone_box(&self) -> Box<dyn closeclaw_slash::SlashHandler> {
+        Box::new(TimingHandler {
+            order: Arc::clone(&self.order),
+        })
+    }
+
     fn commands(&self) -> &[&str] {
         &["timing"]
     }
@@ -475,29 +485,32 @@ impl closeclaw_common::slash_router::handler::SlashHandler for TimingHandler {
     async fn handle(
         &self,
         _args: &str,
-        _ctx: &closeclaw_common::slash_router::context::SlashContext,
-    ) -> closeclaw_common::slash_router::handler::SlashResult {
+        _ctx: &closeclaw_slash::SlashContext,
+    ) -> closeclaw_slash::SlashResult {
         self.order
             .lock()
             .expect("lock")
             .push("handler.handle()".to_string());
-        closeclaw_common::slash_router::handler::SlashResult::Reply("timing ok".to_owned())
+        closeclaw_slash::SlashResult::Reply("timing ok".to_owned())
     }
 }
 
 /// A PermissionEngine that always allows.
-fn allow_engine() -> Arc<closeclaw_permission::engine::engine_eval::PermissionEngine> {
+fn allow_engine(
+) -> Arc<tokio::sync::RwLock<closeclaw_permission::engine::engine_eval::PermissionEngine>> {
     use closeclaw_permission::engine::engine_types::{Defaults, RuleSet};
     let rules = RuleSet {
         rules: vec![],
         defaults: Defaults::default(),
+        user_defaults: Defaults::default(),
         template_includes: vec![],
+        ..Default::default()
     };
-    Arc::new(
+    Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
             rules,
         ),
-    )
+    ))
 }
 
 /// Step 1.2 — Permission check happens BEFORE handler.handle(), BEFORE execute().
@@ -515,14 +528,12 @@ async fn test_permission_check_after_handler_before_execute() {
     ));
     let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
-    let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
+    let registry = closeclaw_slash::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
         order: Arc::clone(&order),
     }));
-    gw.set_slash_dispatcher(Arc::new(
-        closeclaw_common::slash_router::dispatcher::SlashDispatcher::new(registry),
-    ))
-    .await;
+    gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
+        .await;
     gw.set_permission_engine(allow_engine()).await;
 
     let result = gw
@@ -559,14 +570,12 @@ async fn test_permission_denied_handler_still_invoked() {
     ));
     let gw = crate::Gateway::new_for_tests(config, Arc::clone(&sm));
 
-    let registry = closeclaw_common::slash_router::registry::HandlerRegistry::new();
+    let registry = closeclaw_slash::registry::HandlerRegistry::new();
     registry.register(Arc::new(TimingHandler {
         order: Arc::clone(&order),
     }));
-    gw.set_slash_dispatcher(Arc::new(
-        closeclaw_common::slash_router::dispatcher::SlashDispatcher::new(registry),
-    ))
-    .await;
+    gw.set_slash_dispatcher(Arc::new(closeclaw_slash::SlashDispatcher::new(registry)))
+        .await;
 
     use closeclaw_permission::engine::engine_types::{Action, Effect, Rule, RuleSet, Subject};
     let deny_rules = RuleSet {
@@ -582,13 +591,15 @@ async fn test_permission_denied_handler_still_invoked() {
             priority: 100,
         }],
         defaults: Default::default(),
+        user_defaults: Default::default(),
         template_includes: vec![],
+        ..Default::default()
     };
-    gw.set_permission_engine(Arc::new(
+    gw.set_permission_engine(Arc::new(tokio::sync::RwLock::new(
         closeclaw_permission::engine::engine_eval::PermissionEngine::new_with_default_data_root(
             deny_rules,
         ),
-    ))
+    )))
     .await;
 
     let result = gw
