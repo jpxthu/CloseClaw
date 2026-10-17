@@ -7,6 +7,7 @@
 use crate::shutdown::*;
 use closeclaw_common::ShutdownSignal;
 use std::time::Duration;
+use tokio::time::Instant;
 
 // ── Shared initiate_shutdown spawn/await helpers (issue #3701) ──────────
 
@@ -821,7 +822,7 @@ async fn test_drain_timeout_configurable_values() {
         let handle = ShutdownHandle::new().with_drain_timeout(drain_timeout);
         handle.increment_busy();
 
-        let start = tokio::time::Instant::now();
+        let start = Instant::now();
         let shutdown_task = spawn_shutdown(&handle);
 
         // Mid-drain observation: still before the deadline, so the

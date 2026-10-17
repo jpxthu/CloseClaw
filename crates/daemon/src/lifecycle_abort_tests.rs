@@ -8,6 +8,7 @@
 //! the same logic used in `phase_3_background_stop`.
 
 use std::time::Duration;
+use tokio::time::Instant;
 
 /// Reproduce the abort-and-join pattern from `phase_3_background_stop`.
 /// A task that exits cleanly within timeout should complete normally.
@@ -39,7 +40,7 @@ async fn test_abort_join_hung_task_timeout_abandons() {
 
     // Use a short timeout for testing
     let join_timeout = Duration::from_millis(100);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(join_timeout, handle).await;
     let elapsed = start.elapsed();
 
@@ -85,7 +86,7 @@ async fn test_abort_then_join_resolves_quickly() {
     handle.abort();
 
     // Join after abort should resolve quickly (task is terminated)
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(Duration::from_secs(2), handle).await;
     let elapsed = start.elapsed();
 
@@ -120,7 +121,7 @@ async fn test_abort_join_mixed_tasks_resolve_independently() {
     let _ = tx_clean.send(());
 
     let join_timeout = Duration::from_millis(100);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
 
     // Process both sequentially (matching phase_3 pattern)
     let clean_result = tokio::time::timeout(join_timeout, clean_handle).await;

@@ -16,6 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use tokio::sync::{mpsc, watch};
+use tokio::time::Instant;
 
 use crate::test_helpers::{
     make_config_change_scheduler, make_config_change_scheduler_with_config,
@@ -47,7 +48,7 @@ async fn test_cron_config_reload_switches_schedule_and_recomputes_next_fire() {
     let mut scheduler = make_config_change_scheduler(pipeline, miner, config_manager)
         .with_schedule(Some("0 3 * * *".to_string()));
 
-    let before = tokio::time::Instant::now();
+    let before = Instant::now();
     let mut next_fire = before + Duration::from_secs(600);
 
     scheduler.handle_cron_config_reload(&mut next_fire).await;
@@ -120,10 +121,10 @@ async fn test_cron_config_reload_invalid_schedule_falls_back_to_fixed_interval()
 
     for invalid in ["", "not-a-cron"] {
         seed_memory_section_cache_with_schedule(&config_manager, Some(invalid));
-        let before = tokio::time::Instant::now();
+        let before = Instant::now();
         let mut next_fire = before;
         scheduler.handle_cron_config_reload(&mut next_fire).await;
-        let after = tokio::time::Instant::now();
+        let after = Instant::now();
 
         assert_eq!(
             scheduler.schedule.as_deref(),
@@ -191,7 +192,7 @@ async fn await_n_fires(
     n: usize,
     horizon_secs: u64,
 ) -> Duration {
-    let started_at = tokio::time::Instant::now();
+    let started_at = Instant::now();
     let horizon = Duration::from_secs(horizon_secs);
     tokio::time::timeout(horizon, async {
         for _ in 0..n {

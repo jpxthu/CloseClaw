@@ -6,6 +6,7 @@ use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
 use std::time::Duration;
 use tempfile::TempDir;
+use tokio::time::Instant;
 
 /// Total Phase 3 stop budget for one background task: 10s
 /// (= join 7s + abort grace 3s — compile-time asserted by
@@ -333,7 +334,7 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
 
     // Use a short timeout for testing (real code uses 15s)
     let test_timeout = Duration::from_millis(100);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(test_timeout, hang_handle).await;
     let elapsed = start.elapsed();
 
@@ -368,7 +369,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     let _ = tx_clean.send(());
 
     let test_timeout = Duration::from_millis(100);
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
 
     // Join both with timeout — neither should block overall
     let (clean_result, hang_result) = tokio::join!(
@@ -431,7 +432,7 @@ async fn test_phase3_join_timeout_is_10_seconds() {
         std::future::pending::<()>().await;
     });
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, hang_handle).await;
     let elapsed = start.elapsed();
 
@@ -461,7 +462,7 @@ async fn test_phase3_clean_task_exits_within_10s() {
     // Signal immediately — task should exit well before 10s
     let _ = tx.send(());
 
-    let start = tokio::time::Instant::now();
+    let start = Instant::now();
     let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     let elapsed = start.elapsed();
 
