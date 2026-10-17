@@ -20,6 +20,7 @@
 #[path = "outbound_writeahead_test_utils.rs"]
 mod utils;
 use crate::outbound::SendOutboundIds;
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::session_manager::tests::{clear_global_prompt_state, make_test_mgr};
 use closeclaw_common::IMPlugin;
 use closeclaw_session::persistence::{PendingOperationType, PersistenceService, SessionCheckpoint};
@@ -114,7 +115,7 @@ async fn test_normal_path_writeahead_send_ackclear_no_op() {
 #[tokio::test]
 async fn test_writeahead_failure_message_not_sent() {
     // Fail on the 1st save (write-ahead).
-    let persist = Arc::new(SnapshotMockPersist::fail_on_save(0));
+    let persist = Arc::new(SnapshotMockPersist::with_fail_on_save(0));
     let session_id = "wa-fail";
     let sm = Arc::new(crate::SessionManager::new(
         &test_config(),
