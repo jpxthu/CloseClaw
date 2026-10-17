@@ -246,11 +246,10 @@ async fn setup_with_verbosity(
     let gw = crate::Gateway::with_processor_registry(config, Arc::clone(&sm), Arc::new(registry));
     gw.register_plugin(Arc::new(MockPlugin::new("mock"))).await;
 
-    use std::path::PathBuf;
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     {
