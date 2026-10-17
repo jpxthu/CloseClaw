@@ -14,12 +14,14 @@ use std::sync::Arc;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 struct MockPlugin {
     platform: String,
     renderer: std::sync::Mutex<crate::im_adapter::streaming::DefaultStreamingRenderer>,
 }
 
 impl MockPlugin {
+    #[allow(dead_code)]
     fn new(platform: &str) -> Self {
         Self {
             platform: platform.to_string(),
@@ -92,6 +94,7 @@ impl IMPlugin for MockPlugin {
 
 // ── Test helpers ────────────────────────────────────────────────────────────
 
+#[allow(dead_code)]
 fn make_config() -> GatewayConfig {
     GatewayConfig {
         name: "test".to_string(),
@@ -101,6 +104,7 @@ fn make_config() -> GatewayConfig {
     }
 }
 
+#[allow(dead_code)]
 fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
     let sm = Arc::new(SessionManager::new(
         &config,
@@ -112,12 +116,14 @@ fn make_gw(config: GatewayConfig) -> (crate::Gateway, Arc<SessionManager>) {
     (gw, sm)
 }
 
+#[allow(dead_code)]
 async fn setup(config: GatewayConfig, channel: &str) -> (crate::Gateway, Arc<SessionManager>) {
     let (gw, sm) = make_gw(config);
     gw.register_plugin(Arc::new(MockPlugin::new(channel))).await;
     (gw, sm)
 }
 
+#[allow(dead_code)]
 async fn add_session(
     sm: &SessionManager,
     channel: &str,
@@ -128,6 +134,7 @@ async fn add_session(
     msg.metadata.insert("session_id".into(), sid);
 }
 
+#[allow(dead_code)]
 fn feishu_msg(from: &str, to: &str) -> crate::Message {
     crate::Message {
         id: "x".into(),

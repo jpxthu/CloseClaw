@@ -112,6 +112,7 @@ fn test_build_dynamic_sections_session_timestamp_fallback() {
     );
 }
 
+#[test]
 fn test_build_full_system_prompt_composition() {
     let meta = make_meta("alice", "telegram", 1700000000);
     let sections = build_dynamic_sections(&make_params(&meta, SessionMode::Normal));

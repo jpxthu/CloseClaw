@@ -7,6 +7,7 @@ use crate::{GatewayConfig, Message, SessionManager};
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::IMPlugin;
 use closeclaw_common::im_plugin::NormalizedMessage;
+use closeclaw_common::StreamingRenderer;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -272,6 +273,9 @@ async fn test_processor_chain_execution_order_by_priority() {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     };
     let sid = sm.find_or_create("mock", &msg, None).await.unwrap();
     msg.metadata.insert("session_id".into(), sid);
@@ -356,6 +360,9 @@ fn make_message(to: &str, content: &str) -> Message {
         metadata: HashMap::new(),
         thread_id: None,
         reply_ref: None,
+        platform: None,
+        dsl_result: None,
+        content_blocks: None,
     }
 }
 
@@ -397,7 +404,7 @@ impl MessageProcessor for SuppressTestProcessor {
 
     async fn process(
         &self,
-        ctx: &MessageContext,
+        _ctx: &MessageContext,
     ) -> Result<Option<ProcessedMessage>, ProcessError> {
         Ok(None)
     }
