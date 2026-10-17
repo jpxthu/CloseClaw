@@ -4,96 +4,15 @@
 //! and does NOT modify `last_user_activity_at`, for both existing and
 //! new checkpoints.
 
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig, Message, SessionManager};
 use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::llm_session::ConversationSession;
-use closeclaw_session::persistence::{
-    PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
-};
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
-
-// ---------------------------------------------------------------------------
-// Mock persistence
-// ---------------------------------------------------------------------------
-
-/// In-memory mock that records every saved checkpoint.
-#[derive(Default)]
-struct MockPersist {
-    saves: Mutex<Vec<SessionCheckpoint>>,
-}
-
-impl MockPersist {
-    fn last_save(&self) -> Option<SessionCheckpoint> {
-        self.saves.lock().unwrap().last().cloned()
-    }
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersist {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.saves.lock().unwrap().push(cp.clone());
-        Ok(())
-    }
-
-    async fn load_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.saves.lock().unwrap().last().cloned())
-    }
-
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-
-    async fn list_archived_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-
-    async fn purge_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn invalidate_session(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-
-    async fn restore_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-
-    async fn list_idle_sessions_for_agent(
-        &self,
-        _a: &str,
-        _r: closeclaw_session::persistence::AgentRole,
-        _m: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-
-    async fn list_expired_archived_sessions_for_agent(
-        &self,
-        _a: &str,
-        _r: closeclaw_session::persistence::AgentRole,
-        _m: i64,
-    ) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-}
 
 // ---------------------------------------------------------------------------
 // Setup helpers
@@ -109,7 +28,7 @@ fn test_config() -> GatewayConfig {
 }
 
 /// Create a Gateway with a CheckpointManager backed by MockPersist.
-async fn setup_gw(persist: Arc<MockPersist>) -> (Gateway, Arc<SessionManager>, String) {
+async fn setup_gw(persist: Arc<SnapshotMockPersist>) -> (Gateway, Arc<SessionManager>, String) {
     let session_id = "sess-cp-lma-1".to_string();
     let sm = Arc::new(SessionManager::new(
         &test_config(),
@@ -174,7 +93,7 @@ fn make_msg(_session_id: &str) -> Message {
 /// Existing checkpoint: persist_outbound_checkpoint updates last_message_at.
 #[tokio::test]
 async fn test_outbound_checkpoint_sets_last_message_at_on_existing() {
-    let persist = Arc::new(MockPersist::default());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let (gw, sm, session_id) = setup_gw(persist.clone()).await;
     register_conv_session(&sm, &session_id).await;
 
@@ -182,8 +101,8 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_existing() {
     let mut old_cp = SessionCheckpoint::new(session_id.clone());
     old_cp.last_message_at = Some("2025-01-01T00:00:00Z".parse().unwrap());
     old_cp.last_user_activity_at = Some("2025-01-01T00:00:00Z".parse().unwrap());
-    // Seed it via save_raw so the CheckpointManager cache has it.
-    persist.saves.lock().unwrap().push(old_cp);
+    // Seed it via save so the CheckpointManager can load it.
+    persist.save_checkpoint(&old_cp).await.unwrap();
 
     let msg = make_msg(&session_id);
     crate::outbound_helpers::persist_outbound_checkpoint(&gw, &session_id, &msg, true).await;
@@ -194,7 +113,11 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_existing() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let saved = persist.last_save().expect("checkpoint should be saved");
+    let saved = persist
+        .load_checkpoint(&session_id)
+        .await
+        .unwrap()
+        .expect("checkpoint should be saved");
     assert!(
         saved.last_message_at.is_some(),
         "last_message_at should be set"
@@ -216,7 +139,7 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_existing() {
 /// New checkpoint (no prior checkpoint exists): last_message_at is set.
 #[tokio::test]
 async fn test_outbound_checkpoint_sets_last_message_at_on_new() {
-    let persist = Arc::new(MockPersist::default());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let (gw, sm, session_id) = setup_gw(persist.clone()).await;
     register_conv_session(&sm, &session_id).await;
 
@@ -228,7 +151,11 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_new() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let saved = persist.last_save().expect("checkpoint should be saved");
+    let saved = persist
+        .load_checkpoint(&session_id)
+        .await
+        .unwrap()
+        .expect("checkpoint should be saved");
     assert!(
         saved.last_message_at.is_some(),
         "last_message_at should be set on new checkpoint"
@@ -243,7 +170,7 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_new() {
 /// mark_sent=false (pre-send): last_message_at is still set.
 #[tokio::test]
 async fn test_outbound_checkpoint_presend_sets_last_message_at() {
-    let persist = Arc::new(MockPersist::default());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let (gw, sm, session_id) = setup_gw(persist.clone()).await;
     register_conv_session(&sm, &session_id).await;
 
@@ -255,7 +182,11 @@ async fn test_outbound_checkpoint_presend_sets_last_message_at() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let saved = persist.last_save().expect("checkpoint should be saved");
+    let saved = persist
+        .load_checkpoint(&session_id)
+        .await
+        .unwrap()
+        .expect("checkpoint should be saved");
     assert!(
         saved.last_message_at.is_some(),
         "last_message_at should be set even for pre-send persist"
@@ -265,7 +196,7 @@ async fn test_outbound_checkpoint_presend_sets_last_message_at() {
 /// mark_sent=true (post-send): last_message_at is updated again.
 #[tokio::test]
 async fn test_outbound_checkpoint_postsend_updates_last_message_at() {
-    let persist = Arc::new(MockPersist::default());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let (gw, sm, session_id) = setup_gw(persist.clone()).await;
     register_conv_session(&sm, &session_id).await;
 
@@ -278,7 +209,7 @@ async fn test_outbound_checkpoint_postsend_updates_last_message_at() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let first_save = persist.last_save().unwrap();
+    let first_save = persist.load_checkpoint(&session_id).await.unwrap().unwrap();
     let first_lma = first_save.last_message_at.unwrap();
 
     // Second persist (post-send).
@@ -288,7 +219,7 @@ async fn test_outbound_checkpoint_postsend_updates_last_message_at() {
     }
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    let second_save = persist.last_save().unwrap();
+    let second_save = persist.load_checkpoint(&session_id).await.unwrap().unwrap();
     let second_lma = second_save.last_message_at.unwrap();
     assert!(
         second_lma >= first_lma,

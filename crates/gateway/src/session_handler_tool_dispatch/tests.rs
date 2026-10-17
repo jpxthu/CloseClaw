@@ -1,64 +1,13 @@
 use super::*;
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::GatewayConfig;
 use closeclaw_common::{
     PendingMessage, PlanState, SessionLookup, SessionMode, ToolDescriptor, ToolFlags,
 };
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
-use closeclaw_session::persistence::{
-    PersistenceError, PersistenceService, ReasoningLevel, SessionCheckpoint,
-};
-use std::collections::HashMap;
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 
-// ── Mock persistence (checkpoint / sender_id lookups) ─────────────────
-
-struct MockPersist(tokio::sync::Mutex<HashMap<String, SessionCheckpoint>>);
-
-impl MockPersist {
-    fn new() -> Self {
-        Self(tokio::sync::Mutex::new(HashMap::new()))
-    }
-
-    async fn put(&self, cp: &SessionCheckpoint) {
-        self.0
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp.clone());
-    }
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersist {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.put(cp).await;
-        Ok(())
-    }
-    async fn load_checkpoint(
-        &self,
-        sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.0.lock().await.get(sid).cloned())
-    }
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn purge_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn restore_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-}
-
-fn make_session_manager(persist: &Arc<MockPersist>) -> SessionManager {
+fn make_session_manager(persist: &Arc<SnapshotMockPersist>) -> SessionManager {
     SessionManager::new(
         &GatewayConfig::default(),
         Some(Arc::clone(persist) as Arc<dyn PersistenceService>),
@@ -69,10 +18,10 @@ fn make_session_manager(persist: &Arc<MockPersist>) -> SessionManager {
 
 /// SessionManager whose checkpoint for `sid` records `sender` as sender_id.
 async fn sm_with_sender(sid: &str, sender: Option<&str>) -> SessionManager {
-    let persist = Arc::new(MockPersist::new());
+    let persist = Arc::new(SnapshotMockPersist::new());
     let mut cp = SessionCheckpoint::new(sid.to_string());
     cp.sender_id = sender.map(str::to_string);
-    persist.put(&cp).await;
+    persist.save_checkpoint(&cp).await.unwrap();
     make_session_manager(&persist)
 }
 

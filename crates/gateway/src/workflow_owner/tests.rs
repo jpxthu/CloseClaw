@@ -308,56 +308,12 @@ fn test_resolve_with_empty_paused_reason_is_not_rejected() {
 
 // ── Step 1.2: resolve_owner_action return value branches ───────
 
-use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{GatewayConfig, SessionManager};
-use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
-
-/// Minimal in-memory mock persistence for testing.
-struct MockPersist(tokio::sync::Mutex<HashMap<String, SessionCheckpoint>>);
-
-impl MockPersist {
-    fn new() -> Self {
-        Self(tokio::sync::Mutex::new(HashMap::new()))
-    }
-}
-
-#[async_trait::async_trait]
-impl PersistenceService for MockPersist {
-    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        self.0
-            .lock()
-            .await
-            .insert(cp.session_id.clone(), cp.clone());
-        Ok(())
-    }
-    async fn load_checkpoint(
-        &self,
-        sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(self.0.lock().await.get(sid).cloned())
-    }
-    async fn delete_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn purge_checkpoint(&self, _sid: &str) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn archive_checkpoint(&self, _cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        Ok(())
-    }
-    async fn restore_checkpoint(
-        &self,
-        _sid: &str,
-    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
-        Ok(None)
-    }
-    async fn list_active_sessions(&self) -> Result<Vec<String>, PersistenceError> {
-        Ok(vec![])
-    }
-}
+use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
 
 fn test_config() -> GatewayConfig {
     GatewayConfig::default()
@@ -370,7 +326,7 @@ async fn setup_resolve_test(
     phase: Phase,
     paused_reason: &str,
 ) -> (crate::Gateway, Arc<SessionManager>) {
-    let persist = Arc::new(MockPersist::new());
+    let persist = Arc::new(SnapshotMockPersist::new());
     // Save a checkpoint so get_sender_id can load sender_id.
     let mut cp = SessionCheckpoint::new(sid.to_string());
     cp.sender_id = Some("owner-123".to_string());
