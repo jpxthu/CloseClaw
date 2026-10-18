@@ -54,6 +54,7 @@ mod session_pending_queue;
 pub use session_pending_queue::{NotificationAudience, QueueEntry};
 pub use session_pending_queue::{QueuePriority, UnifiedMessageQueue};
 mod session_stop;
+mod session_tool_session;
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
