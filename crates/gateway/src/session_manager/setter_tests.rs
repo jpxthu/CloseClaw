@@ -195,3 +195,114 @@ async fn test_set_gateway_ref_replaces_previous() {
         "first gateway should still be alive"
     );
 }
+
+// ── set_workflow_control / get_workflow_control ─────────────────────────────
+
+/// Minimal `WorkflowControl` stub recording the last invoked signal, so the
+/// setter test can pin that the injected `Arc` is the very object stored.
+struct RecordingWorkflowControl {
+    last_signal: std::sync::Mutex<Vec<(&'static str, String)>>,
+}
+
+impl RecordingWorkflowControl {
+    fn new() -> Self {
+        Self {
+            last_signal: std::sync::Mutex::new(Vec::new()),
+        }
+    }
+
+    fn record(&self, signal: &'static str, session_id: &str) {
+        self.last_signal
+            .lock()
+            .unwrap()
+            .push((signal, session_id.to_string()));
+    }
+}
+
+#[async_trait::async_trait]
+impl closeclaw_common::WorkflowControl for RecordingWorkflowControl {
+    async fn start(&self, session_id: &str, _workflow_name: &str) -> Result<(), String> {
+        self.record("start", session_id);
+        Ok(())
+    }
+
+    async fn on_owner_message(&self, session_id: &str) -> Result<(), String> {
+        self.record("on_owner_message", session_id);
+        Ok(())
+    }
+
+    async fn terminate(&self, session_id: &str) -> Result<(), String> {
+        self.record("terminate", session_id);
+        Ok(())
+    }
+}
+
+/// Before any `set_workflow_control` call, `get_workflow_control` returns `None`.
+#[tokio::test]
+async fn test_get_workflow_control_before_set_is_none() {
+    let mgr = make_test_mgr(None);
+    let result = mgr.get_workflow_control().await;
+    assert!(
+        result.is_none(),
+        "get_workflow_control should return None before set"
+    );
+}
+
+/// After `set_workflow_control`, `get_workflow_control` returns `Some` pointing
+/// to the same object (same allocation), and the trait object is callable
+/// through the retrieved handle.
+#[tokio::test]
+async fn test_get_workflow_control_after_set() {
+    let mgr = make_test_mgr(None);
+    let control = Arc::new(RecordingWorkflowControl::new());
+    mgr.set_workflow_control(Arc::clone(&control) as Arc<dyn closeclaw_common::WorkflowControl>)
+        .await;
+
+    let retrieved = mgr
+        .get_workflow_control()
+        .await
+        .expect("get_workflow_control should return Some after set");
+    // Same allocation (data-pointer identity across the dyn coat).
+    assert_eq!(
+        Arc::as_ptr(&control) as *const u8,
+        Arc::as_ptr(&retrieved) as *const u8,
+        "retrieved control should be the same object as the one set"
+    );
+    // Behavior pin: the retrieved handle routes into the same recorder.
+    retrieved.start("session-1", "demo").await.unwrap();
+    retrieved.on_owner_message("session-2").await.unwrap();
+    retrieved.terminate("session-3").await.unwrap();
+    let recorded = control.last_signal.lock().unwrap().clone();
+    assert_eq!(
+        recorded,
+        vec![
+            ("start", "session-1".to_string()),
+            ("on_owner_message", "session-2".to_string()),
+            ("terminate", "session-3".to_string()),
+        ]
+    );
+}
+
+/// Setting `workflow_control` twice replaces the previous value: only the
+/// second control receives subsequent signals.
+#[tokio::test]
+async fn test_set_workflow_control_replaces_previous() {
+    let mgr = make_test_mgr(None);
+    let first = Arc::new(RecordingWorkflowControl::new());
+    let second = Arc::new(RecordingWorkflowControl::new());
+    mgr.set_workflow_control(Arc::clone(&first) as Arc<dyn closeclaw_common::WorkflowControl>)
+        .await;
+    mgr.set_workflow_control(Arc::clone(&second) as Arc<dyn closeclaw_common::WorkflowControl>)
+        .await;
+
+    let retrieved = mgr.get_workflow_control().await.expect("should be set");
+    retrieved.terminate("session-9").await.unwrap();
+    assert!(
+        first.last_signal.lock().unwrap().is_empty(),
+        "replaced control must not receive signals"
+    );
+    assert_eq!(
+        second.last_signal.lock().unwrap().clone(),
+        vec![("terminate", "session-9".to_string())],
+    );
+}

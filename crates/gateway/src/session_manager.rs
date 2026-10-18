@@ -143,6 +143,11 @@ pub struct SessionManager {
     skill_listing_provider: RwLock<Option<Arc<dyn SkillListingProvider>>>,
     /// Workflow engine port, injected by the daemon composition root.
     workflow_port: RwLock<Option<Arc<dyn closeclaw_session::workflow_port::WorkflowPort>>>,
+    /// Workflow runtime control (start / owner-message / terminate),
+    /// injected by the daemon composition root. Consumed by the gateway's
+    /// slash side-effect executor and owner-message routing; without it
+    /// those workflow entry points skip the engine calls.
+    workflow_control: RwLock<Option<Arc<dyn closeclaw_common::WorkflowControl>>>,
     /// Output channel for sending LLM responses to the user.
     /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
     /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
@@ -215,6 +220,7 @@ impl SessionManager {
             agent_locks: Arc::new(RwLock::new(HashMap::new())),
             skill_listing_provider: RwLock::new(None),
             workflow_port: RwLock::new(None),
+            workflow_control: RwLock::new(None),
             yield_timeout_handles: RwLock::new(HashMap::new()),
             yield_warning_handles: RwLock::new(HashMap::new()),
             output_tx: RwLock::new(None),

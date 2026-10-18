@@ -371,6 +371,21 @@ impl SessionManager {
         }
     }
 
+    /// Set the workflow runtime control (start / owner-message / terminate).
+    ///
+    /// Called by the daemon (composition root) at startup; without the
+    /// control, the gateway's workflow entry points (slash side-effect
+    /// execution, owner-message notification, `/stop` termination) skip
+    /// the engine calls.
+    pub async fn set_workflow_control(&self, control: Arc<dyn closeclaw_common::WorkflowControl>) {
+        *self.workflow_control.write().await = Some(control);
+    }
+
+    /// Get the workflow runtime control, if set.
+    pub async fn get_workflow_control(&self) -> Option<Arc<dyn closeclaw_common::WorkflowControl>> {
+        self.workflow_control.read().await.clone()
+    }
+
     /// Register an IM adapter.
     pub async fn register_adapter(&self, name: String, adapter: Arc<dyn IMPlugin>) {
         let mut adapters = self.adapters.write().await;
