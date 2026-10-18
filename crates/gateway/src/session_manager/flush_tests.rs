@@ -6,7 +6,7 @@ use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{
-    AgentRole, PendingMessage, PersistenceError, SessionCheckpoint,
+    AgentRole, PendingMessage, PersistenceError, SessionCheckpoint, SessionStatus,
 };
 use tokio::sync::Mutex;
 
