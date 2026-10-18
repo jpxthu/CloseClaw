@@ -43,3 +43,61 @@ pub trait WorkflowControl: Send + Sync {
     /// persist `WorkflowRun`). A no-op when no workflow is active (idempotent).
     async fn terminate(&self, session_id: &str) -> Result<(), String>;
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    /// Minimal implementation pinning the contract signature shape: no extra
+    /// fields, constructors, or associated requirements beyond the three
+    /// trait methods, each returning `Ok(())`.
+    struct StubWorkflowControl;
+
+    #[async_trait]
+    impl WorkflowControl for StubWorkflowControl {
+        async fn start(&self, _session_id: &str, _workflow_name: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn on_owner_message(&self, _session_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+
+        async fn terminate(&self, _session_id: &str) -> Result<(), String> {
+            Ok(())
+        }
+    }
+
+    fn assert_send_sync<T: Send + Sync>() {}
+
+    /// Supertrait constraint: implementors (and thus `dyn WorkflowControl`)
+    /// are `Send + Sync`, so the trait object can be shared across threads
+    /// via `Arc` — the DI injection prerequisite.
+    #[test]
+    fn test_workflow_control_requires_send_sync() {
+        assert_send_sync::<StubWorkflowControl>();
+        assert_send_sync::<Box<dyn WorkflowControl>>();
+        assert_send_sync::<Arc<dyn WorkflowControl>>();
+    }
+
+    /// Object safety: the trait is usable as a type-erased trait object
+    /// (`Box<dyn WorkflowControl>`), the gateway consumption prerequisite.
+    #[tokio::test]
+    async fn test_workflow_control_object_safe_dispatch_via_dyn() {
+        let stub: Box<dyn WorkflowControl> = Box::new(StubWorkflowControl);
+        assert_eq!(stub.start("s1", "code-review").await, Ok(()));
+        assert_eq!(stub.on_owner_message("s1").await, Ok(()));
+        assert_eq!(stub.terminate("s1").await, Ok(()));
+    }
+
+    /// Contract callability: all three methods callable with the contract
+    /// signatures and return `Ok(())` with no extra requirements.
+    #[tokio::test]
+    async fn test_workflow_control_contract_methods_callable() {
+        let stub = StubWorkflowControl;
+        assert_eq!(stub.start("session-1", "workflow-a").await, Ok(()));
+        assert_eq!(stub.on_owner_message("session-1").await, Ok(()));
+        assert_eq!(stub.terminate("session-1").await, Ok(()));
+    }
+}
