@@ -973,7 +973,6 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-test-support",
- "closeclaw-workflow",
  "filetime",
  "serde",
  "serde_json",

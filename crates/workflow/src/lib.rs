@@ -8,6 +8,7 @@ pub(crate) mod definition_validator;
 mod definition_validator_tests;
 pub mod engine;
 pub mod error;
+pub mod handler;
 pub mod run;
 
 #[cfg(test)]

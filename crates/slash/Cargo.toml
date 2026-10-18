@@ -34,5 +34,4 @@ closeclaw-gateway = { path = "../gateway" }
 closeclaw-session = { path = "../session" }
 closeclaw-skills = { path = "../skills" }
 closeclaw-test-support = { path = "../test_support" }
-closeclaw-workflow = { path = "../workflow" }
 serde_yaml.workspace = true

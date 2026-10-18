@@ -35,8 +35,9 @@ impl Daemon {
         use closeclaw_slash::{
             ClearHandler, CompactHandler, ExecHandler, ExecuteHandler, HelpHandler, ModeHandler,
             NewSessionHandler, PlanBrowseHandler, PlanModeHandler, StatusHandler, StopHandler,
-            VerboseHandler, WorkflowSlashHandler,
+            VerboseHandler,
         };
+        use closeclaw_workflow::handler::WorkflowHandler;
 
         let sm_query: Arc<dyn closeclaw_common::SlashSessionQuery> = session_manager.clone();
         // Production plan-file store: adapter wrapping closeclaw_session::plan_file,
@@ -79,9 +80,10 @@ impl Daemon {
         if let Some(config_dir) = gateway.get_config_dir().await {
             slash_registry.register(Arc::new(UserSlashHandler::new(config_dir)));
         }
-        // Register `/workflow` slash handler (design doc §触发机制/§工具注册).
-        // agent_workspace=None: resolved dynamically via get_workdir(session_id)
-        // at handle()-time, consistent with session-layer workflow lookup.
+        // Register the `/workflow` slash handler (workflow-tools.md §触发机制):
+        // the workflow module's WorkflowHandler only parses the name and
+        // returns SlashResult::WorkflowStart; the Gateway executes the launch
+        // through WorkflowControl::start after its Owner check.
         let global_workflows = match dirs::home_dir() {
             Some(home) => Some(home.join(".openclaw")),
             None => {
@@ -92,16 +94,23 @@ impl Daemon {
                 None
             }
         };
-        // Production workflow launcher: adapter assembling the workflow
-        // definition loader, engine, and message builders, injected into
-        // the handler.
-        let workflow_launcher = crate::workflow_launcher_adapter::engine_workflow_launcher();
-        slash_registry.register(Arc::new(WorkflowSlashHandler::new(
+        slash_registry.register(Arc::new(WorkflowHandler::new()));
+        // Assemble the WorkflowControl implementation: the pure engine wired
+        // to session I/O through the SlashSessionQuery and session-ops ports,
+        // injected into the gateway (start / on_owner_message / terminate
+        // consumption at the three entry points).
+        let workflow_ops =
+            crate::workflow_session_ops_adapter::session_workflow_ops(Arc::clone(session_manager));
+        let workflow_control = closeclaw_workflow::control::WorkflowEngineControl::new(
             Arc::clone(&sm_query),
-            workflow_launcher,
-            None,
+            workflow_ops,
             global_workflows,
-        )));
+        );
+        session_manager
+            .set_workflow_control(
+                Arc::new(workflow_control) as Arc<dyn closeclaw_common::WorkflowControl>
+            )
+            .await;
         let slash_dispatcher = Arc::new(SlashDispatcher::from_shared(slash_registry))
             as Arc<dyn closeclaw_common::SlashRouter>;
         gateway.set_slash_dispatcher(slash_dispatcher).await;
