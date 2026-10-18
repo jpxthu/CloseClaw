@@ -440,6 +440,23 @@ impl SlashEffectExecutor for GatewaySlashExecutor {
         gw_stop(&self.session_manager, session_id, true, true).await;
     }
 
+    /// Start a workflow via the injected [`WorkflowControl`].
+    ///
+    /// Delegates to the workflow engine control wired by the daemon;
+    /// returns an error when no control is configured (engine not
+    /// wired), which the caller turns into an error reply carrying
+    /// the workflow name.
+    async fn execute_workflow_start(
+        &self,
+        session_id: &str,
+        workflow_name: &str,
+    ) -> Result<(), String> {
+        let Some(control) = self.session_manager.get_workflow_control().await else {
+            return Err("workflow 引擎未配置".to_string());
+        };
+        control.start(session_id, workflow_name).await
+    }
+
     async fn execute_new_session(&self, _session_id: &str, channel: &str) -> String {
         gw_new_session(&self.session_manager, _session_id, channel).await
     }
