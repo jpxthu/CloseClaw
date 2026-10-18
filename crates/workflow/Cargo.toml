@@ -8,11 +8,14 @@ rust-version.workspace = true
 
 [dependencies]
 serde.workspace = true
+serde_json.workspace = true
 serde_yaml.workspace = true
 chrono.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
+async-trait.workspace = true
+closeclaw-common = { path = "../common" }
 
 [dev-dependencies]
 tempfile.workspace = true
-serde_json.workspace = true
+tokio.workspace = true
