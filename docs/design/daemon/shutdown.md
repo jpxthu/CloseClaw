@@ -122,6 +122,7 @@ Daemon 不依赖 session 停止流程的硬超时自动升级——工具执行�
 
 8. **Phase 7：退出**
    - 异常 session（停止或持久化未正常完成的 session）→ 日志告警
+   - 清理 PID 文件（经 platform 进程生命周期管理接口，见 [platform/process.md](../platform/process.md)）
    - 进程退出
 
 ### Owner 进度通知
