@@ -37,6 +37,8 @@ pub fn build_workflow_context_append(workflow: &Workflow) -> String {
         .as_ref()
         .map(|path| format!("定义文件：{}\n", path.display()))
         .unwrap_or_default();
+    let name = &workflow.name;
+    let desc = &workflow.description;
     format!(
         "--- WORKFLOW ---\n\
          你正在执行受控工作流：{name}\n\
@@ -47,9 +49,7 @@ pub fn build_workflow_context_append(workflow: &Workflow) -> String {
          2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续\n\
          3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案\n\
          不要自行跳步或跳过验证。\n\
-         --- WORKFLOW END ---",
-        name = workflow.name,
-        desc = workflow.description,
+         --- WORKFLOW END ---"
     )
 }
 
@@ -139,11 +139,6 @@ mod tests {
             path = TEST_DEFINITION_PATH,
         );
         assert_eq!(ctx, expected);
-        assert!(ctx.starts_with("--- WORKFLOW ---"));
-        assert!(ctx.ends_with("--- WORKFLOW END ---"));
-        assert!(ctx.contains("workflow_verify"));
-        assert!(ctx.contains("workflow_jump"));
-        assert!(ctx.contains("三阶段协议"));
         assert!(!ctx.contains("角色消息"));
     }
 

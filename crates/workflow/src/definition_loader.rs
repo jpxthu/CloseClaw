@@ -65,7 +65,9 @@ impl WorkflowDefinitionLoader {
 
         // Level 3: built-in workflows
         if let Some(content) = BUILTIN_WORKFLOWS.get(name) {
-            return Workflow::parse_skill_md(content);
+            let mut workflow = Workflow::parse_skill_md(content)?;
+            workflow.definition_path = None;
+            return Ok(workflow);
         }
 
         Err(WorkflowError::DefinitionNotFound(name.to_string()))
@@ -87,6 +89,9 @@ impl WorkflowDefinitionLoader {
     }
 
     /// Read a SKILL.md file from disk and parse it as a workflow definition.
+    ///
+    /// On success, backfills [`Workflow::definition_path`] with the source
+    /// file path before returning.
     fn load_from_file(path: &Path) -> Result<Workflow, WorkflowError> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             WorkflowError::ParseError(format!("failed to read {}: {e}", path.display()))
