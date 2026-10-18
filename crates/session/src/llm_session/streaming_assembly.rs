@@ -100,7 +100,10 @@ impl StreamingContentAssembler {
             }
         }
     }
+}
 
+/// Delta application dispatch and text/thinking block updates.
+impl StreamingContentAssembler {
     /// Apply a [`ContentDelta`] to the block at the given position.
     fn apply_delta(&mut self, pos: usize, delta: &ContentDelta) {
         match delta {
@@ -155,7 +158,10 @@ impl StreamingContentAssembler {
             }
         }
     }
+}
 
+/// Tool-use and media block delta application.
+impl StreamingContentAssembler {
     fn apply_tool_use_id(block: &mut ContentBlock, id: &str) {
         if let ContentBlock::ToolUse {
             id: ref mut tid, ..
@@ -209,7 +215,10 @@ impl StreamingContentAssembler {
         };
         *block = new_block;
     }
+}
 
+/// Output accessors for the assembled content blocks and usage.
+impl StreamingContentAssembler {
     /// Consume the assembler and return the accumulated content blocks.
     pub fn into_content_blocks(self) -> Vec<ContentBlock> {
         self.content_blocks
