@@ -45,6 +45,7 @@ pub use session_chat::ChatSession;
 mod session_debug;
 
 mod session_exec;
+mod session_graceful_stop;
 pub mod session_handles;
 mod session_health;
 mod session_llm;
@@ -52,6 +53,7 @@ mod session_pending;
 mod session_pending_queue;
 pub use session_pending_queue::{NotificationAudience, QueueEntry};
 pub use session_pending_queue::{QueuePriority, UnifiedMessageQueue};
+mod session_stop;
 mod skill_listing;
 pub mod streaming_assembly;
 pub mod transcript_ops;
