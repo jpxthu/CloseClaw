@@ -77,13 +77,17 @@ impl WorkflowDefinitionLoader {
     ///
     /// This is a separate method to allow unit testing the builtin lookup
     /// path without requiring mutation of the static `BUILTIN_WORKFLOWS`.
+    /// Mirrors the production builtin branch in [`Self::load`], including
+    /// the explicit `definition_path = None` invariant.
     #[cfg(test)]
     pub(crate) fn load_from_builtin(
         name: &str,
         registry: &HashMap<&str, &str>,
     ) -> Result<Workflow, WorkflowError> {
         if let Some(content) = registry.get(name) {
-            return Workflow::parse_skill_md(content);
+            let mut workflow = Workflow::parse_skill_md(content)?;
+            workflow.definition_path = None;
+            return Ok(workflow);
         }
         Err(WorkflowError::DefinitionNotFound(name.to_string()))
     }
