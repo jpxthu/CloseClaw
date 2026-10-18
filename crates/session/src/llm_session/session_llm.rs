@@ -4,6 +4,15 @@
 //! the LLM call flow previously living in the Gateway layer
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
+//!
+//! # Where things live
+//!
+//! The invoke entry points and the shared invocation cores are in
+//! this file; session state flags and accessors are in the first
+//! `impl` block below. Consumed by the invoke family in this file:
+//! per-turn skill listing preparation in
+//! `super::session_llm_skill_prep` and message assembly / request
+//! building in `super::session_llm_request_build`.
 
 use closeclaw_common::{CallTarget, ContentBlock, LLMError, UnifiedResponse};
 
@@ -32,8 +41,8 @@ pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
     }
 }
 
-/// Session state flags: compaction / sub-agent markers,
-/// mode-transition slot, and plan file path.
+/// Session state flags and accessors: compaction / sub-agent
+/// markers, mode-transition slot, and plan file path.
 impl ConversationSession {
     /// Consume and return the pending mode transition, if any.
     pub fn take_mode_transition(&self) -> Option<closeclaw_common::system_prompt::ModeTransition> {
