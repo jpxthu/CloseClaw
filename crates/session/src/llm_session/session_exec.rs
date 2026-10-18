@@ -26,7 +26,12 @@ impl ConversationSession {
         let guard = self.llm_state.read().expect("llm_state lock poisoned");
         *guard
     }
+}
 
+// ── tool call registration & query ───────────────────────────────────────
+
+#[allow(dead_code)]
+impl ConversationSession {
     // ── tool state ────────────────────────────────────────────────────────
 
     /// Registers a new tool call with detail information.
@@ -108,7 +113,12 @@ impl ConversationSession {
             .values()
             .any(|(s, _)| matches!(s, ToolExecState::RunningBackground))
     }
+}
 
+// ── activity dimensions ──────────────────────────────────────────────────
+
+#[allow(dead_code)]
+impl ConversationSession {
     /// Returns the four-dimensional activity snapshot for this session.
     ///
     /// Each boolean maps to an independent activity dimension as defined
@@ -142,7 +152,7 @@ impl ConversationSession {
     }
 }
 
-// ── child session state + overall status ─────────────────────────────
+// ── child session state ──────────────────────────────────────────────────
 
 #[allow(dead_code)]
 impl ConversationSession {
@@ -217,7 +227,12 @@ impl ConversationSession {
             .values()
             .any(|(s, _)| matches!(s, ChildSessionState::Running))
     }
+}
 
+// ── overall exec status ──────────────────────────────────────────────────
+
+#[allow(dead_code)]
+impl ConversationSession {
     /// Computes the overall session execution status by combining the
     /// four dimensions (LLM / foreground tool / background tool /
     /// child session) plus the yielding flag. Lock acquisition order
