@@ -48,6 +48,20 @@ pub trait SlashEffectExecutor: Send + Sync {
     /// Stop the current LLM turn for the session.
     async fn execute_stop(&self, session_id: &str);
 
+    /// Start a workflow by name for the session.
+    ///
+    /// Returns `Ok(())` on success or an error description on failure.
+    /// The default implementation reports "unsupported" — only hosts
+    /// that wire the workflow engine (via
+    /// [`WorkflowControl`](crate::WorkflowControl)) override this method.
+    async fn execute_workflow_start(
+        &self,
+        _session_id: &str,
+        _workflow_name: &str,
+    ) -> Result<(), String> {
+        Err("unsupported".to_string())
+    }
+
     /// Create a new session for the given channel.
     ///
     /// Returns the new session_id.
@@ -215,6 +229,22 @@ async fn execute_stop(ctx: &SideEffectContext) {
     send_reply(ctx, "已停止当前任务".into()).await;
 }
 
+/// Handle `SlashResult::WorkflowStart` — start a workflow via the executor.
+///
+/// Reply semantics: confirmation text on success, error text carrying the
+/// workflow name and the failure reason on error.
+async fn execute_workflow_start(ctx: &SideEffectContext, name: String) {
+    let reply = match ctx
+        .executor
+        .execute_workflow_start(&ctx.session_id, &name)
+        .await
+    {
+        Ok(()) => format!("已启动 workflow：{name}"),
+        Err(e) => format!("Workflow {name} 启动失败：{e}"),
+    };
+    send_reply(ctx, reply).await;
+}
+
 /// Handle `SlashResult::Compact` — trigger context compaction.
 async fn execute_compact(ctx: &SideEffectContext, instruction: Option<String>) {
     let reply = match ctx
@@ -326,6 +356,7 @@ impl SlashResultExecutor for SlashResult {
             }
             SlashResult::NewSession => execute_new_session(ctx).await,
             SlashResult::Stop => execute_stop(ctx).await,
+            SlashResult::WorkflowStart { name } => execute_workflow_start(ctx, name).await,
             SlashResult::Compact { instruction } => execute_compact(ctx, instruction).await,
             SlashResult::SystemAppend { action } => execute_system_append(ctx, action).await,
             SlashResult::Exec {

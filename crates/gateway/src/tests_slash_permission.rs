@@ -222,6 +222,7 @@ fn clone_result(r: &SlashResult) -> SlashResult {
         SlashResult::Unknown(t) => SlashResult::Unknown(t.clone()),
         SlashResult::NewSession => SlashResult::NewSession,
         SlashResult::Stop => SlashResult::Stop,
+        SlashResult::WorkflowStart { name } => SlashResult::WorkflowStart { name: name.clone() },
         SlashResult::SetMode {
             mode,
             plan_file_path,

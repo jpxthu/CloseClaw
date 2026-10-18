@@ -45,6 +45,12 @@ pub enum SlashResult {
     NewSession,
     /// Stop the current run.
     Stop,
+    /// Start a workflow by name (Owner-only; the Gateway enforces the
+    /// Owner check before execution, per workflow-tools design).
+    WorkflowStart {
+        /// Workflow definition name to start.
+        name: String,
+    },
     /// Compact context with optional instruction.
     Compact { instruction: Option<String> },
     /// Append to system prompt.

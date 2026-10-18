@@ -21,6 +21,7 @@ use crate::{ReasoningLevel, VerbosityLevel};
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) enum ExecutorCall {
     Stop(String),
+    WorkflowStart(String, String),
     NewSession(String, String),
     Compact(String, Option<String>),
     SystemAppend(String, SystemAppendAction),
@@ -36,6 +37,8 @@ pub(crate) struct MockSlashEffectExecutor {
     pub(crate) reply_rx: Mutex<mpsc::Receiver<ReplyAction>>,
     pub(crate) reply_tx: mpsc::Sender<ReplyAction>,
     reasoning_effective: Option<Arc<Mutex<Option<ReasoningLevel>>>>,
+    /// When set, `execute_workflow_start` fails with this error message.
+    workflow_start_error: Option<String>,
 }
 
 impl MockSlashEffectExecutor {
@@ -46,6 +49,7 @@ impl MockSlashEffectExecutor {
             reply_rx: Mutex::new(rx),
             reply_tx: tx,
             reasoning_effective: None,
+            workflow_start_error: None,
         }
     }
 
@@ -56,6 +60,19 @@ impl MockSlashEffectExecutor {
             reply_rx: Mutex::new(rx),
             reply_tx: tx,
             reasoning_effective: Some(Arc::new(Mutex::new(effective))),
+            workflow_start_error: None,
+        }
+    }
+
+    /// Mock whose `execute_workflow_start` fails with `error`.
+    pub(crate) fn with_workflow_start_error(error: &str) -> Self {
+        let (tx, rx) = mpsc::channel(32);
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            reply_rx: Mutex::new(rx),
+            reply_tx: tx,
+            reasoning_effective: None,
+            workflow_start_error: Some(error.to_string()),
         }
     }
 
@@ -76,6 +93,21 @@ impl SlashEffectExecutor for MockSlashEffectExecutor {
             .lock()
             .unwrap()
             .push(ExecutorCall::Stop(session_id.to_string()));
+    }
+
+    async fn execute_workflow_start(
+        &self,
+        session_id: &str,
+        workflow_name: &str,
+    ) -> Result<(), String> {
+        self.calls.lock().unwrap().push(ExecutorCall::WorkflowStart(
+            session_id.to_string(),
+            workflow_name.to_string(),
+        ));
+        match &self.workflow_start_error {
+            Some(e) => Err(e.clone()),
+            None => Ok(()),
+        }
     }
 
     async fn execute_new_session(&self, session_id: &str, channel: &str) -> String {
@@ -258,6 +290,8 @@ impl SessionLookup for MockSessionLookup {
 
 // ── Mock that always returns a compact error ──────────────────────────
 
+/// Does not override `execute_workflow_start` — exercises the trait's
+/// default implementation (returns `Err("unsupported")`).
 pub(crate) struct MockSlashEffectExecutorError;
 
 #[async_trait]
