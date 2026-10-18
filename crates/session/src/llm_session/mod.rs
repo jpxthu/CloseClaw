@@ -51,6 +51,7 @@ mod session_graceful_stop;
 pub mod session_handles;
 mod session_health;
 mod session_llm;
+mod session_llm_skill_prep;
 mod session_pending;
 mod session_pending_queue;
 pub use session_pending_queue::{NotificationAudience, QueueEntry};
