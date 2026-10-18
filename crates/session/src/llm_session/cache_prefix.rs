@@ -194,10 +194,17 @@ fn joined_system(system_static: Option<&str>, system_dynamic: Option<&str>) -> S
     }
 }
 
-fn hash_str(value: &str) -> u64 {
+/// Runs one hashing session: creates the process-local hasher, lets
+/// `feed` write the hash inputs in order, and returns the digest.
+fn digest_with(feed: impl FnOnce(&mut DefaultHasher)) -> u64 {
     let mut hasher = DefaultHasher::new();
-    value.hash(&mut hasher);
+    feed(&mut hasher);
     hasher.finish()
+}
+
+/// Hashes one string via its `Hash` impl.
+fn hash_str(value: &str) -> u64 {
+    digest_with(|hasher| value.hash(hasher))
 }
 
 /// Hashes the stable representation of the `tools` parameter.
@@ -208,25 +215,25 @@ fn hash_str(value: &str) -> u64 {
 /// `None` (tool definitions travel via the System Prompt ToolsSection,
 /// covered by `system_hash`); see [`RequestPrefixSnapshot::tools_hash`].
 fn hash_tools(tools: Option<&[ToolDefinition]>) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    let list = tools.unwrap_or(&[]);
-    list.len().hash(&mut hasher);
-    for tool in list {
-        tool.name.hash(&mut hasher);
-        tool.description.hash(&mut hasher);
-        serde_json::to_string(&tool.input_schema)
-            .unwrap_or_default()
-            .hash(&mut hasher);
-    }
-    hasher.finish()
+    digest_with(|hasher| {
+        let list = tools.unwrap_or(&[]);
+        list.len().hash(hasher);
+        for tool in list {
+            tool.name.hash(hasher);
+            tool.description.hash(hasher);
+            serde_json::to_string(&tool.input_schema)
+                .unwrap_or_default()
+                .hash(hasher);
+        }
+    })
 }
 
 /// Hashes one message via its serde JSON form (messages carry serde;
 /// the representation is stable within a process).
 fn hash_message(message: &InternalMessage) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    serde_json::to_string(message)
-        .unwrap_or_default()
-        .hash(&mut hasher);
-    hasher.finish()
+    digest_with(|hasher| {
+        serde_json::to_string(message)
+            .unwrap_or_default()
+            .hash(hasher);
+    })
 }
