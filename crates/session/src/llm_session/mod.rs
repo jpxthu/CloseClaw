@@ -30,11 +30,6 @@ pub const APPEND_SECTION_MAX_LEN: usize = 500;
 // Re-export `KillHandle` from common so call sites that
 // `use closeclaw_session::KillHandle` keep working.
 pub use closeclaw_common::tool_session::KillHandle;
-// The accessor methods that consumed `InjectionParams` moved to
-// `session_accessors`; kept here (test-only) so the `use super::*`
-// glob chain in `tests/` keeps resolving it.
-#[cfg(test)]
-use closeclaw_common::InjectionParams;
 
 mod cache_prefix;
 mod memory_injection;
@@ -56,6 +51,8 @@ mod session_graceful_stop;
 pub mod session_handles;
 mod session_health;
 mod session_llm;
+mod session_llm_request_build;
+mod session_llm_skill_prep;
 mod session_pending;
 mod session_pending_queue;
 pub use session_pending_queue::{NotificationAudience, QueueEntry};

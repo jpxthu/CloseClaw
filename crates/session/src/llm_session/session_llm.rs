@@ -4,16 +4,20 @@
 //! the LLM call flow previously living in the Gateway layer
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
+//!
+//! # Where things live
+//!
+//! The invoke entry points and the shared invocation cores are in
+//! this file; session state flags and accessors are in the first
+//! `impl` block below. Consumed by the invoke family in this file:
+//! per-turn skill listing preparation in
+//! `super::session_llm_skill_prep` and message assembly / request
+//! building in `super::session_llm_request_build`.
 
-use closeclaw_common::CallTarget;
-use closeclaw_common::LLMError;
-use closeclaw_common::{
-    split_static_dynamic, ContentBlock, DynamicPromptContext, InternalMessage, InternalRequest,
-    UnifiedResponse,
-};
+use closeclaw_common::{CallTarget, ContentBlock, LLMError, UnifiedResponse};
 
 use super::streaming_assembly::SessionStream;
-use super::{ConversationSession, SessionMessage};
+use super::ConversationSession;
 
 /// Format a single [`ContentBlock`] into zero or more string fragments.
 ///
@@ -37,6 +41,8 @@ pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
     }
 }
 
+/// Session state flags and accessors: compaction / sub-agent
+/// markers, mode-transition slot, and plan file path.
 impl ConversationSession {
     /// Consume and return the pending mode transition, if any.
     pub fn take_mode_transition(&self) -> Option<closeclaw_common::system_prompt::ModeTransition> {
@@ -78,144 +84,19 @@ impl ConversationSession {
         self.is_sub_agent
     }
 
-    /// Prepare the skill listing for the current turn.
-    ///
-    /// Handles conditional activation detection, state update, and
-    /// listing computation. Newly activated skills are NOT injected
-    /// in the current turn — only base-listing changes are included;
-    /// the activation entries will naturally appear in the next
-    /// turn's diff.
-    ///
-    /// Returns the listing content to inject (`None` when nothing
-    /// to inject).
-    fn prepare_turn_skill_listing(&mut self, content: &str) -> Option<String> {
-        self.reset_compaction_snapshot_if_pending();
-        let newly_activated = self.detect_conditional_activations(content);
-        self.apply_conditional_activations(&newly_activated);
-        let (listing, new_snapshot) = self.compute_skill_listing_for_turn();
-        self.maybe_update_snapshot(&newly_activated, new_snapshot);
-        self.filter_listing_on_activation_turns(listing, &newly_activated)
+    /// Returns the plan file path associated with this session, if any.
+    pub fn plan_file_path(&self) -> Option<&str> {
+        self.plan_file_path.as_deref()
     }
 
-    /// Reset the skill listing snapshot after compaction.
-    fn reset_compaction_snapshot_if_pending(&mut self) {
-        if self.pending_compaction_listing_reset && self.skill_listing_snapshot.is_some() {
-            tracing::debug!(
-                session_id = %self.session_id,
-                "prepare_turn_skill_listing: clearing snapshot after compaction"
-            );
-            self.skill_listing_snapshot = None;
-            self.pending_compaction_listing_reset = false;
-        }
+    /// Sets the plan file path for this session.
+    pub fn set_plan_file_path(&mut self, path: Option<String>) {
+        self.plan_file_path = path
     }
+}
 
-    /// Extract file paths from the content and find newly activated
-    /// conditional skills.
-    fn detect_conditional_activations(&self, content: &str) -> std::collections::HashSet<String> {
-        let paths = Self::extract_file_paths(content);
-        let mut newly_activated = std::collections::HashSet::new();
-        if !paths.is_empty() {
-            if let Some(provider) = self.skill_listing_provider.as_ref() {
-                let matches = provider.find_conditional_matches(&paths);
-                for m in matches {
-                    if !self.is_skill_already_activated(&m.name) {
-                        newly_activated.insert(m.name);
-                    }
-                }
-            }
-        }
-        if !newly_activated.is_empty() {
-            tracing::info!(
-                session_id = %self.session_id,
-                event = "conditional_skill_activation",
-                activated = ?newly_activated.iter().collect::<Vec<_>>(),
-                "conditionally activated skills for current turn"
-            );
-        }
-        newly_activated
-    }
-
-    /// Check if a skill name is not yet in the activated set.
-    fn is_skill_already_activated(&self, name: &str) -> bool {
-        self.activated_conditional_skills.contains(name)
-    }
-
-    /// Apply newly activated conditional skills to session state.
-    ///
-    /// Passes `None` for the snapshot to avoid updating it — the
-    /// next turn's diff will pick up the new entries.
-    fn apply_conditional_activations(
-        &mut self,
-        newly_activated: &std::collections::HashSet<String>,
-    ) {
-        if !newly_activated.is_empty() {
-            self.apply_skill_listing_update(None, newly_activated);
-        }
-    }
-
-    /// Conditionally update the snapshot based on activation state.
-    ///
-    /// On activation turns, skip saving so the next turn's diff
-    /// naturally includes the newly activated entry.
-    fn maybe_update_snapshot(
-        &mut self,
-        newly_activated: &std::collections::HashSet<String>,
-        new_snapshot: Option<String>,
-    ) {
-        if newly_activated.is_empty() {
-            if let Some(snapshot) = new_snapshot {
-                self.skill_listing_snapshot = Some(snapshot);
-            }
-        }
-    }
-
-    /// Strip newly activated entries from the listing on activation
-    /// turns so only base-listing changes are injected this turn.
-    fn filter_listing_on_activation_turns(
-        &self,
-        listing: Option<String>,
-        newly_activated: &std::collections::HashSet<String>,
-    ) -> Option<String> {
-        if newly_activated.is_empty() {
-            return listing;
-        }
-        listing.and_then(|l| Self::filter_listing_excluding_entries(l, newly_activated))
-    }
-
-    /// Filter a skill listing to exclude entries matching given skill
-    /// names.
-    ///
-    /// Removes lines that are formatted skill entries (starting with
-    /// `- **`) for the specified skill names, and returns `None` if
-    /// the result is empty.
-    fn filter_listing_excluding_entries(
-        listing: String,
-        exclude_names: &std::collections::HashSet<String>,
-    ) -> Option<String> {
-        let filtered: Vec<&str> = listing
-            .lines()
-            .filter(|line| !line.is_empty() && !Self::is_entry_for_skill(line, exclude_names))
-            .collect();
-        let result = filtered.join("\n");
-        if result.is_empty() {
-            None
-        } else {
-            Some(result)
-        }
-    }
-
-    /// Check if a listing line is an entry for one of the given skill
-    /// names.
-    ///
-    /// Matches the pattern `- **{name**:` to avoid substring false
-    /// matches on partial skill names.
-    fn is_entry_for_skill(line: &str, skill_names: &std::collections::HashSet<String>) -> bool {
-        line.starts_with("- **")
-            && skill_names
-                .iter()
-                .any(|name| line.contains(&format!("**{}**:", name)))
-    }
-
+/// Non-streaming LLM invocation entry points.
+impl ConversationSession {
     /// Make a non-streaming LLM call via the injected
     /// [`LlmCaller`](closeclaw_common::LlmCaller).
     ///
@@ -240,7 +121,8 @@ impl ConversationSession {
     /// the instruction block via `Self::build_llm_messages_with_listing`,
     /// then delegates to the LLM caller.
     ///
-    /// Builds an [`InternalRequest`], consuming any pending
+    /// Builds an [`InternalRequest`](closeclaw_common::InternalRequest),
+    /// consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`](closeclaw_common::LlmCaller) has been injected.
     ///
@@ -273,7 +155,10 @@ impl ConversationSession {
     ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         self.invoke_llm_with_target_inner(content, true).await
     }
+}
 
+/// Non-streaming invocation core (shared by the entry points above).
+impl ConversationSession {
     async fn invoke_llm_with_target_inner(
         &mut self,
         content: &str,
@@ -322,7 +207,10 @@ impl ConversationSession {
         }
         result
     }
+}
 
+/// Streaming LLM invocation entry points.
+impl ConversationSession {
     /// Make a streaming LLM call via the injected
     /// [`LlmCaller`](closeclaw_common::LlmCaller).
     pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
@@ -375,7 +263,10 @@ impl ConversationSession {
         self.invoke_llm_streaming_with_target_inner(content, true)
             .await
     }
+}
 
+/// Streaming invocation core (shared by the entry points above).
+impl ConversationSession {
     async fn invoke_llm_streaming_with_target_inner(
         &mut self,
         content: &str,
@@ -436,306 +327,5 @@ impl ConversationSession {
             Some(sh) => (stream.with_shutdown_handle(sh), call_target),
             None => (stream, call_target),
         })
-    }
-
-    /// Build the messages list for an LLM request, consuming any
-    /// pending memory-injection slot.
-    ///
-    /// Corresponds to the design doc's "注入当前 turn 的 instruction
-    /// block" section (`docs/design/skills/skill-listing-injection.md`).
-    /// The skill listing is injected as a system-role message at position 0,
-    /// which is the code-level implementation of the design doc's
-    /// "instruction block" injection.
-    ///
-    /// Message assembly order:
-    /// 1. Skill listing attachment (system role, position 0) — per-turn
-    ///    incremental diff from the [`SkillListingProvider`] when
-    ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
-    /// 2. Memory injection (tool role) — positioned per
-    ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
-    /// 3. User message — dedup-guarded: skipped when the history already
-    ///    ends with the identical user message (the gateway pre-appends
-    ///    the current message to history before invoking; pushing again
-    ///    would send a duplicate copy that never enters history, breaking
-    ///    the tail-append message-list semantics the cache prefix check
-    ///    relies on).
-    ///
-    /// `skill_listing` is the pre-computed listing content to inject.
-    /// Pass `None` to skip skill listing injection.
-    ///
-    /// `user_blocks_pre_appended` is the caller's explicit declaration
-    /// that the current user message was already appended to history in
-    /// structured blocks form (gateway production path for embedded
-    /// small-image messages). The declaration branch of the dedup guard
-    /// below requires the tail to be a **user message carrying content
-    /// blocks with empty flattened text** (`content.is_empty()` — the
-    /// image-round pre-append shape: Image blocks are excluded from the
-    /// text flatten); combined with the declaration it is treated as the
-    /// same logical message and the push is skipped. A blocks tail with
-    /// non-empty text does **not** match the declaration (the flattened
-    /// text could differ from the invoke content), so the push happens
-    /// and the message is never lost.
-    ///
-    /// Residual risk: a blocks tail with empty flattened text that is
-    /// *not* the declared message (e.g. compaction rewrote the history
-    /// between append and invoke into another image-only message) would
-    /// still be deduped and the invoke content dropped from the sent
-    /// list. When the tail does not match the declaration at all (not a
-    /// blocks-carrying user message, or its flattened text is
-    /// non-empty), the guard falls back to the string equality check and
-    /// the push still happens.
-    pub(crate) fn build_llm_messages_with_listing(
-        &self,
-        content: &str,
-        skill_listing: Option<String>,
-        user_blocks_pre_appended: bool,
-    ) -> Vec<InternalMessage> {
-        let cleaned = Self::clean_thinking_content(&self.messages);
-        let mut messages = Self::convert_history_to_internal(&cleaned);
-
-        // ── Append current-turn user message (dedup-guarded) ─────
-        // The gateway production path pre-appends the user message to
-        // history (persistence/recovery semantics) before invoking, so
-        // the converted history already ends with this exact message.
-        // Pushing again would send a temporary duplicate copy that never
-        // enters history, so adjacent rounds stop being tail-append
-        // extensions and the cache prefix check reports PrefixMismatch
-        // every round. Skip the push on full equality (role + content)
-        // with the history tail, or — when the caller declared a
-        // blocks-form pre-append — on the tail being a user message
-        // carrying content blocks **with empty flattened text**: the
-        // image-round pre-append shape (Image blocks are excluded from
-        // the text flatten, so `content` is `""`). The empty-text
-        // requirement keeps blocks tails that do carry text (image +
-        // caption) outside the declaration branch — their text could
-        // differ from the invoke content, so they always push. Callers
-        // that did not pre-append (pending drain, tests) still get the
-        // push.
-        let duplicates_history_tail = messages.last().is_some_and(|tail| {
-            tail.role == "user"
-                && (tail.content == content
-                    || (user_blocks_pre_appended
-                        && tail.content.is_empty()
-                        && tail.content_blocks.is_some()))
-        });
-        if !duplicates_history_tail {
-            messages.push(InternalMessage {
-                role: "user".to_string(),
-                content: content.to_string(),
-                content_blocks: None,
-                tool_call_id: None,
-            });
-        }
-
-        // ── Skill listing attachment — at position 0 when non-empty ──
-        if let Some(listing) = skill_listing {
-            if !listing.is_empty() {
-                let entry_count = listing.lines().filter(|l| !l.is_empty()).count();
-                let first_entry = listing
-                    .lines()
-                    .find(|l| !l.is_empty())
-                    .map(|l| l.to_string())
-                    .unwrap_or_default();
-                messages.insert(
-                    0,
-                    InternalMessage {
-                        role: "system".to_string(),
-                        content: listing,
-                        content_blocks: None,
-                        tool_call_id: None,
-                    },
-                );
-                tracing::info!(
-                    session_id = %self.session_id,
-                    event = "skill_listing_injection",
-                    entry_count,
-                    first_entry = %first_entry,
-                    "injecting skill listing as system message"
-                );
-            }
-        }
-
-        // ── Memory injection — positioned per InjectionPosition ────
-        if let Some(injection) = self.take_memory_injection() {
-            tracing::info!(
-                session_id = %self.session_id,
-                event = "memory_injection",
-                position = ?injection.position_mode,
-                "consuming memory_injection slot"
-            );
-            let tool_msg = InternalMessage {
-                role: "tool".to_string(),
-                content: injection.content.clone(),
-                content_blocks: None,
-                tool_call_id: None,
-            };
-            match injection.position_mode {
-                super::InjectionPosition::AfterCurrent => {
-                    messages.push(tool_msg);
-                }
-                super::InjectionPosition::BeforeNext => {
-                    // Insert before the last user message (the new message
-                    // for this turn), matching the design doc:
-                    // [history..., tool: memory摘要, 用户: new_message]
-                    //
-                    // `messages.len() - 1` always points to the last
-                    // element, which is the user message we just pushed
-                    // above (nothing else modifies `messages` between
-                    // the push and this insert).
-                    let insert_pos = messages.len() - 1;
-                    messages.insert(insert_pos, tool_msg);
-                }
-            }
-        }
-
-        messages
-    }
-
-    /// Convert a cleaned list of [`SessionMessage`]s into
-    /// [`InternalMessage`]s suitable for an LLM API request.
-    ///
-    /// Non-tool content blocks are formatted via [`format_content_block`]
-    /// and joined with newlines. Tool results are appended as independent
-    /// `role="tool"` messages at the end.
-    ///
-    /// When a message contains [`ContentBlock::Image`] blocks, these are
-    /// preserved in [`InternalMessage::content_blocks`] as structured
-    /// content blocks (not flattened to text). Non-image blocks are still
-    /// flattened to the `content` string for backward compatibility.
-    pub(crate) fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
-        let mut result: Vec<InternalMessage> = messages
-            .iter()
-            .map(|msg| {
-                let non_tool_blocks: Vec<&ContentBlock> = msg
-                    .content_blocks
-                    .iter()
-                    .filter(|b| !matches!(b, ContentBlock::ToolResult { .. }))
-                    .collect();
-
-                // Flatten non-image blocks to text for the content string.
-                let text_content = non_tool_blocks
-                    .iter()
-                    .filter(|b| !matches!(b, ContentBlock::Image { .. }))
-                    .flat_map(|b| format_content_block(b))
-                    .collect::<Vec<_>>()
-                    .join("\n");
-
-                // Preserve image blocks as structured content_blocks.
-                let image_blocks: Vec<ContentBlock> = non_tool_blocks
-                    .iter()
-                    .filter_map(|b| match b {
-                        ContentBlock::Image { name, url } => Some(ContentBlock::Image {
-                            name: name.clone(),
-                            url: url.clone(),
-                        }),
-                        _ => None,
-                    })
-                    .collect();
-
-                let content_blocks = if image_blocks.is_empty() {
-                    None
-                } else {
-                    Some(image_blocks)
-                };
-
-                InternalMessage {
-                    role: msg.role.clone(),
-                    content: text_content,
-                    content_blocks,
-                    tool_call_id: None,
-                }
-            })
-            .collect();
-
-        // Append tool results as independent role="tool" messages.
-        for msg in messages {
-            for b in &msg.content_blocks {
-                if let ContentBlock::ToolResult {
-                    tool_call_id,
-                    content,
-                } = b
-                {
-                    result.push(InternalMessage {
-                        role: "tool".into(),
-                        content: content.clone(),
-                        content_blocks: None,
-                        tool_call_id: Some(tool_call_id.clone()),
-                    });
-                }
-            }
-        }
-
-        result
-    }
-
-    /// Build an [`InternalRequest`] from a pre-built messages list.
-    fn build_llm_request(&self, messages: Vec<InternalMessage>, stream: bool) -> InternalRequest {
-        let (system_static, system_dynamic) = self.build_system_prompt_parts(&messages);
-        InternalRequest {
-            model: String::new(),
-            messages,
-            temperature: 0.7,
-            max_tokens: None,
-            stream,
-            extra_body: Default::default(),
-            system_static,
-            system_dynamic,
-            system_blocks: None,
-            tools: None,
-            session_id: None,
-            reasoning_level: self.effective_reasoning_level(),
-            turn_count: None,
-        }
-    }
-
-    /// Derive `system_static` and `system_dynamic` for the current request.
-    ///
-    /// When a [`DynamicPromptBuilder`](closeclaw_common::DynamicPromptBuilder)
-    /// is injected, delegates to it for per-request dynamic-layer
-    /// construction.  Otherwise falls back to the legacy behaviour
-    /// (full prompt as `system_static`, no dynamic layer).
-    fn build_system_prompt_parts(
-        &self,
-        _messages: &[InternalMessage],
-    ) -> (Option<String>, Option<String>) {
-        if let Some(ref builder) = self.dynamic_prompt_builder {
-            let ctx = self.request_context();
-            let context = DynamicPromptContext {
-                system_prompt: self.system_prompt.as_deref(),
-                ctx: &ctx,
-                workdir: &self.workdir,
-                system_appends: &self.system_appends(),
-                session_created_at: self.created_at,
-                session_mode: self.session_mode(),
-                overrides: self.prompt_overrides.as_ref(),
-                is_compacted: self.is_compacted,
-                is_sub_agent: self.is_sub_agent,
-                is_git_status_enabled: self.is_git_status_enabled,
-                mode_transition: self.take_mode_transition(),
-                plan_file_path: self.plan_file_path(),
-            };
-            builder.build_prompt_parts(&context)
-        } else {
-            // Legacy path: no builder injected — split the stored
-            // prompt so static/dynamic separation still works for
-            // cache adapters.
-            match &self.system_prompt {
-                Some(prompt) => {
-                    let (s, d) = split_static_dynamic(prompt);
-                    (s, d)
-                }
-                None => (None, None),
-            }
-        }
-    }
-
-    /// Returns the plan file path associated with this session, if any.
-    pub fn plan_file_path(&self) -> Option<&str> {
-        self.plan_file_path.as_deref()
-    }
-
-    /// Sets the plan file path for this session.
-    pub fn set_plan_file_path(&mut self, path: Option<String>) {
-        self.plan_file_path = path
     }
 }

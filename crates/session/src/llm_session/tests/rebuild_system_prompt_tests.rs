@@ -6,7 +6,9 @@
 //! InjectionParams contract (§注入链路的参数契约).
 
 use super::super::*;
-use closeclaw_common::{PromptOverrides, SessionRole, SkillListingProvider, SystemPromptBuilder};
+use closeclaw_common::{
+    InjectionParams, PromptOverrides, SessionRole, SkillListingProvider, SystemPromptBuilder,
+};
 use std::collections::HashSet;
 use std::sync::{Arc, Mutex as StdMutex};
 
