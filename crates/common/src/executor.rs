@@ -46,7 +46,26 @@ pub enum ReplyAction {
 #[async_trait]
 pub trait SlashEffectExecutor: Send + Sync {
     /// Stop the current LLM turn for the session.
-    async fn execute_stop(&self, session_id: &str);
+    ///
+    /// `sender_id` is the invoker's user identifier (None when
+    /// unavailable). Hosts may use it for owner-scoped follow-ups —
+    /// e.g. the gateway terminates the session's active workflow when
+    /// the sender is the session owner.
+    async fn execute_stop(&self, session_id: &str, sender_id: Option<&str>);
+
+    /// Start a workflow by name for the session.
+    ///
+    /// Returns `Ok(())` on success or an error description on failure.
+    /// The default implementation reports "unsupported" — only hosts
+    /// that wire the workflow engine (via
+    /// [`WorkflowControl`](crate::WorkflowControl)) override this method.
+    async fn execute_workflow_start(
+        &self,
+        _session_id: &str,
+        _workflow_name: &str,
+    ) -> Result<(), String> {
+        Err("unsupported".to_string())
+    }
 
     /// Create a new session for the given channel.
     ///
@@ -105,6 +124,10 @@ pub struct SideEffectContext {
     pub session_id: String,
     /// Channel identifier (e.g. "feishu", "telegram").
     pub channel: String,
+    /// Sender user identifier of the command invoker (None when
+    /// unavailable); consumed by owner-scoped side effects (e.g.
+    /// `/stop` workflow termination).
+    pub sender_id: Option<String>,
     /// Session lookup for state queries.
     pub session_lookup: Arc<dyn SessionLookup>,
     /// Sender for [`ReplyAction`]s.
@@ -211,8 +234,26 @@ async fn execute_new_session(ctx: &SideEffectContext) {
 /// Hardcoded to `cascade=true, force=true` (Forceful semantics)
 /// per design doc `docs/design/slash/session-management.md`.
 async fn execute_stop(ctx: &SideEffectContext) {
-    ctx.executor.execute_stop(&ctx.session_id).await;
+    ctx.executor
+        .execute_stop(&ctx.session_id, ctx.sender_id.as_deref())
+        .await;
     send_reply(ctx, "已停止当前任务".into()).await;
+}
+
+/// Handle `SlashResult::WorkflowStart` — start a workflow via the executor.
+///
+/// Reply semantics: confirmation text on success, error text carrying the
+/// workflow name and the failure reason on error.
+async fn execute_workflow_start(ctx: &SideEffectContext, name: String) {
+    let reply = match ctx
+        .executor
+        .execute_workflow_start(&ctx.session_id, &name)
+        .await
+    {
+        Ok(()) => format!("已启动 workflow：{name}"),
+        Err(e) => format!("Workflow {name} 启动失败：{e}"),
+    };
+    send_reply(ctx, reply).await;
 }
 
 /// Handle `SlashResult::Compact` — trigger context compaction.
@@ -326,6 +367,7 @@ impl SlashResultExecutor for SlashResult {
             }
             SlashResult::NewSession => execute_new_session(ctx).await,
             SlashResult::Stop => execute_stop(ctx).await,
+            SlashResult::WorkflowStart { name } => execute_workflow_start(ctx, name).await,
             SlashResult::Compact { instruction } => execute_compact(ctx, instruction).await,
             SlashResult::SystemAppend { action } => execute_system_append(ctx, action).await,
             SlashResult::Exec {

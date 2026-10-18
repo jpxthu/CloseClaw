@@ -14,6 +14,8 @@ mod debug_log_emitter_tests;
 pub mod debug_log_tests;
 #[cfg(test)]
 mod dependency_boundary_tests;
+#[cfg(test)]
+mod gateway_test_utils;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
@@ -111,6 +113,10 @@ mod slash_permission_test_utils;
 #[cfg(test)]
 mod slash_permission_tests;
 #[cfg(test)]
+mod slash_workflow_start_tests;
+#[cfg(test)]
+mod slash_workflow_stop_tests;
+#[cfg(test)]
 mod step1_4_e2e_tests;
 #[cfg(test)]
 mod streaming_dsl_finish_tests;
@@ -134,6 +140,8 @@ mod tests_slash_permission;
 #[cfg(all(test, feature = "full-tests"))]
 mod tests_slash_permission_integration;
 pub mod types;
+#[cfg(test)]
+mod workflow_integration_tests;
 pub mod workflow_owner;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
@@ -719,17 +727,22 @@ impl Gateway {
                 return Some(result);
             }
             if let Some(result) = self
+                .try_intercept_workflow_command(session_id, &content, sender_id, peer_id, channel)
+                .await
+            {
+                return Some(result);
+            }
+            if let Some(result) = self
                 .dispatch_slash(session_id, &content, sender_id, channel, Some(peer_id))
                 .await
             {
                 return Some(result);
             }
-        }
-        if let Some(result) = self
-            .try_handle_workflow_owner_response(session_id, &content, sender_id)
-            .await
-        {
-            return Some(result);
+        } else {
+            // Owner non-slash message: notify the workflow runtime before
+            // routing (gateway README「普通消息」); never consumes the message.
+            self.notify_workflow_owner_message(session_id, sender_id)
+                .await;
         }
         self.dispatch_to_handler(
             processed, session_id, content, blocks, sender_id, peer_id, channel, dbg,

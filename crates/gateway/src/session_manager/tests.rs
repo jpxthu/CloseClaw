@@ -2,7 +2,7 @@ use super::*;
 use crate::{GatewayConfig, Message};
 use closeclaw_common::{BootstrapMode, PromptOverrides, SessionRole, SystemPromptBuilder};
 use closeclaw_config::manager::ConfigSnapshot;
-use closeclaw_session::persistence::SessionCheckpoint;
+use closeclaw_session::persistence::{SessionCheckpoint, SessionStatus};
 use serial_test::serial;
 use std::io::Write;
 use std::path::PathBuf;

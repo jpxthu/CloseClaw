@@ -1,4 +1,5 @@
 pub mod context_append;
+pub mod control;
 pub mod definition;
 pub mod definition_loader;
 pub(crate) mod definition_validator;
@@ -7,10 +8,14 @@ pub(crate) mod definition_validator;
 mod definition_validator_tests;
 pub mod engine;
 pub mod error;
+pub mod handler;
 pub mod run;
 
 #[cfg(test)]
 mod definition_tests;
+
+#[cfg(test)]
+mod control_tests;
 
 #[cfg(test)]
 mod engine_tests;

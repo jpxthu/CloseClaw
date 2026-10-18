@@ -125,6 +125,7 @@ impl SlashDispatcher {
             SlashResult::SetMode { .. } => "set_mode",
             SlashResult::NewSession => "new_session",
             SlashResult::Stop => "stop",
+            SlashResult::WorkflowStart { .. } => "workflow_start",
             SlashResult::Compact { .. } => "compact",
             SlashResult::SystemAppend { .. } => "system_append",
             SlashResult::Exec { .. } => "exec",

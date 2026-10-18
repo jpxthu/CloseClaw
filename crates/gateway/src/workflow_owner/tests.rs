@@ -1,450 +1,507 @@
-//! Unit tests for `apply_resolve_action` (Step 1.3).
+//! Unit tests for the gateway workflow entry point ② (workflow_owner.rs).
+//!
+//! Behavior dimensions under test (plan Step 1.5):
+//! - owner non-slash message → `WorkflowControl::on_owner_message` invoked
+//!   AND the message continues routing into the session handler;
+//! - non-owner message → engine not called, message still routes;
+//! - control unwired → silent skip, message still routes;
+//! - engine error → logged, message still routes (non-blocking);
+//! - legacy keyword messages ("恢复"/"终止") are no longer intercepted
+//!   or consumed;
+//! - `/workflow` non-owner → permission-denied reply, never enters the
+//!   SlashDispatcher;
+//! - `/workflow` owner → dispatched to the handler normally;
+//! - non-`/workflow` slash commands pass the gate untouched.
 
-use closeclaw_common::ContentBlock;
-use closeclaw_session::llm_session::ChatSession;
-use closeclaw_session::workflow_handler::WorkflowHandler;
-use closeclaw_session::workflow_recovery::DEFINITION_CHANGED_PAUSE_REASON;
-use closeclaw_workflow::definition::{Step, Workflow};
-use closeclaw_workflow::run::{GoalHint, Phase, WorkflowRun};
+use std::sync::{Arc, Mutex};
 
-use super::Gateway;
-
-// ── helpers ────────────────────────────────────────────────────────────
-
-fn make_test_workflow() -> Workflow {
-    Workflow {
-        id: "test-wf".to_string(),
-        name: "Test Workflow".to_string(),
-        description: "A test workflow".to_string(),
-        version: Some("0.1".to_string()),
-        allow_blocked: false,
-        verify_retry_limit: 3,
-        step_data_schema: serde_yaml::Value::Null,
-        steps: vec![Step {
-            id: 0,
-            name: "Step 0".to_string(),
-            goal: "Do first thing".to_string(),
-            verify: vec!["Check output".to_string()],
-            jump: vec![],
-            transitions: vec![],
-            allow_blocked: Some(true),
-        }],
-    }
-}
-
-fn make_test_run(phase: Phase, pending_verify: usize) -> WorkflowRun {
-    WorkflowRun {
-        workflow_id: "test-wf".to_string(),
-        definition_name: "Test Workflow".to_string(),
-        definition_version: "0.1".to_string(),
-        current_step: 0,
-        phase,
-        current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
-        step_history: vec![],
-        step_data: serde_yaml::Value::Null,
-        pending_goal_hint: GoalHint::default(),
-        pending_verify: closeclaw_workflow::run::PendingVerify {
-            count: pending_verify,
-            ..Default::default()
-        },
-        paused_reason: String::new(),
-    }
-}
-
-fn make_session(
-    phase: Phase,
-    pending_verify: usize,
-) -> closeclaw_session::llm_session::ConversationSession {
-    make_session_with_reason(phase, pending_verify, "")
-}
-
-fn make_session_with_reason(
-    phase: Phase,
-    pending_verify: usize,
-    paused_reason: &str,
-) -> closeclaw_session::llm_session::ConversationSession {
-    let mut cs = closeclaw_session::llm_session::ConversationSession::new(
-        "test-sid".to_string(),
-        "model".to_string(),
-        std::path::PathBuf::from("/tmp"),
-    );
-    let mut run = make_test_run(phase, pending_verify);
-    run.paused_reason = paused_reason.to_string();
-    // Set both workflow_handler (for is_workflow_blocked) and workflow_run
-    // (for paused_reason access via workflow_run()).
-    let handler = WorkflowHandler::new(
-        serde_json::to_value(&run).unwrap(),
-        serde_json::to_value(make_test_workflow()).unwrap(),
-        crate::test_support_workflow_port::test_port::test_port(),
-    );
-    cs.set_workflow_handler(Some(handler));
-    cs.set_workflow_run_value(Some(serde_json::to_value(&run).unwrap()));
-    cs
-}
-
-/// Decode the handler's serialized run state into the typed form.
-fn typed_state(cs: &closeclaw_session::llm_session::ConversationSession) -> WorkflowRun {
-    serde_json::from_value(cs.workflow_handler().unwrap().run_state().clone()).unwrap()
-}
-
-/// Decode the handler's serialized definition into the typed form.
-fn typed_definition(cs: &closeclaw_session::llm_session::ConversationSession) -> Workflow {
-    serde_json::from_value(cs.workflow_handler().unwrap().definition_state().clone()).unwrap()
-}
-
-/// Extract text content from a session message.
-fn message_text(msg: &closeclaw_session::llm_session::SessionMessage) -> String {
-    msg.content_blocks
-        .iter()
-        .filter_map(|b| match b {
-            ContentBlock::Text(t) => Some(t.clone()),
-            _ => None,
-        })
-        .next()
-        .unwrap_or_default()
-}
-
-// ── Tests ──────────────────────────────────────────────────────────────
-
-/// After resolve: goal message preserved, old verify cleaned, new verify
-/// injected.
-#[test]
-fn test_resolve_preserves_goal_cleans_verify_injects_new() {
-    let mut cs = make_session(Phase::Blocked, 3);
-    // Inject goal and old verify messages.
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-    cs.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    let messages = cs.messages();
-    // Expect: goal + new verify = 2 workflow messages.
-    assert_eq!(messages.len(), 2, "goal + new verify");
-    assert_eq!(messages[0].role, "workflow");
-    assert!(message_text(&messages[0]).starts_with("[workflow goal]"));
-    assert_eq!(messages[1].role, "workflow");
-    assert!(message_text(&messages[1]).starts_with("Verify Step"));
-    // Old verify should be gone, new one present.
-    let old_verify = "Verify Step 0 (Step 0):\nCheck output";
-    let texts: Vec<String> = messages.iter().map(message_text).collect();
-    assert_eq!(
-        texts[1],
-        closeclaw_workflow::definition::build_verify_message(&typed_definition(&cs).steps[0], true,)
-    );
-    // Old verify text must not appear.
-    assert!(!texts.contains(&old_verify.to_string()));
-}
-
-/// Goal message content is consistent before and after resolve.
-#[test]
-fn test_resolve_goal_content_unchanged() {
-    let mut cs = make_session(Phase::Blocked, 3);
-    let goal_text = "[workflow goal] Step 0: Step 0\n\nDo first thing";
-    cs.inject_workflow_message(goal_text);
-    cs.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
-
-    let goal_before = message_text(&cs.messages()[0]);
-    Gateway::apply_resolve_action(&mut cs);
-
-    let messages = cs.messages();
-    let goal_after = message_text(&messages[0]);
-    assert_eq!(goal_before, goal_after, "goal content must be unchanged");
-}
-
-/// pending_verify is zeroed and not overwritten by stale snapshot.
-#[test]
-fn test_resolve_pending_verify_zeroed_not_overwritten() {
-    let mut cs = make_session(Phase::Blocked, 3);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    // Before resolve: pending_verify = 3.
-    assert_eq!(typed_state(&cs).pending_verify.count, 3);
-    assert_eq!(typed_state(&cs).phase, Phase::Blocked);
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    // After resolve: pending_verify = 0, phase = Verifying.
-    let state = typed_state(&cs);
-    assert_eq!(
-        state.pending_verify.count, 0,
-        "pending_verify must be zeroed"
-    );
-    assert_eq!(state.phase, Phase::Verifying, "phase must be Verifying");
-}
-
-/// After resolve with user messages interleaved, user messages are
-/// preserved alongside goal and new verify.
-#[test]
-fn test_resolve_preserves_user_messages() {
-    let mut cs = make_session(Phase::Blocked, 3);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-    cs.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
-    cs.append_transcript(
-        "user",
-        vec![ContentBlock::Text("please continue".to_string())],
-    );
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    let messages = cs.messages();
-    // goal + user + new verify = 3.
-    assert_eq!(messages.len(), 3, "goal + user + new verify");
-    assert_eq!(messages[0].role, "workflow"); // goal
-    assert!(message_text(&messages[0]).starts_with("[workflow goal]"));
-    assert_eq!(messages[1].role, "user");
-    assert_eq!(message_text(&messages[1]), "please continue");
-    assert_eq!(messages[2].role, "workflow"); // new verify
-    assert!(message_text(&messages[2]).starts_with("Verify Step"));
-}
-
-/// After resolve with no old verify messages, new verify is still injected.
-#[test]
-fn test_resolve_no_old_verify_still_injects_new() {
-    let mut cs = make_session(Phase::Blocked, 0);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    let messages = cs.messages();
-    // goal + new verify = 2.
-    assert_eq!(messages.len(), 2, "goal + new verify");
-    assert!(message_text(&messages[1]).starts_with("Verify Step"));
-}
-
-// ── Step 1.1: definition-changed pause resolve guard ───────────
-
-/// When paused_reason matches DEFINITION_CHANGED_PAUSE_REASON,
-/// apply_rejected_resolve_action injects an informational message
-/// without changing phase/paused_reason/pending_verify.
-#[test]
-fn test_rejected_resolve_injects_message_without_changing_state() {
-    let mut cs = make_session_with_reason(Phase::Blocked, 3, DEFINITION_CHANGED_PAUSE_REASON);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-    cs.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
-
-    Gateway::apply_rejected_resolve_action(&mut cs);
-
-    // Phase unchanged.
-    assert_eq!(typed_state(&cs).phase, Phase::Blocked);
-    // paused_reason unchanged.
-    assert_eq!(
-        typed_state(&cs).paused_reason,
-        DEFINITION_CHANGED_PAUSE_REASON
-    );
-    // pending_verify unchanged.
-    assert_eq!(typed_state(&cs).pending_verify.count, 3);
-    // Rejection message injected.
-    let msgs: Vec<String> = cs.messages().iter().map(message_text).collect();
-    assert!(
-        msgs.iter()
-            .any(|m| m.contains("仅可回复「终止」结束工作流")),
-        "rejection message must be present: {:?}",
-        msgs
-    );
-    // Goal and old verify still present.
-    assert!(msgs.iter().any(|m| m.starts_with("[workflow goal]")));
-    assert!(msgs.iter().any(|m| m.starts_with("Verify Step")));
-}
-
-/// When paused_reason is empty (not a definition-changed pause),
-/// apply_rejected_resolve_action should not be called; verify that
-/// a normal resolve changes state as expected.
-#[test]
-fn test_normal_resolve_with_empty_paused_reason() {
-    let mut cs = make_session_with_reason(Phase::Blocked, 3, "");
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
-    assert_eq!(typed_state(&cs).pending_verify.count, 0);
-}
-
-/// When paused_reason is a non-definition-changed value,
-/// apply_rejected_resolve_action should not be called; verify that
-/// a normal resolve changes state as expected.
-#[test]
-fn test_normal_resolve_with_other_paused_reason() {
-    let mut cs = make_session_with_reason(Phase::Blocked, 3, "验收重试次数耗尽");
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    Gateway::apply_resolve_action(&mut cs);
-
-    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
-    assert_eq!(typed_state(&cs).pending_verify.count, 0);
-}
-
-/// Terminate still works normally even with a definition-changed pause.
-#[test]
-fn test_terminate_works_with_definition_changed_pause() {
-    let mut cs = make_session_with_reason(Phase::Blocked, 0, DEFINITION_CHANGED_PAUSE_REASON);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    Gateway::apply_terminate_action(&mut cs);
-
-    // Workflow cleared.
-    assert!(cs.workflow_handler().is_none());
-    assert!(cs.workflow_run_value().is_none());
-    // Messages cleared.
-    let msgs: Vec<String> = cs.messages().iter().map(message_text).collect();
-    assert!(
-        msgs.is_empty(),
-        "messages should be cleared after terminate"
-    );
-}
-
-/// Empty paused_reason is a valid boundary: resolve proceeds normally.
-#[test]
-fn test_resolve_with_empty_paused_reason_is_not_rejected() {
-    let mut cs = make_session_with_reason(Phase::Blocked, 0, "");
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-
-    // Empty paused_reason should not trigger the guard.
-    // apply_resolve_action is the correct path.
-    Gateway::apply_resolve_action(&mut cs);
-
-    assert_eq!(typed_state(&cs).phase, Phase::Verifying);
-}
-
-// ── Step 1.2: resolve_owner_action return value branches ───────
-
-use std::sync::Arc;
+use async_trait::async_trait;
 use tokio::sync::RwLock;
 
+use crate::gateway_test_utils::{empty_dbg, routed_msg, SpyPlugin};
 use crate::persist_test_utils::SnapshotMockPersist;
-use crate::{GatewayConfig, SessionManager};
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
+use crate::{Gateway, GatewayConfig, HandleResult, Session, SessionManager};
+use closeclaw_common::processor::ContentBlock;
+use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
+use closeclaw_common::WorkflowControl;
+use closeclaw_session::llm_session::{ChatSession, ConversationSession};
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 
-fn test_config() -> GatewayConfig {
-    GatewayConfig::default()
+// ── Fake WorkflowControl ───────────────────────────────────────────────
+
+/// Records `on_owner_message` invocations and returns a canned result.
+struct FakeWorkflowControl {
+    owner_calls: Mutex<Vec<String>>,
+    owner_result: Result<(), String>,
 }
 
-/// Helper: build a Gateway + SessionManager wired to mock persistence,
-/// with a conversation session for `sid` that has a workflow handler.
-async fn setup_resolve_test(
-    sid: &str,
-    phase: Phase,
-    paused_reason: &str,
-) -> (crate::Gateway, Arc<SessionManager>) {
+impl FakeWorkflowControl {
+    fn new(result: Result<(), String>) -> Self {
+        Self {
+            owner_calls: Mutex::new(Vec::new()),
+            owner_result: result,
+        }
+    }
+
+    fn owner_calls(&self) -> Vec<String> {
+        self.owner_calls
+            .lock()
+            .expect("owner calls poisoned")
+            .clone()
+    }
+}
+
+#[async_trait]
+impl WorkflowControl for FakeWorkflowControl {
+    async fn start(&self, _session_id: &str, _workflow_name: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    async fn on_owner_message(&self, session_id: &str) -> Result<(), String> {
+        self.owner_calls
+            .lock()
+            .expect("owner calls poisoned")
+            .push(session_id.to_owned());
+        self.owner_result.clone()
+    }
+
+    async fn terminate(&self, _session_id: &str) -> Result<(), String> {
+        Ok(())
+    }
+}
+
+// ── Recording /workflow handler + router ───────────────────────────────
+
+/// Handler recording `handle` invocations; replies with a text result.
+struct RecordingHandler {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl SlashHandler for RecordingHandler {
+    fn clone_box(&self) -> Box<dyn SlashHandler> {
+        Box::new(RecordingHandler {
+            calls: Arc::clone(&self.calls),
+        })
+    }
+
+    fn commands(&self) -> &[&str] {
+        &["workflow"]
+    }
+
+    fn description(&self) -> &str {
+        "recording workflow handler"
+    }
+
+    async fn handle(&self, args: &str, _ctx: &SlashContext) -> SlashResult {
+        self.calls
+            .lock()
+            .expect("handler calls poisoned")
+            .push(args.to_owned());
+        SlashResult::Reply(format!("handled:{args}"))
+    }
+}
+
+struct RecordingRouter {
+    calls: Arc<Mutex<Vec<String>>>,
+}
+
+#[async_trait]
+impl SlashRouter for RecordingRouter {
+    async fn dispatch(&self, _content: &str, _ctx: &SlashContext) -> Option<SlashResult> {
+        None
+    }
+
+    fn is_immediate(&self, _command: &str) -> bool {
+        false
+    }
+
+    fn get_handler(&self, command: &str) -> Option<Box<dyn SlashHandler>> {
+        if command == "workflow" {
+            Some(Box::new(RecordingHandler {
+                calls: Arc::clone(&self.calls),
+            }))
+        } else {
+            None
+        }
+    }
+}
+
+// ── Test environment ───────────────────────────────────────────────────
+
+const SID: &str = "sid-owner";
+const OWNER: &str = "owner-123";
+
+struct TestEnv {
+    gw: Arc<Gateway>,
+    sm: Arc<SessionManager>,
+    control: Option<Arc<FakeWorkflowControl>>,
+    spy: Arc<Mutex<Vec<String>>>,
+    handler_calls: Arc<Mutex<Vec<String>>>,
+    _cooldown_dir: tempfile::TempDir,
+}
+
+impl TestEnv {
+    fn owner_calls(&self) -> Vec<String> {
+        self.control
+            .as_ref()
+            .map(|c| c.owner_calls())
+            .unwrap_or_default()
+    }
+
+    fn handler_calls(&self) -> Vec<String> {
+        self.handler_calls.lock().expect("calls poisoned").clone()
+    }
+
+    fn spy_texts(&self) -> Vec<String> {
+        self.spy.lock().expect("spy poisoned").clone()
+    }
+
+    /// Text blocks currently present in the session transcript.
+    async fn transcript_texts(&self) -> Vec<String> {
+        let cs = self.sm.get_conversation_session(SID).await.unwrap();
+        let cs = cs.read().await;
+        cs.messages()
+            .iter()
+            .filter_map(|m| {
+                m.content_blocks.iter().find_map(|b| match b {
+                    ContentBlock::Text(t) => Some(t.clone()),
+                    _ => None,
+                })
+            })
+            .collect()
+    }
+}
+
+/// Full env: mock-persisted checkpoint (owner = `owner-123`), registered
+/// session, conversation session, optional control, spy plugin, recording
+/// router, and a session handler so non-slash messages flow through
+/// `dispatch_to_handler`.
+async fn setup_env(owner_result: Option<Result<(), String>>) -> TestEnv {
+    let config = GatewayConfig {
+        name: "test".to_owned(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        ..Default::default()
+    };
     let persist = Arc::new(SnapshotMockPersist::new());
-    // Save a checkpoint so get_sender_id can load sender_id.
-    let mut cp = SessionCheckpoint::new(sid.to_string());
-    cp.sender_id = Some("owner-123".to_string());
+    let mut cp = SessionCheckpoint::new(SID.to_owned());
+    cp.sender_id = Some(OWNER.to_owned());
     persist.save_checkpoint(&cp).await.unwrap();
 
     let sm = Arc::new(SessionManager::new(
-        &test_config(),
+        &config,
         Some(Arc::clone(&persist) as Arc<dyn PersistenceService>),
         None,
-        Default::default(),
+        ReasoningLevel::default(),
     ));
-    // Register session in sessions map.
     sm.sessions.write().await.insert(
-        sid.to_string(),
-        crate::Session {
-            id: sid.to_string(),
+        SID.to_owned(),
+        Session {
+            id: SID.to_owned(),
             agent_id: "test-agent".into(),
             channel: "mock".into(),
             created_at: 0,
             depth: 0,
         },
     );
+    sm.conversation_sessions.write().await.insert(
+        SID.to_owned(),
+        Arc::new(RwLock::new(ConversationSession::new(
+            SID.to_owned(),
+            "model".to_owned(),
+            std::env::temp_dir(),
+        ))),
+    );
 
-    let cm = Arc::new(
-        closeclaw_session::checkpoint_manager::CheckpointManager::new(
-            Arc::clone(&persist) as Arc<dyn PersistenceService>
+    let control = owner_result.map(|r| Arc::new(FakeWorkflowControl::new(r)));
+    if let Some(ctrl) = &control {
+        sm.set_workflow_control(Arc::clone(ctrl) as Arc<dyn WorkflowControl>)
+            .await;
+    }
+
+    let spy = Arc::new(Mutex::new(Vec::new()));
+    let gw = Gateway::new_for_tests(config, Arc::clone(&sm));
+    gw.register_plugin(Arc::new(SpyPlugin::new(Arc::clone(&spy))))
+        .await;
+    let handler_calls = Arc::new(Mutex::new(Vec::new()));
+    gw.set_slash_dispatcher(Arc::new(RecordingRouter {
+        calls: Arc::clone(&handler_calls),
+    }))
+    .await;
+
+    let cooldown_dir = tempfile::TempDir::new().expect("temp dir");
+    let ufc = Arc::new(closeclaw_llm::unified_fallback::UnifiedFallbackClient::new(
+        vec![],
+        Arc::new(closeclaw_llm::retry::CooldownManager::with_path(
+            cooldown_dir.path().join("llm_cooldowns.json"),
+        )),
+    ));
+    let handler = Arc::new(
+        crate::session_handler::SessionMessageHandler::new_no_output(
+            Arc::clone(&sm),
+            ufc,
+            None,
+            closeclaw_session::compaction::CompactConfig::default(),
         ),
     );
-    let gw =
-        crate::Gateway::new_for_tests(test_config(), Arc::clone(&sm)).with_checkpoint_manager(cm);
+    let gw = Arc::new(gw.with_session_handler(handler));
 
-    // Insert a conversation session with a workflow handler.
-    let mut cs = make_session_with_reason(phase, 3, paused_reason);
-    cs.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
-    sm.conversation_sessions
-        .write()
+    TestEnv {
+        gw,
+        sm,
+        control,
+        spy,
+        handler_calls,
+        _cooldown_dir: cooldown_dir,
+    }
+}
+
+/// Route a non-slash message through `route_and_dispatch`.
+async fn route_non_slash(
+    env: &TestEnv,
+    content: &str,
+    sender: Option<&str>,
+) -> Option<HandleResult> {
+    env.gw
+        .route_and_dispatch(
+            &routed_msg(content, "peer-owner"),
+            SID,
+            content.to_owned(),
+            None,
+            sender,
+            "peer-owner",
+            "mock",
+            &empty_dbg(),
+        )
         .await
-        .insert(sid.to_string(), Arc::new(RwLock::new(cs)));
-
-    (gw, sm)
 }
 
-/// Definition-changed pause → resolve returns Some("rejected_resolve").
-#[tokio::test]
-async fn test_resolve_owner_action_rejects_definition_changed_pause() {
-    let (gw, _sm) = setup_resolve_test(
-        "sid-reject",
-        Phase::Blocked,
-        DEFINITION_CHANGED_PAUSE_REASON,
-    )
-    .await;
-    let result = gw
-        .resolve_owner_action("sid-reject", Some("owner-123"), "恢复")
-        .await;
-    assert_eq!(result.as_deref(), Some("rejected_resolve"));
+/// Route a slash message through `route_and_dispatch`.
+async fn route_slash(env: &TestEnv, content: &str, sender: Option<&str>) -> Option<HandleResult> {
+    env.gw
+        .route_and_dispatch(
+            &routed_msg(content, "peer-owner"),
+            SID,
+            content.to_owned(),
+            None,
+            sender,
+            "peer-owner",
+            "mock",
+            &empty_dbg(),
+        )
+        .await
 }
 
-/// Normal blocked pause → resolve returns Some("resolve").
+// ── Tests: owner non-slash notification ───────────────────────────────
+
+/// Owner non-slash message → `on_owner_message` called with the session
+/// id, and the message continues routing (appended to the transcript).
 #[tokio::test]
-async fn test_resolve_owner_action_allows_normal_blocked_pause() {
-    let (gw, _sm) = setup_resolve_test("sid-resolve", Phase::Blocked, "Agent 主动阻塞").await;
-    let result = gw
-        .resolve_owner_action("sid-resolve", Some("owner-123"), "恢复")
-        .await;
-    assert_eq!(result.as_deref(), Some("resolve"));
+async fn test_owner_message_notifies_engine_and_continues_routing() {
+    let env = setup_env(Some(Ok(()))).await;
+    let result = route_non_slash(&env, "请继续", Some(OWNER)).await;
+
+    assert_eq!(
+        env.owner_calls(),
+        vec![SID.to_owned()],
+        "engine must be notified of the owner message"
+    );
+    // The message was not consumed: it flowed into the session handler
+    // (which fails on the missing LLM caller after appending the message).
+    assert!(
+        matches!(result, Some(HandleResult::Error(_))),
+        "message must continue routing, got {result:?}"
+    );
+    let texts = env.transcript_texts().await;
+    assert!(
+        texts.iter().any(|t| t.contains("请继续")),
+        "message must reach the session transcript, got {texts:?}"
+    );
 }
 
-/// Non-Blocked phase → resolve returns None.
+/// Non-owner message → engine NOT called; message still routes.
 #[tokio::test]
-async fn test_resolve_owner_action_returns_none_when_not_blocked() {
-    let (gw, _sm) = setup_resolve_test("sid-none", Phase::Verifying, "").await;
-    let result = gw
-        .resolve_owner_action("sid-none", Some("owner-123"), "恢复")
-        .await;
-    assert_eq!(result, None);
+async fn test_non_owner_message_skips_engine_notification() {
+    let env = setup_env(Some(Ok(()))).await;
+    let result = route_non_slash(&env, "hello", Some("random-user")).await;
+
+    assert!(
+        env.owner_calls().is_empty(),
+        "engine must not be notified for non-owner messages"
+    );
+    assert!(matches!(result, Some(HandleResult::Error(_))));
+    let texts = env.transcript_texts().await;
+    assert!(texts.iter().any(|t| t.contains("hello")));
 }
 
-/// Empty paused_reason (boundary) → resolve returns Some("resolve").
+/// Control unwired → silent skip; message still routes.
 #[tokio::test]
-async fn test_resolve_owner_action_empty_paused_reason_not_rejected() {
-    let (gw, _sm) = setup_resolve_test("sid-empty", Phase::Blocked, "").await;
-    let result = gw
-        .resolve_owner_action("sid-empty", Some("owner-123"), "恢复")
-        .await;
-    assert_eq!(result.as_deref(), Some("resolve"));
+async fn test_owner_message_unwired_control_silently_skips() {
+    let env = setup_env(None).await;
+    let result = route_non_slash(&env, "hello owner", Some(OWNER)).await;
+
+    assert_eq!(env.owner_calls(), Vec::<String>::new());
+    assert!(matches!(result, Some(HandleResult::Error(_))));
+    let texts = env.transcript_texts().await;
+    assert!(texts.iter().any(|t| t.contains("hello owner")));
 }
 
-/// Terminate still works with definition-changed pause.
+/// Engine error → logged, message still routes (non-blocking).
 #[tokio::test]
-async fn test_resolve_owner_action_terminate_works_with_definition_changed_pause() {
-    let (gw, _sm) = setup_resolve_test(
-        "sid-terminate",
-        Phase::Blocked,
-        DEFINITION_CHANGED_PAUSE_REASON,
-    )
-    .await;
-    let result = gw
-        .resolve_owner_action("sid-terminate", Some("owner-123"), "终止")
-        .await;
-    assert_eq!(result.as_deref(), Some("terminate"));
+async fn test_engine_error_does_not_block_routing() {
+    let env = setup_env(Some(Err("engine failure".to_owned()))).await;
+    let result = route_non_slash(&env, "请继续", Some(OWNER)).await;
+
+    assert_eq!(
+        env.owner_calls(),
+        vec![SID.to_owned()],
+        "engine must be invoked even when it errors"
+    );
+    assert!(matches!(result, Some(HandleResult::Error(_))));
+    let texts = env.transcript_texts().await;
+    assert!(
+        texts.iter().any(|t| t.contains("请继续")),
+        "message must continue routing despite engine error"
+    );
 }
 
-/// Non-owner sender → resolve returns None.
+/// Legacy keyword messages ("恢复"/"终止") are no longer intercepted or
+/// consumed: each one notifies the engine (if owner) and routes onward.
 #[tokio::test]
-async fn test_resolve_owner_action_rejects_non_owner() {
-    let (gw, _sm) = setup_resolve_test("sid-nonowner", Phase::Blocked, "").await;
-    let result = gw
-        .resolve_owner_action("sid-nonowner", Some("random-user"), "恢复")
-        .await;
-    assert_eq!(result, None);
+async fn test_legacy_keywords_no_longer_intercepted() {
+    let env = setup_env(Some(Ok(()))).await;
+    for keyword in ["恢复", "终止"] {
+        // Reset the idle state: the previous dispatch left the session in
+        // Requesting (no LLM caller), which would queue the next message.
+        let cs = env.sm.get_conversation_session(SID).await.unwrap();
+        cs.write()
+            .await
+            .set_llm_state(closeclaw_common::LlmState::Idle);
+        let result = route_non_slash(&env, keyword, Some(OWNER)).await;
+        assert!(
+            !matches!(
+                result,
+                Some(HandleResult::SlashHandled | HandleResult::ApprovalProcessed)
+            ),
+            "keyword message must not be consumed, got {result:?}"
+        );
+        assert!(
+            matches!(result, Some(HandleResult::Error(_))),
+            "keyword message must continue routing, got {result:?}"
+        );
+    }
+    assert_eq!(
+        env.owner_calls(),
+        vec![SID.to_owned(), SID.to_owned()],
+        "each keyword message must notify the engine"
+    );
+    let texts = env.transcript_texts().await;
+    assert!(texts.iter().any(|t| t.contains("恢复")));
+    assert!(texts.iter().any(|t| t.contains("终止")));
 }
 
-/// Unknown message content → resolve returns None.
+// ── Tests: /workflow gateway-layer hard intercept ──────────────────────
+
+/// `/workflow` from a non-owner → permission-denied reply, handler never
+/// invoked (does not enter the SlashDispatcher). `None` sender counts as
+/// non-owner too.
 #[tokio::test]
-async fn test_resolve_owner_action_unknown_content_returns_none() {
-    let (gw, _sm) = setup_resolve_test("sid-unknown", Phase::Blocked, "").await;
-    let result = gw
-        .resolve_owner_action("sid-unknown", Some("owner-123"), "something else")
-        .await;
-    assert_eq!(result, None);
+async fn test_workflow_non_owner_rejected_before_dispatcher() {
+    let env = setup_env(Some(Ok(()))).await;
+    for sender in [Some("random-user"), None] {
+        let result = route_slash(&env, "/workflow deploy", sender).await;
+        assert!(
+            matches!(result, Some(HandleResult::SlashHandled)),
+            "non-owner /workflow must be consumed at the gate, got {result:?}"
+        );
+        assert!(
+            env.handler_calls().is_empty(),
+            "handler must not be invoked for non-owner /workflow"
+        );
+        let texts = env.spy_texts();
+        assert!(
+            texts.iter().any(|t| t.contains("权限不足")),
+            "permission-denied reply expected, got {texts:?}"
+        );
+    }
+    assert!(
+        env.owner_calls().is_empty(),
+        "slash commands must not trigger owner-message notification"
+    );
+}
+
+/// The literal user id `"owner"` is NOT privileged by itself: the gate
+/// compares against the checkpoint sender id, so a sender literally
+/// named "owner" on a session owned by `owner-123` is rejected
+/// (regression guard for the pre-Step-1.9 literal criterion).
+#[tokio::test]
+async fn test_workflow_literal_owner_id_not_privileged() {
+    let env = setup_env(Some(Ok(()))).await;
+    let result = route_slash(&env, "/workflow deploy", Some("owner")).await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "literal-owner sender must be consumed at the gate, got {result:?}"
+    );
+    assert!(
+        env.handler_calls().is_empty(),
+        "handler must not be invoked for a non-owner sender id"
+    );
+    let texts = env.spy_texts();
+    assert!(
+        texts.iter().any(|t| t.contains("权限不足")),
+        "permission-denied reply expected, got {texts:?}"
+    );
+}
+
+/// `/workflow` from the session owner → dispatched to the handler
+/// normally. The owner criterion is the checkpoint sender id
+/// (`owner-123`), not the literal `"owner"`.
+#[tokio::test]
+async fn test_workflow_owner_dispatched_to_handler() {
+    let env = setup_env(Some(Ok(()))).await;
+    let result = route_slash(&env, "/workflow deploy", Some(OWNER)).await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "owner /workflow must be dispatched, got {result:?}"
+    );
+    assert_eq!(
+        env.handler_calls(),
+        vec!["deploy".to_owned()],
+        "handler must receive the workflow name"
+    );
+    let texts = env.spy_texts();
+    assert!(
+        !texts.iter().any(|t| t.contains("权限不足")),
+        "no permission-denied reply for owner, got {texts:?}"
+    );
+    assert!(
+        texts.iter().any(|t| t.contains("handled:deploy")),
+        "handler reply expected, got {texts:?}"
+    );
+}
+
+/// Non-`/workflow` slash commands pass the gate untouched and reach the
+/// SlashDispatcher (unknown command reply in this env).
+#[tokio::test]
+async fn test_non_workflow_slash_not_intercepted() {
+    let env = setup_env(Some(Ok(()))).await;
+    let result = route_slash(&env, "/status", Some("random-user")).await;
+
+    assert!(
+        matches!(result, Some(HandleResult::SlashHandled)),
+        "unknown slash command must reach the dispatcher, got {result:?}"
+    );
+    assert!(env.handler_calls().is_empty());
+    let texts = env.spy_texts();
+    assert!(
+        texts.iter().any(|t| t.contains("未知指令")),
+        "dispatcher unknown-command reply expected, got {texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.contains("权限不足")),
+        "non-/workflow commands must not be permission-blocked"
+    );
 }

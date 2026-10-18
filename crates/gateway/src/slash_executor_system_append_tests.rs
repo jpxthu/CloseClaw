@@ -57,7 +57,7 @@ impl CountingMockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for CountingMockExecutor {
-    async fn execute_stop(&self, _: &str) {}
+    async fn execute_stop(&self, _: &str, _: Option<&str>) {}
     async fn execute_new_session(&self, _: &str, _: &str) -> String {
         "mock-id".into()
     }
@@ -101,6 +101,7 @@ fn make_counting_ctx(
     let ctx = SideEffectContext {
         session_id: "sess-counting".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: Arc::new(MockSessionLookup),
         reply_tx: tx,
         executor: exec,
@@ -163,7 +164,7 @@ async fn test_system_append_clear_zero_items() {
 
     #[async_trait]
     impl SlashEffectExecutor for ZeroClearMockExecutor {
-        async fn execute_stop(&self, _: &str) {}
+        async fn execute_stop(&self, _: &str, _: Option<&str>) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "mock-id".into()
         }
@@ -195,6 +196,7 @@ async fn test_system_append_clear_zero_items() {
     let ctx = SideEffectContext {
         session_id: "sess-zero".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: Arc::new(MockSessionLookup),
         reply_tx: tx,
         executor: Arc::new(ZeroClearMockExecutor),

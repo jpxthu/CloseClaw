@@ -5,6 +5,7 @@
 //! in the parent module can call them.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::shutdown::ShutdownMode;
@@ -16,13 +17,28 @@ use super::session_manager::stop::{GracefulStopOutcome, StopOptions};
 use super::{SessionManager, SessionMessageHandler};
 
 /// Stop the current LLM turn, escalating to forceful on timeout.
-pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool, force: bool) {
+///
+/// `timeout` is the graceful wait budget; production passes
+/// `DEFAULT_GRACEFUL_TIMEOUT`, tests may pass a shorter one.
+///
+/// Entry ③ tail: once the stop flow has finished (including the
+/// forceful escalation after a graceful timeout), an owner `/stop`
+/// also terminates the session's active workflow — see
+/// [`terminate_workflow_after_stop`]. A failed stop leaves the
+/// workflow untouched.
+pub(crate) async fn gw_stop(
+    sm: &SessionManager,
+    session_id: &str,
+    cascade: bool,
+    force: bool,
+    sender_id: Option<&str>,
+    timeout: Duration,
+) {
     let mode = if force {
         ShutdownMode::Forceful
     } else {
         ShutdownMode::Graceful
     };
-    let timeout = closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
     let result = sm
         .stop_single_session(
             session_id,
@@ -36,7 +52,7 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
         )
         .await;
 
-    match result {
+    match &result {
         Ok(GracefulStopOutcome::Completed) => {
             tracing::info!(session_id, force, cascade, "session stopped successfully");
         }
@@ -74,6 +90,42 @@ pub(crate) async fn gw_stop(sm: &SessionManager, session_id: &str, cascade: bool
         Err(e) => {
             tracing::warn!(session_id, error = ?e, "stop failed");
         }
+    }
+
+    if result.is_ok() {
+        terminate_workflow_after_stop(sm, session_id, sender_id).await;
+    }
+}
+
+/// Terminate the session's active workflow after an owner `/stop`
+/// (`closeclaw_common::WorkflowControl::terminate`, entry ③).
+///
+/// Owner means the sender matches the session checkpoint's sender id
+/// (`SessionManager::get_sender_id`, same criterion as entry ②).
+/// No-op when the sender is not the owner or no control is wired;
+/// engine errors are logged (terminate is idempotent per
+/// core-traits.md#workflowcontrol).
+async fn terminate_workflow_after_stop(
+    sm: &SessionManager,
+    session_id: &str,
+    sender_id: Option<&str>,
+) {
+    let Some(sender) = sender_id else {
+        return;
+    };
+    let owner_id = sm.get_sender_id(session_id).await;
+    if owner_id.as_deref() != Some(sender) {
+        return;
+    }
+    let Some(control) = sm.get_workflow_control().await else {
+        return;
+    };
+    if let Err(e) = control.terminate(session_id).await {
+        tracing::warn!(
+            session_id = %session_id,
+            error = %e,
+            "workflow terminate after owner /stop failed"
+        );
     }
 }
 

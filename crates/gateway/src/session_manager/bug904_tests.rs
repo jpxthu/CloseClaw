@@ -2,7 +2,9 @@ use super::*;
 use crate::GatewayConfig;
 use async_trait::async_trait;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_session::persistence::{AgentRole, PersistenceError, SessionCheckpoint};
+use closeclaw_session::persistence::{
+    AgentRole, PersistenceError, SessionCheckpoint, SessionStatus,
+};
 use std::sync::Arc;
 use tokio::sync::Mutex;
 

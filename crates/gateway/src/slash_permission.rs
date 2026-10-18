@@ -28,7 +28,7 @@ use crate::outbound::SendOutboundIds;
 /// Returns `Some((command, args))` where `command` is without the
 /// leading `/` and `args` is the remainder. Returns `None` if the
 /// content does not start with `/`.
-fn parse_slash(content: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_slash(content: &str) -> Option<(&str, &str)> {
     let trimmed = content.trim();
     if !trimmed.starts_with('/') {
         return None;
@@ -354,7 +354,13 @@ impl Gateway {
 
     /// Execute a [`SlashResult`]'s side effects and route replies back
     /// through the outbound processor chain.
-    async fn execute_side_effects(&self, result: SlashResult, session_id: &str, channel: &str) {
+    async fn execute_side_effects(
+        &self,
+        result: SlashResult,
+        session_id: &str,
+        sender_id: Option<&str>,
+        channel: &str,
+    ) {
         let (reply_tx, mut reply_rx) = tokio::sync::mpsc::channel(8);
         let session_mgr: Arc<dyn closeclaw_common::SessionLookup> =
             self.session_manager.clone() as Arc<dyn closeclaw_common::SessionLookup>;
@@ -365,6 +371,7 @@ impl Gateway {
         let side_effect_ctx = SideEffectContext {
             session_id: session_id.to_owned(),
             channel: channel.to_owned(),
+            sender_id: sender_id.map(str::to_owned),
             session_lookup: session_mgr,
             reply_tx,
             executor,
@@ -409,7 +416,7 @@ impl Gateway {
             return Some(HandleResult::SlashHandled);
         }
 
-        self.execute_side_effects(result, ctx.session_id, ctx.channel)
+        self.execute_side_effects(result, ctx.session_id, ctx.sender_id, ctx.channel)
             .await;
         Some(HandleResult::SlashHandled)
     }
@@ -436,8 +443,36 @@ use crate::slash_executor_helpers::*;
 
 #[async_trait::async_trait]
 impl SlashEffectExecutor for GatewaySlashExecutor {
-    async fn execute_stop(&self, session_id: &str) {
-        gw_stop(&self.session_manager, session_id, true, true).await;
+    /// Stop the current LLM turn (Forceful semantics). When the sender
+    /// is the session owner, the stop flow also terminates the
+    /// session's active workflow (gateway README entry ③).
+    async fn execute_stop(&self, session_id: &str, sender_id: Option<&str>) {
+        gw_stop(
+            &self.session_manager,
+            session_id,
+            true,
+            true,
+            sender_id,
+            closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT,
+        )
+        .await;
+    }
+
+    /// Start a workflow via the injected [`WorkflowControl`].
+    ///
+    /// Delegates to the workflow engine control wired by the daemon;
+    /// returns an error when no control is configured (engine not
+    /// wired), which the caller turns into an error reply carrying
+    /// the workflow name.
+    async fn execute_workflow_start(
+        &self,
+        session_id: &str,
+        workflow_name: &str,
+    ) -> Result<(), String> {
+        let Some(control) = self.session_manager.get_workflow_control().await else {
+            return Err("workflow 引擎未配置".to_string());
+        };
+        control.start(session_id, workflow_name).await
     }
 
     async fn execute_new_session(&self, _session_id: &str, channel: &str) -> String {

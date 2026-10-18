@@ -6,7 +6,7 @@ use std::sync::{Arc, Mutex};
 
 use tokio::sync::mpsc;
 
-use crate::executor::{ReplyAction, SideEffectContext, SlashResultExecutor};
+use crate::executor::{ReplyAction, SideEffectContext, SlashEffectExecutor, SlashResultExecutor};
 use crate::executor_test_utils::{
     make_ctx, ExecutorCall, MockSessionLookup, MockSlashEffectExecutor,
     MockSlashEffectExecutorError,
@@ -50,7 +50,7 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
 
     let calls = mock.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0], ExecutorCall::Stop("s2".into()));
+    assert_eq!(calls[0], ExecutorCall::Stop("s2".into(), None));
     drop(calls);
 
     let replies = mock.drain_replies();
@@ -61,6 +61,118 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
+}
+
+// ── Test: Stop forwards ctx.sender_id ─────────────────────────────────
+
+/// `SlashResult::Stop` must forward `ctx.sender_id` to the executor —
+/// the gateway relies on it for owner-scoped workflow termination.
+#[tokio::test]
+async fn test_stop_forwards_ctx_sender_id_to_executor() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let (tx, _rx) = mpsc::channel::<ReplyAction>(8);
+    let ctx = SideEffectContext {
+        session_id: "s-sender".into(),
+        channel: "feishu".into(),
+        sender_id: Some("owner-1".into()),
+        session_lookup: sm,
+        reply_tx: tx,
+        executor: Arc::clone(&mock) as Arc<dyn SlashEffectExecutor>,
+    };
+
+    SlashResult::Stop.execute(&ctx).await;
+
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(
+        calls[0],
+        ExecutorCall::Stop("s-sender".into(), Some("owner-1".into()))
+    );
+}
+
+// ── Test: WorkflowStart success ───────────────────────────────────────
+
+#[tokio::test]
+async fn test_workflow_start_calls_executor_and_replies_confirmation() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let ctx = make_ctx(Arc::clone(&mock), "s-wf", "feishu", sm);
+
+    SlashResult::WorkflowStart {
+        name: "onboard".into(),
+    }
+    .execute(&ctx)
+    .await;
+
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(calls.len(), 1);
+    assert_eq!(
+        calls[0],
+        ExecutorCall::WorkflowStart("s-wf".into(), "onboard".into())
+    );
+    drop(calls);
+
+    let replies = mock.drain_replies();
+    assert_eq!(replies.len(), 1);
+    match &replies[0] {
+        ReplyAction::Reply(blocks) => match &blocks[0] {
+            ContentBlock::Text(t) => assert_eq!(t, "已启动 workflow：onboard"),
+            other => panic!("expected Text, got {other:?}"),
+        },
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── Test: WorkflowStart error ─────────────────────────────────────────
+
+#[tokio::test]
+async fn test_workflow_start_error_replies_with_error_text() {
+    let mock = Arc::new(MockSlashEffectExecutor::with_workflow_start_error(
+        "active run exists",
+    ));
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let ctx = make_ctx(Arc::clone(&mock), "s-wf-err", "feishu", sm);
+
+    SlashResult::WorkflowStart {
+        name: "onboard".into(),
+    }
+    .execute(&ctx)
+    .await;
+
+    // The WorkflowStart branch must dispatch to the executor method.
+    assert_eq!(
+        mock.calls.lock().unwrap()[0],
+        ExecutorCall::WorkflowStart("s-wf-err".into(), "onboard".into())
+    );
+
+    let replies = mock.drain_replies();
+    assert_eq!(replies.len(), 1);
+    match &replies[0] {
+        ReplyAction::Reply(blocks) => match &blocks[0] {
+            ContentBlock::Text(t) => {
+                assert!(t.contains("onboard"), "reply should name the workflow: {t}");
+                assert!(
+                    t.contains("active run exists"),
+                    "reply should carry the error: {t}"
+                );
+            }
+            other => panic!("expected Text, got {other:?}"),
+        },
+        other => panic!("expected Reply, got {other:?}"),
+    }
+}
+
+// ── Test: WorkflowStart default impl returns unsupported ─────────────
+
+/// `MockSlashEffectExecutorError` does not override `execute_workflow_start`,
+/// so this exercises the trait's default implementation.
+#[tokio::test]
+async fn test_workflow_start_default_impl_returns_unsupported() {
+    let executor = MockSlashEffectExecutorError;
+    let result = executor
+        .execute_workflow_start("s-wf-default", "onboard")
+        .await;
+    assert_eq!(result, Err("unsupported".to_string()));
 }
 
 // ── Test: SetMode with initial_input ──────────────────────────────────
@@ -286,6 +398,7 @@ async fn test_compact_error_replies_with_failure_message() {
     let ctx = SideEffectContext {
         session_id: "s8".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: sm,
         reply_tx: tx,
         executor: Arc::new(mock),

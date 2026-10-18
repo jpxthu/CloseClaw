@@ -973,7 +973,6 @@ dependencies = [
  "closeclaw-session",
  "closeclaw-skills",
  "closeclaw-test-support",
- "closeclaw-workflow",
  "filetime",
  "serde",
  "serde_json",
@@ -1058,12 +1057,15 @@ dependencies = [
 name = "closeclaw-workflow"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "chrono",
+ "closeclaw-common",
  "serde",
  "serde_json",
  "serde_yaml",
  "tempfile",
  "thiserror",
+ "tokio",
  "tracing",
 ]
 

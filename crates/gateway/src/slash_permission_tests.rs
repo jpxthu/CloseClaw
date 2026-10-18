@@ -691,7 +691,7 @@ async fn test_new_session_executor_replies_with_session_id() {
 
     #[async_trait::async_trait]
     impl SlashEffectExecutor for MockNewSessionExecutor {
-        async fn execute_stop(&self, _: &str) {}
+        async fn execute_stop(&self, _: &str, _: Option<&str>) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             self.new_id.clone()
         }
@@ -731,6 +731,7 @@ async fn test_new_session_executor_replies_with_session_id() {
     let side_effect_ctx = SideEffectContext {
         session_id: "test-sid".to_owned(),
         channel: "feishu".to_owned(),
+        sender_id: None,
         session_lookup: session_mgr,
         reply_tx,
         executor,

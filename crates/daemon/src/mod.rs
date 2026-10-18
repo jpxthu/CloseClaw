@@ -35,8 +35,8 @@ pub mod startup;
 pub mod tool_permission_adapter;
 pub mod tool_skill_access_adapter;
 pub mod trait_adapters;
-pub mod workflow_launcher_adapter;
 pub mod workflow_port_adapter;
+pub mod workflow_session_ops_adapter;
 #[cfg(test)]
 pub(crate) use closeclaw_config::{ConfigManager, ConfigSection};
 #[cfg(test)]
