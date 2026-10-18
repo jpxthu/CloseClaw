@@ -279,10 +279,11 @@ impl ConversationSession {
 
 /// Format a single [`ContentBlock`] into zero or more string fragments.
 ///
-/// This is the shared formatting logic used by both the legacy
-/// `build_api_request` path and the production `build_llm_messages_with_listing`
-/// path. Tool results are excluded here (they are appended as
-/// independent `role="tool"` messages by the caller).
+/// The sole call site is
+/// [`ConversationSession::convert_history_to_internal`], which both the
+/// production `build_llm_messages_with_listing` path and the legacy
+/// `build_api_request` path flow through. Tool results are excluded here
+/// (they are appended as independent `role="tool"` messages by the caller).
 fn format_content_block(b: &ContentBlock) -> Vec<String> {
     match b {
         ContentBlock::Text(t) => vec![t.clone()],
@@ -292,6 +293,11 @@ fn format_content_block(b: &ContentBlock) -> Vec<String> {
         ContentBlock::ToolUse { name, input, .. } => {
             vec![format!("[tool:{}] {}", name, input)]
         }
+        // Currently unreachable: the sole caller `convert_history_to_internal`
+        // filters out images before calling this function and preserves them as
+        // structured `content_blocks` (see its doc). This arm is kept to satisfy
+        // match exhaustiveness over all `ContentBlock` variants, and remains
+        // available to future call paths. See issue #3764.
         ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
         ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
         ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
