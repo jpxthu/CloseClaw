@@ -30,7 +30,7 @@ impl ConversationSession {
 
 // ── tool call registration & query ───────────────────────────────────────
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {
     // ── tool state ────────────────────────────────────────────────────────
 
@@ -117,7 +117,7 @@ impl ConversationSession {
 
 // ── activity dimensions ──────────────────────────────────────────────────
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {
     /// Returns the four-dimensional activity snapshot for this session.
     ///

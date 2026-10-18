@@ -127,6 +127,19 @@ impl LlmCaller for FakeCaller {
     }
 }
 
+/// Builds a session wired with a [`GateCheckMock`] shutdown handle and a
+/// [`FakeCaller`], with the shutdown flag already raised — the shared
+/// setup for the shutdown-gate rejection and gate-wording tests.
+fn shutting_down_session(id: &str) -> (ConversationSession, Arc<GateCheckMock>) {
+    let mut session = ConversationSession::new(id.into(), "gpt-4o".into(), tmp_path());
+    let sh = Arc::new(GateCheckMock::new());
+    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
+    session.set_llm_caller(caller);
+    sh.set_shutting_down(true);
+    (session, sh)
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Normal path: non-shutting-down sessions proceed with LLM call
 // ═══════════════════════════════════════════════════════════════════════════
@@ -175,14 +188,7 @@ async fn test_invoke_llm_streaming_proceeds_when_not_shutting_down() {
 /// `invoke_llm` returns `Cancelled` when shutting down.
 #[tokio::test]
 async fn test_invoke_llm_returns_cancelled_when_shutting_down() {
-    let mut session = ConversationSession::new("s_gate_reject".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-
-    sh.set_shutting_down(true);
+    let (mut session, _sh) = shutting_down_session("s_gate_reject");
 
     let result = session.invoke_llm("hello").await;
     assert!(result.is_err(), "invoke_llm should fail when shutting down");
@@ -195,15 +201,7 @@ async fn test_invoke_llm_returns_cancelled_when_shutting_down() {
 /// `invoke_llm_streaming` returns `Cancelled` when shutting down.
 #[tokio::test]
 async fn test_invoke_llm_streaming_returns_cancelled_when_shutting_down() {
-    let mut session =
-        ConversationSession::new("s_gate_stream_reject".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-
-    sh.set_shutting_down(true);
+    let (mut session, _sh) = shutting_down_session("s_gate_stream_reject");
 
     let result = session.invoke_llm_streaming("hello").await;
     assert!(
@@ -226,13 +224,7 @@ async fn test_invoke_llm_streaming_returns_cancelled_when_shutting_down() {
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_invoke_llm_shutdown_gate_logs_non_streaming_wording() {
-    let mut session =
-        ConversationSession::new("s_gate_word_ns".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-    sh.set_shutting_down(true);
+    let (mut session, _sh) = shutting_down_session("s_gate_word_ns");
 
     let (result, logs) = capture_logs_async(
         || async { session.invoke_llm("hello").await },
@@ -256,13 +248,7 @@ async fn test_invoke_llm_shutdown_gate_logs_non_streaming_wording() {
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_invoke_llm_streaming_shutdown_gate_logs_streaming_wording() {
-    let mut session =
-        ConversationSession::new("s_gate_word_st".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-    sh.set_shutting_down(true);
+    let (mut session, _sh) = shutting_down_session("s_gate_word_st");
 
     let (result, logs) = capture_logs_async(
         || async { session.invoke_llm_streaming("hello").await },
