@@ -173,3 +173,24 @@ fn test_build_api_request_does_not_modify_self_messages() {
     assert_eq!(session.messages().len(), original_count);
     assert_eq!(session.messages()[0].content_blocks.len(), original_blocks);
 }
+
+// ── kept Thinking block: request-side flatten format ──────────────────────
+
+// A kept (non-trailing) Thinking block flattens to the
+// `<thinking>…</thinking>` wrapper in the converted request message
+// (format_content_block's Thinking arm). Conversion is called directly,
+// so trailing-thinking cleaning does not interfere.
+#[test]
+fn test_convert_history_keeps_thinking_wrapped_in_tag() {
+    let messages = vec![SessionMessage {
+        role: "assistant".into(),
+        content_blocks: vec![ContentBlock::Thinking {
+            thinking: "mid reasoning".into(),
+            signature: None,
+        }],
+        timestamp: Utc::now(),
+    }];
+    let internal = ConversationSession::convert_history_to_internal(&messages);
+    assert_eq!(internal.len(), 1);
+    assert_eq!(internal[0].content, "<thinking>mid reasoning</thinking>");
+}

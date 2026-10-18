@@ -14,32 +14,10 @@
 //! `super::session_llm_skill_prep` and message assembly / request
 //! building in `super::session_llm_request_build`.
 
-use closeclaw_common::{CallTarget, ContentBlock, LLMError, UnifiedResponse};
+use closeclaw_common::{CallTarget, InternalRequest, LLMError, LlmCaller, UnifiedResponse};
 
 use super::streaming_assembly::SessionStream;
 use super::ConversationSession;
-
-/// Format a single [`ContentBlock`] into zero or more string fragments.
-///
-/// This is the shared formatting logic used by both the legacy
-/// `build_api_request` path and the production `build_llm_messages_with_listing`
-/// path. Tool results are excluded here (they are appended as
-/// independent `role="tool"` messages by the caller).
-pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
-    match b {
-        ContentBlock::Text(t) => vec![t.clone()],
-        ContentBlock::Thinking { thinking: t, .. } => {
-            vec![format!("<thinking>{}</thinking>", t)]
-        }
-        ContentBlock::ToolUse { name, input, .. } => {
-            vec![format!("[tool:{}] {}", name, input)]
-        }
-        ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
-        ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
-        ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
-        ContentBlock::ToolResult { .. } => vec![],
-    }
-}
 
 /// Session state flags and accessors: compaction / sub-agent
 /// markers, mode-transition slot, and plan file path.
@@ -175,6 +153,35 @@ impl ConversationSession {
             }
         }
 
+        let (caller, request) =
+            self.prepare_llm_turn_request(content, user_blocks_pre_appended, false)?;
+
+        // ── Busy count: increment before LLM call, decrement after ──
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.increment_busy();
+        }
+        let result = caller.call_with_target(request).await;
+        if let Some(sh) = self.get_shutdown_handle() {
+            sh.decrement_busy();
+        }
+        result
+    }
+}
+
+/// Shared request preparation for the invocation cores above: caller
+/// extraction → per-turn skill listing preparation → message
+/// assembly → [`InternalRequest`] construction (`is_streaming`
+/// selects the streaming variant) → cache prefix snapshot staging.
+///
+/// The shutdown gate and busy-count ownership stay with each core —
+/// their log wording and busy return timing differ.
+impl ConversationSession {
+    fn prepare_llm_turn_request(
+        &mut self,
+        content: &str,
+        user_blocks_pre_appended: bool,
+        is_streaming: bool,
+    ) -> Result<(std::sync::Arc<dyn LlmCaller>, InternalRequest), LLMError> {
         let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
                 "no LlmCaller injected into session".to_string(),
@@ -185,7 +192,7 @@ impl ConversationSession {
         let messages =
             self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
-        let request = self.build_llm_request(messages, false);
+        let request = self.build_llm_request(messages, is_streaming);
 
         // Stage this round's prefix snapshot at the request-build
         // completion point (cache consistency check; consumed at the
@@ -197,15 +204,7 @@ impl ConversationSession {
             &request.messages,
         );
 
-        // ── Busy count: increment before LLM call, decrement after ──
-        if let Some(sh) = self.get_shutdown_handle() {
-            sh.increment_busy();
-        }
-        let result = caller.call_with_target(request).await;
-        if let Some(sh) = self.get_shutdown_handle() {
-            sh.decrement_busy();
-        }
-        result
+        Ok((caller, request))
     }
 }
 
@@ -229,7 +228,8 @@ impl ConversationSession {
     /// then delegates to the LLM caller.
     ///
     /// Returns a [`SessionStream`] that wraps the raw LLM event stream
-    /// and accumulates [`ContentBlock`]s
+    /// and accumulates
+    /// [`ContentBlock`](closeclaw_common::ContentBlock)s
     /// as events pass through. After the stream is fully consumed,
     /// call [`SessionStream::into_content_blocks`] to extract the
     /// assembled result.
@@ -283,27 +283,8 @@ impl ConversationSession {
             }
         }
 
-        let Some(caller) = self.llm_caller.clone() else {
-            return Err(LLMError::InvalidRequest(
-                "no LlmCaller injected into session".to_string(),
-            ));
-        };
-
-        let listing = self.prepare_turn_skill_listing(content);
-        let messages =
-            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
-
-        let request = self.build_llm_request(messages, true);
-
-        // Stage this round's prefix snapshot at the request-build
-        // completion point (cache consistency check; consumed at the
-        // unified advancement point once usage fully arrives).
-        self.stage_cache_prefix_snapshot(
-            request.system_static.as_deref(),
-            request.system_dynamic.as_deref(),
-            request.tools.as_deref(),
-            &request.messages,
-        );
+        let (caller, request) =
+            self.prepare_llm_turn_request(content, user_blocks_pre_appended, true)?;
 
         // ── Busy count: increment before stream, decrement on stream end ──
         if let Some(sh) = self.get_shutdown_handle() {

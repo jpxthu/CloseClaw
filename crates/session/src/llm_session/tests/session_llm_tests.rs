@@ -268,7 +268,13 @@ fn test_set_and_get_llm_caller() {
 async fn test_invoke_llm_streaming_no_caller_returns_error() {
     let mut session = ConversationSession::new("s_stream_1".into(), "gpt-4o".into(), tmp_path());
     let result = session.invoke_llm_streaming("hello").await;
-    assert!(result.is_err(), "expected error when no LlmCaller injected");
+    match result.err().unwrap() {
+        LLMError::InvalidRequest(msg) => assert!(
+            msg.contains("no LlmCaller"),
+            "expected no-caller InvalidRequest message, got: {msg}"
+        ),
+        other => panic!("expected InvalidRequest, got {:?}", other),
+    }
 }
 
 // ── invoke_llm_streaming success path ────────────────────────────────

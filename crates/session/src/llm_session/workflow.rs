@@ -174,6 +174,17 @@ impl ConversationSession {
         }
     }
 
+    pub fn take_workflow_notification(
+        &mut self,
+    ) -> Option<crate::workflow_handler::WorkflowNotification> {
+        self.workflow_handler
+            .as_mut()
+            .and_then(|h| h.take_notification())
+    }
+}
+
+// ── Workflow state queries ──────────────────────────────────────
+impl ConversationSession {
     /// Erase verify injection + tool_call + tool_result when blocked phase
     /// is entered. Mirrors the erasure done on verify→jump transitions.
     fn erase_blocked_phase_messages(&mut self) {
@@ -186,14 +197,6 @@ impl ConversationSession {
             self.remove_workflow_tool_exchange(&["workflow_verify", "workflow_blocked"]);
             tracing::debug!("blocked phase: verify messages erased");
         }
-    }
-
-    pub fn take_workflow_notification(
-        &mut self,
-    ) -> Option<crate::workflow_handler::WorkflowNotification> {
-        self.workflow_handler
-            .as_mut()
-            .and_then(|h| h.take_notification())
     }
 
     pub fn is_workflow_blocked(&self) -> bool {

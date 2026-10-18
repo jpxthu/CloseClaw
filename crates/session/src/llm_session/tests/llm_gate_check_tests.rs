@@ -3,6 +3,7 @@
 //! Verifies:
 //! - Normal path: non-shutting-down sessions proceed with LLM call
 //! - Shutdown rejection: `is_shutting_down()` returns Cancelled error
+//! - Shutdown gate log wording: each entry point logs its own path
 //! - No shutdown handle: behavior is unchanged
 
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -15,6 +16,7 @@ use closeclaw_common::{LLMError, LlmCaller, ShutdownSignal};
 
 use crate::llm_session::ConversationSession;
 
+use super::capture_logs_async;
 use super::tmp_path;
 
 /// Minimal mock implementing `ShutdownSignal` for gate check tests.
@@ -125,6 +127,19 @@ impl LlmCaller for FakeCaller {
     }
 }
 
+/// Builds a session wired with a [`GateCheckMock`] shutdown handle and a
+/// [`FakeCaller`], with the shutdown flag already raised — the shared
+/// setup for the shutdown-gate rejection and gate-wording tests.
+fn shutting_down_session(id: &str) -> ConversationSession {
+    let mut session = ConversationSession::new(id.into(), "gpt-4o".into(), tmp_path());
+    let sh = Arc::new(GateCheckMock::new());
+    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
+    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
+    session.set_llm_caller(caller);
+    sh.set_shutting_down(true);
+    session
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Normal path: non-shutting-down sessions proceed with LLM call
 // ═══════════════════════════════════════════════════════════════════════════
@@ -173,14 +188,7 @@ async fn test_invoke_llm_streaming_proceeds_when_not_shutting_down() {
 /// `invoke_llm` returns `Cancelled` when shutting down.
 #[tokio::test]
 async fn test_invoke_llm_returns_cancelled_when_shutting_down() {
-    let mut session = ConversationSession::new("s_gate_reject".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-
-    sh.set_shutting_down(true);
+    let mut session = shutting_down_session("s_gate_reject");
 
     let result = session.invoke_llm("hello").await;
     assert!(result.is_err(), "invoke_llm should fail when shutting down");
@@ -193,15 +201,7 @@ async fn test_invoke_llm_returns_cancelled_when_shutting_down() {
 /// `invoke_llm_streaming` returns `Cancelled` when shutting down.
 #[tokio::test]
 async fn test_invoke_llm_streaming_returns_cancelled_when_shutting_down() {
-    let mut session =
-        ConversationSession::new("s_gate_stream_reject".into(), "gpt-4o".into(), tmp_path());
-    let sh = Arc::new(GateCheckMock::new());
-    session.set_shutdown_handle(sh.clone() as Arc<dyn ShutdownSignal>);
-
-    let caller: Arc<dyn LlmCaller> = Arc::new(FakeCaller);
-    session.set_llm_caller(caller);
-
-    sh.set_shutting_down(true);
+    let mut session = shutting_down_session("s_gate_stream_reject");
 
     let result = session.invoke_llm_streaming("hello").await;
     assert!(
@@ -212,6 +212,59 @@ async fn test_invoke_llm_streaming_returns_cancelled_when_shutting_down() {
         LLMError::Cancelled => {}
         other => panic!("expected Cancelled, got {:?}", other),
     }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Shutdown gate log wording: each entry point logs its own path
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// The non-streaming shutdown gate logs its own wording
+/// ("rejecting non-streaming LLM call"), never the streaming one.
+/// Log capture tests carry `#[serial_test::serial]` (issue #3102).
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_invoke_llm_shutdown_gate_logs_non_streaming_wording() {
+    let mut session = shutting_down_session("s_gate_word_ns");
+
+    let (result, logs) = capture_logs_async(
+        || async { session.invoke_llm("hello").await },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    assert!(result.is_err(), "gate must reject when shutting down");
+    assert!(
+        logs.contains("rejecting non-streaming LLM call: daemon is shutting down"),
+        "non-streaming gate must log its own wording, got: {logs}"
+    );
+    assert!(
+        !logs.contains("rejecting streaming LLM call"),
+        "non-streaming gate must not log the streaming wording, got: {logs}"
+    );
+}
+
+/// The streaming shutdown gate logs its own wording
+/// ("rejecting streaming LLM call"), never the non-streaming one.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_invoke_llm_streaming_shutdown_gate_logs_streaming_wording() {
+    let mut session = shutting_down_session("s_gate_word_st");
+
+    let (result, logs) = capture_logs_async(
+        || async { session.invoke_llm_streaming("hello").await },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    assert!(result.is_err(), "gate must reject when shutting down");
+    assert!(
+        logs.contains("rejecting streaming LLM call: daemon is shutting down"),
+        "streaming gate must log its own wording, got: {logs}"
+    );
+    assert!(
+        !logs.contains("rejecting non-streaming LLM call"),
+        "streaming gate must not log the non-streaming wording, got: {logs}"
+    );
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

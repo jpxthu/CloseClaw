@@ -751,6 +751,62 @@ fn test_build_api_request_no_tool_result_preserves_original_behavior() {
     assert!(req.messages[0].tool_call_id.is_none());
 }
 
+// ── build_api_request Audio / File flatten tokens ────────────────────────
+
+#[test]
+fn test_build_api_request_audio_block_flattens_to_audio_token() {
+    let mut session =
+        ConversationSession::new("sess_audio_tok".into(), "gpt-4o".into(), tmp_path());
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::Audio {
+            name: "clip.mp3".into(),
+            url: "data:audio/mpeg;base64,AAA".into(),
+        }],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+        retry_attempts: 0,
+    });
+    let req = session.build_api_request();
+    assert_eq!(req.messages.len(), 1);
+    assert_eq!(req.messages[0].content, "[audio: clip.mp3]");
+    assert!(
+        req.messages[0].content_blocks.is_none(),
+        "Audio blocks flatten to text; only Image blocks are kept structured"
+    );
+}
+
+#[test]
+fn test_build_api_request_file_block_flattens_to_file_token() {
+    let mut session = ConversationSession::new("sess_file_tok".into(), "gpt-4o".into(), tmp_path());
+    session.append_response(UnifiedResponse {
+        content_blocks: vec![ContentBlock::File {
+            name: "report.pdf".into(),
+            url: "data:application/pdf;base64,AAA".into(),
+        }],
+        usage: UnifiedUsage {
+            prompt_tokens: 1,
+            completion_tokens: 1,
+            total_tokens: Some(2),
+            reasoning_tokens: None,
+            cache_read_tokens: None,
+            cache_write_tokens: None,
+        },
+        finish_reason: Some("stop".into()),
+        retry_attempts: 0,
+    });
+    let req = session.build_api_request();
+    assert_eq!(req.messages.len(), 1);
+    assert_eq!(req.messages[0].content, "[file: report.pdf]");
+    assert!(req.messages[0].content_blocks.is_none());
+}
+
 // ── find_assistant_text_by_content ─────────────────────────────────────────
 
 #[test]
