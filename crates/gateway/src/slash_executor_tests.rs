@@ -119,7 +119,7 @@ impl MockExecutor {
 
 #[async_trait]
 impl SlashEffectExecutor for MockExecutor {
-    async fn execute_stop(&self, _session_id: &str) {
+    async fn execute_stop(&self, _session_id: &str, _sender_id: Option<&str>) {
         *self.stop_called.lock().unwrap() = true;
     }
 
@@ -200,6 +200,7 @@ fn make_ctx() -> (
     let ctx = SideEffectContext {
         session_id: "sess-1".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: lookup,
         reply_tx: tx,
         executor: executor.clone(),
@@ -425,7 +426,7 @@ async fn test_exec_failure_forwards_error_to_user() {
 
     #[async_trait]
     impl SlashEffectExecutor for FailingMockExecutor {
-        async fn execute_stop(&self, _: &str) {}
+        async fn execute_stop(&self, _: &str, _: Option<&str>) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "fail-mock-id".into()
         }
@@ -460,6 +461,7 @@ async fn test_exec_failure_forwards_error_to_user() {
     let ctx = SideEffectContext {
         session_id: "sess-fail".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
@@ -782,6 +784,7 @@ async fn test_side_effect_context_closed_channel_no_panic() {
     let ctx = SideEffectContext {
         session_id: "sess-closed".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor,
@@ -802,6 +805,7 @@ async fn test_side_effect_context_new_session_closed_channel() {
     let ctx = SideEffectContext {
         session_id: "sess-closed-ns".into(),
         channel: "telegram".into(),
+        sender_id: None,
         session_lookup: Arc::new(MockSessionLookup::new()),
         reply_tx: tx,
         executor: executor.clone(),

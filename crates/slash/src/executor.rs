@@ -45,7 +45,7 @@ mod tests {
     struct MockExecutor;
     #[async_trait::async_trait]
     impl SlashEffectExecutor for MockExecutor {
-        async fn execute_stop(&self, _: &str) {}
+        async fn execute_stop(&self, _: &str, _: Option<&str>) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "new-session".into()
         }
@@ -103,7 +103,7 @@ mod tests {
 
     #[async_trait::async_trait]
     impl SlashEffectExecutor for ReasoningMockExecutor {
-        async fn execute_stop(&self, _: &str) {}
+        async fn execute_stop(&self, _: &str, _: Option<&str>) {}
         async fn execute_new_session(&self, _: &str, _: &str) -> String {
             "mock-id".into()
         }
@@ -142,6 +142,7 @@ mod tests {
         let ctx = SideEffectContext {
             session_id: "slash-reasoning-test".into(),
             channel: "test".into(),
+            sender_id: None,
             session_lookup: std::sync::Arc::new(MockLookup),
             reply_tx: tx,
             executor: exec,
@@ -157,6 +158,7 @@ mod tests {
         let ctx = SideEffectContext {
             session_id: "smoke-test-session".into(),
             channel: "test".into(),
+            sender_id: None,
             session_lookup: std::sync::Arc::new(MockLookup),
             reply_tx: tx,
             executor: std::sync::Arc::new(MockExecutor),

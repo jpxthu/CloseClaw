@@ -50,7 +50,7 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
 
     let calls = mock.calls.lock().unwrap();
     assert_eq!(calls.len(), 1);
-    assert_eq!(calls[0], ExecutorCall::Stop("s2".into()));
+    assert_eq!(calls[0], ExecutorCall::Stop("s2".into(), None));
     drop(calls);
 
     let replies = mock.drain_replies();
@@ -61,6 +61,33 @@ async fn test_stop_calls_execute_stop_with_correct_params() {
         }
         other => panic!("expected ReplyAction::Reply, got {other:?}"),
     }
+}
+
+// ── Test: Stop forwards ctx.sender_id ─────────────────────────────────
+
+/// `SlashResult::Stop` must forward `ctx.sender_id` to the executor —
+/// the gateway relies on it for owner-scoped workflow termination.
+#[tokio::test]
+async fn test_stop_forwards_ctx_sender_id_to_executor() {
+    let mock = Arc::new(MockSlashEffectExecutor::new());
+    let sm = Arc::new(MockSessionLookup::new(None));
+    let (tx, _rx) = mpsc::channel::<ReplyAction>(8);
+    let ctx = SideEffectContext {
+        session_id: "s-sender".into(),
+        channel: "feishu".into(),
+        sender_id: Some("owner-1".into()),
+        session_lookup: sm,
+        reply_tx: tx,
+        executor: Arc::clone(&mock) as Arc<dyn SlashEffectExecutor>,
+    };
+
+    SlashResult::Stop.execute(&ctx).await;
+
+    let calls = mock.calls.lock().unwrap();
+    assert_eq!(
+        calls[0],
+        ExecutorCall::Stop("s-sender".into(), Some("owner-1".into()))
+    );
 }
 
 // ── Test: WorkflowStart success ───────────────────────────────────────
@@ -371,6 +398,7 @@ async fn test_compact_error_replies_with_failure_message() {
     let ctx = SideEffectContext {
         session_id: "s8".into(),
         channel: "feishu".into(),
+        sender_id: None,
         session_lookup: sm,
         reply_tx: tx,
         executor: Arc::new(mock),

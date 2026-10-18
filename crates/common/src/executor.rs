@@ -46,7 +46,12 @@ pub enum ReplyAction {
 #[async_trait]
 pub trait SlashEffectExecutor: Send + Sync {
     /// Stop the current LLM turn for the session.
-    async fn execute_stop(&self, session_id: &str);
+    ///
+    /// `sender_id` is the invoker's user identifier (None when
+    /// unavailable). Hosts may use it for owner-scoped follow-ups —
+    /// e.g. the gateway terminates the session's active workflow when
+    /// the sender is the session owner.
+    async fn execute_stop(&self, session_id: &str, sender_id: Option<&str>);
 
     /// Start a workflow by name for the session.
     ///
@@ -119,6 +124,10 @@ pub struct SideEffectContext {
     pub session_id: String,
     /// Channel identifier (e.g. "feishu", "telegram").
     pub channel: String,
+    /// Sender user identifier of the command invoker (None when
+    /// unavailable); consumed by owner-scoped side effects (e.g.
+    /// `/stop` workflow termination).
+    pub sender_id: Option<String>,
     /// Session lookup for state queries.
     pub session_lookup: Arc<dyn SessionLookup>,
     /// Sender for [`ReplyAction`]s.
@@ -225,7 +234,9 @@ async fn execute_new_session(ctx: &SideEffectContext) {
 /// Hardcoded to `cascade=true, force=true` (Forceful semantics)
 /// per design doc `docs/design/slash/session-management.md`.
 async fn execute_stop(ctx: &SideEffectContext) {
-    ctx.executor.execute_stop(&ctx.session_id).await;
+    ctx.executor
+        .execute_stop(&ctx.session_id, ctx.sender_id.as_deref())
+        .await;
     send_reply(ctx, "已停止当前任务".into()).await;
 }
 

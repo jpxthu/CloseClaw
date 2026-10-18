@@ -113,6 +113,8 @@ mod slash_permission_tests;
 #[cfg(test)]
 mod slash_workflow_start_tests;
 #[cfg(test)]
+mod slash_workflow_stop_tests;
+#[cfg(test)]
 mod step1_4_e2e_tests;
 #[cfg(test)]
 mod streaming_dsl_finish_tests;
