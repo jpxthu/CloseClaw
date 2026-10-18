@@ -16,12 +16,15 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 
 部分指令支持 Immediate 模式——LLM 正在运行时也能立即响应，不被 Session 忙碌队列阻塞。非 Immediate 指令在 LLM 忙碌时回复等待提示。
 
+WorkflowHandler 由 workflow 模块提供，处理 `/workflow`（仅 Owner、非 Immediate）——仅解析 name 并返回 `SlashResult::WorkflowStart`，由 Gateway 经 WorkflowControl 调用 Engine 启动流程；启动语义与生命周期见 [workflow 模块](../workflow/README.md)。
+
 ### Handler 清单
 
 | Handler | 负责指令 | Immediate |
 |---------|---------|-----------|
 | NewSessionHandler | new | ❌ |
 | StopHandler | stop | ✅ |
+| WorkflowHandler | workflow | ❌ |
 | StatusHandler | status | ✅ |
 | CompactHandler | compact | ❌ |
 | ReasoningHandler | reasoning | ✅ |
@@ -67,6 +70,7 @@ Handler 返回 [SlashResult](../common/shared-types.md#slashresult) 后，由 Ga
 - **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
 - **下游**：
   - Session 模块 — 会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
+  - Workflow 模块 — 提供 WorkflowHandler 处理 `/workflow`（仅 Owner、非 Immediate），由 SlashDispatcher 分派后启动流程
 - **间接下游**（通过 Gateway 调用）：
   - Permission 模块 — `/exec` 和 `/git` 写操作的权限审批（Gateway 在收到 Handler 返回的 Exec [SlashResult](../common/shared-types.md#slashresult) 后、实际执行前调用 Permission 引擎）
 - **间接下游**（通过 Session 生效）：

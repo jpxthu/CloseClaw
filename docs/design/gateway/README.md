@@ -18,7 +18,7 @@ Gateway 由以下职责组成：
 - **出站中间件**：渲染完成后、发送前，Gateway 按注册顺序链式执行中间件（流式模式前置为 pre-flight）。详见 [出站流程](outbound-flow.md) 出站中间件节。
 - **IM Adapter 选择与渲染**：出站方向根据目标平台选择对应 IM Adapter，调用其渲染接口产出平台格式内容。渲染完成后、发送前，Gateway 执行中间件链，通过后调用 IM Adapter 的发送接口完成消息投递。渲染和发送为分离接口。
 - **出站历史记录**：出站消息发送后，Gateway 将消息写入 session checkpoint 持久化存储，作为用户可见内容的交付记录。详见 [出站流程](outbound-flow.md) 出站历史记录节。
-- **系统通知接口**：Gateway 提供通用系统通知发送接口，供 Session 等模块发送纯文本系统通知（如"⏳ 正在排队..."、"正在恢复会话..."）。系统通知是面向 User 的提示，走简化出站路径投递到 IM，不注入 LLM 上下文、不写入会话对话历史。通知内容与触发时机由调用方模块负责。接口支持按收件人角色定向：调用方可声明「仅当前 User 为 Owner」，Gateway 按声明过滤——非 Owner 时静默丢弃（如缓存命中异常通知）。系统通知与"注入对话历史、供 LLM 上下文处理"的系统级消息（如子 Session 超时/预警通知）属于不同机制——边界的完整定义见 [出站流程·系统通知接口](outbound-flow.md#系统通知接口)。
+- **系统通知接口**：Gateway 提供通用系统通知发送接口，供 Session、Workflow 等模块发送纯文本系统通知（如"⏳ 正在排队..."、"正在恢复会话..."、workflow 暂停等待 Owner）。系统通知是面向 User 的提示，走简化出站路径投递到 IM，不注入 LLM 上下文、不写入会话对话历史。通知内容与触发时机由调用方模块负责。接口支持按收件人角色定向：调用方可声明「仅当前 User 为 Owner」，Gateway 按声明过滤——非 Owner 时静默丢弃（如缓存命中异常通知）。系统通知与"注入对话历史、供 LLM 上下文处理"的系统级消息（如子 Session 超时/预警通知）属于不同机制——边界的完整定义见 [出站流程·系统通知接口](outbound-flow.md#系统通知接口)。
 - **系统生命周期管理**：Gateway 参与优雅关闭——响应 ShutdownHandle 的 drain 计数（消息处理开始时递增、响应发送完成后递减），排空入站队列，等待进行中的流式会话完成后退出。关闭流程由 Daemon 的 ShutdownHandle 统一协调，Gateway 是被管理组件之一。
 
 Gateway 维护以下运行时注册表：
@@ -61,8 +61,9 @@ Gateway 收到入站平台事件后，消息先进入入站消息队列（有界
     - `/approve-once`、`/approve-whitelist`、`/deny`（Owner 调用）：经 Permission 模块审批工作流管理审批流转（详见 [Permission 模块审批工作流](../permission/approval-workflow.md)）。审批通过后执行对应操作，结果经出站链路发送。
     - 其余斜杠指令分派给 SlashDispatcher。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。消息不进入 LLM，不追加到对话历史。
     - Immediate 指令（如 `/stop`、`/status`、`/help` 等）→ 绕过 Session 忙碌队列立即执行。完整 Immediate 标记见 [Slash 模块 Handler 清单](../slash/README.md#handler-清单)。
+    - Owner 的 `/stop` 在停止完成后，Gateway 经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 终止该会话的活跃 workflow；非 Owner 的 `/stop` 只停止运行、不终止 workflow。
     - 非 Immediate 指令 → 若 Session 正忙则进入 Session 忙碌队列（FIFO），Session 空闲后取出执行。入队时由 Session 生成"⏳ 正在排队..."提示语，经 Gateway 的通用系统通知接口发送。
-  - **普通消息**：若 Session 正忙则进入 Session 忙碌队列；如果 Session 空闲，则直接进入 LLM 对话流程。若 Session 处于 archived 状态，由 SessionManager 触发 restore 流程，Session 生成"正在恢复会话..."提示语，经 Gateway 的通用系统通知接口发送。Session 就绪后进入 LLM 对话流程，返回 ContentBlock[] 进入出站链路。
+  - **普通消息**：Owner 非斜杠消息在路由到 Session 前，Gateway 经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 通知 workflow 运行时（存在 blocked workflow 时解除阻塞；无活跃 workflow 时无操作）。若 Session 正忙则进入 Session 忙碌队列；如果 Session 空闲，则直接进入 LLM 对话流程。若 Session 处于 archived 状态，由 SessionManager 触发 restore 流程，Session 生成"正在恢复会话..."提示语，经 Gateway 的通用系统通知接口发送。Session 就绪后进入 LLM 对话流程，返回 ContentBlock[] 进入出站链路。
 
 > 斜杠指令的解析和 SlashResult 处理详见 [slash 模块](../slash/README.md)。Session 的创建、查找、归档、恢复详见 [Session 模块](../session/README.md)。审批流程详见 [Permission 模块审批工作流](../permission/approval-workflow.md)。
 
@@ -123,7 +124,7 @@ Gateway 涉及两层排队：
 
 SlashDispatcher 返回 [SlashResult](../common/shared-types.md#slashresult) 后，Gateway 构造 SideEffectContext（封装 Session 引用和回复通道）并触发 SlashResult 执行。各 SlashResult 变体在其执行逻辑中通过上下文完成对应的 session 操作。Gateway 不穷举变体，副作用逻辑内聚在 slash 模块。
 
-SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 将回复送入出站 Processor Chain（VerbosityFilter → DslParser → OutboundRawLog）处理后由 IM Adapter 渲染发送。详见 [Slash 模块](../slash/README.md)。
+SlashResult 的执行通过上下文的回复通道产出回复内容，Gateway 将回复送入出站 Processor Chain（VerbosityFilter → DslParser → OutboundRawLog）处理后由 IM Adapter 渲染发送。`SlashResult::WorkflowStart` 的副作用由 Gateway 经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 调用 Engine 完成启动，成功后按 Reply 通道回复确认。详见 [Slash 模块](../slash/README.md)。
 
 ### 权限调用时机
 
@@ -144,6 +145,7 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 |------|------|
 | IM Adapter | 入站消息通过插件进入 Gateway 入站处理 |
 | Session | LLM 响应以 ContentBlock[] 形式传入 Gateway 出站发送；系统通知经 Gateway 通用系统通知接口发送 |
+| Workflow | Workflow Engine 经 Gateway 实现的 SessionLookup 向统一消息队列注入 workflow 控制消息（role: workflow）；blocked 暂停通知经 Gateway 通用系统通知接口发送；Gateway 执行 SlashResult::WorkflowStart 时经 WorkflowControl 启动流程，并在 Owner 非斜杠消息与 Owner `/stop` 时经 WorkflowControl 通知 Engine（解除阻塞 / 终止） |
 | Config | Gateway 读取机器人与 Agent 的绑定关系（机器人→Agent 绑定由 [config accounts.json](../config/README.md) 承载），据此确定普通消息路由到的 Agent；绑定属重启生效类，变更经配置模块确认后触发网关重启生效 |
 | Daemon | 统一协调 Gateway 的优雅关闭（ShutdownHandle drain 计数与排空）与配置触发的重启；Gateway 是被管理组件之一（详见 [daemon README](../daemon/README.md)）|
 
@@ -177,4 +179,4 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - SideEffectContext：Gateway 构造的执行上下文，封装 Session 引用和回复通道。定义见 [common SlashResult](../common/shared-types.md#slashresult)。Gateway 构造后触发 [SlashResult](../common/shared-types.md#slashresult) 执行，各变体通过上下文完成副作用
 - RenderedOutput：IM Adapter 渲染产出，Gateway 中间件消费（只读不修改），最终由 IM Adapter 发送接口投递
 
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery、WorkflowControl）

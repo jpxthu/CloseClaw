@@ -289,6 +289,7 @@ SlashResult 共 9 种变体：
 | Reply | 回复文本（string） | 纯文本回复，用于 /help、/status 等仅需回复文本的指令 | ContentBlock::Text（回复文本） |
 | NewSession | 无 | 创建新会话（强制新建，即使当前标识下已有未归档 Session，见 [slash §F3](../../requirements/slash.md)） | ContentBlock::Text（确认信息） |
 | Stop | 无 | 终止当前运行（含级联终止子 session） | ContentBlock::Text（确认信息） |
+| WorkflowStart | `name`（string） | 启动指定 workflow（仅 Owner） | ContentBlock::Text（确认信息） |
 | Compact | `instruction`（可选） | 触发对话历史压缩 | ContentBlock::Text（压缩结果） |
 | SystemAppend | `action`（[SystemAppendAction](#slash-执行辅助类型)） | 向 system prompt 追加内容 | ContentBlock::Text（确认信息） |
 | Exec | `command`、`requires_permission`（默认真，只读命令须显式置假） | 执行系统命令（高危操作，执行前经 Permission 模块校验） | ContentBlock[]（命令输出经出站 Processor Chain） |
@@ -780,13 +781,15 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 | `content` | string | 消息内容 |
 | `created_at` | timestamp | 创建时间 |
 | `sent` | bool | 是否已发送 |
-| `role` | string? | 消息角色（user / assistant），用于 transcript 格式化 |
+| `role` | string? | 消息角色（user / assistant / workflow），用于 transcript 格式化 |
 | `target_channel` | string | 目标渠道标识 |
 | `platform` | string? | 出站消息的平台标识 |
 | `dsl_result` | string? | DSL 解析结果（序列化 JSON） |
 | `content_blocks` | string? | 出站消息内容块（序列化 JSON，ContentBlock[]） |
 
 `content_blocks` 存在时优先于 `content`（与 InternalMessage 同口径）；两者均为序列化载荷，反序列化失败时按该项缺失处理。本结构与 SessionCheckpoint 的 `pending_messages` 字段不同物——后者是 transcript 快照，本结构是统一消息队列的入队载荷。
+
+`role` 为 `workflow` 时表示 workflow Engine 注入的控制消息（步骤目标、验收清单、跳转问题、恢复提示），经统一消息队列进入对话历史供 LLM 消费，不作为用户可见消息出站，也不写用户可见出站记录（消息生命周期见 [workflow/session-integration](../workflow/session-integration.md)）。
 
 ### Slash 执行辅助类型
 

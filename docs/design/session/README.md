@@ -95,7 +95,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - **级联停止**：级联停止是通用机制——当触发级联停止时，递归停止其所有子 Session，杀死该 session 的所有工具进程，取消该 session 正在进行的 LLM 请求。具体行为受停止模式影响：Graceful 模式等待 in-flight 操作完成后停（级联子 Session 纳入超时保护），Forceful 模式立即终止。所有停止入口（/stop、父 session 停止、系统关闭）均级联终止子 Session，无「仅停单个 session」的模式（见 [session-execution.md](session-execution.md) 停止入口节）。
   - **优雅关闭的会话级接线（shutdown_handle）**：每个 ConversationSession 持有一份 `shutdown_handle`（会话与 Daemon 关闭协调器之间的运行时连接，创建/恢复时由 SessionManager 接线）。系统关闭时 Daemon 委托 SessionManager 统一关停各 session，不直接操作单个 session——在此期间 session 通过 shutdown_handle 登记/释放活跃操作计数（消息处理、后台工具执行、子 Session 协调），供关闭器判断「等待当前工作完成」还是超时升级为 forceful；同步工具执行不存入活跃计数，由关闭流程按执行状态维度等待兜底。完整协调语义见 [daemon/shutdown.md](../daemon/shutdown.md)（shutdown_handle 权威定义）、需求见 [daemon F2](../../requirements/daemon.md)。
   - **后台结果注入**：后台工具完成或子 Session 完成时，结果通过优先级消息队列（now > next > later）作为消息注入对话流，agent 在下一轮 turn 中消费。
-  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。Immediate 斜杠指令由 Gateway 直接执行，不进入此队列；非 Immediate 斜杠指令在 Session 正忙时与其他消息同样入队排队，Session 空闲后由 Gateway 按原路由分派给 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)）。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
+  - **消息队列**：统一消息队列管理用户消息和非用户消息（子 Session 完成通知、后台工具结果、workflow 控制消息）。优先级决定插入位置，同一优先级内非用户消息排在用户消息前面。llm_active 或 foreground_tool_active 为 true 时消息排队不解队；两者均为 false 时消息立即出队分发（无论 background_tool_active / child_active 状态）。入队时 Session 生成"⏳ 正在排队..."提示语，经 Gateway 系统通知接口发送。Immediate 斜杠指令由 Gateway 直接执行，不进入此队列；非 Immediate 斜杠指令在 Session 正忙时与其他消息同样入队排队，Session 空闲后由 Gateway 按原路由分派给 SlashDispatcher（详见 [Gateway 路由决策](../gateway/README.md)）。记忆注入走独立槽位机制（详见 [session-injection.md](session-injection.md) 消息级注入），与通用后台消息队列独立运作，两者可共存于同一批次消息中。
 
 各子功能的关系：
 - **生命周期**是持久化骨架：SessionCheckpoint 数据模型和 SqliteStorage 是其他持久化功能的底层依赖。SessionStatus（Active / Migrating / Archived）描述持久化状态，与执行状态无关。
@@ -241,6 +241,7 @@ Daemon 启动时，SessionManager 首先构建映射表（扫描所有 status=ac
 - **Processor Chain（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度进入出站 Processor Chain 做 DSL 解析。出站调试日志在 Processor Chain 内记录，出站交付记录由 Gateway 持久化到 session checkpoint 的 `outbound_pending` 字段——记录每条出站消息（含 Verbosity 过滤后内容与 dsl_result，及发送标记 sent），其中未发送成功的条目（sent=false）用于崩溃/停止后重投递（需求 [session F7](../../requirements/session.md)）；与 Session 对话历史（messages[]，LLM 上下文，含完整 Thinking 块）用途不同、并行不悖，也区别于 transcript 层的 `pending_messages` 字段。详见 [Gateway 出站流程](../gateway/outbound-flow.md)。非直接调用，属数据流下游依赖。
 - **IM Adapter（出站）**：Session 产出的 LLM 响应 ContentBlock[] 经 Gateway 调度和 Processor Chain 处理后，由 IM Adapter 完成出站渲染和发送（含流式推送）。Session 不直接调用 IM Adapter，数据流经 Gateway 中介传递。
 - **Memory 模块**：sub-agent session 结束时通过 hook 触发 memory-miner 记忆挖掘；为每条消息 spawn active-searcher 子 Session 进行记忆搜索；写入 `memory_injection` 槽位（tool role 记忆摘要），由 Session 在消息组装时消费。
+- **Workflow 运行时**：workflow 控制消息（role: workflow）经统一消息队列注入对话历史，供 LLM 消费、不出站渲染。
 
 ### 共享类型 / 核心 trait
 

@@ -88,13 +88,13 @@ Session 的整体状态由四维组合判定：
 
 三种停止入口，均级联终止子 session：
 
-- **斜杠指令**（`/stop`）：用户在 session 内输入，强制终止当前运行。/stop 为 Immediate 指令（指令分发属性，非停止模式）——绕过统一消息队列立即分发，LLM 运行中立即生效。无参数、无标记，固定 Forceful 语义：级联终止所有子 session、终止全部工具进程（前台+后台）、cancel 进行中的 LLM 请求、清空统一消息队列中的排队消息。停止后四维执行状态归零、session 转为 idle 待命——`/stop` 停止运行、不结束会话，对话历史完整保留，用户可继续对话（会话结束统一走归档，见 [session-lifecycle.md](session-lifecycle.md)）
+- **斜杠指令**（`/stop`）：用户在 session 内输入，强制终止当前运行。/stop 为 Immediate 指令（指令分发属性，非停止模式）——绕过统一消息队列立即分发，LLM 运行中立即生效。无参数、无标记，固定 Forceful 语义：级联终止所有子 session、终止全部工具进程（前台+后台）、cancel 进行中的 LLM 请求、清空统一消息队列中的排队消息。停止后四维执行状态归零、session 转为 idle 待命——`/stop` 停止运行、不结束会话，对话历史完整保留，用户可继续对话（会话结束统一走归档，见 [session-lifecycle.md](session-lifecycle.md)）。`/stop` 是否终止 workflow 由 Gateway 按发送者角色判定（Owner 的 `/stop` 终止 workflow，见 [workflow/execution-engine.md](../workflow/execution-engine.md)「Owner 终止」）；Session 只负责停止运行。
 - **父 session 停止**：父 session 被停时，对所有子 session 采用相同的模式和语义级联停止
 - **系统关闭**：由 Daemon 触发，调用 SessionManager 统一关闭所有活跃 session。SessionManager 内部负责 session 树遍历和停止顺序，Daemon 只传模式参数和超时。所有 session 关闭完毕后，未在超时内完成的 session 留有未清除的 pending_operations——下次启动时由恢复扫描检测为 dirty 并注入恢复通知
 
 ### 统一消息队列
 
-后台工具结果、子 session 完成通知等非用户消息与用户消息共用一条消息队列，per ConversationSession。
+后台工具结果、子 session 完成通知、workflow 控制消息（role: workflow）等非用户消息与用户消息共用一条消息队列，per ConversationSession。
 
 **优先级决定插入位置**（now > next > later），同一优先级内非用户消息排在用户消息前面：
 
@@ -106,6 +106,8 @@ Session 的整体状态由四维组合判定：
 **分发规则**：
 - llm_active 或 foreground_tool_active 为 true 时：消息保留在队列中，不解队
 - llm_active 和 foreground_tool_active 均为 false 时：消息立即出队分发，注入对话流（无论 background_tool_active / child_active 状态）  ← 日志：消息注入事件（后台任务结果注入）
+
+**workflow 控制消息**：由 Engine 经 SessionLookup 入队（now 优先级，role: workflow），注入对话流供 LLM 消费，不出站渲染。
 
 **优先级用途**：
 - **now**：系统级紧急通知，排在队头
@@ -284,6 +286,7 @@ Graceful 模式（Daemon 首次 SIGTERM）：
 - **LLM 调用器（LlmCaller）**：停止时通过取消机制终止进行中的请求
 - **工具进程管理**（Session 内部）：停止时遍历并终止当前 session 持有的所有工具进程（前台+后台），进程句柄由 Session 自行管理
 - **Spawn 协调**：子 session 完成时通过消息队列注入结果
+- **Workflow 运行时**：workflow 控制消息经统一消息队列注入对话历史（role: workflow）
 
 ### 无关
 

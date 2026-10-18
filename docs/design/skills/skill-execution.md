@@ -38,6 +38,10 @@ Bundled 技能（如 FileOpsSkill、GitOpsSkill、SearchSkill 等）是编译期
 
 Skills 模块提供 SkillCreator 内置技能（Bundled 类型），为 Agent 提供创建技能文件的指导。调用时通过 trait 方法分发执行，返回的 meta message 中包含创建 SKILL.md 的指令指导。Agent 读取这些指令后，使用自身的文件写入能力按指导创建符合规范的 SKILL.md 文件（含正确的 frontmatter 配置和指令正文）。
 
+### create-workflow 技能
+
+Skills 模块还提供 create-workflow 内置技能（Bundled 类型），为 Agent 提供创建和修改 workflow 定义文件的指导。定义格式、步骤/验收/跳转字段与校验规则由 [workflow 模块](../workflow/workflow-definition.md) 定义；create-workflow 技能产出定义时必须通过 workflow 模块的内置校验。
+
 ## 数据流
 
 Agent 通过 System Prompt 中的技能清单（由 skill-listing-injection 在 SP 组装时生成）获知可用技能，据此决策是否调用。调用流程：

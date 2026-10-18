@@ -9,7 +9,7 @@
 两个指令由各自独立的 Handler 处理——NewSessionHandler 负责 `/new`，StopHandler 负责 `/stop`。两者行为独立：
 
 - **`/new`**：创建新会话，分配新会话标识（`{agent_id}_{timestamp}_{random_suffix}`，格式定义见 [session/README.md](../session/README.md)），覆盖 SessionManager 的会话路由映射。旧会话保留，后续由 Sweeper 自然归档。新消息自动路由到新会话。
-- **`/stop`**：标记为 Immediate 指令，可在 LLM 运行时立即响应。无参数、无标记，固定 Forceful 语义：终止当前 LLM 调用、终止所有工具进程（前台+后台）、清空统一消息队列中的排队消息、级联终止所有子 session。停止的是运行而非会话——对话历史完整保留，session 转 idle 待命，用户可继续对话；会话结束统一走闲置归档（见 [session/README.md](../session/README.md)）。
+- **`/stop`**：标记为 Immediate 指令，可在 LLM 运行时立即响应。无参数、无标记，固定 Forceful 语义：终止当前 LLM 调用、终止所有工具进程（前台+后台）、清空统一消息队列中的排队消息、级联终止所有子 session。停止的是运行而非会话——对话历史完整保留，session 转 idle 待命，用户可继续对话；会话结束统一走闲置归档（见 [session/README.md](../session/README.md)）。仅 Owner 的 `/stop` 同时是终止 workflow 的入口：若当前会话存在活跃 workflow，Gateway 在停止完成后经 WorkflowControl 终止 workflow（语义见 [workflow/execution-engine.md](../workflow/execution-engine.md)「Owner 终止」）；非 Owner 的 `/stop` 只停止运行。
 
 `/new` 流程：
 
