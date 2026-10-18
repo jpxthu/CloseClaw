@@ -139,9 +139,14 @@ fn test_clean_thinking_isolation_original_unchanged() {
     let original_len = messages[0].content_blocks.len();
     let _cleaned = ConversationSession::clean_thinking_content(&messages);
     assert_eq!(messages[0].content_blocks.len(), original_len);
-    assert!(
-        matches!(&messages[0].content_blocks[0], ContentBlock::Thinking { thinking: t, .. } if t == "secret")
-    );
+    let ContentBlock::Thinking {
+        thinking: kept_thinking,
+        ..
+    } = &messages[0].content_blocks[0]
+    else {
+        panic!("expected Thinking block");
+    };
+    assert_eq!(kept_thinking, "secret");
 }
 
 #[test]
