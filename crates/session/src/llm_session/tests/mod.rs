@@ -46,6 +46,7 @@ use self::test_helpers::{
 };
 mod unified_queue_tests;
 mod waiting_state_tests;
+mod workflow_session_tests;
 
 // ── pending_messages queue ──────────────────────────────────────────────────
 
