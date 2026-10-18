@@ -10,7 +10,7 @@ use closeclaw_common::{AdapterError as CommonAdapterError, RenderedOutput};
 
 /// Action returned by [`FeishuPlugin::accumulate_streaming_text`] to indicate
 /// what the caller should do next.
-enum StreamingAction {
+pub(super) enum StreamingAction {
     /// No text to send (empty or not yet time to flush).
     Skip,
     /// Card not yet created — initialize streaming card, then send first update.
@@ -65,7 +65,7 @@ impl FeishuPlugin {
     /// Handles batch-mode detection, text extraction, pending-text accumulation,
     /// and update-timing checks. Returns a [`StreamingAction`] describing what
     /// the caller should do next.
-    fn accumulate_streaming_text(&self, output: &RenderedOutput) -> StreamingAction {
+    pub(super) fn accumulate_streaming_text(&self, output: &RenderedOutput) -> StreamingAction {
         let text = output
             .payload
             .get("content")
