@@ -28,10 +28,12 @@ impl ConversationSession {
     ///
     /// Message assembly order:
     /// 1. Skill listing attachment (system role, position 0) — per-turn
-    ///    incremental diff from the [`SkillListingProvider`] when
-    ///    non-empty. Prepared by [`prepare_turn_skill_listing`].
+    ///    incremental diff from the
+    ///    [`closeclaw_common::SkillListingProvider`] when non-empty.
+    ///    Prepared by
+    ///    [`ConversationSession::prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
-    ///    [`InjectionPosition::AfterCurrent`] or `BeforeNext`.
+    ///    [`super::InjectionPosition::AfterCurrent`] or `BeforeNext`.
     /// 3. User message — dedup-guarded: skipped when the history already
     ///    ends with the identical user message (the gateway pre-appends
     ///    the current message to history before invoking; pushing again
@@ -41,6 +43,12 @@ impl ConversationSession {
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
+    ///
+    /// `user_blocks_pre_appended` is the caller's declaration that the
+    /// current user message was already pre-appended to history in
+    /// structured blocks form (gateway production path); see
+    /// [`Self::push_current_turn_user_message`] for the dedup-guard
+    /// semantics.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
@@ -67,30 +75,22 @@ impl ConversationSession {
     /// Pushing again would send a temporary duplicate copy that never
     /// enters history, so adjacent rounds stop being tail-append
     /// extensions and the cache prefix check reports PrefixMismatch
-    /// every round. Skip the push on full equality (role + content)
-    /// with the history tail, or — when the caller declared a
-    /// blocks-form pre-append — on the tail being a user message
-    /// carrying content blocks **with empty flattened text**: the
-    /// image-round pre-append shape (Image blocks are excluded from
-    /// the text flatten, so `content` is `""`). The empty-text
-    /// requirement keeps blocks tails that do carry text (image +
-    /// caption) outside the declaration branch — their text could
-    /// differ from the invoke content, so they always push. Callers
-    /// that did not pre-append (pending drain, tests) still get the
-    /// push.
-    ///
-    /// `user_blocks_pre_appended` is the caller's explicit declaration
-    /// that the current user message was already appended to history in
-    /// structured blocks form (gateway production path for embedded
-    /// small-image messages). The declaration branch of the dedup guard
-    /// requires the tail to be a **user message carrying content
-    /// blocks with empty flattened text** (`content.is_empty()` — the
-    /// image-round pre-append shape: Image blocks are excluded from
-    /// the text flatten); combined with the declaration it is treated as
-    /// the same logical message and the push is skipped. A blocks tail with
-    /// non-empty text does **not** match the declaration (the flattened
-    /// text could differ from the invoke content), so the push happens
-    /// and the message is never lost.
+    /// every round. The guard skips the push when the history tail is
+    /// a user message that equals the invoke content on role +
+    /// content, or — when the caller declared
+    /// `user_blocks_pre_appended` — when the tail carries content
+    /// blocks **with empty flattened text**. The declaration is the
+    /// caller's explicit statement that the current user message was
+    /// already appended to history in structured blocks form (gateway
+    /// production path for embedded small-image messages); the
+    /// declaration branch then matches the image-round pre-append
+    /// shape, where Image blocks are excluded from the text flatten
+    /// so `content` is `""` (`content.is_empty()`). A blocks tail
+    /// with non-empty text does **not** match the declaration (the
+    /// flattened text could differ from the invoke content — e.g.
+    /// image + caption), so the push happens and the message is never
+    /// lost. Callers that did not pre-append (pending drain, tests)
+    /// still get the push.
     ///
     /// Residual risk: a blocks tail with empty flattened text that is
     /// *not* the declared message (e.g. compaction rewrote the history

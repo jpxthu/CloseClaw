@@ -112,7 +112,8 @@ impl ConversationSession {
     /// the instruction block via `Self::build_llm_messages_with_listing`,
     /// then delegates to the LLM caller.
     ///
-    /// Builds an [`InternalRequest`], consuming any pending
+    /// Builds an [`InternalRequest`](closeclaw_common::InternalRequest),
+    /// consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
     /// an error if no [`LlmCaller`](closeclaw_common::LlmCaller) has been injected.
     ///
