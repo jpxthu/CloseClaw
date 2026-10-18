@@ -202,6 +202,7 @@ fn digest_with(feed: impl FnOnce(&mut DefaultHasher)) -> u64 {
     hasher.finish()
 }
 
+/// Hashes one string via its `Hash` impl.
 fn hash_str(value: &str) -> u64 {
     digest_with(|hasher| value.hash(hasher))
 }
