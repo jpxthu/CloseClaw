@@ -20,6 +20,11 @@ use closeclaw_common::IMPlugin;
 ///
 /// `render` joins all text blocks; `send` records the rendered text so
 /// tests can assert on the exact reply content.
+///
+/// Capturing the `send` text alone is sufficient to assert on either
+/// outbound path: both `send_system_notification` and
+/// `send_outbound_simplified` ultimately reach the plugin's `send`
+/// method.
 pub(crate) struct SpyPlugin {
     messages: Arc<Mutex<Vec<String>>>,
 }
