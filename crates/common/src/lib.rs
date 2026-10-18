@@ -97,6 +97,7 @@ pub mod tool_trait_tests;
 pub mod trace_id;
 pub mod turn;
 pub mod verbosity;
+pub mod workflow_control;
 
 pub use agent_config::{ResolvedAgentConfig, SubagentsConfig};
 pub use agent_lookup::{AgentConfigInfo, AgentConfigLookup, AgentLookup, AgentRegistryQuery};
@@ -200,3 +201,4 @@ pub use tool_trait::{
 };
 pub use trace_id::generate_trace_id;
 pub use verbosity::VerbosityLevel;
+pub use workflow_control::WorkflowControl;
