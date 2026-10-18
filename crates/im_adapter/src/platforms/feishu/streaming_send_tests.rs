@@ -144,10 +144,15 @@ fn test_accumulate_streaming_text_skip_within_throttle_window() {
     // last_update, and the assertions below run without sleeps, so they
     // complete within the 100ms window.
     let action = plugin.accumulate_streaming_text(&text_output("later"));
-    assert!(
-        matches!(action, StreamingAction::Skip),
-        "expected Skip within throttle window"
-    );
+    match action {
+        StreamingAction::Skip => {}
+        StreamingAction::Initialize(_, _) => {
+            panic!("expected Skip within throttle window, got Initialize")
+        }
+        StreamingAction::Update(_, _, _) => {
+            panic!("expected Skip within throttle window, got Update")
+        }
+    }
     let state = plugin.lock_streaming_state();
     assert_eq!(
         state.state.pending_text, "later",
@@ -163,10 +168,15 @@ fn test_accumulate_streaming_text_skip_on_empty_text() {
     // the Skip below is therefore deterministic and caused solely by the
     // empty-text guard, not by throttling.
     let action = plugin.accumulate_streaming_text(&text_output(""));
-    assert!(
-        matches!(action, StreamingAction::Skip),
-        "expected Skip on empty text regardless of timing"
-    );
+    match action {
+        StreamingAction::Skip => {}
+        StreamingAction::Initialize(_, _) => {
+            panic!("expected Skip on empty text, got Initialize")
+        }
+        StreamingAction::Update(_, _, _) => {
+            panic!("expected Skip on empty text, got Update")
+        }
+    }
     let state = plugin.lock_streaming_state();
     assert!(
         state.state.pending_text.is_empty(),

@@ -1,6 +1,8 @@
 //! Send dispatch — route rendered output to the Feishu send API.
 //!
 //! Extracted from `plugin.rs` to keep impl blocks within the 100-line limit.
+//! Also hosts `send_batch_output_with_target`, which wraps `dispatch_send`
+//! with batch orchestration and an `outbound.send` debug event.
 
 use std::time::Instant;
 
