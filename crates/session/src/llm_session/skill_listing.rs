@@ -25,6 +25,10 @@ impl ConversationSession {
     pub fn agent_skills(&self) -> Option<&[String]> {
         self.agent_skills.as_deref()
     }
+}
+
+/// Per-turn skill listing computation: full or incremental diff.
+impl ConversationSession {
     /// Compute the skill listing for the current turn without
     /// mutating session state.
     ///
@@ -84,7 +88,10 @@ impl ConversationSession {
         parts.extend(deletions);
         parts.join("\n")
     }
+}
 
+/// Skill listing state maintenance across compaction and turns.
+impl ConversationSession {
     /// Preserve skill listing state across conversation compaction.
     ///
     /// Implements the design doc's description of "对话压缩时受
@@ -143,7 +150,10 @@ impl ConversationSession {
         self.activated_conditional_skills
             .extend(newly_activated.iter().cloned());
     }
+}
 
+/// Listing generation helpers and file-path extraction.
+impl ConversationSession {
     /// Generate the skill listing for the current turn.
     ///
     /// Combines the base listing (excluding conditional skills) with
