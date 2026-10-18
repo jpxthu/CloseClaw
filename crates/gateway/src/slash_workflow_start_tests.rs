@@ -213,7 +213,7 @@ async fn setup(
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     sm.conversation_sessions.write().await.insert(
         session_id.to_owned(),
