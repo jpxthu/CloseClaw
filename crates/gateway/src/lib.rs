@@ -138,6 +138,8 @@ mod tests_slash_permission;
 #[cfg(all(test, feature = "full-tests"))]
 mod tests_slash_permission_integration;
 pub mod types;
+#[cfg(test)]
+mod workflow_integration_tests;
 pub mod workflow_owner;
 pub use closeclaw_common::processor::ProcessorChain;
 use closeclaw_common::processor::{ContentBlock, ProcessedMessage};
