@@ -134,7 +134,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 | 各工具提供模块 | 实现 ToolRegistrar 注册自身工具，Tools 模块采集其注册结果 |
 | system prompt 构建器 | 经 [ToolsFragmentProvider](../system_prompt/fragment-provider.md)（Tools 模块实现的 [PromptFragmentProvider](../common/core-traits.md#promptfragmentprovider)）获取分组索引，注入 system prompt 静态层 ToolsSection |
 | Session 模块 | 管理工具调用的执行状态（阻塞、后台、进程句柄注册） |
-| agent 模块 | 提供 AgentToolsConfigQuery，供 ToolRegistry 查询 agent 工具范围与配置 |
+| agent 模块 | 提供 AgentToolsConfigQuery，供 ToolRegistryQuery 的消费方（如 ToolsFragmentProvider）取得 agent 工具白/黑名单后作为过滤参数传入 |
 | Skill 系统 | 提供 skill 注册表，SkillTool 桥接调用 |
 
 ### 下游

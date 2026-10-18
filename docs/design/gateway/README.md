@@ -163,7 +163,7 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 ### 无关
 
 - **Bootstrap**（无调用关系）：Gateway 不参与 Bootstrap 加载
-- **System Prompt**（仅注入不构建）：Gateway 不构建 system prompt 内容，但 SessionManager 持有 SystemPromptBuilder / DynamicPromptBuilder 并注入 session（DI 接线，见 [common core-traits](../common/core-traits.md)）
+- **System Prompt**（仅注入不构建）：Gateway 不构建 System Prompt 内容，但 SessionManager 持有 SystemPromptBuilder / DynamicPromptBuilder 并注入 Session（DI 接线，见 [common core-traits](../common/core-traits.md)）；Gateway 在每次 LLM 调用前将入站上下文写入 [RequestContext](../common/shared-types.md#requestcontext)（含 chat_name），供动态层 ChannelContext 使用。
 - **LLM Provider**（不发起请求）：Gateway 不直接调用 LLM。Gateway 提供 LlmCaller 抽象的具体实现（[FallbackLlmCaller](../common/core-traits.md#llmcaller)，桥接统一客户端），但真实 Provider 请求由 LLM 模块完成。
 - **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用
 

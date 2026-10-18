@@ -22,13 +22,13 @@ SessionManager 在会话查找与创建中对注入的处理分为三个分支�
 
 - **命中 active session**：直接返回已有 session，不触发注入。已有 session 的 system prompt 保持不变。
 - **命中 archived session**：从 SessionCheckpoint 恢复 ConversationSession 后，触发全量注入重建——与"新 session"分支相同的 builder 调用，用新构建的 system prompt 替换空值（重建细节详见 [system_prompt/README 恢复](../system_prompt/README.md#恢复)）。
-- **新 session（含 spawn 子 session）**：触发全量注入重建。builder 内部通过 Bootstrap Loader 按 Session 角色 + 身份加载模式加载 bootstrap 文件（spawn 子 session 的角色与模式见下节），注入完成后 system prompt 存入 ConversationSession。
+- **新 session（含 spawn 子 session）**：触发全量注入重建。builder 内部通过 Bootstrap Loader 按 Session 类型（含无 Bootstrap 文件判定，见下节）加载 Bootstrap 文件，注入完成后 System Prompt 存入 ConversationSession。
 
 注入链路的参数契约：
-- 入参：agent_id、ToolRegistry 引用、Session 角色（主/子，由主 Session 创建或 spawn 子 Session 确定）、身份加载模式（由 agent 配置 `bootstrapMode` 决定，见「加载模式解析」节）
-- bootstrap 文件由 builder 内部通过 Bootstrap Loader 按该模式加载，不经过注入链路传递具体文件
-- 出参：组装完成的 system prompt 文本
-- 结果存储：ConversationSession 的 system prompt 字段（运行时字段，不进 SessionCheckpoint）
+- 入参：agent_id、ToolRegistry 引用、Session 角色（主/子，由主 Session 创建或 spawn 子 Session 确定）、身份加载模式覆写（如有）
+- Bootstrap 文件目录、身份加载模式默认值与无 Bootstrap 文件声明由 System Prompt Builder 经 agent 配置查询获得；Bootstrap 文件由 Builder 内部通过 Bootstrap Loader 按 Session 类型加载，不经过注入链路传递具体文件
+- 出参：组装完成的 System Prompt 文本
+- 结果存储：ConversationSession 的 System Prompt 字段（运行时字段，不进 SessionCheckpoint）
 
 ### 每次 API 请求的动态层注入
 
@@ -38,23 +38,25 @@ AppendSection 是独立于动态层的第三分区（详见 system_prompt/README
 
 动态层的 Section 类型和拼接规则在 [system_prompt/dynamic-layer.md](../system_prompt/dynamic-layer.md) 定义。
 
-### 加载模式解析（Session 角色 + 身份加载模式）
+### Session 类型解析（角色 + 身份加载模式 + 无 Bootstrap 文件声明）
 
-注入链路不直接决定加载哪些 bootstrap 文件，但**解析并传递两个判据**，供 System Prompt Builder 与各 Provider 决定注入集合：
+注入链路直接传递 **agent_id 与 Session 角色**（以及身份加载模式覆写，如有）；身份加载模式的默认值与无 Bootstrap 文件声明由 System Prompt Builder 经 agent 配置查询获得。三类判据共同决定注入集合：
 
 - **Session 角色（主 Agent Session / 子 Session）**：由 SessionManager 在触发构建时确定——主 Agent Session 创建为 Main，spawn 出的子 Session 为 Sub。Session 角色决定加载边界：长期记忆（MEMORY.md）仅在主 Agent Session 注入（与身份加载模式无关），子 Session 恒不注入 BOOTSTRAP.md 与长期记忆。
-- **身份加载模式**：取自目标 agent 配置的 `bootstrapMode`（完整 / 精简）。它只决定自定义引导指令（BOOTSTRAP.md）的取舍——仅在主 Agent Session 且模式为完整时注入，对子 Session 无影响。
+- **身份加载模式**：取自目标 agent 配置的 `bootstrapMode`（完整 / 精简），可被注入链路传入的覆写值覆盖。它只决定自定义引导指令（BOOTSTRAP.md）的取舍——仅在主 Agent Session 且模式为完整时注入，对子 Session 无影响。
+- **无 Bootstrap 文件声明**：取自目标 agent 配置的 `noBootstrap`。为真时该 Session 与主/子角色无关，按「无 Bootstrap 文件的 Session」运行，仅加载工具/技能清单；未声明但 Bootstrap 文件目录（`agentDir`）不存在时，由 Builder 兜底为同一类型并记降级告警（见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载）。
 
 解析流程（编号列表）：
 
 1. 确定 Session 角色：主 Agent Session → Main；spawn 子 Session → Sub（详见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程）
-2. 确定身份加载模式：取目标 agent 配置的 `bootstrapMode`
-3. 将 Session 角色 + 身份加载模式传给系统 Builder / 相关 Provider，按 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载 的文件判据决定注入集合：
-   - 必须文件（AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md）：主/子 Session 均注入（无 workspace 目录除外）
+2. 将 agent_id、Session 角色与身份加载模式覆写（如有）传给 System Prompt Builder
+3. Builder 查询 agent 配置，获取 `bootstrapMode` 默认值、`noBootstrap` 与 `agentDir`，并检查 Bootstrap 文件目录是否存在
+4. 按 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载 的文件判据决定注入集合：
+   - 必须文件（AGENTS.md/SOUL.md/IDENTITY.md/USER.md/TOOLS.md）：主/子 Session 均注入
    - 自定义引导指令（BOOTSTRAP.md）：仅主 Agent Session 且完整模式
-   - 长期记忆（MemorySection）：仅主 Agent Session，与身份加载模式无关，由 MemoryFragmentProvider 按 Session 角色读取（见 [fragment-provider.md](../system_prompt/fragment-provider.md)）
+   - 长期记忆（MemorySection）：仅主 Agent Session，与身份加载模式无关，由 MemoryFragmentProvider 按 Session 类型读取（见 [fragment-provider.md](../system_prompt/fragment-provider.md)）
 
-子 Session 的精简是 Session 角色的安全边界（不暴露记忆与自定义引导），而非来自身份加载模式的瘦身；主 Agent Session 精简模式仅少 BOOTSTRAP.md，仍注入长期记忆。agent 侧完整/精简配置语义见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程。
+子 Session 的精简是 Session 角色的安全边界（不暴露记忆与自定义引导），而非来自身份加载模式的瘦身；主 Agent Session 精简模式仅少 BOOTSTRAP.md，仍注入长期记忆。「无 Bootstrap 文件的 Session」只保留工具/技能清单。agent 侧完整/精简配置语义见 [agent-spawn.md](../agent/agent-spawn.md) §Spawn 控制流程。
 
 ### 文件变更检测（file_mtimes / file_read_ranges）
 
@@ -131,18 +133,18 @@ session 暴露一个 `memory_injection` 槽位，供 memory 模块的 active-sea
    - 传参：agent_id
    - 传参：ToolRegistry 引用
    - 传参：Session 角色（主/子，由主 Session 创建或 spawn 子 Session 确定）
-   - 传参：身份加载模式（由 agent 配置 bootstrapMode 决定）
-   - 返回：组装完成的 system prompt 文本
-3. 写入 ConversationSession 的 system prompt 字段
+   - 传参：身份加载模式覆写（如有）
+   - 返回：组装完成的 System Prompt 文本
+3. 写入 ConversationSession 的 System Prompt 字段
 4. 返回 session 给调用方
 
 builder 内部通过 Bootstrap Loader 加载文件、按需组装各 Section。
 
 注入链路不关心 builder 内部的 Section 组装细节——哪些 Section 参与、如何渲染、缺失文件如何容错、失败时如何处理——这些由 System Prompt Builder 在 [system_prompt/README 架构](../system_prompt/README.md#架构) 中定义的规则决定。注入链路只关心：触发条件、传什么参数、拿回什么结果、结果存哪里。
 
-### 无 Workspace 时
+### 无 Bootstrap 文件的 Session
 
-session 无对应 workspace 目录时，builder 检测到 workspace 不存在后自行跳过 bootstrap 文件加载，仅生成 ToolsSection 和 SkillsSection（详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md)）。注入链路不参与此决策。
+Agent 显式声明 `noBootstrap`，或未声明但 Bootstrap 文件目录（`agentDir`）不存在时，Session 按「无 Bootstrap 文件的 Session」运行：builder 不加载任何 Bootstrap 文件与长期记忆，仅生成 ToolsSection 和 SkillsSection；因目录不存在兜底时记录降级告警（详见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载）。该判定与主/子 Session 角色无关，Session 工作目录（workspace）不参与判定。注入链路不参与此决策。
 
 ## 模块关系
 

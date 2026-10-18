@@ -54,7 +54,7 @@ System Prompt 模块通过 `__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__` 边界标记将 
 
 ```
 System Prompt 模块构建 System Prompt
-  ↓ 拆分静态区（bootstrap 文件 + ToolsSection + SkillListingSection + MemorySection）与动态区（ChannelContext + WorkingDirectory + GitStatus + 追加区）
+  ↓ 拆分静态区（Bootstrap 文件 + ToolsSection + SkillsSection + MemorySection）与动态区（ChannelContext + WorkingDirectory + 追加区）
   ↓ 缓存适配器接收（供应商 ID、静态区内容、动态区内容、会话 ID）
     ├─ Anthropic：静态区拆分为多个可缓存块（各标 cache_control）、动态区标记不可缓存、工具 Schema 标记缓存 → 标准协议请求
     └─ DeepSeek / OpenAI：无额外处理（前缀稳定性由 System Prompt 模块保证）→ 标准协议请求

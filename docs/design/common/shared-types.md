@@ -344,12 +344,13 @@ FragmentContext 是 PromptFragmentProvider 片段生成时的输入上下文，�
 | `agent_id` | string | Agent 标识。Skills / Tools / Memory 等 Provider 按此决定可见范围 |
 | `session_role` | enum | Session 角色：SessionRole::Main（主 Agent Session）或 SessionRole::Sub（子 Session）。长期记忆（MEMORY.md）按此角色门控（仅主 Session 加载，与身份加载模式无关）；自定义引导指令（BOOTSTRAP.md）另行按 `bootstrap_mode` 门控（仅主 Session 且完整模式加载，见 [system_prompt §F1/F8](../../requirements/system_prompt.md)） |
 | `bootstrap_mode` | enum | 身份加载模式，取值来自 agent 配置的 `bootstrapMode`：BootstrapMode::Minimal（精简）或 BootstrapMode::Full（完整），仅主 Agent Session 下决定是否注入自定义引导指令（BOOTSTRAP.md）。子 Session 不据此注入可选内容 |
-| `no_bootstrap` | bool | Agent 是否显式声明无 Bootstrap 文件。为真时该 Session 按「无 Bootstrap 文件的 Session」处理——仅加载工具清单，不加载任何 Bootstrap 文件与长期记忆（见 [system_prompt §F8](../../requirements/system_prompt.md)） |
+| `no_bootstrap` | bool | Agent 是否显式声明无 Bootstrap 文件。为真时该 Session 按「无 Bootstrap 文件的 Session」处理——仅加载工具/技能清单，不加载任何 Bootstrap 文件与长期记忆（见 [system_prompt §F8](../../requirements/system_prompt.md)） |
+| `bootstrap_dir_present` | bool | Bootstrap 文件目录（`bootstrap_dir`）是否存在，由 Builder 在构建时检查。与 `no_bootstrap` 共同决定「无 Bootstrap 文件的 Session」：`no_bootstrap` 为真或本字段为假时，Provider 不加载任何 Bootstrap 文件与长期记忆；未显式声明且目录缺失时同时记录降级告警（规则见 [system_prompt/static-layer](../system_prompt/static-layer.md)） |
 | `bootstrap_dir` | string | bootstrap 文件所在目录，BootstrapFragmentProvider 按此查找 bootstrap 文件。值来源于 agent 配置的 agentDir 字段 |
 | `activated_skills` | list(string) | 当前 session 已条件激活的技能名列表，由 Session 模块在 SP 重建时按值传入，SkillsFragmentProvider 据此把已激活条件技能纳入清单（仅 SP 重建路径有效） |
 | `tool_registry` | ToolRegistryQuery? | 供需要工具信息的 Provider（如 ToolsFragmentProvider）直接查询的工具注册表引用；来自 InjectionParams，缺省回退 Provider 默认 |
 
-Session 角色（主/子）在主 Session 创建 / spawn 子 Session 时确定，由 SessionManager 在触发构建时同 agent_id 一并传给 Builder 写入 FragmentContext。身份加载模式（bootstrap_mode）是 agent 配置的静态属性；两者正交——主 Agent Session 精简模式下 session_role 仍为 Main。
+Session 角色（主/子）在主 Session 创建 / spawn 子 Session 时确定，由 SessionManager 在触发构建时同 agent_id 一并传给 Builder 写入 FragmentContext。身份加载模式（bootstrap_mode）是 agent 配置的静态属性；两者正交——主 Agent Session 精简模式下 session_role 仍为 Main。Builder 另检查 Bootstrap 文件目录是否存在（`bootstrap_dir_present`），与 `no_bootstrap` 一起解析出三种 Session 类型（主 Agent Session / 子 Session / 无 Bootstrap 文件的 Session），判定规则见 [system_prompt/static-layer](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载。
 
 ### PromptFragment
 
@@ -744,7 +745,7 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 
 ### 会话/注入辅助类型
 
-**SessionRole**——会话角色枚举，为 [FragmentContext](#fragmentcontext) 字段：Main（顶层 Agent 会话，加载 MEMORY.md 与 BOOTSTRAP.md 等受身份门控内容）/ Sub（被 spawn 的子会话，无论身份加载模式为何都抑制受门控内容）。
+**SessionRole**——会话角色枚举，为 [FragmentContext](#fragmentcontext) 字段：Main（顶层 Agent 会话，加载 MEMORY.md 与 BOOTSTRAP.md 等受身份门控内容）/ Sub（被 spawn 的子会话，无论身份加载模式为何都抑制受门控内容）。「无 Bootstrap 文件的 Session」不是 SessionRole 的枚举值，而是由 `no_bootstrap` / `bootstrap_dir_present` 叠加在角色之上的 Session 类型（见 [FragmentContext](#fragmentcontext)）。
 
 **SectionType**——[PromptFragment](#promptfragment) 的片段类型枚举：Bootstrap（bootstrap 文件）/ Tools（工具清单）/ Skills（技能清单）/ Memory（长期记忆）。
 
@@ -759,7 +760,7 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 | `timestamp` | int | 消息创建时的 Unix 时间戳（秒） |
 | `chat_name` | string | 会话/群名称，无则为空串 |
 
-**InjectionParams**——system prompt 注入链的参数契约，由 SessionManager → session → System Prompt Builder 传递；设计契约要求 agent_id、ToolRegistry 引用、Session 角色、身份加载模式四项必选输入，另含既有参数：
+**InjectionParams**——system prompt 注入链的参数契约，由 SessionManager → session → System Prompt Builder 传递；设计契约要求 agent_id、ToolRegistry 引用、Session 角色、身份加载模式四项必选输入。Bootstrap 文件目录、无 Bootstrap 文件声明与身份加载模式默认值由 Builder 经 AgentLookup 查询，不经由本结构传递：
 
 | 字段 | 类型 | 说明 |
 |------|------|------|
@@ -768,7 +769,6 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 | `bootstrap_mode_override` | BootstrapMode? | 身份加载模式覆写；空表示用 agent 配置默认值 |
 | `activated_skills` | list(string) | 本会话条件激活的技能名，供 SkillsFragmentProvider 纳入清单 |
 | `session_role` | SessionRole | 会话角色，决定身份门控行为 |
-| `no_bootstrap` | bool | agent 是否声明 `noBootstrap: true`；为真时视为无 bootstrap 文件，与 `bootstrap_mode_override` 正交且优先级更高 |
 | `tool_registry` | ToolRegistryQuery? | 可选 ToolRegistry 引用；空时回落到 Provider 级默认 |
 
 **TurnCounter**——会话轮次计数器（一「轮」= 一次 User 消息进入至 Agent 完成响应，与 [session §F3](../../requirements/session.md) 的压缩检测轮次口径一致）；计数器内部私有，仅暴露新建 / 自增 / 读取。
@@ -800,6 +800,7 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 | `command` | string | 指令名（不含前导 `/`）；多命令 handler（如 workdir 系列）据此分支 |
 | `sender_id` | string | 消息发送者标识 |
 | `session_id` | string | 指令被调用的会话 ID |
+| `system_appends` | list(string) | 会话当前的 Owner 动态指令子集，供 `/system list` 读取；由 Gateway 从 Session 取得后写入 |
 | `channel` | string | 渠道标识 |
 
 **SystemAppendAction**——`/system` 追加动作，为 [SlashResult](#slashresult) 变体载荷：Add（携带要追加的指令文本）/ Clear（清空全部已追加指令）。
@@ -902,7 +903,7 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 
 ### 其他契约辅助类型
 
-- **DynamicPromptContext**：[DynamicPromptBuilder](core-traits.md#dynamicpromptbuilder) 契约的动态层构建上下文：已存储的 system prompt、当前请求元数据（[RequestContext](#requestcontext)）、工作目录、会话 append 条目、会话创建时间、是否已压缩、是否面向子 agent、是否启用 GitStatus。
+- **DynamicPromptContext**：[DynamicPromptBuilder](core-traits.md#dynamicpromptbuilder) 契约的动态层构建上下文：已存储的 System Prompt 静态层、当前请求元数据（[RequestContext](#requestcontext)）、工作目录、会话创建时间、是否已压缩、是否面向子 agent。
 - **AgentToolsConfig**：Agent 工具白/黑名单配置（`tools` 白名单、`disallowed_tools` 黑名单，均可选；`tools` 为 `None` / 空数组 / `["*"]` 表示全部工具），为 [AgentToolsConfigQuery](core-traits.md#agenttoolsconfigquery) 的返回类型。
 - **ConditionalSkillMatch**：条件技能匹配结果（`name` 技能名、`listing_line` 含 ⚡ 注解的渲染清单行），为 [SkillListingProvider](core-traits.md#skilllistingprovider) 的载荷。
 
@@ -1037,15 +1038,15 @@ SlashResult 的生命周期：Handler 返回 → Gateway 构造 SideEffectContex
 FragmentContext 和 PromptFragment 的流动嵌入在 system prompt 静态层的构建流程中：
 
 ```
-SessionManager 触发构建（新 Session / 恢复 archive / compaction），传 Session 角色（主/子）
+SessionManager 触发构建（新 Session / 恢复 archive / compaction），传 Session 角色（主/子）与无 Bootstrap 文件声明
   ↓
-System Prompt Builder 构建 FragmentContext（agent_id + session_role + bootstrap_mode + bootstrap_dir）
+System Prompt Builder 构建 FragmentContext（agent_id + session_role + bootstrap_mode + no_bootstrap + bootstrap_dir + bootstrap_dir_present）
   ↓
 遍历已注册的 PromptFragmentProvider → 传入 FragmentContext → 各 Provider 产出 PromptFragment
   ↓
 按优先级拼接所有 PromptFragment.content
   ↓
-写入 ConversationSession 的 system prompt 字段
+写入 ConversationSession 的 System Prompt 字段
 ```
 
 FragmentContext 由 Builder 一次性构建，所有 Provider 共享同一上下文。PromptFragment 由各 Provider 独立产出，生命周期止于 Builder 完成拼接。
