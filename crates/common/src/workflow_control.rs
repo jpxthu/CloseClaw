@@ -81,21 +81,13 @@ mod tests {
         assert_send_sync::<Arc<dyn WorkflowControl>>();
     }
 
-    /// Object safety: the trait is usable as a type-erased trait object
-    /// (`Box<dyn WorkflowControl>`), the gateway consumption prerequisite.
+    /// Object safety (`Box<dyn WorkflowControl>` compiles — the gateway
+    /// consumption prerequisite) + contract callability (all three methods
+    /// callable via dyn dispatch with the contract signatures, returning
+    /// `Ok(())` with no extra requirements).
     #[tokio::test]
-    async fn test_workflow_control_object_safe_dispatch_via_dyn() {
+    async fn test_workflow_control_contract_methods_callable_via_dyn() {
         let stub: Box<dyn WorkflowControl> = Box::new(StubWorkflowControl);
-        assert_eq!(stub.start("s1", "code-review").await, Ok(()));
-        assert_eq!(stub.on_owner_message("s1").await, Ok(()));
-        assert_eq!(stub.terminate("s1").await, Ok(()));
-    }
-
-    /// Contract callability: all three methods callable with the contract
-    /// signatures and return `Ok(())` with no extra requirements.
-    #[tokio::test]
-    async fn test_workflow_control_contract_methods_callable() {
-        let stub = StubWorkflowControl;
         assert_eq!(stub.start("session-1", "workflow-a").await, Ok(()));
         assert_eq!(stub.on_owner_message("session-1").await, Ok(()));
         assert_eq!(stub.terminate("session-1").await, Ok(()));
