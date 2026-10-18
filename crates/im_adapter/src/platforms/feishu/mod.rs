@@ -71,6 +71,7 @@ mod step1_8_gap_tests;
 #[cfg(test)]
 mod streaming_render_tests;
 pub(crate) mod streaming_send;
+mod streaming_send_card;
 #[cfg(test)]
 mod streaming_send_tests;
 #[cfg(test)]
