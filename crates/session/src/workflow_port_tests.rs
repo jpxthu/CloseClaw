@@ -33,6 +33,7 @@ fn make_definition() -> Workflow {
         id: "wf-port-test".to_string(),
         name: "Port Test Workflow".to_string(),
         description: "Workflow for port round-trip tests".to_string(),
+        definition_path: None,
         version: Some("1.0".to_string()),
         allow_blocked: false,
         verify_retry_limit: 3,

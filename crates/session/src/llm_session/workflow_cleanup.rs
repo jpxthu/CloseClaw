@@ -92,6 +92,7 @@ mod tests {
             id: "test-wf".to_string(),
             name: "Test Workflow".to_string(),
             description: "A test workflow".to_string(),
+            definition_path: None,
             version: Some("0.1".to_string()),
             allow_blocked: false,
             verify_retry_limit: 3,

@@ -395,6 +395,7 @@ mod tests {
             id: "wf-test".into(),
             name: "test-workflow".into(),
             description: "test".into(),
+            definition_path: None,
             version: Some("1.0".into()),
             allow_blocked: false,
             verify_retry_limit: 3,

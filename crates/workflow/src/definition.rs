@@ -1,5 +1,7 @@
 //! Workflow definition types and YAML frontmatter parsing.
 
+use std::path::PathBuf;
+
 use serde::{Deserialize, Serialize};
 
 use crate::definition_validator::validate_definition;
@@ -15,6 +17,9 @@ pub struct Workflow {
     pub name: String,
     /// Description of what this workflow does.
     pub description: String,
+    /// 加载来源定义文件路径，文件加载时回填，builtin 定义为 None，不参与定义语义。
+    #[serde(default)]
+    pub definition_path: Option<PathBuf>,
     /// Definition version string (default: "0.1").
     #[serde(default)]
     pub version: Option<String>,
