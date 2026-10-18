@@ -408,6 +408,7 @@ fn test_handle_jump_no_match_returns_error() {
         id: "no-default".into(),
         name: "No Default".into(),
         description: "".into(),
+        definition_path: None,
         version: None,
         allow_blocked: false,
         verify_retry_limit: 3,

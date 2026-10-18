@@ -19,26 +19,37 @@ use crate::definition::Workflow;
 /// --- WORKFLOW ---
 /// 你正在执行受控工作流：{workflow_name}
 /// 描述：{description}
-/// Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：
+/// 定义文件：{path}
+/// Engine 会通过 workflow 控制消息（role: workflow）驱动步骤推进，必须遵守三阶段协议：
 /// 1. 收到 goal → 执行步骤
 /// 2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续
 /// 3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案
 /// 不要自行跳步或跳过验证。
 /// --- WORKFLOW END ---
 /// ```
+///
+/// The `定义文件：{path}` line is rendered only when
+/// [`Workflow::definition_path`] is `Some` (loaded from a definition
+/// file); definitions without a file path skip the line.
 pub fn build_workflow_context_append(workflow: &Workflow) -> String {
+    let definition_line = workflow
+        .definition_path
+        .as_ref()
+        .map(|path| format!("定义文件：{}\n", path.display()))
+        .unwrap_or_default();
+    let name = &workflow.name;
+    let desc = &workflow.description;
     format!(
         "--- WORKFLOW ---\n\
          你正在执行受控工作流：{name}\n\
          描述：{desc}\n\
-         Engine 会通过 workflow 角色消息驱动步骤推进，必须遵守三阶段协议：\n\
+         {definition_line}\
+         Engine 会通过 workflow 控制消息（role: workflow）驱动步骤推进，必须遵守三阶段协议：\n\
          1. 收到 goal → 执行步骤\n\
          2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续\n\
          3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案\n\
          不要自行跳步或跳过验证。\n\
-         --- WORKFLOW END ---",
-        name = workflow.name,
-        desc = workflow.description,
+         --- WORKFLOW END ---"
     )
 }
 
@@ -67,12 +78,16 @@ pub fn remove_workflow_context(injection_appends: &mut Vec<String>) -> usize {
 mod tests {
     use super::*;
     use crate::definition::{Step, Workflow};
+    use std::path::PathBuf;
+
+    const TEST_DEFINITION_PATH: &str = "workflows/test-wf.yaml";
 
     fn make_test_workflow() -> Workflow {
         Workflow {
             id: "test-wf".to_string(),
             name: "Test Workflow".to_string(),
             description: "A test workflow".to_string(),
+            definition_path: None,
             version: Some("0.1".to_string()),
             allow_blocked: false,
             verify_retry_limit: 3,
@@ -89,17 +104,54 @@ mod tests {
         }
     }
 
+    fn make_test_workflow_with_definition_path() -> Workflow {
+        let mut wf = make_test_workflow();
+        wf.definition_path = Some(PathBuf::from(TEST_DEFINITION_PATH));
+        wf
+    }
+
+    /// Assert `ctx` equals the expected template minus the definition
+    /// file line (used by the `definition_path: None` branch tests).
+    fn assert_matches_template_without_definition_line(ctx: &str, with_path: &str) {
+        let expected: Vec<&str> = with_path
+            .lines()
+            .filter(|line| !line.starts_with("定义文件："))
+            .collect();
+        let actual: Vec<&str> = ctx.lines().collect();
+        assert_eq!(actual, expected);
+    }
+
     #[test]
     fn test_build_workflow_context_append_format() {
-        let wf = make_test_workflow();
+        let wf = make_test_workflow_with_definition_path();
         let ctx = build_workflow_context_append(&wf);
-        assert!(ctx.starts_with("--- WORKFLOW ---"));
-        assert!(ctx.ends_with("--- WORKFLOW END ---"));
-        assert!(ctx.contains("Test Workflow"));
-        assert!(ctx.contains("A test workflow"));
-        assert!(ctx.contains("workflow_verify"));
-        assert!(ctx.contains("workflow_jump"));
-        assert!(ctx.contains("三阶段协议"));
+        let expected = format!(
+            "--- WORKFLOW ---\n\
+             你正在执行受控工作流：Test Workflow\n\
+             描述：A test workflow\n\
+             定义文件：{path}\n\
+             Engine 会通过 workflow 控制消息（role: workflow）驱动步骤推进，必须遵守三阶段协议：\n\
+             1. 收到 goal → 执行步骤\n\
+             2. 收到 verify → 自查验收清单 → 完成则调用 workflow_verify，否则继续\n\
+             3. 收到 jump → 回答问题 → 调用 workflow_jump 传递答案\n\
+             不要自行跳步或跳过验证。\n\
+             --- WORKFLOW END ---",
+            path = TEST_DEFINITION_PATH,
+        );
+        assert_eq!(ctx, expected);
+        assert!(!ctx.contains("角色消息"));
+    }
+
+    /// Without `definition_path`, the `定义文件` line is absent and all
+    /// other lines are unchanged.
+    #[test]
+    fn test_build_workflow_context_append_without_definition_path() {
+        let with_path = build_workflow_context_append(&make_test_workflow_with_definition_path());
+        assert!(with_path.contains(&format!("定义文件：{TEST_DEFINITION_PATH}")));
+
+        let ctx = build_workflow_context_append(&make_test_workflow());
+        assert!(!ctx.contains("定义文件"));
+        assert_matches_template_without_definition_line(&ctx, &with_path);
     }
 
     #[test]

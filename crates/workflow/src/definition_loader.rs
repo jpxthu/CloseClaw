@@ -65,7 +65,9 @@ impl WorkflowDefinitionLoader {
 
         // Level 3: built-in workflows
         if let Some(content) = BUILTIN_WORKFLOWS.get(name) {
-            return Workflow::parse_skill_md(content);
+            let mut workflow = Workflow::parse_skill_md(content)?;
+            workflow.definition_path = None;
+            return Ok(workflow);
         }
 
         Err(WorkflowError::DefinitionNotFound(name.to_string()))
@@ -75,24 +77,33 @@ impl WorkflowDefinitionLoader {
     ///
     /// This is a separate method to allow unit testing the builtin lookup
     /// path without requiring mutation of the static `BUILTIN_WORKFLOWS`.
+    /// Mirrors the production builtin branch in [`Self::load`], including
+    /// the explicit `definition_path = None` invariant.
     #[cfg(test)]
     pub(crate) fn load_from_builtin(
         name: &str,
         registry: &HashMap<&str, &str>,
     ) -> Result<Workflow, WorkflowError> {
         if let Some(content) = registry.get(name) {
-            return Workflow::parse_skill_md(content);
+            let mut workflow = Workflow::parse_skill_md(content)?;
+            workflow.definition_path = None;
+            return Ok(workflow);
         }
         Err(WorkflowError::DefinitionNotFound(name.to_string()))
     }
 
     /// Read a SKILL.md file from disk and parse it as a workflow definition.
+    ///
+    /// On success, backfills [`Workflow::definition_path`] with the source
+    /// file path before returning.
     fn load_from_file(path: &Path) -> Result<Workflow, WorkflowError> {
         let content = std::fs::read_to_string(path).map_err(|e| {
             WorkflowError::ParseError(format!("failed to read {}: {e}", path.display()))
         })?;
 
-        Workflow::parse_skill_md(&content)
+        let mut workflow = Workflow::parse_skill_md(&content)?;
+        workflow.definition_path = Some(path.to_path_buf());
+        Ok(workflow)
     }
 }
 
@@ -126,6 +137,107 @@ mod tests {
 
         let wf = WorkflowDefinitionLoader::load("test-wf", Some(tmp.path()), None).unwrap();
         assert_eq!(wf.id, "test-wf");
+    }
+
+    #[test]
+    fn test_level1_hit_backfills_definition_path() {
+        let tmp = TempDir::new().unwrap();
+        write_skill_md(
+            tmp.path(),
+            "path-wf",
+            concat!(
+                "id: path-wf\nname: Path WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
+        );
+
+        let wf = WorkflowDefinitionLoader::load("path-wf", Some(tmp.path()), None).unwrap();
+        let expected = tmp
+            .path()
+            .join("workflows")
+            .join("path-wf")
+            .join("SKILL.md");
+        assert_eq!(wf.definition_path, Some(expected));
+    }
+
+    #[test]
+    fn test_level2_hit_backfills_definition_path() {
+        let tmp = TempDir::new().unwrap();
+        write_skill_md(
+            tmp.path(),
+            "global-path-wf",
+            concat!(
+                "id: global-path-wf\nname: Global Path WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
+        );
+
+        let wf = WorkflowDefinitionLoader::load("global-path-wf", None, Some(tmp.path())).unwrap();
+        let expected = tmp
+            .path()
+            .join("workflows")
+            .join("global-path-wf")
+            .join("SKILL.md");
+        assert_eq!(wf.definition_path, Some(expected));
+    }
+
+    #[test]
+    fn test_builtin_hit_has_no_definition_path() {
+        let mut registry = HashMap::new();
+        registry.insert(
+            "builtin-path-wf",
+            concat!(
+                "---\nid: builtin-path-wf\nname: Builtin Path WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete\n---\n",
+            ),
+        );
+
+        let wf = WorkflowDefinitionLoader::load_from_builtin("builtin-path-wf", &registry).unwrap();
+        assert_eq!(wf.definition_path, None);
+    }
+
+    #[test]
+    fn test_definition_path_serde_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        write_skill_md(
+            tmp.path(),
+            "serde-wf",
+            concat!(
+                "id: serde-wf\nname: Serde WF\n",
+                "description: desc\nsteps:\n",
+                "  - id: 0\n    name: S\n    goal: G\n",
+                "    verify:\n      - Done\n",
+                "    transitions:\n      - action: complete",
+            ),
+        );
+
+        let wf = WorkflowDefinitionLoader::load("serde-wf", Some(tmp.path()), None).unwrap();
+
+        // Round-trip through the port JSON representation: the field is
+        // preserved via `to_value` → `from_value`.
+        let value = serde_json::to_value(&wf).unwrap();
+        let back: Workflow = serde_json::from_value(value).unwrap();
+        assert_eq!(back.definition_path, wf.definition_path);
+        assert!(back.definition_path.is_some());
+
+        // Legacy payloads without the key deserialize to None (compatible).
+        let mut legacy = serde_json::to_value(&wf).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("definition_path")
+            .unwrap();
+        let parsed: Workflow = serde_json::from_value(legacy).unwrap();
+        assert_eq!(parsed.definition_path, None);
     }
 
     #[test]

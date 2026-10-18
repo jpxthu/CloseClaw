@@ -197,6 +197,7 @@ fn test_process_workflow_tool_results_with_existing_handler() {
         id: "test-wf".to_string(),
         name: "Test WF".to_string(),
         description: "test".to_string(),
+        definition_path: None,
         version: None,
         allow_blocked: false,
         verify_retry_limit: 3,
