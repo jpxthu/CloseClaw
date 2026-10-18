@@ -8,7 +8,8 @@ use super::{ConversationSession, SessionMessage};
 use crate::run_health::{RollbackAction, RuntimeSnapshotManager, TranscriptOp};
 use closeclaw_common::ContentBlock;
 
-/// Transcript modification methods for [`ConversationSession`].
+/// Unified transcript modification entry points and snapshot management
+/// for [`ConversationSession`].
 impl ConversationSession {
     /// Unified transcript modification entry point for rewrite/partial-rewrite.
     ///
@@ -23,52 +24,6 @@ impl ConversationSession {
         }
         self.messages = new_messages;
         self.last_activity_at = chrono::Utc::now().timestamp();
-    }
-
-    /// Incremental transcript append. Does not create a snapshot.
-    pub fn append_transcript(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
-        self.push_message(role, content_blocks);
-    }
-
-    /// Incremental transcript append preserving the original timestamp.
-    ///
-    /// Unlike [`append_transcript`](Self::append_transcript) which uses the
-    /// current time, this method keeps the provided `timestamp`. Used by
-    /// `clone_messages_from` to preserve
-    /// source message timing while going through the declaration channel.
-    pub fn append_transcript_preserving_timestamp(
-        &mut self,
-        role: &str,
-        content_blocks: Vec<ContentBlock>,
-        timestamp: chrono::DateTime<chrono::Utc>,
-    ) {
-        self.push_message_with_timestamp(role, content_blocks, timestamp);
-    }
-
-    /// Incremental transcript append with an incremental snapshot.
-    ///
-    /// Creates a [`SnapshotKind::Incremental`](crate::run_health::SnapshotKind::Incremental)
-    /// snapshot recording the
-    /// given `leaf_entry_id` *before* appending. This enables
-    /// JSONL-truncation rollback for the appended entry.
-    ///
-    /// Returns `true` if a snapshot was created.
-    pub fn append_transcript_with_snapshot(
-        &mut self,
-        role: &str,
-        content_blocks: Vec<ContentBlock>,
-        leaf_entry_id: &str,
-    ) -> Option<String> {
-        let mgr = self
-            .snapshot_manager
-            .get_or_insert_with(RuntimeSnapshotManager::new);
-        let snapshot_id = mgr.create_incremental_snapshot(
-            &self.messages,
-            &format!("pre-append:{role}"),
-            leaf_entry_id,
-        );
-        self.push_message(role, content_blocks);
-        snapshot_id
     }
 
     /// Rollback to the most recent snapshot, if any.
@@ -136,7 +91,59 @@ impl ConversationSession {
             mgr.mark_complete(snapshot_id);
         }
     }
+}
 
+/// Incremental transcript append methods for [`ConversationSession`].
+impl ConversationSession {
+    /// Incremental transcript append. Does not create a snapshot.
+    pub fn append_transcript(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
+        self.push_message(role, content_blocks);
+    }
+
+    /// Incremental transcript append preserving the original timestamp.
+    ///
+    /// Unlike [`append_transcript`](Self::append_transcript) which uses the
+    /// current time, this method keeps the provided `timestamp`. Used by
+    /// `clone_messages_from` to preserve
+    /// source message timing while going through the declaration channel.
+    pub fn append_transcript_preserving_timestamp(
+        &mut self,
+        role: &str,
+        content_blocks: Vec<ContentBlock>,
+        timestamp: chrono::DateTime<chrono::Utc>,
+    ) {
+        self.push_message_with_timestamp(role, content_blocks, timestamp);
+    }
+
+    /// Incremental transcript append with an incremental snapshot.
+    ///
+    /// Creates a [`SnapshotKind::Incremental`](crate::run_health::SnapshotKind::Incremental)
+    /// snapshot recording the
+    /// given `leaf_entry_id` *before* appending. This enables
+    /// JSONL-truncation rollback for the appended entry.
+    ///
+    /// Returns `true` if a snapshot was created.
+    pub fn append_transcript_with_snapshot(
+        &mut self,
+        role: &str,
+        content_blocks: Vec<ContentBlock>,
+        leaf_entry_id: &str,
+    ) -> Option<String> {
+        let mgr = self
+            .snapshot_manager
+            .get_or_insert_with(RuntimeSnapshotManager::new);
+        let snapshot_id = mgr.create_incremental_snapshot(
+            &self.messages,
+            &format!("pre-append:{role}"),
+            leaf_entry_id,
+        );
+        self.push_message(role, content_blocks);
+        snapshot_id
+    }
+}
+
+/// Truncation and recent tool-call query methods for [`ConversationSession`].
+impl ConversationSession {
     /// Truncate the transcript to at most `max` messages.
     ///
     /// When `max` is `Some(n)` and the current message count exceeds `n`,
