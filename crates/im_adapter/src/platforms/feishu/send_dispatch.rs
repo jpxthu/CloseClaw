@@ -2,6 +2,8 @@
 //!
 //! Extracted from `plugin.rs` to keep impl blocks within the 100-line limit.
 
+use std::time::Instant;
+
 use closeclaw_common::{AdapterError as CommonAdapterError, RenderedOutput};
 use tracing::warn;
 
@@ -74,5 +76,30 @@ impl FeishuPlugin {
             }
             _ => Err(CommonAdapterError::UnsupportedOperation),
         }
+    }
+
+    /// Send a batch output (non-streaming path).
+    pub(super) async fn send_batch_output_with_target(
+        &self,
+        output: &RenderedOutput,
+        peer_id: &str,
+        reply_ref: Option<&send_helpers::ReplyTarget>,
+    ) -> Result<(), CommonAdapterError> {
+        let msg_type = output.msg_type.clone();
+        let start = Instant::now();
+        let result = self.dispatch_send(peer_id, output, reply_ref).await;
+        let send_duration_ms = start.elapsed().as_millis() as u64;
+        let success = result.is_ok();
+        self.emit_debug_event(
+            "outbound.send",
+            serde_json::json!({
+                "platform": "feishu",
+                "peer_id": peer_id,
+                "msg_type": msg_type,
+                "send_duration_ms": send_duration_ms,
+                "success": success,
+            }),
+        );
+        result
     }
 }

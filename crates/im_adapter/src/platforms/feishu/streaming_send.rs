@@ -1,4 +1,4 @@
-//! Streaming send helpers — cardkit 3-step protocol and batch send dispatch.
+//! Streaming send entry — batch/streaming routing and text accumulation.
 //!
 //! Extracted from `mod.rs` to keep file sizes within the 1000-line limit.
 
@@ -94,30 +94,5 @@ impl FeishuPlugin {
                 .expect("card_id must be set after creation");
             StreamingAction::Update(card_id, content, seq)
         }
-    }
-
-    /// Send a batch output (non-streaming path).
-    pub(super) async fn send_batch_output_with_target(
-        &self,
-        output: &RenderedOutput,
-        peer_id: &str,
-        reply_ref: Option<&super::send_helpers::ReplyTarget>,
-    ) -> Result<(), CommonAdapterError> {
-        let msg_type = output.msg_type.clone();
-        let start = Instant::now();
-        let result = self.dispatch_send(peer_id, output, reply_ref).await;
-        let send_duration_ms = start.elapsed().as_millis() as u64;
-        let success = result.is_ok();
-        self.emit_debug_event(
-            "outbound.send",
-            serde_json::json!({
-                "platform": "feishu",
-                "peer_id": peer_id,
-                "msg_type": msg_type,
-                "send_duration_ms": send_duration_ms,
-                "success": success,
-            }),
-        );
-        result
     }
 }
