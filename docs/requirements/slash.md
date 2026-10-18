@@ -32,7 +32,7 @@ Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 
 ### F4. 状态查询
 
-Owner 和 User 可以随时查看当前 Session 的运行状态。
+Owner 和 User 可以随时查看当前 Session 的运行状态。System Prompt 追加指令列表仅 Owner 可见，非 Owner 的查询结果不包含该项。
 
 **指令**：
 - `/status`：查询 Session 状态（模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
@@ -56,14 +56,14 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 
 ### F6. System Prompt 追加
 
-Owner 和 User 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。
+Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。该功能仅 Owner 可用；非 Owner User 调用 `/system` 及其子指令时返回权限不足提示。
 
 **指令**：
 - `/system add <内容>`：追加一条指令
 - `/system` 或 `/system list`：列出当前所有追加指令
 - `/system clear`：清除全部追加指令
 
-追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
+追加内容超过 500 字符时，直接拒绝并向 Owner 返回错误提示，不进行截断。`/system add` 不带内容时，向 Owner 返回用法提示。
 
 > **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
 > **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的追加指令保留）定义。
