@@ -28,7 +28,7 @@ use crate::outbound::SendOutboundIds;
 /// Returns `Some((command, args))` where `command` is without the
 /// leading `/` and `args` is the remainder. Returns `None` if the
 /// content does not start with `/`.
-fn parse_slash(content: &str) -> Option<(&str, &str)> {
+pub(crate) fn parse_slash(content: &str) -> Option<(&str, &str)> {
     let trimmed = content.trim();
     if !trimmed.starts_with('/') {
         return None;

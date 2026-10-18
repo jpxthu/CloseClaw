@@ -721,17 +721,22 @@ impl Gateway {
                 return Some(result);
             }
             if let Some(result) = self
+                .try_intercept_workflow_command(&content, sender_id, peer_id, channel)
+                .await
+            {
+                return Some(result);
+            }
+            if let Some(result) = self
                 .dispatch_slash(session_id, &content, sender_id, channel, Some(peer_id))
                 .await
             {
                 return Some(result);
             }
-        }
-        if let Some(result) = self
-            .try_handle_workflow_owner_response(session_id, &content, sender_id)
-            .await
-        {
-            return Some(result);
+        } else {
+            // Owner non-slash message: notify the workflow runtime before
+            // routing (gateway README「普通消息」); never consumes the message.
+            self.notify_workflow_owner_message(session_id, sender_id)
+                .await;
         }
         self.dispatch_to_handler(
             processed, session_id, content, blocks, sender_id, peer_id, channel, dbg,
