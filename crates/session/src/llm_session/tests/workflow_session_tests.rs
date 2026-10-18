@@ -26,6 +26,12 @@ fn typed_run(session: &ConversationSession) -> WorkflowRun {
     serde_json::from_value(session.workflow_handler().unwrap().run_state().clone()).unwrap()
 }
 
+/// Decode a serialized run state into the typed form (handler-level).
+fn typed_run_value(state: &serde_json::Value) -> WorkflowRun {
+    serde_json::from_value(state.clone()).unwrap()
+}
+
+/// Write a single-step workflow SKILL.md with a default complete transition.
 fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
     let wf_dir = dir.join("workflows").join(workflow_name);
     std::fs::create_dir_all(&wf_dir).unwrap();
@@ -230,11 +236,6 @@ fn test_process_workflow_tool_results_with_existing_handler() {
     }];
     assert!(handler.process_content_blocks(&blocks).0);
     assert_eq!(typed_run_value(handler.run_state()).phase, Phase::Blocked);
-}
-
-/// Decode a serialized run state into the typed form (handler-level).
-fn typed_run_value(state: &serde_json::Value) -> WorkflowRun {
-    serde_json::from_value(state.clone()).unwrap()
 }
 
 #[test]

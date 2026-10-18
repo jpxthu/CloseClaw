@@ -1,11 +1,10 @@
 use super::*;
+use closeclaw_common::ContentBlock;
 
 // ── find_assistant_text_by_content ─────────────────────────────────────────
 
 #[test]
 fn test_find_assistant_text_by_content_match() {
-    use closeclaw_common::ContentBlock;
-
     let messages = vec![
         SessionMessage {
             role: "user".into(),
@@ -25,8 +24,6 @@ fn test_find_assistant_text_by_content_match() {
 
 #[test]
 fn test_find_assistant_text_by_content_no_match() {
-    use closeclaw_common::ContentBlock;
-
     let messages = vec![SessionMessage {
         role: "assistant".into(),
         content_blocks: vec![ContentBlock::Text("other text".into())],
@@ -46,8 +43,6 @@ fn test_find_assistant_text_by_content_empty_messages() {
 
 #[test]
 fn test_find_assistant_text_by_content_ignores_non_assistant() {
-    use closeclaw_common::ContentBlock;
-
     let messages = vec![SessionMessage {
         role: "user".into(),
         content_blocks: vec![ContentBlock::Text("target text".into())],
@@ -60,8 +55,6 @@ fn test_find_assistant_text_by_content_ignores_non_assistant() {
 
 #[test]
 fn test_find_assistant_text_by_content_multi_block() {
-    use closeclaw_common::ContentBlock;
-
     let messages = vec![SessionMessage {
         role: "assistant".into(),
         content_blocks: vec![
