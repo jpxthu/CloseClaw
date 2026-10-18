@@ -361,7 +361,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SessionLookup
 
-**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission 与 slash 消费——查询父/子会话关系、聊天 ID，并向统一消息队列推送待处理消息，避免直接依赖 gateway。与 [SlashSessionQuery](#slashsessionquery) 的重叠为分层选择（见该节）。
+**用途**：会话关系与待处理消息接口。Gateway 的 SessionManager 实现，permission、slash 与 workflow 消费——查询父/子会话关系、聊天 ID，并向统一消息队列推送待处理消息，避免直接依赖 gateway。与 [SlashSessionQuery](#slashsessionquery) 的重叠为分层选择（见该节）。
 
 **接口契约**：
 
@@ -409,6 +409,18 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 进度上报 | 上报工具实时执行进度（默认空） |
 | 子会话 | 注册/注销工具调用期间活跃的子会话状态（与 spawn_tree 内存表、四维 child_active 维度联动，见 [session/spawn-tree](../session/spawn-tree.md)）、查询是否有子会话运行 |
 | 手动后台 | 返回手动后台化通知信号（不支持时返回 None） |
+
+#### WorkflowControl
+
+**用途**：workflow 运行时控制接口。workflow 模块的 Workflow Engine 实现，gateway 消费——在 WorkflowStart 副作用、Owner 非斜杠消息路由前与 Owner `/stop` 停止完成后调用，使 Gateway 无需依赖 workflow crate。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 启动 | 给定会话与 workflow name 启动流程：确认无活跃 WorkflowRun、加载并校验定义、初始化 WorkflowRun、注入 workflow context 与 Step 0 步骤目标消息；失败返回错误。供 Gateway 执行 SlashResult::WorkflowStart 调用 |
+| Owner 消息 | Owner 非斜杠消息路由到 Session 前调用；若该会话存在可解除暂停（非定义版本变更的 blocked），则解除阻塞（重置 pending_verify、清理残留验收清单、注入验收清单）；终止性暂停（定义版本变更）无操作；其他 phase 或非 Owner 消息无操作 |
+| 终止 | Owner 的 `/stop` 完成强制停止后调用；终止该会话的活跃 workflow 并执行退出清理（移除 workflow context、清理控制消息、清空 WorkflowRun 并持久化）；无活跃 workflow 时为空操作（幂等） |
 
 ### LLM 调用与流式渲染
 
@@ -579,12 +591,13 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、MediaStoreAccess；消费 IdentityResolver、StreamingRenderer、StreamingSink）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery、WorkflowControl）
   - **cli**（实现 IMPlugin；消费 StreamingRenderer、StreamingSink）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
+  - **workflow**（实现 WorkflowControl、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **permission**（实现 AuditLogger；消费 SessionLookup）
   - **processor_chain**（实现 ProcessorChain）
   - **daemon**（实现 SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费 LlmCaller、MetricsEmitter、TaskManager、SpawnValidator、AgentConfigLookup、AgentRegistryQuery、AuditLogger）
   - **config**（实现 IdentityResolver）
   - **llm**（消费 ShutdownSignal）
-- **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费；workflow 不实现也不消费本文档收录的 core-trait，但经 shared-types 中的共享类型与 common 建立数据流关联，故不计为「无关联」的无关模块。
+- **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费。

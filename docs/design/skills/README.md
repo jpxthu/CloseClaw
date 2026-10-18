@@ -37,7 +37,7 @@ v
 |------|------|
 | [skill-definition.md](skill-definition.md) | Skill 定义：frontmatter 字段、目录优先级、磁盘加载、注册中心、错误处理 |
 | [skill-listing-injection.md](skill-listing-injection.md) | 技能清单生成：过滤、排序、格式化 |
-| [skill-execution.md](skill-execution.md) | 技能调用：inline 执行、Bundled 原生执行、SkillCreator 技能、斜杠命令调用 |
+| [skill-execution.md](skill-execution.md) | 技能调用：inline 执行、Bundled 原生执行、SkillCreator 技能、create-workflow 技能、斜杠命令调用 |
 
 ## 数据流
 
