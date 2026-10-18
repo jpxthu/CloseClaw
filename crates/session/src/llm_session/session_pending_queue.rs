@@ -191,7 +191,11 @@ impl UnifiedMessageQueue {
     pub fn drain_all_items(&mut self) -> Vec<QueueItem> {
         std::mem::take(&mut self.entries)
     }
+}
 
+// ── queue queries & clear ─────────────────────────────────────────────────
+
+impl UnifiedMessageQueue {
     /// Returns `true` if the queue contains no entries.
     pub fn is_empty(&self) -> bool {
         self.entries.is_empty()
@@ -304,9 +308,11 @@ impl ConversationSession {
     pub fn push_queue_entry(&mut self, entry: QueueEntry) {
         self.unified_queue.push(entry);
     }
+}
 
-    // ── pop / drain ─────────────────────────────────────────────────────
+// ── pop / drain ──────────────────────────────────────────────────────────
 
+impl ConversationSession {
     /// Pop the highest-priority entry from the unified queue.
     pub fn pop_queue_entry(&mut self) -> Option<QueueEntry> {
         self.unified_queue.pop()
@@ -367,9 +373,11 @@ impl ConversationSession {
         }
         announces
     }
+}
 
-    // ── status ──────────────────────────────────────────────────────────
+// ── status ───────────────────────────────────────────────────────────────
 
+impl ConversationSession {
     /// Returns whether the unified queue has any entries.
     pub fn has_pending(&self) -> bool {
         !self.unified_queue.is_empty()
@@ -401,9 +409,11 @@ impl ConversationSession {
     pub fn get_announce_events(&self) -> Vec<AnnounceEvent> {
         self.unified_queue.announce_events()
     }
+}
 
-    // ── restore / clear ─────────────────────────────────────────────────
+// ── restore / clear ──────────────────────────────────────────────────────
 
+impl ConversationSession {
     /// Restore pending user messages from checkpoint data.
     /// Only pushes messages where `sent == false` back into the queue.
     pub fn restore_pending_messages(&mut self, messages: Vec<crate::persistence::PendingMessage>) {
