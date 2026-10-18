@@ -14,6 +14,8 @@ mod debug_log_emitter_tests;
 pub mod debug_log_tests;
 #[cfg(test)]
 mod dependency_boundary_tests;
+#[cfg(test)]
+mod gateway_test_utils;
 pub(crate) mod health_check_builders;
 #[cfg(test)]
 mod health_check_builders_tests;
@@ -725,7 +727,7 @@ impl Gateway {
                 return Some(result);
             }
             if let Some(result) = self
-                .try_intercept_workflow_command(&content, sender_id, peer_id, channel)
+                .try_intercept_workflow_command(session_id, &content, sender_id, peer_id, channel)
                 .await
             {
                 return Some(result);

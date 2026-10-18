@@ -39,9 +39,9 @@ pub enum OwnerPauseKind {
     /// Resumable pause (agent-initiated block or verify-retry exhaustion) —
     /// an owner non-slash message lifts the block.
     Resolvable,
-    /// Terminal pause (definition version change) — only owner `/stop`
+    /// Terminable pause (definition version change) — only owner `/stop`
     /// may end it; owner messages are a no-op.
-    Terminological,
+    Terminable,
 }
 
 /// Session-side workflow operations port, implemented by the daemon adapter.

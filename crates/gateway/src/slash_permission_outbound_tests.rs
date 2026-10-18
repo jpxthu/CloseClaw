@@ -9,6 +9,7 @@
 
 use std::sync::{Arc, Mutex};
 
+use crate::gateway_test_utils::SpyPlugin;
 use crate::slash_permission_test_utils::*;
 use crate::{Gateway, HandleResult};
 use closeclaw_common::slash_router::{SlashHandler, SlashResult, SlashRouter};
@@ -16,80 +17,6 @@ use closeclaw_common::slash_router::{SlashHandler, SlashResult, SlashRouter};
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-/// Spy plugin that records every message sent via `plugin.send()`.
-///
-/// Used to verify that the correct outbound path was taken (both
-/// `send_system_notification` and `send_outbound_simplified` ultimately
-/// reach the plugin's `send` method, so capturing text is sufficient).
-struct SpyPlugin {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-impl SpyPlugin {
-    fn new(messages: Arc<Mutex<Vec<String>>>) -> Self {
-        Self { messages }
-    }
-}
-
-#[async_trait::async_trait]
-impl closeclaw_common::IMPlugin for SpyPlugin {
-    fn platform(&self) -> &str {
-        "mock"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<
-        Option<closeclaw_common::im_plugin::NormalizedMessage>,
-        closeclaw_common::im_plugin::AdapterError,
-    > {
-        Ok(None)
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[closeclaw_common::processor::ContentBlock],
-        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
-    ) -> closeclaw_common::im_plugin::RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                closeclaw_common::processor::ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        closeclaw_common::im_plugin::RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
-    }
-
-    async fn send(
-        &self,
-        output: &closeclaw_common::im_plugin::RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-        _reply_ref: Option<&str>,
-    ) -> Result<(), closeclaw_common::im_plugin::AdapterError> {
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_owned();
-        if !text.is_empty() {
-            self.messages
-                .lock()
-                .expect("spy messages poisoned")
-                .push(text);
-        }
-        Ok(())
-    }
-}
 
 /// Counting handler that tracks invocations.
 struct CountingHandler {

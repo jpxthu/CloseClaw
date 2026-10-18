@@ -18,12 +18,11 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::sync::RwLock;
 
+use crate::gateway_test_utils::SpyPlugin;
 use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig, HandleResult, Session, SessionManager};
-use closeclaw_common::im_plugin::{AdapterError, RenderedOutput};
-use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
-use closeclaw_common::{IMPlugin, ToolExecState, WorkflowControl};
+use closeclaw_common::{ToolExecState, WorkflowControl};
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 
@@ -67,71 +66,6 @@ impl WorkflowControl for FakeWorkflowControl {
             .expect("terminate calls poisoned")
             .push(session_id.to_owned());
         self.result.clone()
-    }
-}
-
-// ── Spy plugin capturing outbound replies ──────────────────────────────
-
-struct SpyPlugin {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-impl SpyPlugin {
-    fn new(messages: Arc<Mutex<Vec<String>>>) -> Self {
-        Self { messages }
-    }
-}
-
-#[async_trait]
-impl IMPlugin for SpyPlugin {
-    fn platform(&self) -> &str {
-        "mock"
-    }
-
-    async fn parse_inbound(
-        &self,
-        _payload: &[u8],
-    ) -> Result<Option<closeclaw_common::im_plugin::NormalizedMessage>, AdapterError> {
-        Ok(None)
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[ContentBlock],
-        _dsl_result: Option<&closeclaw_common::processor::DslParseResult>,
-    ) -> RenderedOutput {
-        let text = content_blocks
-            .iter()
-            .filter_map(|b| match b {
-                ContentBlock::Text(t) => Some(t.as_str()),
-                _ => None,
-            })
-            .collect::<Vec<_>>()
-            .join("");
-        RenderedOutput {
-            msg_type: "text".into(),
-            payload: serde_json::json!({"content": {"text": text}}),
-        }
-    }
-
-    async fn send(
-        &self,
-        output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-        _reply_ref: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        let text = output
-            .payload
-            .get("content")
-            .and_then(|c| c.get("text"))
-            .and_then(|t| t.as_str())
-            .unwrap_or("")
-            .to_owned();
-        if !text.is_empty() {
-            self.messages.lock().expect("spy poisoned").push(text);
-        }
-        Ok(())
     }
 }
 

@@ -298,11 +298,16 @@ fn make_control(
 
 /// Build a blocked run (verify-retry exhausted) for the given version.
 fn blocked_run(definition_version: &str) -> serde_json::Value {
+    blocked_run_at(definition_version, 0)
+}
+
+/// Build a blocked run parked at an arbitrary `current_step` index.
+fn blocked_run_at(definition_version: &str, current_step: usize) -> serde_json::Value {
     let run = WorkflowRun {
         workflow_id: "test-wf".to_string(),
         definition_name: "Test Workflow".to_string(),
         definition_version: definition_version.to_string(),
-        current_step: 0,
+        current_step,
         phase: Phase::Blocked,
         current_step_entered_at: "2026-01-01T00:00:00Z".to_string(),
         step_history: vec![],
@@ -445,11 +450,11 @@ async fn test_owner_message_resolvable_full_chain() {
 }
 
 #[tokio::test]
-async fn test_owner_message_terminological_is_noop() {
+async fn test_owner_message_terminable_is_noop() {
     let tmp = tempfile::TempDir::new().unwrap();
     write_workflow_file(tmp.path(), "Test Workflow", "0.1", "Do the first thing");
     let (control, query, ops) = make_control(Some(tmp.path().to_path_buf()));
-    ops.set_pause_kind(SESSION, OwnerPauseKind::Terminological);
+    ops.set_pause_kind(SESSION, OwnerPauseKind::Terminable);
     ops.set_run(SESSION, Some(blocked_run("0.1")));
 
     let result = control.on_owner_message(SESSION).await;
@@ -492,6 +497,53 @@ async fn test_owner_message_definition_changed_replaces_goal() {
     let run = last_persisted_run(&query);
     assert_eq!(run.definition_version, "0.2");
     assert_eq!(run.phase, Phase::Verifying);
+}
+
+/// Stored run JSON that is not a valid `WorkflowRun` → decode error,
+/// no message injected, nothing persisted.
+#[tokio::test]
+async fn test_owner_message_errs_on_illegal_run_json() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    write_workflow_file(tmp.path(), "Test Workflow", "0.1", "Do the first thing");
+    let (control, query, ops) = make_control(Some(tmp.path().to_path_buf()));
+    ops.set_pause_kind(SESSION, OwnerPauseKind::Resolvable);
+    ops.set_run(SESSION, Some(serde_json::json!({"not": "a workflow run"})));
+
+    let result = control.on_owner_message(SESSION).await;
+
+    let err = result.expect_err("illegal run JSON must surface a decode error");
+    assert!(err.contains("工作流运行状态解码失败"), "error: {err}");
+    // No message injected, no cleanup, no persistence.
+    assert!(query.pending_messages(SESSION).is_empty());
+    assert!(ops.verify_removals().is_empty());
+    assert!(ops.message_removals().is_empty());
+    assert!(query.set_calls().is_empty());
+}
+
+/// Stored run's `current_step` out of bounds for the latest definition →
+/// error, no message injected, nothing persisted.
+#[tokio::test]
+async fn test_owner_message_errs_when_current_step_out_of_bounds() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    // Latest definition has a single step (index 0).
+    write_workflow_file(tmp.path(), "Test Workflow", "0.1", "Do the first thing");
+    let (control, query, ops) = make_control(Some(tmp.path().to_path_buf()));
+    query.set_workdir_for(SESSION, tmp.path().to_path_buf());
+    ops.set_pause_kind(SESSION, OwnerPauseKind::Resolvable);
+    ops.set_run(SESSION, Some(blocked_run_at("0.1", 5)));
+
+    let result = control.on_owner_message(SESSION).await;
+
+    let err = result.expect_err("out-of-bounds current step must fail");
+    assert!(
+        err.contains("工作流当前步骤 5 在最新定义中不存在"),
+        "error: {err}"
+    );
+    // No message injected, no cleanup, no persistence.
+    assert!(query.pending_messages(SESSION).is_empty());
+    assert!(ops.verify_removals().is_empty());
+    assert!(ops.message_removals().is_empty());
+    assert!(query.set_calls().is_empty());
 }
 
 // ── terminate ───────────────────────────────────────────────────────
