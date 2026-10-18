@@ -32,6 +32,8 @@ pub(crate) fn format_content_block(b: &ContentBlock) -> Vec<String> {
     }
 }
 
+/// Session state flags: compaction / sub-agent markers,
+/// mode-transition slot, and plan file path.
 impl ConversationSession {
     /// Consume and return the pending mode transition, if any.
     pub fn take_mode_transition(&self) -> Option<closeclaw_common::system_prompt::ModeTransition> {
@@ -73,6 +75,19 @@ impl ConversationSession {
         self.is_sub_agent
     }
 
+    /// Returns the plan file path associated with this session, if any.
+    pub fn plan_file_path(&self) -> Option<&str> {
+        self.plan_file_path.as_deref()
+    }
+
+    /// Sets the plan file path for this session.
+    pub fn set_plan_file_path(&mut self, path: Option<String>) {
+        self.plan_file_path = path
+    }
+}
+
+/// Non-streaming LLM invocation entry points.
+impl ConversationSession {
     /// Make a non-streaming LLM call via the injected
     /// [`LlmCaller`](closeclaw_common::LlmCaller).
     ///
@@ -130,7 +145,10 @@ impl ConversationSession {
     ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         self.invoke_llm_with_target_inner(content, true).await
     }
+}
 
+/// Non-streaming invocation core (shared by the entry points above).
+impl ConversationSession {
     async fn invoke_llm_with_target_inner(
         &mut self,
         content: &str,
@@ -179,7 +197,10 @@ impl ConversationSession {
         }
         result
     }
+}
 
+/// Streaming LLM invocation entry points.
+impl ConversationSession {
     /// Make a streaming LLM call via the injected
     /// [`LlmCaller`](closeclaw_common::LlmCaller).
     pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
@@ -232,7 +253,10 @@ impl ConversationSession {
         self.invoke_llm_streaming_with_target_inner(content, true)
             .await
     }
+}
 
+/// Streaming invocation core (shared by the entry points above).
+impl ConversationSession {
     async fn invoke_llm_streaming_with_target_inner(
         &mut self,
         content: &str,
@@ -293,15 +317,5 @@ impl ConversationSession {
             Some(sh) => (stream.with_shutdown_handle(sh), call_target),
             None => (stream, call_target),
         })
-    }
-
-    /// Returns the plan file path associated with this session, if any.
-    pub fn plan_file_path(&self) -> Option<&str> {
-        self.plan_file_path.as_deref()
-    }
-
-    /// Sets the plan file path for this session.
-    pub fn set_plan_file_path(&mut self, path: Option<String>) {
-        self.plan_file_path = path
     }
 }
