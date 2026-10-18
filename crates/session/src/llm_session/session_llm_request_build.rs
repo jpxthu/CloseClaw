@@ -13,7 +13,6 @@ use closeclaw_common::{
     split_static_dynamic, ContentBlock, DynamicPromptContext, InternalMessage, InternalRequest,
 };
 
-use super::session_llm::format_content_block;
 use super::{ConversationSession, SessionMessage};
 
 impl ConversationSession {
@@ -275,6 +274,28 @@ impl ConversationSession {
         }
 
         result
+    }
+}
+
+/// Format a single [`ContentBlock`] into zero or more string fragments.
+///
+/// This is the shared formatting logic used by both the legacy
+/// `build_api_request` path and the production `build_llm_messages_with_listing`
+/// path. Tool results are excluded here (they are appended as
+/// independent `role="tool"` messages by the caller).
+fn format_content_block(b: &ContentBlock) -> Vec<String> {
+    match b {
+        ContentBlock::Text(t) => vec![t.clone()],
+        ContentBlock::Thinking { thinking: t, .. } => {
+            vec![format!("<thinking>{}</thinking>", t)]
+        }
+        ContentBlock::ToolUse { name, input, .. } => {
+            vec![format!("[tool:{}] {}", name, input)]
+        }
+        ContentBlock::Image { name, .. } => vec![format!("[image: {}]", name)],
+        ContentBlock::Audio { name, .. } => vec![format!("[audio: {}]", name)],
+        ContentBlock::File { name, .. } => vec![format!("[file: {}]", name)],
+        ContentBlock::ToolResult { .. } => vec![],
     }
 }
 
