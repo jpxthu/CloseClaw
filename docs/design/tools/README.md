@@ -142,6 +142,7 @@ Bash、Read、Write/Edit 的详细设计见 [bash-tool.md](bash-tool.md)、[read
 | 模块 | 调用关系 |
 |------|---------|
 | 权限引擎 | 工具执行前调用，校验工具调用的安全属性 |
+| platform | 经临时目录接口获取系统临时目录，后台任务输出与超长命令输出在此按 session 隔离落盘（见 [temp-directory](../platform/temp-directory.md)） |
 | debug_log | 记录工具调用与权限检查结果的调试日志（见 [debug_log](../debug_log/README.md)） |
 
 ### 无关
