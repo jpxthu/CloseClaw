@@ -16,7 +16,6 @@ use super::ConversationSession;
 
 #[allow(dead_code)]
 impl ConversationSession {
-    // ── graceful_stop ────────────────────────────────────────────────────
     /// Wait for in-flight operations to complete, with a hard timeout.
     ///
     /// Polls every 100 ms for LLM streaming and tool execution state.
@@ -99,7 +98,6 @@ impl ConversationSession {
 
 #[allow(dead_code)]
 impl ConversationSession {
-    // ── force_kill ──────────────────────────────────────────────────────
     /// Forcefully kill tool processes and cancel in-flight LLM requests.
     ///
     /// Used by the forceful-shutdown path in
@@ -137,7 +135,6 @@ impl ConversationSession {
         );
     }
 
-    // ── wait-state inspection helpers ───────────────────────────────────
     /// Collect the names and elapsed times of items still in flight.
     fn collect_waiting_items(&self, start: tokio::time::Instant) -> Vec<(String, Duration)> {
         let elapsed = start.elapsed();

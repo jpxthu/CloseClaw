@@ -5,7 +5,7 @@
 //! (tool-call bookkeeping, file-mtime caches, child-session state and
 //! checkpoint persistence). The inherent methods it delegates to live
 //! in sibling modules: `session_exec`, `session_pending`, `workflow`,
-//! `session_handles` and `mod.rs`.
+//! `session_handles`, `session_accessors` and `mod.rs`.
 //!
 //! A trait impl cannot be split across multiple `impl` blocks in Rust,
 //! so this file intentionally contains the single (large) trait impl.

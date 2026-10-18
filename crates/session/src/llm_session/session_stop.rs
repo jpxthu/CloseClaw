@@ -23,7 +23,6 @@ use super::ConversationSession;
 
 #[allow(dead_code)]
 impl ConversationSession {
-    // ── stop(cascade, mode) ─────────────────────────────────────────────
     /// Idempotently stop this session and (optionally) all descendant
     /// sessions. See `docs/design/session/session-execution.md` for
     /// the full state table and ordering rules.

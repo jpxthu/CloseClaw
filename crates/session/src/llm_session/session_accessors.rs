@@ -21,7 +21,7 @@ use closeclaw_common::{
     SystemPromptBuilder, ToolRegistryQuery, VerbosityLevel,
 };
 
-use super::mode_transition::ModeChangeSource;
+use super::mode_transition::{detect, ModeChangeSource};
 use super::{ConversationSession, MemoryInjection, SessionMessage};
 
 /// Basic property accessors: paths, timestamps, bootstrap and
@@ -146,7 +146,7 @@ impl ConversationSession {
         if mode == SessionMode::Plan {
             self.has_been_in_plan.store(true, Ordering::Relaxed);
         }
-        let transition = super::mode_transition::detect(prev, mode, has_been, source);
+        let transition = detect(prev, mode, has_been, source);
         if let Some(t) = transition {
             let pmt = &self.pending_mode_transition;
             *pmt.lock().expect("pending_mode_transition lock poisoned") = Some(t);

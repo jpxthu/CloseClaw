@@ -19,6 +19,7 @@ use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use std::time::Duration;
 
+use closeclaw_common::tool_session::KillHandle;
 use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 
@@ -89,11 +90,7 @@ impl ConversationSession {
     /// the spawned `tokio::process::Child`, and (background path)
     /// with a `crate::tools::builtin::bash_kill::BackgroundKillHandle`
     /// pointing at the `BackgroundTaskManager` entry.
-    pub fn register_tool_handle(
-        &self,
-        call_id: impl Into<String>,
-        handle: Arc<dyn closeclaw_common::tool_session::KillHandle>,
-    ) {
+    pub fn register_tool_handle(&self, call_id: impl Into<String>, handle: Arc<dyn KillHandle>) {
         let id = call_id.into();
 
         // ── Shutdown gate: reject new tool execution ───────────────────

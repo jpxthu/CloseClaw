@@ -1,7 +1,8 @@
 //! Session layer for LLM conversations.
 //!
 //! Provides `SessionMessage`, `ChatSession` trait and `ConversationSession`.
-//! See [`session_handles`] for cancel/cascade-stop and
+//! See `session_stop` for the stop / cascade-stop path,
+//! [`session_handles`] for handle registration / cancel token and
 //! `session_chat` for the `ChatSession` impl.
 
 use cache_prefix::RequestPrefixSnapshot;
