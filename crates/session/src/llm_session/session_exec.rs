@@ -154,7 +154,7 @@ impl ConversationSession {
 
 // ── child session state ──────────────────────────────────────────────────
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {
     /// Registers a new child session in the `Running` state with detail information.
     ///
@@ -231,7 +231,7 @@ impl ConversationSession {
 
 // ── overall exec status ──────────────────────────────────────────────────
 
-#[allow(dead_code)]
+#[allow(dead_code)] // Callers (gateway, tests) are integrated in later steps.
 impl ConversationSession {
     /// Computes the overall session execution status by combining the
     /// four dimensions (LLM / foreground tool / background tool /

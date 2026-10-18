@@ -170,8 +170,8 @@ impl ConversationSession {
 
 /// Shared request preparation for the invocation cores above: caller
 /// extraction → per-turn skill listing preparation → message
-/// assembly → [`InternalRequest`] construction (`stream` selects the
-/// streaming variant) → cache prefix snapshot staging.
+/// assembly → [`InternalRequest`] construction (`is_streaming`
+/// selects the streaming variant) → cache prefix snapshot staging.
 ///
 /// The shutdown gate and busy-count ownership stay with each core —
 /// their log wording and busy return timing differ.
@@ -180,7 +180,7 @@ impl ConversationSession {
         &mut self,
         content: &str,
         user_blocks_pre_appended: bool,
-        stream: bool,
+        is_streaming: bool,
     ) -> Result<(std::sync::Arc<dyn LlmCaller>, InternalRequest), LLMError> {
         let Some(caller) = self.llm_caller.clone() else {
             return Err(LLMError::InvalidRequest(
@@ -192,7 +192,7 @@ impl ConversationSession {
         let messages =
             self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
 
-        let request = self.build_llm_request(messages, stream);
+        let request = self.build_llm_request(messages, is_streaming);
 
         // Stage this round's prefix snapshot at the request-build
         // completion point (cache consistency check; consumed at the
