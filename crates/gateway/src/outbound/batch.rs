@@ -9,7 +9,6 @@ use crate::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::MiddlewareContext;
-use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 use std::sync::Arc;
 
@@ -63,11 +62,7 @@ impl Gateway {
             session_key,
         } = ids;
         // 1. Resolve chat_id and plugin.
-        let chat_id = self
-            .session_manager
-            .get_chat_id(session_id)
-            .await
-            .ok_or(GatewayError::MissingSessionId)?;
+        let chat_id = self.resolve_outbound_chat_id(session_id).await?;
         let Some(plugin) = self.get_plugin(channel).await else {
             return self
                 .fallback_to_plain_text(channel, raw_output)
@@ -76,15 +71,7 @@ impl Gateway {
         };
 
         // 2. Resolve verbosity level and inject into chain metadata.
-        let verbosity_level = if let Some(cs) = self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-        {
-            cs.read().await.verbosity_level()
-        } else {
-            VerbosityLevel::default()
-        };
+        let verbosity_level = self.resolve_outbound_verbosity_level(session_id).await;
 
         // 3. Full batch outbound chain (VerbosityFilter → DslParser → OutboundRawLog).
         let processed = self
@@ -118,8 +105,7 @@ impl Gateway {
                 None, // outbound render event, no parent context needed
             );
         }
-        let thread_id = self.session_manager.get_thread_id(session_id).await;
-        let reply_ref = self.session_manager.get_reply_ref(session_id).await;
+        let routing = self.resolve_outbound_thread_routing(session_id).await;
         let fallback_text = blocks
             .iter()
             .find_map(|b| match b {
@@ -134,8 +120,8 @@ impl Gateway {
             session_id,
             channel,
             chat_id,
-            thread_id,
-            reply_ref,
+            thread_id: routing.thread_id,
+            reply_ref: routing.reply_ref,
             dsl_result: processed.metadata.get("dsl_result").cloned(),
             content_blocks: serde_json::to_string(&processed.content_blocks).ok(),
             trace_id,

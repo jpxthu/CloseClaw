@@ -76,25 +76,13 @@ impl Gateway {
                 meta.session_usage.clone(),
             ))
         };
-        let chat_id = self
-            .session_manager
-            .get_chat_id(session_id)
-            .await
-            .ok_or(GatewayError::MissingSessionId)?;
+        let chat_id = self.resolve_outbound_chat_id(session_id).await?;
 
-        // Resolve thread_id from session checkpoint for outbound thread routing.
-        let thread_id = self.session_manager.get_thread_id(session_id).await;
-        let reply_ref = self.session_manager.get_reply_ref(session_id).await;
+        // Resolve thread routing from session checkpoint for outbound
+        // thread routing.
+        let routing = self.resolve_outbound_thread_routing(session_id).await;
 
-        let verbosity_level = if let Some(cs) = self
-            .session_manager
-            .get_conversation_session(session_id)
-            .await
-        {
-            cs.read().await.verbosity_level()
-        } else {
-            VerbosityLevel::default()
-        };
+        let verbosity_level = self.resolve_outbound_verbosity_level(session_id).await;
 
         // Pre-flight middleware check: execute once before the stream loop
         // instead of per-chunk. This avoids middleware overhead on every
@@ -148,8 +136,8 @@ impl Gateway {
             session_id,
             channel,
             chat_id: &chat_id,
-            thread_id: thread_id.as_deref(),
-            reply_ref: reply_ref.as_deref(),
+            thread_id: routing.thread_id.as_deref(),
+            reply_ref: routing.reply_ref.as_deref(),
             registry: processor_registry.as_ref(),
             trace_id: meta.trace_id.as_deref(),
             session_key: meta.session_key.as_deref(),

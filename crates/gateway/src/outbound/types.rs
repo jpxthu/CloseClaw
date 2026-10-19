@@ -112,3 +112,18 @@ pub struct SendOutboundIds {
     /// Inbound session key for debug-log event correlation.
     pub session_key: Option<String>,
 }
+
+/// Thread-routing fields resolved from the session checkpoint for an
+/// outbound dispatch.
+///
+/// Shared by the batch and streaming entries (resolved via
+/// `Gateway::resolve_outbound_thread_routing` in
+/// [`chain_prep`](super::chain_prep)); both dispatch contexts forward the
+/// pair to the IM plugin so replies land in the originating thread.
+#[derive(Debug, Clone, Default)]
+pub(crate) struct OutboundThreadRouting {
+    /// Optional thread/topic ID for directing the message into a thread.
+    pub thread_id: Option<String>,
+    /// Outbound directed reference for定向回复.
+    pub reply_ref: Option<String>,
+}
