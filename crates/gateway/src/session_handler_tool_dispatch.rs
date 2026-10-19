@@ -129,6 +129,15 @@ impl ToolExecutor for TraitObjectExecutor {
                 ctx.agent_id.clone()
             };
             let user_id = resolve_caller_user_id(session_mgr, &ctx).await;
+            // The checkpoint sender resolved above is the session-bound
+            // Owner, so the same value feeds the engine's data-driven
+            // Owner judgment. Empty (no checkpoint sender) → `None` =
+            // no Owner bound → nobody qualifies for the Owner shortcut.
+            let owner_id = if user_id.is_empty() {
+                None
+            } else {
+                Some(user_id.clone())
+            };
 
             // Level 1: tool-group permission check.
             let request =
@@ -142,7 +151,7 @@ impl ToolExecutor for TraitObjectExecutor {
                         skill: tool_group.clone(),
                         method: call.tool_name.clone(),
                     },
-                    owner_id: None,
+                    owner_id: owner_id.clone(),
                 };
             let engine = perm_engine.read().await;
             let eval_result = engine.evaluate(request, None);
@@ -190,7 +199,7 @@ impl ToolExecutor for TraitObjectExecutor {
                                     cmd: base_cmd.to_string(),
                                     args: cmd_args,
                                 },
-                                owner_id: None,
+                                owner_id: owner_id.clone(),
                             };
                         let engine = perm_engine.read().await;
                         let cmd_result = engine.evaluate(cmd_request, None);
@@ -234,7 +243,7 @@ impl ToolExecutor for TraitObjectExecutor {
                                     path: path.to_string(),
                                     op: op.to_string(),
                                 },
-                                owner_id: None,
+                                owner_id,
                             };
                         let engine = perm_engine.read().await;
                         let file_result = engine.evaluate(file_request, None);

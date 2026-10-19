@@ -148,13 +148,19 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
                 caller.user_id = uid.clone();
             }
             // Upgrade Bare → WithCaller when user_id is available.
+            // The checkpoint sender resolved above is the session-bound
+            // Owner, so the same value is injected as the engine's
+            // data-driven Owner id; `None` (no sender bound, Bare
+            // request) → nobody qualifies for the Owner shortcut.
             let upgraded = match user_id {
                 Some(ref uid) => {
                     let engine_caller = Caller {
                         user_id: uid.clone(),
                         agent: request.agent_id().to_string(),
                     };
-                    request.with_caller(engine_caller)
+                    request
+                        .with_caller(engine_caller)
+                        .with_owner_id(user_id.clone())
                 }
                 None => request,
             };

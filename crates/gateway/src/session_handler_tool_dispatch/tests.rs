@@ -161,9 +161,10 @@ impl SessionLookup for ProbeLookup {
 /// Engine rules: Agent Allow + UserAndAgent("u_1001") Allow for
 /// `test_tools::probe_tool`; everything else (Agent/User defaults)
 /// Deny. So the tool only executes when the PermissionRequest's
-/// caller user_id resolves to `u_1001` (or an empty uid — the
-/// documented fallback); a leaked session id would miss the User
-/// rule and hit user_defaults → Deny.
+/// caller user_id resolves to `u_1001`, an empty uid (the documented
+/// fallback), or the session-bound Owner (Owner shortcut skips the
+/// User phase); a leaked session id would miss the User rule and hit
+/// user_defaults → Deny.
 fn probe_ruleset() -> closeclaw_permission::RuleSet {
     serde_json::from_value::<closeclaw_permission::RuleSet>(serde_json::json!({
         "rules": [
@@ -250,15 +251,19 @@ async fn test_executor_tool_call_allowed_when_sender_matches_user_rule() {
     assert!(data.contains("PROBE_OK"), "expected tool run, got {data}");
 }
 
-/// ② integration: sender present but no User rule matches →
-/// user_defaults Deny vetoes the Agent Allow (intersection model).
+/// ② integration: the checkpoint sender `u_9999` is the session-bound
+/// Owner, so the executor injects it as the engine Owner id and the
+/// Owner shortcut skips the User phase (no User rule for `u_9999`,
+/// yet the Agent Allow decides) — observable proof that the Owner id
+/// injection is wired; without it (`owner_id: None`) the User phase
+/// would run, hit user_defaults Deny, and veto the Agent Allow.
 #[tokio::test]
-async fn test_executor_tool_call_denied_when_sender_has_no_user_rule() {
+async fn test_executor_owner_shortcut_skips_user_phase_for_bound_sender() {
     let result = run_probe(Some("u_9999")).await;
     let data = result.data.to_string();
     assert!(
-        data.contains("not permitted"),
-        "expected intersection denial, got {data}"
+        data.contains("PROBE_OK"),
+        "bound sender is session Owner → User phase skipped, got {data}"
     );
 }
 
