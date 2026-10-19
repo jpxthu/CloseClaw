@@ -4,6 +4,8 @@
 //! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
 
 pub(crate) mod batch;
+pub(crate) mod batch_dispatch;
+pub(crate) mod batch_fallback;
 pub(crate) mod chain_prep;
 pub(crate) mod streaming;
 pub(crate) mod types;
