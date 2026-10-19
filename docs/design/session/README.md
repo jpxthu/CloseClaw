@@ -164,10 +164,10 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
 ### 追加区变更
 
 1. `/system add <内容>` 或 `/system clear`
-2. Gateway 将指令转发给 ConversationSession
+2. Slash 模块返回 SystemAppend 变体，Gateway 经 SideEffectContext 执行 ConversationSession 的追加 / 清空操作
 3. ConversationSession 更新内存中的追加条目列表
 4. 追加区内容持久化写入 SessionCheckpoint 的 system_appends 字段
-5. 下一次 API 调用时，追加条目按第三分区（AppendSection）动态拼入 system prompt 末尾，不触发注入流程重建
+5. 下一次 API 调用时，追加条目按第三分区（追加区）动态拼入 System Prompt 末尾；`/system add` 不触发注入流程重建，`/system clear` 触发静态层缓存失效与重新组装（见 [system_prompt §F5](../../requirements/system_prompt.md)）
 
 ### Session 停止
 

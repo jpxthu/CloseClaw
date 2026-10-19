@@ -109,7 +109,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 |------|---------|
 | Session | 创建 session 时读取 agent 配置各字段并分发到对应子系统（模型选择、工作目录、bootstrap 模式、工具/技能过滤、spawn 控制参数） |
 | Permission | 读取权限基线配置，在 spawn 时与其他维度共同计算继承权限 |
-| System Prompt | 读取 agent 配置中的 bootstrapMode/agentDir 字段定位 bootstrap 文件路径，加载身份人格定义（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup) 按 agent_id 查询） |
+| System Prompt | 读取 agent 配置中的 bootstrapMode/agentDir/noBootstrap 字段定位 bootstrap 文件并判定 Session 类型，加载身份人格定义（bootstrap 模式经 [AgentLookup](../common/core-traits.md#agentlookup) 按 agent_id 查询） |
 | Skills Registry | 通过 [AgentSkillsQuery](../common/core-traits.md#agentskillsquery) 接口按 agent 的 skills 白名单过滤技能列表 |
 | Tools Registry | 通过 [AgentToolsConfigQuery](../common/core-traits.md#agenttoolsconfigquery) 接口按 agent 的 tools/disallowedTools 过滤工具列表（静态白名单/黑名单；权限过滤等派生视图由 ToolsRegistry 计算） |
 

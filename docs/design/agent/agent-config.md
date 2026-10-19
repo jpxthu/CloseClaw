@@ -38,7 +38,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 - `"full"`：加载完整 bootstrap 文件集（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md、BOOTSTRAP.md)
 - `"minimal"`：仅加载核心文件（AGENTS.md、SOUL.md、IDENTITY.md、USER.md、TOOLS.md），不加载自定义引导指令（BOOTSTRAP.md），减少上下文占用
 
-`bootstrapMode` 只决定自定义引导指令（BOOTSTRAP.md）在主 Agent Session 是否加载；长期记忆（MEMORY.md）的加载取决于 Session 角色（主 Session 加载、子 Session 不加载），与 `bootstrapMode` 无关——精简模式主 Agent Session 仍加载长期记忆。子 Session 不加载 BOOTSTRAP.md 与长期记忆，与目标 agent 的 `bootstrapMode` 无关。声明 `noBootstrap: true` 时，该 Agent 的 Session 按「无 Bootstrap 文件的 Session」运行（不加载任何 Bootstrap 文件与长期记忆），`bootstrapMode` 取值不再生效。文件/记忆判据的权威定义见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Bootstrap 文件加载与 [fragment-provider.md](../system_prompt/fragment-provider.md)。MEMORY.md 不属于 bootstrap 集合，作为长期记忆由 MemorySection 独立管理。
+`bootstrapMode` 只决定自定义引导指令（BOOTSTRAP.md）在主 Agent Session 是否加载；长期记忆（MEMORY.md）的加载取决于 Session 类型（主 Agent Session 加载；子 Session 与「无 Bootstrap 文件的 Session」不加载），与 `bootstrapMode` 无关——精简模式主 Agent Session 仍加载长期记忆。子 Session 不加载 BOOTSTRAP.md 与长期记忆，与目标 agent 的 `bootstrapMode` 无关。声明 `noBootstrap: true` 时，该 Agent 的 Session 按「无 Bootstrap 文件的 Session」运行（不加载任何 Bootstrap 文件与长期记忆），`bootstrapMode` 取值不再生效；未声明但 Bootstrap 文件目录缺失时，由 System Prompt Builder 兜底为同一类型并记录降级告警。文件/记忆判据的权威定义见 [system_prompt/static-layer.md](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载与 [fragment-provider.md](../system_prompt/fragment-provider.md)。MEMORY.md 不属于 bootstrap 集合，作为长期记忆由 MemorySection 独立管理。
 
 `subagents` 子字段：
 

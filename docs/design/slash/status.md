@@ -14,7 +14,7 @@ StatusHandler 从 SlashContext 读取会话状态并格式化输出。标记为 
 StatusHandler 从 SlashContext 读取：
   - current_mode, current_model, current_reasoning
   - context_usage, subagent_count
-  - workdir, system_append
+  - workdir, system_appends
   - cache_hit_rate (会话累计缓存命中率，数据来源：会话统计 RunningStats)
   - cache_read_tokens, cache_write_tokens (会话累计值，数据来源同上)
   ↓

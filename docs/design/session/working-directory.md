@@ -25,10 +25,6 @@
 - **`/pwd` 指令**：读取 `session.workdir`，回复路径字符串。
 - **System prompt 动态层**：每次 API 请求时从 `session.workdir` 读取，注入工作目录路径信息。
 
-### GitStatus 的依赖
-
-GitStatus 是工作目录的派生信息——在 `session.workdir` 路径上执行 `git branch --show-current` 获取当前分支。GitStatus 值由工作目录决定，但工作目录本身不包含 git 信息。两者是独立的动态层注入条目。
-
 ## 数据流
 
 ```
@@ -56,5 +52,5 @@ Session 创建
 - **下游**：
   - Slash WorkdirHandler（`/cd` 写入，`/pwd` 读取）
   - System Prompt 动态层（每次 API 请求时读取并注入）
-- **相关**：GitStatus（从工作目录派生 git 分支信息，但为独立的动态层注入条目）
+- **相关**：（无）
 - **无关**：Permission 模块（`/git` 写操作的权限审批由 WorkdirHandler 提交给 Permission 模块，但工作目录字段本身不经过权限检查）

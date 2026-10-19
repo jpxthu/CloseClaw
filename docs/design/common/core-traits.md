@@ -124,18 +124,18 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 兜底规则：所有 Provider 均返回空时，系统使用默认 prompt。
 
-无 workspace 目录时，BootstrapFragmentProvider 返回空（该行为由 fragment-provider.md 定义，本 trait 接口仅约定 Provider 返回空的处理规则，不感知具体 Provider 实现）。
+无 Bootstrap 文件的 Session（Agent 显式声明无 Bootstrap 文件，或 Bootstrap 文件目录不存在）时，BootstrapFragmentProvider 返回空（判定规则见 [system_prompt/static-layer](../system_prompt/static-layer.md) §Session 类型与 Bootstrap 文件加载；本 trait 接口仅约定 Provider 返回空的处理规则，不感知具体 Provider 实现）。
 
 #### SystemPromptBuilder
 
-**用途**：系统提示词构建接口。具体 builder 实现负责按会话、agent、覆盖项构建完整系统提示词，session handler 通过 common 的 trait 消费，避免直接依赖 system_prompt 模块。
+**用途**：静态层系统提示词构建接口。具体 builder 实现负责按会话、agent、覆盖项构建静态层，session handler 通过 common 的 trait 消费，避免直接依赖 system_prompt 模块。动态层由 [DynamicPromptBuilder](#dynamicpromptbuilder) 单独构建，追加区由 ConversationSession 在请求时拼接。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 构建 | 给定 session_id、agent_id 与 bootstrap 模式覆盖，返回渲染后的 system prompt 字符串 |
-| 缓存失效 | 文件变更（bootstrap/MEMORY.md，按 Section）、工具定义变更（ToolsSection）、技能注册中心变更（SkillsSection）、`/clear` 与 `/system clear`（全部失效）、Session 恢复与 compaction 回调（强制重建全部）；详见 [system_prompt/static-layer](../system_prompt/static-layer.md) |
+| 构建 | 给定 session_id、agent_id 与 bootstrap 模式覆盖，返回渲染后的静态层 System Prompt 文本 |
+| 缓存失效 | 文件变更（Bootstrap/MEMORY.md，按 Section）、工具定义变更（ToolsSection）、技能注册中心变更（SkillsSection）、`/system clear`（全部失效）、Session 恢复与 Compaction 回调（强制重建全部）；详见 [system_prompt/static-layer](../system_prompt/static-layer.md) §Section 级缓存 |
 
 #### DynamicPromptBuilder
 
@@ -187,7 +187,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### AgentLookup
 
-**用途**：agent 配置查询接口。agent 的 AgentRegistry 实现，system_prompt、gateway 消费——按 agent_id 查询模型规格、agent 是否存在、bootstrap 模式与 per-agent workspace，避免消费方直接依赖 agent crate。
+**用途**：agent 配置查询接口。agent 的 AgentRegistry 实现，system_prompt、gateway 消费——按 agent_id 查询模型规格、agent 是否存在、bootstrap 模式、Bootstrap 文件目录、无 Bootstrap 文件声明与 per-agent workspace，避免消费方直接依赖 agent crate。
 
 **接口契约**：
 
@@ -196,6 +196,8 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 模型规格 | 按 agent_id 返回该 agent 配置的 [ModelSpec](shared-types.md#modelspec)，未配置返回 None |
 | 存在性 | 按 agent_id 判断 agent 是否在注册中心 |
 | bootstrap 模式 | 按 agent_id 返回其 [BootstrapMode](shared-types.md#会话注入辅助类型)，未配置返回 None |
+| Bootstrap 文件目录 | 按 agent_id 返回其 Bootstrap 文件目录路径（取自 agent 配置 `agentDir`），未配置返回系统默认目录 |
+| 无 Bootstrap 文件声明 | 按 agent_id 返回其 `noBootstrap` 声明，未配置为 false |
 | workspace | 按 agent_id 返回其 per-agent workspace 路径，未配置返回 None |
 
 #### AgentConfigLookup
