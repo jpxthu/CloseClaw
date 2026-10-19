@@ -6,7 +6,7 @@ use super::tests::{
     make_af_capturing, make_af_deny, make_cm, make_engine_with_rules, make_port, make_sm,
 };
 use super::*;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
+use closeclaw_common::permission_types::RiskLevel;
 
 // ---------------------------------------------------------------------------
 // route_denial / route_command_denial behavior tests (Step 1.2)

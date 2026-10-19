@@ -11,18 +11,17 @@
 //! with a session → resolve the sender (`get_sender_id`), upgrade
 //! Bare → WithCaller, `evaluate_with_chain` with agent permissions;
 //! without → `evaluate(request, None)`. Request / response / risk /
-//! direction types are mapped bidirectionally; the `RiskLevel` mapping
-//! mirrors `trait_adapters.rs`.
+//! direction types are mapped bidirectionally.
 
 use std::sync::Arc;
 
 use async_trait::async_trait;
 
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SessionManager;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
-use closeclaw_permission::engine::engine_risk::RiskLevel;
 use closeclaw_permission::engine::engine_types::{
     Caller, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };

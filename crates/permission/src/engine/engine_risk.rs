@@ -3,11 +3,7 @@
 //! Provides risk level classification for permission requests.
 
 use crate::engine::engine_types::PermissionRequestBody;
-
-// Temporary re-export: downstream crates (daemon / tools / system_prompt)
-// still reference `engine_risk::RiskLevel`. Removed once all call sites
-// point at `closeclaw_common::permission_types::RiskLevel` directly.
-pub use closeclaw_common::permission_types::RiskLevel;
+use closeclaw_common::permission_types::RiskLevel;
 
 #[cfg(test)]
 use crate::engine::engine_eval::PermissionEngine;
