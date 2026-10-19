@@ -472,9 +472,12 @@ fn create_watcher(
     tx: std::sync::mpsc::Sender<notify::Result<Event>>,
 ) -> Result<RecommendedWatcher, crate::ConfigError> {
     RecommendedWatcher::new(
-        move |res: Result<Event, notify::Error>| {
-            if let Ok(event) = res {
+        move |res: Result<Event, notify::Error>| match res {
+            Ok(event) => {
                 let _ = tx.send(Ok(event));
+            }
+            Err(e) => {
+                warn!(error = %e, "config watcher reported an event error");
             }
         },
         NotifyConfig::default(),
@@ -600,8 +603,10 @@ fn run_reload_loop(
                 signal_completion(&completion_tx);
             }
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-                dispatch_pending_batch(&pending_paths, &manager);
-                signal_completion(&completion_tx);
+                if !pending_paths.is_empty() {
+                    dispatch_pending_batch(&pending_paths, &manager);
+                    signal_completion(&completion_tx);
+                }
                 break;
             }
         }
