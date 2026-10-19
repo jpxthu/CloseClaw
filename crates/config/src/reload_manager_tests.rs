@@ -574,7 +574,7 @@ fn test_debounce_dedup_same_file() {
 }
 
 // ------------------------------------------------------------------
-// Step 1.3 — run_reload_loop Disconnected (watcher death) semantics
+// run_reload_loop Disconnected (watcher death) semantics
 // ------------------------------------------------------------------
 
 /// Watcher dies while a change is still pending in the debounce window:
@@ -589,11 +589,11 @@ fn test_reload_loop_flushes_pending_batch_on_watcher_disconnect() {
 
     std::fs::write(d.path().join("gateway.json"), r#"{"port":9090}"#).unwrap();
 
-    let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+    let (event_tx, event_rx) = mpsc::channel::<Event>();
     let (done_tx, done_rx) = mpsc::channel::<()>();
     let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
         .add_path(d.path().join("gateway.json"));
-    event_tx.send(Ok(event)).unwrap();
+    event_tx.send(event).unwrap();
     // Watcher dies while the gateway.json change is still pending.
     drop(event_tx);
 
@@ -625,7 +625,7 @@ fn test_reload_loop_no_completion_signal_when_no_pending_on_watcher_disconnect()
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
 
-    let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+    let (event_tx, event_rx) = mpsc::channel::<Event>();
     let (done_tx, done_rx) = mpsc::channel::<()>();
     // Watcher dies without ever reporting a change.
     drop(event_tx);

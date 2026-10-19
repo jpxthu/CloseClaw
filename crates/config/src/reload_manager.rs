@@ -449,7 +449,7 @@ impl ConfigReloadManager {
 
     /// Start watching config files under `config_dir`.
     pub fn watch(&mut self, config_dir: &str) -> Result<WatcherHandle, crate::ConfigError> {
-        let (tx, rx) = std::sync::mpsc::channel::<notify::Result<Event>>();
+        let (tx, rx) = std::sync::mpsc::channel::<Event>();
         let mut watcher = create_watcher(tx)?;
         let config_path = Path::new(config_dir);
         register_watched_paths(&mut watcher, config_path)?;
@@ -469,12 +469,12 @@ impl ConfigReloadManager {
 // ---------------------------------------------------------------------------
 
 fn create_watcher(
-    tx: std::sync::mpsc::Sender<notify::Result<Event>>,
+    tx: std::sync::mpsc::Sender<Event>,
 ) -> Result<RecommendedWatcher, crate::ConfigError> {
     RecommendedWatcher::new(
         move |res: Result<Event, notify::Error>| match res {
             Ok(event) => {
-                let _ = tx.send(Ok(event));
+                let _ = tx.send(event);
             }
             Err(e) => {
                 warn!(error = %e, "config watcher reported an event error");
@@ -556,7 +556,7 @@ fn register_credentials_watch(
 }
 
 fn spawn_reload_loop(
-    rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
+    rx: std::sync::mpsc::Receiver<Event>,
     manager: ConfigReloadManager,
     debounce: Duration,
     completion_tx: Option<std::sync::mpsc::Sender<()>>,
@@ -581,7 +581,7 @@ fn collect_event_paths(event: Event, pending_paths: &mut HashSet<PathBuf>) {
 }
 
 fn run_reload_loop(
-    rx: std::sync::mpsc::Receiver<notify::Result<Event>>,
+    rx: std::sync::mpsc::Receiver<Event>,
     manager: ConfigReloadManager,
     debounce: Duration,
     completion_tx: Option<std::sync::mpsc::Sender<()>>,
@@ -590,10 +590,7 @@ fn run_reload_loop(
 
     loop {
         match rx.recv_timeout(debounce) {
-            Ok(event_result) => match event_result {
-                Ok(event) => collect_event_paths(event, &mut pending_paths),
-                Err(e) => warn!("config watcher event error: {}", e),
-            },
+            Ok(event) => collect_event_paths(event, &mut pending_paths),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
                 if pending_paths.is_empty() {
                     continue;
