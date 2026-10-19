@@ -3,6 +3,8 @@ use crate::reload_manager::{
     dispatch_change, filename_to_section, is_agents_path, is_credentials_path, is_permissions_path,
     ConfigReloadManager, ReloadCallback, DEFAULT_DEBOUNCE,
 };
+use notify::event::{DataChange, ModifyKind};
+use notify::{Event, EventKind};
 use std::path::Path;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
@@ -539,17 +541,104 @@ fn test_debounce_dedup_same_file() {
         .unwrap();
     }
 
-    rx.recv_timeout(Duration::from_secs(5))
-        .expect("reload loop should have completed at least one dispatch cycle");
-
     // Gateway is restart-class, so the value is staged in pending_restart
     // rather than the runtime cache.
-    let gw_pending = cm
+    //
+    // Under load the 20 writes may be split across several debounce
+    // batches, and every batch sends its own completion signal. A single
+    // recv therefore only proves that *some* batch landed, not the final
+    // one. Wait signal-by-signal until the staged value reflects the last
+    // write (8020); on total-budget timeout or channel disconnect (e.g.
+    // the watcher thread died early) fail with the last observed value.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let last_pending = cm.pending_restart_value(ConfigSection::Gateway);
+        if last_pending.as_ref().is_some_and(|v| v["port"] == 8020) {
+            return;
+        }
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(()) => continue,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+                "timed out waiting for gateway staged port to reach 8020; \
+                 last observed pending value: {:?}",
+                last_pending
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!(
+                "reload loop exited before gateway staged port reached 8020 \
+                 (watcher likely terminated early); \
+                 last observed pending value: {:?}",
+                last_pending
+            ),
+        }
+    }
+}
+
+// ------------------------------------------------------------------
+// run_reload_loop Disconnected (watcher death) semantics
+// ------------------------------------------------------------------
+
+/// Watcher dies while a change is still pending in the debounce window:
+/// the leftover batch must be dispatched (staged value lands) and a
+/// completion signal must be sent before the loop exits.
+#[test]
+fn test_reload_loop_flushes_pending_batch_on_watcher_disconnect() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+    std::fs::write(d.path().join("gateway.json"), r#"{"port":9090}"#).unwrap();
+
+    let (event_tx, event_rx) = mpsc::channel::<Event>();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+        .add_path(d.path().join("gateway.json"));
+    event_tx.send(event).unwrap();
+    // Watcher dies while the gateway.json change is still pending.
+    drop(event_tx);
+
+    // Run inline for determinism. The oversized debounce guarantees the
+    // flush is driven by the Disconnected branch: once all senders are
+    // dropped, recv_timeout on the drained channel returns Disconnected
+    // immediately, so the Timeout branch is unreachable here.
+    super::run_reload_loop(event_rx, mgr, Duration::from_secs(3600), Some(done_tx));
+
+    done_rx.try_recv().expect(
+        "completion signal must be sent after flushing the leftover batch on watcher disconnect",
+    );
+    let staged = cm
         .pending_restart_value(ConfigSection::Gateway)
-        .expect("gateway should have a staged restart value");
+        .expect("leftover pending change must be dispatched before the loop exits");
     assert_eq!(
-        gw_pending["port"], 8020,
-        "gateway port should reflect the last write after dedup (staged)"
+        staged["port"], 9090,
+        "staged value must reflect the pending change"
+    );
+}
+
+/// Watcher dies with an empty pending set: the loop must exit WITHOUT
+/// sending a completion signal (regression guard against false-completion
+/// wakeups that never dispatched anything).
+#[test]
+fn test_reload_loop_no_completion_signal_when_no_pending_on_watcher_disconnect() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+    let (event_tx, event_rx) = mpsc::channel::<Event>();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    // Watcher dies without ever reporting a change.
+    drop(event_tx);
+
+    super::run_reload_loop(event_rx, mgr, Duration::from_secs(3600), Some(done_tx));
+
+    assert!(
+        done_rx.try_recv().is_err(),
+        "no completion signal may be sent when the watcher stops with an empty pending set"
+    );
+    assert!(
+        cm.pending_restart_value(ConfigSection::Gateway).is_none(),
+        "nothing may be staged when no change was ever collected"
     );
 }
 
