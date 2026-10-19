@@ -1,18 +1,7 @@
 //! Tests for `ConversationSession::recent_tool_calls`.
 
 use super::*;
-use closeclaw_common::{ContentBlock, UnifiedResponse, UnifiedUsage};
-
-fn usage() -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: 0,
-        completion_tokens: 0,
-        total_tokens: Some(0),
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-    }
-}
+use closeclaw_common::{ContentBlock, UnifiedResponse};
 
 fn assistant_with_tools(id: &str, tool_name: &str, input: &str) -> UnifiedResponse {
     UnifiedResponse {
@@ -24,7 +13,7 @@ fn assistant_with_tools(id: &str, tool_name: &str, input: &str) -> UnifiedRespon
                 input: input.into(),
             },
         ],
-        usage: usage(),
+        usage: make_usage_basic(0, 0, None),
         finish_reason: Some("tool_calls".into()),
         retry_attempts: 0,
     }
@@ -33,7 +22,7 @@ fn assistant_with_tools(id: &str, tool_name: &str, input: &str) -> UnifiedRespon
 fn assistant_text(text: &str) -> UnifiedResponse {
     UnifiedResponse {
         content_blocks: vec![ContentBlock::Text(text.into())],
-        usage: usage(),
+        usage: make_usage_basic(0, 0, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     }
@@ -74,7 +63,7 @@ fn test_returns_multiple_tools_from_single_turn() {
                 input: "{}".into(),
             },
         ],
-        usage: usage(),
+        usage: make_usage_basic(0, 0, None),
         finish_reason: Some("tool_calls".into()),
         retry_attempts: 0,
     });

@@ -6,27 +6,13 @@ fn test_clone_messages_from() {
     let mut source_session = ConversationSession::new("src_1".into(), "gpt-4o".into(), tmp_path());
     source_session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("hello from parent".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
     source_session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("second response".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 2,
-            completion_tokens: 1,
-            total_tokens: Some(3),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(2, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });

@@ -1,5 +1,5 @@
 use super::*;
-use closeclaw_common::{UnifiedResponse, UnifiedUsage};
+use closeclaw_common::UnifiedResponse;
 
 #[test]
 fn test_clean_thinking_mixed_text_and_thinking_unchanged() {
@@ -161,14 +161,7 @@ fn test_build_api_request_does_not_modify_self_messages() {
                 signature: None,
             },
         ],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });

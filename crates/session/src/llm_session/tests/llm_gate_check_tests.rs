@@ -11,13 +11,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use closeclaw_common::llm_types::InternalRequest;
-use closeclaw_common::processor::{ContentBlockType, StreamEvent, UnifiedResponse, UnifiedUsage};
+use closeclaw_common::processor::{ContentBlockType, StreamEvent, UnifiedResponse};
 use closeclaw_common::{LLMError, LlmCaller, ShutdownSignal};
 
 use crate::llm_session::ConversationSession;
 
-use super::capture_logs_async;
-use super::tmp_path;
+use super::{capture_logs_async, make_usage_basic, tmp_path};
 
 /// Minimal mock implementing `ShutdownSignal` for gate check tests.
 struct GateCheckMock {
@@ -75,14 +74,7 @@ impl LlmCaller for FakeCaller {
     async fn call(&self, _request: InternalRequest) -> Result<UnifiedResponse, LLMError> {
         Ok(UnifiedResponse {
             content_blocks: vec![closeclaw_common::ContentBlock::Text("ok".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 10,
-                completion_tokens: 5,
-                total_tokens: Some(15),
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
+            usage: make_usage_basic(10, 5, None),
             finish_reason: Some("stop".into()),
             retry_attempts: 0,
         })
@@ -112,14 +104,7 @@ impl LlmCaller for FakeCaller {
                 block_type: ContentBlockType::Text,
             }),
             Ok(StreamEvent::MessageEnd {
-                usage: Some(UnifiedUsage {
-                    prompt_tokens: 10,
-                    completion_tokens: 5,
-                    total_tokens: Some(15),
-                    reasoning_tokens: None,
-                    cache_read_tokens: None,
-                    cache_write_tokens: None,
-                }),
+                usage: Some(make_usage_basic(10, 5, None)),
                 finish_reason: Some("stop".into()),
             }),
         ];

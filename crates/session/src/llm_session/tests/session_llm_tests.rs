@@ -9,7 +9,7 @@ use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
 use closeclaw_common::{LLMError, LlmCaller};
 
-use super::tmp_path;
+use super::{make_usage_basic, tmp_path};
 
 /// A fake LlmCaller that returns a canned response and supports streaming.
 /// Captures the last request for assertion on fields like `reasoning_level`.
@@ -382,14 +382,7 @@ async fn test_session_delegates_to_injected_caller() {
     let mut session = ConversationSession::new("s_delegate".into(), "gpt-4o".into(), tmp_path());
     let caller: Arc<dyn LlmCaller> = Arc::new(FakeLlmCaller::new(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("delegated response".into())],
-        usage: closeclaw_common::processor::UnifiedUsage {
-            prompt_tokens: 5,
-            completion_tokens: 3,
-            total_tokens: Some(8),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(5, 3, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     }));

@@ -12,19 +12,12 @@ use closeclaw_common::llm_types::InternalRequest;
 use closeclaw_common::processor::UnifiedResponse;
 use closeclaw_common::{LLMError, LlmCaller};
 
-use super::tmp_path;
+use super::{make_usage_basic, tmp_path};
 
 fn canned_response(text: &str) -> UnifiedResponse {
     UnifiedResponse {
         content_blocks: vec![closeclaw_common::processor::ContentBlock::Text(text.into())],
-        usage: closeclaw_common::processor::UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     }

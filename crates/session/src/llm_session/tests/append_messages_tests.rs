@@ -1,5 +1,5 @@
 use super::*;
-use closeclaw_common::{ContentBlock, UnifiedResponse, UnifiedUsage};
+use closeclaw_common::{ContentBlock, UnifiedResponse};
 
 // ── SessionMessage serde roundtrip ────────────────────────────────────────
 
@@ -40,14 +40,7 @@ fn test_append_response_adds_message() {
     let mut session = ConversationSession::new("sess_1".into(), "gpt-4o".into(), tmp_path());
     let response = UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Hi there!".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 2,
-            total_tokens: Some(3),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 2, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     };
@@ -63,14 +56,7 @@ fn test_append_tool_result_increments_turn() {
     let mut session = ConversationSession::new("sess_2".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Using tool...".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -86,14 +72,7 @@ fn test_append_response_empty_blocks_no_turn_increment() {
     let mut session = ConversationSession::new("sess_3".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![],
-        usage: UnifiedUsage {
-            prompt_tokens: 0,
-            completion_tokens: 0,
-            total_tokens: Some(0),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(0, 0, None),
         finish_reason: None,
         retry_attempts: 0,
     });
@@ -109,14 +88,7 @@ fn test_conversation_session_multiple_turns() {
 
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("First response".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 2,
-            total_tokens: Some(3),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 2, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -128,14 +100,7 @@ fn test_conversation_session_multiple_turns() {
 
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Second response".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 3,
-            total_tokens: Some(4),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 3, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -167,14 +132,7 @@ fn test_append_user_message_preserves_order_with_assistant() {
     session.append_user_message("question");
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("answer".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -189,14 +147,7 @@ fn test_append_user_message_compact_includes_user() {
     session.append_user_message("what is rust?");
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Rust is a systems language.".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });

@@ -21,14 +21,14 @@ fn make_test_run(definition_name: &str) -> WorkflowRun {
     }
 }
 
-/// Decode the handler's serialized run state into the typed form.
-fn typed_run(session: &ConversationSession) -> WorkflowRun {
-    serde_json::from_value(session.workflow_handler().unwrap().run_state().clone()).unwrap()
-}
-
-/// Decode a serialized run state into the typed form (handler-level).
+/// Decode a serialized run state into the typed form.
 fn typed_run_value(state: &serde_json::Value) -> WorkflowRun {
     serde_json::from_value(state.clone()).unwrap()
+}
+
+/// Read the current run state of a session's workflow handler as the typed form.
+fn typed_run(session: &ConversationSession) -> WorkflowRun {
+    typed_run_value(session.workflow_handler().unwrap().run_state())
 }
 
 /// Write a single-step workflow SKILL.md with a default complete transition.
@@ -369,14 +369,14 @@ async fn test_complete_jump_triggers_cleanup() {
     session.process_workflow_tool_results(&blocks);
 
     // Jump messages removed, no new goal message.
-    let wf_messages: Vec<&str> = session
+    let wf_roles: Vec<&str> = session
         .messages
         .iter()
         .filter(|m| m.role == "workflow")
         .map(|_m| "workflow")
         .collect();
     assert!(
-        wf_messages.is_empty(),
+        wf_roles.is_empty(),
         "no workflow messages should remain after complete"
     );
     // workflow_run should be set (from handler state).

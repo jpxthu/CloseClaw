@@ -1,6 +1,6 @@
 use super::*;
 use crate::persistence::PendingMessage;
-use closeclaw_common::{ContentBlock, UnifiedUsage};
+use closeclaw_common::ContentBlock;
 
 mod announce_dedup_tests;
 mod announce_queue_tests;
@@ -16,9 +16,13 @@ mod deferred_mode_switch_tests;
 mod dynamic_layer_tests;
 mod exec_state_tests;
 mod extract_pending_tool_calls_tests;
+mod file_mtime_tests;
+mod file_read_range_tests;
 mod find_assistant_text_tests;
 mod graceful_stop_pending_tool_tests;
 mod kill_doubles;
+mod kv_cache_tests;
+mod last_message_at_persist_tests;
 mod llm_busy_count_tests;
 mod llm_gate_check_tests;
 mod log_capture;
@@ -38,6 +42,7 @@ mod session_llm_tests;
 mod skill_listing_incremental_tests;
 mod skill_listing_injection_event_tests;
 mod skill_listing_tests;
+mod stats_integration;
 mod step1_3_conditional_injection_tests;
 mod step1_4_behavior_tests;
 mod step1_5_ut_tests;
@@ -49,14 +54,8 @@ mod test_helpers;
 use self::test_helpers::{
     assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, user_msg, TTL_MS,
 };
+mod thinking_clean_tests;
+mod tool_session_persist_tests;
 mod unified_queue_tests;
 mod waiting_state_tests;
 mod workflow_session_tests;
-
-mod file_mtime_tests;
-mod file_read_range_tests;
-mod kv_cache_tests;
-mod last_message_at_persist_tests;
-mod stats_integration;
-mod thinking_clean_tests;
-mod tool_session_persist_tests;
