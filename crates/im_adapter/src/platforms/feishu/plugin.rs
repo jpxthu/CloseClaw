@@ -179,12 +179,6 @@ impl FeishuPlugin {
     pub fn set_debug_log(&mut self, debug_log: Arc<DebugLog>) {
         self.debug_log = Some(debug_log);
     }
-
-    /// Return the current cardkit pending text (test-only).
-    #[cfg(test)]
-    pub(crate) fn cardkit_pending_text(&self) -> String {
-        self.lock_streaming_state().state.pending_text.clone()
-    }
 }
 
 #[async_trait]

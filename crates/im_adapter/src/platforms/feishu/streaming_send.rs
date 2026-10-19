@@ -29,6 +29,12 @@ impl FeishuPlugin {
             .expect("cardkit streaming lock poisoned")
     }
 
+    /// Return the current cardkit pending text (test-only).
+    #[cfg(test)]
+    pub(crate) fn cardkit_pending_text(&self) -> String {
+        self.lock_streaming_state().state.pending_text.clone()
+    }
+
     /// Handle text output during streaming mode via cardkit card updates.
     pub(super) async fn send_streaming_text_with_target(
         &self,
