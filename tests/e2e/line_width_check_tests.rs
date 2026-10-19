@@ -145,11 +145,20 @@ impl CheckResult {
 
 /// 在 `dir` 中以任意参数运行检查脚本（脚本取本仓库真实路径，`dir` 为 CWD）。
 fn run_script(dir: &Path, args: &[&str]) -> CheckResult {
+    run_script_with_env(dir, args, |_| {})
+}
+
+/// 变体：启动前允许对子进程 `Command` 做额外 env 调整（如 `GIT_CEILING_DIRECTORIES`
+/// 注入），其余行为与 [`run_script`] 完全一致；不影响其它用例。
+fn run_script_with_env<F>(dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
+where
+    F: FnOnce(&mut Command),
+{
     let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/check-line-width.sh");
-    let out = Command::new("bash")
-        .arg(script)
-        .args(args)
-        .current_dir(dir)
+    let mut cmd = Command::new("bash");
+    cmd.arg(script).args(args).current_dir(dir);
+    adjust_env(&mut cmd);
+    let out: Output = cmd
         .output()
         .expect("failed to spawn bash scripts/check-line-width.sh");
     CheckResult {
@@ -384,4 +393,88 @@ fn test_line_width_restage_fix_flips_to_pass() {
     let res = repo.check();
     assert_exit(&res, 0, "restaged fixed file must pass");
     assert_passed_marker(&res, "restaged fixed file");
+}
+
+/// 边界 + 行号口径：多 hunk 场景下第二 hunk 中超宽注释行的报出行号正确
+/// （逐 @@ 独立记账，不跨 hunk 累加）。
+///
+/// 夹具：基线 15 行短代码行提交后，在 f02 之后插入超宽注释 A（新文件第 3 行）、
+/// 在 f13 之后插入超宽注释 B（新文件第 15 行）。两处改动间隔 > 2×默认上下文，
+/// diff 拆为两个 hunk；若行号跨 hunk 累加，第二 hunk 的报出行号必然错位。
+#[test]
+fn test_line_width_multi_hunk_second_hunk_line_number() {
+    let repo = TempRepo::new();
+    let base: Vec<String> = (1..=15).map(|i| format!("pub fn f{i:02}() {{}}")).collect();
+    repo.write("src/multi.rs", &format!("{}\n", base.join("\n")));
+    repo.commit_all();
+
+    let bad = comment_line("// ", MAX_WIDTH + 1);
+    let mut edited = base.clone();
+    edited.insert(2, bad.clone()); // 新文件第 3 行
+    edited.insert(14, bad); // 新文件第 15 行（f13 之后）
+    assert_eq!(edited[2].chars().count(), MAX_WIDTH + 1, "fixture hunk 1");
+    assert_eq!(edited[14].chars().count(), MAX_WIDTH + 1, "fixture hunk 2");
+    repo.write("src/multi.rs", &format!("{}\n", edited.join("\n")));
+    repo.stage("src/multi.rs");
+
+    let res = repo.check();
+    assert_exit(&res, 1, "both hunks' overwidth comments must be flagged");
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/multi.rs:3:{}", MAX_WIDTH + 1)),
+        "expect hunk 1 hit at src/multi.rs:3:101, got:\n{out}"
+    );
+    assert!(
+        out.contains(&format!("src/multi.rs:15:{}", MAX_WIDTH + 1)),
+        "expect hunk 2 hit at src/multi.rs:15:101 (per-@@ accounting), got:\n{out}"
+    );
+}
+
+/// 契约：非法参数（未知模式 / 参数个数 > 1）→ exit 2，用法提示走 stderr。
+#[test]
+fn test_line_width_invalid_args_exit_2() {
+    let repo = TempRepo::new();
+
+    let unknown = run_script(repo.path(), &["bogus"]);
+    assert_exit(&unknown, 2, "unknown mode must exit 2");
+    assert!(
+        unknown.stderr.contains("usage:"),
+        "usage hint must go to stderr, got:\n{}",
+        unknown.output()
+    );
+
+    let too_many = run_script(repo.path(), &["staged", "staged"]);
+    assert_exit(&too_many, 2, "more than one argument must exit 2");
+    assert!(
+        too_many.stderr.contains("usage:"),
+        "usage hint must go to stderr, got:\n{}",
+        too_many.output()
+    );
+}
+
+/// 契约：非 git 目录（仓库守卫）→ exit 2，且报出守卫文案而非静默通过。
+///
+/// 夹具目录可能落在 git 工作树内（如 TMPDIR 指向仓库内路径）：git 向上搜索会
+/// 发现仓库根的 .git，「非 git 目录」前提失效。注入 `GIT_CEILING_DIRECTORIES`
+/// 指向夹具父目录，使 git 的向上搜索在该处停止（TMPDIR 位于 git 工作树内/外
+/// 行为一致）；同时清除可能继承的 GIT_DIR / GIT_WORK_TREE，排除子进程 env 干扰。
+#[test]
+fn test_line_width_non_git_dir_exits_2() {
+    let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
+
+    let res = run_script_with_env(dir.path(), &["staged"], |cmd| {
+        // git 向上搜索按物理路径比对，且 ceiling 不解析 symlink，故注入
+        // canonicalize 后的父目录；canonicalize 失败时回退字面父目录。
+        let parent = dir.path().parent().unwrap_or_else(|| Path::new("/"));
+        let ceiling = std::fs::canonicalize(parent).unwrap_or_else(|_| parent.to_path_buf());
+        cmd.env("GIT_CEILING_DIRECTORIES", ceiling);
+        cmd.env_remove("GIT_DIR");
+        cmd.env_remove("GIT_WORK_TREE");
+    });
+    assert_exit(&res, 2, "non-git directory must exit 2");
+    let out = res.output();
+    assert!(
+        out.contains("必须在 git 仓库内运行"),
+        "expect non-git guard message, got:\n{out}"
+    );
 }

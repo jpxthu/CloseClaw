@@ -88,9 +88,10 @@ collect_staged() {
             Cargo.toml) kind=toml ;;
             *) continue ;;
         esac
-        # diff 形态与 check-env-var.sh 一致（git 默认上下文），上下文行参与行号记账
+        # diff 形态与 check-env-var.sh 一致（git 默认上下文），上下文行参与行号记账；
+        # 不吞错误：git diff / awk 异常时随 set -euo pipefail 中止拦截提交（fail-closed）
         records=$(git diff --cached --diff-filter=ACMR --no-color -- "$f" \
-            | awk "$AWK_PROG" || true)
+            | awk "$AWK_PROG")
         while IFS= read -r rec; do
             if [ -z "$rec" ]; then
                 continue
