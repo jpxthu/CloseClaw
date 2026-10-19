@@ -25,7 +25,7 @@ fn denied_verdict(approval_request_id: Option<String>) -> PermVerdict {
     // assert it propagates into the owner notification.
     PermVerdict::Denied {
         reason: "no matching allow rule".to_string(),
-        risk_level: PermRiskLevel::High,
+        risk_level: RiskLevel::High,
         approval_request_id,
     }
 }
@@ -36,7 +36,7 @@ fn make_denial_request<'a>(
     body: &'a PermRequestBody,
     session_id: &'a str,
 ) -> DenialRequest<'a> {
-    DenialRequest::new(caller, body, PermRiskLevel::Low, session_id, false)
+    DenialRequest::new(caller, body, RiskLevel::Low, session_id, false)
 }
 
 /// Payload path for `FileOp` bodies, derived from the system temp dir
@@ -68,7 +68,7 @@ async fn test_route_denial_flow_accept_returns_approval_pending() {
 
     let result = route_denial(
         &verdict,
-        DenialRequest::new(&caller, &body, PermRiskLevel::High, "sess-1", false),
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-1", false),
         &port,
     )
     .await
@@ -109,7 +109,7 @@ async fn test_route_denial_sub_agent_is_silently_denied() {
         op: "write".to_string(),
     };
     let verdict = denied_verdict(None);
-    let request = DenialRequest::new(&caller, &body, PermRiskLevel::High, "sess-sub", true);
+    let request = DenialRequest::new(&caller, &body, RiskLevel::High, "sess-sub", true);
 
     let result = route_denial(&verdict, request, &port).await;
     match result {
@@ -126,7 +126,7 @@ async fn test_route_denial_sub_agent_is_silently_denied() {
     // Same contract at the command level: hard denial, no notification.
     let result = route_command_denial(
         &verdict,
-        DenialRequest::new(&caller, &body, PermRiskLevel::High, "sess-sub", true),
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-sub", true),
         &port,
     )
     .await;
@@ -241,7 +241,7 @@ async fn test_route_command_denial_flow_accept_returns_pending() {
 
     let result = route_command_denial(
         &verdict,
-        DenialRequest::new(&caller, &body, PermRiskLevel::High, "sess-2", false),
+        DenialRequest::new(&caller, &body, RiskLevel::High, "sess-2", false),
         &port,
     )
     .await;

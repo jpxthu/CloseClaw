@@ -10,8 +10,9 @@
 //! `evaluate` replicates the former tools-side `evaluate_permission`:
 //! with a session → resolve the sender (`get_sender_id`), upgrade
 //! Bare → WithCaller, `evaluate_with_chain` with agent permissions;
-//! without → `evaluate(request, None)`. Request / response / risk /
-//! direction types are mapped bidirectionally.
+//! without → `evaluate(request, None)`. Request / response / direction
+//! types are mapped bidirectionally; risk levels are shared via
+//! `closeclaw_common::permission_types::RiskLevel`.
 
 use std::sync::Arc;
 
@@ -27,8 +28,7 @@ use closeclaw_permission::engine::engine_types::{
 };
 use closeclaw_permission::is_config_file_path;
 use closeclaw_tools::permission_port::{
-    PermCaller, PermMessageDirection, PermRequestBody, PermRiskLevel, PermVerdict,
-    ToolPermissionCheck,
+    PermCaller, PermMessageDirection, PermRequestBody, PermVerdict, ToolPermissionCheck,
 };
 use tokio::sync::Mutex as TokioMutex;
 
@@ -40,26 +40,6 @@ fn message_direction_to_permission(direction: &PermMessageDirection) -> MessageD
         PermMessageDirection::Send => MessageDirection::Send,
         PermMessageDirection::Receive => MessageDirection::Receive,
         PermMessageDirection::Both => MessageDirection::Both,
-    }
-}
-
-/// Map a permission-side risk level to the tools mirror.
-fn risk_level_to_perm(level: RiskLevel) -> PermRiskLevel {
-    match level {
-        RiskLevel::Low => PermRiskLevel::Low,
-        RiskLevel::Medium => PermRiskLevel::Medium,
-        RiskLevel::High => PermRiskLevel::High,
-        RiskLevel::Critical => PermRiskLevel::Critical,
-    }
-}
-
-/// Map a tools mirror risk level to the permission-side enum.
-fn risk_level_to_permission(level: PermRiskLevel) -> RiskLevel {
-    match level {
-        PermRiskLevel::Low => RiskLevel::Low,
-        PermRiskLevel::Medium => RiskLevel::Medium,
-        PermRiskLevel::High => RiskLevel::High,
-        PermRiskLevel::Critical => RiskLevel::Critical,
     }
 }
 
@@ -118,7 +98,7 @@ fn verdict_from_permission(response: PermissionResponse) -> PermVerdict {
             ..
         } => PermVerdict::Denied {
             reason,
-            risk_level: risk_level_to_perm(risk_level),
+            risk_level,
             approval_request_id,
         },
     }
@@ -193,7 +173,7 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
         &self,
         caller: &PermCaller,
         body: &PermRequestBody,
-        risk_level: PermRiskLevel,
+        risk_level: RiskLevel,
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String> {
@@ -205,7 +185,7 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
         flow.submit_denial(
             &permission_caller,
             &body_to_permission(body),
-            risk_level_to_permission(risk_level),
+            risk_level,
             session_id,
             is_sub_agent,
         )
@@ -248,19 +228,6 @@ mod tests {
     use super::*;
 
     // ── Enum mapping（正常路径：全变体覆盖） ─────────────────────────
-
-    #[test]
-    fn risk_level_mapping_roundtrips_all_variants() {
-        for (perm, expected) in [
-            (RiskLevel::Low, PermRiskLevel::Low),
-            (RiskLevel::Medium, PermRiskLevel::Medium),
-            (RiskLevel::High, PermRiskLevel::High),
-            (RiskLevel::Critical, PermRiskLevel::Critical),
-        ] {
-            assert_eq!(risk_level_to_perm(perm), expected);
-            assert_eq!(risk_level_to_permission(expected), perm);
-        }
-    }
 
     #[test]
     fn message_direction_mapping_covers_all_variants() {
@@ -381,7 +348,7 @@ mod tests {
             verdict,
             PermVerdict::Denied {
                 reason: "no rule".into(),
-                risk_level: PermRiskLevel::High,
+                risk_level: RiskLevel::High,
                 approval_request_id: None,
             }
         );
@@ -396,7 +363,7 @@ mod tests {
             verdict,
             PermVerdict::Denied {
                 reason: "already queued".into(),
-                risk_level: PermRiskLevel::Critical,
+                risk_level: RiskLevel::Critical,
                 approval_request_id: Some("req-1".into()),
             }
         );

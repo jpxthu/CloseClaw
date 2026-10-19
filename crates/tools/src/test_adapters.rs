@@ -23,8 +23,7 @@ use closeclaw_permission::is_config_file_path;
 use closeclaw_permission::PermissionEngine;
 
 use crate::permission_port::{
-    PermCaller, PermMessageDirection, PermRequestBody, PermRiskLevel, PermVerdict,
-    ToolPermissionCheck,
+    PermCaller, PermMessageDirection, PermRequestBody, PermVerdict, ToolPermissionCheck,
 };
 
 /// Wrapper around `Arc<tokio::sync::RwLock<PermissionEngine>>` implementing
@@ -173,28 +172,6 @@ fn map_message_direction_to_permission(direction: &PermMessageDirection) -> Mess
     }
 }
 
-/// Map the permission engine's [`RiskLevel`] to the tools mirror
-/// [`PermRiskLevel`].
-fn risk_level_to_perm(level: RiskLevel) -> PermRiskLevel {
-    match level {
-        RiskLevel::Low => PermRiskLevel::Low,
-        RiskLevel::Medium => PermRiskLevel::Medium,
-        RiskLevel::High => PermRiskLevel::High,
-        RiskLevel::Critical => PermRiskLevel::Critical,
-    }
-}
-
-/// Map the tools mirror [`PermRiskLevel`] to the permission engine's
-/// [`RiskLevel`].
-fn perm_risk_to_risk_level(level: PermRiskLevel) -> RiskLevel {
-    match level {
-        PermRiskLevel::Low => RiskLevel::Low,
-        PermRiskLevel::Medium => RiskLevel::Medium,
-        PermRiskLevel::High => RiskLevel::High,
-        PermRiskLevel::Critical => RiskLevel::Critical,
-    }
-}
-
 fn verdict_from_permission(response: PermissionResponse) -> PermVerdict {
     match response {
         PermissionResponse::Allowed { .. } => PermVerdict::Allowed,
@@ -205,7 +182,7 @@ fn verdict_from_permission(response: PermissionResponse) -> PermVerdict {
             ..
         } => PermVerdict::Denied {
             reason,
-            risk_level: risk_level_to_perm(risk_level),
+            risk_level,
             approval_request_id,
         },
     }
@@ -254,7 +231,7 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         &self,
         caller: &PermCaller,
         body: &PermRequestBody,
-        risk_level: PermRiskLevel,
+        risk_level: RiskLevel,
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String> {
@@ -266,7 +243,7 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         flow.submit_denial(
             &permission_caller,
             &map_body_to_permission(body),
-            perm_risk_to_risk_level(risk_level),
+            risk_level,
             session_id,
             is_sub_agent,
         )
