@@ -5,6 +5,7 @@
 //! `ConfigManager::agents` directly; this adapter lets the controller
 //! consume them after it switched to the injected budget-lookup port.
 //! Production wiring uses the daemon-side `ConfigSpawnBudgetLookup`.
+//! Mirrors daemon `ConfigSpawnBudgetLookup` / tools `ConfigSpawnBudgetLookupAdapter` (issue #3779).
 
 use std::sync::Arc;
 
