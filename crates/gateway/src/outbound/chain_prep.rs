@@ -7,6 +7,8 @@ use closeclaw_common::processor::ProcessedMessage;
 use closeclaw_common::VerbosityLevel;
 use closeclaw_llm::types::ContentBlock;
 
+use super::types::OutboundThreadRouting;
+
 impl Gateway {
     /// Write the outbound raw-log snapshot, bypassing the full chain.
     ///
@@ -82,6 +84,56 @@ impl Gateway {
         ProcessedMessage {
             content_blocks: blocks,
             metadata,
+        }
+    }
+}
+
+/// Session-derived dispatch field resolution shared by the batch and
+/// streaming outbound entries. Each entry keeps its own resolution order;
+/// the helpers only centralize the per-field parsing (and its error /
+/// fallback semantics), not the ordering.
+impl Gateway {
+    /// Resolve the chat_id for an outbound dispatch.
+    ///
+    /// A missing session maps to [`GatewayError::MissingSessionId`].
+    pub(super) async fn resolve_outbound_chat_id(
+        &self,
+        session_id: &str,
+    ) -> Result<String, GatewayError> {
+        self.session_manager
+            .get_chat_id(session_id)
+            .await
+            .ok_or(GatewayError::MissingSessionId)
+    }
+
+    /// Resolve the session's verbosity level for the outbound chain.
+    ///
+    /// Falls back to [`VerbosityLevel::default()`] when no conversation
+    /// session exists for `session_id`.
+    pub(super) async fn resolve_outbound_verbosity_level(
+        &self,
+        session_id: &str,
+    ) -> VerbosityLevel {
+        if let Some(cs) = self
+            .session_manager
+            .get_conversation_session(session_id)
+            .await
+        {
+            cs.read().await.verbosity_level()
+        } else {
+            VerbosityLevel::default()
+        }
+    }
+
+    /// Resolve thread routing (`thread_id` / `reply_ref`) from the session
+    /// checkpoint so replies land in the originating thread.
+    pub(super) async fn resolve_outbound_thread_routing(
+        &self,
+        session_id: &str,
+    ) -> OutboundThreadRouting {
+        OutboundThreadRouting {
+            thread_id: self.session_manager.get_thread_id(session_id).await,
+            reply_ref: self.session_manager.get_reply_ref(session_id).await,
         }
     }
 }
