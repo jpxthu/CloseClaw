@@ -1,6 +1,6 @@
 //! Unit tests for the sidecar file lock behind `plan_file::acquire_plan_lock`.
 //!
-//! Verifies the advisory-lock semantics of the MSRV-1.82-compatible
+//! Verifies the advisory-lock semantics of the MSRV-compatible
 //! `libc::flock` replacement for `std::fs::File::lock`: sidecar creation,
 //! mutual exclusion across independent descriptors, release on drop,
 //! blocking acquisition, and error propagation. All tests are serialized
