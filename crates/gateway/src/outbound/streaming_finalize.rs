@@ -124,3 +124,7 @@ impl Gateway {
         crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
     }
 }
+
+#[cfg(test)]
+#[path = "streaming_finalize_tests.rs"]
+mod streaming_finalize_tests;
