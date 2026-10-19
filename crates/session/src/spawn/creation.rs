@@ -131,10 +131,11 @@ pub async fn create_child_conversation_session(
 
     wire_session_dependencies(ctx, &mut cs, config.hooks.clone());
 
-    // Inject agent-level skills whitelist into the child session.
-    // Mirrors the normal session path in resolve.rs::wire_skill_listing_deps:
-    // the effective whitelist is None for wildcard (empty/["*"]), meaning
-    // no filtering — which is the same as not calling set_agent_skills.
+    // Inject agent-level skills whitelist into the child session. Uses the
+    // same ResolvedAgentConfig::effective_list wildcard semantics (None for
+    // empty/["*"]) as the normal session path in
+    // resolve.rs::wire_skill_listing_deps — no filtering means the same as
+    // not calling set_agent_skills.
     if let Some(skills) = closeclaw_common::ResolvedAgentConfig::effective_list(&config.skills) {
         cs.set_agent_skills(skills);
     }

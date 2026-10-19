@@ -145,15 +145,13 @@ impl ResolvedAgentConfig {
     }
     /// Return the effective skills whitelist.
     ///
-    /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
-    /// no filtering applies. Otherwise returns `Some(whitelist)`.
+    /// Delegates to [`Self::effective_list`]; see there for wildcard semantics.
     pub fn effective_skills(&self) -> Option<Vec<String>> {
         Self::effective_list(&self.skills)
     }
     /// Return the effective tools whitelist.
     ///
-    /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
-    /// no filtering applies. Otherwise returns `Some(whitelist)`.
+    /// Delegates to [`Self::effective_list`]; see there for wildcard semantics.
     pub fn effective_tools(&self) -> Option<Vec<String>> {
         Self::effective_list(&self.tools)
     }
