@@ -197,10 +197,9 @@ fn test_cardkit_pending_text_reads_aggregated_text_after_accumulation() {
     let plugin = make_plugin("unused-cli");
     {
         let mut state = plugin.lock_streaming_state();
-        // Throttle basis: `should_update_now` requires 100ms since last_update
-        // (cardkit_streaming.rs:75-80). Batches are fed immediately after
-        // presetting last_update, and the assertions below run without sleeps,
-        // so every batch stays buffered within the 100ms window.
+        // Throttle premise: same Skip-window basis as the test above
+        // (`test_accumulate_streaming_text_skip_within_throttle_window`),
+        // so every batch stays buffered (cardkit_streaming.rs:75-80).
         state.state.last_update = Some(Instant::now());
     }
     let batches = ["Hello", " streaming", " world"];
