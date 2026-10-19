@@ -124,6 +124,6 @@ pub struct SendOutboundIds {
 pub(crate) struct OutboundThreadRouting {
     /// Optional thread/topic ID for directing the message into a thread.
     pub thread_id: Option<String>,
-    /// Outbound directed reference for定向回复.
+    /// Outbound directed reference for 定向回复.
     pub reply_ref: Option<String>,
 }

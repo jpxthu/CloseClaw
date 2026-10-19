@@ -108,7 +108,7 @@ impl Gateway {
             .finish_streaming_pipeline(session_blocks, state, channel, session_id, verbosity_level)
             .await?;
 
-        self.persist_streaming_checkpoint(channel, session_id, &chat_id, &result)
+        self.persist_streaming_completion_checkpoint(channel, session_id, &chat_id, &result)
             .await;
 
         Ok(result)

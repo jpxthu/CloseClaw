@@ -25,7 +25,7 @@ pub(super) struct DispatchCtx<'a> {
     pub(super) chat_id: String,
     /// Optional thread/topic ID for directing the message into a thread.
     pub(super) thread_id: Option<String>,
-    /// Outbound directed reference for定向回复.
+    /// Outbound directed reference for 定向回复.
     pub(super) reply_ref: Option<String>,
     /// DSL result string from the processor chain (JSON serialized).
     pub(super) dsl_result: Option<String>,

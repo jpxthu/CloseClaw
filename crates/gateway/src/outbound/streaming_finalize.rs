@@ -83,7 +83,7 @@ impl Gateway {
     /// Persist the streaming outbound checkpoint — mirrors the batch path
     /// in `dispatch_and_persist`. Without this, a crash after streaming
     /// completes would lose the outbound history.
-    pub(super) async fn persist_streaming_checkpoint(
+    pub(super) async fn persist_streaming_completion_checkpoint(
         &self,
         channel: &str,
         session_id: &str,

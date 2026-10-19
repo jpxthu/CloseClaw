@@ -69,7 +69,7 @@ impl Gateway {
     /// Split from `send_outbound_streaming` to keep the main loop under the
     /// 50-line helper cap. Each arm delegates to a dedicated helper to stay
     /// within the 50-line function body limit.
-    pub(super) async fn process_stream_event(
+    async fn process_stream_event(
         &self,
         ctx: &StreamContext<'_>,
         event: StreamEvent,
