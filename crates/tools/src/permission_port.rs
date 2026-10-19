@@ -21,6 +21,7 @@
 //! this crate).
 
 use async_trait::async_trait;
+use closeclaw_common::permission_types::RiskLevel;
 
 /// Caller metadata for a permission request or denial submission.
 ///
@@ -33,19 +34,6 @@ pub struct PermCaller {
     pub user_id: String,
     /// The agent instance ID (always present).
     pub agent: String,
-}
-
-/// Risk level assigned to a denied operation (tools-owned mirror).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PermRiskLevel {
-    /// Low risk.
-    Low,
-    /// Medium risk.
-    Medium,
-    /// High risk.
-    High,
-    /// Critical risk (e.g. malicious command detection).
-    Critical,
 }
 
 /// Direction of message flow for the MessageSend dimension
@@ -135,7 +123,7 @@ pub enum PermVerdict {
         /// Human-readable denial reason.
         reason: String,
         /// Assessed risk level of the denied operation.
-        risk_level: PermRiskLevel,
+        risk_level: RiskLevel,
         /// When set, the operation was already submitted to the approval
         /// flow and is pending owner approval; callers must not
         /// re-submit.
@@ -173,7 +161,7 @@ pub trait ToolPermissionCheck: Send + Sync {
         &self,
         caller: &PermCaller,
         body: &PermRequestBody,
-        risk_level: PermRiskLevel,
+        risk_level: RiskLevel,
         session_id: &str,
         is_sub_agent: bool,
     ) -> Option<String>;

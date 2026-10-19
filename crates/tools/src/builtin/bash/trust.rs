@@ -1,6 +1,8 @@
+use closeclaw_common::permission_types::RiskLevel;
+
 use crate::bash::CommandSandbox;
 use crate::permission_check::PermDeps;
-use crate::permission_port::{PermCaller, PermRequestBody, PermRiskLevel};
+use crate::permission_port::{PermCaller, PermRequestBody};
 use crate::security::{BashSecurityAnalyzer, ParseResult, TrustLevel};
 use crate::{ToolCallError, ToolContext, ToolResult};
 use serde_json::Value;
@@ -35,7 +37,7 @@ async fn submit_trust_level_denial(
     deps: &PermDeps,
     ctx: &ToolContext,
     command: &str,
-    risk: PermRiskLevel,
+    risk: RiskLevel,
 ) -> Option<String> {
     let caller = PermCaller {
         user_id: String::new(),
@@ -73,7 +75,7 @@ pub(super) async fn route_trust_level(
 ) -> Result<TrustDecision, ToolCallError> {
     match trust_level {
         TrustLevel::Malicious => {
-            submit_trust_level_denial(deps, ctx, command, PermRiskLevel::Critical).await;
+            submit_trust_level_denial(deps, ctx, command, RiskLevel::Critical).await;
             Ok(TrustDecision::Blocked(format!(
                 "Blocked: malicious command detected — {}",
                 reason.unwrap_or_else(|| "unknown reason".into())
@@ -82,7 +84,7 @@ pub(super) async fn route_trust_level(
         TrustLevel::Uncertain => {
             let r = reason.unwrap_or_else(|| "untrusted syntax".into());
             if let Some(request_id) =
-                submit_trust_level_denial(deps, ctx, command, PermRiskLevel::High).await
+                submit_trust_level_denial(deps, ctx, command, RiskLevel::High).await
             {
                 Ok(TrustDecision::ApprovalPending(
                     crate::builtin::approval_utils::approval_pending(request_id),

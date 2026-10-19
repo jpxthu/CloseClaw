@@ -17,12 +17,12 @@
 //! tools-owned port; the composition root (daemon) supplies the
 //! production implementation wrapping the real permission engine.
 
+use closeclaw_common::permission_types::RiskLevel;
+
 use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
 #[cfg(test)]
 use crate::permission_port::PermMessageDirection;
-use crate::permission_port::{
-    PermCaller, PermRequestBody, PermRiskLevel, PermVerdict, ToolPermissionCheck,
-};
+use crate::permission_port::{PermCaller, PermRequestBody, PermVerdict, ToolPermissionCheck};
 use crate::{ToolCallError, ToolResult};
 
 use std::sync::Arc;
@@ -59,7 +59,7 @@ pub(crate) enum CommandPermissionResult {
 pub(crate) struct DenialRequest<'a> {
     pub(crate) caller: &'a PermCaller,
     pub(crate) body: &'a PermRequestBody,
-    pub(crate) risk_level: PermRiskLevel,
+    pub(crate) risk_level: RiskLevel,
     pub(crate) session_id: &'a str,
     pub(crate) is_sub_agent: bool,
 }
@@ -69,7 +69,7 @@ impl<'a> DenialRequest<'a> {
     pub(crate) fn new(
         caller: &'a PermCaller,
         body: &'a PermRequestBody,
-        risk_level: PermRiskLevel,
+        risk_level: RiskLevel,
         session_id: &'a str,
         is_sub_agent: bool,
     ) -> Self {
