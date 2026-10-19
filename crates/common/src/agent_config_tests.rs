@@ -176,6 +176,56 @@ fn test_effective_disallowed_tools_empty_none_non_empty_some() {
     );
 }
 
+// ── ResolvedAgentConfig::effective_list (shared wildcard entry) ───
+
+#[test]
+fn test_effective_list_concrete_list_returns_verbatim() {
+    // Non-empty, non-wildcard list → returned verbatim as the whitelist.
+    let list = vec!["github".to_string(), "search".to_string()];
+    assert_eq!(
+        ResolvedAgentConfig::effective_list(&list),
+        Some(vec!["github".to_string(), "search".to_string()])
+    );
+}
+
+#[test]
+fn test_effective_list_empty_and_single_wildcard_mean_unrestricted() {
+    // Empty list → no filtering.
+    assert_eq!(ResolvedAgentConfig::effective_list(&[]), None);
+    // `["*"]` wildcard → no filtering.
+    let wildcard = vec!["*".to_string()];
+    assert_eq!(ResolvedAgentConfig::effective_list(&wildcard), None);
+}
+
+#[test]
+fn test_effective_list_multi_element_with_wildcard_is_concrete() {
+    // Only the single-element full wildcard counts as unrestricted;
+    // `["*", "x"]` is a concrete whitelist returned verbatim.
+    let list = vec!["*".to_string(), "x".to_string()];
+    assert_eq!(
+        ResolvedAgentConfig::effective_list(&list),
+        Some(vec!["*".to_string(), "x".to_string()])
+    );
+}
+
+#[test]
+fn test_effective_list_agrees_with_effective_skills() {
+    // The per-field accessor delegates to `effective_list`, so both must
+    // agree on every shape of the input list.
+    let mut config = resolved_fixture();
+    for skills in [
+        vec!["*".to_string()],
+        vec![],
+        vec!["github".to_string(), "search".to_string()],
+    ] {
+        config.skills = skills.clone();
+        assert_eq!(
+            ResolvedAgentConfig::effective_list(&config.skills),
+            config.effective_skills()
+        );
+    }
+}
+
 // ── Resolved product carries no source marker (issue #3344) ───────
 
 // Compile-level confirmation: `source` / `ConfigSource` were removed from
