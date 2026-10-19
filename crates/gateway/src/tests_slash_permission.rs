@@ -3,6 +3,7 @@
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::gateway_test_utils::SpyPlugin;
 use crate::slash_permission_test_utils::*;
 use crate::{Gateway, HandleResult};
 use closeclaw_common::slash_router::{SlashContext, SlashHandler, SlashResult, SlashRouter};
@@ -688,12 +689,18 @@ async fn test_permission_allow_after_deny_transition() {
 /// Owner short-circuit: the sender matching the session checkpoint's
 /// bound Owner id (`SessionManager::get_sender_id`) bypasses the
 /// permission engine entirely. Even with a deny-all engine, the
-/// session owner's command should be dispatched to the handler.
+/// session owner's command should be dispatched to the handler and NOT
+/// receive the engine's "权限不足" denial reply (the handler-invocation
+/// counter alone cannot discriminate — it also increments on the
+/// denied path).
 #[tokio::test]
 async fn test_owner_slash_direct_dispatch() {
+    let spy_messages: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let counter = Arc::new(AtomicU32::new(0));
     let owner = "ou_session_owner";
     let gw = make_gateway_with_owner("sess-owner", Some(owner)).await;
+    gw.register_plugin(Arc::new(SpyPlugin::new(Arc::clone(&spy_messages))))
+        .await;
     gw.set_slash_dispatcher(counting_dispatcher("exec", true, Arc::clone(&counter)))
         .await;
     gw.set_permission_engine(deny_engine()).await;
@@ -707,6 +714,12 @@ async fn test_owner_slash_direct_dispatch() {
         counter.load(Ordering::SeqCst),
         1,
         "session owner should bypass permission engine and invoke handler"
+    );
+    let msgs = spy_messages.lock().expect("spy poisoned");
+    assert!(
+        !msgs.iter().any(|m| m.contains("权限不足")),
+        "owner direct dispatch must not be denied by the engine, got: {:?}",
+        *msgs
     );
 }
 // ===========================================================================

@@ -330,3 +330,121 @@ fn test_injected_owner_id_shortcut_applies_for_non_literal_owner() {
         resp
     );
 }
+
+/// A caller whose user_id differs from the injected session-bound Owner
+/// id does not qualify for the Owner shortcut — the User phase runs and
+/// vetoes the Agent Allow. If the shortcut leaked to non-owner senders
+/// this request would come back Allowed.
+#[test]
+fn test_non_owner_caller_with_injected_owner_id_no_shortcut() {
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Deny)
+        .rule(
+            RuleBuilder::new()
+                .name("agent-only-allow-read")
+                .subject_agent("test-agent")
+                .allow()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-phase-deny-read")
+                .subject_user_and_agent("alice", "test-agent", MatchType::Exact, MatchType::Exact)
+                .deny()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+    let request = PermissionRequest::WithCaller {
+        caller: Caller {
+            user_id: "alice".to_string(),
+            agent: "test-agent".to_string(),
+        },
+        request: PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/data/file.txt".to_string(),
+            op: "read".to_string(),
+        },
+        owner_id: Some("ou_real_owner".to_string()),
+    };
+    let resp = engine.evaluate(request, None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "sender ≠ injected session Owner → no shortcut, User phase applies: {:?}",
+        resp
+    );
+}
+
+/// The literal `"owner"` caller id grants nothing by itself: with the
+/// session Owner bound to a non-literal id, a caller literally named
+/// `"owner"` is judged by the User phase like any other sender. Under
+/// the former literal judgment this request would come back Allowed.
+#[test]
+fn test_literal_owner_caller_not_shortcut_when_owner_id_differs() {
+    let ruleset = RuleSetBuilder::new()
+        .default_file_read(Effect::Deny)
+        .rule(
+            RuleBuilder::new()
+                .name("agent-only-allow-read")
+                .subject_agent("test-agent")
+                .allow()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            RuleBuilder::new()
+                .name("user-only-deny-literal-owner")
+                .subject(Subject::UserOnly {
+                    user_id: "owner".to_string(),
+                    match_type: MatchType::Exact,
+                })
+                .deny()
+                .action(
+                    ActionBuilder::file("read", vec!["/data/**".to_string()])
+                        .build()
+                        .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap();
+    let engine = PermissionEngine::new_with_default_data_root(ruleset);
+    let request = PermissionRequest::WithCaller {
+        caller: Caller {
+            user_id: "owner".to_string(),
+            agent: "test-agent".to_string(),
+        },
+        request: PermissionRequestBody::FileOp {
+            agent: "test-agent".to_string(),
+            path: "/data/file.txt".to_string(),
+            op: "read".to_string(),
+        },
+        owner_id: Some("ou_real_owner".to_string()),
+    };
+    let resp = engine.evaluate(request, None);
+    assert!(
+        matches!(resp, PermissionResponse::Denied { .. }),
+        "literal \"owner\" caller with a different session Owner must be \
+         judged by the User phase, not short-circuited: {:?}",
+        resp
+    );
+}
