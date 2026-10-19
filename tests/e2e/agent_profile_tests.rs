@@ -21,8 +21,8 @@
 //!   receives the request.
 //! - The follow-up wiring gap — non-streaming LLM results were written
 //!   to `SessionMessageHandler::output_tx` whose daemon-side receiver
-//!   (`_output_rx` in crates/daemon/src/lifecycle/mod.rs — field removed
-//!   on this branch) was dropped, so chat RPC clients only observed a
+//!   (the `output_rx` channel created in crates/daemon/src/lifecycle/run.rs)
+//!   was dropped, so chat RPC clients only observed a
 //!   terminal `Error` frame — was fixed by consuming that receiver and
 //!   delivering completed turns through the outbound chain to the chat
 //!   client.
