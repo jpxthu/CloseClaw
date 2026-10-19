@@ -11,6 +11,26 @@ use closeclaw_llm::types::{ContentBlock, UnifiedUsage};
 
 use super::types::StreamResult;
 
+/// Build the final [`StreamResult`] shared by the registry-missing
+/// early-return and the normal pipeline paths of
+/// [`Gateway::finish_streaming_pipeline`].
+fn build_stream_result(
+    content_blocks: Vec<ContentBlock>,
+    dsl_result: Option<String>,
+    usage_override: Option<UnifiedUsage>,
+    state: &StreamState,
+) -> StreamResult {
+    StreamResult {
+        content_blocks,
+        usage: usage_override.unwrap_or_else(|| state.usage.clone()),
+        retry_attempts: 0,
+        dsl_result,
+        // Attached by the production call site from the
+        // invocation's returned target.
+        call_target: None,
+    }
+}
+
 impl Gateway {
     /// Post-stream pipeline: select content blocks, run the
     /// Processor Chain (DslParser → OutboundRawLog), and build the
@@ -49,15 +69,12 @@ impl Gateway {
                 };
                 serde_json::to_string(&r).ok()
             };
-            return Ok(StreamResult {
-                content_blocks: content_blocks_for_pipeline,
-                usage: usage_override.unwrap_or(state.usage),
-                retry_attempts: 0,
+            return Ok(build_stream_result(
+                content_blocks_for_pipeline,
                 dsl_result,
-                // Attached by the production call site from the
-                // invocation's returned target.
-                call_target: None,
-            });
+                usage_override,
+                &state,
+            ));
         };
         let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
         let processed = registry
@@ -67,15 +84,12 @@ impl Gateway {
 
         let dsl_result = merge_dsl_results(&processed.metadata, dsl_result_incremental);
 
-        Ok(StreamResult {
-            content_blocks: processed.content_blocks,
-            usage: usage_override.unwrap_or(state.usage),
-            retry_attempts: 0,
+        Ok(build_stream_result(
+            processed.content_blocks,
             dsl_result,
-            // Attached by the production call site from the invocation's
-            // returned target.
-            call_target: None,
-        })
+            usage_override,
+            &state,
+        ))
     }
 }
 
@@ -110,3 +124,7 @@ impl Gateway {
         crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
     }
 }
+
+#[cfg(test)]
+#[path = "streaming_finalize_tests.rs"]
+mod streaming_finalize_tests;
