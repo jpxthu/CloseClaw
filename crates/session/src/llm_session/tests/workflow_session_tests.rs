@@ -26,6 +26,11 @@ fn typed_run_value(state: &serde_json::Value) -> WorkflowRun {
     serde_json::from_value(state.clone()).unwrap()
 }
 
+/// Read the current run state of a session's workflow handler as the typed form.
+fn typed_run(session: &ConversationSession) -> WorkflowRun {
+    typed_run_value(session.workflow_handler().unwrap().run_state())
+}
+
 /// Write a single-step workflow SKILL.md with a default complete transition.
 fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
     let wf_dir = dir.join("workflows").join(workflow_name);
@@ -261,10 +266,7 @@ fn test_process_workflow_tool_results_via_session() {
         .unwrap()
         .process_content_blocks(&blocks);
     assert!(processed, "direct handler call should work");
-    assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).phase,
-        Phase::Blocked
-    );
+    assert_eq!(typed_run(&session).phase, Phase::Blocked);
 }
 
 // ── Step 1.3: jump → goal injection / complete exit ─────────
@@ -297,7 +299,7 @@ fn test_goto_jump_injects_goal_message() {
     assert!(wf[0].starts_with("[workflow goal]"), "goal: {}", wf[0]);
     assert!(wf[0].contains("Step 1"), "step 1: {}", wf[0]);
     // pending_goal_hint should be consumed (reset to Normal).
-    let run = typed_run_value(session.workflow_handler().unwrap().run_state());
+    let run = typed_run(&session);
     assert_eq!(run.pending_goal_hint, GoalHint::Normal);
     assert_eq!(run.current_step, 1);
 }
@@ -328,7 +330,7 @@ fn test_reexecute_jump_injects_goal_with_hint() {
     assert_eq!(wf.len(), 1);
     assert!(wf[0].starts_with("[workflow goal]"));
     assert!(wf[0].contains("重新执行"), "reexecute hint: {}", wf[0]);
-    let run = typed_run_value(session.workflow_handler().unwrap().run_state());
+    let run = typed_run(&session);
     assert_eq!(run.pending_goal_hint, GoalHint::Normal);
     assert_eq!(run.current_step, 0);
 }
@@ -459,7 +461,7 @@ fn test_full_chain_verify_jump_goto_goal() {
     assert!(wf[0].starts_with("[workflow goal]"), "goal: {}", wf[0]);
     assert!(wf[0].contains("Step 1"), "step 1: {}", wf[0]);
 
-    let run = typed_run_value(session.workflow_handler().unwrap().run_state());
+    let run = typed_run(&session);
     assert_eq!(run.phase, Phase::Executing);
     assert_eq!(run.current_step, 1);
     assert_eq!(run.pending_goal_hint, GoalHint::Normal);
@@ -549,10 +551,7 @@ fn test_verify_tool_exchange_cleanup_preserves_non_workflow() {
         content: r#"{"action": "workflow_verify"}"#.to_string(),
     }]);
 
-    assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).phase,
-        Phase::Jumping
-    );
+    assert_eq!(typed_run(&session).phase, Phase::Jumping);
     let wf = wf_messages(&session);
     assert_eq!(wf.len(), 1, "jump injected");
     assert!(wf[0].starts_with("Jump"), "jump: {}", wf[0]);
@@ -604,10 +603,7 @@ fn test_pending_goal_hint_resets_after_injection() {
     session.process_workflow_tool_results(&blocks);
 
     // Handler hint should be Normal after injection consumed it.
-    assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).pending_goal_hint,
-        GoalHint::Normal
-    );
+    assert_eq!(typed_run(&session).pending_goal_hint, GoalHint::Normal);
 }
 
 /// Blocked phase erases verify injection + tool_call + tool_result.
@@ -643,7 +639,7 @@ fn test_blocked_triggers_message_erasure() {
 
     assert!(processed, "should have processed blocked action");
     assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).phase,
+        typed_run(&session).phase,
         Phase::Blocked,
         "phase should be Blocked"
     );
@@ -698,10 +694,7 @@ fn test_workflow_start_rejected_when_active_workflow() {
     assert_eq!(wf.len(), 1, "should have one error message");
     assert!(wf[0].contains("无法启动新工作流"), "error: {}", wf[0]);
     // Handler should still have the original run (not overwritten).
-    assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).phase,
-        Phase::Executing
-    );
+    assert_eq!(typed_run(&session).phase, Phase::Executing);
 }
 
 /// workflow_start is rejected during Blocked phase.
@@ -737,10 +730,7 @@ fn test_non_start_actions_still_processed_when_active() {
     let processed = session.process_workflow_tool_results(&blocks);
 
     assert!(processed, "non-start actions should still be processed");
-    assert_eq!(
-        typed_run_value(session.workflow_handler().unwrap().run_state()).phase,
-        Phase::Blocked
-    );
+    assert_eq!(typed_run(&session).phase, Phase::Blocked);
 }
 
 /// When workflow is Complete, workflow_start is allowed.
