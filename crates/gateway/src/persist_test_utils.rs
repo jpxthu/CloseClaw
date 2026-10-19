@@ -52,6 +52,26 @@ impl SnapshotMockPersist {
     }
 }
 
+/// Create in-memory mock persistence whose checkpoint for `session_id`
+/// binds `sender` as the session Owner (checkpoint `sender_id`) — the
+/// checkpoint Owner criterion (`SessionManager::get_sender_id`) used by
+/// the gateway Owner gates in tests.
+///
+/// `sender = None` writes no checkpoint: the session has no bound Owner
+/// and nobody qualifies for the Owner shortcut.
+pub(crate) async fn persist_with_checkpoint_sender(
+    session_id: &str,
+    sender: Option<&str>,
+) -> Arc<dyn PersistenceService> {
+    let persist = Arc::new(SnapshotMockPersist::new());
+    if let Some(sender) = sender {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.sender_id = Some(sender.to_owned());
+        persist.save_checkpoint(&cp).await.unwrap();
+    }
+    persist as Arc<dyn PersistenceService>
+}
+
 #[async_trait::async_trait]
 impl PersistenceService for SnapshotMockPersist {
     async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {

@@ -659,6 +659,17 @@ impl PermissionRequest {
     /// The engine's Owner judgment is data-driven: the shortcut applies
     /// only when `caller.user_id` equals this value (case-sensitive).
     /// Passing `None` removes the binding — nobody short-circuits.
+    ///
+    /// # Bare-branch upgrade semantics
+    ///
+    /// Calling this on a [`PermissionRequest::Bare`] request upgrades it
+    /// to [`PermissionRequest::WithCaller`] with an **empty
+    /// `caller.user_id`** (the caller was never identified) while
+    /// carrying the given `owner_id`. The Owner shortcut still cannot
+    /// fire for such a request — `"" == owner_id` would require an
+    /// `owner_id` of `Some("")`, which production callers never inject —
+    /// so the upgrade is a structural channel-preservation step, not an
+    /// Owner grant.
     pub fn with_owner_id(self, owner_id: Option<String>) -> PermissionRequest {
         match self {
             PermissionRequest::WithCaller {

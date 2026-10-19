@@ -10,13 +10,13 @@
 
 use std::sync::Arc;
 
-use crate::persist_test_utils::SnapshotMockPersist;
+use crate::persist_test_utils::persist_with_checkpoint_sender;
 use crate::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
-use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
+use closeclaw_session::persistence::ReasoningLevel;
 
 /// Create a minimal `Gateway` for unit tests.
 ///
@@ -51,15 +51,10 @@ pub(crate) async fn make_gateway_with_owner(session_id: &str, owner: Option<&str
         max_message_size: 0,
         ..Default::default()
     };
-    let persist = Arc::new(SnapshotMockPersist::new());
-    if let Some(owner) = owner {
-        let mut cp = SessionCheckpoint::new(session_id.to_owned());
-        cp.sender_id = Some(owner.to_owned());
-        persist.save_checkpoint(&cp).await.unwrap();
-    }
+    let persist = persist_with_checkpoint_sender(session_id, owner).await;
     let sm = Arc::new(SessionManager::new(
         &config,
-        Some(persist as Arc<dyn PersistenceService>),
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ));

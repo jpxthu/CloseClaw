@@ -5,12 +5,12 @@
 //! - Step 1.1: binding lookup hit, miss fallback, empty map, no match key
 //! - Step 1.2: `/approve-once` still intercepted at Gateway level
 
-use crate::persist_test_utils::SnapshotMockPersist;
+use crate::persist_test_utils::persist_with_checkpoint_sender;
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
+use closeclaw_session::persistence::ReasoningLevel;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -46,13 +46,10 @@ async fn make_gw_with_session_owner(
     owner: &str,
 ) -> Gateway {
     let config = make_config(bindings);
-    let persist = Arc::new(SnapshotMockPersist::new());
-    let mut cp = SessionCheckpoint::new(session_id.to_owned());
-    cp.sender_id = Some(owner.to_owned());
-    persist.save_checkpoint(&cp).await.unwrap();
+    let persist = persist_with_checkpoint_sender(session_id, Some(owner)).await;
     let sm = Arc::new(SessionManager::new(
         &config,
-        Some(persist as Arc<dyn PersistenceService>),
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ));

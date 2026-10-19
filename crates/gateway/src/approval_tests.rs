@@ -37,9 +37,9 @@ use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::engine::engine_types::RuleSet;
 
 use crate::inbound_queue::InboundDebugCtx;
-use crate::persist_test_utils::SnapshotMockPersist;
+use crate::persist_test_utils::persist_with_checkpoint_sender;
 use crate::{GatewayConfig, HandleResult, SessionManager};
-use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
+use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Local mock of SessionLookup (permission crate's mock is #[cfg(test)] only)
 
@@ -79,13 +79,10 @@ fn make_config() -> GatewayConfig {
 /// `sender_id`) — the checkpoint Owner criterion used by
 /// `try_handle_approval_command`.
 async fn make_session_manager() -> Arc<SessionManager> {
-    let persist = Arc::new(SnapshotMockPersist::new());
-    let mut cp = SessionCheckpoint::new("s".to_owned());
-    cp.sender_id = Some("owner".to_owned());
-    persist.save_checkpoint(&cp).await.unwrap();
+    let persist = persist_with_checkpoint_sender("s", Some("owner")).await;
     Arc::new(SessionManager::new(
         &make_config(),
-        Some(persist as Arc<dyn PersistenceService>),
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ))
@@ -251,13 +248,10 @@ async fn s13_env(
     ch: &str,
     p: Arc<dyn IMPlugin>,
 ) -> (Arc<crate::Gateway>, Arc<SessionManager>) {
-    let persist = Arc::new(SnapshotMockPersist::new());
-    let mut cp = SessionCheckpoint::new(sid.into());
-    cp.sender_id = Some("owner".into());
-    persist.save_checkpoint(&cp).await.unwrap();
+    let persist = persist_with_checkpoint_sender(sid, Some("owner")).await;
     let sm = Arc::new(SessionManager::new(
         &s13_cfg(),
-        Some(persist as Arc<dyn PersistenceService>),
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ));
@@ -654,13 +648,10 @@ async fn test_non_owner_approve_whitelist_rejected() {
 /// Approval command processed without SlashDispatcher.
 #[tokio::test]
 async fn test_approval_without_slash_dispatcher() {
-    let persist = Arc::new(SnapshotMockPersist::new());
-    let mut cp = SessionCheckpoint::new("s1".into());
-    cp.sender_id = Some("owner".into());
-    persist.save_checkpoint(&cp).await.unwrap();
+    let persist = persist_with_checkpoint_sender("s1", Some("owner")).await;
     let sm = Arc::new(SessionManager::new(
         &s13_cfg(),
-        Some(persist as Arc<dyn PersistenceService>),
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ));

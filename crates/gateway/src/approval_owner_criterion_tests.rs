@@ -214,5 +214,9 @@ async fn test_terminal_uid_session_still_rejects_other_sender() {
 
     let msgs = spy.lock().expect("spy poisoned");
     assert_eq!(msgs.len(), 1, "exactly one rejection expected: {:?}", *msgs);
-    assert!(msgs[0].contains("权限不足"));
+    assert!(
+        msgs[0].contains("权限不足"),
+        "rejection must carry the denial text, got: {:?}",
+        msgs[0]
+    );
 }

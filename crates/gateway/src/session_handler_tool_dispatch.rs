@@ -129,10 +129,23 @@ impl ToolExecutor for TraitObjectExecutor {
                 ctx.agent_id.clone()
             };
             let user_id = resolve_caller_user_id(session_mgr, &ctx).await;
-            // The checkpoint sender resolved above is the session-bound
-            // Owner, so the same value feeds the engine's data-driven
-            // Owner judgment. Empty (no checkpoint sender) → `None` =
-            // no Owner bound → nobody qualifies for the Owner shortcut.
+            // Safety-semantics filing (关联 issue #3792): on the tool
+            // dispatch path the caller IS the session-bound Owner — the
+            // checkpoint sender resolved above is injected verbatim as
+            // both `caller.user_id` and `owner_id`, so the engine's
+            // Owner shortcut (skip the User phase and the auto-mode
+            // dangerous-operation review; design
+            // `docs/design/permission/approval-workflow.md` §Owner 审批权力)
+            // always fires whenever a checkpoint sender is bound. It is
+            // therefore intended that User-dimension defaults and the
+            // auto-mode review are unreachable on this path: the session
+            // sender was bound from the authentic inbound message at
+            // session creation (`session_manager/resolve.rs`), and these
+            // tool calls execute on that session's behalf. The
+            // safeguards remain in force for callers that are not
+            // provably the session Owner. Empty (no checkpoint sender)
+            // → `None` = no Owner bound → nobody qualifies for the
+            // Owner shortcut.
             let owner_id = if user_id.is_empty() {
                 None
             } else {

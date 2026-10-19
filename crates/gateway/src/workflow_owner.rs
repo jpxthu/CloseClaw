@@ -44,6 +44,20 @@ use super::{Gateway, HandleResult};
 #[cfg(test)]
 mod tests;
 
+/// Shared Owner-gate predicate: the inbound `sender` is the session
+/// Owner iff it equals the session-bound checkpoint sender id
+/// (`SessionManager::get_sender_id`). `None` on either side → not the
+/// Owner: sessions without a bound owner grant nothing to anybody, and
+/// senderless messages are never the Owner.
+///
+/// All gateway Owner gates decide through this single predicate —
+/// approval commands (`approval.rs`), the slash Owner short-circuit
+/// (`slash_permission.rs::SlashRouteCtx::is_owner`), and the workflow
+/// entries below — so the criterion keeps one definition.
+pub(crate) fn sender_is_checkpoint_owner(sender: Option<&str>, owner: Option<&str>) -> bool {
+    sender.is_some_and(|sender| owner == Some(sender))
+}
+
 impl Gateway {
     /// Notify the workflow runtime of an owner non-slash message before
     /// routing (`closeclaw_common::WorkflowControl::on_owner_message`).
@@ -99,7 +113,7 @@ impl Gateway {
             return None;
         }
         let owner_id = self.session_manager.get_sender_id(session_id).await;
-        if sender_id.is_some_and(|sender| owner_id.as_deref() == Some(sender)) {
+        if sender_is_checkpoint_owner(sender_id, owner_id.as_deref()) {
             return None;
         }
         tracing::warn!(

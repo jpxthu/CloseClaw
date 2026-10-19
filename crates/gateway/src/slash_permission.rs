@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::llm_session::NotificationAudience;
 use closeclaw_session::persistence::PendingMessage;
 
+use super::workflow_owner::sender_is_checkpoint_owner;
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
 use crate::outbound::SendOutboundIds;
 
@@ -64,13 +65,12 @@ pub(crate) struct SlashRouteCtx<'a> {
 }
 
 impl SlashRouteCtx<'_> {
-    /// Checkpoint Owner criterion (shared with the workflow entries,
-    /// `workflow_owner.rs`): the inbound sender equals the session
-    /// checkpoint's bound sender id. `None` on either side → not the
-    /// Owner.
+    /// Checkpoint Owner criterion via the shared predicate
+    /// (`workflow_owner.rs::sender_is_checkpoint_owner`): the inbound
+    /// sender equals the session checkpoint's bound sender id. `None`
+    /// on either side → not the Owner.
     pub(crate) fn is_owner(&self) -> bool {
-        self.sender_id
-            .is_some_and(|sender| self.owner_id == Some(sender))
+        sender_is_checkpoint_owner(self.sender_id, self.owner_id)
     }
 }
 

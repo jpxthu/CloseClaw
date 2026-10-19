@@ -14,6 +14,7 @@ use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_permission::approval::{ApprovalMode, WhitelistTarget};
 use closeclaw_permission::approval_flow::{ApprovalFlow, ApprovalNotification};
 
+use super::workflow_owner::sender_is_checkpoint_owner;
 use super::{Gateway, HandleResult};
 
 impl Gateway {
@@ -130,12 +131,12 @@ impl Gateway {
             };
 
         // Verify sender is the Owner (checkpoint criterion, shared with
-        // the workflow entries, `workflow_owner.rs`): the sender must
-        // equal the session checkpoint's bound sender id
+        // the workflow entries, `workflow_owner.rs::sender_is_checkpoint_owner`):
+        // the sender must equal the session checkpoint's bound sender id
         // (`SessionManager::get_sender_id`). Sessions without a bound
         // owner grant approval to nobody.
         let owner_id = self.session_manager.get_sender_id(session_id).await;
-        if sender_id.is_none_or(|sender| owner_id.as_deref() != Some(sender)) {
+        if !sender_is_checkpoint_owner(sender_id, owner_id.as_deref()) {
             // Non-owner: send rejection and consume the command
             tracing::warn!(
                 session_id,
