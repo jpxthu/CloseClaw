@@ -135,7 +135,7 @@ pub async fn create_child_conversation_session(
     // Mirrors the normal session path in resolve.rs::wire_skill_listing_deps:
     // the effective whitelist is None for wildcard (empty/["*"]), meaning
     // no filtering — which is the same as not calling set_agent_skills.
-    if let Some(skills) = effective_skills(&config.skills) {
+    if let Some(skills) = closeclaw_common::ResolvedAgentConfig::effective_list(&config.skills) {
         cs.set_agent_skills(skills);
     }
 
@@ -214,17 +214,6 @@ pub async fn create_child_conversation_session(
 /// the child session — it is decoupled from bootstrap mode selection.
 fn resolve_bootstrap_mode(_light_context: bool) -> BootstrapMode {
     BootstrapMode::Minimal
-}
-
-/// Effective skills whitelist: `None` when the list is a wildcard
-/// (empty or `["*"]`), meaning no filtering applies; otherwise the
-/// whitelist itself.
-fn effective_skills(skills: &[String]) -> Option<Vec<String>> {
-    if skills.is_empty() || skills == ["*"] {
-        None
-    } else {
-        Some(skills.to_vec())
-    }
 }
 
 /// Resolve the model to use via the priority chain:
