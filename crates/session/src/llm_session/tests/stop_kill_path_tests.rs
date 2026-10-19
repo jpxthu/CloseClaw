@@ -65,8 +65,8 @@ use std::time::{Duration, Instant};
 ///
 /// The receiver is kept behind a `Mutex` because
 /// `std::sync::mpsc::Receiver` is **not** `Sync` (verified with this
-/// repo's toolchain, rustc 1.94.0 / MSRV 1.80 — the "`Receiver: Sync`
-/// since Rust 1.72" premise does not hold, issue #3161 Step 1.4),
+/// repo's toolchain — the "`Receiver: Sync` since Rust 1.72" premise
+/// does not hold, issue #3161 Step 1.4),
 /// while the double must be `Sync` to be held as `Arc<dyn KillHandle>`;
 /// drop the `Mutex` only if that ever changes.
 struct BlockingKillHandle {
