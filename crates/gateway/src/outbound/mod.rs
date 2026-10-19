@@ -4,5 +4,6 @@
 //! [`IMPlugin`] registry.
 
 pub mod pipeline;
+pub mod types;
 
-pub use pipeline::{OutboundMeta, SendOutboundIds, SendOutcome, StreamResult};
+pub use types::{OutboundMeta, SendOutboundIds, SendOutcome, StreamResult};
