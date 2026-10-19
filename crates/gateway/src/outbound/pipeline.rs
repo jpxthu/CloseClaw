@@ -3,7 +3,6 @@
 //! Handles rendering and dispatching agent responses through the unified
 //! [`IMPlugin`] registry.
 
-use super::{Gateway, GatewayError, Message};
 use crate::outbound_helpers::{
     dispatch_text, log_middleware_rejection, make_outbound_meta, merge_dsl_results,
     notify_batch_send_failure, process_single_through_chain, send_render_block, CheckpointMeta,
@@ -11,6 +10,7 @@ use crate::outbound_helpers::{
 };
 use crate::outbound_middleware::runner::{run_middleware_chain, run_pre_flight_check};
 use crate::outbound_raw_log::OutboundRawLogSnapshot;
+use crate::{Gateway, GatewayError, Message};
 use closeclaw_common::im_plugin::{IMPlugin, RenderedOutput};
 use closeclaw_common::MiddlewareContext;
 use std::sync::Arc;
