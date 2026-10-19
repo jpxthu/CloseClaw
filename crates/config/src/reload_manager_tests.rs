@@ -3,6 +3,8 @@ use crate::reload_manager::{
     dispatch_change, filename_to_section, is_agents_path, is_credentials_path, is_permissions_path,
     ConfigReloadManager, ReloadCallback, DEFAULT_DEBOUNCE,
 };
+use notify::event::{DataChange, ModifyKind};
+use notify::{Event, EventKind};
 use std::path::Path;
 use std::sync::{mpsc, Arc};
 use std::time::Duration;
@@ -569,6 +571,75 @@ fn test_debounce_dedup_same_file() {
             ),
         }
     }
+}
+
+// ------------------------------------------------------------------
+// Step 1.3 — run_reload_loop Disconnected (watcher death) semantics
+// ------------------------------------------------------------------
+
+/// Watcher dies while a change is still pending in the debounce window:
+/// the leftover batch must be dispatched (staged value lands) and a
+/// completion signal must be sent before the loop exits.
+#[test]
+fn test_reload_loop_flushes_pending_batch_on_watcher_disconnect() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+    std::fs::write(d.path().join("gateway.json"), r#"{"port":9090}"#).unwrap();
+
+    let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    let event = Event::new(EventKind::Modify(ModifyKind::Data(DataChange::Any)))
+        .add_path(d.path().join("gateway.json"));
+    event_tx.send(Ok(event)).unwrap();
+    // Watcher dies while the gateway.json change is still pending.
+    drop(event_tx);
+
+    // Run inline for determinism. The oversized debounce guarantees the
+    // flush is driven by the Disconnected branch: once all senders are
+    // dropped, recv_timeout on the drained channel returns Disconnected
+    // immediately, so the Timeout branch is unreachable here.
+    super::run_reload_loop(event_rx, mgr, Duration::from_secs(3600), Some(done_tx));
+
+    done_rx.try_recv().expect(
+        "completion signal must be sent after flushing the leftover batch on watcher disconnect",
+    );
+    let staged = cm
+        .pending_restart_value(ConfigSection::Gateway)
+        .expect("leftover pending change must be dispatched before the loop exits");
+    assert_eq!(
+        staged["port"], 9090,
+        "staged value must reflect the pending change"
+    );
+}
+
+/// Watcher dies with an empty pending set: the loop must exit WITHOUT
+/// sending a completion signal (regression guard against false-completion
+/// wakeups that never dispatched anything).
+#[test]
+fn test_reload_loop_no_completion_signal_when_no_pending_on_watcher_disconnect() {
+    let d = TempDir::new().unwrap();
+    let cm = make_config_manager(d.path());
+    let cb = Arc::new(MockCallback::new());
+    let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
+
+    let (event_tx, event_rx) = mpsc::channel::<notify::Result<Event>>();
+    let (done_tx, done_rx) = mpsc::channel::<()>();
+    // Watcher dies without ever reporting a change.
+    drop(event_tx);
+
+    super::run_reload_loop(event_rx, mgr, Duration::from_secs(3600), Some(done_tx));
+
+    assert!(
+        done_rx.try_recv().is_err(),
+        "no completion signal may be sent when the watcher stops with an empty pending set"
+    );
+    assert!(
+        cm.pending_restart_value(ConfigSection::Gateway).is_none(),
+        "nothing may be staged when no change was ever collected"
+    );
 }
 
 // ------------------------------------------------------------------
