@@ -467,7 +467,7 @@ fn cardkit_accumulates_text_from_stream_output() {
 
     // Simulate what the gateway does: accumulate text into cardkit pending_text.
     // This is the accumulate_streaming_text path.
-    let mut cardkit = plugin.cardkit_streaming.lock().unwrap();
+    let mut cardkit = plugin.lock_streaming_state();
     for msg in &out.text_messages {
         cardkit.state.pending_text.push_str(msg);
     }
