@@ -11,13 +11,14 @@ System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agen
 Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份声明、Owner 信息、工具使用指南
-- 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件；长期记忆由 memory 模块升格产出的规则文件承载（非 Bootstrap 文件，见 memory §F5）；升格功能暂缓期间规则文件不存在，按文件缺失静默跳过。是否加载取决于 Session 类型和身份加载模式：自定义引导指令仅在主 Agent Session 且完整模式下加载；长期记忆在所有主 Agent Session 加载，与身份加载模式无关。子 Session 与「无 Bootstrap 文件的 Session」均不加载任何可选内容（见 F8）
+- 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件；长期记忆由 memory 模块升格产出的规则文件承载（非 Bootstrap 文件）；升格功能暂缓期间规则文件不存在，按文件缺失静默跳过。是否加载取决于 Session 类型和身份加载模式：自定义引导指令仅在主 Agent Session 且完整模式下加载；长期记忆在所有主 Agent Session 加载，与身份加载模式无关。子 Session 与「无 Bootstrap 文件的 Session」均不加载任何可选内容（见 F8）
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最前
 - System Prompt 各组成部分按固定顺序组装，配置不变时组装结果保持不变（缓存行为见 [F6](#f6-内容缓存与自动刷新)）。具体组装顺序和格式由设计文档定义
 - 边界说明：心跳配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入常规对话 Session 的 System Prompt
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
+> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（用户可查阅的行为规则）。
 > **交叉引用**：Bootstrap 文件的身份加载模式（完整/精简）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。
 > **交叉引用**：Session 创建/恢复/上下文压缩完成时的重建触发。详见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 > **交叉引用**：压缩行为本身详见 [session §F3](session.md)（长对话压缩）。
@@ -36,7 +37,8 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升格产出的规则文件；升格功能暂缓期间无规则文件，长期记忆内容为空。长期记忆在主 Agent Session 启动时加载，作为 System Prompt 的组成部分；子 Session 不加载（见 F8 与安全性小节）。
 
 > **交叉引用**：记忆的挖掘机制。详见 [memory §F1](memory.md)（Session 结束后自动挖掘记忆）。
-> **交叉引用**：对话中自动注入相关记忆的另一机制详见 [memory §F4](memory.md)（对话中自动注入相关记忆）。
+> **交叉引用**：对话中自动注入相关记忆的机制（当前暂缓）详见 [memory §F4](memory.md)（对话中自动注入相关记忆）。
+> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（用户可查阅的行为规则）。
 
 ### F4. 运行时上下文注入
 
