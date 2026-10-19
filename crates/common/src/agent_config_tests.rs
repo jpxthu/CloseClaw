@@ -209,19 +209,25 @@ fn test_effective_list_multi_element_with_wildcard_is_concrete() {
 }
 
 #[test]
-fn test_effective_list_agrees_with_effective_skills() {
-    // The per-field accessor delegates to `effective_list`, so both must
-    // agree on every shape of the input list.
+fn test_effective_list_agrees_with_per_field_accessors() {
+    // The per-field accessors (`effective_skills` / `effective_tools`)
+    // delegate to `effective_list`, so both must agree with it on every
+    // shape of the input list.
     let mut config = resolved_fixture();
-    for skills in [
+    for list in [
         vec!["*".to_string()],
         vec![],
         vec!["github".to_string(), "search".to_string()],
     ] {
-        config.skills = skills.clone();
+        config.skills = list.clone();
         assert_eq!(
             ResolvedAgentConfig::effective_list(&config.skills),
             config.effective_skills()
+        );
+        config.tools = list;
+        assert_eq!(
+            ResolvedAgentConfig::effective_list(&config.tools),
+            config.effective_tools()
         );
     }
 }
