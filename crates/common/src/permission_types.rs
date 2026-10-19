@@ -9,13 +9,54 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
 /// Risk level for permission requests.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RiskLevel {
+    #[default]
     Low,
     Medium,
     High,
     Critical,
+}
+
+impl RiskLevel {
+    /// Returns `true` if the risk level is `High` or `Critical`.
+    pub fn is_high_or_critical(self) -> bool {
+        matches!(self, RiskLevel::High | RiskLevel::Critical)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::RiskLevel;
+
+    #[test]
+    fn test_risk_level_default() {
+        assert_eq!(RiskLevel::default(), RiskLevel::Low);
+    }
+
+    #[test]
+    fn test_is_high_or_critical() {
+        assert!(!RiskLevel::Low.is_high_or_critical());
+        assert!(!RiskLevel::Medium.is_high_or_critical());
+        assert!(RiskLevel::High.is_high_or_critical());
+        assert!(RiskLevel::Critical.is_high_or_critical());
+    }
+
+    #[test]
+    fn test_risk_level_serde_lowercase_roundtrip() {
+        for (level, json) in [
+            (RiskLevel::Low, "\"low\""),
+            (RiskLevel::Medium, "\"medium\""),
+            (RiskLevel::High, "\"high\""),
+            (RiskLevel::Critical, "\"critical\""),
+        ] {
+            let serialized = serde_json::to_string(&level).unwrap();
+            assert_eq!(serialized, json);
+            let parsed: RiskLevel = serde_json::from_str(json).unwrap();
+            assert_eq!(parsed, level);
+        }
+    }
 }
 
 /// Result of a permission evaluation.
