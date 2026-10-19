@@ -183,12 +183,7 @@ impl FeishuPlugin {
     /// Return the current cardkit pending text (test-only).
     #[cfg(test)]
     pub(crate) fn cardkit_pending_text(&self) -> String {
-        self.cardkit_streaming
-            .lock()
-            .expect("cardkit lock poisoned")
-            .state
-            .pending_text
-            .clone()
+        self.lock_streaming_state().state.pending_text.clone()
     }
 }
 
