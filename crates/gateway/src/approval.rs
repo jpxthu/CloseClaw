@@ -98,6 +98,13 @@ impl Gateway {
     ///
     /// Non-owner senders receive a rejection message and the command is
     /// still consumed (prevents fall-through to SlashDispatcher).
+    ///
+    /// Owner criterion (checkpoint, shared with the workflow entries in
+    /// `workflow_owner.rs`): the sender must equal the session
+    /// checkpoint's bound sender id (`SessionManager::get_sender_id`).
+    /// The former literal `"owner"` judgment was unreachable in
+    /// production — the inbound chain passes the raw platform sender
+    /// through unchanged — so the real Owner was always false-rejected.
     pub(super) async fn try_handle_approval_command(
         &self,
         session_id: &str,
@@ -122,29 +129,31 @@ impl Gateway {
                 (false, r.trim(), None)
             };
 
-        // Verify sender is the owner
-        match sender_id {
-            Some("owner") => {}
-            _ => {
-                // Non-owner: send rejection and consume the command
+        // Verify sender is the Owner (checkpoint criterion, shared with
+        // the workflow entries, `workflow_owner.rs`): the sender must
+        // equal the session checkpoint's bound sender id
+        // (`SessionManager::get_sender_id`). Sessions without a bound
+        // owner grant approval to nobody.
+        let owner_id = self.session_manager.get_sender_id(session_id).await;
+        if sender_id.is_none_or(|sender| owner_id.as_deref() != Some(sender)) {
+            // Non-owner: send rejection and consume the command
+            tracing::warn!(
+                session_id,
+                sender_id = ?sender_id,
+                "non-owner attempted approval command"
+            );
+            if let Err(e) = self
+                .send_outbound_simplified(peer_id, channel, "权限不足：该指令仅限 Owner 使用")
+                .await
+            {
                 tracing::warn!(
                     session_id,
                     sender_id = ?sender_id,
-                    "non-owner attempted approval command"
+                    error = %e,
+                    "failed to send non-owner rejection message"
                 );
-                if let Err(e) = self
-                    .send_outbound_simplified(peer_id, channel, "权限不足：该指令仅限 Owner 使用")
-                    .await
-                {
-                    tracing::warn!(
-                        session_id,
-                        sender_id = ?sender_id,
-                        error = %e,
-                        "failed to send non-owner rejection message"
-                    );
-                }
-                return Some(HandleResult::ApprovalProcessed);
             }
+            return Some(HandleResult::ApprovalProcessed);
         }
 
         // Parse request_id from the rest

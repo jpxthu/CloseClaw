@@ -5,11 +5,12 @@
 //! - Step 1.1: binding lookup hit, miss fallback, empty map, no match key
 //! - Step 1.2: `/approve-once` still intercepted at Gateway level
 
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig, HandleResult, SessionManager};
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_llm::types::ContentBlock;
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -30,6 +31,28 @@ fn make_gw(bindings: HashMap<String, String>) -> Gateway {
     let sm = Arc::new(SessionManager::new(
         &config,
         None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    Gateway::new_for_tests(config, sm)
+}
+
+/// Like [`make_gw`], but binds `owner` as the session checkpoint sender id
+/// for `session_id` (in-memory mock persistence) — the checkpoint Owner
+/// criterion used by `try_handle_approval_command`.
+async fn make_gw_with_session_owner(
+    bindings: HashMap<String, String>,
+    session_id: &str,
+    owner: &str,
+) -> Gateway {
+    let config = make_config(bindings);
+    let persist = Arc::new(SnapshotMockPersist::new());
+    let mut cp = SessionCheckpoint::new(session_id.to_owned());
+    cp.sender_id = Some(owner.to_owned());
+    persist.save_checkpoint(&cp).await.unwrap();
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(persist as Arc<dyn PersistenceService>),
         None,
         ReasoningLevel::default(),
     ));
@@ -205,10 +228,11 @@ fn test_resolve_agent_id_peer_id_is_agent_id() {
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// When no approval_flow is configured, `/approve-once` returns None
-/// (falls through to SlashDispatcher or normal handler).
+/// (falls through to SlashDispatcher or normal handler). The session
+/// checkpoint binds `owner` as the session Owner (checkpoint 口径).
 #[tokio::test]
 async fn test_approve_once_no_flow_falls_through() {
-    let gw = make_gw(HashMap::new());
+    let gw = make_gw_with_session_owner(HashMap::new(), "sess1", "owner").await;
 
     // No approval_flow set — try_handle_approval_command returns None
     let result = gw
@@ -263,7 +287,7 @@ async fn test_approve_once_non_owner_rejected() {
 /// `/approve-whitelist` is also intercepted at Gateway level.
 #[tokio::test]
 async fn test_approve_whitelist_no_flow_falls_through() {
-    let gw = make_gw(HashMap::new());
+    let gw = make_gw_with_session_owner(HashMap::new(), "sess1", "owner").await;
 
     let result = gw
         .try_handle_approval_command(
@@ -284,7 +308,7 @@ async fn test_approve_whitelist_no_flow_falls_through() {
 /// `/deny` is intercepted at Gateway level.
 #[tokio::test]
 async fn test_deny_no_flow_falls_through() {
-    let gw = make_gw(HashMap::new());
+    let gw = make_gw_with_session_owner(HashMap::new(), "sess1", "owner").await;
 
     let result = gw
         .try_handle_approval_command("sess1", "/deny req-789", Some("owner"), "chat_1", "feishu")
@@ -330,7 +354,7 @@ async fn test_deny_non_owner_rejected() {
 /// `/approve-once` without request_id returns None (malformed command).
 #[tokio::test]
 async fn test_approve_once_missing_request_id() {
-    let gw = make_gw(HashMap::new());
+    let gw = make_gw_with_session_owner(HashMap::new(), "sess1", "owner").await;
 
     let result = gw
         .try_handle_approval_command("sess1", "/approve-once", Some("owner"), "chat_1", "feishu")
