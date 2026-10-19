@@ -493,23 +493,6 @@ async fn test_validate_enum_options_over_limit() {
 }
 
 #[tokio::test]
-async fn test_validate_file_not_found() {
-    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
-    let result = skill
-        .execute(Some(serde_json::json!({
-            "action": "validate",
-            "path": "/tmp/__nonexistent_closeclaw_workflow_test__.md"
-        })))
-        .await;
-    assert!(result.is_err());
-    let err = result.unwrap_err();
-    assert!(
-        matches!(err, SkillError::ExecutionFailed(_)),
-        "file not found should return ExecutionFailed, got: {err:?}"
-    );
-}
-
-#[tokio::test]
 async fn test_validate_file_not_found_error_message_contains_path() {
     let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let tmp = tempfile::tempdir().expect("failed to create temp dir");
