@@ -374,6 +374,62 @@ fn owner_shortcut_ruleset() -> closeclaw_permission::RuleSet {
         .unwrap()
 }
 
+/// Ruleset discriminating the Owner shortcut from the empty-user
+/// system-caller path for a file read: an AgentOnly allow alone would
+/// let both through (an empty `caller.user_id` merges as a system
+/// caller even without the shortcut), so a
+/// `UserOnly { user_id: "" }` deny rule marks the difference — it is
+/// consulted only when the User phase runs, i.e. only when the Owner
+/// shortcut did NOT fire. User-phase deny ⇔ no Owner shortcut;
+/// `Allowed` ⇔ an empty-string sender wrongly fired the shortcut.
+fn empty_sender_discriminator_ruleset() -> closeclaw_permission::RuleSet {
+    closeclaw_permission::RuleSetBuilder::new()
+        .default_file_read(Effect::Deny)
+        .default_file_write(Effect::Deny)
+        .default_exec(Effect::Deny)
+        .default_network(Effect::Deny)
+        .default_inter_agent(Effect::Deny)
+        .default_config(Effect::Deny)
+        .default_tool_call(Effect::Deny)
+        .rule(
+            closeclaw_permission::RuleBuilder::new()
+                .name("agent-only-allow-read")
+                .subject_agent("test-agent")
+                .allow()
+                .action(
+                    closeclaw_permission::actions::ActionBuilder::file(
+                        "read",
+                        vec!["/data/**".to_string()],
+                    )
+                    .build()
+                    .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .rule(
+            closeclaw_permission::RuleBuilder::new()
+                .name("empty-user-deny-read")
+                .subject(closeclaw_permission::Subject::UserOnly {
+                    user_id: String::new(),
+                    match_type: closeclaw_permission::MatchType::Exact,
+                })
+                .deny()
+                .action(
+                    closeclaw_permission::actions::ActionBuilder::file(
+                        "read",
+                        vec!["**".to_string()],
+                    )
+                    .build()
+                    .unwrap(),
+                )
+                .build()
+                .unwrap(),
+        )
+        .build()
+        .unwrap()
+}
+
 /// Adapter over an engine with the given ruleset; approval flow and
 /// config manager point at `config_dir` (caller-owned TempDir).
 fn adapter_with_ruleset(
@@ -439,6 +495,55 @@ async fn evaluate_resolves_sender_and_applies_owner_shortcut() {
     assert_eq!(
         caller.user_id, "ou_real_owner",
         "resolved checkpoint sender must be written back to the caller (Bare→WithCaller upgrade)"
+    );
+}
+
+/// checkpoint sender 为空串（`Some("")`）：与 gateway
+/// `session_handler_tool_dispatch` 注入语义一致，空串归一为「无
+/// sender」→ 请求保持 Bare、不注入 owner_id → Owner 短路不得触发。
+/// 判别式（见 `empty_sender_discriminator_ruleset`）：若回归为
+/// `Some("")` 注入，`""==""` 触发短路跳过 User 阶段 → AgentOnly
+/// allow 放行 → Allowed；正确行为下 UserOnly("") deny 命中 →
+/// user-phase 拒绝（等效可观测断言）。
+#[tokio::test]
+async fn evaluate_with_empty_checkpoint_sender_does_not_fire_owner_shortcut() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let session_manager = session_manager_with_checkpoint_sender("s-empty", Some("")).await;
+    let adapter = adapter_with_ruleset(
+        tmp.path(),
+        empty_sender_discriminator_ruleset(),
+        session_manager,
+    );
+    let mut caller = PermCaller {
+        user_id: String::new(),
+        agent: "test-agent".to_string(),
+    };
+    let verdict = adapter
+        .evaluate(
+            Some("s-empty"),
+            &mut caller,
+            &PermRequestBody::FileOp {
+                agent: "test-agent".to_string(),
+                path: "/data/file.txt".to_string(),
+                op: "read".to_string(),
+            },
+        )
+        .await;
+    assert!(
+        matches!(
+            verdict,
+            PermVerdict::Denied {
+                ref reason,
+                approval_request_id: None,
+                ..
+            } if reason == "action denied by user rule"
+        ),
+        "empty checkpoint sender must not fire the Owner shortcut (UserOnly(\"\") deny must apply): {:?}",
+        verdict
+    );
+    assert_eq!(
+        caller.user_id, "",
+        "empty checkpoint sender must not be written back to the caller"
     );
 }
 

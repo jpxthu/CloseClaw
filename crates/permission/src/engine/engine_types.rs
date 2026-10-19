@@ -666,10 +666,13 @@ impl PermissionRequest {
     /// to [`PermissionRequest::WithCaller`] with an **empty
     /// `caller.user_id`** (the caller was never identified) while
     /// carrying the given `owner_id`. The Owner shortcut still cannot
-    /// fire for such a request — `"" == owner_id` would require an
-    /// `owner_id` of `Some("")`, which production callers never inject —
-    /// so the upgrade is a structural channel-preservation step, not an
-    /// Owner grant.
+    /// fire for such a request: structurally, an upgraded Bare request
+    /// carries `caller.user_id == ""` while both production injection
+    /// points (gateway tool dispatch, daemon tools adapter) normalize
+    /// an empty checkpoint sender to `None` before injecting
+    /// `owner_id` — only a non-empty bound sender is injected as
+    /// `Some` — so `"" == owner_id` cannot hold and the upgrade is a
+    /// structural channel-preservation step, not an Owner grant.
     pub fn with_owner_id(self, owner_id: Option<String>) -> PermissionRequest {
         match self {
             PermissionRequest::WithCaller {

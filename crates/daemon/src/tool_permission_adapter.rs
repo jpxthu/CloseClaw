@@ -10,9 +10,12 @@
 //! `evaluate` replicates the former tools-side `evaluate_permission`:
 //! with a session → resolve the sender (`get_sender_id`), upgrade
 //! Bare → WithCaller, `evaluate_with_chain` with agent permissions;
-//! without → `evaluate(request, None)`. Request / response / direction
-//! types are mapped bidirectionally; risk levels are shared via
-//! `closeclaw_common::permission_types::RiskLevel`.
+//! without → `evaluate(request, None)`. An empty checkpoint sender is
+//! normalized to "no sender bound" (gateway-aligned, mirroring
+//! `session_handler_tool_dispatch.rs`) and takes the Bare path —
+//! `owner_id` is only injected for a non-empty bound sender. Request /
+//! response / direction types are mapped bidirectionally; risk levels
+//! are shared via `closeclaw_common::permission_types::RiskLevel`.
 
 use std::sync::Arc;
 
@@ -143,7 +146,22 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
         let agent_perms = AgentPermissionsAdapter::new(self.config_manager.agent_permissions());
         if let Some(sid) = session_id {
             // Resolve the real user_id from the session checkpoint.
-            let user_id = self.session_manager.get_sender_id(sid).await;
+            //
+            // Empty-sender normalization (gateway-aligned, mirrors
+            // `session_handler_tool_dispatch.rs`'s `owner_id` guard):
+            // a checkpoint `sender_id` of `Some("")` is treated as "no
+            // sender bound" — the empty string must never reach
+            // `owner_id`, or `caller.user_id == owner_id` (`"" == ""`)
+            // would fire the Owner shortcut for an unidentified
+            // caller. Normalized `Some("")` takes the same Bare path
+            // as `None`: the engine request carries an empty
+            // `caller.user_id` and no Owner is bound, matching the
+            // gateway injection point's semantics.
+            let user_id = self
+                .session_manager
+                .get_sender_id(sid)
+                .await
+                .filter(|uid| !uid.is_empty());
             if let Some(ref uid) = user_id {
                 caller.user_id = uid.clone();
             }
@@ -162,8 +180,9 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
             // was bound from the authentic inbound message at session
             // creation, and these tool calls execute on that session's
             // behalf. The safeguards remain in force for callers that
-            // are not provably the session Owner — `None` (no sender
-            // bound, Bare request) → nobody qualifies for the Owner
+            // are not provably the session Owner — `None` and empty
+            // checkpoint senders (both normalized to "no sender
+            // bound", Bare request) → nobody qualifies for the Owner
             // shortcut.
             let upgraded = match user_id {
                 Some(ref uid) => {
