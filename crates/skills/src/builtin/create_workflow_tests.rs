@@ -510,6 +510,28 @@ async fn test_validate_file_not_found() {
 }
 
 #[tokio::test]
+async fn test_validate_file_not_found_error_message_contains_path() {
+    let skill = WorkflowCreatorSkill::new(real_workflow_validator());
+    let tmp = tempfile::tempdir().expect("failed to create temp dir");
+    let missing = tmp.path().join("missing_workflow.md");
+    let missing_str = missing.to_str().unwrap().to_string();
+    let err = skill
+        .execute(Some(serde_json::json!({
+            "action": "validate",
+            "path": missing_str
+        })))
+        .await
+        .unwrap_err();
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("file not found should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(&missing_str),
+        "error message should contain the missing path: {msg}"
+    );
+}
+
+#[tokio::test]
 async fn test_validate_empty_steps_list() {
     let skill = WorkflowCreatorSkill::new(real_workflow_validator());
     let bad_yaml = "---\nid: test\nname: Test\ndescription: Empty\n\
