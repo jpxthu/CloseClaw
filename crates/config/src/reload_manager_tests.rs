@@ -539,18 +539,36 @@ fn test_debounce_dedup_same_file() {
         .unwrap();
     }
 
-    rx.recv_timeout(Duration::from_secs(5))
-        .expect("reload loop should have completed at least one dispatch cycle");
-
     // Gateway is restart-class, so the value is staged in pending_restart
     // rather than the runtime cache.
-    let gw_pending = cm
-        .pending_restart_value(ConfigSection::Gateway)
-        .expect("gateway should have a staged restart value");
-    assert_eq!(
-        gw_pending["port"], 8020,
-        "gateway port should reflect the last write after dedup (staged)"
-    );
+    //
+    // Under load the 20 writes may be split across several debounce
+    // batches, and every batch sends its own completion signal. A single
+    // recv therefore only proves that *some* batch landed, not the final
+    // one. Wait signal-by-signal until the staged value reflects the last
+    // write (8020); on total-budget timeout or channel disconnect (e.g.
+    // the watcher thread died early) fail with the last observed value.
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    loop {
+        let last_pending = cm.pending_restart_value(ConfigSection::Gateway);
+        if last_pending.as_ref().is_some_and(|v| v["port"] == 8020) {
+            return;
+        }
+        match rx.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now())) {
+            Ok(()) => continue,
+            Err(mpsc::RecvTimeoutError::Timeout) => panic!(
+                "timed out waiting for gateway staged port to reach 8020; \
+                 last observed pending value: {:?}",
+                last_pending
+            ),
+            Err(mpsc::RecvTimeoutError::Disconnected) => panic!(
+                "reload loop exited before gateway staged port reached 8020 \
+                 (watcher likely terminated early); \
+                 last observed pending value: {:?}",
+                last_pending
+            ),
+        }
+    }
 }
 
 // ------------------------------------------------------------------
