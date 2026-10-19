@@ -14,6 +14,7 @@ use closeclaw_session::llm_session::ConversationSession;
 use tokio::sync::RwLock;
 
 use super::session_manager::stop::{GracefulStopOutcome, StopOptions};
+use super::workflow_owner::sender_is_checkpoint_owner;
 use super::{SessionManager, SessionMessageHandler};
 
 /// Stop the current LLM turn, escalating to forceful on timeout.
@@ -110,11 +111,8 @@ async fn terminate_workflow_after_stop(
     session_id: &str,
     sender_id: Option<&str>,
 ) {
-    let Some(sender) = sender_id else {
-        return;
-    };
     let owner_id = sm.get_sender_id(session_id).await;
-    if owner_id.as_deref() != Some(sender) {
+    if !sender_is_checkpoint_owner(sender_id, owner_id.as_deref()) {
         return;
     }
     let Some(control) = sm.get_workflow_control().await else {
