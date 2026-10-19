@@ -1,18 +1,15 @@
-//! Streaming-mode outbound dispatch: pre-flight middleware, incremental
-//! rendering, and the post-stream finish pipeline.
+//! Streaming-mode outbound entries and the core dispatch loop
+//! (pre-flight middleware → incremental event loop → finish pipeline →
+//! checkpoint persistence). Incremental-phase event handling lives in
+//! [`streaming_incremental`]; the post-stream finish pipeline lives in
+//! [`streaming_finalize`].
 
-use crate::outbound_helpers::{
-    dispatch_text, make_outbound_meta, merge_dsl_results, process_single_through_chain,
-    send_render_block, CheckpointMeta, StreamContext, StreamState,
-};
+use crate::outbound_helpers::{dispatch_text, CheckpointMeta, StreamContext, StreamState};
 use crate::outbound_middleware::runner::run_pre_flight_check;
 use crate::{Gateway, GatewayError};
 use closeclaw_common::im_plugin::IMPlugin;
-use closeclaw_common::processor::DslParseResult;
-use closeclaw_common::{LlmState, VerbosityLevel};
-use closeclaw_llm::types::{
-    ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
-};
+use closeclaw_common::LlmState;
+use closeclaw_llm::types::{ContentBlock, StreamEvent};
 use futures::StreamExt;
 
 use super::types::{OutboundMeta, StreamResult};
@@ -48,7 +45,9 @@ impl Gateway {
         self.send_outbound_streaming_inner(session_id, channel, stream, plugin, meta)
             .await
     }
+}
 
+impl Gateway {
     /// Core streaming outbound dispatch.
     ///
     /// Drives a [`DefaultStreamingRenderer`] over the [`StreamEvent`] stream,
@@ -203,246 +202,5 @@ impl Gateway {
         crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
 
         Ok(result)
-    }
-
-    /// Post-stream pipeline: select content blocks, run the
-    /// Processor Chain (DslParser → OutboundRawLog), and build the
-    /// final [`StreamResult`].
-    ///
-    /// VerbosityFilter is skipped here — it already ran during the
-    /// incremental phase via [`ProcessorChain::process_outbound_incremental`].
-    async fn finish_streaming_pipeline(
-        &self,
-        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
-        mut state: StreamState,
-        channel: &str,
-        session_id: &str,
-        verbosity_level: VerbosityLevel,
-    ) -> Result<StreamResult, GatewayError> {
-        let (content_blocks_for_pipeline, usage_override) = match session_blocks {
-            Some((blocks, usage)) => (blocks, usage),
-            None => (std::mem::take(&mut state.content_blocks), None),
-        };
-
-        // Run the outbound Processor Chain (DslParser → OutboundRawLog),
-        // skipping VerbosityFilter which already ran during the incremental
-        // phase via process_outbound_incremental.
-        let meta = make_outbound_meta(&[
-            ("channel", channel),
-            ("session_id", session_id),
-            ("verbosity_level", &verbosity_level.to_string()),
-        ]);
-        let dsl_result_incremental = state.dsl_instructions.clone();
-        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
-            let dsl_result = if dsl_result_incremental.is_empty() {
-                None
-            } else {
-                let r = DslParseResult {
-                    instructions: dsl_result_incremental,
-                };
-                serde_json::to_string(&r).ok()
-            };
-            return Ok(StreamResult {
-                content_blocks: content_blocks_for_pipeline,
-                usage: usage_override.unwrap_or(state.usage),
-                retry_attempts: 0,
-                dsl_result,
-                // Attached by the production call site from the
-                // invocation's returned target.
-                call_target: None,
-            });
-        };
-        let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
-        let processed = registry
-            .process_outbound_without_verbosity(input)
-            .await
-            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
-
-        let dsl_result = merge_dsl_results(&processed.metadata, dsl_result_incremental);
-
-        Ok(StreamResult {
-            content_blocks: processed.content_blocks,
-            usage: usage_override.unwrap_or(state.usage),
-            retry_attempts: 0,
-            dsl_result,
-            // Attached by the production call site from the invocation's
-            // returned target.
-            call_target: None,
-        })
-    }
-
-    /// Process a single [`StreamEvent`] and update `state`.
-    ///
-    /// Split from `send_outbound_streaming` to keep the main loop under the
-    /// 50-line helper cap. Each arm delegates to a dedicated helper to stay
-    /// within the 50-line function body limit.
-    async fn process_stream_event(
-        &self,
-        ctx: &StreamContext<'_>,
-        event: StreamEvent,
-        state: &mut StreamState,
-    ) -> Result<(), GatewayError> {
-        match event {
-            StreamEvent::BlockDelta { index, delta } => {
-                self.handle_block_delta(ctx, index, delta, state).await?;
-            }
-            StreamEvent::BlockEnd { block_type, .. } => {
-                // Thinking indicator: send stop signal before rendering.
-                if block_type == ContentBlockType::Thinking
-                    && state.verbosity_level != VerbosityLevel::Off
-                {
-                    ctx.plugin.send_thinking_indicator(false);
-                }
-                self.handle_block_end(ctx, event, block_type, state).await?;
-            }
-            StreamEvent::MessageEnd { usage, .. } => {
-                self.handle_message_end(ctx, usage, state).await?;
-            }
-            StreamEvent::Error { message } => {
-                // Error → no incremental output per design doc.
-                tracing::warn!(
-                    session_id = ctx.chat_id,
-                    error = %message,
-                    "streaming error"
-                );
-                return Err(GatewayError::StreamError {
-                    message,
-                    partial_content: std::mem::take(&mut state.error_partial_blocks),
-                });
-            }
-            StreamEvent::BlockStart { index, block_type } => {
-                // Thinking indicator: send start signal on Thinking BlockStart.
-                if block_type == ContentBlockType::Thinking
-                    && state.verbosity_level != VerbosityLevel::Off
-                {
-                    ctx.plugin.send_thinking_indicator(true);
-                }
-                ctx.plugin
-                    .handle_stream_event(StreamEvent::BlockStart { index, block_type });
-            }
-        }
-        Ok(())
-    }
-
-    /// Handle a [`StreamEvent::BlockDelta`]: delegate to the plugin and
-    /// dispatch any completed text lines.
-    async fn handle_block_delta(
-        &self,
-        ctx: &StreamContext<'_>,
-        index: usize,
-        delta: ContentDelta,
-        state: &mut StreamState,
-    ) -> Result<(), GatewayError> {
-        // Accumulate Image/Audio/File deltas at Gateway level.
-        if let ContentDelta::ImageRef { name, url }
-        | ContentDelta::AudioRef { name, url }
-        | ContentDelta::FileRef { name, url } = &delta
-        {
-            state.media_name = Some(name.clone());
-            state.media_url = Some(url.clone());
-            return Ok(());
-        }
-        let is_text_delta = matches!(delta, ContentDelta::Text { .. });
-        let out = ctx
-            .plugin
-            .handle_stream_event(StreamEvent::BlockDelta { index, delta });
-        // Text blocks are never filtered by verbosity — only Thinking and
-        // other non-Text blocks are filtered at BlockEnd.
-        if is_text_delta {
-            dispatch_text(ctx, out, state).await?;
-        }
-        Ok(())
-    }
-
-    /// Handle a [`StreamEvent::BlockEnd`]: send non-text render blocks
-    /// (after incremental chain processing) and dispatch remaining text.
-    /// Non-Text, non-media blocks are processed through
-    /// [`ProcessorChain::process_outbound_incremental`] before dispatch,
-    /// so VerbosityFilter executes uniformly via the chain.
-    async fn handle_block_end(
-        &self,
-        ctx: &StreamContext<'_>,
-        event: StreamEvent,
-        block_type: ContentBlockType,
-        state: &mut StreamState,
-    ) -> Result<(), GatewayError> {
-        let mut out = ctx.plugin.handle_stream_event(event);
-        if block_type != ContentBlockType::Text {
-            if matches!(
-                block_type,
-                ContentBlockType::Image | ContentBlockType::Audio | ContentBlockType::File
-            ) {
-                let block = state.take_media_block(block_type);
-                state.content_blocks.push(block);
-            } else {
-                let render_blocks = std::mem::take(&mut out.render_blocks);
-                self.process_and_send_non_text_blocks(ctx, &render_blocks, block_type, state)
-                    .await?;
-            }
-        }
-
-        dispatch_text(ctx, out, state).await
-    }
-
-    /// Process non-text render blocks through the incremental chain
-    /// ([`ProcessorChain::process_outbound_incremental`]) before dispatch
-    /// and storage. Falls back to direct send when registry is absent.
-    async fn process_and_send_non_text_blocks(
-        &self,
-        ctx: &StreamContext<'_>,
-        render_blocks: &[ContentBlock],
-        block_type: ContentBlockType,
-        state: &mut StreamState,
-    ) -> Result<(), GatewayError> {
-        for block in render_blocks {
-            // Track original blocks for error-path preservation before
-            // VerbosityFilter runs (design doc §流式输出: complete Thinking
-            // blocks are retained in conversation history on streaming error).
-            state.error_partial_blocks.push(block.clone());
-            if let Some(registry) = ctx.registry {
-                match process_single_through_chain(registry.as_ref(), block, state.verbosity_level)
-                    .await
-                {
-                    Ok(processed_blocks) => {
-                        for processed_block in &processed_blocks {
-                            send_render_block(ctx, processed_block).await?;
-                        }
-                        state.content_blocks.extend(processed_blocks);
-                    }
-                    Err(e) => {
-                        tracing::warn!(
-                            error = %e,
-                            block_type = ?block_type,
-                            "incremental chain failed for non-text block, sending original"
-                        );
-                        send_render_block(ctx, block).await?;
-                        state.content_blocks.push(block.clone());
-                    }
-                }
-            } else {
-                send_render_block(ctx, block).await?;
-                state.content_blocks.push(block.clone());
-            }
-        }
-        Ok(())
-    }
-
-    /// Handle a [`StreamEvent::MessageEnd`]: flush the stream and update
-    /// token usage. Non-text render blocks were already sent at BlockEnd.
-    async fn handle_message_end(
-        &self,
-        ctx: &StreamContext<'_>,
-        usage: Option<UnifiedUsage>,
-        state: &mut StreamState,
-    ) -> Result<(), GatewayError> {
-        let mut out = ctx.plugin.flush_stream();
-        // Non-text render_blocks were already sent in BlockEnd;
-        // discard them here to avoid duplicate sends.
-        out.render_blocks.clear();
-        dispatch_text(ctx, out, state).await?;
-        if let Some(u) = usage {
-            state.usage = u;
-        }
-        Ok(())
     }
 }

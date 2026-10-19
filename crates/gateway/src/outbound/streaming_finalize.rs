@@ -1,0 +1,80 @@
+//! Streaming finalize phase: post-stream pipeline that selects the
+//! content blocks, runs the Processor Chain finish pass (DslParser →
+//! OutboundRawLog, skipping VerbosityFilter), and builds the final
+//! [`StreamResult`].
+
+use crate::outbound_helpers::{make_outbound_meta, merge_dsl_results, StreamState};
+use crate::{Gateway, GatewayError};
+use closeclaw_common::processor::DslParseResult;
+use closeclaw_common::VerbosityLevel;
+use closeclaw_llm::types::{ContentBlock, UnifiedUsage};
+
+use super::types::StreamResult;
+
+impl Gateway {
+    /// Post-stream pipeline: select content blocks, run the
+    /// Processor Chain (DslParser → OutboundRawLog), and build the
+    /// final [`StreamResult`].
+    ///
+    /// VerbosityFilter is skipped here — it already ran during the
+    /// incremental phase via [`ProcessorChain::process_outbound_incremental`].
+    pub(super) async fn finish_streaming_pipeline(
+        &self,
+        session_blocks: Option<(Vec<ContentBlock>, Option<UnifiedUsage>)>,
+        mut state: StreamState,
+        channel: &str,
+        session_id: &str,
+        verbosity_level: VerbosityLevel,
+    ) -> Result<StreamResult, GatewayError> {
+        let (content_blocks_for_pipeline, usage_override) = match session_blocks {
+            Some((blocks, usage)) => (blocks, usage),
+            None => (std::mem::take(&mut state.content_blocks), None),
+        };
+
+        // Run the outbound Processor Chain (DslParser → OutboundRawLog),
+        // skipping VerbosityFilter which already ran during the incremental
+        // phase via process_outbound_incremental.
+        let meta = make_outbound_meta(&[
+            ("channel", channel),
+            ("session_id", session_id),
+            ("verbosity_level", &verbosity_level.to_string()),
+        ]);
+        let dsl_result_incremental = state.dsl_instructions.clone();
+        let Some(registry) = self.processor_registry.read().unwrap().clone() else {
+            let dsl_result = if dsl_result_incremental.is_empty() {
+                None
+            } else {
+                let r = DslParseResult {
+                    instructions: dsl_result_incremental,
+                };
+                serde_json::to_string(&r).ok()
+            };
+            return Ok(StreamResult {
+                content_blocks: content_blocks_for_pipeline,
+                usage: usage_override.unwrap_or(state.usage),
+                retry_attempts: 0,
+                dsl_result,
+                // Attached by the production call site from the
+                // invocation's returned target.
+                call_target: None,
+            });
+        };
+        let input = self.make_outbound_input("", content_blocks_for_pipeline, meta);
+        let processed = registry
+            .process_outbound_without_verbosity(input)
+            .await
+            .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+
+        let dsl_result = merge_dsl_results(&processed.metadata, dsl_result_incremental);
+
+        Ok(StreamResult {
+            content_blocks: processed.content_blocks,
+            usage: usage_override.unwrap_or(state.usage),
+            retry_attempts: 0,
+            dsl_result,
+            // Attached by the production call site from the invocation's
+            // returned target.
+            call_target: None,
+        })
+    }
+}
