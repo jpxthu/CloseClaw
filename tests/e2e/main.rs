@@ -8,6 +8,7 @@ mod cache_consistency_tests;
 mod env_var_check_tests;
 mod gateway_restart_turn_tests;
 mod helpers;
+mod line_width_check_tests;
 mod sandbox_tests;
 mod shutdown_checkpoint_tests;
 mod sigterm_tests;
