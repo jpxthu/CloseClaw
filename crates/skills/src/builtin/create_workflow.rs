@@ -79,7 +79,8 @@ impl WorkflowCreatorSkill {
     ///
     /// Returns structured JSON with the validation result.
     async fn validate_file(&self, path: &str) -> Result<String, SkillError> {
-        let content = std::fs::read_to_string(path)
+        let content = tokio::fs::read_to_string(path)
+            .await
             .map_err(|e| SkillError::ExecutionFailed(format!("failed to read '{path}': {e}")))?;
 
         match (self.validator)(&content) {
