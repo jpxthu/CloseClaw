@@ -68,7 +68,14 @@ fn tool_call_request(user_id: &str) -> PermissionRequest {
             skill: SKILL.to_string(),
             method: METHOD.to_string(),
         },
+        owner_id: None,
     }
+}
+
+/// Same as [`tool_call_request`] with the session-bound Owner set equal
+/// to the caller (checkpoint Owner = sender, new-caliber construction).
+fn owner_tool_call_request(user_id: &str) -> PermissionRequest {
+    tool_call_request(user_id).with_owner_id(Some(user_id.to_string()))
 }
 
 fn rule(name: &str, subject: Subject, effect: Effect) -> Rule {
@@ -124,7 +131,7 @@ fn test_owner_user_deny_exempted_agent_allow_allowed() {
             user_rule("user-deny-read", "owner", Effect::Deny),
         ],
     );
-    let resp = engine.evaluate(tool_call_request("owner"), None);
+    let resp = engine.evaluate(owner_tool_call_request("owner"), None);
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "owner must be exempt from the User-dimension deny (only Agent \
@@ -143,7 +150,7 @@ fn test_owner_agent_deny_user_allow_denied() {
             user_rule("user-allow-read", "owner", Effect::Allow),
         ],
     );
-    let resp = engine.evaluate(tool_call_request("owner"), None);
+    let resp = engine.evaluate(owner_tool_call_request("owner"), None);
     assert!(
         matches!(
             resp,

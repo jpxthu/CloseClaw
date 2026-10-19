@@ -34,6 +34,7 @@ fn make_file_request(agent: &str, user_id: &str, path: &str, op: &str) -> Permis
             path: path.to_string(),
             op: op.to_string(),
         },
+        owner_id: None,
     }
 }
 
@@ -48,6 +49,7 @@ fn make_exec_request(agent: &str) -> PermissionRequest {
             cmd: "ls".to_string(),
             args: vec![],
         },
+        owner_id: None,
     }
 }
 
@@ -203,6 +205,7 @@ fn test_workspace_owner_allowed() {
             path: ws_path(tmp.path(), "test-agent", "owner", "file.txt"),
             op: "read".to_string(),
         },
+        owner_id: None,
     };
     let result = engine.evaluate(request, None);
     assert!(matches!(result, PermissionResponse::Allowed { .. }));

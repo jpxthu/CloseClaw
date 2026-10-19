@@ -30,6 +30,7 @@ fn test_with_caller_request() {
             path: "/home/admin/code/**".to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     };
     let caller = request.caller();
     assert_eq!(caller.user_id, "ou_alice");
@@ -99,6 +100,75 @@ fn test_with_caller_converts_bare() {
     let with_caller = bare.with_caller(caller);
     assert!(matches!(with_caller, PermissionRequest::WithCaller { .. }));
     assert_eq!(with_caller.caller().user_id, "ou_alice");
+}
+
+// ── Session-bound Owner id channel ──────────────────────────────────────────
+
+#[test]
+fn test_with_caller_deserialize_without_owner_id_defaults_none() {
+    // Legacy payload without the owner_id field must keep deserializing
+    // (serde `Option` default) — old callers are not broken.
+    let json = r#"{
+        "caller": {"user_id": "ou_alice", "agent": "dev-agent-01"},
+        "type": "file_op",
+        "agent": "dev-agent-01",
+        "path": "/any/path.txt",
+        "op": "read"
+    }"#;
+    let request: PermissionRequest = serde_json::from_str(json).unwrap();
+    assert!(matches!(request, PermissionRequest::WithCaller { .. }));
+    assert_eq!(request.owner_id(), None);
+}
+
+#[test]
+fn test_owner_id_serde_round_trip() {
+    let request = PermissionRequest::WithCaller {
+        caller: Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+        },
+        request: PermissionRequestBody::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        },
+        owner_id: Some("ou_alice".to_string()),
+    };
+    let json = serde_json::to_string(&request).unwrap();
+    assert!(json.contains("\"owner_id\":\"ou_alice\""));
+    let deserialized: PermissionRequest = serde_json::from_str(&json).unwrap();
+    assert_eq!(deserialized.owner_id(), Some("ou_alice"));
+}
+
+#[test]
+fn test_with_owner_id_builder_sets_and_replaces() {
+    let request = PermissionRequest::WithCaller {
+        caller: Caller {
+            user_id: "ou_alice".to_string(),
+            agent: "dev-agent-01".to_string(),
+        },
+        request: PermissionRequestBody::FileOp {
+            agent: "dev-agent-01".to_string(),
+            path: "/any/path.txt".to_string(),
+            op: "read".to_string(),
+        },
+        owner_id: None,
+    };
+    assert_eq!(request.owner_id(), None);
+    let bound = request.with_owner_id(Some("ou_alice".to_string()));
+    assert_eq!(bound.owner_id(), Some("ou_alice"));
+    let cleared = bound.with_owner_id(None);
+    assert_eq!(cleared.owner_id(), None);
+}
+
+#[test]
+fn test_bare_request_owner_id_is_none() {
+    let bare = PermissionRequest::Bare(PermissionRequestBody::FileOp {
+        agent: "test-agent".to_string(),
+        path: "/any/path.txt".to_string(),
+        op: "read".to_string(),
+    });
+    assert_eq!(bare.owner_id(), None);
 }
 
 #[test]

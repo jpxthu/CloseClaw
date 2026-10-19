@@ -180,6 +180,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
                 cmd: "ls".to_string(),
                 args: vec![".".to_string()],
             },
+            owner_id: None,
         },
         extra_deny_subjects: None,
     };
@@ -371,6 +372,7 @@ async fn test_sandbox_evaluate_permission_request() {
                 op: "read".to_string(),
                 path: test_file.to_str().unwrap().to_string(),
             },
+            owner_id: None,
         };
 
         let eval_result = sandbox.evaluate(request, None).await;

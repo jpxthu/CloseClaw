@@ -57,6 +57,7 @@ async fn test_user_and_agent_rule_matching() {
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     };
     let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));
@@ -99,6 +100,7 @@ async fn test_user_and_agent_rule_user_mismatch() {
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     };
     let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Denied { .. }));
@@ -196,6 +198,7 @@ async fn test_with_caller_request_still_matches_agent_only_rules() {
             path: "/any/path.txt".to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     };
     let response = engine.evaluate(request, None);
     assert!(matches!(response, PermissionResponse::Allowed { .. }));

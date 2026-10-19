@@ -318,6 +318,7 @@ fn test_owner_auto_mode_high_risk_allowed() {
                 path: "/repo/.git/config".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: Some("owner".to_string()),
         },
         None,
     );
@@ -343,6 +344,7 @@ fn test_owner_auto_mode_message_send_allowed() {
                 direction: MessageDirection::Send,
                 target: "chat-id-123".to_string(),
             },
+            owner_id: Some("owner".to_string()),
         },
         None,
     );
@@ -811,6 +813,7 @@ fn test_owner_auto_mode_with_callback_callback_not_called() {
                 path: "/repo/.git/config".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: Some("owner".to_string()),
         },
         None,
     );

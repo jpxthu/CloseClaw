@@ -462,7 +462,13 @@ impl PermissionEngine {
         }
 
         // Step 0.1: Auto Mode runtime dangerous-operation review
-        let is_owner = caller.user_id == "owner";
+        // Owner judgment is data-driven: the request carries the
+        // session-bound Owner id injected by the caller. `None` = no
+        // bound Owner → nobody qualifies for the Owner shortcut.
+        let is_owner = match request.owner_id() {
+            Some(owner_id) => caller.user_id == owner_id,
+            None => false,
+        };
         if !is_owner {
             if let Some(denied) = self.check_auto_mode_filter(&request, &agent_id) {
                 self.log_rejection(&denied, request.body());

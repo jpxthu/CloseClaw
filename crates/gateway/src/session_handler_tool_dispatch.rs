@@ -142,6 +142,7 @@ impl ToolExecutor for TraitObjectExecutor {
                         skill: tool_group.clone(),
                         method: call.tool_name.clone(),
                     },
+                    owner_id: None,
                 };
             let engine = perm_engine.read().await;
             let eval_result = engine.evaluate(request, None);
@@ -189,6 +190,7 @@ impl ToolExecutor for TraitObjectExecutor {
                                     cmd: base_cmd.to_string(),
                                     args: cmd_args,
                                 },
+                                owner_id: None,
                             };
                         let engine = perm_engine.read().await;
                         let cmd_result = engine.evaluate(cmd_request, None);
@@ -232,6 +234,7 @@ impl ToolExecutor for TraitObjectExecutor {
                                     path: path.to_string(),
                                     op: op.to_string(),
                                 },
+                                owner_id: None,
                             };
                         let engine = perm_engine.read().await;
                         let file_result = engine.evaluate(file_request, None);

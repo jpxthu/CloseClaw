@@ -191,6 +191,7 @@ impl Gateway {
                 agent: agent_id,
                 command: cmd.to_owned(),
             },
+            owner_id: None,
         }
     }
 

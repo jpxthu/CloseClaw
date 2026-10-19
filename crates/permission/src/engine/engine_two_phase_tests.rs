@@ -41,7 +41,14 @@ fn file_request(agent: &str, path: &str, user_id: &str) -> PermissionRequest {
             path: path.to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     }
+}
+
+/// Helper to make a FileOp request where the session-bound Owner equals
+/// the caller (checkpoint Owner = sender, new-caliber construction).
+fn owner_file_request(agent: &str, path: &str, user_id: &str) -> PermissionRequest {
+    file_request(agent, path, user_id).with_owner_id(Some(user_id.to_string()))
 }
 // -------------------------------------------------------------------------
 // Two-phase evaluation tests
@@ -133,6 +140,7 @@ fn test_two_phase_agent_deny_user_allow() {
                 path: "/etc/passwd".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: None,
         },
         None,
     );
@@ -195,7 +203,10 @@ fn test_two_phase_owner_agent_allow() {
         // No UserAndAgent rules (owner skips user phase)
     ];
     let engine = make_ruleset(Effect::Deny, rules);
-    let resp = engine.evaluate(file_request("test-agent", "/etc/passwd", "owner"), None);
+    let resp = engine.evaluate(
+        owner_file_request("test-agent", "/etc/passwd", "owner"),
+        None,
+    );
     assert!(matches!(resp, PermissionResponse::Allowed { .. }));
 }
 
@@ -228,6 +239,7 @@ fn test_two_phase_owner_agent_deny() {
                 path: "/etc/passwd".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: Some("owner".to_string()),
         },
         None,
     );
@@ -241,7 +253,7 @@ fn test_two_phase_owner_agent_no_match() {
     let engine = make_ruleset(Effect::Deny, vec![]);
     // Owner still gets default deny when no rules match
     let resp = engine.evaluate(
-        file_request("unknown-agent", "/data/file.txt", "owner"),
+        owner_file_request("unknown-agent", "/data/file.txt", "owner"),
         None,
     );
     assert!(matches!(resp, PermissionResponse::Denied { .. }));
@@ -513,6 +525,7 @@ fn test_message_send_no_rules_defaults_to_allow() {
                 direction: super::engine_types::MessageDirection::Send,
                 target: "chat_1".to_string(),
             },
+            owner_id: Some("owner".to_string()),
         },
         None,
     );
@@ -539,6 +552,7 @@ fn test_message_send_non_owner_no_rules() {
                 direction: super::engine_types::MessageDirection::Send,
                 target: "chat_1".to_string(),
             },
+            owner_id: None,
         },
         None,
     );
@@ -588,6 +602,7 @@ fn test_non_owner_no_rules_file_command_deny() {
                 cmd: "ls".to_string(),
                 args: vec![],
             },
+            owner_id: None,
         },
         None,
     );
@@ -711,7 +726,10 @@ fn test_owner_user_only_rule_exempt_user_dimension() {
     ];
     let engine = make_ruleset(Effect::Deny, rules);
     // Owner: Agent Allow → Allowed (User phase skipped)
-    let resp = engine.evaluate(file_request("test-agent", "/data/file.txt", "owner"), None);
+    let resp = engine.evaluate(
+        owner_file_request("test-agent", "/data/file.txt", "owner"),
+        None,
+    );
     assert!(
         matches!(resp, PermissionResponse::Allowed { .. }),
         "Owner with Agent Allow should be Allowed (User phase skipped), got: {:?}",

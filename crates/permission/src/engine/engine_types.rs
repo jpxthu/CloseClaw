@@ -618,6 +618,14 @@ pub enum PermissionRequest {
         caller: Caller,
         #[serde(flatten)]
         request: PermissionRequestBody,
+        /// Session-bound Owner id injected by the caller (the session
+        /// checkpoint's `sender_id`). The engine's Owner judgment is
+        /// data-driven: the Owner shortcut applies only when
+        /// `caller.user_id` equals this value (case-sensitive).
+        /// `None` = no Owner bound to the session → nobody qualifies
+        /// for the Owner shortcut.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner_id: Option<String>,
     },
     /// Backward-compatible bare request without caller info.
     Bare(PermissionRequestBody),
@@ -631,6 +639,42 @@ impl PermissionRequest {
             PermissionRequest::Bare(body) => Caller {
                 user_id: String::new(),
                 agent: body.agent_id().to_string(),
+            },
+        }
+    }
+
+    /// Returns the session-bound Owner id injected by the caller.
+    ///
+    /// `None` means no Owner is bound to the session (or the request is
+    /// a legacy bare request): nobody qualifies for the Owner shortcut.
+    pub fn owner_id(&self) -> Option<&str> {
+        match self {
+            PermissionRequest::WithCaller { owner_id, .. } => owner_id.as_deref(),
+            PermissionRequest::Bare(_) => None,
+        }
+    }
+
+    /// Attaches the session-bound Owner id (the checkpoint `sender_id`).
+    ///
+    /// The engine's Owner judgment is data-driven: the shortcut applies
+    /// only when `caller.user_id` equals this value (case-sensitive).
+    /// Passing `None` removes the binding — nobody short-circuits.
+    pub fn with_owner_id(self, owner_id: Option<String>) -> PermissionRequest {
+        match self {
+            PermissionRequest::WithCaller {
+                caller, request, ..
+            } => PermissionRequest::WithCaller {
+                caller,
+                request,
+                owner_id,
+            },
+            PermissionRequest::Bare(body) => PermissionRequest::WithCaller {
+                caller: Caller {
+                    user_id: String::new(),
+                    agent: body.agent_id().to_string(),
+                },
+                request: body,
+                owner_id,
             },
         }
     }
@@ -649,6 +693,7 @@ impl PermissionRequest {
             PermissionRequest::Bare(body) => PermissionRequest::WithCaller {
                 caller,
                 request: body,
+                owner_id: None,
             },
             other @ PermissionRequest::WithCaller { .. } => other,
         }

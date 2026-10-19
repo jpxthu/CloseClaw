@@ -616,6 +616,7 @@ fn test_plan_mode_with_caller_file_write_denied() {
                 path: "/src/main.rs".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: None,
         },
         None,
     );
@@ -641,6 +642,7 @@ fn test_plan_mode_with_caller_plans_allowed() {
                 path: "plans/my-plan.md".to_string(),
                 op: "write".to_string(),
             },
+            owner_id: None,
         },
         None,
     );
@@ -804,6 +806,7 @@ fn test_plan_mode_ask_user_question_with_caller_has_context_modifier() {
                 skill: "ask_user_question".to_string(),
                 method: "call".to_string(),
             },
+            owner_id: None,
         },
         None,
     );

@@ -746,6 +746,7 @@ impl ApprovalFlow {
         let perm_request = PermissionRequest::WithCaller {
             caller: caller.clone(),
             request: request.clone(),
+            owner_id: None,
         };
         let re_result = temp_engine.evaluate_with_rules(perm_request, None, snapshotted_rules);
         match re_result {

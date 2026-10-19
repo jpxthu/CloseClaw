@@ -250,6 +250,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
                 cmd: "rm".to_string(),
                 args: vec!["-rf".to_string(), "/".to_string()],
             },
+            owner_id: None,
         },
         None,
     );
@@ -267,6 +268,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
                 cmd: "rm".to_string(),
                 args: vec!["-rf".to_string(), "/".to_string()],
             },
+            owner_id: None,
         },
         None,
     );
@@ -284,6 +286,7 @@ async fn test_permission_user_and_agent_dual_key_matching() {
                 path: "/home/admin/file.txt".to_string(),
                 op: "read".to_string(),
             },
+            owner_id: None,
         },
         None,
     );
