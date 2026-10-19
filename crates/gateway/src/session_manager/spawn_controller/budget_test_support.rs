@@ -4,8 +4,8 @@
 //! Spawn-controller test fixtures inject agent configs into
 //! `ConfigManager::agents` directly; this adapter lets the controller
 //! consume them after it switched to the injected budget-lookup port.
-//! Production wiring uses the daemon-side `ConfigSpawnBudgetLookup`.
-//! Mirrors daemon `ConfigSpawnBudgetLookup` / tools `ConfigSpawnBudgetLookupAdapter` (issue #3779).
+//! Mirrors daemon `ConfigSpawnBudgetLookup` (production wiring) /
+//! tools `ConfigSpawnBudgetLookupAdapter` (issue #3779).
 
 use std::sync::Arc;
 

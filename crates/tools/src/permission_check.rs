@@ -17,12 +17,13 @@
 //! tools-owned port; the composition root (daemon) supplies the
 //! production implementation wrapping the real permission engine.
 
+use closeclaw_common::permission_types::RiskLevel;
+
 use crate::debug_log::{emit_tool_event, ToolsDebugLogContext, ToolsEmitEventParams};
 #[cfg(test)]
 use crate::permission_port::PermMessageDirection;
 use crate::permission_port::{PermCaller, PermRequestBody, PermVerdict, ToolPermissionCheck};
 use crate::{ToolCallError, ToolResult};
-use closeclaw_common::permission_types::RiskLevel;
 
 use std::sync::Arc;
 
