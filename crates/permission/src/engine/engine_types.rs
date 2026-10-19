@@ -2,7 +2,7 @@
 //!
 //! Types, data structures, and Subject/Rule validation logic.
 use super::engine_matching::glob_match;
-use super::engine_risk::RiskLevel;
+use closeclaw_common::permission_types::RiskLevel;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;

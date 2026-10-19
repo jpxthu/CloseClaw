@@ -2,9 +2,9 @@
 //!
 //! Records structured logs when permission requests are denied.
 
-use super::engine_risk::RiskLevel;
 use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};

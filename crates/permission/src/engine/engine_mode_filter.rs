@@ -5,10 +5,11 @@
 
 use super::engine_eval::PermissionEngine;
 use super::engine_helpers::generate_token;
-use super::engine_risk::{assess_risk_level, RiskLevel};
+use super::engine_risk::assess_risk_level;
 use super::engine_types::{
     MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use tracing::info;
 

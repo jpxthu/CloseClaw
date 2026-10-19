@@ -4,12 +4,12 @@
 //! modes or when session_mode_query is absent, concurrent safety.
 
 use crate::engine::engine_eval::PermissionEngine;
-use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{
     Effect, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::engine::rejection_log::{RejectionLog, RejectionLogger};
 use crate::rules::RuleSetBuilder;
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::sync::{Arc, Mutex};

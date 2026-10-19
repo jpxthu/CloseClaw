@@ -1,8 +1,8 @@
 use super::*;
 use crate::approval::WhitelistTarget;
-use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 use crate::mock_session_lookup::MockSessionLookup;
+use closeclaw_common::permission_types::RiskLevel;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;

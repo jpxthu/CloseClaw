@@ -40,10 +40,7 @@ impl PermissionEvaluator for PermissionEngineAdapter {
                     from: from.to_string(),
                     to: to.to_string(),
                 });
-                PermissionEvalResponse::Denied {
-                    reason,
-                    risk_level: map_risk_level(risk_level),
-                }
+                PermissionEvalResponse::Denied { reason, risk_level }
             }
         }
     }
@@ -75,32 +72,10 @@ impl ApprovalSubmission for ApprovalFlowAdapter {
         flow.submit_denial(
             &permission_caller,
             &body,
-            map_risk_level_to_permission(risk_level),
+            risk_level,
             session_id,
             is_sub_agent,
         )
-    }
-}
-
-/// Map permission crate's `RiskLevel` to common crate's `RiskLevel`.
-fn map_risk_level(level: closeclaw_permission::engine::engine_risk::RiskLevel) -> RiskLevel {
-    match level {
-        closeclaw_permission::engine::engine_risk::RiskLevel::Low => RiskLevel::Low,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Medium => RiskLevel::Medium,
-        closeclaw_permission::engine::engine_risk::RiskLevel::High => RiskLevel::High,
-        closeclaw_permission::engine::engine_risk::RiskLevel::Critical => RiskLevel::Critical,
-    }
-}
-
-/// Map common crate's `RiskLevel` to permission crate's `RiskLevel`.
-fn map_risk_level_to_permission(
-    level: RiskLevel,
-) -> closeclaw_permission::engine::engine_risk::RiskLevel {
-    match level {
-        RiskLevel::Low => closeclaw_permission::engine::engine_risk::RiskLevel::Low,
-        RiskLevel::Medium => closeclaw_permission::engine::engine_risk::RiskLevel::Medium,
-        RiskLevel::High => closeclaw_permission::engine::engine_risk::RiskLevel::High,
-        RiskLevel::Critical => closeclaw_permission::engine::engine_risk::RiskLevel::Critical,
     }
 }
 

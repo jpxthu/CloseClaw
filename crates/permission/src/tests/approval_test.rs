@@ -2,9 +2,11 @@
 //! ApprovalQueue unit tests
 //!
 
-use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectReason};
-use crate::engine::engine_risk::RiskLevel;
+use crate::approval::{
+    ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectReason, WhitelistTarget,
+};
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+use closeclaw_common::permission_types::RiskLevel;
 
 fn dummy_caller() -> Caller {
     Caller {
@@ -458,4 +460,39 @@ fn test_pending_approval_created_at_is_set() {
     let pending = queue.get_pending(&id).unwrap();
     assert!(pending.created_at >= before);
     assert!(pending.created_at <= after);
+}
+
+#[test]
+fn test_enqueue_default_risk_level_is_low_and_whitelist_allowed() {
+    let mut queue = ApprovalQueue::new();
+    let id = queue
+        .enqueue(
+            EnqueueRequest {
+                request: make_file_op("a"),
+                caller: dummy_caller(),
+                operation_desc: "default risk op".to_string(),
+                risk_level: RiskLevel::default(),
+                session_resume: "resume".to_string(),
+                callback: Box::new(|result| {
+                    assert_eq!(result, ApproveOrDeny::Approve);
+                }),
+            },
+            &default_rules(),
+        )
+        .unwrap();
+
+    let pending = queue.get_pending(&id).unwrap();
+    assert_eq!(pending.risk_level, RiskLevel::Low);
+    assert!(!pending.risk_level.is_high_or_critical());
+
+    let result = queue.approve(
+        &id,
+        ApprovalMode::WithWhitelist {
+            target: WhitelistTarget::Auto,
+        },
+    );
+    assert!(result.is_ok());
+    assert!(result.unwrap());
+    assert_eq!(queue.pending_count(), 0);
+    assert!(queue.get_pending(&id).is_none());
 }

@@ -14,7 +14,7 @@
 //! ```
 //! use closeclaw_permission::approval::{ApprovalQueue, ApprovalMode, EnqueueRequest};
 //! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw_permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_common::permission_types::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
@@ -60,7 +60,7 @@
 //!     ApprovalQueue, ApprovalMode, EnqueueRequest, WhitelistTarget,
 //! };
 //! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw_permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_common::permission_types::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
@@ -108,7 +108,7 @@
 //!     WhitelistTarget,
 //! };
 //! use closeclaw_permission::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
-//! use closeclaw_permission::engine::engine_risk::RiskLevel;
+//! use closeclaw_common::permission_types::RiskLevel;
 //!
 //! let mut queue = ApprovalQueue::new();
 //! let request = PermissionRequestBody::ToolCall {
@@ -155,8 +155,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use uuid::Uuid;
 
-use super::engine::engine_risk::RiskLevel;
 use super::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+use closeclaw_common::permission_types::RiskLevel;
 
 /// Unique identifier for a pending approval request.
 pub type RequestId = String;

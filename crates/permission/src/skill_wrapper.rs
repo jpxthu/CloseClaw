@@ -7,7 +7,6 @@
 
 use crate::approval_flow::ApprovalFlow;
 use crate::engine::engine_eval::PermissionEngine;
-use crate::engine::engine_risk::RiskLevel as EngineRiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequest, PermissionRequestBody};
 use crate::skill_permission::{
     PermissionEvalResult, SkillApprovalSubmitter, SkillPermissionChecker,
@@ -101,7 +100,6 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
         session_id: &str,
         caller_info: &CallerInfo,
     ) -> Option<String> {
-        let engine_risk = to_engine_risk_level(risk_level);
         let body = build_denial_body(action, resource, reason);
         let caller = Caller {
             user_id: caller_info.user_id.clone(),
@@ -111,7 +109,7 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
         flow.submit_denial(
             &caller,
             &body,
-            engine_risk,
+            risk_level,
             session_id,
             caller_info.is_sub_agent,
         )
@@ -119,26 +117,6 @@ impl SkillApprovalSubmitter for SkillApprovalFlowWrapper {
 }
 
 // ── Internal helpers ────────────────────────────────────────────────────
-
-/// Convert engine risk level to the common risk level type.
-fn to_common_risk_level(level: EngineRiskLevel) -> RiskLevel {
-    match level {
-        EngineRiskLevel::Low => RiskLevel::Low,
-        EngineRiskLevel::Medium => RiskLevel::Medium,
-        EngineRiskLevel::High => RiskLevel::High,
-        EngineRiskLevel::Critical => RiskLevel::Critical,
-    }
-}
-
-/// Convert common risk level to the engine risk level type.
-fn to_engine_risk_level(level: RiskLevel) -> EngineRiskLevel {
-    match level {
-        RiskLevel::Low => EngineRiskLevel::Low,
-        RiskLevel::Medium => EngineRiskLevel::Medium,
-        RiskLevel::High => EngineRiskLevel::High,
-        RiskLevel::Critical => EngineRiskLevel::Critical,
-    }
-}
 
 /// Convert a [`PermissionResponse`](crate::PermissionResponse) to
 /// [`PermissionEvalResult`].
@@ -149,10 +127,7 @@ fn to_eval_result(response: crate::PermissionResponse) -> PermissionEvalResult {
         } => PermissionEvalResult::Allowed { context_modifier },
         crate::PermissionResponse::Denied {
             reason, risk_level, ..
-        } => PermissionEvalResult::Denied {
-            reason,
-            risk_level: to_common_risk_level(risk_level),
-        },
+        } => PermissionEvalResult::Denied { reason, risk_level },
     }
 }
 
@@ -311,34 +286,6 @@ mod tests {
     }
 
     #[test]
-    fn test_to_common_risk_level() {
-        assert_eq!(to_common_risk_level(EngineRiskLevel::Low), RiskLevel::Low);
-        assert_eq!(
-            to_common_risk_level(EngineRiskLevel::Medium),
-            RiskLevel::Medium
-        );
-        assert_eq!(to_common_risk_level(EngineRiskLevel::High), RiskLevel::High);
-        assert_eq!(
-            to_common_risk_level(EngineRiskLevel::Critical),
-            RiskLevel::Critical
-        );
-    }
-
-    #[test]
-    fn test_to_engine_risk_level() {
-        assert_eq!(to_engine_risk_level(RiskLevel::Low), EngineRiskLevel::Low);
-        assert_eq!(
-            to_engine_risk_level(RiskLevel::Medium),
-            EngineRiskLevel::Medium
-        );
-        assert_eq!(to_engine_risk_level(RiskLevel::High), EngineRiskLevel::High);
-        assert_eq!(
-            to_engine_risk_level(RiskLevel::Critical),
-            EngineRiskLevel::Critical
-        );
-    }
-
-    #[test]
     fn test_to_eval_result_allowed() {
         let resp = crate::PermissionResponse::Allowed {
             token: "tok".to_string(),
@@ -371,7 +318,7 @@ mod tests {
         let resp = crate::PermissionResponse::Denied {
             reason: "no".to_string(),
             rule: "r".to_string(),
-            risk_level: EngineRiskLevel::High,
+            risk_level: RiskLevel::High,
             approval_request_id: None,
         };
         match to_eval_result(resp) {

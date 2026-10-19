@@ -6,8 +6,8 @@ use crate::approval::{
     ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectWhitelistReason,
     WhitelistTarget,
 };
-use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+use closeclaw_common::permission_types::RiskLevel;
 
 fn dummy_caller() -> Caller {
     Caller {

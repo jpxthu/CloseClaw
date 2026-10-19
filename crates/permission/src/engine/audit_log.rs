@@ -7,10 +7,10 @@
 //! [`AuditDisposition`], [`AuditLogFilter`]) live in `closeclaw_common`;
 //! this module keeps the file-backed implementation and the entry builder.
 
-use super::engine_risk::RiskLevel;
 use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
 use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use std::path::{Path, PathBuf};
 
@@ -99,20 +99,6 @@ impl std::fmt::Debug for FileAuditLogger {
     }
 }
 
-/// Convert the engine's risk classification into the shared
-/// [`RiskLevel`](closeclaw_common::permission_types::RiskLevel) carried by
-/// [`AuditLogEntry`].
-impl From<RiskLevel> for closeclaw_common::permission_types::RiskLevel {
-    fn from(level: RiskLevel) -> Self {
-        match level {
-            RiskLevel::Low => Self::Low,
-            RiskLevel::Medium => Self::Medium,
-            RiskLevel::High => Self::High,
-            RiskLevel::Critical => Self::Critical,
-        }
-    }
-}
-
 /// Build an [`AuditLogEntry`] from a request body and disposition
 /// metadata.
 pub fn build_audit_log(
@@ -155,7 +141,7 @@ pub fn build_audit_log(
         tool_name,
         operation,
         reason,
-        risk_level: risk_level.into(),
+        risk_level,
         session_mode,
         disposition,
     }
@@ -164,7 +150,6 @@ pub fn build_audit_log(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
 
     #[test]
     fn test_build_audit_log_file_op() {
@@ -184,7 +169,7 @@ mod tests {
         assert_eq!(log.tool_name, "file");
         assert_eq!(log.operation, "write /repo/src/main.rs");
         assert_eq!(log.reason, "user approved");
-        assert_eq!(log.risk_level, CommonRiskLevel::Low);
+        assert_eq!(log.risk_level, RiskLevel::Low);
         assert_eq!(log.disposition, AuditDisposition::Approved);
         assert!(log.session_mode.is_none());
     }
@@ -221,7 +206,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "approved".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -247,7 +232,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: CommonRiskLevel::Low,
+                risk_level: RiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -276,7 +261,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: CommonRiskLevel::Low,
+                risk_level: RiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -306,7 +291,7 @@ mod tests {
             tool_name: "f".to_string(),
             operation: "w x".to_string(),
             reason: "r".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -350,7 +335,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "test".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: disp,
         }

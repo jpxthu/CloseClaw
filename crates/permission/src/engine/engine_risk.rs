@@ -3,7 +3,7 @@
 //! Provides risk level classification for permission requests.
 
 use crate::engine::engine_types::PermissionRequestBody;
-use serde::{Deserialize, Serialize};
+use closeclaw_common::permission_types::RiskLevel;
 
 #[cfg(test)]
 use crate::engine::engine_eval::PermissionEngine;
@@ -19,25 +19,6 @@ use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
 #[cfg(test)]
 use std::sync::Arc;
-
-/// Risk level for permission requests.
-/// Used to annotate denied responses with severity information.
-#[derive(Debug, Default, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "lowercase")]
-pub enum RiskLevel {
-    #[default]
-    Low,
-    Medium,
-    High,
-    Critical,
-}
-
-impl RiskLevel {
-    /// Returns `true` if the risk level is `High` or `Critical`.
-    pub fn is_high_or_critical(self) -> bool {
-        matches!(self, RiskLevel::High | RiskLevel::Critical)
-    }
-}
 
 /// A risk pattern with matching logic and associated risk level.
 struct RiskPattern {
@@ -364,21 +345,6 @@ mod tests {
             args: vec!["-la".to_string()],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::Low);
-    }
-
-    #[test]
-    fn test_risk_level_serde() {
-        let level = RiskLevel::Critical;
-        let json = serde_json::to_string(&level).unwrap();
-        assert_eq!(json, "\"critical\"");
-        let parsed: RiskLevel = serde_json::from_str(&json).unwrap();
-        assert_eq!(parsed, RiskLevel::Critical);
-    }
-
-    #[test]
-    fn test_risk_level_default() {
-        let level = RiskLevel::default();
-        assert_eq!(level, RiskLevel::Low);
     }
 
     // -------------------------------------------------------------------------
