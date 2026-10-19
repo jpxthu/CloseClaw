@@ -22,7 +22,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **技能白名单**：Agent 可以使用的技能范围
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
 - **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
-- **记忆配置**：Agent 的记忆模块参数（可选；填写后覆盖默认记忆配置）
+- **记忆配置**：Agent 的记忆模块参数（可选；覆盖语义详见 [memory §F7](memory.md)（记忆功能的精细化开关））
 
 Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent 的运行时行为由 Session 模块驱动。
 
