@@ -118,4 +118,4 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 ### 安全性
 
 - 子 Session 不暴露长期记忆内容和自定义引导指令
-- 追加指令为 Owner 专属：仅 Owner 可写入、查看和清除，不暴露给非 Owner 的 User
+- 追加指令为 Owner 专属：仅 Owner 可写入、查看和清除，不暴露给非 Owner User
