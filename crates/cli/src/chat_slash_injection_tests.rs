@@ -166,9 +166,17 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
         )]),
         ..Default::default()
     };
+    // Checkpoint criterion: the session-bound Owner is the checkpoint
+    // `sender_id` (`SessionManager::get_sender_id`). With in-memory
+    // storage, `resolve` persists the new session's checkpoint with
+    // `sender_id = message.from` (the inbound sender "owner"), so the
+    // sender qualifies for the Owner shortcut — the production
+    // criterion. Without storage there is no checkpoint Owner and
+    // nobody short-circuits.
+    let storage = Arc::new(closeclaw_session::storage::memory::MemoryStorage::new());
     let session_manager = Arc::new(SessionManager::new(
         &config,
-        None,
+        Some(storage),
         None,
         ReasoningLevel::default(),
     ));
