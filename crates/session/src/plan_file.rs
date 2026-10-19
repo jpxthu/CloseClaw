@@ -259,7 +259,7 @@ where
 
 /// Take a blocking exclusive advisory lock on `file`'s descriptor.
 ///
-/// MSRV-1.82-compatible equivalent of [`File::lock`] (stabilized in Rust
+/// MSRV-compatible equivalent of [`File::lock`] (stabilized in Rust
 /// 1.89): a single `flock(LOCK_EX)` call, with the resulting `io::Error`
 /// propagated as-is — `EINTR` is **not** retried and surfaces as
 /// `io::ErrorKind::Interrupted`, exactly like the std Unix implementation.
