@@ -1,7 +1,7 @@
 //! Outbound message routing for the Gateway.
 //!
 //! Handles rendering and dispatching agent responses through the unified
-//! [`IMPlugin`] registry.
+//! [`IMPlugin`](closeclaw_common::im_plugin::IMPlugin) registry.
 
 pub(crate) mod batch;
 pub(crate) mod chain_prep;

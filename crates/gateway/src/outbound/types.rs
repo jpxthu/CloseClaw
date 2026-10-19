@@ -95,7 +95,8 @@ pub enum SendOutcome {
     Notified,
 }
 
-/// Owned debug-log identity pair passed to [`Gateway::send_outbound`].
+/// Owned debug-log identity pair passed to
+/// [`Gateway::send_outbound`](crate::Gateway::send_outbound).
 ///
 /// Groups the inbound trace metadata (`trace_id` / `session_key`) used for
 /// debug-log event correlation, keeping the method's parameter list within
