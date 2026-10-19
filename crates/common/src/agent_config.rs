@@ -128,27 +128,34 @@ impl ResolvedAgentConfig {
     fn is_wildcard_list(list: &[String]) -> bool {
         list.is_empty() || list == ["*"]
     }
+    /// Resolve a whitelist under the shared wildcard semantics.
+    ///
+    /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
+    /// no filtering applies. Otherwise returns `Some(list.to_vec())`.
+    ///
+    /// This is the single source of truth for the wildcard semantics of
+    /// string-whitelist fields (`skills` / `tools`); per-field accessors
+    /// delegate here.
+    pub fn effective_list(list: &[String]) -> Option<Vec<String>> {
+        if Self::is_wildcard_list(list) {
+            None
+        } else {
+            Some(list.to_vec())
+        }
+    }
     /// Return the effective skills whitelist.
     ///
     /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
     /// no filtering applies. Otherwise returns `Some(whitelist)`.
     pub fn effective_skills(&self) -> Option<Vec<String>> {
-        if Self::is_wildcard_list(&self.skills) {
-            None
-        } else {
-            Some(self.skills.clone())
-        }
+        Self::effective_list(&self.skills)
     }
     /// Return the effective tools whitelist.
     ///
     /// Returns `None` when the list is wildcard (empty or `["*"]`), meaning
     /// no filtering applies. Otherwise returns `Some(whitelist)`.
     pub fn effective_tools(&self) -> Option<Vec<String>> {
-        if Self::is_wildcard_list(&self.tools) {
-            None
-        } else {
-            Some(self.tools.clone())
-        }
+        Self::effective_list(&self.tools)
     }
     /// Return the effective disallowed tools blacklist.
     ///
