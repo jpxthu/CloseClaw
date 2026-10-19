@@ -7,10 +7,10 @@
 //! [`AuditDisposition`], [`AuditLogFilter`]) live in `closeclaw_common`;
 //! this module keeps the file-backed implementation and the entry builder.
 
-use super::engine_risk::RiskLevel;
 use super::engine_types::PermissionRequestBody;
 use super::jsonl_writer::JsonlFileWriter;
 use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use std::path::{Path, PathBuf};
 
@@ -99,20 +99,6 @@ impl std::fmt::Debug for FileAuditLogger {
     }
 }
 
-/// Convert the engine's risk classification into the shared
-/// [`RiskLevel`](closeclaw_common::permission_types::RiskLevel) carried by
-/// [`AuditLogEntry`].
-impl From<RiskLevel> for closeclaw_common::permission_types::RiskLevel {
-    fn from(level: RiskLevel) -> Self {
-        match level {
-            RiskLevel::Low => Self::Low,
-            RiskLevel::Medium => Self::Medium,
-            RiskLevel::High => Self::High,
-            RiskLevel::Critical => Self::Critical,
-        }
-    }
-}
-
 /// Build an [`AuditLogEntry`] from a request body and disposition
 /// metadata.
 pub fn build_audit_log(
@@ -155,7 +141,7 @@ pub fn build_audit_log(
         tool_name,
         operation,
         reason,
-        risk_level: risk_level.into(),
+        risk_level,
         session_mode,
         disposition,
     }

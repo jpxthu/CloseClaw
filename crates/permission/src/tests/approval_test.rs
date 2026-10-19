@@ -3,8 +3,8 @@
 //!
 
 use crate::approval::{ApprovalMode, ApprovalQueue, ApproveOrDeny, EnqueueRequest, RejectReason};
-use crate::engine::engine_risk::RiskLevel;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
+use closeclaw_common::permission_types::RiskLevel;
 
 fn dummy_caller() -> Caller {
     Caller {

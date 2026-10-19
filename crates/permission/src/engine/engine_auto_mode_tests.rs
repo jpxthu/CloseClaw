@@ -5,11 +5,11 @@
 //! in the auto-mode-review design doc.
 
 use super::engine_eval::{ApprovalCallback, PermissionEngine};
-use super::engine_risk::RiskLevel;
 use super::engine_types::{
     Caller, Effect, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::rules::RuleSetBuilder;
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::collections::HashMap;
