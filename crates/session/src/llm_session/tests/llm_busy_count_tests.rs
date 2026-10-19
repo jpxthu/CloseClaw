@@ -5,14 +5,14 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use closeclaw_common::llm_types::InternalRequest;
-use closeclaw_common::processor::{ContentBlockType, StreamEvent, UnifiedResponse, UnifiedUsage};
+use closeclaw_common::processor::{ContentBlockType, StreamEvent, UnifiedResponse};
 use closeclaw_common::{LLMError, LlmCaller, ShutdownSignal};
 use futures::StreamExt;
 
 use crate::llm_session::streaming_assembly::SessionStream;
 use crate::llm_session::ConversationSession;
 
-use super::tmp_path;
+use super::{make_usage_basic, tmp_path};
 
 /// Minimal mock implementing `ShutdownSignal` for busy-count tests.
 struct BusyCountMock {
@@ -65,21 +65,10 @@ impl ShutdownSignal for BusyCountMock {
     }
 }
 
-fn canned_usage() -> UnifiedUsage {
-    UnifiedUsage {
-        prompt_tokens: 10,
-        completion_tokens: 5,
-        total_tokens: Some(15),
-        reasoning_tokens: None,
-        cache_read_tokens: None,
-        cache_write_tokens: None,
-    }
-}
-
 fn canned_response() -> UnifiedResponse {
     UnifiedResponse {
         content_blocks: vec![closeclaw_common::ContentBlock::Text("ok".into())],
-        usage: canned_usage(),
+        usage: make_usage_basic(10, 5, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     }
@@ -116,7 +105,7 @@ impl LlmCaller for FakeCaller {
                 block_type: ContentBlockType::Text,
             }),
             Ok(StreamEvent::MessageEnd {
-                usage: Some(canned_usage()),
+                usage: Some(make_usage_basic(10, 5, None)),
                 finish_reason: Some("stop".into()),
             }),
         ];
