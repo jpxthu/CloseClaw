@@ -1,6 +1,6 @@
 use super::*;
 use crate::persistence::PendingMessage;
-use closeclaw_common::{ContentBlock, UnifiedUsage};
+use closeclaw_common::ContentBlock;
 
 mod announce_dedup_tests;
 mod announce_queue_tests;

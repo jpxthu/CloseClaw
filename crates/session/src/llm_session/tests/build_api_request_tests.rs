@@ -1,5 +1,5 @@
 use super::*;
-use closeclaw_common::{ContentBlock, UnifiedResponse, UnifiedUsage};
+use closeclaw_common::{ContentBlock, UnifiedResponse};
 
 // ── build_api_request with system_prompt ───────────────────────────────────
 
@@ -21,14 +21,7 @@ fn test_build_api_request_without_system_prompt() {
     let mut session = ConversationSession::new("sess_5".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Who are you?".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -52,14 +45,7 @@ fn test_build_api_request_separates_tool_result_messages() {
                 input: "query".into(),
             },
         ],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("tool_calls".into()),
         retry_attempts: 0,
     });
@@ -101,14 +87,7 @@ fn test_build_api_request_multiple_tool_results_appended_in_order() {
                 input: "{}".into(),
             },
         ],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("tool_calls".into()),
         retry_attempts: 0,
     });
@@ -132,14 +111,7 @@ fn test_build_api_request_no_tool_result_preserves_original_behavior() {
     let mut session = ConversationSession::new("sess_no_tool".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("Hello".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -162,14 +134,7 @@ fn test_build_api_request_audio_block_flattens_to_audio_token() {
             name: "clip.mp3".into(),
             url: "data:audio/mpeg;base64,AAA".into(),
         }],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -190,14 +155,7 @@ fn test_build_api_request_file_block_flattens_to_file_token() {
             name: "report.pdf".into(),
             url: "data:application/pdf;base64,AAA".into(),
         }],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });

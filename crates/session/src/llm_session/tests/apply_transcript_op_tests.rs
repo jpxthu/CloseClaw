@@ -1,6 +1,6 @@
 use super::*;
 use crate::run_health::TranscriptOp;
-use closeclaw_common::{ContentBlock, UnifiedResponse, UnifiedUsage};
+use closeclaw_common::{ContentBlock, UnifiedResponse};
 
 // ── apply_transcript_op() ──────────────────────────────────────────────
 
@@ -9,14 +9,7 @@ fn test_apply_transcript_op_overwrites_existing() {
     let mut session = ConversationSession::new("s3".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("old".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -45,14 +38,7 @@ fn test_apply_transcript_op_empty_vec_clears() {
     let mut session = ConversationSession::new("s4".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("msg".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -68,14 +54,7 @@ fn test_apply_transcript_op_rewrite_creates_snapshot() {
     let mut session = ConversationSession::new("s5".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("before".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });
@@ -109,14 +88,7 @@ fn test_apply_transcript_op_partial_rewrite_creates_snapshot() {
     let mut session = ConversationSession::new("s7".into(), "gpt-4o".into(), tmp_path());
     session.append_response(UnifiedResponse {
         content_blocks: vec![ContentBlock::Text("before".into())],
-        usage: UnifiedUsage {
-            prompt_tokens: 1,
-            completion_tokens: 1,
-            total_tokens: Some(2),
-            reasoning_tokens: None,
-            cache_read_tokens: None,
-            cache_write_tokens: None,
-        },
+        usage: make_usage_basic(1, 1, None),
         finish_reason: Some("stop".into()),
         retry_attempts: 0,
     });

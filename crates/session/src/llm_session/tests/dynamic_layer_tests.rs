@@ -11,14 +11,14 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use closeclaw_common::processor::{ContentBlock, UnifiedUsage};
+use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::{
     DynamicPromptBuilder, DynamicPromptContext, InternalRequest, LLMError, LlmCaller,
     PromptOverrides, RequestContext, UnifiedResponse,
 };
 
 use super::super::ConversationSession;
-use super::tmp_path;
+use super::{make_usage_basic, tmp_path};
 
 // ── test doubles ──────────────────────────────────────────────────────────
 
@@ -100,14 +100,7 @@ impl LlmCaller for FakeLlmCaller {
         *self.last_request.lock().unwrap() = Some(request);
         Ok(UnifiedResponse {
             content_blocks: vec![ContentBlock::Text("ok".into())],
-            usage: UnifiedUsage {
-                prompt_tokens: 1,
-                completion_tokens: 1,
-                total_tokens: Some(2),
-                reasoning_tokens: None,
-                cache_read_tokens: None,
-                cache_write_tokens: None,
-            },
+            usage: make_usage_basic(1, 1, None),
             finish_reason: Some("stop".into()),
             retry_attempts: 0,
         })
