@@ -6,6 +6,7 @@
 //! - mutations through the guard are observable after re-locking
 //! - the lock can be re-acquired once the previous guard is dropped
 //! - text accumulation state transitions (Initialize / Update / Skip)
+//! - the `cardkit_pending_text` accessor exposes aggregated pending text
 
 use std::time::Instant;
 
@@ -186,5 +187,37 @@ fn test_accumulate_streaming_text_skip_on_empty_text() {
     assert!(
         state.state.last_update.is_none(),
         "empty text must not stamp last_update"
+    );
+}
+
+/// The `cardkit_pending_text` accessor returns the pending text aggregated
+/// across several streamed batches, before any flush takes it over.
+#[test]
+fn test_cardkit_pending_text_reads_aggregated_text_after_accumulation() {
+    let plugin = make_plugin("unused-cli");
+    {
+        let mut state = plugin.lock_streaming_state();
+        // Throttle basis: `should_update_now` requires 100ms since last_update
+        // (cardkit_streaming.rs:75-80). Batches are fed immediately after
+        // presetting last_update, and the assertions below run without sleeps,
+        // so every batch stays buffered within the 100ms window.
+        state.state.last_update = Some(Instant::now());
+    }
+    let batches = ["Hello", " streaming", " world"];
+    for batch in batches {
+        match plugin.accumulate_streaming_text(&text_output(batch)) {
+            StreamingAction::Skip => {}
+            StreamingAction::Initialize(_, _) => {
+                panic!("expected Skip within throttle window, got Initialize for {batch:?}")
+            }
+            StreamingAction::Update(_, _, _) => {
+                panic!("expected Skip within throttle window, got Update for {batch:?}")
+            }
+        }
+    }
+    assert_eq!(
+        plugin.cardkit_pending_text(),
+        "Hello streaming world",
+        "accessor must return the text aggregated across batches"
     );
 }
