@@ -175,7 +175,7 @@ fn map_message_direction_to_permission(direction: &PermMessageDirection) -> Mess
 
 /// Map the permission engine's [`RiskLevel`] to the tools mirror
 /// [`PermRiskLevel`].
-fn map_engine_risk_to_perm(level: RiskLevel) -> PermRiskLevel {
+fn risk_level_to_perm(level: RiskLevel) -> PermRiskLevel {
     match level {
         RiskLevel::Low => PermRiskLevel::Low,
         RiskLevel::Medium => PermRiskLevel::Medium,
@@ -186,7 +186,7 @@ fn map_engine_risk_to_perm(level: RiskLevel) -> PermRiskLevel {
 
 /// Map the tools mirror [`PermRiskLevel`] to the permission engine's
 /// [`RiskLevel`].
-fn map_perm_risk_to_engine(level: PermRiskLevel) -> RiskLevel {
+fn perm_risk_to_risk_level(level: PermRiskLevel) -> RiskLevel {
     match level {
         PermRiskLevel::Low => RiskLevel::Low,
         PermRiskLevel::Medium => RiskLevel::Medium,
@@ -205,7 +205,7 @@ fn verdict_from_permission(response: PermissionResponse) -> PermVerdict {
             ..
         } => PermVerdict::Denied {
             reason,
-            risk_level: map_engine_risk_to_perm(risk_level),
+            risk_level: risk_level_to_perm(risk_level),
             approval_request_id,
         },
     }
@@ -266,7 +266,7 @@ impl ToolPermissionCheck for ToolPermissionCheckAdapter {
         flow.submit_denial(
             &permission_caller,
             &map_body_to_permission(body),
-            map_perm_risk_to_engine(risk_level),
+            perm_risk_to_risk_level(risk_level),
             session_id,
             is_sub_agent,
         )

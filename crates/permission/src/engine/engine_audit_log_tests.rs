@@ -11,7 +11,7 @@ use crate::engine::engine_types::{
 use crate::engine::rejection_log::{RejectionLog, RejectionLogger};
 use crate::rules::RuleSetBuilder;
 use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
-use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
+use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
 use std::sync::{Arc, Mutex};
@@ -155,7 +155,7 @@ fn test_engine_logs_rejection_to_audit_log() {
     assert_eq!(entry.tool_name, "file");
     assert_eq!(entry.operation, "write /repo/src/main.rs");
     assert_eq!(entry.disposition, AuditDisposition::Rejected);
-    assert_eq!(entry.risk_level, CommonRiskLevel::Low);
+    assert_eq!(entry.risk_level, RiskLevel::Low);
     assert_eq!(entry.session_mode, Some(SessionMode::Auto));
     assert!(!entry.timestamp.is_empty());
 }

@@ -150,7 +150,6 @@ pub fn build_audit_log(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::permission_types::RiskLevel as CommonRiskLevel;
 
     #[test]
     fn test_build_audit_log_file_op() {
@@ -170,7 +169,7 @@ mod tests {
         assert_eq!(log.tool_name, "file");
         assert_eq!(log.operation, "write /repo/src/main.rs");
         assert_eq!(log.reason, "user approved");
-        assert_eq!(log.risk_level, CommonRiskLevel::Low);
+        assert_eq!(log.risk_level, RiskLevel::Low);
         assert_eq!(log.disposition, AuditDisposition::Approved);
         assert!(log.session_mode.is_none());
     }
@@ -207,7 +206,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "approved".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -233,7 +232,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: CommonRiskLevel::Low,
+                risk_level: RiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -262,7 +261,7 @@ mod tests {
                 tool_name: "file".to_string(),
                 operation: "write /x".to_string(),
                 reason: "test".to_string(),
-                risk_level: CommonRiskLevel::Low,
+                risk_level: RiskLevel::Low,
                 session_mode: None,
                 disposition: AuditDisposition::Approved,
             };
@@ -292,7 +291,7 @@ mod tests {
             tool_name: "f".to_string(),
             operation: "w x".to_string(),
             reason: "r".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: AuditDisposition::Approved,
         };
@@ -336,7 +335,7 @@ mod tests {
             tool_name: "file".to_string(),
             operation: "write /x".to_string(),
             reason: "test".to_string(),
-            risk_level: CommonRiskLevel::Low,
+            risk_level: RiskLevel::Low,
             session_mode: None,
             disposition: disp,
         }
