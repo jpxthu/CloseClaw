@@ -522,15 +522,13 @@ async fn test_validate_file_not_found_error_message_contains_path() {
         })))
         .await
         .unwrap_err();
-    match err {
-        SkillError::ExecutionFailed(msg) => {
-            assert!(
-                msg.contains(&missing_str),
-                "error message should contain the missing path: {msg}"
-            );
-        }
-        other => panic!("file not found should return ExecutionFailed, got: {other:?}"),
-    }
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("file not found should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(&missing_str),
+        "error message should contain the missing path: {msg}"
+    );
 }
 
 #[tokio::test]
