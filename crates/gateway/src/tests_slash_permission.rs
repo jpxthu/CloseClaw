@@ -685,26 +685,28 @@ async fn test_permission_allow_after_deny_transition() {
 // ===========================================================================
 // Owner short-circuit path test
 // ===========================================================================
-/// Owner short-circuit: `sender_id == "owner"` bypasses the permission
-/// engine entirely. Even with a deny-all engine, the owner's command
-/// should be dispatched to the handler.
+/// Owner short-circuit: the sender matching the session checkpoint's
+/// bound Owner id (`SessionManager::get_sender_id`) bypasses the
+/// permission engine entirely. Even with a deny-all engine, the
+/// session owner's command should be dispatched to the handler.
 #[tokio::test]
 async fn test_owner_slash_direct_dispatch() {
     let counter = Arc::new(AtomicU32::new(0));
-    let gw = make_gateway();
+    let owner = "ou_session_owner";
+    let gw = make_gateway_with_owner("sess-owner", Some(owner)).await;
     gw.set_slash_dispatcher(counting_dispatcher("exec", true, Arc::clone(&counter)))
         .await;
     gw.set_permission_engine(deny_engine()).await;
 
     let result = gw
-        .dispatch_slash("sess-owner", "/exec ls", Some("owner"), "feishu", Some("p"))
+        .dispatch_slash("sess-owner", "/exec ls", Some(owner), "feishu", Some("p"))
         .await;
 
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(
         counter.load(Ordering::SeqCst),
         1,
-        "owner should bypass permission engine and invoke handler"
+        "session owner should bypass permission engine and invoke handler"
     );
 }
 // ===========================================================================

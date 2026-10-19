@@ -10,12 +10,13 @@
 
 use std::sync::Arc;
 
+use crate::persist_test_utils::SnapshotMockPersist;
 use crate::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
     Action, Defaults, Effect, Rule, RuleSet, Subject,
 };
-use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 
 /// Create a minimal `Gateway` for unit tests.
 ///
@@ -31,6 +32,34 @@ pub(crate) fn make_gateway() -> Arc<Gateway> {
     let sm = Arc::new(SessionManager::new(
         &config,
         None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    Arc::new(Gateway::new_for_tests(config, sm))
+}
+
+/// Create a minimal `Gateway` whose checkpoint for `session_id` binds
+/// `owner` as the session Owner (checkpoint `sender_id`), matching the
+/// checkpoint-Owner criterion used by slash permission routing.
+///
+/// `owner = None` leaves the session without a bound Owner (nobody
+/// short-circuits).
+pub(crate) async fn make_gateway_with_owner(session_id: &str, owner: Option<&str>) -> Arc<Gateway> {
+    let config = GatewayConfig {
+        name: "test".to_owned(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        ..Default::default()
+    };
+    let persist = Arc::new(SnapshotMockPersist::new());
+    if let Some(owner) = owner {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.sender_id = Some(owner.to_owned());
+        persist.save_checkpoint(&cp).await.unwrap();
+    }
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(persist as Arc<dyn PersistenceService>),
         None,
         ReasoningLevel::default(),
     ));

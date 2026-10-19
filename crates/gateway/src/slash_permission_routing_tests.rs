@@ -137,19 +137,20 @@ async fn test_cd_pwd_unaffected_by_permission_engine() {
     );
 }
 
-/// Owner on /git commit still directly executes (owner short-circuit).
-/// Even with a deny-all engine, the owner's write command bypasses
-/// the permission engine.
+/// The session Owner (checkpoint sender id) on /git commit still directly
+/// executes (owner short-circuit). Even with a deny-all engine, the
+/// owner's write command bypasses the permission engine.
 #[tokio::test]
 async fn test_git_commit_owner_bypasses_permission_engine() {
-    let gw = make_gateway();
+    let owner = "ou_session_owner";
+    let gw = make_gateway_with_owner("sess4", Some(owner)).await;
     gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
     gw.set_permission_engine(deny_engine()).await;
     let result = gw
         .dispatch_slash(
             "sess4",
             "/git commit -m test",
-            Some("owner"),
+            Some(owner),
             "feishu",
             Some("p"),
         )
