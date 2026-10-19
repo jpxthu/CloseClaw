@@ -10,9 +10,9 @@ Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功�
 
 ### F1. 斜杠指令入口
 
-Owner 和 User 发送以 `/` 开头的消息时，消息不被路由到 LLM 对话流程，而是由 Gateway 拦截后解析为指令名和参数，分派给对应的指令处理器执行。无匹配处理器的指令向 User 返回友好错误提示，引导使用 `/help` 查看可用指令。
+Owner 和 User 发送以 `/` 开头的消息时，消息不进入 LLM 对话流程，而是作为斜杠指令被处理。无匹配处理器的指令向调用者返回友好错误提示，引导使用 `/help` 查看可用指令。
 
-各指令的 Immediate 标记在后续各功能域中分别标注；未标注 Immediate 的指令默认为非 Immediate。
+各指令的 Immediate 标记在后续各功能域中标注；未标注 Immediate 的指令默认为非 Immediate。
 
 > **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：排队条件定义详见 [session §F10](session.md)（消息排队）。
@@ -35,7 +35,9 @@ Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 Owner 和 User 可以随时查看当前 Session 的运行状态。
 
 **指令**：
-- `/status`：查询 Session 状态（模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录、System Prompt 追加指令列表）（Immediate）
+- `/status`：查询 Session 状态（Immediate）
+
+查询内容：模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录。System Prompt 追加指令列表仅 Owner 可见，非 Owner User 的查询结果不包含该项。
 
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
@@ -56,14 +58,14 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 
 ### F6. System Prompt 追加
 
-Owner 和 User 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。
+Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。该功能仅 Owner 可用；非 Owner User 调用 `/system` 及其子指令时返回权限不足提示。
 
 **指令**：
 - `/system add <内容>`：追加一条指令
 - `/system` 或 `/system list`：列出当前所有追加指令
 - `/system clear`：清除全部追加指令
 
-追加内容超过 500 字符时，直接拒绝并向 User 返回错误提示，不进行截断。`/system add` 不带内容时，向 User 返回用法提示。
+追加内容超过 500 字符时，直接拒绝并向 Owner 返回错误提示，不进行截断。`/system add` 不带内容时，向 Owner 返回用法提示。
 
 > **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
 > **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的追加指令保留）定义。
@@ -75,7 +77,9 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 **指令**：
 - `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
 - `/pwd`：查看当前工作目录
-- `/git <参数>`：执行 Git 命令。只读子命令（status、log、diff、show、branch（仅列出分支））直接执行；写操作须经权限审批，审批不可绕过
+- `/git <参数>`：执行 Git 命令
+  - 只读子命令（status、log、diff、show、branch（仅列出分支））直接执行
+  - 写操作须经权限审批，审批不可绕过
 
 > **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
@@ -83,7 +87,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 
 ### F8. 命令执行
 
-Owner 可以执行 Shell 命令。User 可由 Owner 授权使用本指令，User 调用必须经权限审批，审批不可绕过。
+Owner 可以执行 Shell 命令。User 可由 Owner 授予本指令的使用权限；User 每次调用仍须经权限审批，审批不可绕过。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
@@ -122,7 +126,7 @@ Owner 和 User 可以查询和设置当前 Session 的展示等级。设置等�
 
 ### F13. 审批指令
 
-Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 将 Agent 操作单次放行、加入白名单或拒绝。三条指令均为 Immediate，仅 Owner 可用。
+Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操作。三条指令均为 Immediate，仅 Owner 可用。
 
 > **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批 ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
@@ -138,13 +142,20 @@ Slash 模块在以下环节记录调试日志：
 
 ### F15. workflow 指令
 
-Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时在当前 LLM 调用结束后执行；启动语义由 workflow 模块定义。
+Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时，在当前 LLM 调用结束后执行；启动语义由 workflow 模块定义。
 
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
 ## 非功能需求
 
-- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟。全部 Immediate 指令：/stop、/status、/reasoning（各形态）、/verbose（各形态）、/help、审批指令（/approve-once、/approve-whitelist、/deny，Immediate 可达性由 Gateway 层保证）
+- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟
+- 全部 Immediate 指令：
+  - `/stop`
+  - `/status`
+  - `/reasoning`（各形态）
+  - `/verbose`（各形态）
+  - `/help`
+  - 审批指令：`/approve-once`、`/approve-whitelist`、`/deny`（Immediate 可达性由 Gateway 层保证）
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
