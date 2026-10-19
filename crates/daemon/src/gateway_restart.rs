@@ -415,8 +415,9 @@ impl crate::Daemon {
     /// Install session handler, slash dispatcher, permission engine,
     /// approval flow, and start the new Chat RPC server.
     ///
-    /// Mirrors the startup path (`phase_wiring.rs` / `init_phase_6_chat_rpc`): returns the new
-    /// chat RPC server's [`RpcTerminalPlugin`] (the restart call site
+    /// Mirrors the startup path ([`Daemon::init_phase_6_chat_rpc`] in
+    /// `phase_wiring.rs`): returns the new chat RPC server's
+    /// [`RpcTerminalPlugin`] (the restart call site
     /// drops that handle — the plugin stays alive via gateway
     /// registration, ChatContext and the consumer) and consumes the
     /// SessionMessageHandler output receiver through the shared
