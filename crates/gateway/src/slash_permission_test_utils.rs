@@ -10,6 +10,7 @@
 
 use std::sync::Arc;
 
+use crate::persist_test_utils::persist_with_checkpoint_sender;
 use crate::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_permission::engine::engine_eval::PermissionEngine;
 use closeclaw_permission::engine::engine_types::{
@@ -31,6 +32,29 @@ pub(crate) fn make_gateway() -> Arc<Gateway> {
     let sm = Arc::new(SessionManager::new(
         &config,
         None,
+        None,
+        ReasoningLevel::default(),
+    ));
+    Arc::new(Gateway::new_for_tests(config, sm))
+}
+
+/// Create a minimal `Gateway` whose checkpoint for `session_id` binds
+/// `owner` as the session Owner (checkpoint `sender_id`), matching the
+/// checkpoint-Owner criterion used by slash permission routing.
+///
+/// `owner = None` leaves the session without a bound Owner (nobody
+/// short-circuits).
+pub(crate) async fn make_gateway_with_owner(session_id: &str, owner: Option<&str>) -> Arc<Gateway> {
+    let config = GatewayConfig {
+        name: "test".to_owned(),
+        rate_limit_per_minute: 0,
+        max_message_size: 0,
+        ..Default::default()
+    };
+    let persist = persist_with_checkpoint_sender(session_id, owner).await;
+    let sm = Arc::new(SessionManager::new(
+        &config,
+        Some(persist),
         None,
         ReasoningLevel::default(),
     ));

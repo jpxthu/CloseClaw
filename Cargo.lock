@@ -610,6 +610,7 @@ dependencies = [
  "closeclaw-permission",
  "closeclaw-platform",
  "closeclaw-processor-chain",
+ "closeclaw-session",
  "dialoguer",
  "dirs",
  "serde",

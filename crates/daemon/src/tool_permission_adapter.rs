@@ -10,9 +10,12 @@
 //! `evaluate` replicates the former tools-side `evaluate_permission`:
 //! with a session → resolve the sender (`get_sender_id`), upgrade
 //! Bare → WithCaller, `evaluate_with_chain` with agent permissions;
-//! without → `evaluate(request, None)`. Request / response / direction
-//! types are mapped bidirectionally; risk levels are shared via
-//! `closeclaw_common::permission_types::RiskLevel`.
+//! without → `evaluate(request, None)`. An empty checkpoint sender is
+//! normalized to "no sender bound" (gateway-aligned, mirroring
+//! `session_handler_tool_dispatch.rs`) and takes the Bare path —
+//! `owner_id` is only injected for a non-empty bound sender. Request /
+//! response / direction types are mapped bidirectionally; risk levels
+//! are shared via `closeclaw_common::permission_types::RiskLevel`.
 
 use std::sync::Arc;
 
@@ -143,18 +146,53 @@ impl ToolPermissionCheck for ToolPermissionAdapter {
         let agent_perms = AgentPermissionsAdapter::new(self.config_manager.agent_permissions());
         if let Some(sid) = session_id {
             // Resolve the real user_id from the session checkpoint.
-            let user_id = self.session_manager.get_sender_id(sid).await;
+            //
+            // Empty-sender normalization (gateway-aligned, mirrors
+            // `session_handler_tool_dispatch.rs`'s `owner_id` guard):
+            // a checkpoint `sender_id` of `Some("")` is treated as "no
+            // sender bound" — the empty string must never reach
+            // `owner_id`, or `caller.user_id == owner_id` (`"" == ""`)
+            // would fire the Owner shortcut for an unidentified
+            // caller. Normalized `Some("")` takes the same Bare path
+            // as `None`: the engine request carries an empty
+            // `caller.user_id` and no Owner is bound, matching the
+            // gateway injection point's semantics.
+            let user_id = self
+                .session_manager
+                .get_sender_id(sid)
+                .await
+                .filter(|uid| !uid.is_empty());
             if let Some(ref uid) = user_id {
                 caller.user_id = uid.clone();
             }
             // Upgrade Bare → WithCaller when user_id is available.
+            //
+            // Safety-semantics filing (关联 issue #3792): on the tools
+            // dispatch path the caller IS the session-bound Owner — the
+            // checkpoint sender resolved above feeds both
+            // `caller.user_id` and `owner_id`, so the engine's Owner
+            // shortcut (skip the User phase and the auto-mode
+            // dangerous-operation review; design
+            // `docs/design/permission/approval-workflow.md` §Owner 审批权力)
+            // always applies when a sender is bound. It is therefore
+            // intended that User-dimension defaults and the auto-mode
+            // review are unreachable on this path: the session sender
+            // was bound from the authentic inbound message at session
+            // creation, and these tool calls execute on that session's
+            // behalf. The safeguards remain in force for callers that
+            // are not provably the session Owner — `None` and empty
+            // checkpoint senders (both normalized to "no sender
+            // bound", Bare request) → nobody qualifies for the Owner
+            // shortcut.
             let upgraded = match user_id {
                 Some(ref uid) => {
                     let engine_caller = Caller {
                         user_id: uid.clone(),
                         agent: request.agent_id().to_string(),
                     };
-                    request.with_caller(engine_caller)
+                    request
+                        .with_caller(engine_caller)
+                        .with_owner_id(user_id.clone())
                 }
                 None => request,
             };
@@ -224,252 +262,5 @@ pub fn tool_permission_check(
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    // ── Enum mapping（正常路径：全变体覆盖） ─────────────────────────
-
-    #[test]
-    fn message_direction_mapping_covers_all_variants() {
-        for (permission_dir, perm_dir) in [
-            (MessageDirection::Send, PermMessageDirection::Send),
-            (MessageDirection::Receive, PermMessageDirection::Receive),
-            (MessageDirection::Both, PermMessageDirection::Both),
-        ] {
-            assert_eq!(message_direction_to_permission(&perm_dir), permission_dir);
-        }
-    }
-
-    // ── Body mapping（字段逐项保留） ─────────────────────────────────
-
-    #[test]
-    fn body_mapping_preserves_all_fields_for_every_variant() {
-        let cases: Vec<(PermRequestBody, PermissionRequestBody)> = vec![
-            (
-                PermRequestBody::ToolCall {
-                    agent: "a".into(),
-                    skill: "bash".into(),
-                    method: "call".into(),
-                },
-                PermissionRequestBody::ToolCall {
-                    agent: "a".into(),
-                    skill: "bash".into(),
-                    method: "call".into(),
-                },
-            ),
-            (
-                PermRequestBody::FileOp {
-                    agent: "a".into(),
-                    path: "/tmp/x".into(),
-                    op: "read".into(),
-                },
-                PermissionRequestBody::FileOp {
-                    agent: "a".into(),
-                    path: "/tmp/x".into(),
-                    op: "read".into(),
-                },
-            ),
-            (
-                PermRequestBody::MessageSend {
-                    agent: "a".into(),
-                    direction: PermMessageDirection::Send,
-                    target: "chat_1".into(),
-                },
-                PermissionRequestBody::MessageSend {
-                    agent: "a".into(),
-                    direction: MessageDirection::Send,
-                    target: "chat_1".into(),
-                },
-            ),
-            (
-                PermRequestBody::ConfigWrite {
-                    agent: "a".into(),
-                    config_file: "config.yaml".into(),
-                },
-                PermissionRequestBody::ConfigWrite {
-                    agent: "a".into(),
-                    config_file: "config.yaml".into(),
-                },
-            ),
-            (
-                PermRequestBody::NetOp {
-                    agent: "a".into(),
-                    host: "example.com".into(),
-                    port: 443,
-                },
-                PermissionRequestBody::NetOp {
-                    agent: "a".into(),
-                    host: "example.com".into(),
-                    port: 443,
-                },
-            ),
-            (
-                PermRequestBody::CommandExec {
-                    agent: "a".into(),
-                    cmd: "echo".into(),
-                    args: vec!["hi".into()],
-                },
-                PermissionRequestBody::CommandExec {
-                    agent: "a".into(),
-                    cmd: "echo".into(),
-                    args: vec!["hi".into()],
-                },
-            ),
-        ];
-        for (tools_body, expected) in cases {
-            // Field preservation is observable through the permission-side
-            // dimension + agent accessors plus serde round-trip equality.
-            let mapped = body_to_permission(&tools_body);
-            assert_eq!(
-                serde_json::to_value(&mapped).unwrap(),
-                serde_json::to_value(&expected).unwrap()
-            );
-            assert_eq!(mapped.dimension_name(), expected.dimension_name());
-        }
-    }
-
-    // ── Verdict mapping（错误/边界：Allowed、Denied 各形态） ─────────
-
-    #[test]
-    fn verdict_mapping_preserves_denied_fields_and_drops_unused() {
-        let verdict = verdict_from_permission(PermissionResponse::Allowed {
-            token: "tok".into(),
-            context_modifier: Some("modifier".into()),
-        });
-        assert_eq!(verdict, PermVerdict::Allowed);
-
-        let verdict = verdict_from_permission(PermissionResponse::Denied {
-            reason: "no rule".into(),
-            rule: "r1".into(),
-            risk_level: RiskLevel::High,
-            approval_request_id: None,
-        });
-        assert_eq!(
-            verdict,
-            PermVerdict::Denied {
-                reason: "no rule".into(),
-                risk_level: RiskLevel::High,
-                approval_request_id: None,
-            }
-        );
-
-        let verdict = verdict_from_permission(PermissionResponse::Denied {
-            reason: "already queued".into(),
-            rule: "r2".into(),
-            risk_level: RiskLevel::Critical,
-            approval_request_id: Some("req-1".into()),
-        });
-        assert_eq!(
-            verdict,
-            PermVerdict::Denied {
-                reason: "already queued".into(),
-                risk_level: RiskLevel::Critical,
-                approval_request_id: Some("req-1".into()),
-            }
-        );
-    }
-
-    // ── Config-file classification against a real ConfigManager ──────
-
-    #[tokio::test]
-    async fn is_config_file_classifies_config_tree_paths() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let config_manager = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
-        let session_manager = test_session_manager();
-        let approval_flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
-            Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_: &str| {}),
-            tokio::runtime::Handle::current(),
-            closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
-            tmp.path().to_path_buf(),
-            closeclaw_permission::RuleSet::default(),
-        )));
-        let adapter = ToolPermissionAdapter::new(
-            Arc::new(tokio::sync::RwLock::new(
-                PermissionEngine::new_with_default_data_root(
-                    closeclaw_permission::RuleSet::default(),
-                ),
-            )),
-            session_manager,
-            config_manager,
-            approval_flow,
-        );
-        let data_root = tmp.path().to_path_buf();
-        let inside = data_root
-            .join("agents/a1/permissions.json")
-            .to_string_lossy()
-            .into_owned();
-        let outside = tmp
-            .path()
-            .join("workspaces/a1/file.txt")
-            .to_string_lossy()
-            .into_owned();
-        assert!(adapter.is_config_file(&inside));
-        assert!(!adapter.is_config_file(&outside));
-    }
-
-    // ── Sub-agent decision（空/不存在会话的安全默认） ────────────────
-
-    #[tokio::test]
-    async fn is_session_sub_agent_defaults_false_for_empty_or_missing() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let session_manager = test_session_manager();
-        let approval_flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
-            Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_: &str| {}),
-            tokio::runtime::Handle::current(),
-            closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
-            tmp.path().to_path_buf(),
-            closeclaw_permission::RuleSet::default(),
-        )));
-        let adapter = ToolPermissionAdapter::new(
-            Arc::new(tokio::sync::RwLock::new(
-                PermissionEngine::new_with_default_data_root(
-                    closeclaw_permission::RuleSet::default(),
-                ),
-            )),
-            Arc::clone(&session_manager),
-            Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap()),
-            approval_flow,
-        );
-        assert!(!adapter.is_session_sub_agent("").await);
-        assert!(!adapter.is_session_sub_agent("does-not-exist").await);
-    }
-
-    #[tokio::test]
-    async fn factory_returns_trait_object() {
-        let tmp = tempfile::TempDir::new().unwrap();
-        let session_manager = test_session_manager();
-        let approval_flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
-            Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::new(|_| {}),
-            Arc::new(|_: &str| {}),
-            tokio::runtime::Handle::current(),
-            closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
-            tmp.path().to_path_buf(),
-            closeclaw_permission::RuleSet::default(),
-        )));
-        let port: Arc<dyn ToolPermissionCheck> = tool_permission_check(
-            Arc::new(tokio::sync::RwLock::new(
-                PermissionEngine::new_with_default_data_root(
-                    closeclaw_permission::RuleSet::default(),
-                ),
-            )),
-            session_manager,
-            Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap()),
-            approval_flow,
-        );
-        assert!(!port.is_config_file("/tmp/regular/file.txt"));
-    }
-
-    fn test_session_manager() -> Arc<SessionManager> {
-        Arc::new(SessionManager::new(
-            &closeclaw_gateway::GatewayConfig::default(),
-            None,
-            None,
-            closeclaw_session::persistence::ReasoningLevel::default(),
-        ))
-    }
-}
+#[path = "tool_permission_adapter_tests.rs"]
+mod tests;

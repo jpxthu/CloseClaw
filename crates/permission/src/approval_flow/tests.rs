@@ -822,6 +822,7 @@ async fn test_reevaluation_auto_approve_when_snapshot_allows() {
     let pr = crate::engine::engine_types::PermissionRequest::WithCaller {
         caller: caller.clone(),
         request: request.clone(),
+        owner_id: None,
     };
     assert!(matches!(
         engine.evaluate(pr, None),

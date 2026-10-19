@@ -34,15 +34,33 @@
 //! rewrites any sender to the literal `"owner"`. The real Owner would
 //! therefore have been false-rejected (entry ① unusable), while entries
 //! ②③ — comparing the same sender against the checkpoint — recognized
-//! them. The gate now uses the checkpoint criterion; the pre-existing
+//! them. The gate now uses the checkpoint criterion, and the formerly
 //! literal judgments elsewhere (`approval.rs` /approve-*,
 //! `slash_permission.rs` Owner short-circuit, permission engine owner
-//! short-circuit) are out of scope and unchanged.
+//! short-circuit) have since been migrated to the same checkpoint
+//! criterion (issue #3776); the remaining out-of-scope literal-judgment
+//! sites are tracked in issue #3791.
 
 use super::{Gateway, HandleResult};
 
 #[cfg(test)]
 mod tests;
+
+/// Shared Owner-gate predicate: the inbound `sender` is the session
+/// Owner iff it equals the session-bound checkpoint sender id
+/// (`SessionManager::get_sender_id`). `None` on either side → not the
+/// Owner: sessions without a bound owner grant nothing to anybody, and
+/// senderless messages are never the Owner.
+///
+/// All gateway Owner gates decide through this single predicate —
+/// approval commands (`approval.rs`), the slash Owner short-circuit
+/// (`slash_permission.rs::SlashRouteCtx::is_owner`), and the workflow
+/// entries (below, plus entry ③ in
+/// `slash_executor_helpers.rs::terminate_workflow_after_stop`) — so the
+/// criterion keeps one definition.
+pub(crate) fn sender_is_checkpoint_owner(sender: Option<&str>, owner: Option<&str>) -> bool {
+    sender.is_some_and(|sender| owner == Some(sender))
+}
 
 impl Gateway {
     /// Notify the workflow runtime of an owner non-slash message before
@@ -57,11 +75,8 @@ impl Gateway {
         session_id: &str,
         sender_id: Option<&str>,
     ) {
-        let Some(sender) = sender_id else {
-            return;
-        };
         let owner_id = self.session_manager.get_sender_id(session_id).await;
-        if owner_id.as_deref() != Some(sender) {
+        if !sender_is_checkpoint_owner(sender_id, owner_id.as_deref()) {
             return;
         }
         let Some(control) = self.session_manager.get_workflow_control().await else {
@@ -99,7 +114,7 @@ impl Gateway {
             return None;
         }
         let owner_id = self.session_manager.get_sender_id(session_id).await;
-        if sender_id.is_some_and(|sender| owner_id.as_deref() == Some(sender)) {
+        if sender_is_checkpoint_owner(sender_id, owner_id.as_deref()) {
             return None;
         }
         tracing::warn!(

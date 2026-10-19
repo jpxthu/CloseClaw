@@ -30,6 +30,7 @@ fn file_read_request(agent: &str, user_id: &str) -> PermissionRequest {
             path: "/data/readme.txt".to_string(),
             op: "read".to_string(),
         },
+        owner_id: None,
     }
 }
 
@@ -44,6 +45,7 @@ fn file_write_request(agent: &str, user_id: &str) -> PermissionRequest {
             path: "/data/output.txt".to_string(),
             op: "write".to_string(),
         },
+        owner_id: None,
     }
 }
 
@@ -426,7 +428,11 @@ async fn test_owner_shortcut_skips_user_only_rules() {
     let engine = PermissionEngine::new_with_default_data_root(ruleset);
 
     // Owner caller — should skip User phase entirely, use Agent defaults
-    let resp = engine.evaluate(file_read_request("any-agent", "owner"), None);
+    // (new caliber: session-bound Owner id injected by the caller).
+    let resp = engine.evaluate(
+        file_read_request("any-agent", "owner").with_owner_id(Some("owner".to_string())),
+        None,
+    );
     // Owner shortcut: UserOnly rules don't participate in Agent phase.
     // Agent phase has no matching rule → defaults.file_read = Allow → Allowed
     assert!(

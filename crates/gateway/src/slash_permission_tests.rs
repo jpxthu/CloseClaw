@@ -476,12 +476,13 @@ async fn test_non_owner_high_risk_permitted_handler_executes() {
 #[tokio::test]
 async fn test_owner_short_circuit_bypasses_deny() {
     let counter = Arc::new(AtomicU32::new(0));
-    let gw = make_gateway();
+    let owner = "ou_session_owner";
+    let gw = make_gateway_with_owner("sess1", Some(owner)).await;
     gw.set_slash_dispatcher(counting_router("exec", true, Arc::clone(&counter)))
         .await;
     gw.set_permission_engine(deny_engine()).await;
     let result = gw
-        .dispatch_slash("sess1", "/exec ls", Some("owner"), "feishu", Some("p"))
+        .dispatch_slash("sess1", "/exec ls", Some(owner), "feishu", Some("p"))
         .await;
     assert!(matches!(result, Some(HandleResult::SlashHandled)));
     assert_eq!(counter.load(Ordering::SeqCst), 1);

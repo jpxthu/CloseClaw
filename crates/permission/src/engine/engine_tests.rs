@@ -252,6 +252,7 @@ fn test_permission_request_with_caller() {
             cmd: "ls".to_string(),
             args: vec![],
         },
+        owner_id: None,
     };
     let caller = req.caller();
     assert_eq!(caller.user_id, "alice");

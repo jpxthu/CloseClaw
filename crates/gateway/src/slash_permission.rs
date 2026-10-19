@@ -20,6 +20,7 @@ use closeclaw_permission::engine::engine_types::{
 use closeclaw_session::llm_session::NotificationAudience;
 use closeclaw_session::persistence::PendingMessage;
 
+use super::workflow_owner::sender_is_checkpoint_owner;
 use super::{Gateway, HandleResult, SessionManager, SessionMessageHandler};
 use crate::outbound::SendOutboundIds;
 
@@ -45,19 +46,32 @@ pub(crate) fn parse_slash(content: &str) -> Option<(&str, &str)> {
 
 /// Routing context for slash command dispatch.
 ///
-/// Bundles the four routing fields (`session_id`, `sender_id`,
-/// `channel`, `peer_id`) so they can be threaded through the
-/// permission-checking methods without exceeding the 6-parameter
-/// hard limit.
+/// Bundles the routing fields (`session_id`, `sender_id`, the
+/// session-bound `owner_id`, `channel`, `peer_id`) so they can be
+/// threaded through the permission-checking methods without exceeding
+/// the 6-parameter hard limit.
 pub(crate) struct SlashRouteCtx<'a> {
     /// Session identifier for the current dispatch.
     pub(crate) session_id: &'a str,
     /// Sender user identifier (None when unavailable).
     pub(crate) sender_id: Option<&'a str>,
+    /// Session-bound Owner id resolved once at `dispatch_slash` entry
+    /// from the checkpoint (`SessionManager::get_sender_id`).
+    pub(crate) owner_id: Option<&'a str>,
     /// IM channel identifier (e.g. "feishu", "telegram").
     pub(crate) channel: &'a str,
     /// IM peer/chat identifier for outbound replies.
     pub(crate) peer_id: &'a str,
+}
+
+impl SlashRouteCtx<'_> {
+    /// Checkpoint Owner criterion via the shared predicate
+    /// (`workflow_owner.rs::sender_is_checkpoint_owner`): the inbound
+    /// sender equals the session checkpoint's bound sender id. `None`
+    /// on either side → not the Owner.
+    pub(crate) fn is_owner(&self) -> bool {
+        sender_is_checkpoint_owner(self.sender_id, self.owner_id)
+    }
 }
 
 impl Gateway {
@@ -117,7 +131,8 @@ impl Gateway {
     /// to the normal session handler.
     ///
     /// Three-branch permission routing (恢复自 PR #811 之前的语义):
-    /// 1. `sender_id == Some("owner")` → 直接分派 handler（Owner 短路）
+    /// 1. sender == checkpoint Owner (`SessionManager::get_sender_id`) →
+    ///    直接分派 handler（Owner 短路）
     /// 2. `handler.requires_permission() == true` → handler.handle() 执行后，
     ///    调用 `permission_engine.evaluate()`；返回 `Denied` 时回复"权限不足"
     ///    并跳过 SlashResult.execute()
@@ -155,9 +170,13 @@ impl Gateway {
             return Some(HandleResult::SlashHandled);
         }
 
+        // Resolve the session-bound Owner once per dispatch (checkpoint
+        // criterion) and thread it through the permission checks.
+        let owner_id = self.session_manager.get_sender_id(session_id).await;
         let route_ctx = SlashRouteCtx {
             session_id,
             sender_id,
+            owner_id: owner_id.as_deref(),
             channel,
             peer_id: peer_id.unwrap_or(""),
         };
@@ -168,21 +187,22 @@ impl Gateway {
     /// Build a [`PermissionRequest`] for the given slash command.
     ///
     /// Resolves the agent ID from the session and constructs a
-    /// [`PermissionRequest::WithCaller`] suitable for the permission engine.
+    /// [`PermissionRequest::WithCaller`] suitable for the permission
+    /// engine, injecting the checkpoint-bound Owner id from `ctx` so the
+    /// engine's Owner judgment is data-driven.
     async fn build_permission_request(
         &self,
         cmd: &str,
-        sender_id: Option<&str>,
-        session_id: &str,
+        ctx: &SlashRouteCtx<'_>,
     ) -> PermissionRequest {
         let agent_id = self
             .session_manager
-            .get_chat_id(session_id)
+            .get_chat_id(ctx.session_id)
             .await
             .unwrap_or_default();
 
         let caller = Caller {
-            user_id: sender_id.unwrap_or("").to_owned(),
+            user_id: ctx.sender_id.unwrap_or("").to_owned(),
             agent: agent_id.clone(),
         };
         PermissionRequest::WithCaller {
@@ -191,6 +211,7 @@ impl Gateway {
                 agent: agent_id,
                 command: cmd.to_owned(),
             },
+            owner_id: ctx.owner_id.map(str::to_owned),
         }
     }
 
@@ -202,7 +223,7 @@ impl Gateway {
     /// `SlashResult::Exec { requires_permission: true }` to bypass
     /// handler-level checks.
     async fn check_engine_permission(&self, cmd: &str, ctx: &SlashRouteCtx<'_>) -> bool {
-        if ctx.sender_id == Some("owner") {
+        if ctx.is_owner() {
             return true;
         }
 
@@ -230,9 +251,7 @@ impl Gateway {
             return false;
         };
 
-        let request = self
-            .build_permission_request(cmd, ctx.sender_id, ctx.session_id)
-            .await;
+        let request = self.build_permission_request(cmd, ctx).await;
 
         // Gateway-level permission check: evaluate current agent config
         // and user permissions without traversing the agent spawn chain.
@@ -261,8 +280,8 @@ impl Gateway {
     /// Three-branch permission check. Returns `true` if the command may
     /// proceed, `false` if it was denied (reply already sent).
     async fn check_slash_permission(&self, cmd: &str, ctx: &SlashRouteCtx<'_>) -> bool {
-        // Branch 1: Owner 短路
-        if ctx.sender_id == Some("owner") {
+        // Branch 1: Owner 短路（checkpoint 口径）
+        if ctx.is_owner() {
             return true;
         }
 

@@ -618,6 +618,14 @@ pub enum PermissionRequest {
         caller: Caller,
         #[serde(flatten)]
         request: PermissionRequestBody,
+        /// Session-bound Owner id injected by the caller (the session
+        /// checkpoint's `sender_id`). The engine's Owner judgment is
+        /// data-driven: the Owner shortcut applies only when
+        /// `caller.user_id` equals this value (case-sensitive).
+        /// `None` = no Owner bound to the session → nobody qualifies
+        /// for the Owner shortcut.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        owner_id: Option<String>,
     },
     /// Backward-compatible bare request without caller info.
     Bare(PermissionRequestBody),
@@ -631,6 +639,56 @@ impl PermissionRequest {
             PermissionRequest::Bare(body) => Caller {
                 user_id: String::new(),
                 agent: body.agent_id().to_string(),
+            },
+        }
+    }
+
+    /// Returns the session-bound Owner id injected by the caller.
+    ///
+    /// `None` means no Owner is bound to the session (or the request is
+    /// a legacy bare request): nobody qualifies for the Owner shortcut.
+    pub fn owner_id(&self) -> Option<&str> {
+        match self {
+            PermissionRequest::WithCaller { owner_id, .. } => owner_id.as_deref(),
+            PermissionRequest::Bare(_) => None,
+        }
+    }
+
+    /// Attaches the session-bound Owner id (the checkpoint `sender_id`).
+    ///
+    /// The engine's Owner judgment is data-driven: the shortcut applies
+    /// only when `caller.user_id` equals this value (case-sensitive).
+    /// Passing `None` removes the binding — nobody short-circuits.
+    ///
+    /// # Bare-branch upgrade semantics
+    ///
+    /// Calling this on a [`PermissionRequest::Bare`] request upgrades it
+    /// to [`PermissionRequest::WithCaller`] with an **empty
+    /// `caller.user_id`** (the caller was never identified) while
+    /// carrying the given `owner_id`. The Owner shortcut still cannot
+    /// fire for such a request: structurally, an upgraded Bare request
+    /// carries `caller.user_id == ""` while both production injection
+    /// points (gateway tool dispatch, daemon tools adapter) normalize
+    /// an empty checkpoint sender to `None` before injecting
+    /// `owner_id` — only a non-empty bound sender is injected as
+    /// `Some` — so `"" == owner_id` cannot hold and the upgrade is a
+    /// structural channel-preservation step, not an Owner grant.
+    pub fn with_owner_id(self, owner_id: Option<String>) -> PermissionRequest {
+        match self {
+            PermissionRequest::WithCaller {
+                caller, request, ..
+            } => PermissionRequest::WithCaller {
+                caller,
+                request,
+                owner_id,
+            },
+            PermissionRequest::Bare(body) => PermissionRequest::WithCaller {
+                caller: Caller {
+                    user_id: String::new(),
+                    agent: body.agent_id().to_string(),
+                },
+                request: body,
+                owner_id,
             },
         }
     }
@@ -649,6 +707,7 @@ impl PermissionRequest {
             PermissionRequest::Bare(body) => PermissionRequest::WithCaller {
                 caller,
                 request: body,
+                owner_id: None,
             },
             other @ PermissionRequest::WithCaller { .. } => other,
         }

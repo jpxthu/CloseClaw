@@ -27,10 +27,12 @@ use closeclaw_permission::sandbox::{
 /// Creates a minimal permissive ruleset for testing.
 ///
 /// This ruleset only contains agent-phase defaults (no user-phase rules).
-/// When used with `PermissionRequest::WithCaller`, the caller must have
-/// `user_id: "owner"` to bypass user-phase rules and let agent-phase
-/// defaults take effect. Without Owner exemption, the engine falls back
-/// to `user_defaults` (full Deny), causing all requests to be rejected.
+/// When used with `PermissionRequest::WithCaller`, the request must inject
+/// `owner_id = caller.user_id` (checkpoint criterion: sender == session
+/// Owner) to apply the Owner shortcut, bypassing user-phase rules and
+/// letting agent-phase defaults take effect. Without the injected Owner
+/// identity, the engine falls back to `user_defaults` (full Deny),
+/// causing all requests to be rejected.
 fn make_permissive_ruleset() -> RuleSet {
     RuleSetBuilder::new()
         .rule(
@@ -180,6 +182,7 @@ async fn test_ipc_channel_protocol_evaluate_request_serde() {
                 cmd: "ls".to_string(),
                 args: vec![".".to_string()],
             },
+            owner_id: None,
         },
         extra_deny_subjects: None,
     };
@@ -371,6 +374,10 @@ async fn test_sandbox_evaluate_permission_request() {
                 op: "read".to_string(),
                 path: test_file.to_str().unwrap().to_string(),
             },
+            // Checkpoint criterion: session-bound Owner == sender, so the
+            // data-driven Owner shortcut applies (None = no Owner = no
+            // shortcut, which would fall through to user_defaults deny).
+            owner_id: Some("owner".to_string()),
         };
 
         let eval_result = sandbox.evaluate(request, None).await;

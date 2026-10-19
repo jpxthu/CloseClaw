@@ -31,5 +31,6 @@ unicode-width = "0.2"
 
 [dev-dependencies]
 closeclaw-processor-chain = { path = "../processor_chain" }
+closeclaw-session = { path = "../session" }
 tempfile.workspace = true
 serial_test.workspace = true

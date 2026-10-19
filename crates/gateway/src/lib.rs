@@ -4,6 +4,8 @@
 pub mod agent_permissions_bridge;
 pub mod approval;
 #[cfg(test)]
+pub mod approval_owner_criterion_tests;
+#[cfg(test)]
 pub mod approval_tests;
 pub mod card_action;
 mod construction;
