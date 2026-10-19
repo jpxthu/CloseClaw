@@ -1,16 +1,67 @@
-//! Streaming incremental-phase event handling: per-[`StreamEvent`]
-//! dispatch plus the helpers that render and dispatch each event's
-//! output through the plugin (non-text blocks additionally pass through
-//! the incremental Processor Chain).
+//! Streaming incremental-phase event handling: the incremental event
+//! loop orchestration, per-[`StreamEvent`] dispatch, plus the helpers
+//! that render and dispatch each event's output through the plugin
+//! (non-text blocks additionally pass through the incremental
+//! Processor Chain).
 
 use crate::outbound_helpers::{
     dispatch_text, process_single_through_chain, send_render_block, StreamContext, StreamState,
 };
 use crate::{Gateway, GatewayError};
-use closeclaw_common::VerbosityLevel;
+use closeclaw_common::{LlmState, VerbosityLevel};
 use closeclaw_llm::types::{
     ContentBlock, ContentBlockType, ContentDelta, StreamEvent, UnifiedUsage,
 };
+use futures::StreamExt;
+
+impl Gateway {
+    /// Incremental-phase event loop: polls the LLM event stream against a
+    /// 200ms timeout tick, dispatching each [`StreamEvent`] via
+    /// [`Gateway::process_stream_event`] and force-flushing buffered lines
+    /// on timeout. Returns when the stream ends or an event fails.
+    pub(super) async fn run_streaming_event_loop<E: std::fmt::Display>(
+        &self,
+        ctx: &StreamContext<'_>,
+        state: &mut StreamState,
+        stream: &mut (impl futures::Stream<Item = Result<StreamEvent, E>> + Unpin),
+    ) -> Result<(), GatewayError> {
+        let timeout_duration = std::time::Duration::from_millis(200);
+        let mut first_event_received = false;
+        loop {
+            tokio::select! {
+                event_result = stream.next() => {
+                    let Some(event_result) = event_result else {
+                        break;
+                    };
+                    let event = event_result
+                        .map_err(|e| GatewayError::OutboundError(e.to_string()))?;
+                    // Transition LlmState from Requesting → Receiving on the first
+                    // stream event. This aligns the runtime state machine with the
+                    // design doc: Idle → Requesting → Receiving → Idle.
+                    if !first_event_received {
+                        first_event_received = true;
+                        if let Some(cs) = self
+                            .session_manager
+                            .get_conversation_session(ctx.session_id)
+                            .await
+                        {
+                            cs.read().await.set_llm_state(LlmState::Receiving);
+                        }
+                    }
+                    self.process_stream_event(ctx, event, state).await?;
+                }
+                _ = tokio::time::sleep(timeout_duration) => {
+                    // Timeout check: force-output any buffered content.
+                    let out = ctx.plugin.check_stream_timeout();
+                    if !out.text_messages.is_empty() {
+                        dispatch_text(ctx, out, state).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+}
 
 impl Gateway {
     /// Process a single [`StreamEvent`] and update `state`.

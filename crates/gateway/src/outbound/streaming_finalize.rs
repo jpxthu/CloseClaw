@@ -1,9 +1,9 @@
 //! Streaming finalize phase: post-stream pipeline that selects the
 //! content blocks, runs the Processor Chain finish pass (DslParser →
-//! OutboundRawLog, skipping VerbosityFilter), and builds the final
-//! [`StreamResult`].
+//! OutboundRawLog, skipping VerbosityFilter), builds the final
+//! [`StreamResult`], and persists the outbound checkpoint.
 
-use crate::outbound_helpers::{make_outbound_meta, merge_dsl_results, StreamState};
+use crate::outbound_helpers::{make_outbound_meta, merge_dsl_results, CheckpointMeta, StreamState};
 use crate::{Gateway, GatewayError};
 use closeclaw_common::processor::DslParseResult;
 use closeclaw_common::VerbosityLevel;
@@ -76,5 +76,37 @@ impl Gateway {
             // returned target.
             call_target: None,
         })
+    }
+}
+
+impl Gateway {
+    /// Persist the streaming outbound checkpoint — mirrors the batch path
+    /// in `dispatch_and_persist`. Without this, a crash after streaming
+    /// completes would lose the outbound history.
+    pub(super) async fn persist_streaming_checkpoint(
+        &self,
+        channel: &str,
+        session_id: &str,
+        chat_id: &str,
+        result: &StreamResult,
+    ) {
+        let text = result
+            .content_blocks
+            .iter()
+            .filter_map(|b| match b {
+                ContentBlock::Text(t) => Some(t.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("");
+        let content_blocks_json = serde_json::to_string(&result.content_blocks).unwrap_or_default();
+        let msg_id = format!("out-{}", chrono::Utc::now().timestamp_millis());
+        let meta = CheckpointMeta {
+            platform: Some(channel.to_string()),
+            dsl_result: result.dsl_result.clone(),
+            content_blocks: Some(content_blocks_json),
+        };
+        let msg = Self::make_outbound_msg(channel, chat_id.to_string(), msg_id, text, meta);
+        crate::outbound_helpers::persist_outbound_checkpoint(self, session_id, &msg, true).await;
     }
 }
