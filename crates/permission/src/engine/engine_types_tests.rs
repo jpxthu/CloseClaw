@@ -155,35 +155,29 @@ fn test_dimension_name_slash_command() {
 }
 
 /// Supplemental: verify all non-None dimension_name() values are unique
-/// and match the expected dimension keys.
+/// and exactly cover the [`DIMENSIONS`] constant.
 #[test]
 fn test_dimension_name_all_variants_unique() {
+    use crate::agent_permissions::DIMENSIONS;
+
     let bodies = representative_bodies();
     let mut names: Vec<&str> = bodies.iter().filter_map(|b| b.dimension_name()).collect();
-    names.sort();
-    names.dedup();
+    names.sort_unstable();
+
+    // Uniqueness: deduping must not shrink the key list.
+    let mut unique = names.clone();
+    unique.dedup();
+    assert_eq!(unique.len(), names.len(), "duplicate dimension names");
+
+    // Anti-drift: the unique key set must equal the [`DIMENSIONS`] key
+    // set exactly — adding/removing a dimension without a matching
+    // dimension_name() payload (or vice versa) fails here.
+    let mut dimension_keys = DIMENSIONS.to_vec();
+    dimension_keys.sort_unstable();
     assert_eq!(
-        names.len(),
-        8,
-        "expected 8 unique dimension names, got {:?}",
-        names
+        unique, dimension_keys,
+        "dimension names must cover exactly the DIMENSIONS key set"
     );
-    for expected in &[
-        "exec",
-        "config_write",
-        "file_read",
-        "file_write",
-        "message",
-        "network",
-        "spawn",
-        "tool_call",
-    ] {
-        assert!(
-            names.contains(expected),
-            "missing dimension name: {}",
-            expected
-        );
-    }
 }
 
 /// Exhaustive witness for `PermissionRequestBody`: a match with no
