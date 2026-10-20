@@ -95,7 +95,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | Agent 配置与注册清单 | 边界生效（下次新建 Session） | [agent §F6](agent.md)（运行时配置查询） |
 | Session 生命周期参数 | 边界生效（下次触发/新 Session） | [session §F6](session.md)（Session 归档与清理） |
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |
-| 记忆配置 | 边界生效（下次触发） | [memory §F7](memory.md)（记忆功能的开关与参数配置） |
+| 记忆配置 | 边界生效（下次触发） | [memory §F7](memory.md)（记忆挖掘的开关与参数配置） |
 | 日志级别与保留期 | 边界生效（下一条日志/下次清理） | [debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留） |
 | workflow 定义 | 边界生效（下次 workflow 启动） | [workflow §F1](workflow.md)（workflow 定义） |
 | 机器人 → Agent（入站路由） | 重启生效 | [gateway §F4](gateway.md)（普通消息路由到对话） |

@@ -18,7 +18,7 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 - 边界说明：心跳配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入常规对话 Session 的 System Prompt
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
-> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（用户可查阅的行为规则）。
+> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（Owner 可查阅的行为规则）。
 > **交叉引用**：Bootstrap 文件的身份加载模式（完整/精简）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。
 > **交叉引用**：Session 创建/恢复/上下文压缩完成时的重建触发。详见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 > **交叉引用**：压缩行为本身详见 [session §F3](session.md)（长对话压缩）。
@@ -38,7 +38,7 @@ Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升
 
 > **交叉引用**：记忆的挖掘机制。详见 [memory §F1](memory.md)（Session 结束后自动挖掘记忆）。
 > **交叉引用**：对话中自动注入相关记忆的机制（当前暂缓）详见 [memory §F4](memory.md)（对话中自动注入相关记忆）。
-> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（用户可查阅的行为规则）。
+> **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（Owner 可查阅的行为规则）。
 
 ### F4. 运行时上下文注入
 
