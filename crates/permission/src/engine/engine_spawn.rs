@@ -99,6 +99,7 @@ impl super::engine_eval::PermissionEngine {
     pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
         // Representative request body per dimension; keys come from
         // [`crate::agent_permissions::DIMENSIONS`] (single source of truth).
+        // Order must correspond one-to-one with `DIMENSIONS` (zip relies on it).
         let bodies = [
             PermissionRequestBody::CommandExec {
                 agent: agent_id.to_string(),
@@ -147,6 +148,11 @@ impl super::engine_eval::PermissionEngine {
         let rules = self.rules.clone();
 
         let mut permissions = HashMap::with_capacity(DIMENSIONS.len());
+        debug_assert_eq!(
+            DIMENSIONS.len(),
+            bodies.len(),
+            "bodies must cover every DIMENSIONS entry one-to-one; zip would silently truncate"
+        );
         for (&dim, body) in DIMENSIONS.iter().zip(bodies.iter()) {
             let candidates = self.collect_user_agent_candidates(&caller, agent_id, &rules);
             let result = self.match_rules(&candidates, &rules, &caller, body);

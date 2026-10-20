@@ -158,51 +158,8 @@ fn test_dimension_name_slash_command() {
 /// and match the expected dimension keys.
 #[test]
 fn test_dimension_name_all_variants_unique() {
-    use super::MessageDirection;
-    let bodies: Vec<PermissionRequestBody> = vec![
-        PermissionRequestBody::FileOp {
-            agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
-            op: "read".to_string(),
-        },
-        PermissionRequestBody::FileOp {
-            agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
-            op: "write".to_string(),
-        },
-        PermissionRequestBody::CommandExec {
-            agent: "a".to_string(),
-            cmd: "ls".to_string(),
-            args: vec![],
-        },
-        PermissionRequestBody::NetOp {
-            agent: "a".to_string(),
-            host: "x.com".to_string(),
-            port: 443,
-        },
-        PermissionRequestBody::InterAgentMsg {
-            from: "a".to_string(),
-            to: "b".to_string(),
-        },
-        PermissionRequestBody::ToolCall {
-            agent: "a".to_string(),
-            skill: "s".to_string(),
-            method: "m".to_string(),
-        },
-        PermissionRequestBody::ConfigWrite {
-            agent: "a".to_string(),
-            config_file: "c".to_string(),
-        },
-        PermissionRequestBody::MessageSend {
-            agent: "a".to_string(),
-            direction: MessageDirection::Send,
-            target: "t".to_string(),
-        },
-    ];
-    let mut names: Vec<&str> = bodies
-        .iter()
-        .map(|b| b.dimension_name().expect("dimension_name() returned None"))
-        .collect();
+    let bodies = representative_bodies();
+    let mut names: Vec<&str> = bodies.iter().filter_map(|b| b.dimension_name()).collect();
     names.sort();
     names.dedup();
     assert_eq!(
