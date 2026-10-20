@@ -7,22 +7,12 @@
 
 use crate::agent_permissions::{
     intersect_option_min, intersect_vec, ActionPermission, AgentPermissionProvider,
-    AgentPermissions, PermissionLimits,
+    AgentPermissions, PermissionLimits, DIMENSIONS,
 };
 use std::collections::HashMap;
 
 fn make_perms(agent_id: &str, allowed_dims: &[&str]) -> AgentPermissions {
-    let dimensions = [
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-        "message",
-    ];
-    let permissions = dimensions
+    let permissions = DIMENSIONS
         .iter()
         .map(|&dim| {
             (
