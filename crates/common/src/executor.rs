@@ -25,7 +25,7 @@ pub use crate::compaction::{CompactionError, CompactionResult};
 // ── Executor types ────────────────────────────────────────────────────
 
 /// Action produced by execute_slash_result for the Gateway to dispatch.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ReplyAction {
     /// Send a content-block reply to the user (routed through outbound
     /// Processor Chain: Verbosity filtering → DslParser → outbound logging
