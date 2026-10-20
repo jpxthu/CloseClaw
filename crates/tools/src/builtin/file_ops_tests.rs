@@ -526,3 +526,163 @@ async fn test_read_absolute_path_ignores_workdir() {
         "absolute paths must pass through untouched"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Write plans/ branch — port-routed locked atomic write (issue #3158)
+// ---------------------------------------------------------------------------
+
+use crate::plan_file_access::PlanResolveError;
+
+/// Recorder fake: captures `(path, content)` pairs handed to
+/// `write_plan_file`; other trait methods are inert defaults.
+struct FakePlanFileAccess {
+    writes: std::sync::Mutex<Vec<(std::path::PathBuf, String)>>,
+}
+
+impl FakePlanFileAccess {
+    fn new() -> Arc<Self> {
+        Arc::new(Self {
+            writes: std::sync::Mutex::new(Vec::new()),
+        })
+    }
+}
+
+impl crate::plan_file_access::PlanFileAccess for FakePlanFileAccess {
+    fn resolve_plan_by_name(
+        &self,
+        _workdir: &Path,
+        name: &str,
+    ) -> Result<std::path::PathBuf, PlanResolveError> {
+        Err(PlanResolveError::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn touch_access_timestamp(&self, _plan_path: &Path) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
+        self.writes
+            .lock()
+            .unwrap()
+            .push((plan_path.to_path_buf(), content.to_string()));
+        Ok(())
+    }
+}
+
+fn make_ctx_with_workdir(workdir: &Path) -> ToolContext {
+    let mut ctx = make_ctx("master");
+    ctx.workdir = Some(closeclaw_common::tool_trait::build_workdir_context(
+        workdir.to_str().unwrap(),
+    ));
+    ctx
+}
+
+/// Relative `plans/x.md` + workdir → port receives the normalized
+/// absolute path and the exact content.
+#[tokio::test]
+async fn test_write_plan_relative_path_normalized_through_port() {
+    let tmp = TempDir::new().unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = WriteTool::new().with_plan_file_access(fake.clone());
+
+    let result = tool
+        .call(
+            serde_json::json!({ "path": "plans/x.md", "content": "plan body" }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok(), "plans/ write via port must succeed");
+
+    let writes = fake.writes.lock().unwrap();
+    assert_eq!(writes.len(), 1, "exactly one port write expected");
+    let (path, content) = &writes[0];
+    assert!(
+        path.is_absolute(),
+        "port must receive an absolute path, got {path:?}"
+    );
+    assert_eq!(
+        path,
+        &tmp.path().join("plans/x.md"),
+        "relative plans path must normalize against the workdir"
+    );
+    assert_eq!(content, "plan body", "port must receive the full content");
+}
+
+/// Absolute plans path passes through the port untouched.
+#[tokio::test]
+async fn test_write_plan_absolute_path_passthrough() {
+    let tmp = TempDir::new().unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = WriteTool::new().with_plan_file_access(fake.clone());
+
+    let abs = tmp.path().join("plans/abs.md");
+    let result = tool
+        .call(
+            serde_json::json!({ "path": abs.to_str().unwrap(), "content": "abs" }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok());
+
+    let writes = fake.writes.lock().unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(&writes[0].0, &abs, "absolute plans path must not change");
+}
+
+/// No injected port → fail-fast `ExecutionFailed`; nothing is written.
+#[tokio::test]
+async fn test_write_plan_path_without_port_fails_fast() {
+    let tmp = TempDir::new().unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let tool = WriteTool::new();
+
+    let result = tool
+        .call(
+            serde_json::json!({ "path": "plans/x.md", "content": "orphan" }),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolCallError::ExecutionFailed(msg)) => {
+            assert!(
+                msg.contains("PlanFileAccess"),
+                "error must explain the missing port, got: {msg}"
+            );
+        }
+        other => panic!("expected fail-fast ExecutionFailed, got {other:?}"),
+    }
+    assert!(
+        !tmp.path().join("plans").exists(),
+        "fail-fast must not create any file"
+    );
+}
+
+/// Non-plans path: fake port stays untouched, file written via the
+/// original readback path.
+#[tokio::test]
+async fn test_write_non_plan_path_skips_port_uses_readback() {
+    let tmp = TempDir::new().unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = WriteTool::new().with_plan_file_access(fake.clone());
+
+    let out = tmp.path().join("out.txt");
+    let result = tool
+        .call(
+            serde_json::json!({ "path": out.to_str().unwrap(), "content": "plain" }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok(), "non-plans write must still succeed");
+
+    assert!(
+        fake.writes.lock().unwrap().is_empty(),
+        "port must not be called for non-plans paths"
+    );
+    let content = std::fs::read_to_string(&out).unwrap();
+    assert_eq!(content, "plain", "readback write must produce the file");
+}

@@ -1,12 +1,14 @@
 //! Plan file access port for the tools crate.
 //!
 //! [`PlanFileAccess`] is the tools-owned abstraction over plan file
-//! operations, narrowed to the exact call surface of
-//! [`crate::builtin::mode_execution_trigger::ModeExecutionTriggerTool`]:
-//! resolve a plan file by name within a workspace, and refresh its
-//! application-layer access timestamp. Session-side plan state reads go
-//! through the existing [`closeclaw_common::SessionLookup`] trait, so
-//! `closeclaw-session` types stay out of tools production code.
+//! operations, narrowed to the exact call surface of the plan-aware
+//! tools: [`crate::builtin::mode_execution_trigger::
+//! ModeExecutionTriggerTool`] (resolve a plan file by name within a
+//! workspace, refresh its application-layer access timestamp) and the
+//! `plans/` write branches of the Write/Edit tools (atomic locked
+//! write). Session-side plan state reads go through the existing
+//! [`closeclaw_common::SessionLookup`] trait, so `closeclaw-session`
+//! types stay out of tools production code.
 //!
 //! The composition root (daemon) supplies the production implementation
 //! wrapping `closeclaw_session::plan_file`; tests may use the thin
@@ -57,6 +59,18 @@ pub trait PlanFileAccess: Send + Sync {
     /// Update (or insert) the application-layer access timestamp
     /// marker of a plan file so it is not archived prematurely.
     fn touch_access_timestamp(&self, plan_path: &Path) -> Result<(), std::io::Error>;
+
+    /// Write `content` to a plan file atomically (tempfile + rename)
+    /// while holding the plan's exclusive sidecar lock — the same lock
+    /// domain as the session-side read-modify-write helpers, so tool
+    /// writes can never interleave with a session touch and tear the
+    /// file apart.
+    ///
+    /// Callers must pass a workdir-normalized (absolute) path: the
+    /// sidecar lock key is the path verbatim + ".lock", so a relative
+    /// path would derive its lock file from the process CWD and split
+    /// the lock domain from the session's writers.
+    fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error>;
 }
 
 /// Test-support thin port implementation wrapping the real
@@ -108,6 +122,10 @@ pub(crate) mod real_access {
 
         fn touch_access_timestamp(&self, plan_path: &Path) -> Result<(), std::io::Error> {
             closeclaw_session::plan_file::touch_access_timestamp(plan_path)
+        }
+
+        fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
+            closeclaw_session::plan_file::write_plan_file_locked(plan_path, content)
         }
     }
 

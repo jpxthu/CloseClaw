@@ -7,10 +7,12 @@
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use closeclaw_common::ReadRange;
 
+use crate::plan_file_access::PlanFileAccess;
 use crate::{PromptGenerationContext, Tool, ToolCallError, ToolContext, ToolFlags, ToolResult};
 
 // ---------------------------------------------------------------------------
@@ -25,8 +27,73 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
         .ok_or_else(|| ToolCallError::InvalidArgs(format!("missing required parameter: {key}")))
 }
 
+/// Check if a file path belongs to the plans/ directory.
+///
+/// Isomorphic to the permission engine's `is_plans_path`
+/// (`crates/permission/src/engine/engine_mode_filter.rs`) so tool-side
+/// and permission-side agree on what counts as a plan file. Only the
+/// string form is checked — this runs before workdir normalization,
+/// which is exactly how permission sees the raw argument too.
+///
+/// The match must happen on the raw path, but the subsequent port write
+/// needs an absolute path: the session-side sidecar lock key is the
+/// path verbatim + ".lock", so a relative path would derive its lock
+/// file from the process CWD and split the lock domain from the
+/// session's plan writers.
+fn is_plan_file_path(path: &str) -> bool {
+    path.starts_with("plans/") || path.contains("/plans/")
+}
+
+/// Normalize a plans/ write path against the session workdir.
+///
+/// Mirrors `mode_execution_trigger.rs`'s workdir normalization:
+/// relative paths resolve against `ctx.workdir`, absolute paths pass
+/// through untouched, and with no workdir the input is used as-is (the
+/// process-CWD fallback). The result feeds the sidecar lock key, so
+/// callers should supply a workdir whenever possible.
+fn normalize_plan_write_path(path: &str, ctx: &ToolContext) -> PathBuf {
+    let p = Path::new(path);
+    if p.is_absolute() {
+        return p.to_path_buf();
+    }
+    match ctx.workdir {
+        Some(ref wd) => Path::new(&wd.path).join(p),
+        None => p.to_path_buf(),
+    }
+}
+
 /// Write content to a file, creating parent directories as needed.
-async fn write_file(path: &str, content: &str) -> Result<ToolResult, ToolCallError> {
+///
+/// `plans/` paths go through the injected [`PlanFileAccess`] port so the
+/// write shares the session's plan sidecar lock domain and is atomic
+/// (tempfile + rename) — the plain `std::fs::write` below is not safe
+/// against a concurrent session touch. A missing port is a fail-fast
+/// wiring error: silently falling back would lose that protection.
+/// Non-plans paths keep the original readback write unchanged.
+async fn write_file(
+    path: &str,
+    content: &str,
+    ctx: &ToolContext,
+    plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
+) -> Result<ToolResult, ToolCallError> {
+    if is_plan_file_path(path) {
+        let normalized = normalize_plan_write_path(path, ctx);
+        let port = plan_file_access.ok_or_else(|| {
+            ToolCallError::ExecutionFailed(
+                "plan file writes require an injected PlanFileAccess port \
+                 (build the tool via with_plan_file_access)"
+                    .to_string(),
+            )
+        })?;
+        port.write_plan_file(&normalized, content).map_err(|e| {
+            ToolCallError::ExecutionFailed(format!("{}: {e}", normalized.display()))
+        })?;
+        return Ok(ToolResult {
+            data: serde_json::json!({ "content": content }),
+            new_messages: vec![],
+            context_modifier: None,
+        });
+    }
     if let Some(parent) = Path::new(path).parent() {
         std::fs::create_dir_all(parent)
             .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
@@ -280,11 +347,25 @@ impl Tool for ReadTool {
 // WriteTool
 // ---------------------------------------------------------------------------
 
-pub struct WriteTool;
+pub struct WriteTool {
+    plan_file_access: Option<Arc<dyn PlanFileAccess>>,
+}
 
 impl WriteTool {
     pub fn new() -> Self {
-        Self
+        Self {
+            plan_file_access: None,
+        }
+    }
+
+    /// Attach the plan-file access port used for `plans/` writes.
+    ///
+    /// With no port attached, Write calls targeting `plans/` paths fail
+    /// fast instead of silently dropping the session's plan sidecar
+    /// lock and atomic-write protection; non-plans paths are unaffected.
+    pub fn with_plan_file_access(mut self, plan_file_access: Arc<dyn PlanFileAccess>) -> Self {
+        self.plan_file_access = Some(plan_file_access);
+        self
     }
 }
 
@@ -350,7 +431,7 @@ impl Tool for WriteTool {
         if Path::new(&path_owned).exists() {
             check_staleness(ctx, &path_owned).await?;
         }
-        write_file(&path_owned, content).await
+        write_file(&path_owned, content, ctx, self.plan_file_access.as_ref()).await
     }
 }
 
