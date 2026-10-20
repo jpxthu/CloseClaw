@@ -27,104 +27,8 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
         .ok_or_else(|| ToolCallError::InvalidArgs(format!("missing required parameter: {key}")))
 }
 
-/// Check if a file path belongs to the plans/ directory.
-///
-/// Isomorphic to the permission engine's `is_plans_path`
-/// (`crates/permission/src/engine/engine_mode_filter.rs`) so tool-side
-/// and permission-side agree on what counts as a plan file. Only the
-/// string form is checked — this runs before workdir normalization,
-/// which is exactly how permission sees the raw argument too.
-///
-/// The match must happen on the raw path, but the subsequent port write
-/// needs an absolute path: the session-side sidecar lock key is the
-/// path verbatim + ".lock", so a relative path would derive its lock
-/// file from the process CWD and split the lock domain from the
-/// session's plan writers.
-fn is_plan_file_path(path: &str) -> bool {
-    path.starts_with("plans/") || path.contains("/plans/")
-}
-
-/// Where a Write/Edit payload is committed.
-///
-/// Makes the two sinks explicit so no parameter is silently discarded:
-/// [`WriteSink::Plan`] routes through the injected [`PlanFileAccess`]
-/// port, [`WriteSink::Readback`] keeps the plain readback write.
-enum WriteSink<'a> {
-    /// `plans/` target — the path must already be workdir-normalized
-    /// (absolute) so the session sidecar lock key matches the session's
-    /// writers.
-    Plan(&'a Path),
-    /// Regular target — original readback behavior, unchanged.
-    Readback(&'a Path),
-}
-
-impl<'a> WriteSink<'a> {
-    /// Pick the sink from the normalized plans path: `Some` → port,
-    /// `None` → readback.
-    fn pick(plan_path: Option<&'a Path>, raw_path: &'a Path) -> Self {
-        match plan_path {
-            Some(plan) => WriteSink::Plan(plan),
-            None => WriteSink::Readback(raw_path),
-        }
-    }
-}
-
-/// Commit `content` to `sink`.
-///
-/// `Plan` targets go through the injected [`PlanFileAccess`] port so the
-/// write shares the session's plan sidecar lock domain and is atomic
-/// (tempfile + rename) — the plain readback write is not safe against a
-/// concurrent session touch. A missing port is a fail-fast wiring error:
-/// silently falling back would lose that protection. `Readback` targets
-/// keep the original readback write unchanged.
-fn commit_to_sink(
-    sink: WriteSink<'_>,
-    content: &str,
-    plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
-) -> Result<(), ToolCallError> {
-    match sink {
-        WriteSink::Readback(target) => super::readback::write_with_readback(target, content),
-        WriteSink::Plan(plan_path) => {
-            let port = plan_file_access.ok_or_else(|| {
-                ToolCallError::ExecutionFailed(
-                    "plan file writes require an injected PlanFileAccess port \
-                     (build the tool via with_plan_file_access)"
-                        .to_string(),
-                )
-            })?;
-            port.write_plan_file(plan_path, content).map_err(|e| {
-                ToolCallError::ExecutionFailed(format!("{}: {e}", plan_path.display()))
-            })
-        }
-    }
-}
-
-/// Write content to a file, creating parent directories as needed.
-///
-/// `plans/` targets are routed through the injected
-/// [`PlanFileAccess`] port via [`commit_to_sink`].
-async fn write_file(
-    path: &str,
-    content: &str,
-    ctx: &ToolContext,
-    plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
-) -> Result<ToolResult, ToolCallError> {
-    let plan_path = is_plan_file_path(path)
-        .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
-    if plan_path.is_none() {
-        if let Some(parent) = Path::new(path).parent() {
-            std::fs::create_dir_all(parent)
-                .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
-        }
-    }
-    let sink = WriteSink::pick(plan_path.as_deref(), Path::new(path));
-    commit_to_sink(sink, content, plan_file_access)?;
-    Ok(ToolResult {
-        data: serde_json::json!({ "content": content }),
-        new_messages: vec![],
-        context_modifier: None,
-    })
-}
+pub(crate) use super::plans_route::is_plan_file_path;
+use super::plans_route::{commit_to_sink, WriteSink};
 
 /// Recursively grep for pattern matches in a directory.
 fn grep_walk(dir: &Path, re: &Regex, results: &mut Vec<Value>) {
@@ -451,7 +355,8 @@ impl Tool for WriteTool {
         if Path::new(&path_owned).exists() {
             check_staleness(ctx, &path_owned).await?;
         }
-        write_file(&path_owned, content, ctx, self.plan_file_access.as_ref()).await
+        super::plans_route::write_file(&path_owned, content, ctx, self.plan_file_access.as_ref())
+            .await
     }
 }
 

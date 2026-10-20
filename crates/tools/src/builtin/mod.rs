@@ -17,6 +17,7 @@ pub mod git_ops;
 pub mod mode_execution_trigger;
 pub mod permission;
 pub mod plan_exec_confirm;
+pub(crate) mod plans_route;
 pub mod prompt_template;
 pub(crate) mod read_image;
 pub(crate) mod read_truncator;
