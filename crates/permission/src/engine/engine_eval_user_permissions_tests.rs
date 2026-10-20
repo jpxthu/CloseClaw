@@ -132,6 +132,18 @@ fn test_dimension_name_matches_evaluate_dimensions() {
         ),
     ];
 
+    // Anti-drift: the explicit (key, body) cases must cover exactly the key
+    // set of [`DIMENSIONS`] — adding/removing a dimension without updating
+    // this list fails here.
+    let mut case_keys: Vec<&str> = cases.iter().map(|(key, _)| *key).collect();
+    case_keys.sort_unstable();
+    let mut dimension_keys = DIMENSIONS.to_vec();
+    dimension_keys.sort_unstable();
+    assert_eq!(
+        case_keys, dimension_keys,
+        "cases must cover exactly the DIMENSIONS key set"
+    );
+
     for (expected_dim, body) in &cases {
         let actual = body
             .dimension_name()
@@ -298,6 +310,18 @@ fn test_per_dimension_default_values() {
         ("message", false),
     ]
     .into();
+
+    // Anti-drift: expected_defaults must cover exactly the key set of
+    // [`DIMENSIONS`] — a new/removed dimension without a matching entry
+    // fails here instead of silently skipping the default-value check.
+    let mut expected_keys: Vec<&str> = expected_defaults.keys().copied().collect();
+    expected_keys.sort_unstable();
+    let mut dimension_keys = DIMENSIONS.to_vec();
+    dimension_keys.sort_unstable();
+    assert_eq!(
+        expected_keys, dimension_keys,
+        "expected_defaults must cover exactly the DIMENSIONS key set"
+    );
 
     for (dim, expected_allowed) in &expected_defaults {
         let action = perms
