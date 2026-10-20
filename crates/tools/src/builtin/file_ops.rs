@@ -27,9 +27,7 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
         .ok_or_else(|| ToolCallError::InvalidArgs(format!("missing required parameter: {key}")))
 }
 
-#[allow(unused_imports)]
-pub(crate) use super::plans_route::is_plan_file_path;
-use super::plans_route::{commit_to_sink, EditRoute};
+use super::plans_route::{commit_to_sink, write_file, EditRoute};
 
 /// Recursively grep for pattern matches in a directory.
 fn grep_walk(dir: &Path, re: &Regex, results: &mut Vec<Value>) {
@@ -356,8 +354,7 @@ impl Tool for WriteTool {
         if Path::new(&path_owned).exists() {
             check_staleness(ctx, &path_owned).await?;
         }
-        super::plans_route::write_file(&path_owned, content, ctx, self.plan_file_access.as_ref())
-            .await
+        write_file(&path_owned, content, ctx, self.plan_file_access.as_ref()).await
     }
 }
 

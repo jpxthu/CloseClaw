@@ -29,6 +29,13 @@ pub(crate) fn is_plan_file_path(path: &str) -> bool {
     path.starts_with("plans/") || path.contains("/plans/")
 }
 
+/// Shared routing judgment: plans-path detection followed by workdir
+/// normalization, `None` for non-plans targets.
+fn normalized_plan_path(path: &str, ctx: &ToolContext) -> Option<PathBuf> {
+    is_plan_file_path(path)
+        .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()))
+}
+
 /// Where a Write/Edit payload is committed.
 ///
 /// Makes the two sinks explicit so no parameter is silently discarded:
@@ -94,8 +101,7 @@ pub(crate) async fn write_file(
     ctx: &ToolContext,
     plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
 ) -> Result<ToolResult, ToolCallError> {
-    let plan_path = is_plan_file_path(path)
-        .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
+    let plan_path = normalized_plan_path(path, ctx);
     if plan_path.is_none() {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)
@@ -133,8 +139,7 @@ impl EditRoute {
         // path: when the process CWD differs from the session workdir,
         // reading the raw relative path while writing the normalized
         // one would target different files.
-        let plan_path = is_plan_file_path(path)
-            .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
+        let plan_path = normalized_plan_path(path, ctx);
         let read_path = plan_path
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned())
