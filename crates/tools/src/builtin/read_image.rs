@@ -84,6 +84,13 @@ pub(crate) fn process_image(path: &str, raw_bytes: &[u8]) -> Result<(String, Str
 mod tests {
     use super::*;
 
+    fn png_bytes(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
+        let img = image::RgbaImage::from_fn(w, h, |_, _| image::Rgba(rgba));
+        let mut buf = std::io::Cursor::new(Vec::new());
+        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
+        buf.into_inner()
+    }
+
     #[test]
     fn test_is_image_file_jpg() {
         assert!(is_image_file("photo.jpg"));
@@ -147,10 +154,7 @@ mod tests {
     #[test]
     fn test_resize_image_small_no_resize() {
         // Create a tiny 10x10 red PNG
-        let img = image::RgbaImage::from_fn(10, 10, |_, _| image::Rgba([255, 0, 0, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(10, 10, [255, 0, 0, 255]);
 
         let result = resize_image(&raw, MAX_IMAGE_DIM).unwrap();
         let decoded = image::load_from_memory(&result).unwrap();
@@ -161,30 +165,20 @@ mod tests {
     fn test_resize_image_large_resizes() {
         // Create a 400x300 image; use a small max_dim to keep the test fast
         // while exercising the same downscale logic as production MAX_IMAGE_DIM.
-        let img = image::RgbaImage::from_fn(400, 300, |_, _| image::Rgba([0, 0, 255, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(400, 300, [0, 0, 255, 255]);
 
         let max_dim = 200;
         let result = resize_image(&raw, max_dim).unwrap();
         let decoded = image::load_from_memory(&result).unwrap();
-        let (w, h) = decoded.dimensions();
-        assert!(w <= max_dim);
-        assert!(h <= max_dim);
         // Aspect ratio: 400/300 = 4/3, so width should be 200, height 150
-        assert_eq!(w, 200);
-        assert_eq!(h, 150);
+        assert_eq!(decoded.dimensions(), (200, 150));
     }
 
     #[test]
     fn test_resize_image_preserves_aspect_ratio() {
         // Create a 900x300 image; use a small max_dim to keep the test fast
         // while exercising the same downscale logic as production MAX_IMAGE_DIM.
-        let img = image::RgbaImage::from_fn(900, 300, |_, _| image::Rgba([0, 128, 0, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(900, 300, [0, 128, 0, 255]);
 
         let max_dim = 600;
         let result = resize_image(&raw, max_dim).unwrap();
@@ -204,10 +198,7 @@ mod tests {
 
     #[test]
     fn test_resize_image_exact_max_dim() {
-        let img = image::RgbaImage::from_fn(2000, 2000, |_, _| image::Rgba([128, 128, 128, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(2000, 2000, [128, 128, 128, 255]);
 
         let result = resize_image(&raw, MAX_IMAGE_DIM).unwrap();
         let decoded = image::load_from_memory(&result).unwrap();
@@ -223,10 +214,7 @@ mod tests {
 
     #[test]
     fn test_process_image_integration() {
-        let img = image::RgbaImage::from_fn(100, 50, |_, _| image::Rgba([255, 0, 0, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(100, 50, [255, 0, 0, 255]);
 
         let (data_uri, mime) = process_image("photo.png", &raw).unwrap();
         assert_eq!(mime, "image/png");
@@ -244,10 +232,7 @@ mod tests {
     fn test_process_image_jpeg_returns_png_mime() {
         // resize_image always outputs PNG, so even a JPEG input should produce
         // a data:image/png;base64,... URI.
-        let img = image::RgbaImage::from_fn(100, 50, |_, _| image::Rgba([0, 0, 255, 255]));
-        let mut buf = std::io::Cursor::new(Vec::new());
-        img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
-        let raw = buf.into_inner();
+        let raw = png_bytes(100, 50, [0, 0, 255, 255]);
 
         let (data_uri, mime) = process_image("photo.jpg", &raw).unwrap();
         assert_eq!(mime, "image/png");
