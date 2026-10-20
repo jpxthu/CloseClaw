@@ -20,23 +20,23 @@
 pub(crate) mod check_script;
 #[cfg(test)]
 mod check_script_tests;
-pub mod config_tree;
+pub(crate) mod config_tree;
 #[cfg(test)]
 mod config_tree_tests;
 
 #[cfg(feature = "fake-llm")]
-pub mod chat;
+pub(crate) mod chat;
 #[cfg(feature = "fake-llm")]
-pub mod config;
+pub(crate) mod config;
 #[cfg(feature = "fake-llm")]
-pub mod daemon_guard;
-pub mod daemon_lifecycle;
-pub mod daemon_ready;
+pub(crate) mod daemon_guard;
+pub(crate) mod daemon_lifecycle;
+pub(crate) mod daemon_ready;
 #[cfg(test)]
 mod daemon_ready_tests;
-pub mod daemon_spawn;
+pub(crate) mod daemon_spawn;
 #[cfg(feature = "fake-llm")]
-pub mod fake_llm;
+pub(crate) mod fake_llm;
 
 // Re-exports keep the `helpers::<item>` paths stable for callers; in a
 // binary crate rustc reports some as unused depending on the feature combo.
