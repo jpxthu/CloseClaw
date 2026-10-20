@@ -661,10 +661,7 @@ impl PlanFileAccess for FailingWritePlanFileAccess {
     }
 
     fn write_plan_file(&self, _plan_path: &Path, _content: &str) -> Result<(), std::io::Error> {
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "disk on fire",
-        ))
+        Err(std::io::Error::other("disk on fire"))
     }
 }
 
