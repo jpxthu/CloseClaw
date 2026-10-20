@@ -147,17 +147,17 @@ impl TempRepo {
     }
 }
 
-/// 检查脚本的一次运行结果。
+/// Result of one check-script run.
 pub struct CheckResult {
     status: ExitStatus,
-    /// 脚本 stdout（UTF-8 lossy）。
+    /// Script stdout (UTF-8 lossy).
     pub stdout: String,
-    /// 脚本 stderr（UTF-8 lossy）。
+    /// Script stderr (UTF-8 lossy).
     pub stderr: String,
 }
 
 impl CheckResult {
-    /// 从原始进程输出构造（stdout/stderr 经 UTF-8 lossy 解码）。
+    /// Builds from raw process output (stdout/stderr decoded UTF-8 lossy).
     pub fn from_output(out: Output) -> Self {
         Self {
             status: out.status,
@@ -166,7 +166,8 @@ impl CheckResult {
         }
     }
 
-    /// stdout + stderr 合并（文案经 `echo` 走 stdout，合并断言更稳）。
+    /// Merged stdout + stderr (messages emitted via `echo` land on stdout,
+    /// so asserting over the merge is more robust).
     pub fn output(&self) -> String {
         format!("{}{}", self.stdout, self.stderr)
     }
@@ -176,7 +177,8 @@ impl CheckResult {
     }
 }
 
-/// 在 `dir` 中执行 git 子命令；失败时附带 stdout/stderr 断言输出。
+/// Runs a git subcommand in `dir`; on failure the assertion message
+/// includes stdout/stderr.
 pub fn git(dir: &Path, args: &[&str]) -> Output {
     let out = Command::new("git")
         .args(args)
@@ -194,7 +196,8 @@ pub fn git(dir: &Path, args: &[&str]) -> Output {
     out
 }
 
-/// 断言退出码，失败信息附完整输出便于定位。
+/// Asserts the exit code; the failure message carries the full output for
+/// diagnosis.
 pub fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
     assert_eq!(
         res.code(),
@@ -205,7 +208,8 @@ pub fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
     );
 }
 
-/// 断言通过路径的 stdout 携带本套件的 passed 标记（参数化标记串）。
+/// Asserts the pass path's stdout carries the suite's passed marker
+/// (parameterized marker literal).
 pub fn assert_passed_marker(res: &CheckResult, marker: &str, ctx: &str) {
     assert!(
         res.stdout.contains(marker),
