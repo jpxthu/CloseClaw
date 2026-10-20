@@ -193,32 +193,6 @@ class DepEdgesTest(unittest.TestCase):
         self.assertEqual(items, ["closeclaw-im-adapter -> closeclaw-debug-log"])
 
 
-class BaselineTest(unittest.TestCase):
-    def test_load_skips_comments_and_blank(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "b.txt"
-            path.write_text("# 注释\n\n  a -> b  \n# 另一条注释\na -> b\nb -> c\n", encoding="utf-8")
-            items = baseline.load_baseline(path)
-        self.assertEqual(items, ["a -> b", "b -> c"])
-
-    def test_diff_new_items_fail(self) -> None:
-        diff = baseline.diff_baseline(["a"], ["a", "b"])
-        self.assertEqual(diff.new_items, ["b"])
-        self.assertEqual(diff.eliminated_items, [])
-        self.assertTrue(diff.has_new)
-
-    def test_diff_eliminated_items_info(self) -> None:
-        diff = baseline.diff_baseline(["a", "b"], ["a"])
-        self.assertEqual(diff.new_items, [])
-        self.assertEqual(diff.eliminated_items, ["b"])
-        self.assertFalse(diff.has_new)
-
-    def test_diff_consistent(self) -> None:
-        diff = baseline.diff_baseline(["a", "b"], ["b", "a"])
-        self.assertEqual(diff.new_items, [])
-        self.assertEqual(diff.eliminated_items, [])
-
-
 class RunChecksTest(unittest.TestCase):
     def test_unregistered_check_skips(self) -> None:
         results, fail_count = dep_guard.run_checks(Path("."), "not-a-check")

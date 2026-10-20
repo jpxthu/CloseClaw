@@ -3,7 +3,9 @@
 
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 import baseline
 import second_export
@@ -69,6 +71,32 @@ class DiffBaselineKeyTest(unittest.TestCase):
                 "closeclaw-llm: src/b.rs:2 closeclaw_common::B",
             ],
         )
+
+
+class BaselineTest(unittest.TestCase):
+    def test_load_skips_comments_and_blank(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "b.txt"
+            path.write_text("# 注释\n\n  a -> b  \n# 另一条注释\na -> b\nb -> c\n", encoding="utf-8")
+            items = baseline.load_baseline(path)
+        self.assertEqual(items, ["a -> b", "b -> c"])
+
+    def test_diff_new_items_fail(self) -> None:
+        diff = baseline.diff_baseline(["a"], ["a", "b"])
+        self.assertEqual(diff.new_items, ["b"])
+        self.assertEqual(diff.eliminated_items, [])
+        self.assertTrue(diff.has_new)
+
+    def test_diff_eliminated_items_info(self) -> None:
+        diff = baseline.diff_baseline(["a", "b"], ["a"])
+        self.assertEqual(diff.new_items, [])
+        self.assertEqual(diff.eliminated_items, ["b"])
+        self.assertFalse(diff.has_new)
+
+    def test_diff_consistent(self) -> None:
+        diff = baseline.diff_baseline(["a", "b"], ["b", "a"])
+        self.assertEqual(diff.new_items, [])
+        self.assertEqual(diff.eliminated_items, [])
 
 
 if __name__ == "__main__":
