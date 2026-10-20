@@ -14,8 +14,8 @@
 //! the hang → per-attempt-timeout branch therefore has no direct UT, and
 //! the cases below pin the observable regression surface instead.
 
+use super::run::TEST_SOCKET_WAIT_TIMEOUT_MS;
 use super::run::{try_connect, wait_for_socket};
-use super::TEST_SOCKET_WAIT_TIMEOUT_MS;
 use std::time::{Duration, Instant};
 use tempfile::TempDir;
 use tokio::net::UnixListener;

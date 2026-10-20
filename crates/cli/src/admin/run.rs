@@ -11,6 +11,13 @@ const SOCKET_WAIT_TIMEOUT_MS: u64 = 30_000;
 /// Interval between admin socket connection attempts (milliseconds).
 const SOCKET_POLL_INTERVAL_MS: u64 = 200;
 
+/// Short socket-wait timeout injected by background-mode tests so the
+/// "socket never appears" path fails fast instead of waiting out the
+/// production 30s default ([`SOCKET_WAIT_TIMEOUT_MS`]). Shared by
+/// `run_tests.rs` and `run_socket_tests.rs` (issue #3831 Step 1.2).
+#[cfg(test)]
+pub(crate) const TEST_SOCKET_WAIT_TIMEOUT_MS: u64 = 50;
+
 /// Ensures no daemon is already running by checking the PID file.
 ///
 /// If the PID file exists and the process is alive, returns an error.
@@ -235,10 +242,9 @@ pub(crate) async fn wait_for_socket(path: &Path, timeout_ms: u64) -> Result<()> 
 /// failure keeps its plain connect-failure context.
 #[cfg(unix)]
 pub(crate) async fn try_connect(path: &Path) -> Result<()> {
-    let attempt = tokio::net::UnixStream::connect(path);
     match tokio::time::timeout(
         std::time::Duration::from_millis(SOCKET_POLL_INTERVAL_MS),
-        attempt,
+        tokio::net::UnixStream::connect(path),
     )
     .await
     {
