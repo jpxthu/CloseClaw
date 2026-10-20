@@ -71,11 +71,7 @@ impl CheckScript {
         let out: Output = cmd
             .output()
             .unwrap_or_else(|e| panic!("failed to spawn bash {}: {e}", self.script.display()));
-        CheckResult {
-            status: out.status,
-            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-        }
+        CheckResult::from_output(out)
     }
 }
 
@@ -152,6 +148,15 @@ pub struct CheckResult {
 }
 
 impl CheckResult {
+    /// 从原始进程输出构造（stdout/stderr 经 UTF-8 lossy 解码）。
+    pub fn from_output(out: Output) -> Self {
+        Self {
+            status: out.status,
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        }
+    }
+
     /// stdout + stderr 合并（文案经 `echo` 走 stdout，合并断言更稳）。
     pub fn output(&self) -> String {
         format!("{}{}", self.stdout, self.stderr)

@@ -15,6 +15,8 @@
 //! fake-LLM-backed test files).
 
 pub(crate) mod check_script;
+#[cfg(test)]
+mod check_script_tests;
 pub mod config_tree;
 #[cfg(test)]
 mod config_tree_tests;
