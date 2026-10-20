@@ -193,6 +193,33 @@ class DepEdgesTest(unittest.TestCase):
         self.assertEqual(items, ["closeclaw-im-adapter -> closeclaw-debug-log"])
 
 
+class CheckResultTest(unittest.TestCase):
+    """CheckResult dataclass 等值语义（dataclass 化新获得的行为维度）。"""
+
+    def test_same_fields_equal(self) -> None:
+        """同字段两实例相等（list 字段按值而非引用比较）。"""
+        self.assertEqual(
+            dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["a", "b"]),
+            dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["a", "b"]),
+        )
+
+    def test_any_field_differs_unequal(self) -> None:
+        """任一字段不同则不等（check_id / status / lines 逐一证伪）。"""
+        base = dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x"])
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dead-deps", dep_guard.STATUS_PASS, ["x"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_FAIL, ["x"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["y"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x", "y"])
+        )
+
+
 class RunChecksTest(unittest.TestCase):
     def test_unregistered_check_skips(self) -> None:
         results, fail_count = dep_guard.run_checks(Path("."), "not-a-check")
