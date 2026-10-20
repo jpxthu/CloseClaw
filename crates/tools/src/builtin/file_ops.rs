@@ -27,8 +27,9 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
         .ok_or_else(|| ToolCallError::InvalidArgs(format!("missing required parameter: {key}")))
 }
 
+#[allow(unused_imports)]
 pub(crate) use super::plans_route::is_plan_file_path;
-use super::plans_route::{commit_to_sink, WriteSink};
+use super::plans_route::{commit_to_sink, EditRoute};
 
 /// Recursively grep for pattern matches in a directory.
 fn grep_walk(dir: &Path, re: &Regex, results: &mut Vec<Value>) {
@@ -540,23 +541,18 @@ impl Tool for EditTool {
         // Staleness check: ensure file hasn't changed since last Read.
         check_staleness(ctx, &path_owned).await?;
 
-        // plans/ targets read AND write through the workdir-normalized
-        // path: when the process CWD differs from the session workdir,
-        // reading the raw relative path while writing the normalized
-        // one would target different files.
-        let plan_path = is_plan_file_path(path)
-            .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
-        let read_path = plan_path
-            .as_ref()
-            .map(|p| p.to_string_lossy().into_owned())
-            .unwrap_or_else(|| path_owned.clone());
-        let content = std::fs::read_to_string(&read_path)
+        let route = EditRoute::decide(path, ctx);
+        let read_path = route.read_path();
+        let content = std::fs::read_to_string(read_path)
             .map_err(|e| ToolCallError::ExecutionFailed(format!("{read_path}: {e}")))?;
         let (updated, edits_applied) =
             crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
                 .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
-        let sink = WriteSink::pick(plan_path.as_deref(), Path::new(&path_owned));
-        commit_to_sink(sink, &updated, self.plan_file_access.as_ref())?;
+        commit_to_sink(
+            route.sink(&path_owned),
+            &updated,
+            self.plan_file_access.as_ref(),
+        )?;
         Ok(ToolResult {
             data: serde_json::json!({
                 "content": updated,

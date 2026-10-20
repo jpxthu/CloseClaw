@@ -6,7 +6,7 @@
 //! Split out of `file_ops.rs` as a single-responsibility helper
 //! (issue #3817).
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::plan_file_access::PlanFileAccess;
@@ -109,4 +109,50 @@ pub(crate) async fn write_file(
         new_messages: vec![],
         context_modifier: None,
     })
+}
+
+/// Routing decision for one `Edit` payload.
+///
+/// Bundles the routing judgments `EditTool::call` performs inline —
+/// plans-path detection, workdir normalization, and
+/// plan_path/read_path derivation — so the read and the committed
+/// write can never disagree on the target file. The sink is derived
+/// from the same decision via [`EditRoute::sink`].
+pub(crate) struct EditRoute {
+    /// Workdir-normalized plans path (`None` for non-plans targets).
+    plan_path: Option<PathBuf>,
+    /// Path the edit reads the current content from: normalized for
+    /// plans targets, raw argument otherwise.
+    read_path: String,
+}
+
+impl EditRoute {
+    /// Decide the route for the raw `path` argument.
+    pub(crate) fn decide(path: &str, ctx: &ToolContext) -> Self {
+        // plans/ targets read AND write through the workdir-normalized
+        // path: when the process CWD differs from the session workdir,
+        // reading the raw relative path while writing the normalized
+        // one would target different files.
+        let plan_path = is_plan_file_path(path)
+            .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
+        let read_path = plan_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path.to_string());
+        Self {
+            plan_path,
+            read_path,
+        }
+    }
+
+    /// Path the edited file's current content is read from.
+    pub(crate) fn read_path(&self) -> &str {
+        &self.read_path
+    }
+
+    /// Sink committing the edited content, derived from the same
+    /// routing decision; commit it via [`commit_to_sink`].
+    pub(crate) fn sink<'a>(&'a self, raw_path: &'a str) -> WriteSink<'a> {
+        WriteSink::pick(self.plan_path.as_deref(), Path::new(raw_path))
+    }
 }
