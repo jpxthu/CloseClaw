@@ -911,3 +911,7 @@ async fn read_and_truncate(
 #[cfg(test)]
 #[path = "file_ops_tests.rs"]
 pub(crate) mod tests;
+
+#[cfg(test)]
+#[path = "file_ops_plans_predicate_tests.rs"]
+pub(crate) mod plans_predicate_tests;
