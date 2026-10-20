@@ -396,6 +396,25 @@ async fn test_write_overwrite_file() {
     assert_eq!(content, "replaced");
 }
 
+/// WriteTool creates missing parent directories for plain (non-plans)
+/// paths (`write_file`'s `create_dir_all` branch — nested new dirs).
+#[tokio::test]
+async fn test_write_creates_missing_parent_dirs_for_plain_path() {
+    let tmp = TempDir::new().unwrap();
+    let path = tmp.path().join("sub/dir/newfile.txt");
+    assert!(!path.exists());
+
+    let tool = WriteTool::new();
+    let args = serde_json::json!({
+        "path": path.to_str().unwrap(),
+        "content": "nested"
+    });
+    let result = tool.call(args, &make_ctx("a")).await;
+    assert!(result.is_ok(), "nested plain write must succeed");
+    let content = std::fs::read_to_string(&path).unwrap();
+    assert_eq!(content, "nested", "file must land with the exact content");
+}
+
 // ---------------------------------------------------------------------------
 // Step 1.6: Image integration tests — offset/limit and runtime flags.
 // ---------------------------------------------------------------------------
@@ -620,6 +639,59 @@ async fn test_write_plan_path_without_port_fails_fast() {
         !tmp.path().join("plans").exists(),
         "fail-fast must not create any file"
     );
+}
+
+/// Port fake whose `write_plan_file` always fails with a canned I/O
+/// error — exercises `commit_to_sink`'s Plan-branch error mapping.
+struct FailingWritePlanFileAccess;
+
+impl PlanFileAccess for FailingWritePlanFileAccess {
+    fn resolve_plan_by_name(
+        &self,
+        _workdir: &Path,
+        name: &str,
+    ) -> Result<std::path::PathBuf, crate::plan_file_access::PlanResolveError> {
+        Err(crate::plan_file_access::PlanResolveError::NotFound {
+            name: name.to_string(),
+        })
+    }
+
+    fn touch_access_timestamp(&self, _plan_path: &Path) -> Result<(), std::io::Error> {
+        Ok(())
+    }
+
+    fn write_plan_file(&self, _plan_path: &Path, _content: &str) -> Result<(), std::io::Error> {
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "disk on fire",
+        ))
+    }
+}
+
+/// A port write failure maps to `ExecutionFailed` carrying both the plan
+/// path and the port error (`commit_to_sink` Plan branch error mapping —
+/// the RecordingPlanFileAccess fake only ever succeeds).
+#[tokio::test]
+async fn test_write_plan_port_error_maps_to_execution_failed() {
+    let tmp = TempDir::new().unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let tool = WriteTool::new().with_plan_file_access(Arc::new(FailingWritePlanFileAccess));
+
+    let result = tool
+        .call(
+            serde_json::json!({ "path": "plans/x.md", "content": "doomed" }),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolCallError::ExecutionFailed(msg)) => {
+            assert!(
+                msg.contains("plans/x.md") && msg.contains("disk on fire"),
+                "error must carry the plan path and the port error, got: {msg}"
+            );
+        }
+        other => panic!("expected port error mapped to ExecutionFailed, got {other:?}"),
+    }
 }
 
 /// Non-plans path: fake port stays untouched, file written via the
