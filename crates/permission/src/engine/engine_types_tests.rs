@@ -229,6 +229,149 @@ fn test_dimension_name_all_variants_unique() {
     }
 }
 
+/// Exhaustive witness for `PermissionRequestBody`: a match with no
+/// wildcard arm that returns the body unchanged. Adding a new enum
+/// variant breaks compilation of this function, forcing the payload
+/// list below (and this test) to be updated in the same change —
+/// closing the escape window of "new variant maps to a new dimension
+/// key but no payload was added here".
+fn exhaustive_body(body: PermissionRequestBody) -> PermissionRequestBody {
+    match body {
+        PermissionRequestBody::FileOp { agent, path, op } => {
+            PermissionRequestBody::FileOp { agent, path, op }
+        }
+        PermissionRequestBody::CommandExec { agent, cmd, args } => {
+            PermissionRequestBody::CommandExec { agent, cmd, args }
+        }
+        PermissionRequestBody::NetOp { agent, host, port } => {
+            PermissionRequestBody::NetOp { agent, host, port }
+        }
+        PermissionRequestBody::ToolCall {
+            agent,
+            skill,
+            method,
+        } => PermissionRequestBody::ToolCall {
+            agent,
+            skill,
+            method,
+        },
+        PermissionRequestBody::InterAgentMsg { from, to } => {
+            PermissionRequestBody::InterAgentMsg { from, to }
+        }
+        PermissionRequestBody::ConfigWrite { agent, config_file } => {
+            PermissionRequestBody::ConfigWrite { agent, config_file }
+        }
+        PermissionRequestBody::SlashCommand { agent, command } => {
+            PermissionRequestBody::SlashCommand { agent, command }
+        }
+        PermissionRequestBody::MessageSend {
+            agent,
+            direction,
+            target,
+        } => PermissionRequestBody::MessageSend {
+            agent,
+            direction,
+            target,
+        },
+    }
+}
+
+/// Hand-written representative payload for every `PermissionRequestBody`
+/// variant: FileOp twice (read + write), SlashCommand included as the
+/// dimension-less case — 9 payloads in total.
+fn representative_bodies() -> Vec<PermissionRequestBody> {
+    use super::MessageDirection;
+    vec![
+        exhaustive_body(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/tmp/f".to_string(),
+            op: "read".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::FileOp {
+            agent: "a".to_string(),
+            path: "/tmp/f".to_string(),
+            op: "write".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::CommandExec {
+            agent: "a".to_string(),
+            cmd: "ls".to_string(),
+            args: vec![],
+        }),
+        exhaustive_body(PermissionRequestBody::NetOp {
+            agent: "a".to_string(),
+            host: "x.com".to_string(),
+            port: 443,
+        }),
+        exhaustive_body(PermissionRequestBody::InterAgentMsg {
+            from: "a".to_string(),
+            to: "b".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::ToolCall {
+            agent: "a".to_string(),
+            skill: "s".to_string(),
+            method: "m".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::ConfigWrite {
+            agent: "a".to_string(),
+            config_file: "c".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::MessageSend {
+            agent: "a".to_string(),
+            direction: MessageDirection::Send,
+            target: "t".to_string(),
+        }),
+        exhaustive_body(PermissionRequestBody::SlashCommand {
+            agent: "a".to_string(),
+            command: "/status".to_string(),
+        }),
+    ]
+}
+
+/// Drift guard: the key set produced by `dimension_name()` over the
+/// full-variant payload list must exactly match `DIMENSIONS` (the
+/// single source of truth in `agent_permissions`) — bidirectional
+/// containment, no duplicates, length 8. Any key missing or extra on
+/// either side fails this test.
+#[test]
+fn test_dimension_name_keys_align_with_dimensions_constant() {
+    use crate::agent_permissions::DIMENSIONS;
+
+    let bodies = representative_bodies();
+    assert_eq!(
+        bodies.len(),
+        9,
+        "expected 9 payloads (8 variants, FileOp twice, SlashCommand included)"
+    );
+
+    // SlashCommand (no dimension) is the only None among the payloads.
+    let none_count = bodies
+        .iter()
+        .filter(|b| b.dimension_name().is_none())
+        .count();
+    assert_eq!(none_count, 1, "only SlashCommand maps to None");
+
+    let mut keys: Vec<&str> = bodies.iter().filter_map(|b| b.dimension_name()).collect();
+    keys.sort_unstable();
+
+    let mut unique = keys.clone();
+    unique.dedup();
+    assert_eq!(unique.len(), keys.len(), "duplicate keys: {keys:?}");
+
+    assert_eq!(keys.len(), DIMENSIONS.len());
+    for key in &keys {
+        assert!(
+            DIMENSIONS.contains(key),
+            "dimension_name() key {key:?} missing from DIMENSIONS"
+        );
+    }
+    for dim in &DIMENSIONS {
+        assert!(
+            keys.contains(dim),
+            "DIMENSIONS key {dim:?} has no dimension_name() payload"
+        );
+    }
+}
+
 // ------------------------------------------------------------------
 // RuleSet::compute_version tests
 // ------------------------------------------------------------------
