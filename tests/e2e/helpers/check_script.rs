@@ -18,10 +18,6 @@
 //! repository (write / stage / commit); [`CheckScript`] only drives the
 //! check script against a directory.
 
-// Transitional: consumed only once the two suites migrate to this module.
-// Drop this allow as soon as both suites drive the shared helpers.
-#![allow(dead_code)]
-
 use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus, Output};
 
