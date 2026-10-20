@@ -686,3 +686,154 @@ async fn test_write_non_plan_path_skips_port_uses_readback() {
     let content = std::fs::read_to_string(&out).unwrap();
     assert_eq!(content, "plain", "readback write must produce the file");
 }
+
+// ---------------------------------------------------------------------------
+// Edit plans/ branch — port-routed locked atomic write (issue #3158)
+// ---------------------------------------------------------------------------
+
+/// Relative `plans/x.md` + workdir → both the read and the port write
+/// use the workdir-normalized absolute path (this test's process CWD is
+/// the crate dir, so reading the raw relative path would fail — success
+/// here proves the read went through the normalized path), and the port
+/// receives the replaced content.
+#[tokio::test]
+async fn test_edit_plan_relative_path_normalized_through_port() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    std::fs::write(tmp.path().join("plans/x.md"), "hello world").unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = EditTool::new().with_plan_file_access(fake.clone());
+
+    let result = tool
+        .call(
+            serde_json::json!({
+                "path": "plans/x.md",
+                "edits": [{ "oldText": "world", "newText": "plan" }]
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok(), "plans/ edit via port must succeed");
+    let result = result.unwrap();
+    assert_eq!(
+        result.data["content"], "hello plan",
+        "returned content must reflect the applied replacement"
+    );
+    assert_eq!(result.data["edits_applied"], 1);
+
+    let writes = fake.writes.lock().unwrap();
+    assert_eq!(writes.len(), 1, "exactly one port write expected");
+    let (path, content) = &writes[0];
+    assert!(
+        path.is_absolute(),
+        "port must receive an absolute path, got {path:?}"
+    );
+    assert_eq!(
+        path,
+        &tmp.path().join("plans/x.md"),
+        "relative plans path must normalize against the workdir"
+    );
+    assert_eq!(
+        content, "hello plan",
+        "port must receive the replaced content"
+    );
+}
+
+/// Absolute plans path passes through the port untouched, replacement
+/// content intact.
+#[tokio::test]
+async fn test_edit_plan_absolute_path_passthrough() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    let abs = tmp.path().join("plans/abs.md");
+    std::fs::write(&abs, "alpha beta").unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = EditTool::new().with_plan_file_access(fake.clone());
+
+    let result = tool
+        .call(
+            serde_json::json!({
+                "path": abs.to_str().unwrap(),
+                "edits": [{ "oldText": "beta", "newText": "gamma" }]
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok());
+
+    let writes = fake.writes.lock().unwrap();
+    assert_eq!(writes.len(), 1);
+    assert_eq!(&writes[0].0, &abs, "absolute plans path must not change");
+    assert_eq!(writes[0].1, "alpha gamma");
+}
+
+/// No injected port → fail-fast `ExecutionFailed`; the on-disk file is
+/// left untouched.
+#[tokio::test]
+async fn test_edit_plan_path_without_port_fails_fast() {
+    let tmp = TempDir::new().unwrap();
+    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    let plan = tmp.path().join("plans/x.md");
+    std::fs::write(&plan, "hello world").unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let tool = EditTool::new();
+
+    let result = tool
+        .call(
+            serde_json::json!({
+                "path": "plans/x.md",
+                "edits": [{ "oldText": "world", "newText": "plan" }]
+            }),
+            &ctx,
+        )
+        .await;
+    match result {
+        Err(ToolCallError::ExecutionFailed(msg)) => {
+            assert!(
+                msg.contains("PlanFileAccess"),
+                "error must explain the missing port, got: {msg}"
+            );
+        }
+        other => panic!("expected fail-fast ExecutionFailed, got {other:?}"),
+    }
+    assert_eq!(
+        std::fs::read_to_string(&plan).unwrap(),
+        "hello world",
+        "fail-fast must not modify the plan file"
+    );
+}
+
+/// Non-plans path: fake port stays untouched, replacement written via
+/// the original readback path.
+#[tokio::test]
+async fn test_edit_non_plan_path_skips_port_uses_readback() {
+    let tmp = TempDir::new().unwrap();
+    let file = tmp.path().join("plain.txt");
+    std::fs::write(&file, "alpha beta").unwrap();
+    let ctx = make_ctx_with_workdir(tmp.path());
+    let fake = FakePlanFileAccess::new();
+    let tool = EditTool::new().with_plan_file_access(fake.clone());
+
+    let result = tool
+        .call(
+            serde_json::json!({
+                "path": file.to_str().unwrap(),
+                "edits": [{ "oldText": "beta", "newText": "gamma" }]
+            }),
+            &ctx,
+        )
+        .await;
+    assert!(result.is_ok(), "non-plans edit must still succeed");
+
+    assert!(
+        fake.writes.lock().unwrap().is_empty(),
+        "port must not be called for non-plans paths"
+    );
+    let content = std::fs::read_to_string(&file).unwrap();
+    assert_eq!(
+        content, "alpha gamma",
+        "readback write must persist the edit"
+    );
+}

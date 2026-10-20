@@ -62,43 +62,60 @@ fn normalize_plan_write_path(path: &str, ctx: &ToolContext) -> PathBuf {
     }
 }
 
+/// Commit `content` to disk through the right sink.
+///
+/// `plan_path` is `Some` for `plans/` targets: the write then goes
+/// through the injected [`PlanFileAccess`] port so it shares the
+/// session's plan sidecar lock domain and is atomic (tempfile + rename)
+/// — the plain readback write is not safe against a concurrent session
+/// touch. `plan_path` must already be workdir-normalized (absolute) so
+/// the sidecar lock key matches the session's writers. A missing port
+/// is a fail-fast wiring error: silently falling back would lose that
+/// protection. Non-plans targets (`plan_path == None`) keep the
+/// original readback write unchanged.
+fn write_via_port_or_readback(
+    write_target: &Path,
+    plan_path: Option<&Path>,
+    content: &str,
+    plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
+) -> Result<(), ToolCallError> {
+    let Some(normalized) = plan_path else {
+        return super::readback::write_with_readback(write_target, content);
+    };
+    let port = plan_file_access.ok_or_else(|| {
+        ToolCallError::ExecutionFailed(
+            "plan file writes require an injected PlanFileAccess port \
+             (build the tool via with_plan_file_access)"
+                .to_string(),
+        )
+    })?;
+    port.write_plan_file(normalized, content)
+        .map_err(|e| ToolCallError::ExecutionFailed(format!("{}: {e}", normalized.display())))
+}
+
 /// Write content to a file, creating parent directories as needed.
 ///
-/// `plans/` paths go through the injected [`PlanFileAccess`] port so the
-/// write shares the session's plan sidecar lock domain and is atomic
-/// (tempfile + rename) — the plain `std::fs::write` below is not safe
-/// against a concurrent session touch. A missing port is a fail-fast
-/// wiring error: silently falling back would lose that protection.
-/// Non-plans paths keep the original readback write unchanged.
+/// `plans/` targets are routed through the injected
+/// [`PlanFileAccess`] port via [`write_via_port_or_readback`].
 async fn write_file(
     path: &str,
     content: &str,
     ctx: &ToolContext,
     plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
 ) -> Result<ToolResult, ToolCallError> {
-    if is_plan_file_path(path) {
-        let normalized = normalize_plan_write_path(path, ctx);
-        let port = plan_file_access.ok_or_else(|| {
-            ToolCallError::ExecutionFailed(
-                "plan file writes require an injected PlanFileAccess port \
-                 (build the tool via with_plan_file_access)"
-                    .to_string(),
-            )
-        })?;
-        port.write_plan_file(&normalized, content).map_err(|e| {
-            ToolCallError::ExecutionFailed(format!("{}: {e}", normalized.display()))
-        })?;
-        return Ok(ToolResult {
-            data: serde_json::json!({ "content": content }),
-            new_messages: vec![],
-            context_modifier: None,
-        });
+    let plan_path = is_plan_file_path(path).then(|| normalize_plan_write_path(path, ctx));
+    if plan_path.is_none() {
+        if let Some(parent) = Path::new(path).parent() {
+            std::fs::create_dir_all(parent)
+                .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
+        }
     }
-    if let Some(parent) = Path::new(path).parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
-    }
-    super::readback::write_with_readback(Path::new(path), content)?;
+    write_via_port_or_readback(
+        Path::new(path),
+        plan_path.as_deref(),
+        content,
+        plan_file_access,
+    )?;
     Ok(ToolResult {
         data: serde_json::json!({ "content": content }),
         new_messages: vec![],
@@ -439,11 +456,25 @@ impl Tool for WriteTool {
 // EditTool
 // ---------------------------------------------------------------------------
 
-pub struct EditTool;
+pub struct EditTool {
+    plan_file_access: Option<Arc<dyn PlanFileAccess>>,
+}
 
 impl EditTool {
     pub fn new() -> Self {
-        Self
+        Self {
+            plan_file_access: None,
+        }
+    }
+
+    /// Attach the plan-file access port used for `plans/` writes.
+    ///
+    /// With no port attached, Edit calls targeting `plans/` paths fail
+    /// fast instead of silently dropping the session's plan sidecar
+    /// lock and atomic-write protection; non-plans paths are unaffected.
+    pub fn with_plan_file_access(mut self, plan_file_access: Arc<dyn PlanFileAccess>) -> Self {
+        self.plan_file_access = Some(plan_file_access);
+        self
     }
 }
 
@@ -601,12 +632,26 @@ impl Tool for EditTool {
         // Staleness check: ensure file hasn't changed since last Read.
         check_staleness(ctx, &path_owned).await?;
 
-        let content = std::fs::read_to_string(&path_owned)
-            .map_err(|e| ToolCallError::ExecutionFailed(format!("{path_owned}: {e}")))?;
+        // plans/ targets read AND write through the workdir-normalized
+        // path: when the process CWD differs from the session workdir,
+        // reading the raw relative path while writing the normalized
+        // one would target different files.
+        let plan_path = is_plan_file_path(path).then(|| normalize_plan_write_path(path, ctx));
+        let read_path = plan_path
+            .as_ref()
+            .map(|p| p.to_string_lossy().into_owned())
+            .unwrap_or_else(|| path_owned.clone());
+        let content = std::fs::read_to_string(&read_path)
+            .map_err(|e| ToolCallError::ExecutionFailed(format!("{read_path}: {e}")))?;
         let (updated, edits_applied) =
             crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
                 .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
-        super::readback::write_with_readback(Path::new(&path_owned), &updated)?;
+        write_via_port_or_readback(
+            Path::new(&path_owned),
+            plan_path.as_deref(),
+            &updated,
+            self.plan_file_access.as_ref(),
+        )?;
         Ok(ToolResult {
             data: serde_json::json!({
                 "content": updated,
