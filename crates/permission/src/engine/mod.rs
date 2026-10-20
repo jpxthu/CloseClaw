@@ -71,6 +71,9 @@ mod engine_matching_tests;
 pub(crate) mod engine_test_providers;
 
 #[cfg(test)]
+pub(crate) mod engine_test_utils;
+
+#[cfg(test)]
 mod engine_agent_rules_tests;
 
 #[cfg(test)]

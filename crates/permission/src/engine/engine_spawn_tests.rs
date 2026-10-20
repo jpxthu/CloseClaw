@@ -6,7 +6,7 @@ use super::engine_types::{
     Effect, MatchType, PermissionRequest, PermissionRequestBody, PermissionResponse, Subject,
 };
 use crate::actions::ActionBuilder;
-use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits};
+use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits, DIMENSIONS};
 use crate::mock_session_lookup::MockSessionLookup;
 use crate::rules::RuleBuilder;
 use crate::rules::RuleSetBuilder;
@@ -26,16 +26,7 @@ fn make_engine() -> PermissionEngine {
 }
 
 fn make_allowed_perms(agent_id: &str) -> AgentPermissions {
-    let dims = [
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-    ];
-    let permissions = dims
+    let permissions = DIMENSIONS
         .iter()
         .map(|&dim| {
             (
@@ -138,19 +129,11 @@ fn test_validate_and_inject_spawn_user_partial_deny() {
 
     // User denies exec but allows everything else
     let mut user_perms_map = HashMap::new();
-    for dim in &[
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-    ] {
+    for dim in DIMENSIONS {
         user_perms_map.insert(
             dim.to_string(),
             ActionPermission {
-                allowed: *dim != "exec",
+                allowed: dim != "exec",
                 limits: PermissionLimits::default(),
             },
         );
@@ -425,21 +408,7 @@ async fn test_single_level_spawn_no_extra_restrictions() {
     lookup.register_parent_child("session-parent", "session-child");
 
     let mut perms = HashMap::new();
-    perms.insert(
-        "parent".to_string(),
-        make_perms(
-            "parent",
-            &[
-                ("exec", true),
-                ("file_read", true),
-                ("file_write", true),
-                ("network", true),
-                ("spawn", true),
-                ("tool_call", true),
-                ("config_write", true),
-            ],
-        ),
-    );
+    perms.insert("parent".to_string(), make_allowed_perms("parent"));
 
     let result = collect_chain_effective_permissions(
         &lookup,
@@ -452,16 +421,9 @@ async fn test_single_level_spawn_no_extra_restrictions() {
     let effective = result.unwrap();
 
     // No ancestors above parent -> parent's own perms returned
-    for dim in &[
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-    ] {
+    for dim in DIMENSIONS {
         assert!(
-            effective.permissions[*dim].allowed,
+            effective.permissions[dim].allowed,
             "{} should be allowed",
             dim
         );

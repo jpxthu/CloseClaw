@@ -355,17 +355,8 @@ fn intersect_all_eight_dimensions_checked() {
     let child = make_perms("child", &["exec"]);
     let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions.len(), 8);
-    for dim in [
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-        "message",
-    ] {
+    assert_eq!(result.permissions.len(), DIMENSIONS.len());
+    for dim in DIMENSIONS {
         assert!(
             result.permissions.contains_key(dim),
             "missing dimension: {dim}"
@@ -377,16 +368,7 @@ fn intersect_all_eight_dimensions_checked() {
 
 #[test]
 fn intersect_deny_and_absent_rules_hold_for_each_dimension() {
-    for dim in [
-        "exec",
-        "file_read",
-        "file_write",
-        "network",
-        "spawn",
-        "tool_call",
-        "config_write",
-        "message",
-    ] {
+    for dim in DIMENSIONS {
         // allow ∩ deny = deny
         let child = make_perms("child", &[]);
         let parent = make_perms("parent", &[dim]);

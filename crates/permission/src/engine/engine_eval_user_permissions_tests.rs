@@ -4,14 +4,11 @@
 //! default values, and that boundary inputs (empty user_id / agent_id) do not panic.
 
 use super::engine_eval::PermissionEngine;
+use super::engine_test_utils::assert_keys_match_dimensions;
 use super::engine_types::{Effect, MessageDirection, PermissionRequestBody};
 use crate::agent_permissions::DIMENSIONS;
 use crate::rules::RuleSetBuilder;
 use std::collections::HashMap;
-
-/// The 8 permission dimensions, aliased from the single source of truth
-/// [`DIMENSIONS`] (`agent_permissions.rs`).
-const ALL_DIMENSIONS: &[&str] = &DIMENSIONS;
 
 /// Build an engine with no rules — user defaults apply.
 fn make_engine() -> PermissionEngine {
@@ -42,15 +39,16 @@ fn test_evaluate_user_permissions_returns_8_dimensions() {
 
     assert_eq!(
         perms.permissions.len(),
-        8,
-        "expected 8 dimensions, got {}: {:?}",
+        DIMENSIONS.len(),
+        "expected {} dimensions, got {}: {:?}",
+        DIMENSIONS.len(),
         perms.permissions.len(),
         perms.permissions.keys().collect::<Vec<_>>()
     );
 
-    for dim in ALL_DIMENSIONS {
+    for dim in DIMENSIONS {
         assert!(
-            perms.permissions.contains_key(*dim),
+            perms.permissions.contains_key(dim),
             "missing dimension: {}",
             dim
         );
@@ -132,6 +130,11 @@ fn test_dimension_name_matches_evaluate_dimensions() {
         ),
     ];
 
+    // Anti-drift: the explicit (key, body) cases must cover exactly the key
+    // set of [`DIMENSIONS`] — adding/removing a dimension without updating
+    // this list fails here.
+    assert_keys_match_dimensions(cases.iter().map(|(key, _)| *key), "cases");
+
     for (expected_dim, body) in &cases {
         let actual = body
             .dimension_name()
@@ -156,10 +159,10 @@ fn test_evaluate_user_permissions_defaults_all_denied() {
     let engine = make_engine();
     let perms = engine.evaluate_user_permissions("user-1", "agent-1");
 
-    for dim in ALL_DIMENSIONS {
+    for dim in DIMENSIONS {
         let action = perms
             .permissions
-            .get(*dim)
+            .get(dim)
             .unwrap_or_else(|| panic!("missing dimension: {}", dim));
         assert!(
             !action.allowed,
@@ -231,7 +234,7 @@ fn test_evaluate_user_permissions_empty_user_id() {
     let engine = make_engine();
     let perms = engine.evaluate_user_permissions("", "agent-1");
 
-    assert_eq!(perms.permissions.len(), 8);
+    assert_eq!(perms.permissions.len(), DIMENSIONS.len());
     assert_eq!(perms.agent_id, "agent-1");
 }
 
@@ -245,7 +248,7 @@ fn test_evaluate_user_permissions_empty_agent_id() {
     let engine = make_engine();
     let perms = engine.evaluate_user_permissions("user-1", "");
 
-    assert_eq!(perms.permissions.len(), 8);
+    assert_eq!(perms.permissions.len(), DIMENSIONS.len());
     assert_eq!(perms.agent_id, "");
 }
 
@@ -259,10 +262,10 @@ fn test_evaluate_user_permissions_both_empty() {
     let engine = make_engine();
     let perms = engine.evaluate_user_permissions("", "");
 
-    assert_eq!(perms.permissions.len(), 8);
-    for dim in ALL_DIMENSIONS {
+    assert_eq!(perms.permissions.len(), DIMENSIONS.len());
+    for dim in DIMENSIONS {
         assert!(
-            perms.permissions.contains_key(*dim),
+            perms.permissions.contains_key(dim),
             "missing dimension: {}",
             dim
         );
@@ -298,6 +301,11 @@ fn test_per_dimension_default_values() {
         ("message", false),
     ]
     .into();
+
+    // Anti-drift: expected_defaults must cover exactly the key set of
+    // [`DIMENSIONS`] — a new/removed dimension without a matching entry
+    // fails here instead of silently skipping the default-value check.
+    assert_keys_match_dimensions(expected_defaults.keys().copied(), "expected_defaults");
 
     for (dim, expected_allowed) in &expected_defaults {
         let action = perms

@@ -1,5 +1,6 @@
 use tempfile::TempDir;
 
+use super::engine_test_utils::assert_keys_match_dimensions;
 use super::PermissionRequestBody;
 
 #[test]
@@ -154,38 +155,6 @@ fn test_dimension_name_slash_command() {
     assert_eq!(body.dimension_name(), None);
 }
 
-/// Supplemental: verify all non-None dimension_name() values are unique
-/// and match the expected dimension keys.
-#[test]
-fn test_dimension_name_all_variants_unique() {
-    let bodies = representative_bodies();
-    let mut names: Vec<&str> = bodies.iter().filter_map(|b| b.dimension_name()).collect();
-    names.sort();
-    names.dedup();
-    assert_eq!(
-        names.len(),
-        8,
-        "expected 8 unique dimension names, got {:?}",
-        names
-    );
-    for expected in &[
-        "exec",
-        "config_write",
-        "file_read",
-        "file_write",
-        "message",
-        "network",
-        "spawn",
-        "tool_call",
-    ] {
-        assert!(
-            names.contains(expected),
-            "missing dimension name: {}",
-            expected
-        );
-    }
-}
-
 /// Exhaustive witness for `PermissionRequestBody`: a match with no
 /// wildcard arm that returns the body unchanged. Adding a new enum
 /// variant breaks compilation of this function, forcing the payload
@@ -286,13 +255,11 @@ fn representative_bodies() -> Vec<PermissionRequestBody> {
 
 /// Drift guard: the key set produced by `dimension_name()` over the
 /// full-variant payload list must exactly match `DIMENSIONS` (the
-/// single source of truth in `agent_permissions`) — bidirectional
-/// containment, no duplicates, length 8. Any key missing or extra on
+/// single source of truth in `agent_permissions`) — including
+/// uniqueness of the keys. Any duplicate, missing or extra key on
 /// either side fails this test.
 #[test]
 fn test_dimension_name_keys_align_with_dimensions_constant() {
-    use crate::agent_permissions::DIMENSIONS;
-
     let bodies = representative_bodies();
     assert_eq!(
         bodies.len(),
@@ -307,26 +274,14 @@ fn test_dimension_name_keys_align_with_dimensions_constant() {
         .count();
     assert_eq!(none_count, 1, "only SlashCommand maps to None");
 
-    let mut keys: Vec<&str> = bodies.iter().filter_map(|b| b.dimension_name()).collect();
-    keys.sort_unstable();
-
-    let mut unique = keys.clone();
-    unique.dedup();
-    assert_eq!(unique.len(), keys.len(), "duplicate keys: {keys:?}");
-
-    assert_eq!(keys.len(), DIMENSIONS.len());
-    for key in &keys {
-        assert!(
-            DIMENSIONS.contains(key),
-            "dimension_name() key {key:?} missing from DIMENSIONS"
-        );
-    }
-    for dim in &DIMENSIONS {
-        assert!(
-            keys.contains(dim),
-            "DIMENSIONS key {dim:?} has no dimension_name() payload"
-        );
-    }
+    // Uniqueness + bidirectional containment in one shot: sorted-list
+    // equality with DIMENSIONS fails on duplicate keys, on a variant
+    // whose dimension_name() has no DIMENSIONS entry, and on a
+    // DIMENSIONS key with no dimension_name() payload alike.
+    assert_keys_match_dimensions(
+        bodies.iter().filter_map(|b| b.dimension_name()),
+        "dimension_name() key set",
+    );
 }
 
 // ------------------------------------------------------------------
