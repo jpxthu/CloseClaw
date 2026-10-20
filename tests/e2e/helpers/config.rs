@@ -27,7 +27,7 @@ const GATEWAY_CONFIG: &str = r#"{"name":"e2e","max_message_size":16384}"#;
 const DEFAULT_MODEL_ID: &str = "gpt-4o-basic";
 
 /// Options for [`write_config_tree`].
-pub struct ConfigTreeOpts {
+pub(crate) struct ConfigTreeOpts {
     /// Address of the in-process fake LLM HTTP server `models.json`
     /// points its `baseUrl` at.
     fake_llm_addr: String,
@@ -39,7 +39,7 @@ pub struct ConfigTreeOpts {
 
 impl ConfigTreeOpts {
     /// Standard scaffold: config skeleton + master agent only.
-    pub fn new(fake_llm_addr: impl std::fmt::Display) -> Self {
+    pub(crate) fn new(fake_llm_addr: impl std::fmt::Display) -> Self {
         Self {
             fake_llm_addr: fake_llm_addr.to_string(),
             write_root_gateway: false,
@@ -52,7 +52,7 @@ impl ConfigTreeOpts {
     /// Restart-path quirk (documented, not fixed): `resolve_config_dir()`
     /// resolves the admin-socket parent = `<root>`, so the restart reads
     /// `<root>/gateway.json` — provide it there too.
-    pub fn with_root_gateway(fake_llm_addr: impl std::fmt::Display) -> Self {
+    pub(crate) fn with_root_gateway(fake_llm_addr: impl std::fmt::Display) -> Self {
         let mut opts = Self::new(fake_llm_addr);
         opts.write_root_gateway = true;
         opts
@@ -68,7 +68,7 @@ impl ConfigTreeOpts {
     /// The master agent config's `model` follows that first id
     /// (`openai/<id>`, see `write_master_agent`), so the scaffold stays
     /// aligned without a separate agent-config overwrite.
-    pub fn with_models(mut self, model_ids: &[&str]) -> Self {
+    pub(crate) fn with_models(mut self, model_ids: &[&str]) -> Self {
         self.model_ids = model_ids.iter().map(|id| id.to_string()).collect();
         self
     }
@@ -98,7 +98,7 @@ impl ConfigTreeOpts {
 /// - `agents/<id>/config.json` `model` accepts `"provider/model-id"`
 ///   (ModelSpec string form). Tests needing a custom agent config
 ///   overwrite the master agent file after calling this function.
-pub fn write_config_tree(root: &Path, opts: ConfigTreeOpts) {
+pub(crate) fn write_config_tree(root: &Path, opts: ConfigTreeOpts) {
     write_mandatory_configs(root, &opts);
     write_master_agent(root, &opts);
     if opts.write_root_gateway {
@@ -182,7 +182,7 @@ fn models_json(opts: &ConfigTreeOpts) -> serde_json::Value {
 /// `no_bootstrap`; a snake_case key would be silently ignored as an
 /// unknown field). `None` omits the key — the resolved config defaults
 /// to `false`, keeping the normal bootstrap load behavior.
-pub fn write_agent_config(
+pub(crate) fn write_agent_config(
     config_root: &Path,
     model: &str,
     workspace: Option<&str>,
@@ -222,7 +222,7 @@ pub fn write_agent_config(
 /// `tools` / `disallowed` entries must spell the registry `Tool::name()`
 /// exactly (`Read`, `Bash`, …): the prompt-side descriptor filter and
 /// the execution-time agent-tools gate both compare case-sensitively.
-pub fn write_agent_config_with_tools(
+pub(crate) fn write_agent_config_with_tools(
     config_root: &Path,
     model: &str,
     tools: &[&str],
@@ -278,7 +278,7 @@ fn write_master_agent(root: &Path, opts: &ConfigTreeOpts) {
 /// must be explicit rules (see `docs/design/permission/README.md`
 /// §规则加载策略 / §交集模型). The concrete rule JSON is test-case
 /// data and stays with the caller, not in this shared scaffold.
-pub fn write_agent_permissions(root: &Path, agent_id: &str, rule_set_json: &str) {
+pub(crate) fn write_agent_permissions(root: &Path, agent_id: &str, rule_set_json: &str) {
     let agent_dir = root.join("agents").join(agent_id);
     ensure_dir(&agent_dir).expect("create agent dir for permissions");
     std::fs::write(agent_dir.join("permissions.json"), rule_set_json)

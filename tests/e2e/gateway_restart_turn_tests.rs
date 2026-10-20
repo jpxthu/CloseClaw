@@ -123,7 +123,7 @@ async fn terminate_daemon(mut daemon: DaemonGuard) {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_gateway_restart_llm_turn_completes() {
+async fn test_gateway_restart_llm_turn_completes() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 

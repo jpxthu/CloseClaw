@@ -208,7 +208,7 @@ fn assert_no_notification_in_frames(frames: &[serde_json::Value]) {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_cache_anomaly_round_completes_without_notification() {
+async fn test_cache_anomaly_round_completes_without_notification() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
     let (daemon, chat_sock, log_dir) =
@@ -283,7 +283,7 @@ async fn e2e_cache_anomaly_round_completes_without_notification() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_cache_normal_hit_round_no_anomaly() {
+async fn test_cache_normal_hit_round_no_anomaly() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
     let (daemon, chat_sock, log_dir) = spawn_scenario_daemon(config_root, "gpt-4o-cache-ok").await;
@@ -325,7 +325,7 @@ async fn e2e_cache_normal_hit_round_no_anomaly() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_cache_fields_missing_round_exempt() {
+async fn test_cache_fields_missing_round_exempt() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
     let (daemon, chat_sock, log_dir) =

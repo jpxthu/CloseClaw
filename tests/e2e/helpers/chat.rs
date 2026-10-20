@@ -21,7 +21,7 @@ use tokio::time::timeout;
 /// timeout trips this bound first — proving completion is driven by the
 /// turn-completion consumer, not the timeout (see
 /// `gateway_restart_turn_tests`).
-pub const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
+pub(crate) const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// Send one `ChatMessage` and collect frames until `Done`/`Error`/EOF,
 /// returning the frames (Step 1.23 — the Result-typed primitive).
@@ -30,7 +30,7 @@ pub const CHAT_TURN_TIMEOUT: Duration = Duration::from_secs(60);
 /// polling callers (e.g. `wait_post_restart_turn`) can retry them until
 /// their deadline instead of panicking mid-window. Direct call sites
 /// use [`chat_roundtrip`], the panic-on-failure wrapper.
-pub async fn try_chat_roundtrip(
+pub(crate) async fn try_chat_roundtrip(
     socket_path: &Path,
     agent_id: &str,
     content: &str,
@@ -76,7 +76,7 @@ pub async fn try_chat_roundtrip(
 /// Panic-on-failure wrapper around [`try_chat_roundtrip`] for direct
 /// call sites that do not retry (pre-restart sanity turn, agent-profile
 /// cases): any connect / I/O / timeout failure fails the test.
-pub async fn chat_roundtrip(
+pub(crate) async fn chat_roundtrip(
     socket_path: &Path,
     agent_id: &str,
     content: &str,
@@ -88,7 +88,7 @@ pub async fn chat_roundtrip(
 
 /// Concatenated `content` fragments of all frames in `frames` — the
 /// text the chat client rendered for this turn.
-pub fn collect_content_text(frames: &[serde_json::Value]) -> String {
+pub(crate) fn collect_content_text(frames: &[serde_json::Value]) -> String {
     frames
         .iter()
         .filter_map(|f| f.get("content").and_then(|c| c.as_str()))
@@ -97,7 +97,7 @@ pub fn collect_content_text(frames: &[serde_json::Value]) -> String {
 
 /// Assert exactly one terminal frame (`done` or `error`) in a set of
 /// chat response frames.
-pub fn assert_single_terminal(frames: &[serde_json::Value]) {
+pub(crate) fn assert_single_terminal(frames: &[serde_json::Value]) {
     let terminal: Vec<&serde_json::Value> = frames
         .iter()
         .filter(|f| {
@@ -115,7 +115,7 @@ pub fn assert_single_terminal(frames: &[serde_json::Value]) {
 }
 
 /// Read one length-prefixed JSON frame. `Ok(None)` on clean EOF.
-pub async fn read_frame<R: AsyncReadExt + Unpin>(
+pub(crate) async fn read_frame<R: AsyncReadExt + Unpin>(
     reader: &mut R,
 ) -> std::io::Result<Option<serde_json::Value>> {
     let mut header = [0u8; 4];

@@ -7,7 +7,7 @@ use closeclaw_common::test_helpers::ensure_dir;
 use tokio::process::{Child, Command};
 
 /// Returns the path to the `closeclaw` daemon binary (not the test binary).
-pub fn closeclaw_binary() -> std::path::PathBuf {
+pub(crate) fn closeclaw_binary() -> std::path::PathBuf {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     manifest_dir.join("target/debug/closeclaw")
 }
@@ -21,7 +21,7 @@ pub fn closeclaw_binary() -> std::path::PathBuf {
 /// Returns the `Child` handle. The caller is responsible for lifecycle
 /// management (signal + wait). The daemon is spawned with `kill_on_drop`
 /// to prevent residual processes on panic paths.
-pub fn spawn_daemon(config_root: &Path) -> Child {
+pub(crate) fn spawn_daemon(config_root: &Path) -> Child {
     // Ensure .closeclaw dir exists under temp HOME so PID file can be written
     ensure_dir(&config_root.join(".closeclaw")).expect("create .closeclaw dir");
 
