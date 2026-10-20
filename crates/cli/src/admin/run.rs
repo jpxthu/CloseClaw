@@ -237,6 +237,6 @@ pub(crate) async fn try_connect(path: &Path) -> Result<()> {
 }
 
 #[cfg(not(unix))]
-pub(crate) fn try_connect(_path: &Path) -> Result<()> {
+pub(crate) async fn try_connect(_path: &Path) -> Result<()> {
     anyhow::bail!("Unix sockets are not supported on this platform")
 }
