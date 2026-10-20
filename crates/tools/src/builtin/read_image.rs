@@ -84,8 +84,9 @@ pub(crate) fn process_image(path: &str, raw_bytes: &[u8]) -> Result<(String, Str
 mod tests {
     use super::*;
 
+    /// Build an in-memory solid-color PNG of the given size.
     fn png_bytes(w: u32, h: u32, rgba: [u8; 4]) -> Vec<u8> {
-        let img = image::RgbaImage::from_fn(w, h, |_, _| image::Rgba(rgba));
+        let img = image::RgbaImage::from_pixel(w, h, image::Rgba(rgba));
         let mut buf = std::io::Cursor::new(Vec::new());
         img.write_to(&mut buf, image::ImageFormat::Png).unwrap();
         buf.into_inner()
