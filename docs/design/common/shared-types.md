@@ -18,13 +18,13 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 |------|------|------|
 | `platform` | string | 平台标识，如 `"feishu"`、`"terminal"` |
 | `sender_id` | string | 发送者的平台内 ID |
-| `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同（如私聊的「对方用户 + 话题」组合、群聊的群 ID）；terminal 渠道取目标 Agent 标识（由 `--agent-id` 指定，默认取默认 Agent），使不同 Agent 的对话落到不同会话路由键 |
+| `peer_id` | string | 会话对端——会话上下文锚点，由插件按平台语义构造，同一会话内取值稳定、不同会话间互不相同；取值粒度随平台形态而定、不设跨平台统一规则（各平台取值语义见平台插件文档）；terminal 渠道取目标 Agent 标识（由 `--agent-id` 指定，默认取默认 Agent），使不同 Agent 的对话落到不同会话路由键 |
 | `thread_id` | string? | 话题/线程 ID（支持线程的平台上用于线程回复）；不参与 session_key 计算 |
 | `reply_ref` | string? | 出站定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用（如话题根消息标识），用于把回复投递回原会话位置。不参与 session 路由。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
-| `account_id` | string | CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到。参与 session 路由 |
-| `chat_name` | string | 聊天/群名称（如飞书群标题），由 Adapter 从平台元数据填充，可为空 |
+| `account_id` | string | CloseClaw 本地账号标识，由「平台 + 接收方机器人应用 + sender_id」经身份映射得到；同一用户在不同机器人应用下的多个发送者标识归并为同一账号标识（先按应用定位发送者，再跨应用归并）。参与 session 路由 |
+| `chat_name` | string | 聊天/群名称，由 Adapter 从平台元数据取值填充，可为空 |
 | `trace_id` | string | 分布式追踪标识，webhook 到达时生成，用于调试日志链路串联 |
-| `message_id` | string | 平台消息标识（飞书顶层消息 ID等），由 Adapter 解析时填入，可为空 |
+| `message_id` | string | 平台消息标识，由 Adapter 解析时填入，可为空 |
 | `content` | string | 消息文本内容。纯媒体消息时可为空 |
 | `message_type` | enum | 消息类型：text / image / file / audio / post。post 为含内嵌媒体的富文本消息——展开文本入 content，内嵌媒体入 media_refs |
 | `media_refs` | list(MediaRef) | 消息携带的媒体引用列表。Adapter 在入站解析时完成媒体落盘并填充，下游一律以引用消费，不接触平台下载地址与凭证。落盘与消费机制见 [im_adapter media-store](../im_adapter/media-store.md) |
@@ -42,6 +42,8 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 **字段填充职责**：各字段由 IM Adapter 入站解析时填充。Processor Chain 不修改 NormalizedMessage 字段——ContentNormalizer 读取 message_type 判断消息类型，仅对 text 类型做 content 文本标准化；SessionRouter 读取 platform/sender_id/peer_id/account_id 计算 session_key。Processor Chain 各 Processor 通过共享的可变 ProcessedMessage 上下文传递数据：SessionRouter 计算 session_key 后直接写入 ProcessedMessage.metadata，ContentNormalizer 随后从同一 NormalizedMessage 读取 content 做标准化后写入 ProcessedMessage.content_blocks。session_key 不写入 NormalizedMessage。
 
 **message_type 与 media_refs**：message_type 由 ContentNormalizer 消费（非 text 跳过标准化）。media_refs 在入站链路仅透传——媒体已由 Adapter 落盘，上下文形态决策由 Gateway 在路由阶段完成（见 [gateway 入站流程](../gateway/inbound-flow.md)）。
+
+**媒体相关字段的当前状态**：多媒体能力按需求暂不设计（见 [im_adapter media-store](../im_adapter/media-store.md)）——message_type 的媒体取值（image / file / audio）以及 media_refs、unavailable_media 当前不产生、不填充；启用前需解冻需求并重新设计，届时再确定字段结构。
 
 NormalizedMessage 引用的子结构：
 
@@ -93,7 +95,7 @@ ContentBlock 共 7 种变体，按语义和渲染策略分为两类（变体来�
 
 | 变体 | 语义 | 渲染行为 |
 |------|------|------|
-| ToolUse | 工具调用请求，含工具名和参数 | 渲染为工具调用信息展示（终端文本，IM 平台卡片）。参数以原始结构渲染 |
+| ToolUse | 工具调用请求，含工具名和参数 | 渲染为工具调用信息展示（终端文本，IM 平台卡片），含工具名与参数概要 |
 | ToolResult | 工具执行结果 | 渲染为结果内容展示。终端按行截断（默认保留前 20 行，超出以省略号标注），超终端宽度的行再按宽度截断；IM 平台富格式渲染。需求见 [cli §F2](../../requirements/cli.md) |
 | Image | 图片引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[image: name]`，IM 平台渲染为图片元素 |
 | Audio | 音频引用，含资源标识和访问地址 | 终端渲染为占位符文本 `[audio: name]`，IM 平台渲染为音频元素 |
@@ -113,7 +115,7 @@ Image/Audio/File 三个变体结构相同，字段定义：
 - **输出格式决策**：各平台 Renderer 按内容特征选择输出格式（纯文本 vs 富格式），完整规则见 [RenderedOutput §输出格式决策](#renderedoutput)
 - **Verbosity 过滤**以单个 ContentBlock 为粒度执行——每个 ContentBlock 到达时按当前 Session 的 verbosity 等级判断其可见性，流式模式下逐块实时过滤。Verbosity 等级定义见 [§VerbosityLevel](#verbositylevel)
 
-DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中。批量模式下供下游 Renderer 消费（渲染为平台交互元素）；流式模式下仅用于日志记录和出站历史写入，不产生渲染输出——原因：流式路径以渐进文本增量交付，交互元素需定位到一条完整消息上放置，而需求 [im_adapter §F4](../../requirements/im_adapter.md) 的流式口径只覆盖文本/代码块/Thinking/Tool 块、未含交互指令，故 DSL 渲染属批量交付路径的能力，流式仅作日志与出站历史。DslInstruction 是单条 DSL 指令的结构化表示。
+DslParseResult 是 DslParser 解析 ContentBlock::Text 中 DSL 指令行的输出结果。存储在 [ProcessedMessage](#processedmessage) 的 metadata 中。批量模式下供下游 Renderer 消费（平台已启用交互能力时渲染为交互控件）；流式模式下仅用于日志记录和出站历史写入，不产生渲染输出——原因：流式路径以渐进文本增量交付，交互元素需定位到一条完整消息上放置，而需求 [im_adapter §F4](../../requirements/im_adapter.md) 的流式口径只覆盖文本/代码块/Thinking/Tool 块、未含交互指令，故 DSL 渲染属批量交付路径的能力，流式仅作日志与出站历史。DslInstruction 是单条 DSL 指令的结构化表示。
 
 DSL 指令是消息中的交互元素（按钮、选择器等），每条为一行，格式为 `::type[key1:value1;key2:value2;...]`。例如 `::button[label:确认;action:confirm;value:1]` 和 `::selector[label:选颜色;options:红,蓝;action:pick]`。DslParser 遍历 ContentBlock::Text 逐行扫描，匹配 DSL 格式的行解析为 DslInstruction，从 Text 块中移除 DSL 行后与其他 ContentBlock 一并传递。DslParser 仅处理 Text 变体，其余变体透传。
 
@@ -371,7 +373,7 @@ RenderedOutput 是 IMPlugin 渲染方法产出的平台原生格式消息结构�
 | `msg_type` | string | 消息格式类型（如 `"text"`、`"interactive"`），由 Renderer 按内容特征选择 |
 | `payload` | any | 平台原生格式的消息体，结构由各平台 Renderer 定义。Gateway 中间件和 Adapter 发送不解析 payload 内容 |
 
-**输出格式决策**：由各平台 Renderer 按内容特征选择输出格式，规则详见 [IM Adapter §平台渲染选择](../im_adapter/README.md#平台渲染选择)。大致原则：纯文本、无格式标记、无 DSL → `"text"`；含 markdown 格式/换行/DSL/Thinking/ToolUse/ToolResult 块 → `"interactive"`。终端渠道例外：terminal 渠道无富格式消息形态，RenderedOutput 恒为 `"text"`——富内容（Thinking/工具块、DSL）已在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
+**输出格式决策**：由各平台 Renderer 按内容特征选择输出格式，规则详见 [IM Adapter §平台渲染选择](../im_adapter/README.md#平台渲染选择)。大致原则：纯文本、无格式标记、无参与格式判定的 DSL → `"text"`；含 markdown 格式/换行/Thinking/ToolUse/ToolResult 块，或平台已启用交互能力时的 DSL → `"interactive"`。终端渠道例外：terminal 渠道无富格式消息形态，RenderedOutput 恒为 `"text"`——富内容（Thinking/工具块、DSL）已在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
 
 #### StreamingOutput
 
