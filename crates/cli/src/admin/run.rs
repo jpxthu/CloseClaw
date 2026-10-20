@@ -228,12 +228,28 @@ pub(crate) async fn wait_for_socket(path: &Path, timeout_ms: u64) -> Result<()> 
 }
 
 /// Try connecting to the given Unix socket path once.
+///
+/// The probe is capped at one poll interval
+/// ([`SOCKET_POLL_INTERVAL_MS`]) so a hung connect (e.g. a full accept
+/// backlog) cannot stall past the overall wait deadline. A fast IO
+/// failure keeps its plain connect-failure context.
 #[cfg(unix)]
 pub(crate) async fn try_connect(path: &Path) -> Result<()> {
-    tokio::net::UnixStream::connect(path)
-        .await
-        .with_context(|| format!("socket connect failed: {}", path.display()))?;
-    Ok(())
+    let attempt = tokio::net::UnixStream::connect(path);
+    match tokio::time::timeout(
+        std::time::Duration::from_millis(SOCKET_POLL_INTERVAL_MS),
+        attempt,
+    )
+    .await
+    {
+        Ok(Ok(_)) => Ok(()),
+        Ok(Err(e)) => Err(e).with_context(|| format!("socket connect failed: {}", path.display())),
+        Err(_) => anyhow::bail!(
+            "socket connect timed out after {} ms: {}",
+            SOCKET_POLL_INTERVAL_MS,
+            path.display()
+        ),
+    }
 }
 
 #[cfg(not(unix))]
