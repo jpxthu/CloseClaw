@@ -5,20 +5,13 @@
 
 use super::engine_eval::PermissionEngine;
 use super::engine_types::{Effect, MessageDirection, PermissionRequestBody};
+use crate::agent_permissions::DIMENSIONS;
 use crate::rules::RuleSetBuilder;
 use std::collections::HashMap;
 
-/// The 8 permission dimensions defined in the design doc.
-const ALL_DIMENSIONS: &[&str] = &[
-    "exec",
-    "file_read",
-    "file_write",
-    "network",
-    "spawn",
-    "tool_call",
-    "config_write",
-    "message",
-];
+/// The 8 permission dimensions, aliased from the single source of truth
+/// [`DIMENSIONS`] (`agent_permissions.rs`).
+const ALL_DIMENSIONS: &[&str] = &DIMENSIONS;
 
 /// Build an engine with no rules — user defaults apply.
 fn make_engine() -> PermissionEngine {
