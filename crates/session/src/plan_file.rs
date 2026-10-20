@@ -136,6 +136,10 @@ pub fn create_plan_file(workdir: &Path, title: &str) -> Result<PathBuf, std::io:
 ///
 /// Like [`create_plan_file`] but allows choosing between timestamp
 /// and random-words identifier formats.
+///
+/// The template write is atomic (tempfile + rename) and runs while holding
+/// the plan's sidecar lock — the same lock domain as every other plan-file
+/// writer — so creation cannot interleave with concurrent writes.
 pub fn create_plan_file_with_format(
     workdir: &Path,
     title: &str,
@@ -152,7 +156,7 @@ pub fn create_plan_file_with_format(
         .replace("{title}", title)
         .replace("{timestamp}", &timestamp);
 
-    std::fs::write(&file_path, content)?;
+    write_plan_file_locked(&file_path, &content)?;
 
     Ok(file_path)
 }
@@ -201,6 +205,54 @@ fn write_atomically(path: &Path, content: &[u8], file_permissions: Option<u32>) 
     }
 
     Ok(())
+}
+
+// ── Locked atomic write ──────────────────────────────────────────────────
+
+/// Write `content` to a plan file atomically while holding its exclusive
+/// sidecar lock.
+///
+/// This is the public write entry for out-of-crate writers (e.g. the
+/// Write/Edit tools through their port) that must share the same lock
+/// domain as the session-side read-modify-write helpers
+/// ([`touch_access_timestamp`], [`append_to_plan_section`]) — without it,
+/// concurrent writes from two lock domains can interleave and permanently
+/// lose sections.
+///
+/// The whole operation — parent-dir creation → lock acquisition → mode read
+/// → atomic rename — runs while holding an exclusive advisory lock on the
+/// sidecar `{plan_path}.lock`, the same lock domain as [`mutate_plan_file`]
+/// and the archival rename. If the target file already exists, its permission
+/// mode is preserved across the atomic replace; if it does not exist, missing
+/// parent directories are created and the file receives the default mode.
+///
+/// # Reentrancy
+///
+/// Like [`acquire_plan_lock`], the lock is **not** reentrant: calling this
+/// while the same plan's sidecar lock is already held (this thread or
+/// another descriptor in this process) blocks forever. Callers must never
+/// invoke this while holding the same plan's lock.
+///
+/// # Errors
+/// Returns the first error from creating the parent directories, creating/
+/// locking the sidecar, reading the existing file's metadata, or the atomic
+/// write itself.
+pub fn write_plan_file_locked(plan_path: &Path, content: &str) -> io::Result<()> {
+    // The sidecar lives next to the target, so its parent must exist before
+    // the lock can be taken. `create_dir_all` is idempotent; the lock below
+    // still serializes every writer of the same target.
+    if let Some(parent) = plan_path.parent() {
+        std::fs::create_dir_all(parent)?;
+    }
+
+    let _lock = acquire_plan_lock(plan_path)?;
+
+    if plan_path.exists() {
+        let mode = std::fs::metadata(plan_path)?.permissions().mode();
+        write_atomically(plan_path, content.as_bytes(), Some(mode))
+    } else {
+        write_atomically(plan_path, content.as_bytes(), None)
+    }
 }
 
 // ── Concurrency-safe read-modify-write ─────────────────────────────────
@@ -287,8 +339,9 @@ fn lock_file_exclusive(file: &File) -> io::Result<()> {
 /// files stay invisible to them.
 ///
 /// This is the single lock domain shared by every plan-file writer — the
-/// [`mutate_plan_file`] read-modify-write helpers and the archival rename in
-/// `plan_archive` alike. It involves no global mutable state.
+/// [`mutate_plan_file`] read-modify-write helpers, [`write_plan_file_locked`],
+/// and the archival rename in `plan_archive` alike. It involves no global
+/// mutable state.
 ///
 /// # Reentrancy
 ///
