@@ -150,15 +150,10 @@ impl Tool for ModeExecutionTriggerTool {
         // Refresh application-layer access timestamp so the plan
         // does not get archived prematurely after being loaded.
         {
-            let path = std::path::Path::new(&effective_path);
-            let abs_path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                ctx.workdir
-                    .as_ref()
-                    .map(|w| std::path::Path::new(&w.path).join(&effective_path))
-                    .unwrap_or_else(|| path.to_path_buf())
-            };
+            let abs_path = crate::workdir_context::normalize_against_workdir(
+                &effective_path,
+                ctx.workdir.as_ref(),
+            );
             if abs_path.exists() {
                 if let Err(e) = self.plan_file_access.touch_access_timestamp(&abs_path) {
                     tracing::warn!(

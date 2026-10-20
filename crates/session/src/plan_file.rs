@@ -139,14 +139,14 @@ pub fn create_plan_file(workdir: &Path, title: &str) -> Result<PathBuf, std::io:
 ///
 /// The template write is atomic (tempfile + rename) and runs while holding
 /// the plan's sidecar lock — the same lock domain as every other plan-file
-/// writer — so creation cannot interleave with concurrent writes.
+/// writer — so creation cannot interleave with concurrent writes; the
+/// `plans/` parent directory is created inside [`write_plan_file_locked`].
 pub fn create_plan_file_with_format(
     workdir: &Path,
     title: &str,
     format: PlanIdentifierFormat,
 ) -> Result<PathBuf, std::io::Error> {
     let plans_dir = workdir.join("plans");
-    std::fs::create_dir_all(&plans_dir)?;
 
     let identifier = generate_identifier(title, format);
     let file_path = plans_dir.join(format!("{identifier}.md"));
@@ -247,11 +247,19 @@ pub fn write_plan_file_locked(plan_path: &Path, content: &str) -> io::Result<()>
 
     let _lock = acquire_plan_lock(plan_path)?;
 
-    if plan_path.exists() {
-        let mode = std::fs::metadata(plan_path)?.permissions().mode();
-        write_atomically(plan_path, content.as_bytes(), Some(mode))
-    } else {
-        write_atomically(plan_path, content.as_bytes(), None)
+    // Single stat instead of `exists()` + `metadata()`: the NotFound branch
+    // is the "new file" case (default mode), any other metadata error is
+    // propagated. One syscall narrows the window in which the target could
+    // appear or disappear between check and use.
+    match std::fs::metadata(plan_path) {
+        Ok(meta) => {
+            let mode = meta.permissions().mode();
+            write_atomically(plan_path, content.as_bytes(), Some(mode))
+        }
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            write_atomically(plan_path, content.as_bytes(), None)
+        }
+        Err(e) => Err(e),
     }
 }
 

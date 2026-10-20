@@ -7,7 +7,7 @@
 use async_trait::async_trait;
 use regex::Regex;
 use serde_json::Value;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::Arc;
 
 use closeclaw_common::ReadRange;
@@ -44,78 +44,81 @@ fn is_plan_file_path(path: &str) -> bool {
     path.starts_with("plans/") || path.contains("/plans/")
 }
 
-/// Normalize a plans/ write path against the session workdir.
+/// Where a Write/Edit payload is committed.
 ///
-/// Mirrors `mode_execution_trigger.rs`'s workdir normalization:
-/// relative paths resolve against `ctx.workdir`, absolute paths pass
-/// through untouched, and with no workdir the input is used as-is (the
-/// process-CWD fallback). The result feeds the sidecar lock key, so
-/// callers should supply a workdir whenever possible.
-fn normalize_plan_write_path(path: &str, ctx: &ToolContext) -> PathBuf {
-    let p = Path::new(path);
-    if p.is_absolute() {
-        return p.to_path_buf();
-    }
-    match ctx.workdir {
-        Some(ref wd) => Path::new(&wd.path).join(p),
-        None => p.to_path_buf(),
+/// Makes the two sinks explicit so no parameter is silently discarded:
+/// [`WriteSink::Plan`] routes through the injected [`PlanFileAccess`]
+/// port, [`WriteSink::Readback`] keeps the plain readback write.
+enum WriteSink<'a> {
+    /// `plans/` target — the path must already be workdir-normalized
+    /// (absolute) so the session sidecar lock key matches the session's
+    /// writers.
+    Plan(&'a Path),
+    /// Regular target — original readback behavior, unchanged.
+    Readback(&'a Path),
+}
+
+impl<'a> WriteSink<'a> {
+    /// Pick the sink from the normalized plans path: `Some` → port,
+    /// `None` → readback.
+    fn pick(plan_path: Option<&'a Path>, raw_path: &'a Path) -> Self {
+        match plan_path {
+            Some(plan) => WriteSink::Plan(plan),
+            None => WriteSink::Readback(raw_path),
+        }
     }
 }
 
-/// Commit `content` to disk through the right sink.
+/// Commit `content` to `sink`.
 ///
-/// `plan_path` is `Some` for `plans/` targets: the write then goes
-/// through the injected [`PlanFileAccess`] port so it shares the
-/// session's plan sidecar lock domain and is atomic (tempfile + rename)
-/// — the plain readback write is not safe against a concurrent session
-/// touch. `plan_path` must already be workdir-normalized (absolute) so
-/// the sidecar lock key matches the session's writers. A missing port
-/// is a fail-fast wiring error: silently falling back would lose that
-/// protection. Non-plans targets (`plan_path == None`) keep the
-/// original readback write unchanged.
-fn write_via_port_or_readback(
-    write_target: &Path,
-    plan_path: Option<&Path>,
+/// `Plan` targets go through the injected [`PlanFileAccess`] port so the
+/// write shares the session's plan sidecar lock domain and is atomic
+/// (tempfile + rename) — the plain readback write is not safe against a
+/// concurrent session touch. A missing port is a fail-fast wiring error:
+/// silently falling back would lose that protection. `Readback` targets
+/// keep the original readback write unchanged.
+fn commit_to_sink(
+    sink: WriteSink<'_>,
     content: &str,
     plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
 ) -> Result<(), ToolCallError> {
-    let Some(normalized) = plan_path else {
-        return super::readback::write_with_readback(write_target, content);
-    };
-    let port = plan_file_access.ok_or_else(|| {
-        ToolCallError::ExecutionFailed(
-            "plan file writes require an injected PlanFileAccess port \
-             (build the tool via with_plan_file_access)"
-                .to_string(),
-        )
-    })?;
-    port.write_plan_file(normalized, content)
-        .map_err(|e| ToolCallError::ExecutionFailed(format!("{}: {e}", normalized.display())))
+    match sink {
+        WriteSink::Readback(target) => super::readback::write_with_readback(target, content),
+        WriteSink::Plan(plan_path) => {
+            let port = plan_file_access.ok_or_else(|| {
+                ToolCallError::ExecutionFailed(
+                    "plan file writes require an injected PlanFileAccess port \
+                     (build the tool via with_plan_file_access)"
+                        .to_string(),
+                )
+            })?;
+            port.write_plan_file(plan_path, content).map_err(|e| {
+                ToolCallError::ExecutionFailed(format!("{}: {e}", plan_path.display()))
+            })
+        }
+    }
 }
 
 /// Write content to a file, creating parent directories as needed.
 ///
 /// `plans/` targets are routed through the injected
-/// [`PlanFileAccess`] port via [`write_via_port_or_readback`].
+/// [`PlanFileAccess`] port via [`commit_to_sink`].
 async fn write_file(
     path: &str,
     content: &str,
     ctx: &ToolContext,
     plan_file_access: Option<&Arc<dyn PlanFileAccess>>,
 ) -> Result<ToolResult, ToolCallError> {
-    let plan_path = is_plan_file_path(path).then(|| normalize_plan_write_path(path, ctx));
+    let plan_path = is_plan_file_path(path)
+        .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
     if plan_path.is_none() {
         if let Some(parent) = Path::new(path).parent() {
             std::fs::create_dir_all(parent)
                 .map_err(|e| ToolCallError::ExecutionFailed(format!("create_dir_all: {e}")))?;
         }
     }
-    write_via_port_or_readback(
-        Path::new(path),
-        plan_path.as_deref(),
-        content,
-        plan_file_access,
-    )?;
+    let sink = WriteSink::pick(plan_path.as_deref(), Path::new(path));
+    commit_to_sink(sink, content, plan_file_access)?;
     Ok(ToolResult {
         data: serde_json::json!({ "content": content }),
         new_messages: vec![],
@@ -636,7 +639,8 @@ impl Tool for EditTool {
         // path: when the process CWD differs from the session workdir,
         // reading the raw relative path while writing the normalized
         // one would target different files.
-        let plan_path = is_plan_file_path(path).then(|| normalize_plan_write_path(path, ctx));
+        let plan_path = is_plan_file_path(path)
+            .then(|| crate::workdir_context::normalize_against_workdir(path, ctx.workdir.as_ref()));
         let read_path = plan_path
             .as_ref()
             .map(|p| p.to_string_lossy().into_owned())
@@ -646,12 +650,8 @@ impl Tool for EditTool {
         let (updated, edits_applied) =
             crate::builtin::edit_match::match_and_apply(&content, &edits, replace_all)
                 .map_err(|e| ToolCallError::ExecutionFailed(e.to_string()))?;
-        write_via_port_or_readback(
-            Path::new(&path_owned),
-            plan_path.as_deref(),
-            &updated,
-            self.plan_file_access.as_ref(),
-        )?;
+        let sink = WriteSink::pick(plan_path.as_deref(), Path::new(&path_owned));
+        commit_to_sink(sink, &updated, self.plan_file_access.as_ref())?;
         Ok(ToolResult {
             data: serde_json::json!({
                 "content": updated,

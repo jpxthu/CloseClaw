@@ -134,3 +134,55 @@ pub(crate) mod real_access {
         Arc::new(RealPlanFileAccess)
     }
 }
+
+/// Test-support recorder fake shared by the file_ops and registrar
+/// tests: captures `(path, content)` pairs handed to `write_plan_file`
+/// in call order; other trait methods are inert defaults.
+#[cfg(test)]
+pub(crate) mod test_support {
+    use std::path::{Path, PathBuf};
+    use std::sync::{Arc, Mutex};
+
+    use super::{PlanFileAccess, PlanResolveError};
+
+    pub(crate) struct RecordingPlanFileAccess {
+        writes: Mutex<Vec<(PathBuf, String)>>,
+    }
+
+    impl RecordingPlanFileAccess {
+        pub(crate) fn new() -> Arc<Self> {
+            Arc::new(Self {
+                writes: Mutex::new(Vec::new()),
+            })
+        }
+
+        /// Snapshot of the recorded writes, in call order.
+        pub(crate) fn writes(&self) -> Vec<(PathBuf, String)> {
+            self.writes.lock().unwrap().clone()
+        }
+    }
+
+    impl PlanFileAccess for RecordingPlanFileAccess {
+        fn resolve_plan_by_name(
+            &self,
+            _workdir: &Path,
+            name: &str,
+        ) -> Result<PathBuf, PlanResolveError> {
+            Err(PlanResolveError::NotFound {
+                name: name.to_string(),
+            })
+        }
+
+        fn touch_access_timestamp(&self, _plan_path: &Path) -> Result<(), std::io::Error> {
+            Ok(())
+        }
+
+        fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
+            self.writes
+                .lock()
+                .unwrap()
+                .push((plan_path.to_path_buf(), content.to_string()));
+            Ok(())
+        }
+    }
+}

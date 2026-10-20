@@ -75,6 +75,20 @@ impl CoreToolsRegistrar {
     }
 }
 
+/// Wire the registrar's plan-file port into a tool under construction,
+/// or return the tool unwired when no port is set. `attach` is the
+/// tool's own `with_plan_file_access` builder.
+fn attach_plan_port<T>(
+    tool: T,
+    port: Option<&Arc<dyn PlanFileAccess>>,
+    attach: impl FnOnce(T, Arc<dyn PlanFileAccess>) -> T,
+) -> T {
+    match port {
+        Some(port) => attach(tool, Arc::clone(port)),
+        None => tool,
+    }
+}
+
 #[async_trait]
 impl ToolRegistrar for CoreToolsRegistrar {
     fn name(&self) -> &str {
@@ -97,14 +111,16 @@ impl ToolRegistrar for CoreToolsRegistrar {
             ReadTool::new(Arc::clone(&self.read_truncation)),
             r
         );
-        let write_tool = match self.plan_file_access.as_ref() {
-            Some(port) => WriteTool::new().with_plan_file_access(Arc::clone(port)),
-            None => WriteTool::new(),
-        };
-        let edit_tool = match self.plan_file_access.as_ref() {
-            Some(port) => EditTool::new().with_plan_file_access(Arc::clone(port)),
-            None => EditTool::new(),
-        };
+        let write_tool = attach_plan_port(
+            WriteTool::new(),
+            self.plan_file_access.as_ref(),
+            WriteTool::with_plan_file_access,
+        );
+        let edit_tool = attach_plan_port(
+            EditTool::new(),
+            self.plan_file_access.as_ref(),
+            EditTool::with_plan_file_access,
+        );
         try_register!(registry, registered, write_tool, r);
         try_register!(registry, registered, edit_tool, r);
         try_register!(registry, registered, GrepTool::new(), r);

@@ -1,6 +1,7 @@
 //! Unit tests for file_ops tools — metadata and permission-check tests.
 
 use super::*;
+use crate::plan_file_access::test_support::RecordingPlanFileAccess;
 use closeclaw_common::{PromptGenerationContext, WorkdirContext};
 use tempfile::TempDir;
 
@@ -531,46 +532,6 @@ async fn test_read_absolute_path_ignores_workdir() {
 // Write plans/ branch — port-routed locked atomic write (issue #3158)
 // ---------------------------------------------------------------------------
 
-use crate::plan_file_access::PlanResolveError;
-
-/// Recorder fake: captures `(path, content)` pairs handed to
-/// `write_plan_file`; other trait methods are inert defaults.
-struct FakePlanFileAccess {
-    writes: std::sync::Mutex<Vec<(std::path::PathBuf, String)>>,
-}
-
-impl FakePlanFileAccess {
-    fn new() -> Arc<Self> {
-        Arc::new(Self {
-            writes: std::sync::Mutex::new(Vec::new()),
-        })
-    }
-}
-
-impl crate::plan_file_access::PlanFileAccess for FakePlanFileAccess {
-    fn resolve_plan_by_name(
-        &self,
-        _workdir: &Path,
-        name: &str,
-    ) -> Result<std::path::PathBuf, PlanResolveError> {
-        Err(PlanResolveError::NotFound {
-            name: name.to_string(),
-        })
-    }
-
-    fn touch_access_timestamp(&self, _plan_path: &Path) -> Result<(), std::io::Error> {
-        Ok(())
-    }
-
-    fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
-        self.writes
-            .lock()
-            .unwrap()
-            .push((plan_path.to_path_buf(), content.to_string()));
-        Ok(())
-    }
-}
-
 fn make_ctx_with_workdir(workdir: &Path) -> ToolContext {
     let mut ctx = make_ctx("master");
     ctx.workdir = Some(closeclaw_common::tool_trait::build_workdir_context(
@@ -585,7 +546,7 @@ fn make_ctx_with_workdir(workdir: &Path) -> ToolContext {
 async fn test_write_plan_relative_path_normalized_through_port() {
     let tmp = TempDir::new().unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = WriteTool::new().with_plan_file_access(fake.clone());
 
     let result = tool
@@ -596,7 +557,7 @@ async fn test_write_plan_relative_path_normalized_through_port() {
         .await;
     assert!(result.is_ok(), "plans/ write via port must succeed");
 
-    let writes = fake.writes.lock().unwrap();
+    let writes = fake.writes();
     assert_eq!(writes.len(), 1, "exactly one port write expected");
     let (path, content) = &writes[0];
     assert!(
@@ -616,7 +577,7 @@ async fn test_write_plan_relative_path_normalized_through_port() {
 async fn test_write_plan_absolute_path_passthrough() {
     let tmp = TempDir::new().unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = WriteTool::new().with_plan_file_access(fake.clone());
 
     let abs = tmp.path().join("plans/abs.md");
@@ -628,7 +589,7 @@ async fn test_write_plan_absolute_path_passthrough() {
         .await;
     assert!(result.is_ok());
 
-    let writes = fake.writes.lock().unwrap();
+    let writes = fake.writes();
     assert_eq!(writes.len(), 1);
     assert_eq!(&writes[0].0, &abs, "absolute plans path must not change");
 }
@@ -667,7 +628,7 @@ async fn test_write_plan_path_without_port_fails_fast() {
 async fn test_write_non_plan_path_skips_port_uses_readback() {
     let tmp = TempDir::new().unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = WriteTool::new().with_plan_file_access(fake.clone());
 
     let out = tmp.path().join("out.txt");
@@ -680,7 +641,7 @@ async fn test_write_non_plan_path_skips_port_uses_readback() {
     assert!(result.is_ok(), "non-plans write must still succeed");
 
     assert!(
-        fake.writes.lock().unwrap().is_empty(),
+        fake.writes().is_empty(),
         "port must not be called for non-plans paths"
     );
     let content = std::fs::read_to_string(&out).unwrap();
@@ -702,7 +663,7 @@ async fn test_edit_plan_relative_path_normalized_through_port() {
     std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
     std::fs::write(tmp.path().join("plans/x.md"), "hello world").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = EditTool::new().with_plan_file_access(fake.clone());
 
     let result = tool
@@ -722,7 +683,7 @@ async fn test_edit_plan_relative_path_normalized_through_port() {
     );
     assert_eq!(result.data["edits_applied"], 1);
 
-    let writes = fake.writes.lock().unwrap();
+    let writes = fake.writes();
     assert_eq!(writes.len(), 1, "exactly one port write expected");
     let (path, content) = &writes[0];
     assert!(
@@ -749,7 +710,7 @@ async fn test_edit_plan_absolute_path_passthrough() {
     let abs = tmp.path().join("plans/abs.md");
     std::fs::write(&abs, "alpha beta").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = EditTool::new().with_plan_file_access(fake.clone());
 
     let result = tool
@@ -763,7 +724,7 @@ async fn test_edit_plan_absolute_path_passthrough() {
         .await;
     assert!(result.is_ok());
 
-    let writes = fake.writes.lock().unwrap();
+    let writes = fake.writes();
     assert_eq!(writes.len(), 1);
     assert_eq!(&writes[0].0, &abs, "absolute plans path must not change");
     assert_eq!(writes[0].1, "alpha gamma");
@@ -813,7 +774,7 @@ async fn test_edit_non_plan_path_skips_port_uses_readback() {
     let file = tmp.path().join("plain.txt");
     std::fs::write(&file, "alpha beta").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
-    let fake = FakePlanFileAccess::new();
+    let fake = RecordingPlanFileAccess::new();
     let tool = EditTool::new().with_plan_file_access(fake.clone());
 
     let result = tool
@@ -828,7 +789,7 @@ async fn test_edit_non_plan_path_skips_port_uses_readback() {
     assert!(result.is_ok(), "non-plans edit must still succeed");
 
     assert!(
-        fake.writes.lock().unwrap().is_empty(),
+        fake.writes().is_empty(),
         "port must not be called for non-plans paths"
     );
     let content = std::fs::read_to_string(&file).unwrap();

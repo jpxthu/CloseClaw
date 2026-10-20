@@ -1,11 +1,11 @@
 //! Unit tests for the core tools registrar — injection-chain tests.
 
 use super::*;
-use crate::plan_file_access::PlanResolveError;
+use crate::plan_file_access::test_support::RecordingPlanFileAccess;
 use crate::ToolContext;
 use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_tasks::BackgroundTaskManager;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use tempfile::TempDir;
 
 // ---------------------------------------------------------------------------
@@ -48,46 +48,9 @@ impl crate::permission_port::ToolPermissionCheck for AllowAllPermCheck {
     }
 }
 
-/// Recorder fake port: captures `(path, content)` pairs handed to
-/// `write_plan_file`.
-#[derive(Default)]
-struct FakePlanAccess {
-    writes: std::sync::Mutex<Vec<(PathBuf, String)>>,
-}
-
-impl FakePlanAccess {
-    fn writes(&self) -> Vec<(PathBuf, String)> {
-        self.writes.lock().unwrap().clone()
-    }
-}
-
-impl PlanFileAccess for FakePlanAccess {
-    fn resolve_plan_by_name(
-        &self,
-        _workdir: &Path,
-        name: &str,
-    ) -> Result<PathBuf, PlanResolveError> {
-        Err(PlanResolveError::NotFound {
-            name: name.to_string(),
-        })
-    }
-
-    fn touch_access_timestamp(&self, _plan_path: &Path) -> Result<(), std::io::Error> {
-        Ok(())
-    }
-
-    fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
-        self.writes
-            .lock()
-            .unwrap()
-            .push((plan_path.to_path_buf(), content.to_string()));
-        Ok(())
-    }
-}
-
 /// Build a registrar wired with `fake` and register all 14 core tools
 /// into a fresh registry; returns the registry for `call_tool` probing.
-async fn registered_registry(fake: Arc<FakePlanAccess>) -> Arc<crate::ToolRegistry> {
+async fn registered_registry(fake: Arc<RecordingPlanFileAccess>) -> Arc<crate::ToolRegistry> {
     let registry = Arc::new(crate::ToolRegistry::new());
     let registrar = CoreToolsRegistrar::new(
         Arc::new(AllowAllPermCheck) as PermDeps,
@@ -128,7 +91,7 @@ async fn test_builder_passes_plan_file_access_to_write_and_edit() {
     std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
     std::fs::write(tmp.path().join("plans/x.md"), "keep me\n").unwrap();
 
-    let fake = Arc::new(FakePlanAccess::default());
+    let fake = RecordingPlanFileAccess::new();
     let registry = registered_registry(Arc::clone(&fake)).await;
     let ctx = ctx_with_workdir(tmp.path());
 
