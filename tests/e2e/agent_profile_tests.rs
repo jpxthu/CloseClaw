@@ -543,7 +543,7 @@ fn tool_allow_deny_permission_rules() -> serde_json::Value {
     });
     let actions = [
         (tool_call_read, "allow_file_ops_read"),
-        (file_read, "allow_file_read_e2e_tool_test"),
+        (file_read, "allow_file_read_tool_probe"),
         (tool_call_bash, "allow_bash_tool_call"),
         (command_echo, "allow_command_echo"),
     ];
