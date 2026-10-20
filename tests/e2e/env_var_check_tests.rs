@@ -5,6 +5,11 @@
 //! 的临时 git 仓库（`tempfile::TempDir`，落系统临时目录（跟随 $TMPDIR）、
 //! Drop 自动清理）中执行，用例间无共享状态；全程无网络、无真实 LLM。
 //!
+//! 脚本驱动与临时仓库基础设施复用共享 helper
+//! [`super::helpers::check_script`]（STANDARDS §10：共享 helper 提取为公共
+//! 模块，不在单个 case 内重复内嵌）；本文件只保留本脚本特有的常量与夹具
+//! 生成函数。
+//!
 //! 归档依据（docs/developer/STANDARDS.md）：§1 spawn 独立脚本进程 → e2e 档；
 //! §2/§3 `tests/e2e/` 单 binary + 复数 `_tests.rs` 命名；§8 临时文件走 TempDir。
 //!
@@ -12,10 +17,9 @@
 //! 命中行级文本判定，因此禁令 token 一律经 [`BANNED_SET`] / [`BANNED_REMOVE`]
 //! 片段常量拼装，源码中不得出现裸 token（否则测试文件自身会打红 CI 与 hook）。
 
-use std::path::{Path, PathBuf};
-use std::process::{Command, ExitStatus, Output};
+use std::path::Path;
 
-use closeclaw_common::test_helpers::ensure_dir;
+use super::helpers::check_script::{assert_exit, assert_passed_marker, git, CheckScript};
 
 /// 禁令 token 片段（`se` + `t_var`）：拆开声明，避免本测试源码自身被行级文本判定命中。
 const BANNED_SET: &str = concat!("se", "t_var");
@@ -57,160 +61,38 @@ fn comment_mention() -> String {
     format!("// prose mention of {} as documentation", BANNED_SET)
 }
 
-/// 隔离的临时 git 仓库：`TempDir` 落系统临时目录（跟随 $TMPDIR），Drop 时自动清理。
-struct TempRepo {
-    dir: tempfile::TempDir,
-}
+/// 本套件脚本通过路径输出的 passed 标记（与脚本实现一致，断言时参数化传入）。
+const PASSED_MARKER: &str = "env var check passed";
 
-impl TempRepo {
-    /// `git init` 一个空仓库（默认分支 warning 无害，输出被捕获）。
-    fn new() -> Self {
-        let dir = tempfile::TempDir::new().expect("create temp dir under /tmp");
-        git(dir.path(), &["init", "-q"]);
-        Self { dir }
-    }
-
-    fn path(&self) -> &Path {
-        self.dir.path()
-    }
-
-    /// 写入夹具文件（自动创建父目录）。
-    fn write(&self, rel: &str, content: &str) {
-        let path = self.path().join(rel);
-        if let Some(parent) = path.parent() {
-            ensure_dir(parent).expect("create fixture parent dir");
-        }
-        std::fs::write(&path, content).expect("write fixture file");
-    }
-
-    /// 全量暂存并提交当前工作树（内联 user 身份，关掉签名与全局 hooks 保证隔离）。
-    fn commit_all(&self) {
-        git(self.path(), &["add", "-A", "-f"]);
-        git(
-            self.path(),
-            &[
-                "-c",
-                "user.name=env-var-check-tests",
-                "-c",
-                "user.email=env-var-check-tests@example.invalid",
-                "-c",
-                "commit.gpgsign=false",
-                "-c",
-                "core.hooksPath=/dev/null",
-                "commit",
-                "-q",
-                "-m",
-                "test fixture",
-            ],
-        );
-    }
-
-    /// 以本仓库为 CWD 运行检查脚本指定模式。
-    fn check(&self, mode: &str) -> CheckResult {
-        run_check(self.path(), mode)
-    }
-}
-
-/// 在 `dir` 中执行 git 子命令；失败时附带 stdout/stderr 断言输出。
-fn git(dir: &Path, args: &[&str]) -> Output {
-    let out = Command::new("git")
-        .args(args)
-        .current_dir(dir)
-        .output()
-        .expect("failed to spawn git");
-    assert!(
-        out.status.success(),
-        "git {:?} failed (exit {:?})\nstdout: {}\nstderr: {}",
-        args,
-        out.status.code(),
-        String::from_utf8_lossy(&out.stdout),
-        String::from_utf8_lossy(&out.stderr)
-    );
-    out
-}
-
-/// 检查脚本的一次运行结果。
-struct CheckResult {
-    status: ExitStatus,
-    stdout: String,
-    stderr: String,
-}
-
-impl CheckResult {
-    /// stdout + stderr 合并（文案经 `echo` 走 stdout，合并断言更稳）。
-    fn output(&self) -> String {
-        format!("{}{}", self.stdout, self.stderr)
-    }
-
-    fn code(&self) -> Option<i32> {
-        self.status.code()
-    }
-}
-
-/// 在 `dir` 中以任意参数运行检查脚本（脚本取本仓库真实路径，`dir` 为 CWD）。
-fn run_script(dir: &Path, args: &[&str]) -> CheckResult {
-    run_script_with_env(dir, args, |_| {})
-}
-
-/// 变体：启动前允许对子进程 `Command` 做额外 env 调整（如 `GIT_CEILING_DIRECTORIES`
-/// 注入），其余行为与 [`run_script`] 完全一致；不影响其它用例。
-fn run_script_with_env<F>(dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
-where
-    F: FnOnce(&mut Command),
-{
-    let script = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("scripts/check-env-var.sh");
-    let mut cmd = Command::new("bash");
-    cmd.arg(script).args(args).current_dir(dir);
-    adjust_env(&mut cmd);
-    let out: Output = cmd
-        .output()
-        .expect("failed to spawn bash scripts/check-env-var.sh");
-    CheckResult {
-        status: out.status,
-        stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
-        stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
-    }
-}
-
-/// 运行 `bash scripts/check-env-var.sh <mode>`：脚本取本仓库真实路径，夹具仓库为 CWD。
-fn run_check(dir: &Path, mode: &str) -> CheckResult {
-    run_script(dir, &[mode])
-}
-
-/// 断言退出码，失败信息附完整输出便于定位。
-fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
-    assert_eq!(
-        res.code(),
-        Some(expected),
-        "{ctx}: expect exit {expected}, got {:?}\noutput:\n{}",
-        res.code(),
-        res.output()
-    );
+/// 本套件共用脚本驱动器：`scripts/check-env-var.sh` + fixture 提交身份
+/// （`user.name=env-var-check-tests` /
+/// `user.email=env-var-check-tests@example.invalid`，与提取前的本地实现
+/// 逐字一致），全部用例共用同一构造。
+fn script() -> CheckScript {
+    CheckScript::new("check-env-var.sh", "env-var-check-tests")
 }
 
 /// 正常路径：干净的 tracked `.rs` 文件集 → exit 0 并输出 passed 标记。
 #[test]
 fn test_all_mode_clean_repo_passes() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write(
         "src/lib.rs",
         "pub fn add(a: i32, b: i32) -> i32 {\n    a + b\n}\n",
     );
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 0, "all mode on clean tracked .rs files");
-    assert!(
-        res.stdout.contains("env var check passed"),
-        "expect passed marker in stdout, got:\n{}",
-        res.output()
-    );
+    assert_passed_marker(&res, PASSED_MARKER, "all mode on clean tracked .rs files");
 }
 
 /// 错误路径：写入与删除两类调用均命中 → exit 1、报出命中位置与正确引用。
 #[test]
 fn test_all_mode_reports_hit_locations_and_references() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let set_line = set_call("A");
     let remove_line = remove_call("B");
     repo.write(
@@ -222,7 +104,7 @@ fn test_all_mode_reports_hit_locations_and_references() {
     );
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 1, "all mode with committed violations");
     let out = res.output();
     assert!(
@@ -246,21 +128,23 @@ fn test_all_mode_reports_hit_locations_and_references() {
 /// 豁免语义：行尾注释带 `load_env_file` 标记的调用行不命中 → exit 0。
 #[test]
 fn test_all_mode_load_env_file_marker_line_exempt() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write(
         "src/env_loader.rs",
         &format!("pub fn load(p: &str) {{\n    {}\n}}\n", exempt_call()),
     );
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 0, "line with load_env_file marker must be exempt");
 }
 
 /// 边界：同名标识符（前后缀粘连）不满足词边界，不得命中。
 #[test]
 fn test_all_mode_same_named_identifiers_not_flagged() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write(
         "src/identifiers.rs",
         "\
@@ -272,7 +156,7 @@ let remove_vars = 4;
     );
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(
         &res,
         0,
@@ -283,12 +167,13 @@ let remove_vars = 4;
 /// 边界：注释散文中的 token 同样按行级文本如实命中（脚本口径，非调用才命中）。
 #[test]
 fn test_all_mode_comment_text_hits_like_call() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let mention = comment_mention();
     repo.write("src/notes.rs", &format!("{}\n", mention));
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 1, "text matching hits comment mentions too");
     let out = res.output();
     assert!(
@@ -300,7 +185,8 @@ fn test_all_mode_comment_text_hits_like_call() {
 /// staged 模式：staged 新增 `*.rs` 行中的违规 → exit 1 并报出位置与引用。
 #[test]
 fn test_staged_mode_flags_staged_new_rs_lines() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/base.rs", "pub fn base() {}\n");
     repo.commit_all();
 
@@ -309,9 +195,9 @@ fn test_staged_mode_flags_staged_new_rs_lines() {
         "src/new_viol.rs",
         &format!("pub fn g() {{}}\n{}\n", staged_line),
     );
-    git(repo.path(), &["add", "src/new_viol.rs"]);
+    repo.stage("src/new_viol.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 1, "staged new .rs line with violation must fail");
     let out = res.output();
     assert!(
@@ -327,7 +213,8 @@ fn test_staged_mode_flags_staged_new_rs_lines() {
 /// staged 模式：工作树未 stage 的违规不判定（同时保底一个干净 staged 改动）。
 #[test]
 fn test_staged_mode_ignores_unstaged_violation() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/clean.rs", "pub fn clean() {}\n");
     repo.write("src/other.rs", "pub fn other() {}\n");
     repo.commit_all();
@@ -339,9 +226,9 @@ fn test_staged_mode_ignores_unstaged_violation() {
     );
     // 另一个干净的 staged 改动，确保脚本确实进入 staged 扫描分支
     repo.write("src/other.rs", "pub fn other() {}\npub fn other2() {}\n");
-    git(repo.path(), &["add", "src/other.rs"]);
+    repo.stage("src/other.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(
         &res,
         0,
@@ -352,7 +239,8 @@ fn test_staged_mode_ignores_unstaged_violation() {
 /// staged 模式：HEAD/index 既有违规行（staged 改动在同文件其它行）不判定。
 #[test]
 fn test_staged_mode_ignores_untouched_head_violation() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let legacy_line = set_call("LEGACY");
     repo.write(
         "src/legacy.rs",
@@ -371,9 +259,9 @@ fn test_staged_mode_ignores_untouched_head_violation() {
             legacy_line
         ),
     );
-    git(repo.path(), &["add", "src/legacy.rs"]);
+    repo.stage("src/legacy.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(
         &res,
         0,
@@ -384,7 +272,8 @@ fn test_staged_mode_ignores_untouched_head_violation() {
 /// staged 模式：staged 删除违规行（`-` 行而非 `+` 行）不判定。
 #[test]
 fn test_staged_mode_ignores_deleted_lines() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let legacy_line = set_call("LEGACY");
     repo.write(
         "src/legacy.rs",
@@ -393,9 +282,9 @@ fn test_staged_mode_ignores_deleted_lines() {
     repo.commit_all();
 
     repo.write("src/legacy.rs", "pub fn f() {}\n");
-    git(repo.path(), &["add", "src/legacy.rs"]);
+    repo.stage("src/legacy.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(
         &res,
         0,
@@ -406,7 +295,8 @@ fn test_staged_mode_ignores_deleted_lines() {
 /// staged 模式：非 `*.rs` 文件不在扫描范围（保底一个干净 staged `.rs` 改动）。
 #[test]
 fn test_staged_mode_ignores_non_rs_files() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/clean.rs", "pub fn clean() {}\n");
     repo.commit_all();
 
@@ -418,21 +308,22 @@ fn test_staged_mode_ignores_non_rs_files() {
     repo.write("src/clean.rs", "pub fn clean() {}\npub fn more() {}\n");
     git(repo.path(), &["add", "-A"]);
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 0, "non-.rs staged files must be out of scan scope");
 }
 
 /// 文案回归：失败输出携带正确引用，且不含过期章节引用与过期豁免路径。
 #[test]
 fn test_failure_message_has_no_stale_wording() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write(
         "src/bad.rs",
         &format!("pub fn f() {{}}\n{}\n", set_call("A")),
     );
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 1, "failure path drives the message regression check");
     let out = res.output();
 
@@ -461,11 +352,12 @@ fn test_failure_message_has_no_stale_wording() {
 /// 契约 ①：非法参数（未知模式 / 参数个数 > 1）→ exit 2，用法提示走 stderr。
 #[test]
 fn test_invalid_args_exit_2() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/lib.rs", "pub fn add() {}\n");
     repo.commit_all();
 
-    let unknown = run_script(repo.path(), &["bogus"]);
+    let unknown = script.run(repo.path(), &["bogus"]);
     assert_exit(&unknown, 2, "unknown mode must exit 2");
     assert!(
         unknown.stderr.contains("usage:"),
@@ -473,7 +365,7 @@ fn test_invalid_args_exit_2() {
         unknown.output()
     );
 
-    let too_many = run_script(repo.path(), &["all", "staged"]);
+    let too_many = script.run(repo.path(), &["all", "staged"]);
     assert_exit(&too_many, 2, "more than one argument must exit 2");
     assert!(
         too_many.stderr.contains("usage:"),
@@ -490,9 +382,10 @@ fn test_invalid_args_exit_2() {
 /// 行为一致）；同时清除可能继承的 GIT_DIR / GIT_WORK_TREE，排除子进程 env 干扰。
 #[test]
 fn test_non_git_dir_exits_2() {
+    let script = script();
     let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
 
-    let res = run_script_with_env(dir.path(), &["all"], |cmd| {
+    let res = script.run_with_env(dir.path(), &["all"], |cmd| {
         // git 向上搜索按物理路径比对，且 ceiling 不解析 symlink（macOS $TMPDIR
         // 形如 /var/... → /private/var/...），故注入 canonicalize 后的父目录；
         // canonicalize 失败时回退字面父目录。
@@ -513,38 +406,33 @@ fn test_non_git_dir_exits_2() {
 /// 契约 ②：all 模式下 0 个 tracked `.rs`（空集合）→ exit 0 并输出 passed。
 #[test]
 fn test_all_mode_empty_tracked_rs_set_passes() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("README.md", "# fixture without any rust source\n");
     repo.commit_all();
 
-    let res = repo.check("all");
+    let res = script.run(repo.path(), &["all"]);
     assert_exit(&res, 0, "zero tracked .rs files must pass");
-    assert!(
-        res.stdout.contains("env var check passed"),
-        "expect passed marker in stdout, got:\n{}",
-        res.output()
-    );
+    assert_passed_marker(&res, PASSED_MARKER, "zero tracked .rs files");
 }
 
 /// 契约 ②：staged 模式下 index 为空（`git init` 后无 commit、无暂存）→ exit 0 并输出 passed。
 #[test]
 fn test_staged_mode_empty_index_passes() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 0, "empty staged index must pass");
-    assert!(
-        res.stdout.contains("env var check passed"),
-        "expect passed marker in stdout, got:\n{}",
-        res.output()
-    );
+    assert_passed_marker(&res, PASSED_MARKER, "empty staged index");
 }
 
 /// 契约 ③：多 hunk 下 staged 行号准确——每个 `@@` 头重置新文件起始行号，
 /// 违规落在第二及以后 hunk 时报出真实文件行号（不跨 hunk 连续累加）。
 #[test]
 fn test_staged_mode_multi_hunk_line_numbers() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let original: Vec<String> = (1..=10).map(|i| format!("pub fn f{i}() {{}}")).collect();
     repo.write("src/multi.rs", &format!("{}\n", original.join("\n")));
     repo.commit_all();
@@ -555,7 +443,7 @@ fn test_staged_mode_multi_hunk_line_numbers() {
     edited.insert(1, "pub fn extra1() {}".to_string());
     edited.insert(9, violation.clone());
     repo.write("src/multi.rs", &format!("{}\n", edited.join("\n")));
-    git(repo.path(), &["add", "src/multi.rs"]);
+    repo.stage("src/multi.rs");
 
     let expected_ln = edited.iter().position(|l| *l == violation).unwrap() + 1;
     assert_eq!(
@@ -563,7 +451,7 @@ fn test_staged_mode_multi_hunk_line_numbers() {
         "fixture layout: violation must land in the 2nd hunk at new-file line 10"
     );
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 1, "violation in a later hunk must be flagged");
     let out = res.output();
     assert!(
@@ -580,16 +468,17 @@ fn test_staged_mode_multi_hunk_line_numbers() {
 /// 与旧 hook 管道 `grep -v "^+++ "` 口径一致：不被文件头跳过条件吞掉，命中即报。
 #[test]
 fn test_staged_mode_flags_tab_form_content_line() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/base.rs", "pub fn base() {}\n");
     repo.commit_all();
 
     // 内容行 = `++` + TAB + 违规调用文本（raw diff 行以 `+++` + TAB 起始）
     let tab_line = format!("++\t{}", set_call("TAB"));
     repo.write("src/tab.rs", &format!("pub fn g() {{}}\n{}\n", tab_line));
-    git(repo.path(), &["add", "src/tab.rs"]);
+    repo.stage("src/tab.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(
         &res,
         1,
@@ -606,7 +495,8 @@ fn test_staged_mode_flags_tab_form_content_line() {
 /// 不判）仍计入新文件行号——其后命中行报出的行号按实际文件行号推进，跳过行不参与判定。
 #[test]
 fn test_staged_mode_line_number_counts_skipped_header_form_line() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     repo.write("src/base.rs", "pub fn base() {}\n");
     repo.commit_all();
 
@@ -617,9 +507,9 @@ fn test_staged_mode_line_number_counts_skipped_header_form_line() {
         "src/skipped.rs",
         &format!("pub fn g() {{}}\n{}\n{}\n", skipped, hit),
     );
-    git(repo.path(), &["add", "src/skipped.rs"]);
+    repo.stage("src/skipped.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 1, "hit after a skipped +++-form line must fail");
     let out = res.output();
     assert!(
@@ -636,7 +526,8 @@ fn test_staged_mode_line_number_counts_skipped_header_form_line() {
 /// （上下文行计入新文件并推进行号，删除行不计入）。
 #[test]
 fn test_staged_mode_line_number_counts_context_lines() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     let original: Vec<String> = (1..=10).map(|i| format!("pub fn f{i}() {{}}")).collect();
     repo.write("src/ctx.rs", &format!("{}\n", original.join("\n")));
     repo.commit_all();
@@ -648,9 +539,9 @@ fn test_staged_mode_line_number_counts_context_lines() {
     edited[2] = hit_a.clone();
     edited[7] = hit_b.clone();
     repo.write("src/ctx.rs", &format!("{}\n", edited.join("\n")));
-    git(repo.path(), &["add", "src/ctx.rs"]);
+    repo.stage("src/ctx.rs");
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 1, "hits in a modified file must fail");
     let out = res.output();
     assert!(
@@ -666,16 +557,17 @@ fn test_staged_mode_line_number_counts_context_lines() {
 /// 回归 ④：文件路径含禁令 token 时，git 文件头行（`+++ b/…`）不参与判定、不误报。
 #[test]
 fn test_staged_mode_header_with_token_in_path_not_flagged() {
-    let repo = TempRepo::new();
+    let script = script();
+    let repo = script.temp_repo();
     // 运行时拼装路径（如 src/<token>.rs）：源码自身不出现裸 token
     let rel = format!("src/{}.rs", BANNED_SET);
     repo.write(&rel, "pub fn a() {}\n");
     repo.commit_all();
 
     repo.write(&rel, "pub fn a() {}\npub fn b() {}\n");
-    git(repo.path(), &["add", &rel]);
+    repo.stage(&rel);
 
-    let res = repo.check("staged");
+    let res = script.run(repo.path(), &["staged"]);
     assert_exit(
         &res,
         0,
@@ -686,8 +578,5 @@ fn test_staged_mode_header_with_token_in_path_not_flagged() {
         !out.contains(&rel),
         "path {rel} must not appear in output, got:\n{out}"
     );
-    assert!(
-        out.contains("env var check passed"),
-        "expect passed marker in stdout, got:\n{out}"
-    );
+    assert_passed_marker(&res, PASSED_MARKER, "token-bearing path header not flagged");
 }
