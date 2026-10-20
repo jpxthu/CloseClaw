@@ -40,7 +40,7 @@ fn required_str<'a>(args: &'a Value, key: &str) -> Result<&'a str, ToolCallError
 /// path verbatim + ".lock", so a relative path would derive its lock
 /// file from the process CWD and split the lock domain from the
 /// session's plan writers.
-fn is_plan_file_path(path: &str) -> bool {
+pub(crate) fn is_plan_file_path(path: &str) -> bool {
     path.starts_with("plans/") || path.contains("/plans/")
 }
 

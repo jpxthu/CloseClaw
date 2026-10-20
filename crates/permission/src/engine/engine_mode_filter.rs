@@ -180,6 +180,11 @@ impl PermissionEngine {
 }
 
 /// Check if a file path belongs to the plans/ directory.
-fn is_plans_path(path: &str) -> bool {
+///
+/// `pub` so tools' cross-crate consistency test can assert this is
+/// isomorphic to tools' `is_plan_file_path`
+/// (`crates/tools/src/builtin/file_ops.rs`). Any change here must be
+/// mirrored on the tools side and in that consistency test.
+pub fn is_plans_path(path: &str) -> bool {
     path.starts_with("plans/") || path.contains("/plans/")
 }
