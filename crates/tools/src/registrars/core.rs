@@ -14,6 +14,7 @@ use crate::builtin::{
     GitStatusTool, GrepTool, LsTool, PermissionQueryTool, ReadTool, ToolSearchTool, WriteTool,
 };
 use crate::permission_check::PermDeps;
+use crate::plan_file_access::PlanFileAccess;
 use crate::try_register;
 use crate::Tool;
 use closeclaw_common::tool_registry::{ToolRegistrar, ToolRegistrarError, ToolRegistryQuery};
@@ -27,6 +28,7 @@ pub struct CoreToolsRegistrar {
     tool_registry: Arc<dyn ToolRegistryQuery>,
     audit_logger: Option<Arc<dyn AuditLogger>>,
     read_truncation: ReadTruncationProvider,
+    plan_file_access: Option<Arc<dyn PlanFileAccess>>,
 }
 
 impl CoreToolsRegistrar {
@@ -42,6 +44,7 @@ impl CoreToolsRegistrar {
             tool_registry,
             audit_logger: None,
             read_truncation: Arc::new(TruncationConfig::default),
+            plan_file_access: None,
         }
     }
 
@@ -58,6 +61,31 @@ impl CoreToolsRegistrar {
     pub fn with_read_truncation(mut self, provider: ReadTruncationProvider) -> Self {
         self.read_truncation = provider;
         self
+    }
+
+    /// Set the plan-file access port used by Write/Edit for `plans/`
+    /// writes.
+    ///
+    /// Without a port, Write/Edit calls targeting `plans/` paths fail
+    /// fast instead of silently dropping the session's plan sidecar
+    /// lock and atomic-write protection; non-plans paths are unaffected.
+    pub fn with_plan_file_access(mut self, plan_file_access: Arc<dyn PlanFileAccess>) -> Self {
+        self.plan_file_access = Some(plan_file_access);
+        self
+    }
+}
+
+/// Wire the registrar's plan-file port into a tool under construction,
+/// or return the tool unwired when no port is set. `attach` is the
+/// tool's own `with_plan_file_access` builder.
+fn attach_plan_port<T>(
+    tool: T,
+    port: Option<&Arc<dyn PlanFileAccess>>,
+    attach: impl FnOnce(T, Arc<dyn PlanFileAccess>) -> T,
+) -> T {
+    match port {
+        Some(port) => attach(tool, Arc::clone(port)),
+        None => tool,
     }
 }
 
@@ -83,8 +111,18 @@ impl ToolRegistrar for CoreToolsRegistrar {
             ReadTool::new(Arc::clone(&self.read_truncation)),
             r
         );
-        try_register!(registry, registered, WriteTool::new(), r);
-        try_register!(registry, registered, EditTool::new(), r);
+        let write_tool = attach_plan_port(
+            WriteTool::new(),
+            self.plan_file_access.as_ref(),
+            WriteTool::with_plan_file_access,
+        );
+        let edit_tool = attach_plan_port(
+            EditTool::new(),
+            self.plan_file_access.as_ref(),
+            EditTool::with_plan_file_access,
+        );
+        try_register!(registry, registered, write_tool, r);
+        try_register!(registry, registered, edit_tool, r);
         try_register!(registry, registered, GrepTool::new(), r);
         try_register!(registry, registered, LsTool::new(), r);
         try_register!(
@@ -126,3 +164,7 @@ impl ToolRegistrar for CoreToolsRegistrar {
         Ok(())
     }
 }
+
+#[cfg(test)]
+#[path = "core_tests.rs"]
+mod tests;
