@@ -120,6 +120,10 @@ impl tools_plan_file::PlanFileAccess for ToolPlanFileAccess {
     fn touch_access_timestamp(&self, plan_path: &Path) -> Result<(), std::io::Error> {
         session_plan_file::touch_access_timestamp(plan_path)
     }
+
+    fn write_plan_file(&self, plan_path: &Path, content: &str) -> Result<(), std::io::Error> {
+        session_plan_file::write_plan_file_locked(plan_path, content)
+    }
 }
 
 /// Build the production tools-side plan-file access as
@@ -375,6 +379,58 @@ mod tests {
     }
 
     #[test]
+    fn tools_adapter_write_roundtrip_no_tear() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let access = ToolPlanFileAccess;
+        let plan = tmp.path().join("plans").join("feature.md");
+
+        // New file: missing parent directories are created and the
+        // content lands verbatim.
+        let content = "# Feature\n\n## Tasks\n\n- [ ] step1\n- [ ] step2\n";
+        access
+            .write_plan_file(&plan, content)
+            .expect("write new plan file");
+        assert_eq!(std::fs::read_to_string(&plan).unwrap(), content);
+
+        // Overwrite: the file is replaced atomically under the same
+        // sidecar lock domain as the session writers, so the final
+        // content is the complete new content — no tearing, no half
+        // sections, no interleaved markers.
+        let updated = "# Feature v2\n\n## Tasks\n\n- [x] step1\n\n## Done\n\n- done thing\n";
+        access
+            .write_plan_file(&plan, updated)
+            .expect("overwrite plan file");
+        assert_eq!(std::fs::read_to_string(&plan).unwrap(), updated);
+
+        // Atomic replace leaves no tempfile residue next to the plan.
+        let leftovers: Vec<String> = std::fs::read_dir(plan.parent().unwrap())
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .filter(|name| name.starts_with(".tmp."))
+            .collect();
+        assert!(leftovers.is_empty(), "temp residue: {leftovers:?}");
+    }
+
+    #[test]
+    fn tools_adapter_write_error_surfaces_session_io_error_verbatim() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        // Parent path occupied by a regular file → parent-dir creation
+        // fails inside the session helper. The adapter's error mapping
+        // is a verbatim io::Error passthrough, so the adapter error and
+        // the direct session error are indistinguishable.
+        let blocker = tmp.path().join("blocker");
+        std::fs::write(&blocker, "occupied").unwrap();
+        let plan = blocker.join("plans").join("feature.md");
+
+        let via_adapter = ToolPlanFileAccess
+            .write_plan_file(&plan, "content")
+            .unwrap_err();
+        let direct = session_plan_file::write_plan_file_locked(&plan, "content").unwrap_err();
+        assert_eq!(via_adapter.kind(), direct.kind());
+        assert_eq!(via_adapter.to_string(), direct.to_string());
+    }
+
+    #[test]
     fn tools_factory_returns_trait_object() {
         let access = tool_plan_file_access();
         let tmp = tempfile::TempDir::new().unwrap();
@@ -382,5 +438,15 @@ mod tests {
             Err(tools_plan_file::PlanResolveError::NotFound { .. }) => {}
             other => panic!("expected NotFound, got {other:?}"),
         }
+        // Write through the trait object (the wiring used by
+        // registries.rs) roundtrips content into plans/.
+        let plan = tmp.path().join("plans").join("wired.md");
+        access
+            .write_plan_file(&plan, "# Wired\n\n- [ ] step1\n")
+            .expect("write via trait object");
+        assert_eq!(
+            std::fs::read_to_string(&plan).unwrap(),
+            "# Wired\n\n- [ ] step1\n"
+        );
     }
 }

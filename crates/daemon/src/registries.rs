@@ -264,7 +264,8 @@ async fn register_standard_registrars(
         Arc::clone(ctx.tool_registry)
             as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
     )
-    .with_read_truncation(read_truncation_provider(Arc::clone(ctx.config_manager)));
+    .with_read_truncation(read_truncation_provider(Arc::clone(ctx.config_manager)))
+    .with_plan_file_access(tool_plan_file_access());
     let audit_log_path = ctx.data_dir.join("logs").join("audit.log");
     match FileAuditLogger::new(audit_log_path.clone()) {
         Ok(logger) => {
