@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""baseline diff 引擎单元测试（key 归一化判定语义与 None 透传）。"""
+"""baseline 单元测试：加载语义（load_baseline 跳过注释/空行）+ diff 判定（key 归一化与 None 透传）。"""
 
 from __future__ import annotations
 

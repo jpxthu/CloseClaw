@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -218,6 +219,12 @@ class CheckResultTest(unittest.TestCase):
         self.assertNotEqual(
             base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x", "y"])
         )
+
+    def test_frozen_after_construction(self) -> None:
+        """frozen=True：构造后属性赋值抛 FrozenInstanceError（防误改回可变）。"""
+        result = dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x"])
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            result.status = dep_guard.STATUS_FAIL
 
 
 class RunChecksTest(unittest.TestCase):
