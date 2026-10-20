@@ -55,11 +55,13 @@ STATUS_FAIL = "FAIL"
 STATUS_SKIP = "SKIP"
 
 
+@dataclass(frozen=True)
 class CheckResult:
-    def __init__(self, check_id: str, status: str, lines: list[str]) -> None:
-        self.check_id = check_id
-        self.status = status
-        self.lines = lines
+    """单项检查结果：标识 + 状态 + 报文行（全链路只读，构造即定稿）。"""
+
+    check_id: str  # 检查项标识，取值见 CHECK_IDS
+    status: str  # PASS / FAIL / SKIP（STATUS_* 常量）
+    lines: list[str]  # 报文行（首行标题 + FAIL/info 条目 + 汇总行）
 
 
 @dataclass(frozen=True)
