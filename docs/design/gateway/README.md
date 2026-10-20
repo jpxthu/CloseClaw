@@ -6,13 +6,13 @@
 
 Gateway 是消息路由中枢。它管理所有 IM 平台的插件，调度 Processor Chain 完成消息的出入站处理，做出路由决策（斜杠指令 vs 普通对话），并选择对应平台的 IM 插件完成出站消息的格式转换与发送。
 
-Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。入站方向维护有界持久化消息队列缓冲高并发请求，出站方向根据交付模式协调 Processor Chain 执行时机。LLM 回复和斜杠指令回复统一经出站 Processor Chain 处理后发送。含媒体的消息经分型路由后进入对话流程（媒体上下文形态见 [im_adapter media-store](../im_adapter/media-store.md)）；媒体不可得时经简化出站路径提示用户；系统通知（如"⏳ 正在排队..."、"正在恢复会话..."）由各业务模块（Session 等）经 Gateway 的通用系统通知接口发送，同样走简化出站路径。出站完整链路（批量/流式时序、简化路径、出站历史、中间件）详见 [出站流程](outbound-flow.md)。
+Gateway 自身不含业务逻辑，通过编排下游模块完成消息流转。入站方向维护有界持久化消息队列缓冲高并发请求，出站方向根据交付模式协调 Processor Chain 执行时机。LLM 回复和斜杠指令回复统一经出站 Processor Chain 处理后发送。多媒体能力按需求暂缓：含媒体消息的分型路由、媒体上下文形态与媒体不可得提示当前不实现（设计见 [im_adapter media-store](../im_adapter/media-store.md) 当前不实现范围）；系统通知（如"⏳ 正在排队..."、"正在恢复会话..."）由各业务模块（Session 等）经 Gateway 的通用系统通知接口发送，同样走简化出站路径。出站完整链路（批量/流式时序、简化路径、出站历史、中间件）详见 [出站流程](outbound-flow.md)。
 
 ## 架构
 
 Gateway 由以下职责组成：
 
-- **IM Adapter 管理**：注册和维护各平台插件（含 IM 平台插件和 terminal 通道的 CLI）。入站方向将平台原始格式归一化为统一结构。
+- **IM Adapter 插件**：提供各平台插件（含 IM 平台插件和 terminal 通道的 CLI）；Plugin Registry 由 Gateway 维护。入站方向将平台原始格式归一化为统一结构。
 - **Processor Chain 调度**：按 priority 顺序调度入站和出站处理器链。入站链完成消息日志记录、session_key 计算和文本标准化。出站链按交付模式决定执行时机——批量模式一次性执行完整链；流式模式分四个阶段——pre-flight（增量开始前执行一次出站中间件链做检查，被拒则终止流式并发送拒绝通知）、增量阶段（消费 [StreamEvent](../common/shared-types.md#streamevent) 流式事件，按事件过滤渲染，DslParser 零开销透传、跳过出站调试日志）、收尾阶段（执行 DSL 解析和出站调试日志，不重跑 VerbosityFilter。流式模式下 DSL 指令仅用于日志记录和出站历史写入，不产生渲染输出）和出错降级（流式进行中出错时终止流式会话，经简化出站路径追加错误提示，详见 [出站流程](outbound-flow.md)）。
 - **路由决策**：根据消息前缀决定走向——以 `/` 开头则拦截分派给斜杠指令处理（其中 `/approve-once`、`/approve-whitelist`、`/deny` 在 Gateway 层硬拦截不进 SlashDispatcher），否则路由到 Session 进入 LLM 对话流程。普通消息路由前，Gateway 先根据配置定义的机器人→Agent 绑定确定对应的 Agent，将 agent_id 一并传给 SessionManager。绑定关系由 [config accounts.json](../config/README.md)（账户映射）承载，属重启生效类：变更确认后由配置模块触发网关择机重启，重启后新绑定生效（已投递消息不受影响，详见 [daemon §F6](../../requirements/daemon.md)）。
 - **出站中间件**：渲染完成后、发送前，Gateway 按注册顺序链式执行中间件（流式模式前置为 pre-flight）。详见 [出站流程](outbound-flow.md) 出站中间件节。
@@ -40,7 +40,7 @@ Gateway 维护以下运行时注册表：
 
 消息流经的模块分层：IM Adapter（平台适配，入站解析/出站渲染发送）→ Processor Chain（消息变换：入站标准化与 session_key 计算、出站过滤/DSL 解析/日志）→ Gateway（编排与路由决策）→ 下游（SessionManager/Session、SlashDispatcher、Permission）。
 
-- **入站**：平台事件到达 → 入站消息队列缓冲 → IM Adapter 解析为 NormalizedMessage（媒体已落盘为引用）→ Processor Chain 入站变换 → Gateway 分型路由（含媒体的分型进入对话流程）、机器人→Agent 绑定、Session 解析 → 路由决策（斜杠指令 / LLM 对话）。完整步骤详见 [数据流 · 入站路径](#入站路径)与[入站流程](inbound-flow.md)。
+- **入站**：平台事件到达 → 入站消息队列缓冲 → IM Adapter 解析为 NormalizedMessage（媒体落盘随媒体能力暂缓）→ Processor Chain 入站变换 → Gateway 分型路由（含媒体的分型进入对话流程）、机器人→Agent 绑定、Session 解析 → 路由决策（斜杠指令 / LLM 对话）。完整步骤详见 [数据流 · 入站路径](#入站路径)与[入站流程](inbound-flow.md)。
 - **出站**：ContentBlock[] → Processor Chain 出站（过滤/DSL 解析/日志）→ IM Adapter 渲染 → 中间件链 → 发送 → 出站历史写入。批量/流式时序与简化路径详见 [数据流 · 出站路径](#出站路径)与[出站流程](outbound-flow.md)。
 
 跨模块交接的共享数据结构见 [模块关系 · 共享类型](#共享类型)。
@@ -51,7 +51,7 @@ Gateway 维护以下运行时注册表：
 
 Gateway 收到入站平台事件后，消息先进入入站消息队列（有界持久化缓冲，详见下方「消息队列与排队语义」），再由 IM Adapter 解析后进入 Processor Chain。Processor Chain 入站产出 [ProcessedMessage](../common/shared-types.md#processedmessage) 后，Gateway 按以下路径处理：
 
-- **消息分型路由**：Gateway 读取 message_type 判断消息形态。含媒体的进入媒体可得性校验：媒体可得（media_refs 非空且 unavailable_media 为空）时按类型构造上下文形态（图片进对话内容、文件音频以媒体引用），进入正常对话链路（形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；媒体不可得（unavailable_media 非空，即下载失败或超出大小上限）时向用户提示「该消息内容无法获取」，经简化出站路径发送，流程结束（简化路径机制详见 [出站流程](outbound-flow.md) 简化出站路径节）。
+- **消息分型路由**：Gateway 读取 message_type 判断消息形态。含媒体消息的分支随媒体能力暂缓、当前不实现（非文本消息的当前处理不在设计范围，待需求明确）；以下为启用后的目标设计：含媒体的进入媒体可得性校验：媒体可得（media_refs 非空且 unavailable_media 为空）时按类型构造上下文形态（图片进对话内容、文件音频以媒体引用），进入正常对话链路（形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）；媒体不可得（unavailable_media 非空，即下载失败或超出大小上限）时向用户提示「该消息内容无法获取」，经简化出站路径发送，流程结束（简化路径机制详见 [出站流程](outbound-flow.md) 简化出站路径节）。
 
 - **Session 解析**：Gateway 从 metadata 取出 session_key，并根据配置定义的机器人→Agent 绑定确定对应的 Agent，得到 agent_id。若 session_key 为空（SessionRouter 计算失败），Gateway 记录 warning 日志，仍通过消息路由字段（platform, sender_id, peer_id, account_id）传给 SessionManager 正常完成 session 查找/创建（详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）。session_key 是消息级追踪标识，不参与 session 路由——SessionManager 从路由字段中提取稳定路由键做查找。Gateway 将 agent_id 连同 session_key、路由字段一并传给 SessionManager，session 在 Agent 范围内隔离（详见 [Session 模块](../session/README.md)）。若 SessionManager 的 session 查找或创建操作失败（如存储异常），Gateway 向 User 回复错误提示，不进入后续 LLM 对话流程。
 
@@ -98,7 +98,7 @@ Gateway 涉及两层排队：
 - 重启行为：重启时重放未标记完成的消息，未完成处理的消息不丢失（at-least-once）。消息重放时按消息身份去重，避免重复处理。优雅关闭时 Gateway 先停收新消息、排空已有队列后再退出
 - **配置触发重建期暂存补投**（区别于上行 WAL 重启重放）：配置触发的 Gateway 重建执行期间，入站新消息不经队列满判定，照常走持久化入站队列暂存，不拒绝、不丢失；重建完成后按原到达顺序补投进处理链。触发时机与执行边界由 Daemon 协调（详见 [daemon README](../daemon/README.md)）
 - 用户感知：正常负载下，文本消息到达 Gateway 后应在 1 秒内收到系统响应或排队提示。队列满时的"服务繁忙"拒绝本身是快速系统响应（另有 2 秒兜底约束），不视为例外；仅审批等待等真正异步等待的场景不适用此 1 秒响应约束
-- 消费：IM Adapter 按 FIFO 从队列取消息解析，送入 Processor Chain 串行处理
+- 消费：Gateway 按 FIFO 从队列取出事件，交对应平台插件解析，送入 Processor Chain 串行处理
 - 送达语义（按平台接入模式分型）：webhook 类平台——队列满拒绝的消息未确认（ack），由对应平台自动重发；推送/长连接类平台（如飞书 CLI 事件订阅）——平台无自动重发，消息即终，用户需重新发送；系统仅回复一次繁忙提示。平台接入模式由各平台插件声明（见 [飞书插件](../im_adapter/platforms/feishu.md)）
 
 **第 2 层：Session 忙碌队列**

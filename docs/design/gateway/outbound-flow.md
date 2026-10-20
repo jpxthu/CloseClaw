@@ -27,7 +27,7 @@ Gateway 管理流式会话状态，跟踪当前流式进度、累积消息内容
 
 Gateway 层面的出站通道选择。适用于以下纯文本、无 DSL 指令、无需按 Session 过滤的面向 User 提示（均不进入 LLM 对话链）：
 
-- **媒体不可得提示**：入站路由时发现含媒体消息且媒体不可得（unavailable_media 非空：下载失败或超出大小上限）→ 提示「该消息内容无法获取」（形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）
+- **媒体不可得提示（暂缓）**：入站路由时发现含媒体消息且媒体不可得（unavailable_media 非空：下载失败或超出大小上限）→ 提示「该消息内容无法获取」（形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）。多媒体能力按需求暂缓，当前不实现
 - **系统通知**：Session、Workflow 等业务模块经 Gateway 通用系统通知接口发送的纯文本提示（如"⏳ 正在排队..."、"正在恢复会话..."、workflow 暂停通知）。通知内容与触发时机由调用方模块负责，Gateway 仅提供发送通道
 - **流式降级提示**：pre-flight 拒绝通知、流式中断的"回复中断"提示
 - **批量发送失败提示**：批量模式渲染/发送失败时的"回复发送失败"提示

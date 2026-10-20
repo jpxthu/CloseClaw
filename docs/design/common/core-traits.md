@@ -221,14 +221,14 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 标识 | Plugin 的唯一平台名（如 `"feishu"`、`"terminal"`），用于 Gateway 的 Plugin Registry 路由 |
-| 入站 | 解析平台原生事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃；其余消息正常产出 NormalizedMessage（message_type 标记类型，media_refs 承载已落盘的媒体引用，纯媒体消息 content 可为空），由 Gateway 分型处理（消息过滤完整规则见 [shared-types](shared-types.md#normalizedmessage)） |
-| 渲染 | 接收 [ContentBlock](shared-types.md#contentblock)[] 和 [DslParseResult](shared-types.md#dslparseresult--dslinstruction)，按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
+| 入站 | 解析平台原生事件 payload 为 [NormalizedMessage](shared-types.md#normalizedmessage)。text 类型空 content 消息在解析阶段丢弃；其余消息正常产出 NormalizedMessage（message_type 标记类型，media_refs 承载已落盘的媒体引用——媒体能力暂缓，当前不填充，纯媒体消息 content 可为空），由 Gateway 分型处理（消息过滤完整规则见 [shared-types](shared-types.md#normalizedmessage)） |
+| 渲染 | 接收 [ProcessedMessage](shared-types.md#processedmessage)（content_blocks + metadata 中的 [DslParseResult](shared-types.md#dslparseresult--dslinstruction)），按平台能力选择输出格式（纯文本或富格式），产出 [RenderedOutput](shared-types.md#renderedoutput)。渲染是纯数据转换，无副作用 |
 | 发送 | 接收 [RenderedOutput](shared-types.md#renderedoutput)，以指定目标（peer_id + reply_ref）调用平台发送 API |
 | 生命周期 | `init()`：启动时初始化（连接池、token 等），不需要的插件空实现；`shutdown()`：关闭时清理资源，不需要的插件空实现 |
 
 **渲染与发送的分离**：渲染产出数据（RenderedOutput），发送执行副作用。Gateway 在两步之间可插入审计、频率限制等中间件。
 
-**与流式渲染的关系**：上表渲染方法描述批量路径（接收完整 ContentBlock[] + DslParseResult）。流式渲染是独立路径——各平台插件组合持有流式渲染器组件，消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染后经本 trait 的发送能力投递，不经过本 trait 的渲染方法（详见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。
+**与流式渲染的关系**：上表渲染方法描述批量路径（接收完整 ProcessedMessage）。流式渲染是独立路径——各平台插件组合持有流式渲染器组件，消费 [StreamEvent](shared-types.md#streamevent) 事件流增量渲染后经本 trait 的发送能力投递，不经过本 trait 的渲染方法（详见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。
 
 **平台插件实现**和注册机制详见 [IM Adapter 模块](../im_adapter/README.md)。
 
@@ -246,7 +246,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 |------|------|
 | 解析 | 给定 MediaRef 返回其本地绝对路径，失败返回 [MediaStoreError](shared-types.md#mediastoreerror) |
 
-媒体落盘与消费机制见 [im_adapter media-store](../im_adapter/media-store.md)。
+媒体能力按需求暂缓（见 [im_adapter media-store](../im_adapter/media-store.md)），本 trait 当前不实现具体存储行为；启用前需解冻需求并重新设计。
 
 ### 斜杠指令分派与执行
 
@@ -466,7 +466,7 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 - **DefaultStreamingRenderer**：本 trait 的默认实现，承载平台无关的增量渲染逻辑——逐事件处理事件流、行缓冲切分、产出增量 [StreamingOutput](shared-types.md#streamingoutput)。实现方为 common 自身；im_adapter、cli 等平台适配器持有并委托调用，并可在其上覆盖差异化渲染行为（平台差异见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。
 - **LineBuffer**：默认实现持有的行缓冲原语——以句末标点 / 换行为边界切分 Text 块输出单元，并执行缓冲阈值与超时强制输出（规则见 [im_adapter/streaming-render](../im_adapter/streaming-render.md)）。平台无关，随默认实现位于 common。
-- **CodeBlockMode**：流式渲染的代码块模式开关（文本模式 / 代码模式）——文本模式按句末标点切分并受阈值 / 超时约束，代码模式累计至代码块闭合再整块输出；由消费方经默认实现设定。
+- **CodeBlockMode**：流式渲染的代码块输出粒度开关（行级 / 整块）——行级按行输出，整块在代码块闭合后作为单个输出单元下发；由消费方经默认实现设定（IM 平台用整块，terminal 用行级）。
 
 **归属判定**：三者为流式渲染原语的组成部分，被 im_adapter 等平台适配器消费，且与 StreamingRenderer 默认实现强耦合（移出将使 common 反向依赖平台适配器）——平台无单一领域归属，随本 trait 定义于 common。
 
@@ -586,14 +586,14 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、MediaStoreAccess、TaskManager、SpawnValidator、AuditLogger）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、TaskManager、SpawnValidator、AuditLogger；MediaStoreAccess 随媒体能力暂缓，当前不消费）
   - **session**（实现 ToolRegistrar、ToolSession、SpawnValidator；消费 PermissionChecker、PermissionEvaluator、ApprovalSubmission、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup、MetricsEmitter）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
-  - **im_adapter**（实现 ToolRegistrar、IMPlugin、MediaStoreAccess；消费 IdentityResolver、StreamingRenderer、StreamingSink）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery、WorkflowControl）
+  - **im_adapter**（实现 ToolRegistrar、IMPlugin；消费 IdentityResolver、StreamingRenderer；MediaStoreAccess 随媒体能力暂缓，当前不实现）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、PermissionChecker、ToolExecutor；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、TaskManager、AgentRegistryQuery、WorkflowControl；MediaStoreAccess 随媒体能力暂缓，当前不消费）
   - **cli**（实现 IMPlugin；消费 StreamingRenderer、StreamingSink）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup）
   - **workflow**（实现 WorkflowControl、SlashHandler；消费 SlashSessionQuery、SessionLookup）

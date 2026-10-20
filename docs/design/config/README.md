@@ -21,7 +21,7 @@
 │   ├── plugins.json         # 插件列表与配置
 │   ├── session.json         # 会话生命周期与执行持久化配置（idle 超时、purge TTL、扫描间隔、compaction 阈值、审计日志存储上限等）
 │   ├── memory.json          # 记忆模块全局配置（挖掘、做梦、搜索、遗忘等子系统参数）
-│   ├── media.json           # 媒体存储配置（存储目录、保留期、图片内容阈值等）
+│   ├── media.json           # 媒体存储配置（存储目录、保留期等；媒体能力暂缓，当前不实现）
 │   ├── agents.json          # Agent 注册清单（显式 ID 列表，JSONC）
 │   ├── skills.json          # 全局技能配置（extraDirs 外部复用技能目录）
 │   ├── credentials/         # 凭据子目录（按 LLM 供应商分文件，与业务配置分开存放）
@@ -49,7 +49,7 @@
   |----------|--------|------|
   | SessionConfigProvider | `config/session.json` | 解析会话生命周期与执行持久化参数（idle 超时、purge TTL、扫描间隔、compaction 阈值、审计日志存储上限等），支持 per-agent 的 idle 超时与 purge 阈值查询（按 agent_id 与角色，字段定义见 [session-lifecycle](../session/session-lifecycle.md)） |
   | AccountsConfigProvider | `config/accounts.json` | 加载账户身份映射（4 方向：机器人↔Agent、IM 用户↔User）、校验发送者标识。生效类别按方向：机器人↔Agent（入站路由、出站选择）属重启生效类（绑定承载与路由见 [gateway §F4](../gateway/README.md)）；IM 用户↔User（入站解析、出站解析）即时生效（见 [permission §F1](../permission/README.md)） |
-  | MediaConfigProvider | `config/media.json` | 解析媒体存储目录、保留期、图片内容阈值等媒体存储参数（详见 [im_adapter media-store](../im_adapter/media-store.md)） |
+  | MediaConfigProvider | `config/media.json` | 解析媒体存储目录、保留期等媒体存储参数（详见 [im_adapter media-store](../im_adapter/media-store.md)；媒体能力暂缓，当前不实现） |
   | MemoryConfigProvider | `config/memory.json` | 解析记忆模块全局配置（挖掘、做梦、搜索、遗忘等子系统参数，字段语义与默认值详见 [memory/config](../memory/config.md)） |
 - **CredentialsProvider**：按供应商分文件加载 `credentials/` 目录下的凭据并在启动时固化，运行时按 models 等业务配置中的供应商引用，从已加载的凭据存储中取值注入。凭据在 `credentials/` 子目录下按供应商分文件独立存放、与业务配置分离，models 等业务配置只引用供应商名称、不包含凭据内容；凭据文件创建时设置仅 Owner 可读的文件系统权限。凭据变更属重启生效类（生效类别判定见需求 [config §F7](../../requirements/config.md)，消费侧见 [llm 模块](../llm/README.md)「模型与凭据的生效机制」）；config 作为重载载体对 `credentials/` 目录提供触发入口——凭据文件变更纳入监听并进入待重启暂存区，变更确认与重启触发见 [hot-reload](hot-reload.md)「重启类变更确认与触发」，重启前各消费方按旧凭据运行。加载失败不阻塞 daemon 启动，仅影响需要该供应商的功能。
 - **ConfigReloadManager（独立于 ConfigProvider 体系）**：文件变更监控与热重载，监听 `config/` 目录下的业务配置文件及其子目录 `credentials/` 的变更事件。对非重启生效类变更增量重载、校验通过后更新内存配置并通过事件通道向各订阅的消费模块发送变更通知（校验失败时保留内存旧配置并经 IM 通知 Owner，详见 [hot-reload](hot-reload.md)）；对重启生效类变更（模型与凭据、机器人绑定、Gateway 服务参数等）不即时重载，而是进入待重启暂存区、由 daemon 择机重启网关后生效。同一文件内若含不同生效类别的字段（如 accounts.json），按字段各自类别分别处理。生效类别判定见需求 [config §F7](../../requirements/config.md)，机制详见 [hot-reload](hot-reload.md)。
@@ -110,7 +110,7 @@ Config 模块启动时依次执行以下步骤：
 | plugins | 插件名非空、插件可解析 |
 | session | idleMinutes 非负、purgeAfterMinutes 非负、sweeperIntervalSeconds 为正、auditLogLimit 非负；compaction 告警阈值与压缩阈值为合法百分比（按上下文窗口剩余空间触发，告警阈值大于压缩阈值以保证先告警后压缩） |
 | accounts | 账户 ID 非空且唯一、发送者标识非空；同一渠道内「接收方机器人应用 × 发送者标识」组合唯一；同一机器人应用唯一绑定一个 Agent；单个 IM 平台下 IM 用户↔User、机器人↔Agent 各自 1:1，单个 User / Agent 可对应多平台（跨平台 1:N） |
-| media | 存储目录路径合法、保留期为非负整数（0 表示禁用定期清理）、图片内容阈值为非负整数 |
+| media | 存储目录路径合法、保留期为非负整数（0 表示禁用定期清理） |
 | memory | 各子系统 enabled 为布尔、模型/路径等字段合法、数值参数为非负（字段定义见 [memory/config](../memory/config.md)） |
 | credentials | api_key 非空、供应商 ID 非空 |
 | agents | ID 列表为有效 JSONC 格式 |
@@ -122,7 +122,7 @@ Config 模块启动时依次执行以下步骤：
 
 - **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导）、Agent（Config 主动扫描 Agent 配置目录，消费其配置文件产出 ResolvedAgentConfig）、platform（提供配置目录，作为各配置子目录布局的基准）
 - **下游**：
-  - **直接下游（经 ConfigProvider 查询接口消费配置）**：session（SessionConfigProvider——会话配置参数）、IM Adapter（IdentityResolver——消费 accounts.json 做入站身份映射与出站 @ 解析）、skills（SkillsConfigProvider——extraDirs 外部复用技能目录，详见 [skills 模块](../skills/README.md)）、memory（MemoryConfigProvider——记忆模块全局配置，详见 [memory/config](../memory/config.md)）。
+  - **直接下游（经 ConfigProvider 查询接口消费配置）**：session（SessionConfigProvider——会话配置参数）、IM Adapter（IdentityResolver——消费 accounts.json 做入站身份映射）、skills（SkillsConfigProvider——extraDirs 外部复用技能目录，详见 [skills 模块](../skills/README.md)）、memory（MemoryConfigProvider——记忆模块全局配置，详见 [memory/config](../memory/config.md)）。
   - **文件级路径消费**：Gateway（accounts.json 机器人↔Agent 绑定，加载后内部引用，做入站路由与出站选择）、Permission（延迟加载 Agent 配置目录下的 permissions.json，热适应由权限模块内部机制实现，不经 config 变更通知）。
   - **事件通知订阅方**：ConfigReloadManager 以 publish/subscribe 模式向订阅模块推送变更通知；是否订阅、如何重载由各模块自行决定，不构成调用关系。
   - **文件级触发**：重启生效类变更确认后触发 daemon 择机重启网关（见 [hot-reload](hot-reload.md)「重启类变更确认与触发」），属事件触发、非 API 调用。
