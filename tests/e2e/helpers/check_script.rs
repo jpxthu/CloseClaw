@@ -23,18 +23,22 @@ use std::process::{Command, ExitStatus, Output};
 
 use closeclaw_common::test_helpers::ensure_dir;
 
-/// 参数化锚点：检查脚本路径 + git 身份字符串。每个套件构造一次自己的实例，
-/// 测试函数经 [`CheckScript::run`] / [`CheckScript::run_with_env`] 驱动脚本、
-/// 经 [`CheckScript::temp_repo`] 构造注入了同身份的夹具仓库。
+/// Parameterization anchor: check-script path + git identity string. Each
+/// suite constructs its own instance once; test functions drive the script
+/// through [`CheckScript::run`] / [`CheckScript::run_with_env`] and build
+/// identity-injected fixture repos through [`CheckScript::temp_repo`].
 pub struct CheckScript {
-    /// 检查脚本绝对路径：`CARGO_MANIFEST_DIR` + `scripts/<script_name>`。
+    /// Absolute path of the check script: `CARGO_MANIFEST_DIR` +
+    /// `scripts/<script_name>`.
     script: PathBuf,
-    /// git 身份基串：派生 fixture 提交的 `user.name` 与 `user.email`。
+    /// git identity base string; derives the fixture commit's `user.name`
+    /// and `user.email`.
     identity: String,
 }
 
 impl CheckScript {
-    /// 以 `scripts/<script_name>`（相对本仓库 manifest 根）与 git 身份基串构造。
+    /// Builds from `scripts/<script_name>` (relative to this repo's
+    /// manifest root) and the git identity base string.
     pub fn new(script_name: &str, identity: &str) -> Self {
         Self {
             script: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -44,19 +48,25 @@ impl CheckScript {
         }
     }
 
-    /// 构造注入了本实例 git 身份的夹具仓库。
+    /// Resolved absolute path of the check script.
+    pub fn script_path(&self) -> &Path {
+        &self.script
+    }
+
+    /// Builds a fixture repo injected with this instance's git identity.
     pub fn temp_repo(&self) -> TempRepo {
         TempRepo::new(&self.identity)
     }
 
-    /// 在 `dir` 中以任意参数运行检查脚本（`dir` 为 CWD）。
+    /// Runs the check script in `dir` with arbitrary args (`dir` as CWD).
     pub fn run(&self, dir: &Path, args: &[&str]) -> CheckResult {
         self.run_with_env(dir, args, |_| {})
     }
 
-    /// 变体：启动前允许对子进程 `Command` 做额外 env 调整（如
-    /// `GIT_CEILING_DIRECTORIES` 注入），其余行为与 [`CheckScript::run`]
-    /// 完全一致；不影响其它用例。
+    /// Variant: allows extra env adjustments on the child `Command` before
+    /// spawn (e.g. `GIT_CEILING_DIRECTORIES` injection). Otherwise identical
+    /// to [`CheckScript::run`]; the adjustment applies to this invocation
+    /// only.
     pub fn run_with_env<F>(&self, dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
     where
         F: FnOnce(&mut Command),
@@ -71,25 +81,26 @@ impl CheckScript {
     }
 }
 
-/// 隔离的临时 git 仓库：`TempDir` 落系统临时目录（跟随 $TMPDIR），Drop 时自动清理。
+/// Isolated throwaway git repository: `TempDir` under the system temp dir
+/// (follows `$TMPDIR`), cleaned up automatically on `Drop`.
 pub struct TempRepo {
     dir: tempfile::TempDir,
-    /// fixture 提交作者 `user.name`（= 身份基串）。
-    user_name: String,
-    /// fixture 提交作者 `user.email`（= `<身份基串>@example.invalid`）。
-    user_email: String,
+    /// git identity base string; `commit_all` derives the fixture commit
+    /// author's `user.name` (`= identity`) and `user.email`
+    /// (`<identity>@example.invalid`).
+    identity: String,
 }
 
 impl TempRepo {
-    /// `git init` 一个空仓库（默认分支 warning 无害，输出被捕获）；
-    /// `identity` 派生 fixture 提交的 user.name / user.email。
+    /// `git init`s an empty repo (the default-branch warning is harmless,
+    /// output captured); `identity` derives the fixture commit's
+    /// user.name / user.email.
     pub fn new(identity: &str) -> Self {
         let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
         git(dir.path(), &["init", "-q"]);
         Self {
             dir,
-            user_name: identity.to_string(),
-            user_email: format!("{identity}@example.invalid"),
+            identity: identity.to_string(),
         }
     }
 
@@ -97,7 +108,7 @@ impl TempRepo {
         self.dir.path()
     }
 
-    /// 写入夹具文件（自动创建父目录）。
+    /// Writes a fixture file (parent dirs auto-created).
     pub fn write(&self, rel: &str, content: &str) {
         let path = self.path().join(rel);
         if let Some(parent) = path.parent() {
@@ -106,21 +117,23 @@ impl TempRepo {
         std::fs::write(&path, content).expect("write fixture file");
     }
 
-    /// 暂存指定文件（增量口径的数据源：staged diff）。
+    /// Stages the given file (data source for the incremental mode: staged
+    /// diff).
     pub fn stage(&self, rel: &str) {
         git(self.path(), &["add", rel]);
     }
 
-    /// 全量暂存并提交当前工作树（注入 user 身份，关掉签名与全局 hooks 保证隔离）。
+    /// Stages everything and commits the working tree (injects the user
+    /// identity; disables signing and global hooks for isolation).
     pub fn commit_all(&self) {
         git(self.path(), &["add", "-A", "-f"]);
         git(
             self.path(),
             &[
                 "-c",
-                &format!("user.name={}", self.user_name),
+                &format!("user.name={}", self.identity),
                 "-c",
-                &format!("user.email={}", self.user_email),
+                &format!("user.email={}@example.invalid", self.identity),
                 "-c",
                 "commit.gpgsign=false",
                 "-c",

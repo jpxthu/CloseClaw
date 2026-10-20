@@ -9,10 +9,13 @@
 //! are item-gated on feature `fake-llm`). The minimal config-tree
 //! scaffolding (empty `agents.json` + mandatory configs) lives in
 //! [`config_tree`] and is **not** feature-gated, so cases built without
-//! `fake-llm` can use it. The Chat-RPC client, fake-LLM server, and full
-//! fake-LLM config-tree scaffolding live in the [`chat`], [`fake_llm`],
-//! and [`config`] submodules (feature `fake-llm`, whose consumers are the
-//! fake-LLM-backed test files).
+//! `fake-llm` can use it. The script-driven check suites
+//! (`line_width_check_tests`, `env_var_check_tests`) share the
+//! temp-git-repo fixture and check-script driver in [`check_script`],
+//! parameterized over script path and git identity. The Chat-RPC client,
+//! fake-LLM server, and full fake-LLM config-tree scaffolding live in the
+//! [`chat`], [`fake_llm`], and [`config`] submodules (feature `fake-llm`,
+//! whose consumers are the fake-LLM-backed test files).
 
 pub(crate) mod check_script;
 #[cfg(test)]

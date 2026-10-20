@@ -23,30 +23,17 @@ fn check_result_from_bash(snippet: &str) -> CheckResult {
 }
 
 /// Normal path: `CheckScript::new` resolves the script to an absolute path
-/// under `<CARGO_MANIFEST_DIR>/scripts/`. Probed indirectly with a script
-/// name that does not exist: bash fails to open it and echoes the fully
-/// resolved path into stderr.
+/// under `<CARGO_MANIFEST_DIR>/scripts/` (asserted directly via
+/// [`CheckScript::script_path`]; the driver's bash spawn wiring is exercised
+/// by the consuming suites on every case).
 #[test]
 fn test_check_script_new_resolves_script_under_manifest_scripts_dir() {
-    let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
-    let missing = "check_script_probe_missing.sh";
+    let script = CheckScript::new("check_script_probe_missing.sh", "identity");
     let expected = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("scripts")
-        .join(missing);
+        .join("check_script_probe_missing.sh");
 
-    let res = CheckScript::new(missing, "identity").run(dir.path(), &[]);
-
-    assert_eq!(
-        res.code(),
-        Some(127),
-        "bash exits 127 when the script file is missing"
-    );
-    let stderr = res.stderr.clone();
-    assert!(
-        stderr.contains(&expected.display().to_string()),
-        "expected stderr to mention resolved path {}, got: {stderr}",
-        expected.display()
-    );
+    assert_eq!(script.script_path(), expected);
 }
 
 /// Normal path: `TempRepo::new(identity)` derives the fixture commit
