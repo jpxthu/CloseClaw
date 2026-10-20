@@ -16,6 +16,10 @@ use crate::helpers;
 use crate::helpers::chat::read_frame;
 use crate::helpers::daemon_guard::spawn_default_ready_daemon;
 
+// ---------------------------------------------------------------------------
+// Assertion helper
+// ---------------------------------------------------------------------------
+
 /// Assert admin AgentInfo response contains expected fields.
 fn assert_admin_agent_info(response: &serde_json::Value) {
     assert_eq!(
