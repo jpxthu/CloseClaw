@@ -6,18 +6,17 @@
 //! 3. DaemonRunner error propagates through handle_run_foreground
 //! 4. Foreground mode writes the PID file correctly
 
+use super::run::TEST_SOCKET_WAIT_TIMEOUT_MS;
 use super::run::{
     ensure_no_running_daemon, handle_run, handle_run_foreground, handle_run_with_socket_timeout,
-    prepare_run, wait_for_socket, DaemonRunner,
+    prepare_run, DaemonRunner,
 };
 use super::run_helper_tests::{run_helper, spawn_helper_child_without_home};
 use closeclaw_platform::process::{read_pid_file, write_pid_file};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{Duration, Instant};
 use tempfile::TempDir;
-use tokio::net::UnixListener;
 
 /// Helper: create an isolated PID file path under a TempDir.
 ///
@@ -29,11 +28,6 @@ fn isolated_pid_file(tmp: &TempDir) -> PathBuf {
     std::fs::create_dir_all(&pid_dir).expect("failed to create .closeclaw dir");
     pid_dir.join("daemon.pid")
 }
-
-/// Short socket-wait timeout injected by background-mode tests so the
-/// "socket never appears" path fails fast instead of waiting out the
-/// production 30s default.
-const TEST_SOCKET_WAIT_TIMEOUT_MS: u64 = 50;
 
 // ── Mock DaemonRunner ──────────────────────────────────────────────────────
 
@@ -830,128 +824,4 @@ fn test_full_pid_lifecycle_state_transition() {
     // State 4: No file again → clean state restored.
     let result = ensure_no_running_daemon(&pid_file);
     assert!(result.is_ok(), "clean state should yield Ok: {result:?}");
-}
-
-// ═══════════════════════════════════════════════════════════════════════════
-// wait_for_socket direct unit tests (issue #3185 Step 1.2)
-// ═══════════════════════════════════════════════════════════════════════════
-//
-// Behavior dimensions:
-// 1. Success: listener already bound at the socket path → Ok on the first
-//    probe without consuming the timeout budget
-// 2. Timeout: no listener behind the path (nonexistent path / stale socket
-//    file) → Err containing "Timed out waiting for daemon admin socket"
-// 3. Late success: listener becomes ready mid-wait → returns promptly on
-//    the first successful probe, no extra poll-interval-grade delay
-
-/// Success path: a listener is already bound at the socket path, so
-/// wait_for_socket must return Ok on the first probe, well before the
-/// timeout is exhausted.
-///
-/// Socket path is injected via TempDir (never the real `~/.closeclaw`).
-#[tokio::test]
-async fn test_wait_for_socket_success_listener_ready() {
-    let tmp = TempDir::new().unwrap();
-    let sock = tmp.path().join("admin.sock");
-    let _listener = UnixListener::bind(&sock).expect("bind test listener");
-
-    let started = Instant::now();
-    let result = wait_for_socket(&sock, 1_000).await;
-    let elapsed = started.elapsed();
-
-    assert!(
-        result.is_ok(),
-        "should succeed when the listener is ready: {result:?}"
-    );
-    assert!(
-        elapsed < Duration::from_millis(1_000),
-        "must return before exhausting the timeout budget, got {elapsed:?}"
-    );
-}
-
-/// Timeout path: the socket path does not exist → wait_for_socket must
-/// return Err after the tiny injected timeout, with the exact timeout
-/// message including the path.
-#[tokio::test]
-async fn test_wait_for_socket_timeout_nonexistent_path() {
-    let tmp = TempDir::new().unwrap();
-    let sock = tmp.path().join("never_bound.sock");
-    assert!(!sock.exists(), "precondition: socket path must not exist");
-
-    let result = wait_for_socket(&sock, TEST_SOCKET_WAIT_TIMEOUT_MS).await;
-
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("Timed out waiting for daemon admin socket"),
-        "error should be the socket-wait timeout, got: {err_msg}"
-    );
-    assert!(
-        err_msg.contains(sock.to_str().unwrap()),
-        "error should include the socket path, got: {err_msg}"
-    );
-}
-
-/// Timeout path: the socket file exists but nothing is listening behind
-/// it (stale socket file) → every connect probe fails → Err after the
-/// timeout, with the same timeout message.
-#[tokio::test]
-async fn test_wait_for_socket_timeout_stale_socket_file() {
-    let tmp = TempDir::new().unwrap();
-    let sock = tmp.path().join("stale.sock");
-    // Bind then drop: the socket file persists on disk without a listener.
-    drop(UnixListener::bind(&sock).expect("bind throwaway listener"));
-    assert!(
-        sock.exists(),
-        "socket file should persist after the listener is dropped"
-    );
-
-    let result = wait_for_socket(&sock, TEST_SOCKET_WAIT_TIMEOUT_MS).await;
-
-    let err_msg = result.unwrap_err().to_string();
-    assert!(
-        err_msg.contains("Timed out waiting for daemon admin socket"),
-        "error should be the socket-wait timeout, got: {err_msg}"
-    );
-}
-
-/// Late-success boundary: the listener becomes ready mid-wait (after the
-/// first probe fails). wait_for_socket must return Ok as soon as a probe
-/// succeeds — total elapsed must stay below the timeout plus a small
-/// margin, i.e. returning must not be delayed by extra poll intervals or
-/// gated on deadline exhaustion (guards against regressing to a blocking
-/// or timeout-exhausting wait).
-#[tokio::test]
-async fn test_wait_for_socket_late_success_within_timeout() {
-    let tmp = TempDir::new().unwrap();
-    let sock = tmp.path().join("late.sock");
-    const TIMEOUT_MS: u64 = 500;
-    const BIND_DELAY_MS: u64 = 50;
-
-    // Bind the listener BIND_DELAY_MS into the wait, then keep accepting
-    // probe connections so it stays alive until the runtime shuts the
-    // task down at test end (same mock-server shape as chat rpc tests).
-    let late_sock = sock.clone();
-    tokio::spawn(async move {
-        tokio::time::sleep(Duration::from_millis(BIND_DELAY_MS)).await;
-        let listener = UnixListener::bind(&late_sock).expect("bind late listener");
-        loop {
-            if listener.accept().await.is_err() {
-                break;
-            }
-        }
-    });
-
-    let started = Instant::now();
-    let result = wait_for_socket(&sock, TIMEOUT_MS).await;
-    let elapsed = started.elapsed();
-
-    assert!(
-        result.is_ok(),
-        "should succeed once the listener becomes ready: {result:?}"
-    );
-    assert!(
-        elapsed < Duration::from_millis(TIMEOUT_MS + 100),
-        "late success must not consume the full timeout plus extra poll \
-         intervals, got {elapsed:?}"
-    );
 }
