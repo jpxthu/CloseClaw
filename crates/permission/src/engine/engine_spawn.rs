@@ -1,7 +1,7 @@
 //! Permission Engine - Agent spawn permission validation.
 
 use super::engine_types::{PermissionRequestBody, Subject};
-use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits};
+use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits, DIMENSIONS};
 use std::collections::HashMap;
 use thiserror::Error;
 
@@ -97,69 +97,47 @@ impl super::engine_eval::PermissionEngine {
     /// evaluates the User phase (UserAndAgent rules only), and collects the results
     /// into an `AgentPermissions`.
     pub fn evaluate_user_permissions(&self, user_id: &str, agent_id: &str) -> AgentPermissions {
-        let dimensions = [
-            (
-                "exec",
-                PermissionRequestBody::CommandExec {
-                    agent: agent_id.to_string(),
-                    cmd: String::new(),
-                    args: Vec::new(),
-                },
-            ),
-            (
-                "file_read",
-                PermissionRequestBody::FileOp {
-                    agent: agent_id.to_string(),
-                    path: String::new(),
-                    op: "read".to_string(),
-                },
-            ),
-            (
-                "file_write",
-                PermissionRequestBody::FileOp {
-                    agent: agent_id.to_string(),
-                    path: String::new(),
-                    op: "write".to_string(),
-                },
-            ),
-            (
-                "network",
-                PermissionRequestBody::NetOp {
-                    agent: agent_id.to_string(),
-                    host: String::new(),
-                    port: 0,
-                },
-            ),
-            (
-                "spawn",
-                PermissionRequestBody::InterAgentMsg {
-                    from: agent_id.to_string(),
-                    to: String::new(),
-                },
-            ),
-            (
-                "tool_call",
-                PermissionRequestBody::ToolCall {
-                    agent: agent_id.to_string(),
-                    skill: String::new(),
-                    method: String::new(),
-                },
-            ),
-            (
-                "config_write",
-                PermissionRequestBody::ConfigWrite {
-                    agent: agent_id.to_string(),
-                    config_file: String::new(),
-                },
-            ),
-            (
-                "message",
-                PermissionRequestBody::MessageSend {
-                    agent: agent_id.to_string(),
-                    direction: super::engine_types::MessageDirection::Both,
-                    target: String::new(),
-                },
-            ),
+        // Representative request body per dimension; keys come from
+        // [`crate::agent_permissions::DIMENSIONS`] (single source of truth).
+        let bodies = [
+            PermissionRequestBody::CommandExec {
+                agent: agent_id.to_string(),
+                cmd: String::new(),
+                args: Vec::new(),
+            },
+            PermissionRequestBody::FileOp {
+                agent: agent_id.to_string(),
+                path: String::new(),
+                op: "read".to_string(),
+            },
+            PermissionRequestBody::FileOp {
+                agent: agent_id.to_string(),
+                path: String::new(),
+                op: "write".to_string(),
+            },
+            PermissionRequestBody::NetOp {
+                agent: agent_id.to_string(),
+                host: String::new(),
+                port: 0,
+            },
+            PermissionRequestBody::InterAgentMsg {
+                from: agent_id.to_string(),
+                to: String::new(),
+            },
+            PermissionRequestBody::ToolCall {
+                agent: agent_id.to_string(),
+                skill: String::new(),
+                method: String::new(),
+            },
+            PermissionRequestBody::ConfigWrite {
+                agent: agent_id.to_string(),
+                config_file: String::new(),
+            },
+            PermissionRequestBody::MessageSend {
+                agent: agent_id.to_string(),
+                direction: super::engine_types::MessageDirection::Both,
+                target: String::new(),
+            },
         ];
 
         let caller = super::engine_types::Caller {
@@ -168,8 +146,8 @@ impl super::engine_eval::PermissionEngine {
         };
         let rules = self.rules.clone();
 
-        let mut permissions = HashMap::with_capacity(dimensions.len());
-        for (dim, body) in &dimensions {
+        let mut permissions = HashMap::with_capacity(DIMENSIONS.len());
+        for (&dim, body) in DIMENSIONS.iter().zip(bodies.iter()) {
             let candidates = self.collect_user_agent_candidates(&caller, agent_id, &rules);
             let result = self.match_rules(&candidates, &rules, &caller, body);
             let allowed = matches!(

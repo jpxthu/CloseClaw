@@ -11,7 +11,7 @@ use std::collections::HashMap;
 
 /// The eight permission dimensions checked by
 /// [`AgentPermissions::intersect`] and [`AgentPermissions::is_fully_denied`].
-const DIMENSIONS: [&str; 8] = [
+pub(crate) const DIMENSIONS: [&str; 8] = [
     "exec",
     "file_read",
     "file_write",
