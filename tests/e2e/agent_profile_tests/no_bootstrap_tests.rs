@@ -25,7 +25,7 @@ use crate::helpers::fake_llm::start_fake_llm;
 /// Discriminative observation via the `no-bootstrap.json` scenario
 /// split (all `model_id = "gpt-4o-nobootstrap"`; the system prompt
 /// ships as a request message — proven by
-/// `e2e_agent_system_prompt_injection`):
+/// `test_agent_system_prompt_injection`):
 /// - `nobootstrap-leak-identity` matches the IDENTITY.md marker
 ///   "NOBOOTSTRAP_IDENTITY_7X9K2" in the request messages → answers
 ///   "LEAKED_IDENTITY";
@@ -45,7 +45,7 @@ use crate::helpers::fake_llm::start_fake_llm;
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_no_bootstrap_excludes_files() {
+async fn test_agent_no_bootstrap_excludes_files() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -98,7 +98,7 @@ async fn e2e_agent_no_bootstrap_excludes_files() {
 /// issue #3475 acceptance ② (control): an agent that does NOT declare
 /// `noBootstrap` keeps the existing behavior — the `IDENTITY.md`
 /// bootstrap content is injected into the system prompt (same assertion
-/// pattern as `e2e_agent_system_prompt_injection`).
+/// pattern as `test_agent_system_prompt_injection`).
 ///
 /// The `control-identity-injected` scenario matches
 /// `model_id = "gpt-4o-bootstrap-control"` AND the IDENTITY.md marker
@@ -108,7 +108,7 @@ async fn e2e_agent_no_bootstrap_excludes_files() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_no_bootstrap_control_injects_identity() {
+async fn test_agent_no_bootstrap_control_injects_identity() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 

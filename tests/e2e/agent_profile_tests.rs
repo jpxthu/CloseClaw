@@ -28,11 +28,11 @@
 //!   client.
 //!
 //! With both fixes in place the chat → LLM → client round trip works
-//! end-to-end: `e2e_agent_model_selection` asserts the full path (fake_llm
+//! end-to-end: `test_agent_model_selection` asserts the full path (fake_llm
 //! receives the request; the greeting text reaches the chat client). The
 //! smoke case keeps its looser infrastructure-level assertions — see the
-//! `e2e_agent_profile_smoke` case doc for details; with the round trip
-//! working, `e2e_agent_tool_allow_deny` (un-ignored 2026-09-20) asserts
+//! `test_agent_profile_smoke` case doc for details; with the round trip
+//! working, `test_agent_tool_allow_deny` (un-ignored 2026-09-20) asserts
 //! execution-time tool allow/deny semantics — see its case doc.
 //!
 //! Uses `#[cfg(feature = "fake-llm")]` to gate on the feature flag, per
@@ -119,7 +119,7 @@ fn assert_admin_agent_info(response: &serde_json::Value) {
 /// LLM request was issued. That panic and the follow-up result-return
 /// wiring gap (dropped `output_tx` receiver) were both fixed on this
 /// branch, so a non-empty text answer is now observable —
-/// `e2e_agent_model_selection` asserts it end-to-end. This smoke case
+/// `test_agent_model_selection` asserts it end-to-end. This smoke case
 /// deliberately keeps the looser infrastructure-level assertions above
 /// (boot + protocol answer + graceful shutdown); tightening them to
 /// assert ContentChunk content is optional follow-up, not blocked by any
@@ -127,7 +127,7 @@ fn assert_admin_agent_info(response: &serde_json::Value) {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_profile_smoke() {
+async fn test_agent_profile_smoke() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -191,7 +191,7 @@ async fn e2e_agent_profile_smoke() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_model_selection() {
+async fn test_agent_model_selection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -233,7 +233,7 @@ async fn e2e_agent_model_selection() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_system_prompt_injection() {
+async fn test_agent_system_prompt_injection() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -310,7 +310,7 @@ async fn e2e_agent_system_prompt_injection() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_workspace() {
+async fn test_agent_workspace() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -363,7 +363,7 @@ async fn e2e_agent_workspace() {
 }
 
 // ---------------------------------------------------------------------------
-// e2e_agent_workspace helpers (Step 1.7: ≤50-line function bodies)
+// test_agent_workspace helpers (Step 1.7: ≤50-line function bodies)
 // ---------------------------------------------------------------------------
 
 /// Marker content written to `{workspace}/bootstrap_marker.txt`.
@@ -371,7 +371,7 @@ const WORKSPACE_MARKER: &str = "WORKSPACE_CWD_VERIFIED";
 
 /// Permission-rule JSON ([`RuleSet`] shape: `{"rules": [...]}`,
 /// `crates/permission/src/engine/engine_types.rs`) for
-/// [`e2e_agent_workspace`]: Agent-only + User∩Agent allow pair for each
+/// [`test_agent_workspace`]: Agent-only + User∩Agent allow pair for each
 /// permission dimension (design `docs/design/permission/README.md`
 /// §交集模型).
 ///
@@ -479,7 +479,7 @@ fn frame_contains_marker(frames: &[serde_json::Value]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// e2e_agent_tool_allow_deny helpers (≤50-line function bodies)
+// test_agent_tool_allow_deny helpers (≤50-line function bodies)
 // ---------------------------------------------------------------------------
 
 /// Marker content written to `{config_root}/e2e-tool-test.txt` — the
@@ -497,7 +497,7 @@ const AGENT_TOOLS_DENY_MARKER: &str = "agent tools config";
 
 /// Permission-rule JSON ([`RuleSet`] shape: `{"rules": [...]}`,
 /// `crates/permission/src/engine/engine_types.rs`) for
-/// [`e2e_agent_tool_allow_deny`]: Agent-only + User∩Agent allow pair for
+/// [`test_agent_tool_allow_deny`]: Agent-only + User∩Agent allow pair for
 /// **every** permission dimension the fixture touches — the strict
 /// §F1/§F3 design: nothing may be denied by the permission engine, so an
 /// observed Bash deny can only come from the agent tools blacklist.
@@ -600,7 +600,7 @@ fn frame_content_contains(frames: &[serde_json::Value], needle: &str) -> bool {
         .any(|c| c.contains(needle))
 }
 
-/// Frame-level assertions for [`e2e_agent_tool_allow_deny`] — §F1/§F3
+/// Frame-level assertions for [`test_agent_tool_allow_deny`] — §F1/§F3
 /// tool semantics plus infrastructure invariants:
 ///
 /// - Read allow-path (§F1): result frame content carries
@@ -631,7 +631,7 @@ fn assert_tool_allow_deny_frames(frames: &[serde_json::Value]) {
 }
 
 // ---------------------------------------------------------------------------
-// e2e_agent_tool_allow_deny test case (Steps 1.3–1.4)
+// test_agent_tool_allow_deny test case (Steps 1.3–1.4)
 // ---------------------------------------------------------------------------
 
 /// §F1/§F3 tool allow/deny: agent config.json `tools` whitelist +
@@ -661,7 +661,7 @@ fn assert_tool_allow_deny_frames(frames: &[serde_json::Value]) {
 ///   engine answers HTTP 500 "no scenario matched and no fallback
 ///   declared".
 /// - Fixture `Read` path is workdir-relative
-///   (`../../../e2e-tool-test.txt` — the `e2e_agent_workspace` pattern):
+///   (`../../../e2e-tool-test.txt` — the `test_agent_workspace` pattern):
 ///   without an agent `workspace` field the session workdir is
 ///   `{config_root}/workspaces/master/{uid}`
 ///   (`docs/design/session/working-directory.md`), and the test writes
@@ -692,7 +692,7 @@ fn assert_tool_allow_deny_frames(frames: &[serde_json::Value]) {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_tool_allow_deny() {
+async fn test_agent_tool_allow_deny() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -733,7 +733,7 @@ async fn e2e_agent_tool_allow_deny() {
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
 
-/// Acceptance observability for [`e2e_agent_tool_allow_deny`]: print the
+/// Acceptance observability for [`test_agent_tool_allow_deny`]: print the
 /// chat frames so a `--nocapture` run evidences fake_llm scenario
 /// matching and the tool-result frames — on a scenario hit the frames
 /// carry the dispatched `Read`/`Bash` tool-result chunks; on a miss the
@@ -742,7 +742,7 @@ async fn e2e_agent_tool_allow_deny() {
 /// Harness-captured output is replayed automatically when the test fails.
 fn dump_chat_frames(frames: &[serde_json::Value]) {
     eprintln!(
-        "[e2e_agent_tool_allow_deny] chat frames ({}):",
+        "[test_agent_tool_allow_deny] chat frames ({}):",
         frames.len()
     );
     for frame in frames {
@@ -790,7 +790,7 @@ async fn admin_roundtrip(socket_path: &Path, request: &serde_json::Value) -> ser
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_runtime_config_query() {
+async fn test_agent_runtime_config_query() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
@@ -820,7 +820,7 @@ async fn e2e_agent_runtime_config_query() {
 #[tokio::test]
 #[cfg(unix)]
 #[serial_test::serial]
-async fn e2e_agent_runtime_config_query_unknown() {
+async fn test_agent_runtime_config_query_unknown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
