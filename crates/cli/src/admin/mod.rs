@@ -26,10 +26,19 @@ pub use run::{handle_run, handle_run_foreground, prepare_run, DaemonRunner};
 pub use skill::{handle_skill, handle_skill_with};
 pub use stop::{handle_stop, handle_stop_at, handle_stop_at_with_timeout, STOP_TIMEOUT};
 
+/// Short socket-wait timeout injected by background-mode tests so the
+/// "socket never appears" path fails fast instead of waiting out the
+/// production 30s default (`run.rs` `SOCKET_WAIT_TIMEOUT_MS`). Shared by
+/// `run_tests.rs` and `run_socket_tests.rs` (issue #3831 Step 1.2).
+#[cfg(test)]
+const TEST_SOCKET_WAIT_TIMEOUT_MS: u64 = 50;
+
 #[cfg(test)]
 mod config_tests;
 #[cfg(test)]
 mod run_helper_tests;
+#[cfg(test)]
+mod run_socket_tests;
 #[cfg(test)]
 mod run_tests;
 #[cfg(test)]
