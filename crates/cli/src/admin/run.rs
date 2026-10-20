@@ -182,7 +182,7 @@ pub(crate) async fn handle_run_with_socket_timeout(
 
     // Wait for the admin socket to become available.
     let admin_socket = crate::admin::admin_socket_path(&config_dir_path);
-    wait_for_socket(&admin_socket, socket_wait_timeout_ms)?;
+    wait_for_socket(&admin_socket, socket_wait_timeout_ms).await?;
 
     // Read the PID that the child process wrote to the PID file.
     let pid = closeclaw_platform::process::read_pid_file(&pid_file)
@@ -207,31 +207,31 @@ pub(crate) async fn handle_run_with_socket_timeout(
 
 /// Poll the given Unix socket path until a connection succeeds or the
 /// timeout expires.
-pub(crate) fn wait_for_socket(path: &Path, timeout_ms: u64) -> Result<()> {
-    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+pub(crate) async fn wait_for_socket(path: &Path, timeout_ms: u64) -> Result<()> {
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
 
     loop {
-        // Attempt a synchronous connection to the socket.
-        if try_connect(path).is_ok() {
+        // Attempt an asynchronous connection to the socket.
+        if try_connect(path).await.is_ok() {
             return Ok(());
         }
 
-        if std::time::Instant::now() >= deadline {
+        if tokio::time::Instant::now() >= deadline {
             anyhow::bail!(
                 "Timed out waiting for daemon admin socket at {}",
                 path.display()
             );
         }
 
-        std::thread::sleep(std::time::Duration::from_millis(SOCKET_POLL_INTERVAL_MS));
+        tokio::time::sleep(std::time::Duration::from_millis(SOCKET_POLL_INTERVAL_MS)).await;
     }
 }
 
 /// Try connecting to the given Unix socket path once.
 #[cfg(unix)]
-pub(crate) fn try_connect(path: &Path) -> Result<()> {
-    use std::os::unix::net::UnixStream;
-    UnixStream::connect(path)
+pub(crate) async fn try_connect(path: &Path) -> Result<()> {
+    tokio::net::UnixStream::connect(path)
+        .await
         .with_context(|| format!("socket connect failed: {}", path.display()))?;
     Ok(())
 }
