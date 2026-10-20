@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::engine_eval::PermissionEngine;
 use super::engine_test_providers::HashMapProvider;
+use super::engine_test_utils::assert_keys_match_dimensions;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
 use crate::actions::ActionBuilder;
 use crate::agent_permissions::{ActionPermission, AgentPermissions, PermissionLimits, DIMENSIONS};
@@ -51,18 +52,22 @@ fn make_all_allowed(agent_id: &str) -> AgentPermissions {
     make_perms(agent_id, &dims)
 }
 
-/// Anti-drift guard: `dims` must cover exactly the [`DIMENSIONS`] key set —
-/// adding/removing a dimension without updating a key-bound fixture fails
-/// here instead of silently leaving the new dimension untested.
-fn assert_covers_all_dimensions(dims: &[(&str, bool)]) {
-    let mut fixture_keys: Vec<&str> = dims.iter().map(|(dim, _)| *dim).collect();
-    fixture_keys.sort_unstable();
-    let mut dimension_keys = DIMENSIONS.to_vec();
-    dimension_keys.sort_unstable();
-    assert_eq!(
-        fixture_keys, dimension_keys,
-        "fixture must cover exactly the DIMENSIONS key set"
-    );
+/// Chain-test parent fixture: every dimension allowed except `file_write`
+/// (denied). Explicit (key, allowed) data, guarded by an anti-drift
+/// assertion tying its key set to [`DIMENSIONS`].
+fn parent_dims_allowing_all_but_file_write() -> Vec<(&'static str, bool)> {
+    let dims = vec![
+        ("exec", true),
+        ("file_read", true),
+        ("file_write", false),
+        ("network", true),
+        ("spawn", true),
+        ("tool_call", true),
+        ("config_write", true),
+        ("message", true),
+    ];
+    assert_keys_match_dimensions(dims.iter().map(|(dim, _)| *dim), "parent_dims fixture");
+    dims
 }
 
 async fn make_session_lookup() -> MockSessionLookup {
@@ -86,17 +91,7 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
 
     let mut perms = HashMap::new();
     // Parent denies file_write, allows everything else
-    let parent_dims = [
-        ("exec", true),
-        ("file_read", true),
-        ("file_write", false),
-        ("network", true),
-        ("spawn", true),
-        ("tool_call", true),
-        ("config_write", true),
-        ("message", true),
-    ];
-    assert_covers_all_dimensions(&parent_dims);
+    let parent_dims = parent_dims_allowing_all_but_file_write();
     perms.insert("parent".to_string(), make_perms("parent", &parent_dims));
     // Child allows everything
     perms.insert("child".to_string(), make_all_allowed("child"));
@@ -127,17 +122,7 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
     lookup.register_parent_child("parent-session", "child-session");
 
     let mut perms = HashMap::new();
-    let parent_dims = [
-        ("exec", true),
-        ("file_read", true),
-        ("file_write", false),
-        ("network", true),
-        ("spawn", true),
-        ("tool_call", true),
-        ("config_write", true),
-        ("message", true),
-    ];
-    assert_covers_all_dimensions(&parent_dims);
+    let parent_dims = parent_dims_allowing_all_but_file_write();
     perms.insert("parent".to_string(), make_perms("parent", &parent_dims));
     perms.insert("child".to_string(), make_all_allowed("child"));
 

@@ -355,7 +355,7 @@ fn intersect_all_eight_dimensions_checked() {
     let child = make_perms("child", &["exec"]);
     let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
-    assert_eq!(result.permissions.len(), 8);
+    assert_eq!(result.permissions.len(), DIMENSIONS.len());
     for dim in DIMENSIONS {
         assert!(
             result.permissions.contains_key(dim),
