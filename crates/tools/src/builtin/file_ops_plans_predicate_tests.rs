@@ -20,6 +20,8 @@ const SAMPLES: &[&str] = &[
     "a/plans/b.md",
     "/abs/plans/x.md",
     "./plans/x.md",
+    // Both branches true (starts_with AND contains).
+    "plans/plans/x.md",
     // Negatives: no trailing slash, singular, prefix trap, tail without
     // slash, case-sensitive, empty, plain path.
     "plans",
