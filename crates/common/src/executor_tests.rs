@@ -892,8 +892,8 @@ async fn test_set_mode_auto_with_plan_file_path_does_not_persist_plan_state() {
 // ── Test: ReplyAction Clone equivalence ──────────────────────────────
 
 /// `ReplyAction` derives `Clone` (aligned with `SystemAppendAction`):
-/// every variant clones into a value equal to the original, and the
-/// `Reply` payload is preserved block-for-block.
+/// every variant clones into a value equal to the original (the `Reply`
+/// payload's block-for-block equality follows from the same assertion).
 #[test]
 fn test_reply_action_clone_is_equal_to_original() {
     let actions = [
@@ -915,18 +915,5 @@ fn test_reply_action_clone_is_equal_to_original() {
     for action in &actions {
         let copy = action.clone();
         assert_eq!(copy, *action, "clone of {action:?} must be equal");
-    }
-
-    // Payload integrity: the cloned Reply payload matches the original
-    // block-for-block.
-    let cloned = actions[0].clone();
-    match (&actions[0], &cloned) {
-        (ReplyAction::Reply(original), ReplyAction::Reply(copy)) => {
-            assert_eq!(original.len(), copy.len());
-            for (o, c) in original.iter().zip(copy.iter()) {
-                assert_eq!(o, c);
-            }
-        }
-        _ => panic!("expected ReplyAction::Reply, got {:?}", actions[0]),
     }
 }
