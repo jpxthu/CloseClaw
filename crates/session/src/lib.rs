@@ -23,6 +23,7 @@ pub mod persistence;
 pub mod persistence_service;
 pub mod plan_archive;
 pub mod plan_file;
+mod plan_file_lock;
 pub mod recovery;
 pub mod run_health;
 pub mod spawn;

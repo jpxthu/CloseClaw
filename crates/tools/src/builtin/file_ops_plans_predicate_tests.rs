@@ -8,7 +8,7 @@
 //! crate's own tests (permission `engine_plan_mode_tests`, tools
 //! write/edit plan-path tests).
 
-use super::is_plan_file_path;
+use crate::builtin::plans_route::is_plan_file_path;
 use closeclaw_permission::engine::engine_mode_filter::is_plans_path;
 
 /// Path samples on which both predicates must agree.
