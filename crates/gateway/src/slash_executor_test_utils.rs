@@ -308,16 +308,14 @@ mod tests {
 
         let actions = drain_actions(&mut rx).await;
 
-        assert_eq!(actions.len(), 3);
-        assert!(matches!(
-            &actions[0],
-            ReplyAction::Reply(b) if *b == [ContentBlock::Text("first".into())]
-        ));
-        assert!(matches!(
-            &actions[1],
-            ReplyAction::TriggerCompact { instruction: None }
-        ));
-        assert!(matches!(&actions[2], ReplyAction::Nothing));
+        assert_eq!(
+            actions,
+            vec![
+                ReplyAction::Reply(vec![ContentBlock::Text("first".into())]),
+                ReplyAction::TriggerCompact { instruction: None },
+                ReplyAction::Nothing,
+            ]
+        );
     }
 
     #[tokio::test]
@@ -341,11 +339,12 @@ mod tests {
 
         let actions = drain_actions(&mut rx).await;
 
-        assert_eq!(actions.len(), 2);
-        assert!(matches!(&actions[0], ReplyAction::Nothing));
-        assert!(matches!(
-            &actions[1],
-            ReplyAction::TriggerCompact { instruction: None }
-        ));
+        assert_eq!(
+            actions,
+            vec![
+                ReplyAction::Nothing,
+                ReplyAction::TriggerCompact { instruction: None },
+            ]
+        );
     }
 }
