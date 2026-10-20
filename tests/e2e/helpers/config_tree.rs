@@ -32,7 +32,7 @@ use closeclaw_common::test_helpers::ensure_dir;
 /// Only the config tree is written: the caller owns the temp directory
 /// (`tempfile::TempDir`) that provides `config_root`, so the tree stays
 /// alive for the duration of the test. IO errors propagate via `?`.
-pub fn write_test_config_tree(config_root: &Path) -> std::io::Result<()> {
+pub(crate) fn write_test_config_tree(config_root: &Path) -> std::io::Result<()> {
     let agents_dir = config_root.join("config");
     ensure_dir(&agents_dir)?;
     std::fs::write(

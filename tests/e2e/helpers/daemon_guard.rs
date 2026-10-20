@@ -40,12 +40,12 @@ const READY_TIMEOUT: Duration = Duration::from_secs(30);
 /// The inner `Child` is exposed so existing liveness helpers
 /// (`assert_daemon_alive`, `try_wait` probes) keep working on the guard;
 /// shutdown still goes through [`DaemonGuard::shutdown`] or Drop.
-pub struct DaemonGuard(pub Child);
+pub(crate) struct DaemonGuard(pub(crate) Child);
 
 impl DaemonGuard {
     /// SIGTERM + wait for graceful exit (shared `sigterm_and_wait`);
     /// returns the exit status for the caller to assert.
-    pub async fn shutdown(mut self) -> std::process::ExitStatus {
+    pub(crate) async fn shutdown(mut self) -> std::process::ExitStatus {
         sigterm_and_wait(&mut self.0).await
     }
 }
@@ -68,7 +68,7 @@ impl Drop for DaemonGuard {
 ///
 /// Wraps [`spawn_daemon`](super::daemon_spawn::spawn_daemon), which sets
 /// `HOME` to `config_root` for PID file isolation.
-pub fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
+pub(crate) fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
     DaemonGuard(super::daemon_spawn::spawn_daemon(config_root))
 }
 
@@ -80,7 +80,7 @@ pub fn spawn_daemon_guarded(config_root: &Path) -> DaemonGuard {
 /// duplicated at every fake-LLM e2e call site (issue #3479). Returns
 /// the [`DaemonGuard`] so callers keep asserting liveness and driving
 /// shutdown themselves; drop/SIGTERM semantics are unchanged.
-pub async fn spawn_ready_daemon(config_root: &Path) -> DaemonGuard {
+pub(crate) async fn spawn_ready_daemon(config_root: &Path) -> DaemonGuard {
     let daemon = spawn_daemon_guarded(config_root);
     wait_for_daemon_ready_with_timeout(config_root, READY_TIMEOUT).await;
     daemon
@@ -94,7 +94,7 @@ pub async fn spawn_ready_daemon(config_root: &Path) -> DaemonGuard {
 /// The caller keeps owning the `TempDir` (pass its path here), so
 /// `TempDir` / [`DaemonGuard`] / fake-LLM server lifetimes and the
 /// daemon-before-tempdir drop order stay exactly as before.
-pub async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuard {
+pub(crate) async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuard {
     let fake_llm_addr = start_fake_llm().await;
     write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     spawn_ready_daemon(config_root).await

@@ -27,7 +27,7 @@ use closeclaw_common::test_helpers::ensure_dir;
 /// suite constructs its own instance once; test functions drive the script
 /// through [`CheckScript::run`] / [`CheckScript::run_with_env`] and build
 /// identity-injected fixture repos through [`CheckScript::temp_repo`].
-pub struct CheckScript {
+pub(crate) struct CheckScript {
     /// Absolute path of the check script: `CARGO_MANIFEST_DIR` +
     /// `scripts/<script_name>`.
     script: PathBuf,
@@ -39,7 +39,7 @@ pub struct CheckScript {
 impl CheckScript {
     /// Builds from `scripts/<script_name>` (relative to this repo's
     /// manifest root) and the git identity base string.
-    pub fn new(script_name: &str, identity: &str) -> Self {
+    pub(crate) fn new(script_name: &str, identity: &str) -> Self {
         Self {
             script: PathBuf::from(env!("CARGO_MANIFEST_DIR"))
                 .join("scripts")
@@ -49,17 +49,17 @@ impl CheckScript {
     }
 
     /// Resolved absolute path of the check script.
-    pub fn script_path(&self) -> &Path {
+    pub(crate) fn script_path(&self) -> &Path {
         &self.script
     }
 
     /// Builds a fixture repo injected with this instance's git identity.
-    pub fn temp_repo(&self) -> TempRepo {
+    pub(crate) fn temp_repo(&self) -> TempRepo {
         TempRepo::new(&self.identity)
     }
 
     /// Runs the check script in `dir` with arbitrary args (`dir` as CWD).
-    pub fn run(&self, dir: &Path, args: &[&str]) -> CheckResult {
+    pub(crate) fn run(&self, dir: &Path, args: &[&str]) -> CheckResult {
         self.run_with_env(dir, args, |_| {})
     }
 
@@ -67,7 +67,7 @@ impl CheckScript {
     /// spawn (e.g. `GIT_CEILING_DIRECTORIES` injection). Otherwise identical
     /// to [`CheckScript::run`]; the adjustment applies to this invocation
     /// only.
-    pub fn run_with_env<F>(&self, dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
+    pub(crate) fn run_with_env<F>(&self, dir: &Path, args: &[&str], adjust_env: F) -> CheckResult
     where
         F: FnOnce(&mut Command),
     {
@@ -83,7 +83,7 @@ impl CheckScript {
 
 /// Isolated throwaway git repository: `TempDir` under the system temp dir
 /// (follows `$TMPDIR`), cleaned up automatically on `Drop`.
-pub struct TempRepo {
+pub(crate) struct TempRepo {
     dir: tempfile::TempDir,
     /// git identity base string; `commit_all` derives the fixture commit
     /// author's `user.name` (`= identity`) and `user.email`
@@ -95,7 +95,7 @@ impl TempRepo {
     /// `git init`s an empty repo (the default-branch warning is harmless,
     /// output captured); `identity` derives the fixture commit's
     /// user.name / user.email.
-    pub fn new(identity: &str) -> Self {
+    pub(crate) fn new(identity: &str) -> Self {
         let dir = tempfile::TempDir::new().expect("create temp dir under system temp dir");
         git(dir.path(), &["init", "-q"]);
         Self {
@@ -104,12 +104,12 @@ impl TempRepo {
         }
     }
 
-    pub fn path(&self) -> &Path {
+    pub(crate) fn path(&self) -> &Path {
         self.dir.path()
     }
 
     /// Writes a fixture file (parent dirs auto-created).
-    pub fn write(&self, rel: &str, content: &str) {
+    pub(crate) fn write(&self, rel: &str, content: &str) {
         let path = self.path().join(rel);
         if let Some(parent) = path.parent() {
             ensure_dir(parent).expect("create fixture parent dir");
@@ -119,13 +119,13 @@ impl TempRepo {
 
     /// Stages the given file (data source for the incremental mode: staged
     /// diff).
-    pub fn stage(&self, rel: &str) {
+    pub(crate) fn stage(&self, rel: &str) {
         git(self.path(), &["add", rel]);
     }
 
     /// Stages everything and commits the working tree (injects the user
     /// identity; disables signing and global hooks for isolation).
-    pub fn commit_all(&self) {
+    pub(crate) fn commit_all(&self) {
         git(self.path(), &["add", "-A", "-f"]);
         git(
             self.path(),
@@ -148,17 +148,17 @@ impl TempRepo {
 }
 
 /// Result of one check-script run.
-pub struct CheckResult {
+pub(crate) struct CheckResult {
     status: ExitStatus,
     /// Script stdout (UTF-8 lossy).
-    pub stdout: String,
+    pub(crate) stdout: String,
     /// Script stderr (UTF-8 lossy).
-    pub stderr: String,
+    pub(crate) stderr: String,
 }
 
 impl CheckResult {
     /// Builds from raw process output (stdout/stderr decoded UTF-8 lossy).
-    pub fn from_output(out: Output) -> Self {
+    pub(crate) fn from_output(out: Output) -> Self {
         Self {
             status: out.status,
             stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
@@ -168,18 +168,18 @@ impl CheckResult {
 
     /// Merged stdout + stderr (messages emitted via `echo` land on stdout,
     /// so asserting over the merge is more robust).
-    pub fn output(&self) -> String {
+    pub(crate) fn output(&self) -> String {
         format!("{}{}", self.stdout, self.stderr)
     }
 
-    pub fn code(&self) -> Option<i32> {
+    pub(crate) fn code(&self) -> Option<i32> {
         self.status.code()
     }
 }
 
 /// Runs a git subcommand in `dir`; on failure the assertion message
 /// includes stdout/stderr.
-pub fn git(dir: &Path, args: &[&str]) -> Output {
+pub(crate) fn git(dir: &Path, args: &[&str]) -> Output {
     let out = Command::new("git")
         .args(args)
         .current_dir(dir)
@@ -198,7 +198,7 @@ pub fn git(dir: &Path, args: &[&str]) -> Output {
 
 /// Asserts the exit code; the failure message carries the full output for
 /// diagnosis.
-pub fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
+pub(crate) fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
     assert_eq!(
         res.code(),
         Some(expected),
@@ -210,7 +210,7 @@ pub fn assert_exit(res: &CheckResult, expected: i32, ctx: &str) {
 
 /// Asserts the pass path's stdout carries the suite's passed marker
 /// (parameterized marker literal).
-pub fn assert_passed_marker(res: &CheckResult, marker: &str, ctx: &str) {
+pub(crate) fn assert_passed_marker(res: &CheckResult, marker: &str, ctx: &str) {
     assert!(
         res.stdout.contains(marker),
         "{ctx}: expect passed marker in stdout, got:\n{}",

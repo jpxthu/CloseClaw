@@ -41,15 +41,15 @@ pub(crate) mod fake_llm;
 // Re-exports keep the `helpers::<item>` paths stable for callers; in a
 // binary crate rustc reports some as unused depending on the feature combo.
 #[allow(unused_imports)]
-pub use check_script::{
+pub(crate) use check_script::{
     assert_exit, assert_passed_marker, git, CheckResult, CheckScript, TempRepo,
 };
 #[allow(unused_imports)]
-pub use daemon_lifecycle::{assert_daemon_alive, assert_daemon_alive_with_context};
+pub(crate) use daemon_lifecycle::{assert_daemon_alive, assert_daemon_alive_with_context};
 #[cfg(feature = "fake-llm")]
 #[allow(unused_imports)]
-pub use daemon_lifecycle::{sigterm_and_wait, SHUTDOWN_TIMEOUT};
+pub(crate) use daemon_lifecycle::{sigterm_and_wait, SHUTDOWN_TIMEOUT};
 #[allow(unused_imports)]
-pub use daemon_ready::{wait_for_daemon_ready, wait_for_daemon_ready_with_timeout};
+pub(crate) use daemon_ready::{wait_for_daemon_ready, wait_for_daemon_ready_with_timeout};
 #[allow(unused_imports)]
-pub use daemon_spawn::{closeclaw_binary, spawn_daemon};
+pub(crate) use daemon_spawn::{closeclaw_binary, spawn_daemon};

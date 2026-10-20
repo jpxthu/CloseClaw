@@ -7,19 +7,19 @@ use std::time::Duration;
 
 /// Upper bound for graceful shutdown after SIGTERM (drain timeout 30s + margin).
 #[cfg(feature = "fake-llm")]
-pub const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
+pub(crate) const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(40);
 
 /// Assert that the daemon process is still alive (has not exited prematurely).
 ///
 /// On failure, includes the exit status details and a hint to check daemon logs.
-pub fn assert_daemon_alive(daemon: &mut Child) {
+pub(crate) fn assert_daemon_alive(daemon: &mut Child) {
     assert_daemon_alive_with_context(daemon, None);
 }
 
 /// [`assert_daemon_alive`] with an optional caller-supplied context
 /// phrase folded into the panic message (e.g. `Some("during gateway
 /// restart")`) so failures read where in the scenario the daemon died.
-pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str>) {
+pub(crate) fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str>) {
     if let Some(status) = daemon.try_wait().expect("try_wait daemon") {
         let code = status
             .code()
@@ -41,7 +41,7 @@ pub fn assert_daemon_alive_with_context(daemon: &mut Child, context: Option<&str
 /// `cache_consistency_tests`, and `gateway_restart_turn_tests`
 /// (terminate_daemon).
 #[cfg(feature = "fake-llm")]
-pub async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
+pub(crate) async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
     let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;
     // SAFETY: `pid` is the PID of the daemon child this caller spawned
     // and holds; the cast to `libc::pid_t` is a lossless widening
