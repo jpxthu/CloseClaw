@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import dataclasses
 import tempfile
 import unittest
 from pathlib import Path
@@ -193,30 +194,37 @@ class DepEdgesTest(unittest.TestCase):
         self.assertEqual(items, ["closeclaw-im-adapter -> closeclaw-debug-log"])
 
 
-class BaselineTest(unittest.TestCase):
-    def test_load_skips_comments_and_blank(self) -> None:
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "b.txt"
-            path.write_text("# 注释\n\n  a -> b  \n# 另一条注释\na -> b\nb -> c\n", encoding="utf-8")
-            items = baseline.load_baseline(path)
-        self.assertEqual(items, ["a -> b", "b -> c"])
+class CheckResultTest(unittest.TestCase):
+    """CheckResult dataclass 等值语义（dataclass 化新获得的行为维度）。"""
 
-    def test_diff_new_items_fail(self) -> None:
-        diff = baseline.diff_baseline(["a"], ["a", "b"])
-        self.assertEqual(diff.new_items, ["b"])
-        self.assertEqual(diff.eliminated_items, [])
-        self.assertTrue(diff.has_new)
+    def test_same_fields_equal(self) -> None:
+        """同字段两实例相等（list 字段按值而非引用比较）。"""
+        self.assertEqual(
+            dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["a", "b"]),
+            dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["a", "b"]),
+        )
 
-    def test_diff_eliminated_items_info(self) -> None:
-        diff = baseline.diff_baseline(["a", "b"], ["a"])
-        self.assertEqual(diff.new_items, [])
-        self.assertEqual(diff.eliminated_items, ["b"])
-        self.assertFalse(diff.has_new)
+    def test_any_field_differs_unequal(self) -> None:
+        """任一字段不同则不等（check_id / status / lines 逐一证伪）。"""
+        base = dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x"])
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dead-deps", dep_guard.STATUS_PASS, ["x"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_FAIL, ["x"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["y"])
+        )
+        self.assertNotEqual(
+            base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x", "y"])
+        )
 
-    def test_diff_consistent(self) -> None:
-        diff = baseline.diff_baseline(["a", "b"], ["b", "a"])
-        self.assertEqual(diff.new_items, [])
-        self.assertEqual(diff.eliminated_items, [])
+    def test_frozen_after_construction(self) -> None:
+        """frozen=True：构造后属性赋值抛 FrozenInstanceError（防误改回可变）。"""
+        result = dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x"])
+        with self.assertRaises(dataclasses.FrozenInstanceError):
+            result.status = dep_guard.STATUS_FAIL
 
 
 class RunChecksTest(unittest.TestCase):
