@@ -16,3 +16,8 @@ tracing-subscriber.workspace = true
 [dev-dependencies]
 # Synthetic manifests for the boundary guard unit tests (system temp dir)
 tempfile.workspace = true
+# Log-capture behaviour pinning tests: serial + current-thread tokio runtime
+# (threading contract), futures catch_unwind (panic-unwind path)
+serial_test.workspace = true
+tokio.workspace = true
+futures.workspace = true
