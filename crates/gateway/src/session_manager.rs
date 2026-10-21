@@ -150,7 +150,8 @@ pub struct SessionManager {
     workflow_control: RwLock<Option<Arc<dyn closeclaw_common::WorkflowControl>>>,
     /// Output channel for sending LLM responses to the user.
     /// Set via [`set_output_tx`](Self::set_output_tx) after construction.
-    /// Used by [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
+    /// Used by
+    /// [`drain_pending_for_session`](super::announce::SessionManager::drain_pending_for_session)
     /// to send responses to the user during yield recovery.
     output_tx: RwLock<Option<crate::OutputTx>>,
     /// Callback for registering session tools into a tool registry.

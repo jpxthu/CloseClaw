@@ -107,9 +107,12 @@ async fn test_yield_timeout_structured_notification_content() {
     let messages = cs.read().await.messages().to_vec();
     let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks
-                .iter()
-                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")))
+            && m.content_blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")
+                )
+            })
     });
     assert!(
         !in_transcript,
@@ -523,9 +526,12 @@ async fn test_yield_timeout_with_multiple_children() {
     let messages = cs.read().await.messages().to_vec();
     let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks
-                .iter()
-                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")))
+            && m.content_blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("等待上限")
+                )
+            })
     });
     assert!(
         !in_transcript,
@@ -585,9 +591,12 @@ async fn test_yield_timeout_no_children_structured_notification() {
     let messages = cs.read().await.messages().to_vec();
     let in_transcript = messages.iter().any(|m| {
         m.role == "system"
-            && m.content_blocks
-                .iter()
-                .any(|b| matches!(b, closeclaw_llm::types::ContentBlock::Text(t) if t.contains("无子 session")))
+            && m.content_blocks.iter().any(|b| {
+                matches!(
+                    b,
+                    closeclaw_llm::types::ContentBlock::Text(t) if t.contains("无子 session")
+                )
+            })
     });
     assert!(!in_transcript, "notification should NOT be in transcript");
 
