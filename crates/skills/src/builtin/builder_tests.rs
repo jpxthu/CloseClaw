@@ -1,5 +1,7 @@
 //! Tests for built-in skill assembly (`builtin_skills`).
 
+use std::collections::HashSet;
+
 use super::builder::{builtin_skills, trivial_validator};
 
 #[test]
@@ -22,7 +24,7 @@ fn test_builtin_skills_returns_seven_expected_skills() {
         ]
     );
 
-    let unique: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    let unique: HashSet<&str> = names.iter().map(String::as_str).collect();
     assert_eq!(unique.len(), 7, "builtin skill names should be unique");
 }
 
