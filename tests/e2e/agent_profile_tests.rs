@@ -121,7 +121,7 @@ async fn test_agent_profile_smoke() {
         panic!("daemon exited prematurely during startup: {status:?}");
     }
 
-    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello").await;
+    let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "hello world").await;
 
     assert!(
         !frames.is_empty(),
