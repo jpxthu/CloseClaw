@@ -399,7 +399,17 @@ async fn test_send_simplified_with_timeout_no_plugin_fallback() {
 
 /// Mock plugin whose `parse_inbound()` sleeps for 1.5 seconds, causing
 /// total processing to exceed the 1-second response constraint.
-struct SlowParsePlugin;
+///
+/// A trailing sentinel request (payload marker `sentinel`) notifies `done`:
+/// the inbound queue is FIFO, so the sentinel's parse only runs after the
+/// slow request has been fully processed — including its 1s-constraint
+/// check and the warn log — giving the positive test a deterministic
+/// completion signal without fixed sleeps. The sentinel check precedes the
+/// slow sleep so the sentinel itself neither delays nor re-triggers the
+/// constraint warn.
+struct SlowParsePlugin {
+    done: Arc<tokio::sync::Notify>,
+}
 
 #[async_trait]
 impl IMPlugin for SlowParsePlugin {
@@ -409,8 +419,12 @@ impl IMPlugin for SlowParsePlugin {
 
     async fn parse_inbound(
         &self,
-        _payload: &[u8],
+        payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
+        if String::from_utf8_lossy(payload).contains("sentinel") {
+            self.done.notify_one();
+            return Ok(None);
+        }
         // Simulate slow inbound parsing (>1s).
         tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
         Ok(Some(NormalizedMessage {
@@ -511,7 +525,9 @@ impl IMPlugin for FastParsePlugin {
 /// monitor should fire a warn log. This test enqueues a message through the
 /// consumer with a slow-parse plugin (1500ms parse > 1s constraint) and
 /// asserts the captured buffer contains the warn message anchor and the
-/// request's `trace_id` field.
+/// request's `trace_id` field. A sentinel request queued behind the slow
+/// one parses only after the slow request's constraint check (queue is
+/// FIFO), so the test needs no fixed sleep.
 ///
 /// `#[serial]` per the module log-capture note (issue #3102 callsite race).
 #[serial_test::serial]
@@ -524,12 +540,18 @@ async fn test_1s_response_constraint_warn_log() {
     let (_result, logs) = capture_logs_async(
         || async {
             let gw = make_gateway_for_1s_test();
-            gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
+            let done = Arc::new(tokio::sync::Notify::new());
+            let plugin = SlowParsePlugin {
+                done: Arc::clone(&done),
+            };
+            gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
                 .await;
             let handle = gw.start_inbound_queue();
             handle.try_send(queued(make_slow_request())).unwrap();
-            // Wait for processing to complete (>1.5s for slow parse).
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            handle.try_send(queued(make_sentinel_request())).unwrap();
+            tokio::time::timeout(std::time::Duration::from_secs(5), done.notified())
+                .await
+                .expect("slow-path request must finish under the 5s ceiling");
         },
         tracing::Level::WARN,
     )
