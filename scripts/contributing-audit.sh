@@ -30,9 +30,9 @@ EOF
 CLIPPY_JSON="$(mktemp "${TMPDIR:-/tmp}/clippy-json.XXXXXX")"
 CLIPPY_CONF_DIR="$CONF_DIR" cargo clippy --workspace --all-targets --message-format=json -- \
   -A clippy::all -A warnings \
-  -W clippy::too_many_lines \
-  -W clippy::too_many_arguments \
-  -W clippy::excessive_nesting \
+  --force-warn clippy::too_many_lines \
+  --force-warn clippy::too_many_arguments \
+  --force-warn clippy::excessive_nesting \
   --force-warn clippy::undocumented_unsafe_blocks \
   --force-warn clippy::missing_safety_doc \
   --force-warn clippy::disallowed_methods \
@@ -128,6 +128,36 @@ groups["clippy::disallowed_methods"] = [
     item for item in groups.get("clippy::disallowed_methods", [])
     if "load_env_file" not in source_line(item[0], item[1])
 ]
+
+# §1/§2/§3 豁免口径：#[allow(clippy::<lint>)] + 理由（各节「豁免方式」声明）。
+# clippy 侧 --force-warn 无视 #[allow]，故在此后处理环节过滤：诊断行号 ±15 行
+# 窗口内存在对应 lint 的 allow 属性即剔除。窗口向下须覆盖 #[async_trait] 等
+# 宏展开导致的 span 上移（实测 crates/session/src/tools/mod.rs diag 报 :47
+# 而 allow 在 :54），向上覆盖 allow 在签名上方的常规形态。
+_ALLOW_LINTS = (
+    "clippy::too_many_lines",
+    "clippy::too_many_arguments",
+    "clippy::excessive_nesting",
+)
+_ALLOW_RE_CACHE = {}
+
+
+def _has_allow(fname, ln, lint):
+    pat = _ALLOW_RE_CACHE.get(lint)
+    if pat is None:
+        pat = re.compile(r"#\[\s*allow\s*\([^)]*?\b" + re.escape(lint) + r"\b")
+        _ALLOW_RE_CACHE[lint] = pat
+    for i in range(max(1, ln - 15), ln + 16):
+        if pat.search(source_line(fname, i)):
+            return True
+    return False
+
+
+for _lint in _ALLOW_LINTS:
+    groups[_lint] = [
+        item for item in groups.get(_lint, [])
+        if not _has_allow(item[0], item[1], _lint)
+    ]
 
 # §7 impl 块行数：自带解析（数据源非 clippy JSON）——strip 注释/字符串内容后
 # 按花括号配对统计每个 impl 块首尾行跨度，inherent 与 trait impl 一并计入。
