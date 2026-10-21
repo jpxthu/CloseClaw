@@ -29,6 +29,30 @@ def load_baseline(path: Path) -> list[str]:
     return sorted(set(items))
 
 
+def remove_entries(path: Path, entries: list[str]) -> list[str]:
+    """行过滤式收窄写回：删除与 entries strip 精确匹配的行，其余原样保留。
+
+    逐行读取 baseline，strip 后与给定条目相等的行删除，头部注释、空行与
+    其余条目的既有顺序不变，UTF-8 写回（不重排、不新增行）；返回实际删除
+    的条目（去重排序）；文件中不存在给定条目时不报错（no-op，不触碰文件）。
+    """
+    targets = set(entries)
+    removed: set[str] = set()
+    kept_lines: list[str] = []
+    text = path.read_text(encoding="utf-8")
+    for raw in text.splitlines():
+        line = raw.strip()
+        if line in targets:
+            removed.add(line)
+            continue
+        kept_lines.append(raw)
+    if not removed:
+        return []
+    trailing = "\n" if text.endswith("\n") else ""
+    path.write_text("\n".join(kept_lines) + trailing, encoding="utf-8")
+    return sorted(removed)
+
+
 def diff_baseline(
     baseline_items: list[str],
     actual_items: list[str],

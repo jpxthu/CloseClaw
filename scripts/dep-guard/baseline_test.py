@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""baseline 单元测试：加载语义（load_baseline 跳过注释/空行）+ diff 判定（key 归一化与 None 透传）。"""
+"""baseline 单元测试：加载语义（load_baseline 跳过注释/空行）+ diff 判定（key 归一化与 None 透传）+ 收窄写回（remove_entries 行过滤删行）。"""
 
 from __future__ import annotations
 
@@ -97,6 +97,48 @@ class BaselineTest(unittest.TestCase):
         diff = baseline.diff_baseline(["a", "b"], ["b", "a"])
         self.assertEqual(diff.new_items, [])
         self.assertEqual(diff.eliminated_items, [])
+
+
+class RemoveEntriesTest(unittest.TestCase):
+    def _write(self, tmp: str, content: str) -> Path:
+        path = Path(tmp) / "baseline.txt"
+        path.write_text(content, encoding="utf-8")
+        return path
+
+    def test_removes_target_keeps_header_and_order(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "# 头部注释\n\na -> b\nb -> c\nc -> d\n")
+            removed = baseline.remove_entries(path, ["b -> c"])
+            self.assertEqual(removed, ["b -> c"])
+            self.assertEqual(
+                path.read_text(encoding="utf-8"), "# 头部注释\n\na -> b\nc -> d\n"
+            )
+
+    def test_empty_entries_noop(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "# 头部注释\n\na -> b\nb -> c\n")
+            self.assertEqual(baseline.remove_entries(path, []), [])
+            self.assertEqual(path.read_text(encoding="utf-8"), "# 头部注释\n\na -> b\nb -> c\n")
+
+    def test_missing_entry_noop_without_error(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "# 头部注释\n\na -> b\n")
+            self.assertEqual(baseline.remove_entries(path, ["x -> y"]), [])
+            self.assertEqual(path.read_text(encoding="utf-8"), "# 头部注释\n\na -> b\n")
+
+    def test_duplicate_lines_all_removed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "a -> b\na -> b\nc -> d\n")
+            self.assertEqual(baseline.remove_entries(path, ["a -> b"]), ["a -> b"])
+            self.assertEqual(path.read_text(encoding="utf-8"), "c -> d\n")
+
+    def test_reload_after_narrow_keeps_semantics(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "# 头部注释\n\n  a -> b  \nb -> c\n")
+            self.assertEqual(baseline.load_baseline(path), ["a -> b", "b -> c"])
+            removed = baseline.remove_entries(path, ["a -> b"])
+            self.assertEqual(removed, ["a -> b"])
+            self.assertEqual(baseline.load_baseline(path), ["b -> c"])
 
 
 if __name__ == "__main__":
