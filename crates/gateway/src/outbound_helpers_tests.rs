@@ -627,7 +627,8 @@ fn make_sentinel_request() -> InboundRequest {
 fn test_is_sentinel_payload_matches_real_fixture() {
     assert!(
         is_sentinel_payload(make_sentinel_request().raw_payload.as_slice()),
-        "expected the real sentinel fixture payload to match"
+        "expected the real sentinel fixture payload to match; actual payload: {:?}",
+        String::from_utf8_lossy(make_sentinel_request().raw_payload.as_slice())
     );
 }
 
@@ -637,11 +638,13 @@ fn test_is_sentinel_payload_matches_real_fixture() {
 fn test_is_sentinel_payload_rejects_non_sentinel_payloads() {
     assert!(
         !is_sentinel_payload(make_slow_request().raw_payload.as_slice()),
-        "expected no match for the slow fixture payload"
+        "expected no match for the slow fixture payload; actual payload: {:?}",
+        String::from_utf8_lossy(make_slow_request().raw_payload.as_slice())
     );
     assert!(
         !is_sentinel_payload(make_fast_request().raw_payload.as_slice()),
-        "expected no match for the fast fixture payload"
+        "expected no match for the fast fixture payload; actual payload: {:?}",
+        String::from_utf8_lossy(make_fast_request().raw_payload.as_slice())
     );
 }
 
@@ -650,7 +653,8 @@ fn test_is_sentinel_payload_rejects_non_sentinel_payloads() {
 fn test_is_sentinel_payload_empty_payload() {
     assert!(
         !is_sentinel_payload(&[]),
-        "expected no match for an empty payload"
+        "expected no match for an empty payload; actual payload: {:?}",
+        String::from_utf8_lossy(&[])
     );
 }
 
@@ -660,7 +664,8 @@ fn test_is_sentinel_payload_empty_payload() {
 fn test_is_sentinel_payload_matches_despite_non_utf8_bytes() {
     assert!(
         is_sentinel_payload(b"\xffsentinel\xff"),
-        "expected a match despite non-UTF-8 bytes around the marker"
+        "expected a match despite non-UTF-8 bytes around the marker; actual payload: {:?}",
+        String::from_utf8_lossy(b"\xffsentinel\xff")
     );
 }
 
