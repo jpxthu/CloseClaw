@@ -10,11 +10,27 @@ use std::sync::{Arc, Mutex};
 struct MemStorage {
     checkpoints: Mutex<Vec<SessionCheckpoint>>,
     save_count: Mutex<usize>,
+    /// When set, every `save_checkpoint` fails with this message
+    /// (error-path tests for the save family).
+    fail_save_message: Option<String>,
 }
 
 impl MemStorage {
     fn add_checkpoint(&self, cp: SessionCheckpoint) {
         self.checkpoints.lock().unwrap().push(cp);
+    }
+
+    /// Storage whose `save_checkpoint` always fails with the given message.
+    fn failing(message: &str) -> Self {
+        Self {
+            fail_save_message: Some(message.to_string()),
+            ..Default::default()
+        }
+    }
+
+    /// Number of `save_checkpoint` attempts (successes and failures).
+    fn save_attempts(&self) -> usize {
+        *self.save_count.lock().unwrap()
     }
 }
 
@@ -22,6 +38,9 @@ impl MemStorage {
 impl PersistenceService for MemStorage {
     async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
         *self.save_count.lock().unwrap() += 1;
+        if let Some(message) = &self.fail_save_message {
+            return Err(PersistenceError::Sqlite(message.clone()));
+        }
         self.checkpoints.lock().unwrap().push(cp.clone());
         Ok(())
     }
@@ -201,6 +220,109 @@ async fn test_save_injects_identity() {
     let loaded = cm.load("s5").await.unwrap().unwrap();
     assert_eq!(loaded.agent_id.as_deref(), Some("injected-agent"));
     assert_eq!(loaded.role, Some(AgentRole::SubAgent));
+}
+
+// ── Error path: save_now propagates storage failure to the caller ───────────
+
+#[tokio::test]
+async fn test_save_now_storage_failure_propagates_error() {
+    let mem = Arc::new(MemStorage::failing("disk full"));
+    let cm = CheckpointManager::new(mem.clone());
+
+    // save_now awaits the storage write, so the failure must reach the caller
+    let err = cm.save_now(make_cp("fail-save-now")).await.unwrap_err();
+    assert!(
+        matches!(err, PersistenceError::Sqlite(ref m) if m == "disk full"),
+        "save_now must propagate the storage error, got: {err:?}"
+    );
+}
+
+// ── Error path: save swallows background failure (returns Ok + error log) ───
+
+/// `MakeWriter` that appends into a shared in-memory buffer (minimal local
+/// twin of the `VecWriter` in `llm_session/tests/log_capture.rs`).
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogBuffer {
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(buf);
+        Ok(buf.len())
+    }
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuffer {
+    type Writer = LogBuffer;
+    fn make_writer(&'a self) -> Self::Writer {
+        self.clone()
+    }
+}
+
+/// Run `f` under a thread-local fmt subscriber (filter ERROR, no ansi/target)
+/// writing into an in-memory buffer; return `f`'s output and the captured
+/// logs. Same threading contract as
+/// `llm_session/tests/log_capture.rs::capture_logs_async`: `f` must run to
+/// completion on the default current-thread `#[tokio::test]` flavor and must
+/// await every background work whose logs it wants to capture.
+async fn capture_error_logs<T, Fut>(f: impl FnOnce() -> Fut) -> (T, String)
+where
+    Fut: std::future::Future<Output = T>,
+{
+    let buffer = LogBuffer::default();
+    let subscriber = tracing_subscriber::fmt()
+        .with_writer(buffer.clone())
+        .with_max_level(tracing::Level::ERROR)
+        .with_target(false)
+        .with_ansi(false)
+        .finish();
+    let guard = tracing::subscriber::set_default(subscriber);
+    let value = f().await;
+    drop(guard);
+    let logs = String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap();
+    (value, logs)
+}
+
+/// `save()` spawns the storage write in the background and swallows its
+/// error (log-only). Pin both halves: the call still returns `Ok(())`, and
+/// the failed background write is reported via an error log.
+#[tokio::test]
+#[serial_test::serial]
+async fn test_save_storage_failure_swallows_error_and_logs() {
+    let mem = Arc::new(MemStorage::failing("disk full"));
+    let cm = CheckpointManager::new(mem.clone());
+
+    // Everything the capture needs runs inside the scope: the call itself
+    // plus a deadline-bounded wait until the spawned write has attempted
+    // (and failed) the storage save — only then are the logs complete.
+    let (_, logs) = capture_error_logs(|| async {
+        let result = cm.save(make_cp("fail-save")).await;
+        assert!(
+            result.is_ok(),
+            "save() must swallow the storage failure and return Ok(()), got: {result:?}"
+        );
+
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+        while mem.save_attempts() == 0 {
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "background save task did not run in time"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+    })
+    .await;
+
+    assert!(
+        logs.contains("Failed to save checkpoint"),
+        "expected the swallowed failure to be logged as error, got: {logs}"
+    );
+    assert!(
+        logs.contains("disk full"),
+        "expected the storage error message in the log, got: {logs}"
+    );
 }
 
 // ── Edge: delete removes from cache and storage ─────────────────────────────

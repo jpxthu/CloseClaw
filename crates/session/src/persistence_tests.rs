@@ -11,6 +11,7 @@ mod tests {
         DreamingStatus, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
         SessionCheckpoint, SessionMode, SessionStatus,
     };
+    use crate::persistence_save_poll_tests::poll_storage_until_checkpoint;
     use crate::storage::memory::MemoryStorage;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -41,17 +42,15 @@ mod tests {
         // save() writes to storage in a spawned background task; poll the
         // storage directly until the checkpoint lands (deadline-bounded)
         // instead of a single yield.
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
-        loop {
-            if storage.load_checkpoint("session1").await.unwrap().is_some() {
-                break;
-            }
-            assert!(
-                tokio::time::Instant::now() < deadline,
-                "background save did not reach storage in time"
-            );
-            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-        }
+        assert!(
+            poll_storage_until_checkpoint(
+                storage.as_ref(),
+                "session1",
+                std::time::Duration::from_secs(2)
+            )
+            .await,
+            "background save did not reach storage in time"
+        );
 
         // Load
         let loaded = manager.load("session1").await.unwrap();
