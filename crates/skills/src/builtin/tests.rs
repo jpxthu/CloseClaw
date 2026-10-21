@@ -3,7 +3,7 @@
 //! Per-skill tests live in `*_tests.rs` files. This file only contains
 //! assertions that span multiple skills or test shared infrastructure.
 
-use super::trivial_validator;
+use super::builder::trivial_validator;
 use crate::builtin::builtin_skills;
 
 // ==========================================================================
