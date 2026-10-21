@@ -1,5 +1,8 @@
-//! Contract tests for [`super::daemon_guard::shutdown_ok`] — the standard
-//! teardown triple (liveness assert → SIGTERM shutdown → exit-0 assert).
+//! Contract tests for [`super::daemon_guard::shutdown_ok`] and
+//! [`super::daemon_guard::shutdown_ok_with_context`] — the standard
+//! teardown triple (liveness assert → SIGTERM shutdown → exit-0 assert),
+//! with the context variant additionally required to fold the caller's
+//! context phrase into the liveness-assertion panic message.
 //!
 //! The real daemon is replaced by a minimal bash probe that installs a
 //! SIGTERM trap and idles, mirroring the daemon's graceful-shutdown
@@ -12,7 +15,7 @@ use std::process::Stdio;
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
 
-use super::daemon_guard::{shutdown_ok, DaemonGuard};
+use super::daemon_guard::{shutdown_ok, shutdown_ok_with_context, DaemonGuard};
 
 /// Spawns a probe process whose trap is proven armed when this returns:
 /// `bash` installs a SIGTERM trap exiting with `code`, then writes a
@@ -74,4 +77,51 @@ async fn test_shutdown_ok_panics_when_daemon_already_dead() {
     assert_eq!(status.code(), Some(3), "probe must exit 3 before teardown");
 
     shutdown_ok(daemon).await;
+}
+
+/// Normal path (context variant): a daemon alive at teardown that exits 0
+/// on SIGTERM passes the full triple without panicking, with the context
+/// phrase carried through untouched.
+#[tokio::test]
+async fn test_shutdown_ok_with_context_passes_when_daemon_exits_zero_on_sigterm() {
+    shutdown_ok_with_context(
+        spawn_sigterm_probe(0).await,
+        Some("after restart chat turn"),
+    )
+    .await;
+}
+
+/// Error path (context variant): a daemon alive at teardown that exits
+/// non-zero on SIGTERM still trips the exit-status assert — supplying a
+/// context only decorates the liveness message, it does not weaken the
+/// exit-code contract.
+#[tokio::test]
+#[should_panic(expected = "daemon should exit 0 after SIGTERM")]
+async fn test_shutdown_ok_with_context_panics_when_daemon_exits_nonzero_on_sigterm() {
+    shutdown_ok_with_context(
+        spawn_sigterm_probe(3).await,
+        Some("after restart chat turn"),
+    )
+    .await;
+}
+
+/// Boundary (context variant): a daemon that already died mid-test trips
+/// the liveness assert with the caller's context phrase verbatim in the
+/// panic message — the observability that distinguishes this variant from
+/// the context-free [`shutdown_ok`].
+#[tokio::test]
+#[should_panic(expected = "daemon exited prematurely context-marker-mid-test with status")]
+async fn test_shutdown_ok_with_context_panics_with_context_in_message_when_daemon_already_dead() {
+    let child = Command::new("bash")
+        .args(["-c", "exit 3"])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .kill_on_drop(true)
+        .spawn()
+        .expect("spawn bash probe");
+    let mut daemon = DaemonGuard(child);
+    let status = daemon.0.wait().await.expect("probe exit status");
+    assert_eq!(status.code(), Some(3), "probe must exit 3 before teardown");
+
+    shutdown_ok_with_context(daemon, Some("context-marker-mid-test")).await;
 }
