@@ -648,6 +648,7 @@ dependencies = [
  "chrono",
  "closeclaw-common",
  "closeclaw-platform",
+ "closeclaw-test-support",
  "cron",
  "filetime",
  "notify",
@@ -658,7 +659,6 @@ dependencies = [
  "thiserror",
  "tokio",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 

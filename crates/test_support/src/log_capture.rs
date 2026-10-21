@@ -6,18 +6,21 @@
 //! implementation instead of per-file twins.
 //!
 //! Public API: [`capture_logs`] (synchronous bodies), [`capture_logs_async`]
-//! (async bodies, see its docs for the threading contract) and
-//! [`is_installed`] (guard-state helper). The subscriber type and its
-//! `VecWriter` writer stay private to this module: [`install`]
+//! (async bodies, targets stripped, see its docs for the threading
+//! contract), [`capture_logs_async_with_target`] (async bodies, targets
+//! kept) and [`is_installed`] (guard-state helper). The subscriber type
+//! and its `VecWriter` writer stay private to this module: [`install`]
 //! constructs [`CaptureSubscriber`] under an explicit type annotation
 //! (construction and discrimination compile-time locked to one type)
 //! and [`is_installed`] answers guard-state questions, so no caller
 //! needs the subscriber's generic parameters.
 //!
-//! Two capture entry points coexist long-term: synchronous
-//! [`capture_logs`] for tests with synchronous bodies, and async
-//! [`capture_logs_async`] for tests whose body awaits (see its docs for
-//! the threading contract).
+//! Three capture entry points coexist long-term: synchronous
+//! [`capture_logs`] for tests with synchronous bodies, and the async
+//! pair [`capture_logs_async`] (targets stripped) /
+//! [`capture_logs_async_with_target`] (targets kept) for tests whose
+//! body awaits (threading contract defined once, on
+//! [`capture_logs_async`]).
 //!
 //! Constraint: every calling test **must** carry `#[serial_test::serial]`
 //! — see the `# Concurrency` section on [`capture_logs`].
@@ -53,12 +56,13 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// result together with the captured log output. Shared log-capture
 /// helper for workspace tests (issue #3107).
 ///
-/// # Level (difference from `closeclaw-config`'s `capture_warn_logs`)
+/// # Level (why it is a parameter)
 ///
-/// `closeclaw-config`'s helper fixes the filter at `WARN`; this one takes the level
-/// as a parameter because session tests assert both `info`-level events
-/// (e.g. `skill_listing_injection`) and `warn`-level events (e.g. cache
-/// break), and a fixed `WARN` filter cannot capture the former.
+/// The filter level is part of this entry's signature rather than a
+/// fixed constant because callers assert events of differing
+/// severities — `info`-level events (e.g. `skill_listing_injection`)
+/// as well as `warn`-level ones (e.g. cache break) — and no single
+/// hard-coded filter can capture both.
 ///
 /// # Concurrency
 ///
@@ -68,7 +72,7 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// can drop events and empty the capture buffer (issue #3102 race).
 pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, String) {
     let buffer = VecWriter::default();
-    let guard = install(&buffer, level);
+    let guard = install(&buffer, level, TargetRendering::Strip);
     let value = f();
     let logs = drain(&buffer, guard);
     (value, logs)
@@ -87,7 +91,7 @@ pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, Stri
 ///
 /// # Threading contract (caller must satisfy)
 ///
-/// - **`#[tokio::test]` with the default current-thread flavor.** The
+/// - **An explicit `#[tokio::test(flavor = "current_thread")]`.** The
 ///   `set_default` guard is thread-local: it installs the subscriber
 ///   on the thread that runs `f().await`'s first poll and can only be
 ///   uninstalled on that same thread, so nothing in the capture scope
@@ -114,16 +118,16 @@ pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, Stri
 ///     child only after the helper returned — with the awaited-spawn
 ///     capture as its contrast: join every child *inside* the capture
 ///     scope, or accept its events missing from the result.
-/// - Keeping the default current-thread flavor and awaiting any
-///   spawn *inside* the capture scope folds everything — helper,
-///   child, events — onto the one installing thread, which is what
-///   makes both risks moot (the measured basis recorded in
-///   `log_capture_tests.rs`); a net thread migration (the guard-leak
-///   case) is caught at runtime by the tid assertion; a transient
-///   round-trip migration can still drop events, only prevented by
-///   honouring the current-thread flavor. Blocking std calls (e.g.
-///   `recv_timeout`) must not appear in the async body either: there
-///   is no other thread to poll it.
+/// - Keeping the explicit `#[tokio::test(flavor = "current_thread")]`
+///   and awaiting any spawn *inside* the capture scope folds
+///   everything — helper, child, events — onto the one installing
+///   thread, which is what makes both risks moot (the measured basis
+///   recorded in `log_capture_tests.rs`); a net thread migration (the
+///   guard-leak case) is caught at runtime by the tid assertion; a
+///   transient round-trip migration can still drop events, only
+///   prevented by honouring the explicit current-thread flavor.
+///   Blocking std calls (e.g. `recv_timeout`) must not appear in the
+///   async body either: there is no other thread to poll it.
 /// - **`#[serial_test::serial]`**, for the same callsite-interest
 ///   cache reason as [`capture_logs`] (issue #3102 race): concurrent
 ///   registration on the same callsite can drop events and empty the
@@ -133,7 +137,9 @@ pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, Stri
 ///
 /// The two helpers coexist long-term: this one covers async test
 /// bodies, while the sync version keeps its existing call sites
-/// (and sync tests) unchanged.
+/// (and sync tests) unchanged. A third entry,
+/// [`capture_logs_async_with_target`], shares this contract and
+/// differs only in keeping target rendering.
 pub async fn capture_logs_async<T, Fut>(
     f: impl FnOnce() -> Fut,
     level: tracing::Level,
@@ -141,25 +147,77 @@ pub async fn capture_logs_async<T, Fut>(
 where
     Fut: std::future::Future<Output = T>,
 {
+    capture_logs_async_impl(f, level, TargetRendering::Strip).await
+}
+
+/// Target-preserving async twin of [`capture_logs_async`]: identical
+/// signature and identical threading contract, with exactly one
+/// difference — the subscriber is installed with target rendering, so
+/// every captured line starts with the emitting event's target string
+/// verbatim, which [`capture_logs_async`] (and [`capture_logs`]) strip.
+/// Tests that assert the verbatim target of an event (e.g. pinning the
+/// full `closeclaw_gateway::...` path) must use this entry.
+///
+/// # Threading contract (caller must satisfy)
+///
+/// Exactly the contract defined on [`capture_logs_async`], referenced
+/// there rather than re-defined here (one concept, one definition):
+/// an explicit `#[tokio::test(flavor = "current_thread")]`, spawns
+/// awaited only inside the capture scope, and
+/// `#[serial_test::serial]` on the test.
+pub async fn capture_logs_async_with_target<T, Fut>(
+    f: impl FnOnce() -> Fut,
+    level: tracing::Level,
+) -> (T, String)
+where
+    Fut: std::future::Future<Output = T>,
+{
+    capture_logs_async_impl(f, level, TargetRendering::Keep).await
+}
+
+/// Whether captured lines render the emitting event's target string:
+/// [`TargetRendering::Strip`] drops it (the default entries),
+/// [`TargetRendering::Keep`] writes it verbatim (the target entry).
+/// Private: each public entry point bakes in its own variant, so
+/// callers never name this type.
+enum TargetRendering {
+    Strip,
+    Keep,
+}
+
+/// Shared body of [`capture_logs_async`] and
+/// [`capture_logs_async_with_target`]: install the buffer subscriber
+/// (target rendering per `rendering`), await `f` to completion
+/// pinned to the installing thread (the tid assertion), then drop the
+/// guard and read the buffer back.
+async fn capture_logs_async_impl<T, Fut>(
+    f: impl FnOnce() -> Fut,
+    level: tracing::Level,
+    rendering: TargetRendering,
+) -> (T, String)
+where
+    Fut: std::future::Future<Output = T>,
+{
     let buffer = VecWriter::default();
-    let guard = install(&buffer, level);
+    let guard = install(&buffer, level, rendering);
     let tid = std::thread::current().id();
     let value = f().await;
     assert_eq!(
         std::thread::current().id(),
         tid,
-        "capture_logs_async must run on a single thread: the set_default guard \
-         is thread-affine, so a future that migrated across threads cannot be \
-         unloaded on the installing thread; drive it with the current-thread \
-         #[tokio::test] flavor"
+        "the log-capture scope must run on a single thread: the set_default \
+         guard is thread-affine, so a future that migrated across threads \
+         cannot be unloaded on the installing thread; drive it with \
+         #[tokio::test(flavor = \"current_thread\")]"
     );
     let logs = drain(&buffer, guard);
     (value, logs)
 }
 
-/// Shared tail of [`capture_logs`] and [`capture_logs_async`]: drop
-/// `guard` so the subscriber is uninstalled and stops writing, then
-/// read back everything it captured as UTF-8 text.
+/// Shared tail of [`capture_logs`], [`capture_logs_async`] and
+/// [`capture_logs_async_with_target`]: drop `guard` so the
+/// subscriber is uninstalled and stops writing, then read back
+/// everything it captured as UTF-8 text.
 fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String {
     drop(guard);
     String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap()
@@ -182,15 +240,20 @@ type CaptureSubscriber = tracing_subscriber::fmt::Subscriber<
     VecWriter,
 >;
 
-/// Build the fmt subscriber (no target/ansi) filtered to `level`,
-/// writing into `buffer`, and install it as this thread's default
-/// subscriber; dropping the returned guard uninstalls it so the
-/// buffer stops being written and can be read back.
-fn install(buffer: &VecWriter, level: tracing::Level) -> tracing::subscriber::DefaultGuard {
+/// Build the fmt subscriber (no ansi; target rendering per
+/// `rendering`) filtered to `level`, writing into `buffer`, and
+/// install it as this thread's default subscriber; dropping the
+/// returned guard uninstalls it so the buffer stops being written and
+/// can be read back.
+fn install(
+    buffer: &VecWriter,
+    level: tracing::Level,
+    rendering: TargetRendering,
+) -> tracing::subscriber::DefaultGuard {
     let subscriber: CaptureSubscriber = tracing_subscriber::fmt()
         .with_writer(buffer.clone())
         .with_max_level(level)
-        .with_target(false)
+        .with_target(matches!(rendering, TargetRendering::Keep))
         .with_ansi(false)
         .finish();
     tracing::subscriber::set_default(subscriber)
