@@ -429,7 +429,7 @@ mod tests {
     }
 
     #[test]
-    fn run_phase_and_run_info_decode_serialized_state() {
+    fn test_run_phase_and_run_info_decode_serialized_state() {
         let port = EngineWorkflowPort;
         let run = run_value();
         assert_eq!(port.run_phase(&run), Some(WorkflowPhase::Executing));
@@ -445,7 +445,7 @@ mod tests {
     }
 
     #[test]
-    fn undecodable_state_is_reported_or_passed_through() {
+    fn test_undecodable_state_is_reported_or_passed_through() {
         let port = EngineWorkflowPort;
         let garbage = json!({ "not": "a workflow run" });
         assert_eq!(port.run_phase(&garbage), None);
@@ -462,7 +462,7 @@ mod tests {
     }
 
     #[test]
-    fn verify_flow_advances_state_machine_through_value_roundtrip() {
+    fn test_verify_flow_advances_state_machine_through_value_roundtrip() {
         let port = EngineWorkflowPort;
         let def = definition_value();
         // First verify injection: checklist goes out, phase → Verifying.
@@ -495,7 +495,7 @@ mod tests {
     }
 
     #[test]
-    fn jump_flow_maps_json_answers_and_executes_transition() {
+    fn test_jump_flow_maps_json_answers_and_executes_transition() {
         let port = EngineWorkflowPort;
         let def = jump_definition_value();
         let questions = port.step_jump_questions(&def, 0);
@@ -520,7 +520,7 @@ mod tests {
     }
 
     #[test]
-    fn owner_and_blocked_transitions_roundtrip_through_value() {
+    fn test_owner_and_blocked_transitions_roundtrip_through_value() {
         let port = EngineWorkflowPort;
         // Blocked transition carries the pause reason across the port.
         let blocked = port.mark_blocked(run_value(), "waiting for owner");
@@ -539,7 +539,7 @@ mod tests {
     }
 
     #[test]
-    fn definition_metadata_and_messages_are_rendered_from_value() {
+    fn test_definition_metadata_and_messages_are_rendered_from_value() {
         let port = EngineWorkflowPort;
         let def = definition_value();
         assert_eq!(port.definition_verify_retry_limit(&def), Some(3));

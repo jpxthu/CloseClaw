@@ -13,7 +13,7 @@ use std::collections::HashMap;
 // ── Enum mapping（正常路径：全变体覆盖） ─────────────────────────
 
 #[test]
-fn message_direction_mapping_covers_all_variants() {
+fn test_message_direction_mapping_covers_all_variants() {
     for (permission_dir, perm_dir) in [
         (MessageDirection::Send, PermMessageDirection::Send),
         (MessageDirection::Receive, PermMessageDirection::Receive),
@@ -26,7 +26,7 @@ fn message_direction_mapping_covers_all_variants() {
 // ── Body mapping（字段逐项保留） ─────────────────────────────────
 
 #[test]
-fn body_mapping_preserves_all_fields_for_every_variant() {
+fn test_body_mapping_preserves_all_fields_for_every_variant() {
     let cases: Vec<(PermRequestBody, PermissionRequestBody)> = vec![
         (
             PermRequestBody::ToolCall {
@@ -114,7 +114,7 @@ fn body_mapping_preserves_all_fields_for_every_variant() {
 // ── Verdict mapping（错误/边界：Allowed、Denied 各形态） ─────────
 
 #[test]
-fn verdict_mapping_preserves_denied_fields_and_drops_unused() {
+fn test_verdict_mapping_preserves_denied_fields_and_drops_unused() {
     let verdict = verdict_from_permission(PermissionResponse::Allowed {
         token: "tok".into(),
         context_modifier: Some("modifier".into()),
@@ -155,7 +155,7 @@ fn verdict_mapping_preserves_denied_fields_and_drops_unused() {
 // ── Config-file classification against a real ConfigManager ──────
 
 #[tokio::test]
-async fn is_config_file_classifies_config_tree_paths() {
+async fn test_is_config_file_classifies_config_tree_paths() {
     let tmp = tempfile::TempDir::new().unwrap();
     let config_manager = Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap());
     let session_manager = test_session_manager();
@@ -193,7 +193,7 @@ async fn is_config_file_classifies_config_tree_paths() {
 // ── Sub-agent decision（空/不存在会话的安全默认） ────────────────
 
 #[tokio::test]
-async fn is_session_sub_agent_defaults_false_for_empty_or_missing() {
+async fn test_is_session_sub_agent_defaults_false_for_empty_or_missing() {
     let tmp = tempfile::TempDir::new().unwrap();
     let session_manager = test_session_manager();
     let approval_flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
@@ -218,7 +218,7 @@ async fn is_session_sub_agent_defaults_false_for_empty_or_missing() {
 }
 
 #[tokio::test]
-async fn factory_returns_trait_object() {
+async fn test_factory_returns_trait_object() {
     let tmp = tempfile::TempDir::new().unwrap();
     let session_manager = test_session_manager();
     let approval_flow = Arc::new(TokioMutex::new(ApprovalFlow::new(
@@ -462,7 +462,7 @@ fn adapter_with_ruleset(
 /// 仅由 AgentOnly allow 放行（无注入的同身份 caller 必被 UserOnly
 /// deny 拒绝，故 Allowed 唯一对应 Owner 短路）。
 #[tokio::test]
-async fn evaluate_resolves_sender_and_applies_owner_shortcut() {
+async fn test_evaluate_resolves_sender_and_applies_owner_shortcut() {
     let tmp = tempfile::TempDir::new().unwrap();
     let session_manager =
         session_manager_with_checkpoint_sender("s-owner", Some("ou_real_owner")).await;
@@ -506,7 +506,7 @@ async fn evaluate_resolves_sender_and_applies_owner_shortcut() {
 /// allow 放行 → Allowed；正确行为下 UserOnly("") deny 命中 →
 /// user-phase 拒绝（等效可观测断言）。
 #[tokio::test]
-async fn evaluate_with_empty_checkpoint_sender_does_not_fire_owner_shortcut() {
+async fn test_evaluate_with_empty_checkpoint_sender_does_not_fire_owner_shortcut() {
     let tmp = tempfile::TempDir::new().unwrap();
     let session_manager = session_manager_with_checkpoint_sender("s-empty", Some("")).await;
     let adapter = adapter_with_ruleset(
@@ -551,7 +551,7 @@ async fn evaluate_with_empty_checkpoint_sender_does_not_fire_owner_shortcut() {
 /// 保持 Bare（caller 不被改写、无 owner_id 注入）→ 无 Owner 短路，
 /// 走 defaults（全 Deny）→ 拒绝。
 #[tokio::test]
-async fn evaluate_without_bound_sender_stays_bare_without_owner_shortcut() {
+async fn test_evaluate_without_bound_sender_stays_bare_without_owner_shortcut() {
     let tmp = tempfile::TempDir::new().unwrap();
     let session_manager = session_manager_with_checkpoint_sender("s-plain", None).await;
     let adapter = adapter_with_ruleset(tmp.path(), all_deny_ruleset(), session_manager);
@@ -591,7 +591,7 @@ async fn evaluate_without_bound_sender_stays_bare_without_owner_shortcut() {
 /// session_id None：不走 session 分支，请求保持 Bare → 无 Owner
 /// 短路，defaults（全 Deny）拒绝；caller 不被改写。
 #[tokio::test]
-async fn evaluate_without_session_stays_bare_without_owner_shortcut() {
+async fn test_evaluate_without_session_stays_bare_without_owner_shortcut() {
     let tmp = tempfile::TempDir::new().unwrap();
     let adapter = adapter_with_ruleset(tmp.path(), all_deny_ruleset(), test_session_manager());
     let mut caller = PermCaller {
