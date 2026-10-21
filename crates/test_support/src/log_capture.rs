@@ -51,11 +51,11 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// `level`, writing into an in-memory buffer; run `f`, drop the
 /// subscriber guard so the buffer is flushed, and return the closure's
 /// result together with the captured log output. Shared log-capture
-/// helper for session tests (issue #3107).
+/// helper for workspace tests (issue #3107).
 ///
-/// # Level (difference from config's `capture_warn_logs`)
+/// # Level (difference from `closeclaw-config`'s `capture_warn_logs`)
 ///
-/// config's helper fixes the filter at `WARN`; this one takes the level
+/// `closeclaw-config`'s helper fixes the filter at `WARN`; this one takes the level
 /// as a parameter because session tests assert both `info`-level events
 /// (e.g. `skill_listing_injection`) and `warn`-level events (e.g. cache
 /// break), and a fixed `WARN` filter cannot capture the former.
