@@ -618,6 +618,44 @@ fn make_sentinel_request() -> InboundRequest {
 }
 
 // ---------------------------------------------------------------------------
+// is_sentinel_payload unit tests
+// ---------------------------------------------------------------------------
+
+/// Positive: the real sentinel fixture payload (same bytes the constraint
+/// tests queue via `make_sentinel_request`) matches.
+#[test]
+fn test_is_sentinel_payload_matches_real_fixture() {
+    assert!(is_sentinel_payload(
+        make_sentinel_request().raw_payload.as_slice()
+    ));
+}
+
+/// Negative normal-path payloads: `{}` (slow fixture) and `{"kind":"fast"}`
+/// (fast fixture) must not trip the sentinel check.
+#[test]
+fn test_is_sentinel_payload_rejects_non_sentinel_payloads() {
+    assert!(!is_sentinel_payload(
+        make_slow_request().raw_payload.as_slice()
+    ));
+    assert!(!is_sentinel_payload(
+        make_fast_request().raw_payload.as_slice()
+    ));
+}
+
+/// Boundary: an empty payload carries no marker at all.
+#[test]
+fn test_is_sentinel_payload_empty_payload() {
+    assert!(!is_sentinel_payload(&[]));
+}
+
+/// Boundary: non-UTF-8 bytes around the marker still match — lossy decoding
+/// replaces them with U+FFFD without breaking the substring hit.
+#[test]
+fn test_is_sentinel_payload_matches_despite_non_utf8_bytes() {
+    assert!(is_sentinel_payload(b"\xffsentinel\xff"));
+}
+
+// ---------------------------------------------------------------------------
 // Step 1.15: deliver_batch_result branch coverage
 // ---------------------------------------------------------------------------
 
