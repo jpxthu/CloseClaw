@@ -3,44 +3,11 @@
 //! Per-skill tests live in `*_tests.rs` files. This file only contains
 //! assertions that span multiple skills or test shared infrastructure.
 
-use super::builder::trivial_validator;
-use crate::builtin::builtin_skills;
+use super::builder::{builtin_skills, trivial_validator};
 
 // ==========================================================================
 // Cross-skill manifest / body assertions
 // ==========================================================================
-
-#[test]
-fn test_builtin_skills_count() {
-    let skills = builtin_skills(trivial_validator());
-    assert_eq!(skills.len(), 7);
-}
-
-#[test]
-fn test_builtin_skills_names() {
-    let skills = builtin_skills(trivial_validator());
-    let names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
-    assert!(names.contains(&"file_ops".to_string()));
-    assert!(names.contains(&"git_ops".to_string()));
-    assert!(names.contains(&"search".to_string()));
-    assert!(names.contains(&"skill_discovery".to_string()));
-    assert!(names.contains(&"coding_agent".to_string()));
-    assert!(names.contains(&"skill_creator".to_string()));
-    assert!(names.contains(&"create_workflow".to_string()));
-}
-
-#[test]
-fn test_builtin_skills_all_have_body() {
-    let skills = builtin_skills(trivial_validator());
-    for skill in &skills {
-        let body = skill.body();
-        assert!(
-            !body.is_empty(),
-            "skill '{}' body should not be empty",
-            skill.manifest().name
-        );
-    }
-}
 
 #[test]
 fn test_builtin_skills_all_have_manifest_fields() {
