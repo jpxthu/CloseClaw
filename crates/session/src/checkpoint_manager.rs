@@ -147,7 +147,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         self.storage.delete_checkpoint(session_id).await
     }
 
-    /// 保存 Checkpoint（同步写入，不注入 identity，保留原始行为）
+    /// 保存 Checkpoint（立即写入存储并等待完成，不注入 identity，保留原始行为）
     ///
     /// Unlike [`save`](Self::save) and [`save_now`](Self::save_now),
     /// this method does **not** inject `agent_id` / `role` identity into
@@ -160,7 +160,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
             let mut cache = self.local_cache.write().await;
             cache.insert(session_id, checkpoint.clone());
         }
-        // Synchronous write to storage
+        // 立即写入存储并等待完成
         self.storage.save_checkpoint(checkpoint).await
     }
 
