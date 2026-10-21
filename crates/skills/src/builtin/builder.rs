@@ -14,15 +14,16 @@ use std::sync::Arc;
 /// the `create_workflow` skill; it is injected by the composition
 /// root (no silent fallback).
 pub fn builtin_skills(workflow_validator: WorkflowDefinitionValidator) -> Vec<Arc<dyn Skill>> {
-    vec![
-        Arc::new(FileOpsSkill::new()) as Arc<dyn Skill>,
+    let skills: Vec<Arc<dyn Skill>> = vec![
+        Arc::new(FileOpsSkill::new()),
         Arc::new(GitOpsSkill::new()),
         Arc::new(SearchSkill::new()),
         Arc::new(SkillDiscoverySkill::new()),
         Arc::new(crate::CodingAgentSkill::new()),
         Arc::new(crate::SkillCreatorSkill::new()),
         Arc::new(WorkflowCreatorSkill::new(workflow_validator)),
-    ]
+    ];
+    skills
 }
 
 /// Validator accepting any content, for tests that do not exercise
