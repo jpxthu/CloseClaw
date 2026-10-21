@@ -2,8 +2,9 @@
 //! prefix check, message push dedup, KV cache, stats integration).
 //!
 //! Mounted by `tests/mod.rs` and re-exposed there (`use
-//! self::test_helpers::{…}`, mirroring the [`super::log_capture`]
-//! pattern) so callers always use the plain `super::` form. Suites that
+//! self::test_helpers::{…}`, mirroring the
+//! `closeclaw_test_support::log_capture` re-export pattern) so callers
+//! always use the plain `super::` form. Suites that
 //! used the narrow 3-parameter usage builder import it aliased
 //! (`use super::make_usage_basic as make_usage;`) to keep call sites
 //! unchanged.
