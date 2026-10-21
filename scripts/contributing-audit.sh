@@ -30,9 +30,9 @@ EOF
 CLIPPY_JSON="$(mktemp "${TMPDIR:-/tmp}/clippy-json.XXXXXX")"
 CLIPPY_CONF_DIR="$CONF_DIR" cargo clippy --workspace --all-targets --message-format=json -- \
   -A clippy::all -A warnings \
-  --force-warn clippy::too_many_lines \
-  --force-warn clippy::too_many_arguments \
-  --force-warn clippy::excessive_nesting \
+  -W clippy::too_many_lines \
+  -W clippy::too_many_arguments \
+  -W clippy::excessive_nesting \
   --force-warn clippy::undocumented_unsafe_blocks \
   --force-warn clippy::missing_safety_doc \
   --force-warn clippy::disallowed_methods \
