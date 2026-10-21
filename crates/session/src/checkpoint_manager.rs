@@ -53,10 +53,8 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         &self.storage
     }
 
-    /// 保存 Checkpoint（异步写入，不阻塞主流程）
-    pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
-        let session_id = checkpoint.session_id.clone();
-
+    /// 保存前准备：注入 identity（manager 的 identity 恒覆盖）并更新本地内存缓存
+    async fn prepare_for_save(&self, checkpoint: &mut SessionCheckpoint) {
         // Inject identity into checkpoint (manager's identity always overrides)
         if let Some(ref agent_id) = self.agent_id {
             checkpoint.agent_id = Some(agent_id.clone());
@@ -66,16 +64,23 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         }
 
         // 先更新本地缓存
-        {
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.clone(), checkpoint.clone());
-        }
+        let session_id = checkpoint.session_id.clone();
+        let mut cache = self.local_cache.write().await;
+        cache.insert(session_id, checkpoint.clone());
+    }
+
+    /// 保存 Checkpoint（异步写入，不阻塞主流程）
+    pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+        self.prepare_for_save(&mut checkpoint).await;
 
         // 异步保存到存储后端
         let storage = Arc::clone(&self.storage);
         tokio::spawn(async move {
             if let Err(e) = storage.save_checkpoint(&checkpoint).await {
-                tracing::error!(session_id = %checkpoint.session_id, "Failed to save checkpoint: {}", e);
+                tracing::error!(
+                    session_id = %checkpoint.session_id,
+                    "Failed to save checkpoint: {}", e
+                );
             }
         });
 
@@ -90,21 +95,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         &self,
         mut checkpoint: SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
-        let session_id = checkpoint.session_id.clone();
-
-        // Inject identity into checkpoint (manager's identity always overrides)
-        if let Some(ref agent_id) = self.agent_id {
-            checkpoint.agent_id = Some(agent_id.clone());
-        }
-        if let Some(ref role) = self.role {
-            checkpoint.role = Some(*role);
-        }
-
-        // 先更新本地缓存
-        {
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.clone(), checkpoint.clone());
-        }
+        self.prepare_for_save(&mut checkpoint).await;
 
         // 立即写入存储后端并等待完成（错误传播给调用方）
         self.storage.save_checkpoint(&checkpoint).await
