@@ -86,7 +86,7 @@ impl PersistenceService for MockPersist {
 /// When SessionManager has a checkpoint_manager, it is accessible via
 /// the accessor and can be injected into a new Gateway.
 #[tokio::test]
-async fn checkpoint_manager_accessible_from_session_manager() {
+async fn test_checkpoint_manager_accessible_from_session_manager() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
@@ -116,7 +116,7 @@ async fn checkpoint_manager_accessible_from_session_manager() {
 /// When SessionManager has NO checkpoint_manager, the accessor returns
 /// None and build_new_gateway skips injection (defensive branch).
 #[tokio::test]
-async fn build_new_gateway_no_checkpoint_manager_does_not_panic() {
+async fn test_build_new_gateway_no_checkpoint_manager_does_not_panic() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
@@ -137,7 +137,7 @@ async fn build_new_gateway_no_checkpoint_manager_does_not_panic() {
 /// Full restart flow: Gateway with checkpoint_manager, after restart
 /// the new Gateway also has the same checkpoint_manager.
 #[tokio::test]
-async fn checkpoint_manager_survives_gateway_restart() {
+async fn test_checkpoint_manager_survives_gateway_restart() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
@@ -170,7 +170,7 @@ async fn checkpoint_manager_survives_gateway_restart() {
 /// Simulate the build_new_gateway code path: read checkpoint_manager
 /// from SessionManager, inject into new Gateway.
 #[tokio::test]
-async fn build_new_gateway_injects_checkpoint_manager_from_sm() {
+async fn test_build_new_gateway_injects_checkpoint_manager_from_sm() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
@@ -198,7 +198,7 @@ async fn build_new_gateway_injects_checkpoint_manager_from_sm() {
 /// When no checkpoint_manager is set, build_new_gateway skips injection.
 /// Verifies the defensive branch does not panic.
 #[tokio::test]
-async fn build_new_gateway_skips_injection_when_no_checkpoint_manager() {
+async fn test_build_new_gateway_skips_injection_when_no_checkpoint_manager() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
