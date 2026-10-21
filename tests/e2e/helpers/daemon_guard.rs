@@ -26,7 +26,7 @@ use std::time::Duration;
 use tokio::process::Child;
 
 use super::config::{write_config_tree, ConfigTreeOpts};
-use super::daemon_lifecycle::{assert_daemon_alive, sigterm_and_wait};
+use super::daemon_lifecycle::{assert_daemon_alive_with_context, sigterm_and_wait};
 use super::daemon_ready::wait_for_daemon_ready_with_timeout;
 use super::fake_llm::start_fake_llm;
 
@@ -108,8 +108,16 @@ pub(crate) async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuar
 /// (issue #3829), unifying the teardown semantics: a daemon that died
 /// mid-test is now reported with exit details before the SIGTERM wait,
 /// instead of surfacing as an opaque shutdown failure.
-pub(crate) async fn shutdown_ok(mut daemon: DaemonGuard) {
-    assert_daemon_alive(&mut daemon.0);
+pub(crate) async fn shutdown_ok(daemon: DaemonGuard) {
+    shutdown_ok_with_context(daemon, None).await;
+}
+
+/// [`shutdown_ok`] with an optional caller-supplied context phrase folded
+/// into the liveness-assertion panic message (e.g. `Some("after restart
+/// chat turn")`), so failures read where in the scenario the daemon died
+/// (mirrors [`assert_daemon_alive_with_context`]).
+pub(crate) async fn shutdown_ok_with_context(mut daemon: DaemonGuard, context: Option<&str>) {
+    assert_daemon_alive_with_context(&mut daemon.0, context);
     let status = daemon.shutdown().await;
     assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }
