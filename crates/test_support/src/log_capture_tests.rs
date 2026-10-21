@@ -1,15 +1,23 @@
-//! Behaviour pinning for the async log-capture helper
-//! `capture_logs_async` (`log_capture.rs`, issue #3168 Step 1.3).
+//! Behaviour pinning for the log-capture helpers in `log_capture.rs`:
+//! the async `capture_logs_async` (issue #3168 Step 1.3), the
+//! synchronous `capture_logs` and the target-preserving
+//! `capture_logs_async_with_target` (issue #3872).
 //!
 //! Dimensions pinned here:
 //!
-//! - **normal path**: the async closure's return value passes through
+//! - **normal path**: the closure's return value passes through
 //!   unchanged and events at the requested level land in the returned
-//!   `String` (message, level marker, structured fields)
+//!   `String` (message, level marker, structured fields); pinned for
+//!   the async entry, the sync entry and the target entry
 //! - **async path**: events emitted after an await point are still
 //!   captured, and a `tokio::spawn`ed child's events are captured
 //!   too — basis recorded in the test itself
-//! - **level filter**: `level` is an upper bound, not an exact match
+//! - **level filter**: `level` is an upper bound, not an exact match;
+//!   the below/at/above three-way is pinned on the async entry, the
+//!   at/below boundary on the sync and target entries
+//! - **target rendering**: the target entry keeps the event's target
+//!   string verbatim while the default entries strip it — pinned as a
+//!   same-emission contrast pair so neither half can pass vacuously
 //! - **boundary**: an event-free scope captures an empty `String`; a
 //!   spawned child released only *after* the scope ended (guard
 //!   already dropped) has its events missed — the contrast pair of
@@ -22,12 +30,14 @@
 //!   distinguishes "installed then unloaded" from "never installed"
 //!
 //! Every test carries `#[serial_test::serial]` per the helper's
-//! threading contract (issue #3102 callsite-interest race); each
-//! declares the helper's required current-thread flavor explicitly
-//! as `#[tokio::test(flavor = "current_thread")]`, so the hard
-//! contract no longer leans on the attribute's implicit default.
+//! threading contract (issue #3102 callsite-interest race); async
+//! tests declare the helper's required current-thread flavor
+//! explicitly as `#[tokio::test(flavor = "current_thread")]`, so the
+//! hard contract no longer leans on the attribute's implicit default.
 
-use crate::log_capture::{capture_logs_async, is_installed};
+use crate::log_capture::{
+    capture_logs, capture_logs_async, capture_logs_async_with_target, is_installed,
+};
 
 // ── normal path: return value passes through, level logs land in the String ──
 
@@ -355,5 +365,173 @@ async fn test_capture_logs_async_unloads_guard_after_future_panic() {
     assert!(
         !is_installed(),
         "the second capture's guard must be unloaded as well"
+    );
+}
+
+// ── sync entry: normal path (issue #3872) ────────────────────────────────────
+
+/// The sync entry must be transparent for the closure's output and a
+/// faithful capture at the requested level: the closure's `T` comes
+/// back unchanged, and a `WARN` event emitted inside the synchronous
+/// closure appears in the returned `String` with its message, its
+/// level marker and its structured field — i.e. the sync body gets
+/// the same capture capability as the async entry pinned above.
+#[test]
+#[serial_test::serial]
+fn test_capture_logs_returns_value_and_captures_logs_at_level() {
+    let ((answer, marker), logs) = capture_logs(
+        || {
+            tracing::warn!(dropped = 40_000, "sync cache break threshold crossed");
+            (42u32, "value-from-the-closure")
+        },
+        tracing::Level::WARN,
+    );
+
+    assert_eq!(
+        answer, 42,
+        "the closure's return value must pass through unchanged; captured logs: {logs}"
+    );
+    assert_eq!(
+        marker, "value-from-the-closure",
+        "the returned value must be the closure's own output; captured logs: {logs}"
+    );
+    assert!(
+        logs.contains("sync cache break threshold crossed"),
+        "the event message must be captured; captured logs: {logs}"
+    );
+    assert!(
+        logs.contains("WARN"),
+        "the event's level marker must be captured; captured logs: {logs}"
+    );
+    assert!(
+        logs.contains("dropped=40000"),
+        "the event's structured field must be captured as field=value; \
+         captured logs: {logs}"
+    );
+}
+
+// ── sync entry: level filter boundary (issue #3872) ──────────────────────────
+
+/// The sync entry's `level` parameter must actually drive the filter:
+/// with the capture level set to `WARN`, a `warn!` event (exactly at
+/// the requested level) is kept while a `debug!` event (below it) is
+/// filtered out. The remaining direction of the upper bound (events
+/// above the level are kept too) is pinned on the async entry, which
+/// shares this one subscriber-construction path.
+#[test]
+#[serial_test::serial]
+fn test_capture_logs_filters_events_below_the_requested_level() {
+    let ((), logs) = capture_logs(
+        || {
+            tracing::debug!("sync debug detail below the capture level");
+            tracing::warn!("sync warn event exactly at the capture level");
+        },
+        tracing::Level::WARN,
+    );
+
+    assert!(
+        logs.contains("sync warn event exactly at the capture level"),
+        "events exactly at the capture level must be kept; captured logs: {logs}"
+    );
+    assert!(
+        !logs.contains("sync debug detail below the capture level"),
+        "events below the capture level must be filtered out; captured logs: {logs}"
+    );
+}
+
+// ── target entry: verbatim target kept, default entry strips it (issue #3872)
+
+/// The target entry's one behavioural difference must hold: the
+/// captured line keeps the emitting event's target string verbatim,
+/// alongside the closure's return value and the event message. The
+/// same emission is captured once more through
+/// `capture_logs_async` (targets stripped) as the contrast half —
+/// the target string present in one buffer and absent from the
+/// other, so neither assertion can pass vacuously.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_capture_logs_async_with_target_keeps_verbatim_target_and_value() {
+    let (kept, target_logs) = capture_logs_async_with_target(
+        || async {
+            tracing::warn!(
+                target: "closeclaw_test_support::pinned::target_entry",
+                "event emitted under a pinned target"
+            );
+            "value-from-the-target-entry"
+        },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    assert_eq!(
+        kept, "value-from-the-target-entry",
+        "the future's value must pass through unchanged; captured logs: {target_logs}"
+    );
+    assert!(
+        target_logs.contains("closeclaw_test_support::pinned::target_entry"),
+        "the target entry must keep the event's target verbatim; \
+         captured logs: {target_logs}"
+    );
+    assert!(
+        target_logs.contains("event emitted under a pinned target"),
+        "the event message must be captured; captured logs: {target_logs}"
+    );
+
+    let ((), stripped_logs) = capture_logs_async(
+        || async {
+            tracing::warn!(
+                target: "closeclaw_test_support::pinned::target_entry",
+                "event emitted under a pinned target"
+            );
+        },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    assert!(
+        !stripped_logs.contains("closeclaw_test_support::pinned::target_entry"),
+        "the default entry must strip the same target the target entry keeps; \
+         captured logs: {stripped_logs}"
+    );
+    assert!(
+        stripped_logs.contains("event emitted under a pinned target"),
+        "contrast control: the default entry must still capture the message; \
+         captured logs: {stripped_logs}"
+    );
+}
+
+// ── target entry: level filter boundary (issue #3872) ────────────────────────
+
+/// The target entry's `level` parameter must drive the same filter as
+/// the other entries: a representative below/at pair with the capture
+/// level at `WARN` — the at-level event lands (with its target), the
+/// below-level one stays out. The full three-way upper bound is
+/// pinned on the async entry sharing the subscriber-construction
+/// path.
+#[tokio::test(flavor = "current_thread")]
+#[serial_test::serial]
+async fn test_capture_logs_async_with_target_filters_events_below_the_requested_level() {
+    let ((), logs) = capture_logs_async_with_target(
+        || async {
+            tracing::debug!(
+                target: "closeclaw_test_support::pinned::target_entry",
+                "target-entry debug below the capture level"
+            );
+            tracing::warn!(
+                target: "closeclaw_test_support::pinned::target_entry",
+                "target-entry warn exactly at the capture level"
+            );
+        },
+        tracing::Level::WARN,
+    )
+    .await;
+
+    assert!(
+        logs.contains("target-entry warn exactly at the capture level"),
+        "events exactly at the capture level must be kept; captured logs: {logs}"
+    );
+    assert!(
+        !logs.contains("target-entry debug below the capture level"),
+        "events below the capture level must be filtered out; captured logs: {logs}"
     );
 }
