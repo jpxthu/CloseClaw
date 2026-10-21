@@ -158,7 +158,7 @@ impl SessionManager {
             .with_agent_id(agent_id.to_string());
         cp.sender_id = Some(agent_id.to_string());
         if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
-            if let Err(e) = cm.save_raw(&cp).await {
+            if let Err(e) = cm.save_direct(&cp).await {
                 tracing::warn!(
                     session_id = %session_id,
                     error = %e,

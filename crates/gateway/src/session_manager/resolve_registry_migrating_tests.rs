@@ -277,7 +277,7 @@ async fn test_resolve_migrating_registry_hit_archive_completes() {
     }
 
     // Pin the final persisted checkpoint: after the archived-restore, the
-    // storage row must end ACTIVE (save_raw refresh) — a stale Migrating
+    // storage row must end ACTIVE (save_direct refresh) — a stale Migrating
     // cache write-back must not flip it back to migrating.
     {
         let cm_guard = mgr.checkpoint_manager.read().await;
@@ -380,10 +380,10 @@ async fn test_resolve_migrating_registry_hit_immediate_archived() {
     {
         let cm_guard = mgr.checkpoint_manager.read().await;
         let cm = cm_guard.as_ref().expect("checkpoint manager must be set");
-        cm.save_raw(&cp_stale_migrating).await.unwrap();
+        cm.save_direct(&cp_stale_migrating).await.unwrap();
         // Move storage to Archived behind the cache's back (as the Sweeper
         // does, via a raw storage write that never touches the CM cache):
-        // save_raw cached Migrating, while direct storage reads now report
+        // save_direct cached Migrating, while direct storage reads now report
         // Archived.
         mock.set_storage(cp_archived);
         let cached = cm.load(&session_id).await.unwrap().unwrap();
@@ -464,7 +464,7 @@ async fn test_resolve_migrating_registry_hit_immediate_archived() {
     }
 
     // Pin the final persisted checkpoint: the restore flipped storage to
-    // Active, and the CM cache refresh (save_raw of the restored Active
+    // Active, and the CM cache refresh (save_direct of the restored Active
     // checkpoint) must keep it Active — a stale Migrating cache write-back
     // must not flip the storage row back to migrating.
     {
@@ -558,7 +558,7 @@ async fn test_resolve_migrating_registry_hit_timeout_creates_new() {
 
     // Pin the final persisted checkpoint: after the timeout-restore, the
     // storage row must stay ACTIVE. restore_migrating_on_timeout writes the
-    // restored Active checkpoint back through cm.save_raw to refresh the CM
+    // restored Active checkpoint back through cm.save_direct to refresh the CM
     // cache; without that refresh, update_checkpoint_fields reads the stale
     // pinned Migrating and overwrites Active → migrating, re-entering the
     // 30s poll loop on every message.

@@ -10,7 +10,7 @@
 //!
 //! Behaviour dimensions:
 //! 1. Push to queue persists checkpoint without OutboundMessage ops
-//! 2. Push persists checkpoint synchronously before returning
+//! 2. Push persists checkpoint immediately before returning
 //! 3. Multiple pushes accumulate in queue but produce no outbound ops
 //! 4. push_pending_message works without checkpoint_manager (no-op)
 //! 5. Crash recovery: queue entries survive checkpoint reload
@@ -117,12 +117,12 @@ async fn test_push_does_not_write_outbound_pending_ops() {
     );
 }
 
-// ── Test 2: Push persists checkpoint synchronously ───────────────────────
+// ── Test 2: Push persists checkpoint immediately ──────────────────────────
 
 /// After `push_pending_message` returns, the checkpoint should already
 /// be persisted (no async delay). No outbound ops from queue push.
 #[tokio::test]
-async fn test_push_persists_checkpoint_synchronously() {
+async fn test_push_persists_checkpoint_immediately() {
     clear_global_prompt_state();
 
     let (mgr, mock) = setup_with_mock_persistence().await;

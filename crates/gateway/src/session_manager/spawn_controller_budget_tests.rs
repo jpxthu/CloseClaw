@@ -121,7 +121,7 @@ async fn save_checkpoint_with_budget(
     }
     let cm = sm.checkpoint_manager.read().await;
     if let Some(cm) = cm.as_ref() {
-        cm.save_raw(&cp).await.unwrap();
+        cm.save_direct(&cp).await.unwrap();
     }
 }
 /// Verify effective budget read from checkpoint vs config fallback.

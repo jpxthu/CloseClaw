@@ -53,10 +53,17 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         &self.storage
     }
 
-    /// 保存 Checkpoint（异步写入，不阻塞主流程）
-    pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+    /// 更新本地缓存（以 checkpoint 自身的 session_id 为键）
+    ///
+    /// 「更新缓存」语义单点定义：save 家族、load、restore 共用。
+    async fn update_local_cache(&self, checkpoint: &SessionCheckpoint) {
         let session_id = checkpoint.session_id.clone();
+        let mut cache = self.local_cache.write().await;
+        cache.insert(session_id, checkpoint.clone());
+    }
 
+    /// 保存前准备：注入 identity（manager 的 identity 恒覆盖）并更新本地内存缓存
+    async fn prepare_for_save(&self, checkpoint: &mut SessionCheckpoint) {
         // Inject identity into checkpoint (manager's identity always overrides)
         if let Some(ref agent_id) = self.agent_id {
             checkpoint.agent_id = Some(agent_id.clone());
@@ -65,17 +72,21 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
             checkpoint.role = Some(*role);
         }
 
-        // 先更新本地缓存
-        {
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.clone(), checkpoint.clone());
-        }
+        self.update_local_cache(checkpoint).await;
+    }
+
+    /// 保存 Checkpoint（异步写入，不阻塞主流程）
+    pub async fn save(&self, mut checkpoint: SessionCheckpoint) -> Result<(), PersistenceError> {
+        self.prepare_for_save(&mut checkpoint).await;
 
         // 异步保存到存储后端
         let storage = Arc::clone(&self.storage);
         tokio::spawn(async move {
             if let Err(e) = storage.save_checkpoint(&checkpoint).await {
-                tracing::error!(session_id = %checkpoint.session_id, "Failed to save checkpoint: {}", e);
+                tracing::error!(
+                    session_id = %checkpoint.session_id,
+                    "Failed to save checkpoint: {}", e
+                );
             }
         });
 
@@ -90,21 +101,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         &self,
         mut checkpoint: SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
-        let session_id = checkpoint.session_id.clone();
-
-        // Inject identity into checkpoint (manager's identity always overrides)
-        if let Some(ref agent_id) = self.agent_id {
-            checkpoint.agent_id = Some(agent_id.clone());
-        }
-        if let Some(ref role) = self.role {
-            checkpoint.role = Some(*role);
-        }
-
-        // 先更新本地缓存
-        {
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.clone(), checkpoint.clone());
-        }
+        self.prepare_for_save(&mut checkpoint).await;
 
         // 立即写入存储后端并等待完成（错误传播给调用方）
         self.storage.save_checkpoint(&checkpoint).await
@@ -127,9 +124,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         let cp = self.storage.load_checkpoint(session_id).await?;
 
         if let Some(ref checkpoint) = cp {
-            // 更新本地缓存
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.to_string(), checkpoint.clone());
+            self.update_local_cache(checkpoint).await;
         }
 
         Ok(cp)
@@ -153,13 +148,11 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
     /// this method does **not** inject `agent_id` / `role` identity into
     /// the checkpoint — it writes the checkpoint as-is.
     /// The local cache is updated.
-    pub async fn save_raw(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
-        let session_id = checkpoint.session_id.clone();
-        // Update local cache
-        {
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id, checkpoint.clone());
-        }
+    pub async fn save_direct(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
+        self.update_local_cache(checkpoint).await;
         // 立即写入存储并等待完成
         self.storage.save_checkpoint(checkpoint).await
     }
@@ -200,9 +193,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
             // 恢复到活跃存储
             self.storage.save_checkpoint(checkpoint).await?;
             self.storage.purge_checkpoint(session_id).await?;
-            // 更新本地缓存
-            let mut cache = self.local_cache.write().await;
-            cache.insert(session_id.to_string(), checkpoint.clone());
+            self.update_local_cache(checkpoint).await;
         }
         Ok(cp)
     }

@@ -265,7 +265,7 @@ impl SessionManager {
     ) {
         cp.recovery_notification = None;
         cp.pending_tool_failures.clear();
-        if let Err(e) = cm.save_raw(&cp).await {
+        if let Err(e) = cm.save_direct(&cp).await {
             warn!(
                 session_id = %session_id,
                 error = %e,

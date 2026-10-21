@@ -11,6 +11,7 @@ mod tests {
         DreamingStatus, PendingMessage, PersistenceService, ReasoningMode, ReasoningModeState,
         SessionCheckpoint, SessionMode, SessionStatus,
     };
+    use crate::persistence_save_poll_tests::poll_storage_until_checkpoint;
     use crate::storage::memory::MemoryStorage;
 
     fn create_test_checkpoint(session_id: &str) -> SessionCheckpoint {
@@ -31,15 +32,25 @@ mod tests {
     #[tokio::test]
     async fn test_checkpoint_manager_save_and_load() {
         let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
+        let manager = CheckpointManager::new(storage.clone());
 
         let checkpoint = create_test_checkpoint("session1");
 
         // Save
         manager.save(checkpoint.clone()).await.unwrap();
 
-        // Give the async task time to complete (for storage update)
-        tokio::task::yield_now().await;
+        // save() writes to storage in a spawned background task; poll the
+        // storage directly until the checkpoint lands (deadline-bounded)
+        // instead of a single yield.
+        assert!(
+            poll_storage_until_checkpoint(
+                storage.as_ref(),
+                "session1",
+                std::time::Duration::from_secs(1)
+            )
+            .await,
+            "background save did not reach storage in time"
+        );
 
         // Load
         let loaded = manager.load("session1").await.unwrap();

@@ -178,7 +178,7 @@ impl SessionManager {
             if let Some(appends) = appends_map.get(session_id) {
                 cp.user_appends = appends.clone();
             }
-            if cm.save_raw(&cp).await.is_ok() {
+            if cm.save_direct(&cp).await.is_ok() {
                 saved += 1;
             } else {
                 warn!(session_id = %session_id, "failed to save session checkpoint");
@@ -258,7 +258,7 @@ impl SessionManager {
             _ => return,
         };
         cp.plan_state = Some(plan_state);
-        if let Err(e) = cm.save_raw(&cp).await {
+        if let Err(e) = cm.save_direct(&cp).await {
             tracing::warn!(session_id = %session_id, "failed to save plan_state: {}", e);
             return;
         }

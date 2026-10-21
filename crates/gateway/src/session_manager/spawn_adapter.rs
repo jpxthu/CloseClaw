@@ -71,7 +71,7 @@ impl SpawnCreationContext for SessionManager {
     async fn save_checkpoint(&self, cp: &closeclaw_session::persistence::SessionCheckpoint) {
         let cm = self.checkpoint_manager.read().await;
         if let Some(cm) = cm.as_ref() {
-            if let Err(e) = cm.save_raw(cp).await {
+            if let Err(e) = cm.save_direct(cp).await {
                 tracing::warn!(
                     session_id = %cp.session_id,
                     error = %e,

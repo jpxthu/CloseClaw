@@ -88,7 +88,7 @@ pub enum CheckpointTrigger {
     },
     /// 消息发送后
     MessageSent { message_id: String },
-    /// 网关关闭前（同步写入）
+    /// 网关关闭前（立即写入存储并等待完成）
     GatewayShutdown,
     /// Compaction 发生前（用于保护 bootstrap 上下文）
     PreCompact {
@@ -105,8 +105,8 @@ pub enum CheckpointTrigger {
 }
 
 impl CheckpointTrigger {
-    /// 是否需要同步写入
-    pub fn requires_sync(&self) -> bool {
+    /// 是否需要立即写入存储并等待完成
+    pub fn requires_immediate_write(&self) -> bool {
         matches!(self, CheckpointTrigger::GatewayShutdown)
     }
 }
@@ -188,30 +188,30 @@ mod tests {
     }
 
     #[test]
-    fn test_trigger_requires_sync() {
+    fn test_trigger_requires_immediate_write() {
         let shutdown = CheckpointTrigger::GatewayShutdown;
-        assert!(shutdown.requires_sync());
+        assert!(shutdown.requires_immediate_write());
 
         let mode_switch = CheckpointTrigger::ModeSwitch {
             from_mode: ReasoningMode::Direct,
             to_mode: ReasoningMode::Plan,
         };
-        assert!(!mode_switch.requires_sync());
+        assert!(!mode_switch.requires_immediate_write());
 
         let message_sent = CheckpointTrigger::MessageSent {
             message_id: "msg123".to_string(),
         };
-        assert!(!message_sent.requires_sync());
+        assert!(!message_sent.requires_immediate_write());
 
         let pre_compact = CheckpointTrigger::PreCompact {
             before_char_count: 1000,
         };
-        assert!(!pre_compact.requires_sync());
+        assert!(!pre_compact.requires_immediate_write());
 
         let post_compact = CheckpointTrigger::PostCompact {
             before_char_count: 1000,
             after_char_count: 500,
         };
-        assert!(!post_compact.requires_sync());
+        assert!(!post_compact.requires_immediate_write());
     }
 }
