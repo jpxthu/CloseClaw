@@ -13,9 +13,8 @@
 //! 归档依据（docs/developer/STANDARDS.md）：§1 spawn 独立脚本进程 → e2e 档；
 //! §2/§3 `tests/e2e/` 单 binary + 复数 `_tests.rs` 命名；§8 临时文件走 TempDir。
 //!
-//! 口径提示：行宽按字符（Unicode code point）计、非字节；.rs 只查注释行
-//! （`//`、`///`、`//!`，允许前导空白），Cargo.toml 查全部新增行；只判定
-//! staged 新增（+）行，存量超宽行不在增量口径内。
+//! 口径提示：行宽按字符（Unicode code point）计、非字节；.rs 与 Cargo.toml
+//! 均查全部新增行；只判定 staged 新增（+）行，存量超宽行不在增量口径内。
 
 use std::path::Path;
 
@@ -51,11 +50,27 @@ fn toml_line(width: usize) -> String {
     format!("{prefix}{}\"", "v".repeat(width - prefix.len() - 1))
 }
 
-/// 夹具：总宽恰为 `width` 字符的普通代码行（非注释，行宽归 cargo fmt 管辖）。
+/// 夹具：总宽恰为 `width` 字符的字符串字面量代码行（非注释；rustfmt 不拆
+/// 字符串字面量，超宽时无 fmt 守卫，由本脚本拦截——原口径的守卫盲区）。
 fn code_line(width: usize) -> String {
     let prefix = "pub const S: &str = \"";
     assert!(width > prefix.len() + 2, "fixture width too small");
     format!("{prefix}{}\";", "a".repeat(width - prefix.len() - 2))
+}
+
+/// 夹具：总宽恰为 `width` 字符的普通代码行（非注释、非字符串字面量形态；
+/// fmt 折不动的超宽形态由本脚本拦截）。
+fn plain_code_line(width: usize) -> String {
+    let prefix = "let _ = f(";
+    let suffix = ");";
+    assert!(
+        width > prefix.len() + suffix.len(),
+        "fixture width too small"
+    );
+    format!(
+        "{prefix}{}{suffix}",
+        "a".repeat(width - prefix.len() - suffix.len())
+    )
 }
 
 /// 夹具：`// ` + `n_chars` 个中文字符的注释行（总宽 3 + n_chars 字符，1 字符 3 字节）。
@@ -89,14 +104,20 @@ fn test_line_width_non_target_file_passes() {
     assert_passed_marker(&res, PASSED_MARKER, "non-target staged file");
 }
 
-/// 正常路径 + 边界：恰 100 字符（上限值）的注释行与 Cargo.toml 行均放行。
+/// 正常路径 + 边界：恰 100 字符（上限值）的注释行、普通代码行、字符串字面量
+/// 行与 Cargo.toml 行均放行。
 #[test]
 fn test_line_width_exactly_100_passes() {
     let script = script();
     let repo = script.temp_repo();
     repo.write(
         "src/edge.rs",
-        &format!("pub fn f() {{}}\n{}\n", comment_line("// ", MAX_WIDTH)),
+        &format!(
+            "pub fn f() {{}}\n{}\n{}\n{}\n",
+            comment_line("// ", MAX_WIDTH),
+            plain_code_line(MAX_WIDTH),
+            code_line(MAX_WIDTH)
+        ),
     );
     repo.write(
         "Cargo.toml",
@@ -195,20 +216,54 @@ fn test_line_width_flags_indented_comment() {
     );
 }
 
-/// 边界：非注释的超宽 .rs 代码行放行（代码行格式与行宽归 cargo fmt 管辖，不重复查）。
+/// 错误路径：staged 新增的非注释超宽代码行被拦（新口径：.rs 查全部新增行，
+/// 不再豁免非注释代码行）。
 #[test]
-fn test_line_width_non_comment_code_passes() {
+fn test_line_width_flags_overwidth_code_line() {
     let script = script();
     let repo = script.temp_repo();
-    repo.write(
-        "src/long_code.rs",
-        &format!("{}\n", code_line(MAX_WIDTH + 20)),
-    );
+    let line = plain_code_line(MAX_WIDTH + 20);
+    repo.write("src/long_code.rs", &format!("{line}\n"));
     repo.stage("src/long_code.rs");
 
     let res = script.run(repo.path(), &["staged"]);
-    assert_exit(&res, 0, "overwidth non-comment code line is fmt's business");
-    assert_passed_marker(&res, PASSED_MARKER, "non-comment overwidth code line");
+    assert_exit(
+        &res,
+        1,
+        "overwidth staged non-comment code line must be flagged",
+    );
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/long_code.rs:1:{}", MAX_WIDTH + 20)),
+        "expect location src/long_code.rs:1:120, got:\n{out}"
+    );
+    assert!(
+        out.contains("修复指引"),
+        "expect fix guidance in message, got:\n{out}"
+    );
+}
+
+/// 错误路径 + 漏洞回归钉子：staged 新增的超宽字符串字面量行被拦（rustfmt 不拆
+/// 字符串字面量，原口径「.rs 只查注释行」对该类行无任何守卫）。
+#[test]
+fn test_line_width_flags_overwidth_string_literal_line() {
+    let script = script();
+    let repo = script.temp_repo();
+    let line = code_line(MAX_WIDTH + 1);
+    repo.write("src/lit.rs", &format!("pub fn f() {{}}\n{line}\n"));
+    repo.stage("src/lit.rs");
+
+    let res = script.run(repo.path(), &["staged"]);
+    assert_exit(
+        &res,
+        1,
+        "overwidth staged string literal line must be flagged",
+    );
+    let out = res.output();
+    assert!(
+        out.contains(&format!("src/lit.rs:2:{}", MAX_WIDTH + 1)),
+        "expect location src/lit.rs:2:101, got:\n{out}"
+    );
 }
 
 /// 增量口径：存量（HEAD 既有）超宽注释行不在 staged 新增行内 → 放行。
@@ -230,6 +285,35 @@ fn test_line_width_legacy_line_passes() {
     let res = script.run(repo.path(), &["staged"]);
     assert_exit(&res, 0, "legacy (context) overwidth line must pass");
     assert_passed_marker(&res, PASSED_MARKER, "legacy overwidth line untouched");
+}
+
+/// 增量口径 + 新口径边界：存量（HEAD 既有）超宽字符串字面量行未被本轮触碰时
+/// 同样放行（新口径只拦新增行，不背负历史技术债）。
+#[test]
+fn test_line_width_legacy_overwidth_code_line_passes() {
+    let script = script();
+    let repo = script.temp_repo();
+    let legacy = code_line(MAX_WIDTH + 20);
+    repo.write(
+        "src/legacy_code.rs",
+        &format!("{legacy}\npub fn old() {{}}\n"),
+    );
+    repo.commit_all();
+
+    // 只在文件末尾追加干净行并 stage：存量超宽行在 diff 中为上下文行，不判定
+    repo.write(
+        "src/legacy_code.rs",
+        &format!("{legacy}\npub fn old() {{}}\npub fn new() {{}}\n"),
+    );
+    repo.stage("src/legacy_code.rs");
+
+    let res = script.run(repo.path(), &["staged"]);
+    assert_exit(
+        &res,
+        0,
+        "legacy overwidth code line must pass when untouched",
+    );
+    assert_passed_marker(&res, PASSED_MARKER, "legacy overwidth code line untouched");
 }
 
 /// 边界：中文注释行按字符计——40 中文字符（123 字节）通过；>100 字符中文行拦截。

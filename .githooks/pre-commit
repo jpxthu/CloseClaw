@@ -22,15 +22,15 @@ if [ -n "$staged_rs" ]; then
     bash scripts/test-audit.sh
 
     # cargo fmt check — 仅检查 staged 文件，不背负历史技术债
-    # 覆盖口径：代码行格式与行宽由 cargo fmt 覆盖；注释行宽与 Cargo.toml 行宽由
-    # check-line-width.sh 覆盖（rustfmt 默认 wrap_comments=false，不管注释行）
+    # 覆盖口径：代码行格式与行宽由 cargo fmt 覆盖（fmt 折得动的行 fmt 后必 ≤100）；
+    # fmt 折不掉的注释行、字符串字面量行与 Cargo.toml 行宽由 check-line-width.sh 覆盖
     if ! cargo fmt --check -- $staged_rs 2>&1; then
         echo "ERROR: 以上文件格式不符合规范，请运行 'cargo fmt' 修复后重新提交"
         exit 1
     fi
 fi
 
-# 行宽硬限（staged 增量）— .rs 注释新增行 / Cargo.toml 新增行 >100 字符拦截
+# 行宽硬限（staged 增量）— .rs / Cargo.toml 全部新增行 >100 字符拦截（含 fmt 折不掉的超宽字符串字面量行）
 # 判定与错误文案的单一来源：scripts/check-line-width.sh，细则见 CONTRIBUTING.md「硬性限制」
 bash scripts/check-line-width.sh staged
 

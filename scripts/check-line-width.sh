@@ -2,14 +2,16 @@
 #
 # check-line-width.sh — 100 字符行宽硬限检查（staged 增量口径，pre-commit 专用）
 #
-# 背景: CONTRIBUTING.md「硬性限制」规定单行宽度 100 字符，但 cargo fmt 默认
-#       wrap_comments=false，注释行（//、///、//!）不经 fmt 检查；Cargo.toml 则
-#       完全不在 fmt 管辖内。本脚本补齐这两类内容的行宽强制拦截。
+# 背景: CONTRIBUTING.md「硬性限制」规定单行宽度 100 字符。cargo fmt 能折的
+#       代码行 fmt 后必 ≤100；但 rustfmt 不拆字符串字面量，默认
+#       wrap_comments=false 也不管注释行，Cargo.toml 则完全不在 fmt 管辖内
+#       ——这些超宽行无 fmt 守卫，本脚本对 staged 新增行统一强制拦截。
 # 用法: bash scripts/check-line-width.sh [staged]
 #         staged 只判定 staged 新增行（默认模式），pre-commit 用
 # 范围: staged（diff-filter ACMR）中 basename 为 *.rs 与 Cargo.toml 的文件，
-#       仅检查新增（+）行，不背负历史技术债。.rs 只查注释行（允许前导空白），
-#       代码行宽由 cargo fmt 负责；Cargo.toml 查全部新增行（无 fmt 管辖）。
+#       仅检查新增（+）行，不背负历史技术债；两类文件均查全部新增行。.rs 中
+#       fmt 折得动的代码行过不了 fmt 关（fmt 后必 ≤100），被此处拦下的只有
+#       fmt 折不掉的超宽字符串字面量行/注释行；Cargo.toml 无 fmt 管辖。
 # 口径: 行宽按字符（Unicode code point）计，非字节，与 CONTRIBUTING「100 字符」
 #       字面语义及 rustfmt max_width 一致。
 # 退出码: 0=通过, 1=超宽命中, 2=用法错误 / 非 git 仓库 / 无可用 UTF-8 locale
@@ -69,10 +71,9 @@ if ! utf8_locale="$(pick_utf8_locale)"; then
 fi
 export LC_ALL="$utf8_locale"
 
-# staged 中超宽新增行的收集：basename *.rs 只查注释行（允许前导空白），
-# basename Cargo.toml 查全部新增行
+# staged 中超宽新增行的收集：basename 为 *.rs 与 Cargo.toml 的文件均查全部新增行
 collect_staged() {
-    local staged_files f base kind records rec lineno content trimmed
+    local staged_files f base records rec lineno content
     staged_files=$(git diff --cached --name-only --diff-filter=ACMR)
     if [ -z "$staged_files" ]; then
         return 0
@@ -82,10 +83,8 @@ collect_staged() {
             continue
         fi
         base=$(basename "$f")
-        kind=""
         case "$base" in
-            *.rs) kind=rs ;;
-            Cargo.toml) kind=toml ;;
+            *.rs | Cargo.toml) ;;
             *) continue ;;
         esac
         # diff 形态与 check-env-var.sh 一致（git 默认上下文），上下文行参与行号记账；
@@ -98,13 +97,6 @@ collect_staged() {
             fi
             lineno="${rec%%:*}"
             content="${rec#*:}"
-            if [ "$kind" = rs ]; then
-                trimmed="${content#"${content%%[![:space:]]*}"}"
-                case "$trimmed" in
-                    //*) ;;
-                    *) continue ;;
-                esac
-            fi
             if [ "${#content}" -gt "$MAX_WIDTH" ]; then
                 printf '%s:%s:%d\n' "$f" "$lineno" "${#content}"
             fi
@@ -118,7 +110,8 @@ print_failure() {
     echo "$1"
     echo ""
     echo "修复指引（CONTRIBUTING.md「硬性限制」：单行宽度 ${MAX_WIDTH} 字符）："
-    echo "  - .rs 注释行（//、///、//!）：拆分为多行注释；代码行格式与行宽由 cargo fmt 负责改写"
+    echo "  - .rs：注释拆分为多行；字符串字面量改为多行拼接或提取为常量；其余代码行先跑 cargo fmt"
+    echo "    （fmt 折得动的代码行 fmt 后必 ≤100，能被此处拦下的多为 fmt 折不掉的字符串/注释行）"
     echo "  - Cargo.toml：改写为 toml 多行语法（如依赖数组逐项一行）"
 }
 
