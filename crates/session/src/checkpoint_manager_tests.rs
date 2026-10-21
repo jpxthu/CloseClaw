@@ -288,7 +288,11 @@ where
 /// `save()` spawns the storage write in the background and swallows its
 /// error (log-only). Pin both halves: the call still returns `Ok(())`, and
 /// the failed background write is reported via an error log.
-#[tokio::test]
+///
+/// Paused tokio clock (`start_paused = true`): the 10 ms poll sleep
+/// auto-advances instantly, so the wait is deterministic instead of
+/// hugging the 1 s wall-clock deadline.
+#[tokio::test(start_paused = true)]
 #[serial_test::serial]
 async fn test_save_storage_failure_swallows_error_and_logs() {
     let mem = Arc::new(MemStorage::failing("disk full"));
