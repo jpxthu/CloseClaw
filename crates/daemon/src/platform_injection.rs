@@ -152,7 +152,7 @@ mod tests {
     /// accounts.json exists with valid mappings → resolver loaded with
     /// correct mappings.
     #[test]
-    fn identity_resolver_loads_accounts_json() {
+    fn test_identity_resolver_loads_accounts_json() {
         let json = r#"{
             "accounts": [
                 {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "user1"},
@@ -169,28 +169,28 @@ mod tests {
 
     /// accounts.json missing → no resolver.
     #[test]
-    fn identity_resolver_missing_file_returns_none() {
+    fn test_identity_resolver_missing_file_returns_none() {
         let dir = setup_config_dir(None);
         assert!(build_identity_resolver(dir.path().to_str().unwrap()).is_none());
     }
 
     /// accounts.json empty → no resolver.
     #[test]
-    fn identity_resolver_empty_accounts_returns_none() {
+    fn test_identity_resolver_empty_accounts_returns_none() {
         let dir = setup_config_dir(Some(r#"{"accounts":[]}"#));
         assert!(build_identity_resolver(dir.path().to_str().unwrap()).is_none());
     }
 
     /// accounts.json with invalid JSON → no resolver.
     #[test]
-    fn identity_resolver_invalid_json_returns_none() {
+    fn test_identity_resolver_invalid_json_returns_none() {
         let dir = setup_config_dir(Some("not json"));
         assert!(build_identity_resolver(dir.path().to_str().unwrap()).is_none());
     }
 
     /// Unknown sender → `None` (call site falls back to the raw sender_id).
     #[test]
-    fn identity_resolver_unknown_sender_returns_none() {
+    fn test_identity_resolver_unknown_sender_returns_none() {
         let json =
             r#"{"accounts":[{"platform":"feishu","sender_id":"ou_xxx","account_id":"user1"}]}"#;
         let dir = setup_config_dir(Some(json));
@@ -200,7 +200,7 @@ mod tests {
 
     /// Cross-platform isolation: a feishu mapping does not affect discord.
     #[test]
-    fn identity_resolver_cross_platform_isolation() {
+    fn test_identity_resolver_cross_platform_isolation() {
         let json = r#"{
             "accounts": [
                 {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "user1"},
@@ -223,7 +223,7 @@ mod tests {
 
     /// Several senders on different platforms may map to one account.
     #[test]
-    fn identity_resolver_many_to_one() {
+    fn test_identity_resolver_many_to_one() {
         let json = r#"{
             "accounts": [
                 {"platform": "feishu", "sender_id": "ou_aaa", "account_id": "alice"},
@@ -245,7 +245,7 @@ mod tests {
 
     /// Feishu credential file present → injected profile is its profile.
     #[test]
-    fn feishu_profile_loaded_from_credentials_dir() {
+    fn test_feishu_profile_loaded_from_credentials_dir() {
         let dir = setup_config_dir(None);
         let credentials = dir.path().join("config").join("credentials");
         fs::create_dir_all(&credentials).unwrap();
@@ -262,7 +262,7 @@ mod tests {
 
     /// No feishu credential file → `None` (adapter falls back to env).
     #[test]
-    fn feishu_profile_missing_returns_none() {
+    fn test_feishu_profile_missing_returns_none() {
         let dir = setup_config_dir(None);
         assert!(build_feishu_profile(dir.path().to_str().unwrap()).is_none());
     }
@@ -271,7 +271,7 @@ mod tests {
 
     /// media.json missing → defaults (historical phase_init semantics).
     #[test]
-    fn media_config_missing_file_uses_defaults() {
+    fn test_media_config_missing_file_uses_defaults() {
         let dir = setup_config_dir(None);
         assert_eq!(
             load_media_config(dir.path().to_str().unwrap()),
@@ -281,7 +281,7 @@ mod tests {
 
     /// media.json present → its values are loaded.
     #[test]
-    fn media_config_loaded_from_file() {
+    fn test_media_config_loaded_from_file() {
         let dir = setup_config_dir(None);
         fs::write(
             dir.path().join("config").join("media.json"),
@@ -300,7 +300,7 @@ mod tests {
 
     /// Projection copies every field onto the adapter's snapshot.
     #[test]
-    fn media_config_snapshot_projects_fields() {
+    fn test_media_config_snapshot_projects_fields() {
         let injection = PlatformInjection {
             identity_resolver: None,
             feishu_profile: None,
@@ -325,7 +325,7 @@ mod tests {
     /// crate's media defaults (the two definitions cannot reference each
     /// other across the dependency boundary).
     #[test]
-    fn media_config_snapshot_default_matches_config_default() {
+    fn test_media_config_snapshot_default_matches_config_default() {
         let injection = PlatformInjection {
             identity_resolver: None,
             feishu_profile: None,
