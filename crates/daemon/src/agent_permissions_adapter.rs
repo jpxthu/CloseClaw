@@ -176,7 +176,10 @@ mod tests {
             .evaluate_with_chain(write, &lookup, "child-session", &adapter)
             .await;
         assert!(
-            matches!(resp, PermissionResponse::Denied { ref reason, .. } if reason.contains("chain")),
+            matches!(
+                resp,
+                PermissionResponse::Denied { ref reason, .. } if reason.contains("chain")
+            ),
             "file_write should be denied by parent chain: {:?}",
             resp
         );

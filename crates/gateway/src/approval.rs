@@ -90,7 +90,8 @@ impl Gateway {
     ///
     /// Supported prefixes (checked in order):
     /// - `/approve-once <id>` → `ApprovalMode::Once`
-    /// - `/approve-whitelist <id> [--agent-only|--user-only|--user-and-agent]` → `ApprovalMode::WithWhitelist`
+    /// - `/approve-whitelist <id> [--agent-only|--user-only|--user-and-agent]`
+    ///   → `ApprovalMode::WithWhitelist`
     /// - `/approve <id>` → `ApprovalMode::Once` (backward compatible)
     /// - `/deny <id>` → deny flow
     ///

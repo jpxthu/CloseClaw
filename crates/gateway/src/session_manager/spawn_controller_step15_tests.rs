@@ -1,4 +1,5 @@
-#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+// default_child_agent is deprecated; tests verify backward-compatible config parsing
+#![allow(deprecated)]
 
 //! Step 1.5 unit tests — design-doc alignment verification.
 //!

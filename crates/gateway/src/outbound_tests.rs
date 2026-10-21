@@ -598,7 +598,10 @@ async fn test_stream_error_partial_after_completed_blocks() {
                 "partial_content should contain the completed Text block"
             );
             assert!(
-                matches!(&partial_content[0], closeclaw_common::ContentBlock::Text(t) if t == "block1"),
+                matches!(
+                    &partial_content[0],
+                    closeclaw_common::ContentBlock::Text(t) if t == "block1"
+                ),
                 "partial_content should contain the completed block"
             );
         }

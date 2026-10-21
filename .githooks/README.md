@@ -53,7 +53,7 @@ Base hook 完成通用检查后，读取 `git config hooks.role`，如果存在�
 
 ```
 pre-commit 触发
-  → 1. Base 检查（行数、env 禁令、fmt）
+  → 1. Base 检查（行数、env 禁令、fmt、行宽）
   → 2. 读取 hooks.role 配置
   → 3. 执行 roles/<role>.pre-commit（如有）
   → 4. 全部通过 → 放行
@@ -74,10 +74,13 @@ pre-commit 触发
 | 步骤 | 检查内容 | 阈值 | 失败时的提示 |
 |---|---|---|---|
 | 1 | 文件行数 | ≤ 1000 行 | `ERROR: <file>: <N> 行（上限 1000）` |
-| 2 | `cargo fmt --check` | 行宽 100 等 | 格式不符合规范，运行 `cargo fmt` 修复 |
-| 3 | 角色规则 | 取决于角色 | 见上方角色说明 |
+| 2 | `cargo fmt --check` | 代码格式（含代码行行宽） | 格式不符合规范，运行 `cargo fmt` 修复 |
+| 3 | 行宽硬限（`check-line-width.sh`） | staged 新增行 ≤ 100 字符（`.rs` / `Cargo.toml`） | 超宽行清单 + 修复指引 |
+| 4 | 角色规则 | 取决于角色 | 见上方角色说明 |
 
-**注意**：行数和 fmt 检查仅针对 staged 的 `.rs` 文件，不背负历史技术债。
+**注意**：行数和 fmt 检查仅针对 staged 的 `.rs` 文件；行宽检查针对 staged 的
+`.rs` 与 `Cargo.toml` 新增行（增量口径，fmt 折不掉的超宽字符串字面量行/注释行
+由该检查兜底）。均不背负历史技术债。
 
 ### commit-msg
 

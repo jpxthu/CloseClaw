@@ -1,4 +1,5 @@
-//! Unit tests for spawn depth budget propagation, kill all-mode, and cascade termination (Step 1.5).
+//! Unit tests for spawn depth budget propagation, kill all-mode,
+//! and cascade termination (Step 1.5).
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::spawn_controller::SpawnController;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};

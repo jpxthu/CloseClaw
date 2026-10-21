@@ -274,7 +274,10 @@ mod tests {
         std::fs::create_dir_all(&plans).unwrap();
         std::fs::write(
             plans.join("alpha.md"),
-            "# Alpha Feature\n\n## Tasks\n\n- [x] Step 1\n- [!] Step 2\n- [~] Step 3\n- [ ] Step 4\n",
+            concat!(
+                "# Alpha Feature\n\n## Tasks\n\n- [x] Step 1\n- [!] Step 2\n",
+                "- [~] Step 3\n- [ ] Step 4\n"
+            ),
         )
         .unwrap();
 

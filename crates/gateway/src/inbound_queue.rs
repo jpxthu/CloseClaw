@@ -434,8 +434,10 @@ pub(crate) async fn resolve_session_with_log(
             tracing::warn!("session_key missing or resolve failed");
             Err(gateway
                 .reject_with_reply(
-                    peer_id, channel,
-                    "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
+                    peer_id,
+                    channel,
+                    "\u{4F1A}\u{8BDD}\u{8DEF}\u{7531}\u{5931}\
+                     \u{8D25}\u{FF0C}\u{8BF7}\u{91CD}\u{8BD5}",
                 )
                 .await)
         }

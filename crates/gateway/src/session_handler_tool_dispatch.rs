@@ -17,6 +17,11 @@ use crate::session_manager::SessionManager;
 
 // ── Permission dependencies ─────────────────────────────────────────
 
+type PermRequest = closeclaw_permission::engine::engine_types::PermissionRequest;
+type PermRequestBody = closeclaw_permission::engine::engine_types::PermissionRequestBody;
+type PermResponse = closeclaw_permission::engine::engine_types::PermissionResponse;
+type PermCaller = closeclaw_permission::engine::engine_types::Caller;
+
 /// Bundled permission dependencies for tool-call dispatch.
 ///
 /// Mirrors `closeclaw_tools::permission_check::PermDeps` but uses
@@ -153,31 +158,25 @@ impl ToolExecutor for TraitObjectExecutor {
             };
 
             // Level 1: tool-group permission check.
-            let request =
-                closeclaw_permission::engine::engine_types::PermissionRequest::WithCaller {
-                    caller: closeclaw_permission::engine::engine_types::Caller {
-                        user_id: user_id.clone(),
-                        agent: agent_id.clone(),
-                    },
-                    request: closeclaw_permission::engine::engine_types::PermissionRequestBody::ToolCall {
-                        agent: agent_id.clone(),
-                        skill: tool_group.clone(),
-                        method: call.tool_name.clone(),
-                    },
-                    owner_id: owner_id.clone(),
-                };
+            let request = PermRequest::WithCaller {
+                caller: PermCaller {
+                    user_id: user_id.clone(),
+                    agent: agent_id.clone(),
+                },
+                request: PermRequestBody::ToolCall {
+                    agent: agent_id.clone(),
+                    skill: tool_group.clone(),
+                    method: call.tool_name.clone(),
+                },
+                owner_id: owner_id.clone(),
+            };
             let engine = perm_engine.read().await;
             let eval_result = engine.evaluate(request, None);
             drop(engine);
 
             match eval_result {
-                closeclaw_permission::engine::engine_types::PermissionResponse::Allowed {
-                    ..
-                } => {}
-                closeclaw_permission::engine::engine_types::PermissionResponse::Denied {
-                    reason,
-                    ..
-                } => {
+                PermResponse::Allowed { .. } => {}
+                PermResponse::Denied { reason, .. } => {
                     return ToolResult {
                         data: serde_json::json!({
                             "error": format!(
@@ -201,28 +200,23 @@ impl ToolExecutor for TraitObjectExecutor {
                         let base_cmd = parts.first().copied().unwrap_or("");
                         let cmd_args: Vec<String> =
                             parts[1..].iter().map(|s| s.to_string()).collect();
-                        let cmd_request =
-                            closeclaw_permission::engine::engine_types::PermissionRequest::WithCaller {
-                                caller: closeclaw_permission::engine::engine_types::Caller {
-                                    user_id: user_id.clone(),
-                                    agent: agent_id.clone(),
-                                },
-                                request: closeclaw_permission::engine::engine_types::PermissionRequestBody::CommandExec {
-                                    agent: agent_id.clone(),
-                                    cmd: base_cmd.to_string(),
-                                    args: cmd_args,
-                                },
-                                owner_id: owner_id.clone(),
-                            };
+                        let cmd_request = PermRequest::WithCaller {
+                            caller: PermCaller {
+                                user_id: user_id.clone(),
+                                agent: agent_id.clone(),
+                            },
+                            request: PermRequestBody::CommandExec {
+                                agent: agent_id.clone(),
+                                cmd: base_cmd.to_string(),
+                                args: cmd_args,
+                            },
+                            owner_id: owner_id.clone(),
+                        };
                         let engine = perm_engine.read().await;
                         let cmd_result = engine.evaluate(cmd_request, None);
                         drop(engine);
 
-                        if let closeclaw_permission::engine::engine_types::PermissionResponse::Denied {
-                            reason,
-                            ..
-                        } = cmd_result
-                        {
+                        if let PermResponse::Denied { reason, .. } = cmd_result {
                             return ToolResult {
                                 data: serde_json::json!({
                                     "error": format!(
@@ -245,35 +239,29 @@ impl ToolExecutor for TraitObjectExecutor {
                             .map(|d| d.flags.is_read_only)
                             .unwrap_or(false);
                         let op = if is_read_only { "read" } else { "write" };
-                        let file_request =
-                            closeclaw_permission::engine::engine_types::PermissionRequest::WithCaller {
-                                caller: closeclaw_permission::engine::engine_types::Caller {
-                                    user_id: user_id.clone(),
-                                    agent: agent_id.clone(),
-                                },
-                                request: closeclaw_permission::engine::engine_types::PermissionRequestBody::FileOp {
-                                    agent: agent_id.clone(),
-                                    path: path.to_string(),
-                                    op: op.to_string(),
-                                },
-                                owner_id,
-                            };
+                        let file_request = PermRequest::WithCaller {
+                            caller: PermCaller {
+                                user_id: user_id.clone(),
+                                agent: agent_id.clone(),
+                            },
+                            request: PermRequestBody::FileOp {
+                                agent: agent_id.clone(),
+                                path: path.to_string(),
+                                op: op.to_string(),
+                            },
+                            owner_id,
+                        };
                         let engine = perm_engine.read().await;
                         let file_result = engine.evaluate(file_request, None);
                         drop(engine);
 
-                        if let closeclaw_permission::engine::engine_types::PermissionResponse::Denied {
-                            reason,
-                            ..
-                        } = file_result
-                        {
+                        if let PermResponse::Denied { reason, .. } = file_result {
+                            let error = format!(
+                                "file operation '{}' on '{}' is not permitted by policy: {}",
+                                op, path, reason
+                            );
                             return ToolResult {
-                                data: serde_json::json!({
-                                    "error": format!(
-                                        "file operation '{}' on '{}' is not permitted by policy: {}",
-                                        op, path, reason
-                                    )
-                                }),
+                                data: serde_json::json!({ "error": error }),
                                 new_messages: vec![],
                                 context_modifier: None,
                             };

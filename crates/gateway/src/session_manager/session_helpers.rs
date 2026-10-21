@@ -101,14 +101,21 @@ pub(super) async fn update_checkpoint_fields(
     let mut cp = match cm.load(session_id).await {
         Ok(Some(cp)) => cp,
         Ok(None) | Err(_) => {
-            warn!(session_id = %session_id, "checkpoint not found, skipping thread_id/reply_ref update");
+            warn!(
+                session_id = %session_id,
+                "checkpoint not found, skipping thread_id/reply_ref update"
+            );
             return;
         }
     };
     cp.thread_id = thread_id.clone();
     cp.reply_ref = reply_ref.clone();
     if let Err(e) = cm.save_direct(&cp).await {
-        warn!(session_id = %session_id, error = %e, "failed to save checkpoint with updated thread_id");
+        warn!(
+            session_id = %session_id,
+            error = %e,
+            "failed to save checkpoint with updated thread_id"
+        );
     }
 }
 

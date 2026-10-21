@@ -146,7 +146,8 @@ impl closeclaw_session::persistence::PersistenceService for MockPersistService {
         _id: &str,
     ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         *self.restore_called.lock().expect("lock") = true;
-        // Return None to simulate a restore failure path (checkpoint not found after restore attempt).
+        // Return None to simulate a restore failure path (checkpoint not found
+        // after restore attempt).
         Ok(None)
     }
 }

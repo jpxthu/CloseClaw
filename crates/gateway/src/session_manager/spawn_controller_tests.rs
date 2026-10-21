@@ -1,4 +1,5 @@
-#![allow(deprecated)] // default_child_agent is deprecated; tests verify backward-compatible config parsing
+// default_child_agent is deprecated; tests verify backward-compatible config parsing
+#![allow(deprecated)]
 //! Unit tests for SpawnController::validate.
 //!
 //! Covers the 4 rejection scenarios + 2 success scenarios defined in

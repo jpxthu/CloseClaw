@@ -327,7 +327,8 @@ fn test_split_static_dynamic_marker_at_end() {
 /// split_static_dynamic: multiple markers → only the first one is used as the split point.
 #[test]
 fn test_split_static_dynamic_multiple_markers() {
-    let input = "First part.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nMiddle.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nLast.";
+    let input = "First part.\n__SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nMiddle.\n\
+        __SYSTEM_PROMPT_DYNAMIC_BOUNDARY__\nLast.";
     let (s, d) = split_static_dynamic(input);
     assert_eq!(s.as_deref(), Some("First part."));
     // Dynamic should contain everything after the first marker, including the second marker

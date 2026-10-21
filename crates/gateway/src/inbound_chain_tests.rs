@@ -438,7 +438,8 @@ fn make_gw_with_registry() -> crate::Gateway {
 }
 
 /// WITH-registry: Text message goes through full chain, message_type injected by
-/// chain dispatcher (MessageContext::from_normalized), thread_id / media_refs added by Gateway after chain.
+/// chain dispatcher (MessageContext::from_normalized), thread_id / media_refs
+/// added by Gateway after chain.
 #[tokio::test]
 async fn test_with_registry_text_message_full_chain() {
     let gw = make_gw_with_registry();
