@@ -216,10 +216,10 @@ async fn build_new_gateway_skips_injection_when_no_checkpoint_manager() {
     }
 }
 
-/// E2E: set cm → old Gateway → simulate restart inject new Gateway →
+/// set cm → old Gateway → simulate restart inject new Gateway →
 /// verify new Gateway has checkpoint_manager → persist triggers mock.
 #[tokio::test]
-async fn e2e_restart_injects_cm_and_new_gw_has_it() {
+async fn test_restart_injects_cm_and_new_gw_has_it() {
     let config = closeclaw_gateway::GatewayConfig::default();
     let sm = Arc::new(closeclaw_gateway::SessionManager::new(
         &config,
