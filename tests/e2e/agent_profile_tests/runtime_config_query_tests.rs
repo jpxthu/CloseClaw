@@ -81,7 +81,7 @@ async fn test_agent_runtime_config_query() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let mut daemon = spawn_default_ready_daemon(config_root).await;
+    let daemon = spawn_default_ready_daemon(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "id": "master"});
@@ -95,10 +95,7 @@ async fn test_agent_runtime_config_query() {
         "consecutive queries should be identical"
     );
 
-    helpers::assert_daemon_alive(&mut daemon.0);
-
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 /// §F6 runtime config query (unknown agent): querying a non-existent
@@ -111,7 +108,7 @@ async fn test_agent_runtime_config_query_unknown() {
     let temp_dir = tempfile::tempdir().expect("temp dir for test");
     let config_root = temp_dir.path();
 
-    let mut daemon = spawn_default_ready_daemon(config_root).await;
+    let daemon = spawn_default_ready_daemon(config_root).await;
 
     let admin_sock = config_root.join("admin.sock");
     let request = serde_json::json!({"type": "agent_info", "id": "no-such-agent"});
@@ -131,8 +128,5 @@ async fn test_agent_runtime_config_query_unknown() {
         response["message"]
     );
 
-    helpers::assert_daemon_alive(&mut daemon.0);
-
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }

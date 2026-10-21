@@ -129,15 +129,7 @@ async fn test_agent_profile_smoke() {
     );
     assert_single_terminal(&frames);
 
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
-        panic!("daemon died during chat turn: {status:?}");
-    }
-
-    let status = daemon.shutdown().await;
-    assert!(
-        status.success(),
-        "daemon should exit 0 after SIGTERM, got {status:?}"
-    );
+    helpers::shutdown_ok(daemon).await;
 
     let admin_sock = config_root.join("admin.sock");
     let chat_sock = config_root.join("chat.sock");
@@ -189,8 +181,7 @@ async fn test_agent_model_selection() {
         "response should contain greeting scenario text, got: {text}"
     );
 
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 /// §F1/§F6 system prompt injection (authoritative requirement source:
@@ -249,8 +240,7 @@ async fn test_agent_system_prompt_injection() {
         "response should contain INJECTED_OK proving bootstrap injection, got: {text}"
     );
 
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 /// §F1 workspace: agent `config.json` `workspace` field sets the session
@@ -342,8 +332,7 @@ async fn test_agent_workspace() {
         frames
     );
 
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -712,9 +701,7 @@ async fn test_agent_tool_allow_deny() {
     // semantics and failure messages live on the helper doc.
     assert_tool_allow_deny_frames(&frames);
 
-    helpers::assert_daemon_alive(&mut daemon.0);
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 /// Acceptance observability for [`test_agent_tool_allow_deny`]: print the
