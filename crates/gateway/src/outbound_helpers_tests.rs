@@ -397,22 +397,38 @@ async fn test_send_simplified_with_timeout_no_plugin_fallback() {
 // 1-second response constraint monitoring tests (Steps 1.4-1.5)
 // ===========================================================================
 
-/// Mock plugin whose `parse_inbound()` sleeps for 1.5 seconds, causing
-/// total processing to exceed the 1-second response constraint.
+/// Shared sentinel check behind the constraint mock's `parse_inbound()`
+/// (payload marker `sentinel`). Lossy UTF-8 decoding keeps the substring
+/// match working even if the payload carries non-UTF-8 bytes.
+fn is_sentinel_payload(payload: &[u8]) -> bool {
+    String::from_utf8_lossy(payload).contains("sentinel")
+}
+
+/// Parameterized mock plugin shared by the 1-second response constraint
+/// tests — one implementation covers the slow and the fast path instead of
+/// two near-identical structs. The observable differences live in the
+/// fields:
 ///
-/// A trailing sentinel request (payload marker `sentinel`) notifies `done`:
-/// the inbound queue is FIFO, so the sentinel's parse only runs after the
-/// slow request has been fully processed — including its 1s-constraint
-/// check and the warn log — giving the positive test a deterministic
-/// completion signal without fixed sleeps. The sentinel check precedes the
-/// slow sleep so the sentinel itself neither delays nor re-triggers the
-/// constraint warn.
-struct SlowParsePlugin {
+/// - `done`: notified when a sentinel payload is parsed. The inbound queue
+///   is FIFO, so the sentinel's parse only runs after the request under
+///   test has been fully processed — including its 1s-constraint check —
+///   giving the tests a deterministic completion signal without fixed
+///   sleeps.
+/// - `parse_delay`: optional sleep applied in `parse_inbound()` before
+///   returning the message. `Some(1500ms)` drives total processing past
+///   the 1-second constraint; `None` keeps it far below. The sentinel
+///   check precedes the delay so the sentinel itself neither delays nor
+///   re-triggers the constraint warn.
+/// - `content`: message content returned by `parse_inbound()`, identifying
+///   which test a captured message came from.
+struct ConstraintMockPlugin {
     done: Arc<tokio::sync::Notify>,
+    parse_delay: Option<std::time::Duration>,
+    content: &'static str,
 }
 
 #[async_trait]
-impl IMPlugin for SlowParsePlugin {
+impl IMPlugin for ConstraintMockPlugin {
     fn platform(&self) -> &str {
         "feishu"
     }
@@ -421,77 +437,19 @@ impl IMPlugin for SlowParsePlugin {
         &self,
         payload: &[u8],
     ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        if String::from_utf8_lossy(payload).contains("sentinel") {
+        if is_sentinel_payload(payload) {
             self.done.notify_one();
             return Ok(None);
         }
-        // Simulate slow inbound parsing (>1s).
-        tokio::time::sleep(std::time::Duration::from_millis(1500)).await;
-        Ok(Some(NormalizedMessage {
-            platform: "feishu".into(),
-            sender_id: "u1".into(),
-            peer_id: "p1".into(),
-            content: "slow-parse".into(),
-            timestamp: chrono::Utc::now().timestamp(),
-            message_type: closeclaw_common::MessageType::Text,
-            media_refs: vec![],
-            thread_id: None,
-            reply_ref: None,
-            account_id: "u1".into(),
-            ..Default::default()
-        }))
-    }
-
-    fn render(
-        &self,
-        content_blocks: &[ContentBlock],
-        _dsl_result: Option<&DslParseResult>,
-    ) -> RenderedOutput {
-        render_plain(content_blocks)
-    }
-
-    async fn send(
-        &self,
-        _output: &RenderedOutput,
-        _peer_id: &str,
-        _thread_id: Option<&str>,
-        _reply_ref: Option<&str>,
-    ) -> Result<(), AdapterError> {
-        Ok(())
-    }
-}
-
-/// Mock plugin whose `parse_inbound()` completes immediately — total
-/// inbound processing stays far below the 1-second response constraint.
-///
-/// A trailing sentinel request (payload marker `sentinel`) notifies
-/// `done`: the inbound queue is FIFO, so the sentinel's parse only runs
-/// after the fast request has been fully processed — including its
-/// response-constraint check — giving the negative test a deterministic
-/// completion signal without fixed sleeps.
-struct FastParsePlugin {
-    done: Arc<tokio::sync::Notify>,
-}
-
-#[async_trait]
-impl IMPlugin for FastParsePlugin {
-    fn platform(&self) -> &str {
-        "feishu"
-    }
-
-    async fn parse_inbound(
-        &self,
-        payload: &[u8],
-    ) -> Result<Option<NormalizedMessage>, AdapterError> {
-        if String::from_utf8_lossy(payload).contains("sentinel") {
-            self.done.notify_one();
-            return Ok(None);
+        // Simulate slow inbound parsing when the test needs to exceed 1s.
+        if let Some(delay) = self.parse_delay {
+            tokio::time::sleep(delay).await;
         }
         Ok(Some(NormalizedMessage {
             platform: "feishu".into(),
             sender_id: "u1".into(),
             peer_id: "p1".into(),
-            content: "fast-parse".into(),
+            content: self.content.into(),
             timestamp: chrono::Utc::now().timestamp(),
             message_type: closeclaw_common::MessageType::Text,
             media_refs: vec![],
@@ -541,8 +499,10 @@ async fn test_1s_response_constraint_warn_log() {
         || async {
             let gw = make_gateway_for_1s_test();
             let done = Arc::new(tokio::sync::Notify::new());
-            let plugin = SlowParsePlugin {
+            let plugin = ConstraintMockPlugin {
                 done: Arc::clone(&done),
+                parse_delay: Some(std::time::Duration::from_millis(1500)),
+                content: "slow-parse",
             };
             gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
                 .await;
@@ -584,8 +544,10 @@ async fn test_no_1s_response_constraint_warn_on_fast_path() {
         || async {
             let gw = make_gateway_for_1s_test();
             let done = Arc::new(tokio::sync::Notify::new());
-            let plugin = FastParsePlugin {
+            let plugin = ConstraintMockPlugin {
                 done: Arc::clone(&done),
+                parse_delay: None,
+                content: "fast-parse",
             };
             gw.register_plugin(Arc::new(plugin) as Arc<dyn IMPlugin>)
                 .await;
