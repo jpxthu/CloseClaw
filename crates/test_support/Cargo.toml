@@ -9,6 +9,9 @@ rust-version.workspace = true
 [dependencies]
 # Manifest parsing for the dependency boundary guard
 toml.workspace = true
+# Log-capture facility (thread-local tracing subscriber + in-memory writer)
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 # Synthetic manifests for the boundary guard unit tests (system temp dir)
