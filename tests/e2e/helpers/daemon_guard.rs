@@ -26,7 +26,7 @@ use std::time::Duration;
 use tokio::process::Child;
 
 use super::config::{write_config_tree, ConfigTreeOpts};
-use super::daemon_lifecycle::sigterm_and_wait;
+use super::daemon_lifecycle::{assert_daemon_alive, sigterm_and_wait};
 use super::daemon_ready::wait_for_daemon_ready_with_timeout;
 use super::fake_llm::start_fake_llm;
 
@@ -98,4 +98,20 @@ pub(crate) async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuar
     let fake_llm_addr = start_fake_llm().await;
     write_config_tree(config_root, ConfigTreeOpts::new(fake_llm_addr));
     spawn_ready_daemon(config_root).await
+}
+
+/// Standard teardown for a [`DaemonGuard`]: assert the daemon is still
+/// alive, shut it down gracefully via SIGTERM, and assert it exited 0.
+///
+/// Converges the `assert_daemon_alive` → `shutdown` → exit-status assert
+/// tail duplicated at the end of every `agent_profile_tests` case
+/// (issue #3829), unifying the teardown semantics: a daemon that died
+/// mid-test is now reported with exit details before the SIGTERM wait,
+/// instead of surfacing as an opaque shutdown failure.
+// Callers land with the agent_profile_tests call-site replacement.
+#[expect(dead_code)]
+pub(crate) async fn shutdown_ok(mut daemon: DaemonGuard) {
+    assert_daemon_alive(&mut daemon.0);
+    let status = daemon.shutdown().await;
+    assert!(status.success(), "daemon should exit 0 after SIGTERM");
 }

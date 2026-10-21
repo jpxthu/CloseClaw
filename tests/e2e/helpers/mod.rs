@@ -44,6 +44,9 @@ pub(crate) mod fake_llm;
 pub(crate) use check_script::{
     assert_exit, assert_passed_marker, git, CheckResult, CheckScript, TempRepo,
 };
+#[cfg(feature = "fake-llm")]
+#[allow(unused_imports)]
+pub(crate) use daemon_guard::shutdown_ok;
 #[allow(unused_imports)]
 pub(crate) use daemon_lifecycle::{assert_daemon_alive, assert_daemon_alive_with_context};
 #[cfg(feature = "fake-llm")]
