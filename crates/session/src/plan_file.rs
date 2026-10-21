@@ -179,7 +179,9 @@ pub fn update_plan_timestamp(plan_file_path: &str) -> Result<(), std::io::Error>
 /// atomic write-back as the surrounding modification.
 ///
 /// # Errors
-/// Returns [`InvalidData`] when the update-time line is missing.
+/// Returns
+/// [`InvalidData`](std::io::ErrorKind::InvalidData) when the update-time line
+/// is missing.
 fn refresh_update_time_line(content: &mut String, path: &Path) -> io::Result<()> {
     let new_timestamp = Local::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let updated = replace_update_time_line(content, &new_timestamp).ok_or_else(|| {
@@ -241,7 +243,7 @@ pub fn touch_access_timestamp(plan_path: &Path) -> Result<(), std::io::Error> {
 /// or insert `marker` on the line immediately after the `# {title}` heading.
 ///
 /// Files with an unterminated marker or without a title heading are rejected
-/// with [`InvalidData`].
+/// with [`InvalidData`](std::io::ErrorKind::InvalidData).
 fn apply_access_marker(content: &mut String, marker: &str) -> io::Result<()> {
     if let Some(idx) = content.find(ACCESS_TIMESTAMP_MARKER_PREFIX) {
         let start = idx;
@@ -330,7 +332,7 @@ pub fn resolve_plan_by_name(workdir: &Path, name: &str) -> Result<PathBuf, PlanR
 /// List `.md` file stems in a directory.
 ///
 /// Returns the set of stems (filename without `.md` extension).
-/// Returns [`NotFound`] if the directory does not
+/// Returns [`NotFound`](PlanResolveError::NotFound) if the directory does not
 /// exist or contains no `.md` files.
 fn list_plan_stems(dir: &Path) -> Result<Vec<String>, PlanResolveError> {
     let entries = std::fs::read_dir(dir).map_err(|_| PlanResolveError::NotFound {

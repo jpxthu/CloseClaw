@@ -19,7 +19,9 @@ use super::{SessionsKillTool, SessionsSpawnTool, SessionsSteerTool, SessionsYiel
 
 /// Register a tool and increment the counter on success.
 ///
-/// Calls [`register_single`] and increments `$registered` when the tool
+/// Calls
+/// [`register_single`](closeclaw_common::tool_registry::register_single) and
+/// increments `$registered` when the tool
 /// is accepted. Uses `closeclaw_common::tool_registry::register_single`
 /// directly so it works from any crate.
 macro_rules! try_register {

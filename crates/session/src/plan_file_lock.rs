@@ -142,10 +142,11 @@ pub fn write_plan_file_locked(plan_path: &Path, content: &str) -> io::Result<()>
 /// # Reentrancy
 ///
 /// `transform` runs while the sidecar lock is held and must **not** call back
-/// into any lock-taking plan API ([`touch_access_timestamp`],
-/// [`update_plan_timestamp`],
-/// [`append_to_plan_section`], [`acquire_plan_lock`], or the
-/// archival rename in `plan_archive`). Every
+/// into any lock-taking plan API
+/// ([`touch_access_timestamp`](crate::plan_file::touch_access_timestamp),
+/// [`update_plan_timestamp`](crate::plan_file::update_plan_timestamp),
+/// [`append_to_plan_section`](crate::plan_file::append_to_plan_section),
+/// [`acquire_plan_lock`], or the archival rename in `plan_archive`). Every
 /// acquisition locks a fresh file descriptor, so a same-process re-lock of
 /// the same sidecar blocks forever (flock treats descriptors independently —
 /// self-deadlock, no error is ever returned).
@@ -179,7 +180,7 @@ where
 
 /// Take a blocking exclusive advisory lock on `file`'s descriptor.
 ///
-/// MSRV-compatible equivalent of [`lock`] (stabilized in Rust
+/// MSRV-compatible equivalent of [`lock`](std::fs::File::lock) (stabilized in Rust
 /// 1.89): a single `flock(LOCK_EX)` call, with the resulting `io::Error`
 /// propagated as-is — `EINTR` is **not** retried and surfaces as
 /// `io::ErrorKind::Interrupted`, exactly like the std Unix implementation.

@@ -1,6 +1,6 @@
 //! Per-turn skill listing preparation for LLM invocation.
 //!
-//! Provides [`prepare_turn_skill_listing`], the
+//! Provides [`prepare_turn_skill_listing`](ConversationSession::prepare_turn_skill_listing), the
 //! per-turn orchestration run before each LLM request: compaction
 //! snapshot reset, conditional skill activation detection, listing
 //! computation with incremental diff, and activation-turn filtering.

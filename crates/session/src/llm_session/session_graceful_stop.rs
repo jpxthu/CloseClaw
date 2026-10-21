@@ -1,9 +1,9 @@
 //! Graceful-stop / force-kill surface for `ConversationSession`.
 //!
 //! Extracted from `session_handles.rs` (issue #3164):
-//! [`graceful_stop`] with its wait-state
+//! [`graceful_stop`](ConversationSession::graceful_stop) with its wait-state
 //! inspection helpers (`collect_waiting_items` /
-//! `has_running_tools`), plus [`force_kill`].
+//! `has_running_tools`), plus [`force_kill`](ConversationSession::force_kill).
 
 use std::time::Duration;
 

@@ -26,8 +26,10 @@ use tokio_util::sync::CancellationToken;
 use super::ConversationSession;
 
 /// Default kill-handle timeout (5 seconds) applied per handle in
-/// [`kill_tool_handles`] and per child session in
-/// [`cascade_stop_children`]. After this, the
+/// [`kill_tool_handles`](ConversationSession::kill_tool_handles) and per
+/// child session in
+/// [`cascade_stop_children`](ConversationSession::cascade_stop_children).
+/// After this, the
 /// kill attempt is abandoned and cleanup continues — orphan processes
 /// are not allowed to wedge the stop path.
 pub(super) const STOP_KILL_TIMEOUT: Duration = Duration::from_secs(5);

@@ -1,7 +1,7 @@
 //! `ToolSession` trait implementation for `ConversationSession`.
 //!
 //! This module holds the *adapter* that lets the tool layer treat a
-//! `ConversationSession` as a [`ToolSession`]
+//! `ConversationSession` as a [`ToolSession`](closeclaw_common::tool_session::ToolSession)
 //! (tool-call bookkeeping, file-mtime caches, child-session state and
 //! checkpoint persistence). The inherent methods it delegates to live
 //! in sibling modules: `session_exec`, `session_pending`, `workflow`,

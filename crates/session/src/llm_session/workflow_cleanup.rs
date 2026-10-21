@@ -1,6 +1,6 @@
 //! Workflow exit cleanup for [`ConversationSession`].
 //!
-//! Provides [`cleanup_workflow_exit`] — the single
+//! Provides [`cleanup_workflow_exit`](ConversationSession::cleanup_workflow_exit) — the single
 //! entry-point for workflow teardown when a workflow completes or is
 //! terminated by the owner.
 
@@ -59,7 +59,9 @@ impl ConversationSession {
         }
     }
 
-    /// Build a temporary [`SessionCheckpoint`] from session state for cleanup.
+    /// Build a temporary
+    /// [`SessionCheckpoint`](crate::persistence::SessionCheckpoint) from session
+    /// state for cleanup.
     fn build_cleanup_checkpoint(&self) -> crate::persistence::SessionCheckpoint {
         use crate::persistence::SessionCheckpoint;
         let mut cp = SessionCheckpoint::new(self.session_id.clone());

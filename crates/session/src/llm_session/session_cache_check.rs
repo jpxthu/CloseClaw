@@ -4,13 +4,14 @@
 //! Data flow (see `docs/design/session/llm-session-enhancements.md`,
 //! "缓存命中一致性校验", doc :73):
 //! 1. **Staging** — both LLM invocation paths
-//!    ([`invoke_llm_with_target`] /
-//!    [`invoke_llm_streaming_with_target`]) stage the
-//!    actually-sent request's prefix snapshot once the request is built
-//!    (messages already Thinking-cleaned, system static/dynamic finalized).
+//!    ([`invoke_llm_with_target`](ConversationSession::invoke_llm_with_target) /
+//!    [`invoke_llm_streaming_with_target`](ConversationSession::invoke_llm_streaming_with_target))
+//!    stage the actually-sent request's prefix snapshot once the request
+//!    is built (messages already Thinking-cleaned, system static/dynamic
+//!    finalized).
 //! 2. **Judgment + advancement** —
-//!    [`check_cache_anomaly_and_advance`] runs at the
-//!    unified advancement point (usage fully arrived), compares the staged
+//!    [`check_cache_anomaly_and_advance`](ConversationSession::check_cache_anomaly_and_advance)
+//!    runs at the unified advancement point (usage fully arrived), compares the staged
 //!    snapshot against the previous one (plus model/provider identity and
 //!    TTL interval), runs the existing numeric comparison only for
 //!    participating rounds, then advances the snapshot — exempt rounds
@@ -33,11 +34,11 @@ use super::{
 impl ConversationSession {
     /// Stages the current round's prefix snapshot (request-build point).
     ///
-    /// Called by both invocation paths once the [`InternalRequest`] is
-    /// built; materials are the actually-sent system prompt (static +
-    /// dynamic as sent), the API `tools` parameter, and the
-    /// Thinking-cleaned message list. Compaction calls bypass the
-    /// invocation paths and never stage.
+    /// Called by both invocation paths once the
+    /// [`InternalRequest`](closeclaw_common::InternalRequest) is built; materials
+    /// are the actually-sent system prompt (static + dynamic as sent), the
+    /// API `tools` parameter, and the Thinking-cleaned message list.
+    /// Compaction calls bypass the invocation paths and never stage.
     pub(crate) fn stage_cache_prefix_snapshot(
         &mut self,
         system_static: Option<&str>,

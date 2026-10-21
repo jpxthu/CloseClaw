@@ -1,6 +1,6 @@
 //! LLM invocation logic for `ConversationSession`.
 //!
-//! Provides [`invoke_llm`] which encapsulates
+//! Provides [`invoke_llm`](ConversationSession::invoke_llm) which encapsulates
 //! the LLM call flow previously living in the Gateway layer
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.

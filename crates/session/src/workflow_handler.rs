@@ -227,8 +227,8 @@ impl WorkflowHandler {
     /// Handle a `workflow_verify` tool result.
     ///
     /// Delegates to the port's `handle_verify` to evaluate transitions.
-    /// Returns [`Jumped`] if the workflow entered jumping phase,
-    /// [`NotJumped`] otherwise.
+    /// Returns [`Jumped`](JumpResult::Jumped) if the workflow entered jumping phase,
+    /// [`NotJumped`](JumpResult::NotJumped) otherwise.
     fn handle_verify_result(&mut self) -> (bool, JumpResult) {
         // Fallible engine call: on Err the engine did not advance, so
         // `self.run` is left untouched (no transient Null swap needed).
@@ -260,7 +260,7 @@ impl WorkflowHandler {
     /// For enum questions, maps single-letter answers (A, B, C, …) to the
     /// corresponding internal option value before passing to the engine.
     ///
-    /// Returns [`Completed`] when the workflow transitions
+    /// Returns [`Completed`](JumpResult::Completed) when the workflow transitions
     /// to the `Complete` phase.
     fn handle_jump_result(&mut self, data: &serde_json::Value) -> (bool, JumpResult) {
         let mut answers = match data.get("answers") {

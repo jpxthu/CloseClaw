@@ -10,14 +10,16 @@ use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase};
 use super::ConversationSession;
 
 /// Prefix used by the workflow engine's verify message rendering.
-/// Used by [`remove_workflow_verify_messages`] to
-/// distinguish verify messages from goal/recovered messages in the
+/// Used by
+/// [`remove_workflow_verify_messages`](ConversationSession::remove_workflow_verify_messages)
+/// to distinguish verify messages from goal/recovered messages in the
 /// transcript.
 pub const VERIFY_MESSAGE_PREFIX: &str = "Verify Step";
 
 /// Prefix used by the workflow engine's jump message rendering.
-/// Used by [`remove_workflow_jump_messages`] to
-/// distinguish jump messages from goal/recovered messages in the
+/// Used by
+/// [`remove_workflow_jump_messages`](ConversationSession::remove_workflow_jump_messages)
+/// to distinguish jump messages from goal/recovered messages in the
 /// transcript.
 pub const JUMP_MESSAGE_PREFIX: &str = "Jump Step";
 

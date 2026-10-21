@@ -60,7 +60,7 @@ impl super::ConversationSession {
     }
 
     /// Check for a pending mode and apply it if present.
-    /// Called by [`session_mode()`] to implement deferred mode switching.
+    /// Called by [`session_mode`](Self::session_mode) to implement deferred mode switching.
     pub(crate) fn apply_pending_session_mode_if_needed(&self) {
         let pending = self
             .pending_session_mode

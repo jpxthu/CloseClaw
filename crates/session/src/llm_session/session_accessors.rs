@@ -422,7 +422,7 @@ impl ConversationSession {
     pub(crate) fn push_message(&mut self, role: &str, content_blocks: Vec<ContentBlock>) {
         self.push_message_with_timestamp(role, content_blocks, chrono::Utc::now());
     }
-    /// Like [`push_message`] but uses the provided `timestamp`.
+    /// Like [`push_message`](Self::push_message) but uses the provided `timestamp`.
     pub(crate) fn push_message_with_timestamp(
         &mut self,
         role: &str,

@@ -5,7 +5,7 @@
 //! `register_child_state`, `deregister_child_state`) completes
 //! immediately — the checkpoint is persisted **before** the
 //! `.await` returns, so callers can assert checkpoint state
-//! immediately without `tokio::time::sleep` or `thread::sleep`.
+//! without any waiting — no `tokio::time::sleep` or `thread::sleep`.
 
 use crate::llm_session::tests::tmp_path;
 use crate::llm_session::ConversationSession;
