@@ -16,6 +16,7 @@
 - **规则项结构**：每条规则包含主体（Agent / User+Agent）、操作维度、参数（路径/命令/主机端口/工具）、效果（Allow / Deny）。具体序列化格式由实现定义，CLI `rule check` 以同一语义校验。
 - User+Agent 规则与 Agent 规则同文件存储，按 Agent 隔离；某个 Agent 的规则不影响其他 Agent。
 - 全局默认策略为内置基线，在 Daemon 初始化阶段装配，不依赖配置文件（见 [README](README.md#规则加载策略)）：Agent 维度默认仅可收发消息，User 维度默认无任何权限。两者交集后，新建 User 实际不能交互，需 Owner 授予。
+- **全局设置**：审批等待时长默认 5 分钟，属权限模块全局配置，不按 Agent 存储；修改后对新建审批请求生效。
 - 权限文件缺失或不可用时使用系统默认权限基线（见「加载容错」）。
 
 ### 修改入口
@@ -56,7 +57,7 @@
 
 以下保护为硬编码规则，不可被任何配置覆写：
 
-- **权限配置文件读写**：仅 Owner 可直接写入；Agent 对权限配置文件的读取默认拒绝，属高风险操作，仅经 Owner 单次放行允许本次读取，不能加入白名单；Agent 的写入一律拒绝。该保护不因白名单机制或 workspace 强制授权放宽。
+- **权限配置文件保护**：仅 Owner 可直接写入；Agent 对权限配置文件的读取默认拒绝，属高风险操作，仅经 Owner 单次放行允许本次读取，不能加入白名单；Agent 的写入一律拒绝。该保护不因白名单机制或 workspace 强制授权放宽。
 - **权限配置目录**：`~/.closeclaw/agents/` 整棵树对 Agent 默认禁止访问（含所有 Agent 的 config.json / permissions.json）；该目录不在 workspace 路径下，即使显式工作目录指向该目录，硬编码保护优先。当前 Agent 的 permissions.json 读取可经 Owner 单次放行例外，写入不例外。
 - **系统设计约束**：Owner 无法禁用自身身份校验；系统不提供「绕过权限系统」的选项。
 - **最小信息原则**：Agent 被拒绝时只收到操作被拒绝的结果，不暴露规则名称、优先级或配置路径等内部信息。
@@ -76,7 +77,7 @@
 
 - 路径中的 Agent ID 和 User ID 必须通过路径穿越校验：拒绝含 `../` 或绝对路径前缀等危险模式，防止用特殊字符绕过 workspace 隔离。
 - 并行启动时 workspace 目录创建幂等，无竞态问题。
-- workspace 强制授权仅覆盖专属路径 `{数据根目录}/workspaces/{agent_id}/{user_id}/`；`/cd` 或 spawn 工作目录参数指向其他路径时不获得强制授权（见 [README](README.md#交集模型) 与 [沙盒](sandbox.md#边界来源)）。
+- workspace 强制授权仅覆盖专属路径 `~/.closeclaw/workspaces/{agent_id}/{user_id}/`；`/cd` 或 spawn 工作目录参数指向其他路径时不获得强制授权（见 [README](README.md#交集模型) 与 [沙盒](sandbox.md#边界来源)）。
 
 ## 数据流
 

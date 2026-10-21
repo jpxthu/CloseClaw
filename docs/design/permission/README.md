@@ -56,6 +56,8 @@
 | 心跳 | 任务配置中指定的 User ID；未配置或未注册时跳过任务并通知 Owner |
 | 子 Session | 继承父 Session 本轮 User 上下文 |
 
+心跳任务配置由心跳/daemon 侧读取并注入 User ID 与拒绝处置策略；permission 只消费，不负责读取任务配置。
+
 #### 调用方（caller）归因
 
 权限评估的 caller 是**触发本轮执行的 User 上下文**，不是会话级持久化字段：
@@ -94,11 +96,11 @@ Agent 维度规则    User+Agent 维度规则
 ```
 
 - **Agent 维度规则**只匹配 Agent ID，定义 Agent 自身能力边界。
-- **User+Agent 规则**同时匹配 User ID 与 Agent ID，实现个人粒度的收窄；对某个 User 的授权只作用于该 Agent 的规则集，需要跨 Agent 时分别授权。
+- **User+Agent 规则**同时匹配 User ID 与 Agent ID，实现个人粒度的收窄；对某个 User 的授权只作用于该 Agent 的规则集，需要跨 Agent 时分别授权。本文「User 维度规则」即指「User+Agent 规则」，不存在只匹配 User、跨 Agent 的规则。
 - Agent 维度规则与 User+Agent 规则在同一引擎求值，双方都 Allow 才放行（workspace 强制授权除外，直接 Allow）。
 - **Owner 豁免**：caller 为 Owner 时跳过所有 User 维度规则，仅评估 Agent 维度（见「Owner 特权」）。
-- **workspace 强制授权**：每个 Agent-User 组合的专属路径固定为 `{数据根目录}/workspaces/{agent_id}/{user_id}/`，由系统创建。该路径的读/写直接 Allow，不参与 Agent/User 维度求值，不受任何 Deny 规则（含沿 spawn 链路传播的 Deny）影响，也不随 `/cd` 或 spawn 工作目录参数变化；命中高风险操作名单（如版本控制目录读写）时仍按高风险审批处理。
-- **默认基线**：见 [权限配置管理](permission-configuration.md#配置文件与结构)。
+- **workspace 强制授权**：每个 Agent-User 组合的专属路径固定为 `~/.closeclaw/workspaces/{agent_id}/{user_id}/`（配置根目录固定为 `~/.closeclaw`），由系统创建。该路径的读/写直接 Allow，不参与 Agent/User 维度求值，不受任何 Deny 规则（含沿 spawn 链路传播的 Deny）影响，也不随 `/cd` 或 spawn 工作目录参数变化；命中高风险操作名单（如版本控制目录读写）时仍按高风险审批处理。
+- **默认基线**：见 [权限配置管理](permission-configuration.md#配置文件与结构)。初始 Agent `master` 为显式例外：创建时具备全部工具与技能权限；其余新建 Agent 默认仅可收发消息。
 - **子 Session 继承**：见「子 Agent 权限继承」。
 
 ### 规则加载策略
@@ -113,7 +115,7 @@ Agent 维度规则    User+Agent 维度规则
 ```
 操作请求（caller + 操作类型 + 参数）
   │
-  ├─ 权限配置文件读写？ → 硬编码保护：默认 Deny（Owner 单次放行除外，不可白名单）
+  ├─ 权限配置文件读取 / 写入？ → 硬编码保护：读取默认 Deny（Owner 单次放行），写入直接拒绝
   │
   ├─ workspace 专属路径的读/写？ → 直接 Allow（不参与维度求值；命中高风险仍审批）
   │
@@ -125,13 +127,13 @@ Agent 维度规则    User+Agent 维度规则
   │
   ├─ User 维度求值：caller 为 Owner → 跳过；否则同样求值
   │
-  ├─ 两维度都 Allow → Allow；任一方 Deny → Deny
+  ├─ 两维度都 Allow → Allow；命中硬编码高风险名单 → 审批（即使 Allow）
   │
-  └─ Deny → 按 [审批工作流](approval-workflow.md#审批分流) 分流
+  └─ 任一方 Deny → 按 [审批工作流](approval-workflow.md#审批分流) 分流
 ```
 
-- 命令行维度先判黑名单（命中即 Deny，不审批），再判白名单（宿主执行），其余按沙盒模式决定执行位置（见 [权限维度](permission-dimensions.md#命令行)）。
-- 文件读写维度的路径范围由沙盒在操作系统层强制；沙盒把规则允许的文件范围落到 OS 层，规则层 Deny 与沙盒边界同时生效（workspace 专属路径与 `always allow` 模式除外：workspace 专属路径直接 Allow，但高风险命中仍审批）。
+- 命令行维度先判黑名单（命中即 Deny，不审批），再对非黑名单命令做安全解析（malicious 拦截 / uncertain 审批），最后判白名单（宿主执行），其余按沙盒模式决定执行位置（见 [权限维度](permission-dimensions.md#命令行)）。
+- 文件读写维度的路径范围由沙盒在操作系统层强制；沙盒把规则允许的文件范围落到 OS 层，规则层 Deny 与沙盒边界同时生效（workspace 专属路径除外，直接 Allow 且高风险命中仍审批；`always allow` 仅免沙盒边界，规则层 Deny 仍评估）。
 - 收发消息维度在消息进入/离开 Agent 时评估：User 消息送入 LLM 前、LLM/工具消息发往 User 前；消息路由与格式解析本身不评估。
 - Agent 被拒绝时只收到操作被拒绝的结果，不暴露规则名称、优先级或配置路径；细节见 [权限配置管理](permission-configuration.md#配置保护)。
 - 评估开销仅与当前生效规则集相关，不随 Session 数量、Agent 数量、历史审批记录或运行时长增长。
