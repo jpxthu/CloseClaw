@@ -625,34 +625,43 @@ fn make_sentinel_request() -> InboundRequest {
 /// tests queue via `make_sentinel_request`) matches.
 #[test]
 fn test_is_sentinel_payload_matches_real_fixture() {
-    assert!(is_sentinel_payload(
-        make_sentinel_request().raw_payload.as_slice()
-    ));
+    assert!(
+        is_sentinel_payload(make_sentinel_request().raw_payload.as_slice()),
+        "expected the real sentinel fixture payload to match"
+    );
 }
 
 /// Negative normal-path payloads: `{}` (slow fixture) and `{"kind":"fast"}`
 /// (fast fixture) must not trip the sentinel check.
 #[test]
 fn test_is_sentinel_payload_rejects_non_sentinel_payloads() {
-    assert!(!is_sentinel_payload(
-        make_slow_request().raw_payload.as_slice()
-    ));
-    assert!(!is_sentinel_payload(
-        make_fast_request().raw_payload.as_slice()
-    ));
+    assert!(
+        !is_sentinel_payload(make_slow_request().raw_payload.as_slice()),
+        "expected no match for the slow fixture payload"
+    );
+    assert!(
+        !is_sentinel_payload(make_fast_request().raw_payload.as_slice()),
+        "expected no match for the fast fixture payload"
+    );
 }
 
 /// Boundary: an empty payload carries no marker at all.
 #[test]
 fn test_is_sentinel_payload_empty_payload() {
-    assert!(!is_sentinel_payload(&[]));
+    assert!(
+        !is_sentinel_payload(&[]),
+        "expected no match for an empty payload"
+    );
 }
 
 /// Boundary: non-UTF-8 bytes around the marker still match — lossy decoding
 /// replaces them with U+FFFD without breaking the substring hit.
 #[test]
 fn test_is_sentinel_payload_matches_despite_non_utf8_bytes() {
-    assert!(is_sentinel_payload(b"\xffsentinel\xff"));
+    assert!(
+        is_sentinel_payload(b"\xffsentinel\xff"),
+        "expected a match despite non-UTF-8 bytes around the marker"
+    );
 }
 
 // ---------------------------------------------------------------------------
