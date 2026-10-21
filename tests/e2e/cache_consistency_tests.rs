@@ -266,11 +266,7 @@ async fn test_cache_anomaly_round_completes_without_notification() {
         "anomaly event must carry the session correlation key: {event}"
     );
 
-    let status = daemon.shutdown().await;
-    assert!(
-        status.success(),
-        "daemon should exit 0 after SIGTERM, got: {status:?}"
-    );
+    helpers::shutdown_ok(daemon).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -308,11 +304,7 @@ async fn test_cache_normal_hit_round_no_anomaly() {
 
     assert_no_anomaly_event(&log_dir).await;
 
-    let status = daemon.shutdown().await;
-    assert!(
-        status.success(),
-        "daemon should exit 0 after SIGTERM, got: {status:?}"
-    );
+    helpers::shutdown_ok(daemon).await;
 }
 
 // ---------------------------------------------------------------------------
@@ -351,9 +343,5 @@ async fn test_cache_fields_missing_round_exempt() {
 
     assert_no_anomaly_event(&log_dir).await;
 
-    let status = daemon.shutdown().await;
-    assert!(
-        status.success(),
-        "daemon should exit 0 after SIGTERM, got: {status:?}"
-    );
+    helpers::shutdown_ok(daemon).await;
 }

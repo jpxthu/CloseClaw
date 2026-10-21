@@ -105,19 +105,6 @@ async fn wait_post_restart_turn(config_root: &Path) -> Vec<serde_json::Value> {
     }
 }
 
-/// Assert the daemon survived the final chat turn, then shut it down
-/// gracefully (SIGTERM → exit 0 within `helpers::SHUTDOWN_TIMEOUT`,
-/// via [`DaemonGuard::shutdown`], the shared `helpers::sigterm_and_wait`).
-async fn terminate_daemon(mut daemon: DaemonGuard) {
-    helpers::assert_daemon_alive_with_context(&mut daemon.0, Some("after restart chat turn"));
-
-    let status = daemon.shutdown().await;
-    assert!(
-        status.success(),
-        "daemon should exit 0 after SIGTERM, got: {status:?}"
-    );
-}
-
 /// Step 1.9: after a config-triggered gateway restart, a chat LLM turn
 /// completes with content — not by riding out the 120s completion timeout.
 #[tokio::test]
@@ -154,5 +141,5 @@ async fn test_gateway_restart_llm_turn_completes() {
     );
     assert_single_terminal(&post_frames);
 
-    terminate_daemon(daemon).await;
+    helpers::shutdown_ok_with_context(daemon, Some("after restart chat turn")).await;
 }

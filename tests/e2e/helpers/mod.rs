@@ -48,7 +48,7 @@ pub(crate) use check_script::{
 };
 #[cfg(feature = "fake-llm")]
 #[allow(unused_imports)]
-pub(crate) use daemon_guard::shutdown_ok;
+pub(crate) use daemon_guard::{shutdown_ok, shutdown_ok_with_context};
 #[allow(unused_imports)]
 pub(crate) use daemon_lifecycle::{assert_daemon_alive, assert_daemon_alive_with_context};
 #[cfg(feature = "fake-llm")]
