@@ -3,7 +3,7 @@
 //! Verifies that `persist_pending_checkpoint` (called by
 //! `register_tool_call`, `deregister_tool_call`,
 //! `register_child_state`, `deregister_child_state`) completes
-//! synchronously — the checkpoint is persisted **before** the
+//! immediately — the checkpoint is persisted **before** the
 //! `.await` returns, so callers can assert checkpoint state
 //! immediately without `tokio::time::sleep` or `thread::sleep`.
 
@@ -100,7 +100,7 @@ fn session_with_storage(session_id: &str) -> (ConversationSession, Arc<MockStora
 
 /// After `register_tool_call`, the checkpoint should contain
 /// a `ToolCall` entry in `pending_operations` — persisted
-/// synchronously before the `.await` returns.
+/// immediately: the write completes before the `.await` returns.
 #[tokio::test]
 async fn test_register_tool_call_persists_pending_operation() {
     let (session, storage) = session_with_storage("reg_persist");
@@ -229,7 +229,7 @@ async fn test_persist_error_recovery() {
 // ── 4. Child session path ──────────────────────────────────────────────
 
 /// `register_child_state` persists a `SubSessionSpawn` entry
-/// synchronously — checkpoint available immediately.
+/// immediately — the checkpoint is up to date as soon as the call returns.
 #[tokio::test]
 async fn test_register_child_state_persists_pending_operation() {
     let (session, storage) = session_with_storage("child_persist");
@@ -251,7 +251,7 @@ async fn test_register_child_state_persists_pending_operation() {
     assert_eq!(ops[0].op_type, PendingOperationType::SubSessionSpawn);
 }
 
-/// `deregister_child_state` removes the entry synchronously.
+/// `deregister_child_state` removes the entry immediately.
 #[tokio::test]
 async fn test_deregister_child_state_removes_from_checkpoint() {
     let (session, storage) = session_with_storage("child_dereg");
@@ -402,7 +402,7 @@ async fn test_deregister_tool_and_child_both_trigger_persist() {
 
 // ── 6. Multiple operations ─────────────────────────────────────────────
 
-/// Multiple register calls accumulate; each persist is synchronous
+/// Multiple register calls accumulate; each persist is immediate
 /// so the checkpoint reflects all registered operations.
 #[tokio::test]
 async fn test_multiple_register_calls_accumulate_in_checkpoint() {
