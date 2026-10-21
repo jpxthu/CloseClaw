@@ -188,10 +188,13 @@ impl SearcherTriggerDeps {
     /// Build a closure that marks a searcher session as finished.
     fn build_end_searcher_session(&self) -> closeclaw_session::active_searcher::EndSearcherSession {
         let sm = Arc::clone(&self.session_manager);
-        Box::new(move |sid: String, status: closeclaw_session::active_searcher_session::SearcherSessionStatus| {
-            let sm = Arc::clone(&sm);
-            sm.searcher_sessions.end(&sid, status);
-        })
+        Box::new(
+            move |sid: String,
+                  status: closeclaw_session::active_searcher_session::SearcherSessionStatus| {
+                let sm = Arc::clone(&sm);
+                sm.searcher_sessions.end(&sid, status);
+            },
+        )
     }
 
     // ── Injection & runner closure builders ─────────────────────────
@@ -480,7 +483,10 @@ impl SessionMessageHandler {
                 )
                 .await;
             }
-            tracing::warn!(session_id = %session_id, "streaming enabled but no gateway/plugin; falling back");
+            tracing::warn!(
+                session_id = %session_id,
+                "streaming enabled but no gateway/plugin; falling back"
+            );
         }
         invoke_llm_with_call_target(cs, content, user_blocks_pre_appended).await
     }

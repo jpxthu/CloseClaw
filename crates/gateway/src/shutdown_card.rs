@@ -5,7 +5,7 @@
 
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_llm::session_state::LlmState;
+use closeclaw_llm::session_state::{LlmState, ToolExecState};
 use serde_json::json;
 use std::collections::HashMap;
 
@@ -193,8 +193,8 @@ impl Gateway {
                             .filter(|(_, (s, _))| {
                                 matches!(
                                     *s,
-                                    closeclaw_llm::session_state::ToolExecState::RunningForeground
-                                        | closeclaw_llm::session_state::ToolExecState::RunningBackground
+                                    ToolExecState::RunningForeground
+                                        | ToolExecState::RunningBackground
                                 )
                             })
                             .map(|(id, _)| id.clone())
@@ -436,8 +436,11 @@ impl Gateway {
         }
 
         let summary = format!(
-            "\u{2705} \u{5173}\u{95ed}\u{5b8c}\u{6210}\u{ff1a} {} \u{6210}\u{529f}, {} \u{5931}\u{8d25}, {} \u{8df3}\u{8fc7}",
-            result.succeeded, result.failed, result.skipped
+            "{} {} \u{6210}\u{529f}, {} \u{5931}\u{8d25}, {} \u{8df3}\u{8fc7}",
+            "\u{2705} \u{5173}\u{95ed}\u{5b8c}\u{6210}\u{ff1a}",
+            result.succeeded,
+            result.failed,
+            result.skipped
         );
 
         let card = json!({
@@ -498,9 +501,17 @@ mod tests {
             "\u{26a0}\u{fe0f} \u{5f3a}\u{5236}\u{5173}\u{95ed}\u{4e2d}..."
         };
         let body = if mode == ShutdownMode::Graceful {
-            "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{4f18}\u{96c5}\u{5173}\u{95ed}\u{ff0c}drain \u{7ed3}\u{675f}\u{540e}\u{5c06}\u{5c55}\u{793a} session \u{8fdb}\u{5ea6}\u{8be6}\u{60c5}\u{3002}"
+            concat!(
+                "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{4f18}\u{96c5}\u{5173}\u{95ed}\u{ff0c}drain ",
+                "\u{7ed3}\u{675f}\u{540e}\u{5c06}\u{5c55}\u{793a} session ",
+                "\u{8fdb}\u{5ea6}\u{8be6}\u{60c5}\u{3002}"
+            )
         } else {
-            "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{5f3a}\u{5236}\u{5173}\u{95ed}\u{ff0c}\u{672a}\u{5b8c}\u{6210}\u{7684}\u{64cd}\u{4f5c}\u{53ef}\u{80fd}\u{9700}\u{8981}\u{624b}\u{52a8}\u{6062}\u{590d}\u{3002}"
+            concat!(
+                "\u{7cfb}\u{7edf}\u{6b63}\u{5728}\u{5f3a}\u{5236}\u{5173}\u{95ed}\u{ff0c}",
+                "\u{672a}\u{5b8c}\u{6210}\u{7684}\u{64cd}\u{4f5c}",
+                "\u{53ef}\u{80fd}\u{9700}\u{8981}\u{624b}\u{52a8}\u{6062}\u{590d}\u{3002}"
+            )
         };
 
         let mut elements: Vec<serde_json::Value> = vec![json!({
@@ -626,7 +637,10 @@ mod tests {
     fn test_label_idle_with_active_children() {
         let tool_info: Vec<(String, String)> = Vec::new();
         let label = build_session_status_label(false, &tool_info, LlmState::Idle, 3);
-        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}3 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        let expected = concat!(
+            "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}",
+            "3 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}"
+        );
         assert_eq!(label, expected);
     }
 
@@ -635,7 +649,10 @@ mod tests {
     fn test_label_idle_with_one_active_child() {
         let tool_info: Vec<(String, String)> = Vec::new();
         let label = build_session_status_label(false, &tool_info, LlmState::Idle, 1);
-        let expected = "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}1 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}";
+        let expected = concat!(
+            "\u{5b50}\u{4efb}\u{52a1}\u{8fdb}\u{884c}\u{4e2d}\u{ff08}",
+            "1 \u{4e2a}\u{5b50} session \u{672a}\u{5b8c}\u{6210}\u{ff09}"
+        );
         assert_eq!(label, expected);
     }
 
@@ -678,7 +695,11 @@ mod tests {
     /// Multi-byte UTF-8 input is truncated safely.
     #[test]
     fn test_label_running_tool_multibyte_input() {
-        let input = "\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}\u{5de5}\u{5177}\u{540d}\u{79f0}\u{548c}\u{53c2}\u{6570}".repeat(5);
+        let input = concat!(
+            "\u{4e2d}\u{6587}\u{6d4b}\u{8bd5}\u{5de5}\u{5177}\u{540d}\u{79f0}",
+            "\u{548c}\u{53c2}\u{6570}"
+        )
+        .repeat(5);
         let tool_info = vec![("tool".to_string(), input)];
         let label = build_session_status_label(true, &tool_info, LlmState::Idle, 0);
         assert!(label.starts_with("\u{5de5}\u{5177}\u{6267}\u{884c}\u{4e2d}\u{ff1a}tool "));
