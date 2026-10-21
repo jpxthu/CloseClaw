@@ -82,7 +82,7 @@ fn valid_skill_md_two_steps() -> String {
 }
 
 /// Write content to a temp file and return its handle.
-fn write_temp_skill_md(content: &str) -> tempfile::NamedTempFile {
+pub(super) fn write_temp_skill_md(content: &str) -> tempfile::NamedTempFile {
     let mut f = tempfile::Builder::new()
         .suffix(".md")
         .tempfile()

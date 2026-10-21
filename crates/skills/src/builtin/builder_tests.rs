@@ -5,18 +5,8 @@ use std::sync::Arc;
 
 use super::builder::{builtin_skills, trivial_validator};
 use super::create_workflow::WorkflowDefinitionValidator;
-
-/// Write content to a temp SKILL.md file and return its handle.
-fn write_temp_content(content: &str) -> tempfile::NamedTempFile {
-    use std::io::Write;
-    let mut f = tempfile::Builder::new()
-        .suffix(".md")
-        .tempfile()
-        .expect("failed to create temp file");
-    f.write_all(content.as_bytes())
-        .expect("failed to write temp file");
-    f
-}
+use super::create_workflow_tests::write_temp_skill_md;
+use crate::registry::Skill;
 
 #[test]
 fn test_builtin_skills_returns_seven_expected_skills() {
@@ -73,6 +63,19 @@ fn test_builtin_skills_all_have_body() {
 
 #[tokio::test]
 async fn test_builtin_skills_wires_workflow_validator_into_create_workflow() {
+    /// Drive `create_workflow` validate action through the assembled
+    /// skill and parse the JSON result.
+    async fn validate_via_builtin(skill: &dyn Skill, path: &str) -> serde_json::Value {
+        let result = skill
+            .execute(Some(serde_json::json!({
+                "action": "validate",
+                "path": path
+            })))
+            .await
+            .unwrap();
+        serde_json::from_str(&result).unwrap()
+    }
+
     const MARKER: &str = "wiring probe invalid marker";
     const PROBE_ERROR: &str = "wiring probe: invalid workflow definition";
     let probe: WorkflowDefinitionValidator = Arc::new(|content: &str| {
@@ -89,16 +92,9 @@ async fn test_builtin_skills_wires_workflow_validator_into_create_workflow() {
         .find(|s| s.manifest().name == "create_workflow")
         .expect("builtin_skills should assemble create_workflow");
 
-    let invalid = write_temp_content(&format!("---\n{MARKER}\n---\n"));
+    let invalid = write_temp_skill_md(&format!("---\n{MARKER}\n---\n"));
     let path = invalid.path().to_str().unwrap();
-    let result = skill
-        .execute(Some(serde_json::json!({
-            "action": "validate",
-            "path": path
-        })))
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let v = validate_via_builtin(skill.as_ref(), path).await;
     assert_eq!(
         v["valid"], false,
         "probe validator must reject marker content"
@@ -109,16 +105,9 @@ async fn test_builtin_skills_wires_workflow_validator_into_create_workflow() {
         "rejection must come from the validator passed to builtin_skills"
     );
 
-    let valid = write_temp_content("---\nid: clean\nname: Clean\n---\n");
+    let valid = write_temp_skill_md("---\nid: clean\nname: Clean\n---\n");
     let path = valid.path().to_str().unwrap();
-    let result = skill
-        .execute(Some(serde_json::json!({
-            "action": "validate",
-            "path": path
-        })))
-        .await
-        .unwrap();
-    let v: serde_json::Value = serde_json::from_str(&result).unwrap();
+    let v = validate_via_builtin(skill.as_ref(), path).await;
     assert_eq!(
         v["valid"], true,
         "probe validator must accept clean content"

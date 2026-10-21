@@ -5,7 +5,9 @@ use super::discovery::SkillDiscoverySkill;
 use super::file_ops::FileOpsSkill;
 use super::git_ops::GitOpsSkill;
 use super::search::SearchSkill;
+use crate::coding_agent::CodingAgentSkill;
 use crate::registry::Skill;
+use crate::skill_creator::SkillCreatorSkill;
 use std::sync::Arc;
 
 /// Create all built-in skills.
@@ -19,8 +21,8 @@ pub fn builtin_skills(workflow_validator: WorkflowDefinitionValidator) -> Vec<Ar
         Arc::new(GitOpsSkill::new()),
         Arc::new(SearchSkill::new()),
         Arc::new(SkillDiscoverySkill::new()),
-        Arc::new(crate::CodingAgentSkill::new()),
-        Arc::new(crate::SkillCreatorSkill::new()),
+        Arc::new(CodingAgentSkill::new()),
+        Arc::new(SkillCreatorSkill::new()),
         Arc::new(WorkflowCreatorSkill::new(workflow_validator)),
     ];
     skills
