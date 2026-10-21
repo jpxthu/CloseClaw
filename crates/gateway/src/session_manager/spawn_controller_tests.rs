@@ -146,7 +146,7 @@ async fn fill_children(mgr: &SessionManager, parent_id: &str, count: usize) {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             child_id.clone(),
             "test-model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         mgr.conversation_sessions.write().await.insert(
             child_id.clone(),

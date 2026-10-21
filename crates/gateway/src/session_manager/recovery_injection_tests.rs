@@ -243,7 +243,7 @@ async fn test_skips_existing_conversation_session() {
     let conv = ConversationSession::new(
         "sess-4".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     mgr.conversation_sessions.write().await.insert(
         "sess-4".to_string(),

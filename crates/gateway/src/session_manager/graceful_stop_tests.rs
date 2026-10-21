@@ -24,7 +24,6 @@ use closeclaw_llm::session_state::{LlmState, ToolExecState};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{ChatSession, ConversationSession};
 
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use super::spawn::SpawnMode;
@@ -40,7 +39,7 @@ fn make_conversation_session(id: &str) -> Arc<tokio::sync::RwLock<ConversationSe
     Arc::new(tokio::sync::RwLock::new(ConversationSession::new(
         id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )))
 }
 

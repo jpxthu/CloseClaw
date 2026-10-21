@@ -48,7 +48,7 @@ async fn register_conversation_session(
     let mut cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs.set_checkpoint_storage(storage);
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));

@@ -867,11 +867,10 @@ async fn test_child_session_communication_config_has_parent() {
 /// Verify a non-spawn session does NOT have communication config.
 #[test]
 fn test_non_spawn_session_no_communication_config() {
-    use std::path::PathBuf;
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         "regular-session".to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     assert!(
         cs.communication_config().is_none(),

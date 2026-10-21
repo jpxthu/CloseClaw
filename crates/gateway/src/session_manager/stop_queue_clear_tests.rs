@@ -408,7 +408,7 @@ async fn test_stop_clears_parent_queue_not_child() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     // Push entries to child queue

@@ -400,7 +400,7 @@ async fn test_flush_all_after_stop_preserves_sessions() {
             closeclaw_session::llm_session::ConversationSession::new(
                 sid.to_string(),
                 "gpt-4o".to_string(),
-                std::path::PathBuf::from("/tmp"),
+                std::env::temp_dir(),
             ),
         ));
         mgr.conversation_sessions
@@ -479,7 +479,7 @@ async fn test_flush_all_clears_tracking_after_persist() {
             closeclaw_session::llm_session::ConversationSession::new(
                 sid.to_string(),
                 "gpt-4o".to_string(),
-                std::path::PathBuf::from("/tmp"),
+                std::env::temp_dir(),
             ),
         ));
         mgr.conversation_sessions

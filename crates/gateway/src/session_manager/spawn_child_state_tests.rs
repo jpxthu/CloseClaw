@@ -252,7 +252,7 @@ async fn test_register_child_state_trait_method() {
     let cs_arc = Arc::new(tokio::sync::RwLock::new(ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )));
     {
         let mut guard = cs_arc.write().await;
@@ -351,7 +351,7 @@ async fn test_deregister_child_state_idempotent() {
     let cs = ConversationSession::new(
         "idempotent-test".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     // Should not panic even though child was never registered.

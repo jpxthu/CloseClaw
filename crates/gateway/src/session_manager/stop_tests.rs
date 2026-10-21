@@ -155,7 +155,7 @@ async fn test_stop_sessions_forceful_with_tool_running() {
         closeclaw_session::llm_session::ConversationSession::new(
             child_id.to_string(),
             "test-model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     // Set a tool to RunningForeground state
@@ -251,7 +251,7 @@ async fn setup_child(mgr: &SessionManager, pid: &str, cid: &str) {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     mgr.conversation_sessions
@@ -320,7 +320,7 @@ async fn test_forceful_calls_force_kill_cancels_token() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     // Verify token is not cancelled before force_kill
@@ -370,7 +370,7 @@ async fn test_forceful_kills_running_tool_collects_pending_ops() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     // Register a running tool
@@ -427,7 +427,7 @@ async fn test_forceful_discards_llm_fragments() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
 
@@ -479,7 +479,7 @@ async fn test_forceful_pending_ops_written_to_checkpoint() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     // Register a running tool so collect_pending_operations returns non-empty
@@ -518,7 +518,7 @@ async fn test_forceful_pending_ops_written_to_checkpoint() {
     let cs2 = closeclaw_session::llm_session::ConversationSession::new(
         "verify-pending".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs2.tool_states.write().expect("tool_states lock").insert(
         "pending-tool".into(),
@@ -767,7 +767,7 @@ async fn test_forceful_stop_no_snapshot_created() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     mgr.conversation_sessions
@@ -817,7 +817,7 @@ async fn test_graceful_stop_no_snapshot_created() {
         closeclaw_session::llm_session::ConversationSession::new(
             cid.to_string(),
             "test-model".into(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     mgr.conversation_sessions

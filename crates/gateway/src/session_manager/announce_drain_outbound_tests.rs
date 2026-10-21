@@ -271,11 +271,8 @@ async fn test_drain_outbound_transcript_fallback() {
     use closeclaw_common::ContentBlock;
     use closeclaw_session::llm_session::ConversationSession;
 
-    let mut cs = ConversationSession::new(
-        session_id.into(),
-        "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
-    );
+    let mut cs =
+        ConversationSession::new(session_id.into(), "test-model".into(), std::env::temp_dir());
     cs.append_transcript(
         "assistant",
         vec![ContentBlock::Text("latest transcript content".into())],
