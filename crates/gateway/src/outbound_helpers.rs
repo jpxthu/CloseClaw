@@ -657,9 +657,9 @@ pub(crate) async fn record_outbound_pending_op(
     };
     cp.record_outbound_pending_op(op);
     cp.touch();
-    // save_direct (synchronous, propagates errors): write-ahead must
-    // succeed before plugin.send -- failure means op not persisted
-    // and caller must NOT proceed with delivery.
+    // save_direct (immediate, awaited write; propagates errors):
+    // write-ahead must succeed before plugin.send -- failure means op
+    // not persisted and caller must NOT proceed with delivery.
     if let Err(e) = cm.save_direct(&cp).await {
         tracing::warn!(
             session_id,
