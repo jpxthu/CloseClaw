@@ -5,9 +5,8 @@
 //! delivery, and (Step 1.9) the restart-path turn-completion consumer
 //! wiring (`recv → finish_turns`), mirroring `install_handlers`.
 //!
-//! Naming: the older unprefixed cases here predate STANDARDS §3 and are
-//! kept as-is; **every newly added test case must carry the `test_`
-//! prefix** (Step 1.21).
+//! Naming: every test case carries the `test_` prefix per STANDARDS §3;
+//! **every newly added test case must do the same**.
 
 use super::*;
 use crate::config_reload::reload::DaemonReloadCallback;
@@ -20,12 +19,12 @@ use std::time::Duration;
 // -- RestartState display ----------------------------------------------
 
 #[test]
-fn restart_state_display_idle() {
+fn test_restart_state_display_idle() {
     assert_eq!(RestartState::Idle.to_string(), "Idle");
 }
 
 #[test]
-fn restart_state_display_pending() {
+fn test_restart_state_display_pending() {
     let state = RestartState::Pending {
         changes: vec!["models.json".into(), "gateway.json".into()],
     };
@@ -33,14 +32,14 @@ fn restart_state_display_pending() {
 }
 
 #[test]
-fn restart_state_display_executing() {
+fn test_restart_state_display_executing() {
     assert_eq!(RestartState::Executing.to_string(), "Executing");
 }
 
 // -- RestartState equality ---------------------------------------------
 
 #[test]
-fn restart_state_equality() {
+fn test_restart_state_equality() {
     let a = RestartState::Pending {
         changes: vec!["x".into()],
     };
@@ -58,13 +57,13 @@ fn restart_state_equality() {
 // -- RestartHandle basics ----------------------------------------------
 
 #[test]
-fn restart_handle_initial_state_is_idle() {
+fn test_restart_handle_initial_state_is_idle() {
     let handle = RestartHandle::new();
     assert_eq!(handle.state(), RestartState::Idle);
 }
 
 #[test]
-fn restart_handle_subscribe_sees_changes() {
+fn test_restart_handle_subscribe_sees_changes() {
     let handle = RestartHandle::new();
     let rx = handle.subscribe();
     assert_eq!(*rx.borrow(), RestartState::Idle);
@@ -74,14 +73,14 @@ fn restart_handle_subscribe_sees_changes() {
 }
 
 #[test]
-fn restart_handle_take_ready_rx_only_once() {
+fn test_restart_handle_take_ready_rx_only_once() {
     let handle = RestartHandle::new();
     assert!(handle.take_ready_rx().is_some());
     assert!(handle.take_ready_rx().is_none());
 }
 
 #[test]
-fn restart_handle_ready_sender_clones() {
+fn test_restart_handle_ready_sender_clones() {
     let handle = RestartHandle::new();
     let s1 = handle.ready_sender();
     let s2 = handle.ready_sender();
@@ -118,7 +117,7 @@ fn do_request_restart(handle: &RestartHandle, changes: Vec<String>) -> bool {
 }
 
 #[test]
-fn request_restart_idle_to_pending() {
+fn test_request_restart_idle_to_pending() {
     let handle = RestartHandle::new();
     let should_spawn = do_request_restart(&handle, vec!["models.json".into()]);
     assert!(should_spawn, "Idle → Pending should signal spawn");
@@ -131,7 +130,7 @@ fn request_restart_idle_to_pending() {
 }
 
 #[test]
-fn request_restart_pending_merges_changes() {
+fn test_request_restart_pending_merges_changes() {
     let handle = RestartHandle::new();
     let _ = do_request_restart(&handle, vec!["models.json".into()]);
     let should_spawn =
@@ -148,7 +147,7 @@ fn request_restart_pending_merges_changes() {
 }
 
 #[test]
-fn request_restart_pending_no_duplicate() {
+fn test_request_restart_pending_no_duplicate() {
     let handle = RestartHandle::new();
     let _ = do_request_restart(&handle, vec!["models.json".into()]);
     let _ = do_request_restart(&handle, vec!["models.json".into()]);
@@ -161,7 +160,7 @@ fn request_restart_pending_no_duplicate() {
 }
 
 #[test]
-fn request_restart_executing_is_noop() {
+fn test_request_restart_executing_is_noop() {
     let handle = RestartHandle::new();
     let _ = handle.tx.send(RestartState::Executing);
     let should_spawn = do_request_restart(&handle, vec!["x".into()]);
@@ -172,7 +171,7 @@ fn request_restart_executing_is_noop() {
 // -- cancel_pending_restart --------------------------------------------
 
 #[test]
-fn cancel_pending_transitions_to_idle() {
+fn test_cancel_pending_transitions_to_idle() {
     let handle = RestartHandle::new();
     let _ = do_request_restart(&handle, vec!["models.json".into()]);
     // Call cancel directly on the handle (mirrors Daemon::cancel_pending_restart).
@@ -184,7 +183,7 @@ fn cancel_pending_transitions_to_idle() {
 }
 
 #[test]
-fn cancel_idle_returns_false() {
+fn test_cancel_idle_returns_false() {
     let handle = RestartHandle::new();
     let current = handle.tx.borrow().clone();
     let was_pending = matches!(current, RestartState::Pending { .. });
@@ -192,7 +191,7 @@ fn cancel_idle_returns_false() {
 }
 
 #[test]
-fn cancel_executing_returns_false() {
+fn test_cancel_executing_returns_false() {
     let handle = RestartHandle::new();
     let _ = handle.tx.send(RestartState::Executing);
     let current = handle.tx.borrow().clone();
@@ -203,7 +202,7 @@ fn cancel_executing_returns_false() {
 // -- force_gateway_restart ---------------------------------------------
 
 #[test]
-fn force_restart_idle_starts_new_cycle() {
+fn test_force_restart_idle_starts_new_cycle() {
     let handle = RestartHandle::new();
     let current = handle.tx.borrow().clone();
     assert!(matches!(current, RestartState::Idle));
@@ -219,7 +218,7 @@ fn force_restart_idle_starts_new_cycle() {
 }
 
 #[test]
-fn force_restart_pending_overwrites_changes() {
+fn test_force_restart_pending_overwrites_changes() {
     let handle = RestartHandle::new();
     let _ = do_request_restart(&handle, vec!["old".into()]);
     let _ = handle.tx.send(RestartState::Pending {
@@ -234,7 +233,7 @@ fn force_restart_pending_overwrites_changes() {
 }
 
 #[test]
-fn force_restart_executing_returns_false() {
+fn test_force_restart_executing_returns_false() {
     let handle = RestartHandle::new();
     let _ = handle.tx.send(RestartState::Executing);
     let current = handle.tx.borrow().clone();
@@ -268,7 +267,7 @@ fn make_test_config_manager() -> (Arc<closeclaw_config::ConfigManager>, tempfile
 }
 
 #[test]
-fn on_config_file_changed_sends_restart_signal() {
+fn test_on_config_file_changed_sends_restart_signal() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
@@ -284,7 +283,7 @@ fn on_config_file_changed_sends_restart_signal() {
 }
 
 #[test]
-fn on_config_file_changed_ignores_non_restart_class() {
+fn test_on_config_file_changed_ignores_non_restart_class() {
     let (tx, mut rx) = tokio::sync::mpsc::channel(4);
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::with_restart_tx_for_test(ar, tx);
@@ -302,7 +301,7 @@ fn on_config_file_changed_ignores_non_restart_class() {
 }
 
 #[test]
-fn on_config_file_changed_no_signal_without_tx() {
+fn test_on_config_file_changed_no_signal_without_tx() {
     let ar = Arc::new(AgentRegistry::new());
     let cb = DaemonReloadCallback::new_for_test(ar);
     let (cm, _tmpdir) = make_test_config_manager();
@@ -340,7 +339,7 @@ fn test_chat_context_holds_gateway_reference() {
 /// by gateway restarts. Compile-time check: struct literal requires
 /// exactly these fields (no `gateway` field exists).
 #[test]
-fn admin_context_has_no_gateway_reference() {
+fn test_admin_context_has_no_gateway_reference() {
     use closeclaw_cli::admin::AdminContext;
 
     // This struct literal will fail to compile if AdminContext gains
@@ -361,7 +360,7 @@ fn admin_context_has_no_gateway_reference() {
 /// After a simulated restart, chat_handle is replaced with a new JoinHandle.
 /// This locks the behavioral invariant: old handle is taken, new handle stored.
 #[tokio::test]
-async fn chat_handle_replaced_after_restart() {
+async fn test_chat_handle_replaced_after_restart() {
     let handle = Arc::new(tokio::sync::Mutex::new(Some(tokio::spawn(async {}))));
 
     // Simulate shutdown_old_gateway: take old handle.
@@ -383,7 +382,7 @@ async fn chat_handle_replaced_after_restart() {
 /// It is a plain Option<JoinHandle> (not Arc<Mutex>) and remains
 /// unchanged across the restart flow.
 #[tokio::test]
-async fn admin_handle_unchanged_during_restart() {
+async fn test_admin_handle_unchanged_during_restart() {
     let admin_handle: Option<tokio::task::JoinHandle<()>> = Some(tokio::spawn(async {}));
 
     // Gateway restart does NOT call take/set on admin_handle.
@@ -398,7 +397,7 @@ async fn admin_handle_unchanged_during_restart() {
 /// Gateway restart state machine: Pending → Executing → Idle.
 /// Ensures the full restart lifecycle transitions are reachable.
 #[test]
-fn restart_lifecycle_full_transition() {
+fn test_restart_lifecycle_full_transition() {
     let handle = RestartHandle::new();
     assert_eq!(handle.state(), RestartState::Idle);
 
@@ -419,7 +418,7 @@ fn restart_lifecycle_full_transition() {
 /// Pending restart merges duplicate and non-duplicate changes.
 /// Locks the restart-request batching behavior.
 #[test]
-fn restart_request_merges_changes() {
+fn test_restart_request_merges_changes() {
     let handle = RestartHandle::new();
     let _ = do_request_restart(&handle, vec!["models.json".into()]);
     let _ = do_request_restart(&handle, vec!["gateway.json".into(), "models.json".into()]);
