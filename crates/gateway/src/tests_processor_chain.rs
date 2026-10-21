@@ -584,7 +584,8 @@ async fn test_process_inbound_chain_uses_system_time() {
         .expect("key prefix should be parseable as i64");
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}), got {ts_prefix}: {key}"
+        "session_key timestamp should reflect system time ({before_ms}..{after_ms}), \
+         got {ts_prefix}: {key}"
     );
     let hash_part = &key[key.find('-').unwrap() + 1..];
     assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");

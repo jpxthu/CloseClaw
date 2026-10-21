@@ -160,7 +160,8 @@ async fn test_outbound_checkpoint_sets_last_message_at_on_new() {
         saved.last_message_at.is_some(),
         "last_message_at should be set on new checkpoint"
     );
-    // New checkpoint: last_user_activity_at should be None (not set by persist_outbound_checkpoint).
+    // New checkpoint: last_user_activity_at should be None
+    // (not set by persist_outbound_checkpoint).
     assert!(
         saved.last_user_activity_at.is_none(),
         "last_user_activity_at should remain None on new checkpoint"

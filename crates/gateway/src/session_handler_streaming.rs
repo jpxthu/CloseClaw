@@ -114,7 +114,18 @@ impl SessionMessageHandler {
 
         // Race the streaming outbound dispatch against the cancel token.
         let dispatch_result: Result<StreamResult, GatewayError> = tokio::select! {
-            res = gateway.send_outbound_streaming(session_id, channel, wrapped, plugin, OutboundMeta { trace_id: _meta.trace_id.clone(), session_key: _meta.session_key.clone(), ..Default::default() }) => res,
+            res = gateway
+                .send_outbound_streaming(
+                    session_id,
+                    channel,
+                    wrapped,
+                    plugin,
+                    OutboundMeta {
+                        trace_id: _meta.trace_id.clone(),
+                        session_key: _meta.session_key.clone(),
+                        ..Default::default()
+                    },
+                ) => res,
             _ = cancel_token.cancelled() => {
                 if let Some(cs) = session_manager.get_conversation_session(session_id).await {
                     cs.read().await.set_llm_state(LlmState::Idle);

@@ -586,7 +586,10 @@ fn test_pending_message_legacy_json_defaults() {
     use closeclaw_session::persistence::PendingMessage;
 
     // Legacy JSON: missing platform, dsl_result, content_blocks
-    let legacy = r#"{"message_id":"m1","content":"hello","created_at":"2025-01-01T00:00:00Z","sent":false,"target_channel":"feishu"}"#;
+    let legacy = concat!(
+        r#"{"message_id":"m1","content":"hello","created_at":"2025-01-01T00:00:00Z","#,
+        r#""sent":false,"target_channel":"feishu"}"#
+    );
     let pm: PendingMessage = serde_json::from_str(legacy).expect("legacy should deserialize");
     assert_eq!(pm.platform, None);
     assert_eq!(pm.dsl_result, None);

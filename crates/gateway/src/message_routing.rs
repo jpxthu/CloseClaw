@@ -435,7 +435,10 @@ mod tests {
             n.unavailable_media = vec!["img_x".into()];
         });
         let meta = build_extra_metadata(&normalized);
-        assert!(!meta.contains_key("unavailable_media"),
-            "build_extra_metadata must not include unavailable_media; chain dispatcher is responsible for this key");
+        assert!(
+            !meta.contains_key("unavailable_media"),
+            "build_extra_metadata must not include unavailable_media; \
+             chain dispatcher is responsible for this key"
+        );
     }
 }
