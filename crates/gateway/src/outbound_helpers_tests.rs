@@ -642,8 +642,9 @@ fn make_fast_request() -> InboundRequest {
     }
 }
 
-/// Sentinel queued behind the fast request: its parse marks that the fast
-/// request's response-constraint check has already run (queue is FIFO).
+/// Sentinel queued behind the request under test (slow or fast): its parse
+/// marks that the request's response-constraint check has already run
+/// (queue is FIFO).
 fn make_sentinel_request() -> InboundRequest {
     InboundRequest {
         platform: "feishu".into(),
