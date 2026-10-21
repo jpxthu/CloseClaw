@@ -59,8 +59,8 @@ mod tests {
 
         let checkpoint = create_test_checkpoint("session2");
 
-        // Save (sync to ensure cache is populated before load)
-        manager.save_sync(checkpoint.clone()).await.unwrap();
+        // Save now (immediately persisted before load)
+        manager.save_now(checkpoint.clone()).await.unwrap();
 
         // Load should hit cache
         let loaded = manager.load("session2").await.unwrap();
@@ -74,7 +74,7 @@ mod tests {
         let manager = CheckpointManager::new(storage);
 
         let checkpoint = create_test_checkpoint("session3");
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         // Delete
         manager.delete("session3").await.unwrap();
@@ -90,7 +90,7 @@ mod tests {
         let manager = CheckpointManager::new(storage);
 
         let checkpoint = create_test_checkpoint("session4");
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         // Clear cache
         manager.clear_cache().await;
@@ -213,7 +213,7 @@ mod tests {
         let checkpoint =
             SessionCheckpoint::new("session-identity".to_string()).with_message_count(5);
 
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         // Load from storage and verify identity was filled by manager
         let storage = manager.storage();
@@ -243,7 +243,7 @@ mod tests {
         let checkpoint =
             SessionCheckpoint::new("session-no-identity".to_string()).with_message_count(3);
 
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         let loaded = storage
             .load_checkpoint("session-no-identity")
@@ -285,7 +285,7 @@ mod tests {
             .with_agent_id("pre-existing-agent".to_string())
             .with_role(AgentRole::SubAgent);
 
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         let loaded = storage.load_checkpoint("session-preserve").await.unwrap();
         assert!(loaded.is_some());
@@ -301,7 +301,7 @@ mod tests {
         let manager = CheckpointManager::new(storage);
 
         let checkpoint = create_test_checkpoint("session-archive");
-        manager.save_sync(checkpoint.clone()).await.unwrap();
+        manager.save_now(checkpoint.clone()).await.unwrap();
 
         // Archive
         manager.archive(checkpoint).await.unwrap();
@@ -334,7 +334,7 @@ mod tests {
         let manager = CheckpointManager::new(storage);
 
         let checkpoint = create_test_checkpoint("session-purge");
-        manager.save_sync(checkpoint.clone()).await.unwrap();
+        manager.save_now(checkpoint.clone()).await.unwrap();
         manager.archive(checkpoint).await.unwrap();
 
         // Purge
@@ -662,7 +662,7 @@ mod tests {
         };
         let checkpoint = SessionCheckpoint::new("session-plan".into()).with_plan_state(plan);
 
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         let loaded = manager.load("session-plan").await.unwrap();
         assert!(loaded.is_some());
@@ -790,7 +790,7 @@ mod tests {
 
         let checkpoint =
             SessionCheckpoint::new("session-mode-save".into()).with_session_mode(SessionMode::Auto);
-        manager.save_sync(checkpoint).await.unwrap();
+        manager.save_now(checkpoint).await.unwrap();
 
         let loaded = manager.load("session-mode-save").await.unwrap();
         assert!(loaded.is_some());

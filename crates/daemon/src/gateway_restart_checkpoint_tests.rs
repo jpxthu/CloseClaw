@@ -248,7 +248,7 @@ async fn test_restart_injects_cm_and_new_gw_has_it() {
     assert_eq!(mock_persist.save_count(), 0, "no saves yet");
     let cp = closeclaw_session::persistence::SessionCheckpoint::new("test-session".to_string());
     let injected_cm = sm.checkpoint_manager().await.unwrap();
-    injected_cm.save_sync(cp).await.unwrap();
+    injected_cm.save_now(cp).await.unwrap();
     assert_eq!(
         mock_persist.save_count(),
         1,
