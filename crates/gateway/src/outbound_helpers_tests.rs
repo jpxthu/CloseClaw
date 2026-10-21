@@ -7,13 +7,13 @@
 //!
 //! These tests verify the updated send_text behavior (no middleware).
 //!
-//! Log-capture note: tests asserting WARN output use the file-local
-//! `capture_warn_logs` helper and carry `#[serial_test::serial]`. The
-//! tracing callsite-interest cache is process-global; concurrent
-//! registration on the same callsite can drop events and empty the
-//! capture buffer (issue #3102 race).
+//! Log-capture note: tests asserting WARN output use the shared
+//! `closeclaw_test_support::log_capture` entries and carry
+//! `#[serial_test::serial]`. The tracing callsite-interest cache is
+//! process-global; concurrent registration on the same callsite can
+//! drop events and empty the capture buffer (issue #3102 race).
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use closeclaw_common::im_plugin::{AdapterError, IMPlugin, NormalizedMessage, RenderedOutput};
@@ -29,6 +29,7 @@ use crate::outbound_helpers::{
 use crate::session_manager::test_helpers::make_msg;
 use crate::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_session::llm_session::ChatSession;
+use closeclaw_test_support::log_capture::capture_logs_async;
 
 // ---------------------------------------------------------------------------
 // Test helpers
@@ -42,70 +43,6 @@ fn test_gw() -> Gateway {
     };
     let sm = std::sync::Arc::new(SessionManager::new(&config, None, None, Default::default()));
     Gateway::new_for_tests(config, sm)
-}
-
-/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
-/// subscriber can write into it while the caller keeps a handle to read
-/// the captured bytes back.
-#[derive(Clone, Default)]
-struct VecWriter(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for VecWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-    type Writer = VecWriter;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// Install a thread-local WARN-level fmt subscriber (no target/ansi)
-/// writing into an in-memory buffer, run `f`, drop the subscriber guard
-/// so the buffer is flushed, and return the closure's result together
-/// with the captured log output. File-local copy of config's
-/// `capture_warn_logs` mechanism (issue #3102), kept per-module rather
-/// than shared because each crate pins its own level policy.
-///
-/// # Concurrency
-///
-/// Caller tests **must** carry `#[serial_test::serial]`. Installing the
-/// subscriber registers WARN callsites in the process-global tracing
-/// callsite-interest cache; concurrent registration on the same callsite
-/// can drop events and empty the capture buffer (issue #3102 race).
-fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
-    let buffer = VecWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_target(false)
-        .with_ansi(false)
-        .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
-    let value = f();
-    drop(guard);
-    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
-    (value, logs)
-}
-
-/// Run `f` on a fresh current-thread runtime. A log-capture test drives its
-/// async scenario inside the synchronous `capture_warn_logs` closure through
-/// this helper, so spawned tasks stay on this OS thread and the thread-local
-/// subscriber captures their output. Shared by the positive/negative
-/// 1s-constraint tests.
-fn block_on_current_thread<F: std::future::Future>(f: F) -> F::Output {
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
-    rt.block_on(f)
 }
 
 /// Render content blocks as a plain-text `RenderedOutput` — the shared body
@@ -578,14 +515,14 @@ impl IMPlugin for FastParsePlugin {
 ///
 /// `#[serial]` per the module log-capture note (issue #3102 callsite race).
 #[serial_test::serial]
-#[test]
-fn test_1s_response_constraint_warn_log() {
-    // `capture_warn_logs` is synchronous (config form), so the scenario runs
-    // on this thread (see `block_on_current_thread`): the spawned inbound
-    // consumer then stays on this OS thread and the thread-local subscriber
-    // captures its warn output.
-    let (_result, logs) = capture_warn_logs(|| {
-        block_on_current_thread(async {
+#[tokio::test(flavor = "current_thread")]
+async fn test_1s_response_constraint_warn_log() {
+    // The explicit current-thread flavor keeps the spawned inbound consumer
+    // on the thread that installed the capture subscriber, so its warn
+    // output lands in the thread-local buffer (see `capture_logs_async`'s
+    // threading contract).
+    let (_result, logs) = capture_logs_async(
+        || async {
             let gw = make_gateway_for_1s_test();
             gw.register_plugin(Arc::new(SlowParsePlugin) as Arc<dyn IMPlugin>)
                 .await;
@@ -593,8 +530,10 @@ fn test_1s_response_constraint_warn_log() {
             handle.try_send(queued(make_slow_request())).unwrap();
             // Wait for processing to complete (>1.5s for slow parse).
             tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-        })
-    });
+        },
+        tracing::Level::WARN,
+    )
+    .await;
     assert!(
         logs.contains("exceeded 1s response constraint"),
         "1s-constraint warn missing; captured: {logs}"
@@ -614,13 +553,13 @@ fn test_1s_response_constraint_warn_log() {
 ///
 /// `#[serial]` per the module log-capture note (issue #3102 callsite race).
 #[serial_test::serial]
-#[test]
-fn test_no_1s_response_constraint_warn_on_fast_path() {
-    // Same capture driver as the positive case: the scenario runs on this
-    // thread (see `block_on_current_thread`) so the thread-local subscriber
-    // sees the spawned consumer's output.
-    let (_result, logs) = capture_warn_logs(|| {
-        block_on_current_thread(async {
+#[tokio::test(flavor = "current_thread")]
+async fn test_no_1s_response_constraint_warn_on_fast_path() {
+    // Same capture driver as the positive case: the explicit current-thread
+    // flavor keeps the spawned consumer on the subscriber's thread (see
+    // `capture_logs_async`'s threading contract).
+    let (_result, logs) = capture_logs_async(
+        || async {
             let gw = make_gateway_for_1s_test();
             let done = Arc::new(tokio::sync::Notify::new());
             let plugin = FastParsePlugin {
@@ -634,8 +573,10 @@ fn test_no_1s_response_constraint_warn_on_fast_path() {
             tokio::time::timeout(std::time::Duration::from_secs(5), done.notified())
                 .await
                 .expect("fast-path request must finish under the 5s ceiling");
-        })
-    });
+        },
+        tracing::Level::WARN,
+    )
+    .await;
     assert!(
         !logs.contains("exceeded 1s response constraint"),
         "sub-second processing must not emit the constraint warn; captured: {logs}"
