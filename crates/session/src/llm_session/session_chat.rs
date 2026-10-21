@@ -6,9 +6,10 @@
 //! Step 1.8 of issue #858 so the file could stay under the
 //! CONTRIBUTING.md 500-line hard cap.
 //!
-//! The associated function [`ConversationSession::clean_thinking_content`]
+//! The associated function
+//! [`clean_thinking_content`](ConversationSession::clean_thinking_content)
 //! is also kept here because it is a private helper of
-//! [`ConversationSession::build_api_request`] (the only `ChatSession`
+//! [`build_api_request`](ChatSession::build_api_request) (the only `ChatSession`
 //! method that needs it) and is exercised by
 //! `src/llm/session/tests/thinking_clean_tests.rs`.
 

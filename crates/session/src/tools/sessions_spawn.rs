@@ -235,7 +235,8 @@ impl SessionsSpawnTool {
     }
 }
 
-/// Child-session inputs resolved by [`SessionsSpawnTool::resolve_child_config`].
+/// Child-session inputs resolved by
+/// [`resolve_child_config`](SessionsSpawnTool::resolve_child_config).
 struct ResolvedChildConfig {
     config: SpawnTargetAgentConfig,
     spawn_timeout: Option<u64>,

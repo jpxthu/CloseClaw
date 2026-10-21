@@ -33,7 +33,8 @@ pub(crate) struct MockCreationContext {
     prompt_builder: Option<Arc<dyn closeclaw_common::SystemPromptBuilder>>,
 }
 
-/// Builder that captures the [`closeclaw_common::injection_params::InjectionParams`]
+/// Builder that captures the
+/// [`InjectionParams`](closeclaw_common::injection_params::InjectionParams)
 /// passed during the creation-time `rebuild_system_prompt`.
 struct ParamsCaptureBuilder {
     captured: Arc<std::sync::Mutex<Option<closeclaw_common::injection_params::InjectionParams>>>,

@@ -125,7 +125,7 @@ async fn test_save_then_load_cache_hit() {
     let loaded = cm.load("s1").await.unwrap();
     assert!(loaded.is_some());
     assert_eq!(loaded.unwrap().session_id, "s1");
-    // save() spawns async write, but cache is updated synchronously.
+    // save() spawns async write, but cache is updated immediately.
     // Verify cache has the entry.
     assert!(cm.cached_session_ids().await.contains(&"s1".to_string()));
 }

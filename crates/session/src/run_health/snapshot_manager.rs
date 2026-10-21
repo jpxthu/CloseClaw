@@ -141,7 +141,7 @@ pub struct SnapshotMeta {
 /// Persistence interface for snapshot metadata.
 ///
 /// Implementations live outside the session crate (e.g. gateway /
-/// daemon) and are injected via [`RuntimeSnapshotManager::set_meta_store`].
+/// daemon) and are injected via [`set_meta_store`](RuntimeSnapshotManager::set_meta_store).
 /// When no store is configured, metadata is held in memory only.
 ///
 /// Metadata is persisted independently from
@@ -198,11 +198,11 @@ pub struct Snapshot {
 ///
 /// # Usage
 ///
-/// 1. Before a destructive operation, call [`Self::create_snapshot`] to
+/// 1. Before a destructive operation, call [`create_snapshot`](Self::create_snapshot) to
 ///    capture the current transcript state.
-/// 2. After the operation succeeds, call [`Self::mark_complete`] to
-///    transition the snapshot status to [`SnapshotStatus::Complete`].
-/// 3. On failure, call [`Self::rollback`] to restore the most recent
+/// 2. After the operation succeeds, call [`mark_complete`](Self::mark_complete) to
+///    transition the snapshot status to [`Complete`](SnapshotStatus::Complete).
+/// 3. On failure, call [`rollback`](Self::rollback) to restore the most recent
 ///    snapshot. A pre-rollback snapshot is automatically created
 ///    so the rollback itself is undoable.
 #[derive(Clone)]
@@ -341,7 +341,7 @@ impl RuntimeSnapshotManager {
         Some(id)
     }
 
-    /// Mark a snapshot as [`SnapshotStatus::Complete`].
+    /// Mark a snapshot as [`Complete`](SnapshotStatus::Complete).
     ///
     /// Used after a guarded operation succeeds. Persists the metadata
     /// change if a [`SnapshotMetaStore`] is configured.
@@ -429,7 +429,7 @@ impl RuntimeSnapshotManager {
 
     /// Create an incremental snapshot for transcript truncation rollback.
     ///
-    /// Unlike [`Self::create_snapshot`] which always creates a `FullRewrite`
+    /// Unlike [`create_snapshot`](Self::create_snapshot) which always creates a `FullRewrite`
     /// kind, this method creates an `Incremental` snapshot that records
     /// the `leaf_entry_id` for JSONL truncation on rollback.
     pub fn create_incremental_snapshot(

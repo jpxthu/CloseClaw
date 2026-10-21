@@ -169,7 +169,7 @@ pub fn estimate_total_tokens(
 /// pure character-based estimation for all messages.
 ///
 /// This is the single source of truth for before-compaction token
-/// counting, shared by [`CompactionService::compact`].
+/// counting, shared by [`compact`](CompactionService::compact).
 pub fn compute_before_tokens(
     messages: &[CompactionMessage],
     stats: Option<&RunningStats>,
@@ -207,7 +207,7 @@ pub fn get_context_window(model: &str, knowledge_context_window: Option<u32>) ->
 
 /// Parameters for a compaction operation.
 ///
-/// Aggregates the inputs to [`CompactionService::compact`] and
+/// Aggregates the inputs to [`compact`](CompactionService::compact) and
 /// [`compact_with_debug_log`](CompactionService::compact_with_debug_log)
 /// so that the function signatures stay within the project's
 /// 6-parameter limit.

@@ -50,7 +50,7 @@ pub(crate) fn detect(
 impl super::ConversationSession {
     /// Store a pending mode change triggered by a slash command.
     ///
-    /// The mode is applied lazily on the next [`Self::session_mode()`] call,
+    /// The mode is applied lazily on the next [`session_mode`](Self::session_mode) call,
     /// producing the one-message delay required by the design doc.
     pub fn set_pending_session_mode(&self, mode: SessionMode) {
         *self
@@ -60,7 +60,7 @@ impl super::ConversationSession {
     }
 
     /// Check for a pending mode and apply it if present.
-    /// Called by [`session_mode()`] to implement deferred mode switching.
+    /// Called by [`session_mode`](Self::session_mode) to implement deferred mode switching.
     pub(crate) fn apply_pending_session_mode_if_needed(&self) {
         let pending = self
             .pending_session_mode

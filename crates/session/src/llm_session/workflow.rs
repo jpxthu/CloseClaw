@@ -40,16 +40,16 @@ impl ConversationSession {
         self.workflow_run = run.and_then(|r| serde_json::to_value(r).ok());
     }
 
-    /// Inject the [`crate::workflow_port::WorkflowPort`] for workflow
+    /// Inject the [`WorkflowPort`](crate::workflow_port::WorkflowPort) for workflow
     /// engine operations.
     ///
     /// Called by the composition root (daemon) after session creation;
-    /// child sessions inherit it via [`crate::spawn::SpawnCreationContext`].
+    /// child sessions inherit it via [`SpawnCreationContext`](crate::spawn::SpawnCreationContext).
     pub fn set_workflow_port(&mut self, port: Arc<dyn crate::workflow_port::WorkflowPort>) {
         self.workflow_port = Some(port);
     }
 
-    /// Returns the injected [`crate::workflow_port::WorkflowPort`], if any.
+    /// Returns the injected [`WorkflowPort`](crate::workflow_port::WorkflowPort), if any.
     pub fn workflow_port(&self) -> Option<Arc<dyn crate::workflow_port::WorkflowPort>> {
         self.workflow_port.clone()
     }

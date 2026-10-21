@@ -128,11 +128,11 @@ pub struct ConversationSession {
     /// System-injected append-section items (e.g. workflow context, recovery).
     /// Not persisted — re-injected at runtime by functional modules.
     system_injection_appends: Vec<String>,
-    /// LLM interaction state. See [`closeclaw_common::session_state`].
+    /// LLM interaction state. See [`session_state`](closeclaw_common::session_state).
     pub llm_state: Arc<RwLock<LlmState>>,
-    /// Per-call tool states. See [`closeclaw_common::session_state`].
+    /// Per-call tool states. See [`session_state`](closeclaw_common::session_state).
     pub tool_states: Arc<RwLock<HashMap<String, (ToolExecState, Option<PendingOperationDetail>)>>>,
-    /// Per-child session states. See [`closeclaw_common::session_state`].
+    /// Per-child session states. See [`session_state`](closeclaw_common::session_state).
     pub child_states:
         Arc<RwLock<HashMap<String, (ChildSessionState, Option<PendingOperationDetail>)>>>,
     /// When this session was created (Unix seconds).

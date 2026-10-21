@@ -1,7 +1,7 @@
 //! Run health checker — orchestrates the full health-check pipeline.
 //!
 //! Combines hard-rule evaluation, hook review, and unhealthy handling
-//! into a single [`RunHealthChecker::check_turn`] entry point that
+//! into a single [`check_turn`](RunHealthChecker::check_turn) entry point that
 //! the session execution loop calls at turn boundaries.
 //!
 //! Design reference: `docs/design/session/run-health.md`.
@@ -23,7 +23,9 @@ pub struct RunHealthVerdict {
     pub action: Option<RecoverableAction>,
 }
 
-/// Build a synthetic [`HealthCheckOutput`] from hook violation reasons.
+/// Build a synthetic
+/// [`HealthCheckOutput`](super::health_types::HealthCheckOutput) from hook
+/// violation reasons.
 ///
 /// Called when one or more hooks flag the turn. The output is
 /// consumed by the [`UnhealthyHandler`] to derive a recovery action.

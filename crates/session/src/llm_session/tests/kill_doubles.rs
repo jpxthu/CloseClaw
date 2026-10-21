@@ -30,7 +30,7 @@ pub(super) struct MockKillHandle {
 
 impl MockKillHandle {
     /// Creates a fresh double whose kill counter starts at zero; keep
-    /// the [`Self::kill_count`] handle before the double moves into
+    /// the [`kill_count`](Self::kill_count) handle before the double moves into
     /// the session's tool-handle map.
     pub(super) fn new() -> Self {
         Self {

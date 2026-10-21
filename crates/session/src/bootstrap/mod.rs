@@ -15,8 +15,9 @@
 //!
 //! # Usage
 //!
-//! 1. At session start: [`BootstrapProtection::protect_session`] to scan and mark bootstrap content
-//! 2. If corrupted: [`BootstrapProtection::reinject`] to prepend fresh bootstrap content
+//! 1. At session start: [`protect_session`](BootstrapProtection::protect_session)
+//!    to scan and mark bootstrap content
+//! 2. If corrupted: [`reinject`](BootstrapProtection::reinject) to prepend fresh bootstrap content
 
 pub mod context;
 pub mod helpers;

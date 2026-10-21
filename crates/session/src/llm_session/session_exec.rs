@@ -37,7 +37,7 @@ impl ConversationSession {
     /// Registers a new tool call with detail information.
     ///
     /// Stores the `ToolExecState::Pending` alongside a
-    /// [`PendingOperationDetail::ToolCall`] carrying `tool_name` and
+    /// [`ToolCall`](PendingOperationDetail::ToolCall) carrying `tool_name` and
     /// `args_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
     /// can include them in checkpoint data.
     ///
@@ -63,7 +63,7 @@ impl ConversationSession {
     /// Updates the state of a registered tool call. If the id is not
     /// registered, logs a warning and does nothing.
     ///
-    /// When the new state is terminal ([`ToolExecState::is_terminal`]),
+    /// When the new state is terminal ([`is_terminal`](ToolExecState::is_terminal)),
     /// the entry is removed from the map immediately — terminal-state
     /// tools no longer participate in exec-status evaluation.
     pub fn update_tool_state(&self, call_id: &str, state: ToolExecState) {
@@ -159,7 +159,7 @@ impl ConversationSession {
     /// Registers a new child session in the `Running` state with detail information.
     ///
     /// Stores the `ChildSessionState::Running` alongside a
-    /// [`PendingOperationDetail::SubSessionSpawn`] carrying `agent_id` and
+    /// [`SubSessionSpawn`](PendingOperationDetail::SubSessionSpawn) carrying `agent_id` and
     /// `task_summary` so that [`collect_pending_operations`](Self::collect_pending_operations)
     /// can include them in checkpoint data.
     ///
@@ -303,7 +303,7 @@ impl ConversationSession {
     ///
     /// Reads `child_states`, filters for `ChildSessionState::Running`,
     /// and extracts `agent_id` + `task_summary` from each
-    /// [`PendingOperationDetail::SubSessionSpawn`]. Children whose detail
+    /// [`SubSessionSpawn`](PendingOperationDetail::SubSessionSpawn). Children whose detail
     /// is `None` (defensive) are silently skipped.
     ///
     /// Returns `None` when there are no running children.

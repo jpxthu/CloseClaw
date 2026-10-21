@@ -2,7 +2,7 @@
 //!
 //! Provides per-turn skill listing computation with incremental diff,
 //! conditional skill activation, and file-path-based matching. Used
-//! by [`super::ConversationSession::prepare_turn_skill_listing`].
+//! by [`prepare_turn_skill_listing`](ConversationSession::prepare_turn_skill_listing).
 //!
 //! Implements the "增量更新" (incremental update) section of the
 //! design doc (`docs/design/skills/skill-listing-injection.md`).
@@ -137,8 +137,8 @@ impl ConversationSession {
     /// Apply the skill listing state update after a turn.
     ///
     /// Updates the snapshot and activated conditional skills set.
-    /// Called by [`super::session_llm::ConversationSession::invoke_llm`]
-    /// after [`compute_skill_listing_for_turn`].
+    /// Called by [`invoke_llm`](Self::invoke_llm)
+    /// after [`compute_skill_listing_for_turn`](Self::compute_skill_listing_for_turn).
     pub(crate) fn apply_skill_listing_update(
         &mut self,
         new_snapshot: Option<String>,

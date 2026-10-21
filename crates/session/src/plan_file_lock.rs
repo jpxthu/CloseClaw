@@ -73,21 +73,21 @@ pub(crate) fn write_atomically(
 /// This is the public write entry for out-of-crate writers (e.g. the
 /// Write/Edit tools through their port) that must share the same lock
 /// domain as the session-side read-modify-write helpers
-/// ([`crate::plan_file::touch_access_timestamp`],
-/// [`crate::plan_file::append_to_plan_section`]) — without it,
+/// ([`touch_access_timestamp`](crate::plan_file::touch_access_timestamp),
+/// [`append_to_plan_section`](crate::plan_file::append_to_plan_section)) — without it,
 /// concurrent writes from two lock domains can interleave and permanently
 /// lose sections.
 ///
 /// The whole operation — parent-dir creation → lock acquisition → mode read
 /// → atomic rename — runs while holding an exclusive advisory lock on the
-/// sidecar `{plan_path}.lock`, the same lock domain as [`mutate_plan_file`]
+/// sidecar `{plan_path}.lock`, the same lock domain as `mutate_plan_file`
 /// and the archival rename. If the target file already exists, its permission
 /// mode is preserved across the atomic replace; if it does not exist, missing
 /// parent directories are created and the file receives the default mode.
 ///
 /// # Reentrancy
 ///
-/// Like [`acquire_plan_lock`], the lock is **not** reentrant: calling this
+/// Like `acquire_plan_lock`, the lock is **not** reentrant: calling this
 /// while the same plan's sidecar lock is already held (this thread or
 /// another descriptor in this process) blocks forever. Callers must never
 /// invoke this while holding the same plan's lock.
@@ -142,10 +142,11 @@ pub fn write_plan_file_locked(plan_path: &Path, content: &str) -> io::Result<()>
 /// # Reentrancy
 ///
 /// `transform` runs while the sidecar lock is held and must **not** call back
-/// into any lock-taking plan API ([`crate::plan_file::touch_access_timestamp`],
-/// [`crate::plan_file::update_plan_timestamp`],
-/// [`crate::plan_file::append_to_plan_section`], [`acquire_plan_lock`], or the
-/// archival rename in `plan_archive`). Every
+/// into any lock-taking plan API
+/// ([`touch_access_timestamp`](crate::plan_file::touch_access_timestamp),
+/// [`update_plan_timestamp`](crate::plan_file::update_plan_timestamp),
+/// [`append_to_plan_section`](crate::plan_file::append_to_plan_section),
+/// [`acquire_plan_lock`], or the archival rename in `plan_archive`). Every
 /// acquisition locks a fresh file descriptor, so a same-process re-lock of
 /// the same sidecar blocks forever (flock treats descriptors independently —
 /// self-deadlock, no error is ever returned).
@@ -179,7 +180,7 @@ where
 
 /// Take a blocking exclusive advisory lock on `file`'s descriptor.
 ///
-/// MSRV-compatible equivalent of [`File::lock`] (stabilized in Rust
+/// MSRV-compatible equivalent of [`lock`](std::fs::File::lock) (stabilized in Rust
 /// 1.89): a single `flock(LOCK_EX)` call, with the resulting `io::Error`
 /// propagated as-is — `EINTR` is **not** retried and surfaces as
 /// `io::ErrorKind::Interrupted`, exactly like the std Unix implementation.

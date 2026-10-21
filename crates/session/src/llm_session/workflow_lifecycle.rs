@@ -10,14 +10,16 @@ use crate::workflow_port::{WorkflowGoalHint, WorkflowPhase};
 use super::ConversationSession;
 
 /// Prefix used by the workflow engine's verify message rendering.
-/// Used by [`ConversationSession::remove_workflow_verify_messages`] to
-/// distinguish verify messages from goal/recovered messages in the
+/// Used by
+/// [`remove_workflow_verify_messages`](ConversationSession::remove_workflow_verify_messages)
+/// to distinguish verify messages from goal/recovered messages in the
 /// transcript.
 pub const VERIFY_MESSAGE_PREFIX: &str = "Verify Step";
 
 /// Prefix used by the workflow engine's jump message rendering.
-/// Used by [`ConversationSession::remove_workflow_jump_messages`] to
-/// distinguish jump messages from goal/recovered messages in the
+/// Used by
+/// [`remove_workflow_jump_messages`](ConversationSession::remove_workflow_jump_messages)
+/// to distinguish jump messages from goal/recovered messages in the
 /// transcript.
 pub const JUMP_MESSAGE_PREFIX: &str = "Jump Step";
 
@@ -28,7 +30,7 @@ impl ConversationSession {
     /// but no handler is present.
     ///
     /// Loads the workflow definition via the injected
-    /// [`crate::workflow_port::WorkflowPort`] (three-level priority
+    /// [`WorkflowPort`](crate::workflow_port::WorkflowPort) (three-level priority
     /// lookup: agent workspace → global workflows directory → built-in).
     ///
     /// On failure (port missing, undecodable state, or load error),
