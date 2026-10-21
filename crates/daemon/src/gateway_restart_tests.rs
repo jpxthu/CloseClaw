@@ -6,7 +6,7 @@
 //! wiring (`recv → finish_turns`), mirroring `install_handlers`.
 //!
 //! Naming: every test case carries the `test_` prefix per STANDARDS §3;
-//! **every newly added test case must do the same**.
+//! **every newly added test case must carry the `test_` prefix**.
 
 use super::*;
 use crate::config_reload::reload::DaemonReloadCallback;

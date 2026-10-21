@@ -83,7 +83,7 @@ impl PersistenceService for MockPersist {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// Shared setup: a `SessionManager` built from the given default config.
+/// Shared setup: a `SessionManager` built from the given config.
 fn new_sm(config: &closeclaw_gateway::GatewayConfig) -> Arc<closeclaw_gateway::SessionManager> {
     Arc::new(closeclaw_gateway::SessionManager::new(
         config,
@@ -114,7 +114,10 @@ async fn test_checkpoint_manager_accessible_from_session_manager() {
     let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     new_gw.set_checkpoint_manager(injected_cm.unwrap());
     // The setter succeeded: the Gateway now has the checkpoint_manager.
-    assert!(new_gw.has_checkpoint_manager());
+    assert!(
+        new_gw.has_checkpoint_manager(),
+        "gateway should have checkpoint_manager after set"
+    );
 
     // In production, persist_outbound_checkpoint uses this to persist.
 }
@@ -134,7 +137,10 @@ async fn test_build_new_gateway_no_checkpoint_manager_does_not_panic() {
     // Build Gateway without checkpoint_manager — no panic.
     let _gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
     // Not injecting is explicit: the Gateway must have no checkpoint_manager.
-    assert!(!_gw.has_checkpoint_manager());
+    assert!(
+        !_gw.has_checkpoint_manager(),
+        "gateway must have no checkpoint_manager without injection"
+    );
 }
 
 /// Full restart flow: Gateway with checkpoint_manager, after restart
