@@ -31,15 +31,27 @@ mod tests {
     #[tokio::test]
     async fn test_checkpoint_manager_save_and_load() {
         let storage = Arc::new(MemoryStorage::new());
-        let manager = CheckpointManager::new(storage);
+        let manager = CheckpointManager::new(storage.clone());
 
         let checkpoint = create_test_checkpoint("session1");
 
         // Save
         manager.save(checkpoint.clone()).await.unwrap();
 
-        // Give the async task time to complete (for storage update)
-        tokio::task::yield_now().await;
+        // save() writes to storage in a spawned background task; poll the
+        // storage directly until the checkpoint lands (deadline-bounded)
+        // instead of a single yield.
+        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+        loop {
+            if storage.load_checkpoint("session1").await.unwrap().is_some() {
+                break;
+            }
+            assert!(
+                tokio::time::Instant::now() < deadline,
+                "background save did not reach storage in time"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+        }
 
         // Load
         let loaded = manager.load("session1").await.unwrap();
