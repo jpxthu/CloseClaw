@@ -42,6 +42,30 @@ async fn spawn_sigterm_probe(code: u8) -> DaemonGuard {
     DaemonGuard(child)
 }
 
+/// Spawns a probe that exits immediately with `code`, then deterministically
+/// waits out its death and asserts the exit code before handing back the
+/// guard (tokio caches the status, so the teardown's try_wait observes it) —
+/// shared scaffold for the "daemon already dead at teardown" cases
+/// (STANDARDS.md §9 — no timing coincidence).
+async fn spawn_already_dead_probe(code: u8) -> DaemonGuard {
+    let mut daemon = DaemonGuard(
+        Command::new("bash")
+            .args(["-c", &format!("exit {code}")])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .kill_on_drop(true)
+            .spawn()
+            .expect("spawn bash probe"),
+    );
+    let status = daemon.0.wait().await.expect("probe exit status");
+    assert_eq!(
+        status.code(),
+        Some(i32::from(code)),
+        "probe must exit {code} before teardown"
+    );
+    daemon
+}
+
 /// Normal path: a daemon alive at teardown that exits 0 on SIGTERM passes
 /// the full triple without panicking.
 #[tokio::test]
@@ -52,7 +76,7 @@ async fn test_shutdown_ok_passes_when_daemon_exits_zero_on_sigterm() {
 /// Error path: a daemon alive at teardown that exits non-zero on SIGTERM
 /// trips the exit-status assert.
 #[tokio::test]
-#[should_panic(expected = "daemon should exit 0 after SIGTERM")]
+#[should_panic(expected = "daemon should exit 0 after SIGTERM, got:")]
 async fn test_shutdown_ok_panics_when_daemon_exits_nonzero_on_sigterm() {
     shutdown_ok(spawn_sigterm_probe(3).await).await;
 }
@@ -62,26 +86,13 @@ async fn test_shutdown_ok_panics_when_daemon_exits_nonzero_on_sigterm() {
 #[tokio::test]
 #[should_panic(expected = "daemon exited prematurely")]
 async fn test_shutdown_ok_panics_when_daemon_already_dead() {
-    let child = Command::new("bash")
-        .args(["-c", "exit 3"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("spawn bash probe");
-    let mut daemon = DaemonGuard(child);
-    // Deterministically wait out the probe death (tokio caches the status,
-    // so the teardown's try_wait observes it), and assert the probe really
-    // died with the non-zero code this scenario requires.
-    let status = daemon.0.wait().await.expect("probe exit status");
-    assert_eq!(status.code(), Some(3), "probe must exit 3 before teardown");
-
-    shutdown_ok(daemon).await;
+    shutdown_ok(spawn_already_dead_probe(3).await).await;
 }
 
 /// Normal path (context variant): a daemon alive at teardown that exits 0
-/// on SIGTERM passes the full triple without panicking, with the context
-/// phrase carried through untouched.
+/// on SIGTERM passes the full triple without panicking; context-phrase
+/// observability is pinned separately by the boundary case
+/// `test_shutdown_ok_with_context_panics_with_context_in_message_when_daemon_already_dead`.
 #[tokio::test]
 async fn test_shutdown_ok_with_context_passes_when_daemon_exits_zero_on_sigterm() {
     shutdown_ok_with_context(
@@ -96,7 +107,7 @@ async fn test_shutdown_ok_with_context_passes_when_daemon_exits_zero_on_sigterm(
 /// context only decorates the liveness message, it does not weaken the
 /// exit-code contract.
 #[tokio::test]
-#[should_panic(expected = "daemon should exit 0 after SIGTERM")]
+#[should_panic(expected = "daemon should exit 0 after SIGTERM, got:")]
 async fn test_shutdown_ok_with_context_panics_when_daemon_exits_nonzero_on_sigterm() {
     shutdown_ok_with_context(
         spawn_sigterm_probe(3).await,
@@ -112,16 +123,9 @@ async fn test_shutdown_ok_with_context_panics_when_daemon_exits_nonzero_on_sigte
 #[tokio::test]
 #[should_panic(expected = "daemon exited prematurely context-marker-mid-test with status")]
 async fn test_shutdown_ok_with_context_panics_with_context_in_message_when_daemon_already_dead() {
-    let child = Command::new("bash")
-        .args(["-c", "exit 3"])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .kill_on_drop(true)
-        .spawn()
-        .expect("spawn bash probe");
-    let mut daemon = DaemonGuard(child);
-    let status = daemon.0.wait().await.expect("probe exit status");
-    assert_eq!(status.code(), Some(3), "probe must exit 3 before teardown");
-
-    shutdown_ok_with_context(daemon, Some("context-marker-mid-test")).await;
+    shutdown_ok_with_context(
+        spawn_already_dead_probe(3).await,
+        Some("context-marker-mid-test"),
+    )
+    .await;
 }

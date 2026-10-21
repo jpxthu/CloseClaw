@@ -39,7 +39,7 @@ pub(crate) fn assert_daemon_alive_with_context(daemon: &mut Child, context: Opti
 /// on it. Called only via `daemon_guard::DaemonGuard::shutdown`; its
 /// callers include `agent_profile_tests` (incl. `no_bootstrap_tests`),
 /// `cache_consistency_tests`, and `gateway_restart_turn_tests`
-/// (terminate_daemon).
+/// (via daemon_guard::shutdown_ok_with_context).
 #[cfg(feature = "fake-llm")]
 pub(crate) async fn sigterm_and_wait(daemon: &mut Child) -> std::process::ExitStatus {
     let pid = daemon.id().expect("daemon has a PID") as libc::pid_t;

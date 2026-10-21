@@ -119,5 +119,8 @@ pub(crate) async fn shutdown_ok(daemon: DaemonGuard) {
 pub(crate) async fn shutdown_ok_with_context(mut daemon: DaemonGuard, context: Option<&str>) {
     assert_daemon_alive_with_context(&mut daemon.0, context);
     let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    assert!(
+        status.success(),
+        "daemon should exit 0 after SIGTERM, got: {status:?}"
+    );
 }
