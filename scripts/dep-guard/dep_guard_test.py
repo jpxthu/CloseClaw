@@ -14,6 +14,7 @@ import baseline
 import common_admission
 import dep_edges
 import dep_guard
+import rust_version
 import second_export
 
 FIXTURE_STANDARDS = """# 产品文档写作标准
@@ -686,6 +687,156 @@ class CheckFixTest(unittest.TestCase):
         self.assertIn("  [FAIL] 新增条目: x -> y", output)
         self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
         self.assertEqual(after["dep-edges.txt"], f"{self.KEPT}\n")
+
+    def test_fix_with_only_narrows_only_selected_segment(self) -> None:
+        """--fix 与 --only 组合：仅指定段收窄，未选中段的已消除条目不动。"""
+        statuses = {
+            "dep-edges": (dep_guard.STATUS_PASS, [self.GONE], []),
+            "common-admission": (dep_guard.STATUS_PASS, ["missing-in-code: Bar"], []),
+        }
+        exit_code, output, after = self._run_check_fix(
+            {
+                "dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n",
+                "common-admission.txt": "# admission\nmissing-in-code: Bar\n",
+            },
+            ["--fix", "--only", "dep-edges"],
+            statuses,
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
+        self.assertNotIn("[fix] 已收窄 baseline（偏差已消除）", output)
+        self.assertEqual(after["dep-edges.txt"], f"{self.KEPT}\n")
+        self.assertEqual(after["common-admission.txt"], "# admission\nmissing-in-code: Bar\n")
+
+    def test_fix_does_not_change_exit_code(self) -> None:
+        """退出码 = FAIL 项数，--fix 不改变：2 项 FAIL 时带/不带 --fix 均为 2。"""
+        statuses = {
+            "dep-edges": (dep_guard.STATUS_FAIL, [self.GONE], ["x -> y"]),
+            "common-admission": (
+                dep_guard.STATUS_FAIL,
+                ["missing-in-code: Bar"],
+                ["missing-in-doc: Foo"],
+            ),
+        }
+        files = {
+            "dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n",
+            "common-admission.txt": "# admission\nmissing-in-code: Bar\n",
+        }
+        with_fix = self._run_check_fix(files, ["--fix"], statuses)
+        without_fix = self._run_check_fix(files, [], statuses)
+        self.assertEqual(with_fix[0], 2)
+        self.assertEqual(without_fix[0], 2)
+        self.assertEqual(with_fix[2]["dep-edges.txt"], f"{self.KEPT}\n")
+        self.assertEqual(with_fix[2]["common-admission.txt"], "# admission\n")
+        self.assertEqual(without_fix[2]["dep-edges.txt"], f"{self.KEPT}\n{self.GONE}\n")
+        self.assertEqual(
+            without_fix[2]["common-admission.txt"], "# admission\nmissing-in-code: Bar\n"
+        )
+
+
+class CliFixRealRunnerTest(unittest.TestCase):
+    """check --fix CLI 级行为维度（CliRunner + 真实 check_* 链路）。
+
+    与 CheckFixTest（fake runner 收窄编排）互补：扫描层 mock、baseline 经
+    临时目录真实读写，走真实 diff_baseline / report_diff / apply_fix 链路，
+    覆盖默认行为不变、rust-version-declared 范围钉死、second-exports 行号
+    漂移按 baseline 原始条目删行。
+    """
+
+    VIOLATION = "closeclaw-im-adapter -> closeclaw-debug-log"
+    GONE = "closeclaw-gateway -> closeclaw-llm"
+    TABLE = {
+        allow_table.ROOT_CRATE: allow_table.ALLOW_ALL,
+        "im_adapter": frozenset({"common"}),
+    }
+
+    def test_default_no_fix_only_info_and_file_untouched(self) -> None:
+        """默认（不带 --fix）：仅 [info] 提示，baseline 文件不被写。"""
+        before = f"# 头部注释\n{self.VIOLATION}\n{self.GONE}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            (baseline_dir / "dep-edges.txt").write_text(before, encoding="utf-8")
+            with (
+                mock.patch.object(
+                    allow_table, "load_allow_table", return_value=self.TABLE
+                ),
+                mock.patch.object(
+                    dep_edges, "cargo_metadata", return_value=_fake_metadata()
+                ),
+                mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+            ):
+                from click.testing import CliRunner
+
+                cli_result = CliRunner().invoke(
+                    dep_guard.main, ["check", "--only", "dep-edges"]
+                )
+            after = (baseline_dir / "dep-edges.txt").read_text(encoding="utf-8")
+        self.assertEqual(cli_result.exit_code, 0)
+        self.assertIn(
+            f"  [info] 可收窄 baseline（越界边已消除）: {self.GONE}", cli_result.output
+        )
+        self.assertNotIn("[fix]", cli_result.output)
+        self.assertEqual(after, before)
+
+    def test_rust_version_declared_not_narrowed_by_fix(self) -> None:
+        """rust-version-declared 不参与 --fix：有已消除条目也不收窄（范围钉死）。"""
+        content = "crates/legacy/Cargo.toml\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            (baseline_dir / "rust-version-declared.txt").write_text(
+                content, encoding="utf-8"
+            )
+            with (
+                mock.patch.object(rust_version, "find_violations", return_value=[]),
+                mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+            ):
+                from click.testing import CliRunner
+
+                cli_result = CliRunner().invoke(
+                    dep_guard.main,
+                    ["check", "--fix", "--only", "rust-version-declared"],
+                )
+            after = (baseline_dir / "rust-version-declared.txt").read_text(
+                encoding="utf-8"
+            )
+        self.assertEqual(cli_result.exit_code, 0)
+        self.assertIn(
+            "  [info] 可收窄 baseline（rust-version 已声明）: crates/legacy/Cargo.toml",
+            cli_result.output,
+        )
+        self.assertNotIn("[fix]", cli_result.output)
+        self.assertEqual(after, content)
+
+    def test_second_exports_fix_removes_original_entry_after_lineno_drift(self) -> None:
+        """行号漂移场景：132→136 归一化判定不误消除；已消除条目按 baseline
+        原始行（含旧行号）精确删除。"""
+        base = "closeclaw-gateway: src/lib.rs:132 closeclaw_common::Foo"
+        drifted = "closeclaw-gateway: src/lib.rs:136 closeclaw_common::Foo"
+        gone = "closeclaw-llm: src/lib.rs:1 closeclaw_common::Bar"
+        before = f"{base}\n{gone}\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            (baseline_dir / "second-exports.txt").write_text(before, encoding="utf-8")
+            with (
+                mock.patch.object(
+                    dep_edges, "cargo_metadata", return_value=_fake_metadata()
+                ),
+                mock.patch.object(
+                    second_export, "find_second_exports", return_value=[drifted]
+                ),
+                mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir),
+            ):
+                from click.testing import CliRunner
+
+                cli_result = CliRunner().invoke(
+                    dep_guard.main, ["check", "--fix", "--only", "second-exports"]
+                )
+            after = (baseline_dir / "second-exports.txt").read_text(encoding="utf-8")
+        self.assertEqual(cli_result.exit_code, 0)
+        self.assertIn(
+            f"  [fix] 已收窄 baseline（二次出口已消除）: {gone}", cli_result.output
+        )
+        self.assertEqual(after, f"{base}\n")
 
 
 class CliExitCodeTest(unittest.TestCase):

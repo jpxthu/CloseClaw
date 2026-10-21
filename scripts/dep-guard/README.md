@@ -10,6 +10,8 @@
 
 生产检查入口（从仓库根执行）：`python3 scripts/dep-guard/dep_guard.py check`，经 `scripts/periodic-checks.sh --dep-guard` 挂载（CI 同链路生效）。
 
+`check --fix` 自动收窄 baseline：删除 FIXABLE 四项（dep-edges / second-exports / common-admission / dead-deps）baseline 中已消除的条目并回写文件（头部注释、空行与既有排序原样保留；每删一条打一行 `[fix]`）；rust-version-declared 不参与。新增偏差照常报警 FAIL，退出码不变（= FAIL 项数）。不带 `--fix` 时行为不变，仅打印 `[info] 可收窄` 提示。
+
 ## 单元测试
 
 套件：6 个 `*_test.py`（baseline / common_admission / dead_deps / dep_guard / rust_version / second_export），随 `--dep-guard` 自动运行。
