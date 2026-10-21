@@ -59,7 +59,7 @@ mod tests {
 
         let checkpoint = create_test_checkpoint("session2");
 
-        // Save (sync to ensure cache is populated before load)
+        // Save now (immediately persisted before load)
         manager.save_now(checkpoint.clone()).await.unwrap();
 
         // Load should hit cache

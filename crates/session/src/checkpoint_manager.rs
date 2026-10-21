@@ -84,8 +84,8 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
 
     /// 保存 Checkpoint（立即写入存储并等待完成，返回 `Result` 不吞错误，用于网关关闭时）
     ///
-    /// Unlike [`save`](Self::save)（spawn 后台写入、错误仅记日志不传播），
-    /// 本方法 await 存储写入完成，并将错误传播给调用方。
+    /// 与 [`save`](Self::save)（spawn 后台写入、错误仅记日志不传播）不同，
+    /// 本方法 await 存储写入完成并将错误传播给调用方。
     pub async fn save_now(
         &self,
         mut checkpoint: SessionCheckpoint,
@@ -106,7 +106,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
             cache.insert(session_id.clone(), checkpoint.clone());
         }
 
-        // 同步保存到存储后端
+        // 立即写入存储后端并等待完成（错误传播给调用方）
         self.storage.save_checkpoint(&checkpoint).await
     }
 
