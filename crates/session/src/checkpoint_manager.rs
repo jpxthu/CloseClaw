@@ -153,7 +153,10 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
     /// this method does **not** inject `agent_id` / `role` identity into
     /// the checkpoint — it writes the checkpoint as-is.
     /// The local cache is updated.
-    pub async fn save_raw(&self, checkpoint: &SessionCheckpoint) -> Result<(), PersistenceError> {
+    pub async fn save_direct(
+        &self,
+        checkpoint: &SessionCheckpoint,
+    ) -> Result<(), PersistenceError> {
         let session_id = checkpoint.session_id.clone();
         // Update local cache
         {

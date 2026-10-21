@@ -272,7 +272,7 @@ async fn test_spawn_context_sender_id_from_checkpoint() {
     let cm = mgr.checkpoint_manager.read().await;
     cm.as_ref()
         .unwrap()
-        .save_raw(&cp)
+        .save_direct(&cp)
         .await
         .expect("save checkpoint");
     drop(cm);
@@ -314,7 +314,7 @@ async fn test_spawn_context_effective_depth_from_checkpoint() {
     let cm = mgr.checkpoint_manager.read().await;
     cm.as_ref()
         .unwrap()
-        .save_raw(&cp)
+        .save_direct(&cp)
         .await
         .expect("save checkpoint");
     drop(cm);

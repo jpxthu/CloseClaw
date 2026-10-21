@@ -63,7 +63,7 @@ impl SessionManager {
             }
         }
         cp.touch();
-        if let Err(e) = cm.save_raw(&cp).await {
+        if let Err(e) = cm.save_direct(&cp).await {
             warn!(
                 session_id = %session_id,
                 "failed to persist checkpoint after compaction: {}",

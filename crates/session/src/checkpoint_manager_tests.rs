@@ -158,10 +158,10 @@ async fn test_load_nonexistent_returns_none() {
     assert!(loaded.is_none());
 }
 
-// ── Edge: save_raw does not inject identity ─────────────────────────────────
+// ── Edge: save_direct does not inject identity ─────────────────────────────────
 
 #[tokio::test]
-async fn test_save_raw_preserves_original_fields() {
+async fn test_save_direct_preserves_original_fields() {
     let mem = Arc::new(MemStorage::default());
     let cm = CheckpointManager::new_with_identity(
         mem.clone(),
@@ -173,10 +173,10 @@ async fn test_save_raw_preserves_original_fields() {
     cp.agent_id = Some("original-agent".into());
     cp.role = Some(AgentRole::MainAgent);
 
-    cm.save_raw(&cp).await.unwrap();
+    cm.save_direct(&cp).await.unwrap();
 
     let loaded = cm.load("s4").await.unwrap().unwrap();
-    // save_raw does NOT inject identity
+    // save_direct does NOT inject identity
     assert_eq!(loaded.agent_id.as_deref(), Some("original-agent"));
     assert_eq!(loaded.role, Some(AgentRole::MainAgent));
 }

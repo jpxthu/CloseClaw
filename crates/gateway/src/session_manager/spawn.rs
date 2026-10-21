@@ -350,7 +350,7 @@ impl SessionManager {
         // Use the config from creation (single source of truth, avoids drift).
         cp = cp.with_communication_config(created.communication_config);
         if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
-            if let Err(e) = cm.save_raw(&cp).await {
+            if let Err(e) = cm.save_direct(&cp).await {
                 warn!(
                     session_id = %child_session_id,
                     error = %e,
@@ -684,7 +684,7 @@ impl SessionManager {
                 if let Ok(Some(mut cp)) = cm_arc.load(orphan_id).await {
                     cp.depth = 0;
                     cp.effective_max_spawn_depth = None;
-                    if let Err(e) = cm_arc.save_raw(&cp).await {
+                    if let Err(e) = cm_arc.save_direct(&cp).await {
                         warn!(
                             session_id = %orphan_id,
                             error = %e,

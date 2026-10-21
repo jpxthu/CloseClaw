@@ -244,7 +244,7 @@ impl SessionManager {
                         let mut cp = cp;
                         cp.thread_id = message.thread_id.clone();
                         cp.reply_ref = message.reply_ref.clone();
-                        if let Err(e) = cm.save_raw(&cp).await {
+                        if let Err(e) = cm.save_direct(&cp).await {
                             warn!(
                                 session_key = %session_key,
                                 session_id = %session_id,
@@ -631,7 +631,7 @@ impl SessionManager {
                         let mut cp = cp;
                         cp.thread_id = message.thread_id.clone();
                         cp.reply_ref = message.reply_ref.clone();
-                        if let Err(e) = cm.save_raw(&cp).await {
+                        if let Err(e) = cm.save_direct(&cp).await {
                             warn!(
                                 session_key = %session_key,
                                 session_id = %archived_id,
@@ -778,7 +778,7 @@ impl SessionManager {
         cp.sender_id = Some(message.from.clone());
         cp.account_id = account_id.map(String::from);
         if let Some(cm) = self.checkpoint_manager.read().await.as_ref() {
-            if let Err(e) = cm.save_raw(&cp).await {
+            if let Err(e) = cm.save_direct(&cp).await {
                 warn!(
                     session_key = %session_key,
                     session_id = %session_id,
@@ -863,7 +863,7 @@ impl SessionManager {
             // Refresh the CM cache: otherwise update_checkpoint_fields
             // reads the stale pinned Migrating back and overwrites
             // Active → migrating, re-entering the poll loop per message.
-            if let Err(e) = cm.save_raw(&cp).await {
+            if let Err(e) = cm.save_direct(&cp).await {
                 warn!(session_id = %session_id, error = %e,
                       "failed to refresh CM cache after migrating restore");
             }

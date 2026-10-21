@@ -321,7 +321,7 @@ async fn test_resolve_miss_migrating_timeout_creates_new() {
 
     // Pin the final persisted checkpoint: after the timeout-restore, the
     // storage row must stay ACTIVE. restore_migrating_on_timeout writes the
-    // restored Active checkpoint back through cm.save_raw to refresh the CM
+    // restored Active checkpoint back through cm.save_direct to refresh the CM
     // cache; without that refresh, update_checkpoint_fields reads the stale
     // pinned Migrating and overwrites Active → migrating, re-entering the
     // 30s poll loop on every message.

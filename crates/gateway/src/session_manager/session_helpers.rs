@@ -107,7 +107,7 @@ pub(super) async fn update_checkpoint_fields(
     };
     cp.thread_id = thread_id.clone();
     cp.reply_ref = reply_ref.clone();
-    if let Err(e) = cm.save_raw(&cp).await {
+    if let Err(e) = cm.save_direct(&cp).await {
         warn!(session_id = %session_id, error = %e, "failed to save checkpoint with updated thread_id");
     }
 }
@@ -138,7 +138,7 @@ pub(super) async fn update_checkpoint_user_activity(
     let now = chrono::Utc::now();
     cp.last_user_activity_at = Some(now);
     cp.last_message_at = Some(now);
-    if let Err(e) = cm.save_raw(&cp).await {
+    if let Err(e) = cm.save_direct(&cp).await {
         warn!(
             session_id = %session_id,
             error = %e,
@@ -263,5 +263,5 @@ pub(super) async fn clear_plan_state_checkpoint(
         _ => return Ok(()),
     };
     cp.plan_state = None;
-    cm.save_raw(&cp).await
+    cm.save_direct(&cp).await
 }

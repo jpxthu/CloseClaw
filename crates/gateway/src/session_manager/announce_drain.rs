@@ -335,7 +335,7 @@ impl SessionManager {
 
         // 4a. Persist checkpoint before delivery for crash recovery detection.
         cp.touch();
-        if let Err(e) = cm.save_raw(&cp).await {
+        if let Err(e) = cm.save_direct(&cp).await {
             warn!(
                 session_id = %session_id,
                 error = %e,
@@ -444,7 +444,7 @@ impl SessionManager {
 
         // 8. Persist checkpoint if any ops were cleared.
         cp.touch();
-        if let Err(e) = cm.save_raw(&cp).await {
+        if let Err(e) = cm.save_direct(&cp).await {
             warn!(
                 session_id = %session_id,
                 error = %e,
