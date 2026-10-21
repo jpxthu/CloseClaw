@@ -9,6 +9,7 @@
 //! Feature gating is inherited from the parent module's
 //! `#![cfg(feature = "fake-llm")]`.
 
+use crate::helpers;
 use crate::helpers::chat::{chat_roundtrip, collect_content_text};
 use crate::helpers::config::{write_agent_config, write_config_tree, ConfigTreeOpts};
 use crate::helpers::daemon_guard::spawn_ready_daemon;
@@ -73,7 +74,7 @@ async fn test_agent_no_bootstrap_excludes_files() {
     // Declare noBootstrap: true (on-disk camelCase per AgentConfig).
     write_agent_config(config_root, "openai/gpt-4o-nobootstrap", None, Some(true));
 
-    let mut daemon = spawn_ready_daemon(config_root).await;
+    let daemon = spawn_ready_daemon(config_root).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "keep a secret").await;
 
@@ -87,12 +88,7 @@ async fn test_agent_no_bootstrap_excludes_files() {
         "response must not indicate a bootstrap/memory leak, got: {text}"
     );
 
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
-        panic!("daemon died during chat turn: {status:?}");
-    }
-
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }
 
 /// issue #3475 acceptance ② (control): an agent that does NOT declare
@@ -129,7 +125,7 @@ async fn test_agent_no_bootstrap_control_injects_identity() {
     // config.json and the resolved config defaults to false.
     write_agent_config(config_root, "openai/gpt-4o-bootstrap-control", None, None);
 
-    let mut daemon = spawn_ready_daemon(config_root).await;
+    let daemon = spawn_ready_daemon(config_root).await;
 
     let frames = chat_roundtrip(&config_root.join("chat.sock"), "master", "who are you").await;
 
@@ -139,10 +135,5 @@ async fn test_agent_no_bootstrap_control_injects_identity() {
         "control agent should still inject IDENTITY.md, got: {text}"
     );
 
-    if let Some(status) = daemon.0.try_wait().expect("try_wait daemon after turn") {
-        panic!("daemon died during chat turn: {status:?}");
-    }
-
-    let status = daemon.shutdown().await;
-    assert!(status.success(), "daemon should exit 0 after SIGTERM");
+    helpers::shutdown_ok(daemon).await;
 }

@@ -108,8 +108,6 @@ pub(crate) async fn spawn_default_ready_daemon(config_root: &Path) -> DaemonGuar
 /// (issue #3829), unifying the teardown semantics: a daemon that died
 /// mid-test is now reported with exit details before the SIGTERM wait,
 /// instead of surfacing as an opaque shutdown failure.
-// Callers land with the agent_profile_tests call-site replacement.
-#[expect(dead_code)]
 pub(crate) async fn shutdown_ok(mut daemon: DaemonGuard) {
     assert_daemon_alive(&mut daemon.0);
     let status = daemon.shutdown().await;
