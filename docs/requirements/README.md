@@ -17,7 +17,7 @@
 | [fake_llm](fake_llm.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试 | ✅
 | [gateway](gateway.md) | 多平台消息接入、斜杠指令分派、出站统一处理 | ✅
 | [im_adapter](im_adapter.md) | IM 平台插件化适配、消息归一化、流式渲染 | ✅
-| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、交互按钮 | ✅
+| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、平台工具 | ✅
 | [llm](llm.md) | 多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | Session 结束后自动挖掘记忆、实体体系 | ✅
 | [message_flow](message_flow.md) | 完整消息流：入站（IM → Agent）与出站（Agent → IM）产品链路概述 | ✅
