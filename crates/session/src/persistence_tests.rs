@@ -46,7 +46,7 @@ mod tests {
             poll_storage_until_checkpoint(
                 storage.as_ref(),
                 "session1",
-                std::time::Duration::from_secs(2)
+                std::time::Duration::from_secs(1)
             )
             .await,
             "background save did not reach storage in time"
