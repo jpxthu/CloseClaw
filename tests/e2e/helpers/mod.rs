@@ -30,6 +30,8 @@ pub(crate) mod chat;
 pub(crate) mod config;
 #[cfg(feature = "fake-llm")]
 pub(crate) mod daemon_guard;
+#[cfg(all(test, feature = "fake-llm"))]
+mod daemon_guard_tests;
 pub(crate) mod daemon_lifecycle;
 pub(crate) mod daemon_ready;
 #[cfg(test)]
