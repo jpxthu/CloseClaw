@@ -496,7 +496,7 @@ Agent 间通信的允许列表与其校验结果。CommunicationConfig 是某个
 
 - **RiskLevel**：权限请求的风险级别枚举——Low / Medium / High / Critical。
 - **PermissionEvalResponse**：Agent 间权限评估结果——Allowed，或 Denied（`reason` 原因 + `risk_level` 风险级别）。
-- **CallerInfo**：审批提交的调用方信息——`user_id`、`agent`、`is_sub_agent`（子 Agent 的拒绝静默丢弃、不入审批队列）。
+- **CallerInfo**：审批提交的调用方信息——`user_id`、`agent`、`is_sub_agent`（子 Agent 的拒绝静默丢弃、不入审批队列）。`user_id` 为本轮 caller，不是会话 Owner 或 checkpoint sender。
 - **PermissionDenied**：权限校验被拒的错误——携带 `reason` 原因。
 - **SpawnPermissionError**：子 Agent spawn 权限校验被拒的错误——携带 `agent_id` 与 `reason`。
 
@@ -878,6 +878,7 @@ MemoryConfig 的嵌套子配置结构（均为其字段类型，字段结构见�
 | 字段 | 类型 | 说明 |
 |------|------|------|
 | `agent_id` | string | 调用该工具的 agent ID |
+| `user_id` | string | 本轮 caller 的 User ID——触发本轮执行的入站消息发送者映射；不取会话 Owner 或 checkpoint 中持久化的 sender |
 | `workdir` | WorkdirContext? | 当前工作目录上下文（若已设置） |
 | `session_id` | string? | 拥有本次工具调用的会话 ID（若已知） |
 | `call_id` | string? | LLM 侧的工具调用标识 |
@@ -1260,7 +1261,7 @@ SpawnValidator 权限校验（前置校验产物）→ 经 PermissionChecker 完
 ```
 权限引擎（或审批流）对危险操作作出批准/拒绝处置
   ↓
-构造 AuditLogEntry（操作内容 + RiskLevel + 处置 + 会话模式）
+构造 AuditLogEntry（操作内容 + RiskLevel + 处置）
   ↓
 AuditLogger 记录 → permission 的文件日志实现追加落盘
   ↓

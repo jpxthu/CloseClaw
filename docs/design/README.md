@@ -16,7 +16,7 @@
 | [test_support](test_support/README.md) | 测试基础设施：跨 crate 共享的依赖边界守卫——解析各 crate 的 manifest，按依赖方向允许边表机械校验其 workspace 内部依赖 |
 | [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
 | [llm](llm/README.md) | 统一多供应商 LLM 调用与模型发现：五层分离架构、Provider/Protocol/Interpreter 分层、内容块归一化、缓存适配、Provider 配置向导 |
-| [permission](permission/README.md) | 系统级身份型访问控制：交集模型、七类权限维度、审批工作流与配置管理 |
+| [permission](permission/README.md) | 系统级身份型访问控制：交集模型、八类权限维度、沙盒、审批工作流与配置管理 |
 | [platform](platform/README.md) | 操作系统抽象层：进程管理、配置目录、终端能力检测、文件路径、系统临时目录的平台差异封装 |
 | [processor_chain](processor_chain/README.md) | 统一出入站消息处理：入站纯变换链（审计日志、session_key 计算、文本标准化）、出站 DSL 解析、ContentBlock[] 传递 |
 | [im_adapter](im_adapter/README.md) | IM 平台插件化适配框架：IMPlugin trait 统一接口，每个平台一个插件（含 Adapter + Renderer），通用代码渲染、流式渲染与媒体存储能力 |

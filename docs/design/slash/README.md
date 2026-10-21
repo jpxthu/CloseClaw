@@ -8,7 +8,7 @@
 
 斜杠指令系统由三个核心组件组成：
 
-- **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 除外——这三条由 Gateway 硬拦截走审批流程），否则正常路由到 Session。
+- **SlashDispatcher**：嵌入 Gateway 的指令分派器。Gateway 收到入站消息后，若内容以 `/` 开头则拦截并交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 与权限管理指令除外——由 Gateway 硬拦截，不进 SlashDispatcher），否则正常路由到 Session。
 - **HandlerRegistry**：指令注册表，维护指令名到 Handler 的映射。Gateway 初始化时注册所有 Handler。
 - **Handler**：指令处理器。每个 Handler 负责一组关联指令，接收指令参数和上下文，返回 [SlashResult](../common/shared-types.md#slashresult)。
 
@@ -51,7 +51,7 @@ WorkflowHandler 由 workflow 模块提供，处理 `/workflow`（仅 Owner、非
 1. 入站消息到达 Gateway
 2. 判断内容是否以 `/` 开头
    - 否 → 正常路由到 Session，走 LLM 对话流程
-   - 是 → 交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 除外，由 Gateway 硬拦截走审批流程）
+   - 是 → 交给 SlashDispatcher（`/approve-once`、`/approve-whitelist`、`/deny` 与权限管理指令除外，由 Gateway 硬拦截）
 3. SlashDispatcher 解析指令名与参数
 4. HandlerRegistry 按指令名查表
    - 命中 → Handler 处理，返回 SlashResult 变体
@@ -67,7 +67,7 @@ WorkflowHandler 由 workflow 模块提供，处理 `/workflow`（仅 Owner、非
 
 > 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
-- **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 由 Gateway 层硬拦截（走审批流程验证），不进入 SlashDispatcher。
+- **上游**：Gateway（入站消息处理）。Gateway 在消息路由前检查 `/` 前缀并分派。`/approve-once`、`/approve-whitelist`、`/deny` 与权限管理指令（`/perm` 系列、新用户注册）由 Gateway 层硬拦截，不进入 SlashDispatcher。
 - **下游**：
   - Session 模块 — 会话创建/停止（含级联终止子 session）、推理深度控制、上下文压缩、system prompt 追加区管理、工作目录设置
   - Workflow 模块 — 提供 WorkflowHandler 处理 `/workflow`（仅 Owner、非 Immediate），由 SlashDispatcher 分派后启动流程
