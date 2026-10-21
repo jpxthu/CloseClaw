@@ -538,7 +538,8 @@ async fn test_evaluate_with_empty_checkpoint_sender_does_not_fire_owner_shortcut
                 ..
             } if reason == "action denied by user rule"
         ),
-        "empty checkpoint sender must not fire the Owner shortcut (UserOnly(\"\") deny must apply): {:?}",
+        "empty checkpoint sender must not fire the Owner shortcut (UserOnly(\"\") \
+        deny must apply): {:?}",
         verdict
     );
     assert_eq!(
