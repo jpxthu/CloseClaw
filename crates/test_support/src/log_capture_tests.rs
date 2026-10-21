@@ -141,9 +141,8 @@ async fn test_capture_logs_async_captures_events_after_await_and_in_spawned_task
 /// The `level` parameter must actually drive the filter: with the
 /// capture level set to `INFO`, `debug!` events stay out of the
 /// buffer while `info!` (at the level) and `warn!` (above it) land
-/// in it. Pinning both directions means neither a fixed-WARN filter
-/// (config's `capture_warn_logs` shape) nor an exact-match filter
-/// can pass this test.
+/// in it. Pinning both directions means neither a fixed-level filter
+/// nor an exact-match filter can pass this test.
 #[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_capture_logs_async_filters_events_below_the_requested_level() {

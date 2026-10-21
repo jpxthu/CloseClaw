@@ -56,12 +56,13 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// result together with the captured log output. Shared log-capture
 /// helper for workspace tests (issue #3107).
 ///
-/// # Level (difference from `closeclaw-config`'s `capture_warn_logs`)
+/// # Level (why it is a parameter)
 ///
-/// `closeclaw-config`'s helper fixes the filter at `WARN`; this one takes the level
-/// as a parameter because session tests assert both `info`-level events
-/// (e.g. `skill_listing_injection`) and `warn`-level events (e.g. cache
-/// break), and a fixed `WARN` filter cannot capture the former.
+/// The filter level is part of this entry's signature rather than a
+/// fixed constant because callers assert events of differing
+/// severities — `info`-level events (e.g. `skill_listing_injection`)
+/// as well as `warn`-level ones (e.g. cache break) — and no single
+/// hard-coded filter can capture both.
 ///
 /// # Concurrency
 ///
@@ -71,7 +72,7 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// can drop events and empty the capture buffer (issue #3102 race).
 pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, String) {
     let buffer = VecWriter::default();
-    let guard = install(&buffer, level, false);
+    let guard = install(&buffer, level, TargetRendering::Strip);
     let value = f();
     let logs = drain(&buffer, guard);
     (value, logs)
@@ -146,7 +147,7 @@ pub async fn capture_logs_async<T, Fut>(
 where
     Fut: std::future::Future<Output = T>,
 {
-    capture_logs_async_impl(f, level, false).await
+    capture_logs_async_impl(f, level, TargetRendering::Strip).await
 }
 
 /// Target-preserving async twin of [`capture_logs_async`]: identical
@@ -171,24 +172,34 @@ pub async fn capture_logs_async_with_target<T, Fut>(
 where
     Fut: std::future::Future<Output = T>,
 {
-    capture_logs_async_impl(f, level, true).await
+    capture_logs_async_impl(f, level, TargetRendering::Keep).await
+}
+
+/// Whether captured lines render the emitting event's target string:
+/// [`TargetRendering::Strip`] drops it (the default entries),
+/// [`TargetRendering::Keep`] writes it verbatim (the target entry).
+/// Private: each public entry point bakes in its own variant, so
+/// callers never name this type.
+enum TargetRendering {
+    Strip,
+    Keep,
 }
 
 /// Shared body of [`capture_logs_async`] and
 /// [`capture_logs_async_with_target`]: install the buffer subscriber
-/// (target rendering per `with_target`), await `f` to completion
+/// (target rendering per `rendering`), await `f` to completion
 /// pinned to the installing thread (the tid assertion), then drop the
 /// guard and read the buffer back.
 async fn capture_logs_async_impl<T, Fut>(
     f: impl FnOnce() -> Fut,
     level: tracing::Level,
-    with_target: bool,
+    rendering: TargetRendering,
 ) -> (T, String)
 where
     Fut: std::future::Future<Output = T>,
 {
     let buffer = VecWriter::default();
-    let guard = install(&buffer, level, with_target);
+    let guard = install(&buffer, level, rendering);
     let tid = std::thread::current().id();
     let value = f().await;
     assert_eq!(
@@ -203,9 +214,10 @@ where
     (value, logs)
 }
 
-/// Shared tail of [`capture_logs`] and [`capture_logs_async`]: drop
-/// `guard` so the subscriber is uninstalled and stops writing, then
-/// read back everything it captured as UTF-8 text.
+/// Shared tail of [`capture_logs`], [`capture_logs_async`] and
+/// [`capture_logs_async_with_target`]: drop `guard` so the
+/// subscriber is uninstalled and stops writing, then read back
+/// everything it captured as UTF-8 text.
 fn drain(buffer: &VecWriter, guard: tracing::subscriber::DefaultGuard) -> String {
     drop(guard);
     String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap()
@@ -229,19 +241,19 @@ type CaptureSubscriber = tracing_subscriber::fmt::Subscriber<
 >;
 
 /// Build the fmt subscriber (no ansi; target rendering per
-/// `with_target`) filtered to `level`, writing into `buffer`, and
+/// `rendering`) filtered to `level`, writing into `buffer`, and
 /// install it as this thread's default subscriber; dropping the
 /// returned guard uninstalls it so the buffer stops being written and
 /// can be read back.
 fn install(
     buffer: &VecWriter,
     level: tracing::Level,
-    with_target: bool,
+    rendering: TargetRendering,
 ) -> tracing::subscriber::DefaultGuard {
     let subscriber: CaptureSubscriber = tracing_subscriber::fmt()
         .with_writer(buffer.clone())
         .with_max_level(level)
-        .with_target(with_target)
+        .with_target(matches!(rendering, TargetRendering::Keep))
         .with_ansi(false)
         .finish();
     tracing::subscriber::set_default(subscriber)
