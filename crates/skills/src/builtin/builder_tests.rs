@@ -3,9 +3,27 @@
 use super::builder::{builtin_skills, trivial_validator};
 
 #[test]
-fn test_builtin_skills_returns_seven_skills() {
+fn test_builtin_skills_returns_seven_expected_skills() {
     let skills = builtin_skills(trivial_validator());
     assert_eq!(skills.len(), 7);
+
+    let mut names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
+    names.sort_unstable();
+    assert_eq!(
+        names,
+        [
+            "coding_agent",
+            "create_workflow",
+            "file_ops",
+            "git_ops",
+            "search",
+            "skill_creator",
+            "skill_discovery"
+        ]
+    );
+
+    let unique: std::collections::HashSet<&str> = names.iter().map(String::as_str).collect();
+    assert_eq!(unique.len(), 7, "builtin skill names should be unique");
 }
 
 #[test]
@@ -22,22 +40,6 @@ fn test_builtin_skills_all_have_manifests() {
             "skill manifest description should not be empty"
         );
     }
-}
-
-#[test]
-fn test_builtin_skills_names() {
-    let skills = builtin_skills(trivial_validator());
-    let names: Vec<String> = skills.iter().map(|s| s.manifest().name.clone()).collect();
-    assert!(names.iter().any(|n| n == "file_ops"));
-    assert!(names.iter().any(|n| n == "git_ops"));
-    assert!(names.iter().any(|n| n == "search"));
-    assert!(names.iter().any(|n| n == "skill_discovery"));
-}
-
-#[test]
-fn test_builtin_skills_function() {
-    let skills = builtin_skills(trivial_validator());
-    assert_eq!(skills.len(), 7);
 }
 
 #[test]
