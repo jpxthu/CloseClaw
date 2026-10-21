@@ -251,8 +251,8 @@ impl Default for StreamingContentAssembler {
 /// the assembled result.
 ///
 /// When a [`ShutdownSignal`](closeclaw_common::ShutdownSignal) is provided (via
-/// [`SessionStream::with_shutdown_handle`]), the stream calls
-/// [`ShutdownSignal::decrement_busy`](closeclaw_common::ShutdownSignal::decrement_busy)
+/// [`with_shutdown_handle`](SessionStream::with_shutdown_handle)), the stream calls
+/// [`decrement_busy`](closeclaw_common::ShutdownSignal::decrement_busy)
 /// automatically when it ends (normally or with an error),
 /// matching the `increment_busy` / `decrement_busy` contract from
 /// `invoke_llm_streaming`.

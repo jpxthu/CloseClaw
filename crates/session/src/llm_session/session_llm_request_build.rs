@@ -1,10 +1,10 @@
 //! LLM request building for `ConversationSession`.
 //!
 //! Message assembly
-//! ([`ConversationSession::build_llm_messages_with_listing`]), history
-//! conversion ([`ConversationSession::convert_history_to_internal`]),
+//! ([`build_llm_messages_with_listing`]), history
+//! conversion ([`convert_history_to_internal`]),
 //! and [`InternalRequest`] construction
-//! ([`ConversationSession::build_llm_request`] with its system-prompt
+//! ([`build_llm_request`] with its system-prompt
 //! part derivation). Consumed by the invoke family in
 //! `super::session_llm` and by the `ChatSession` drain path in
 //! `session_chat`.
@@ -28,11 +28,11 @@ impl ConversationSession {
     /// Message assembly order:
     /// 1. Skill listing attachment (system role, position 0) — per-turn
     ///    incremental diff from the
-    ///    [`closeclaw_common::SkillListingProvider`] when non-empty.
+    ///    [`SkillListingProvider`] when non-empty.
     ///    Prepared by
-    ///    [`ConversationSession::prepare_turn_skill_listing`].
+    ///    [`prepare_turn_skill_listing`].
     /// 2. Memory injection (tool role) — positioned per
-    ///    [`super::InjectionPosition::AfterCurrent`] or `BeforeNext`.
+    ///    [`AfterCurrent`] or `BeforeNext`.
     /// 3. User message — dedup-guarded: skipped when the history already
     ///    ends with the identical user message (the gateway pre-appends
     ///    the current message to history before invoking; pushing again
@@ -46,7 +46,7 @@ impl ConversationSession {
     /// `user_blocks_pre_appended` is the caller's declaration that the
     /// current user message was already pre-appended to history in
     /// structured blocks form (gateway production path); see
-    /// [`Self::push_current_turn_user_message`] for the dedup-guard
+    /// [`push_current_turn_user_message`] for the dedup-guard
     /// semantics.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
@@ -206,8 +206,8 @@ impl ConversationSession {
     /// and joined with newlines. Tool results are appended as independent
     /// `role="tool"` messages at the end.
     ///
-    /// When a message contains [`ContentBlock::Image`] blocks, these are
-    /// preserved in [`InternalMessage::content_blocks`] as structured
+    /// When a message contains [`Image`] blocks, these are
+    /// preserved in [`content_blocks`] as structured
     /// content blocks (not flattened to text). Non-image blocks are still
     /// flattened to the `content` string for backward compatibility.
     pub(crate) fn convert_history_to_internal(messages: &[SessionMessage]) -> Vec<InternalMessage> {
@@ -280,7 +280,7 @@ impl ConversationSession {
 /// Format a single [`ContentBlock`] into zero or more string fragments.
 ///
 /// The sole call site is
-/// [`ConversationSession::convert_history_to_internal`], which both the
+/// [`convert_history_to_internal`], which both the
 /// production `build_llm_messages_with_listing` path and the legacy
 /// `build_api_request` path flow through. Tool results are excluded here
 /// (they are appended as independent `role="tool"` messages by the caller).

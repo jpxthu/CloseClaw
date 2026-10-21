@@ -1,7 +1,7 @@
 //! Run health checker — orchestrates the full health-check pipeline.
 //!
 //! Combines hard-rule evaluation, hook review, and unhealthy handling
-//! into a single [`RunHealthChecker::check_turn`] entry point that
+//! into a single [`check_turn`](RunHealthChecker::check_turn) entry point that
 //! the session execution loop calls at turn boundaries.
 //!
 //! Design reference: `docs/design/session/run-health.md`.

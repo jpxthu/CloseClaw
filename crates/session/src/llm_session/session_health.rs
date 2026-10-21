@@ -32,7 +32,7 @@ impl ConversationSession {
     /// Builds the standard 5-rule pipeline with an optional LLM-backed
     /// hook reviewer and injects it into this session.
     ///
-    /// Must be called after [`Self::set_llm_caller`] so the hook reviewer
+    /// Must be called after [`set_llm_caller`](Self::set_llm_caller) so the hook reviewer
     /// can use the LLM caller for quality gate reviews.
     pub fn init_health_checker(&mut self, llm_caller: Arc<dyn LlmCaller>, hooks: Vec<HookConfig>) {
         let checker = create_default_health_checker(Some(llm_caller), hooks);

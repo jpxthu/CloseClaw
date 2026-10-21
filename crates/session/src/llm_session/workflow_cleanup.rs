@@ -1,6 +1,6 @@
 //! Workflow exit cleanup for [`ConversationSession`].
 //!
-//! Provides [`ConversationSession::cleanup_workflow_exit`] — the single
+//! Provides [`cleanup_workflow_exit`] — the single
 //! entry-point for workflow teardown when a workflow completes or is
 //! terminated by the owner.
 
@@ -13,7 +13,8 @@ impl ConversationSession {
     /// Coordinates all four cleanup steps:
     ///
     /// 1. Remove workflow context markers from `system_injection_appends`
-    ///    (delegates to [`crate::workflow_recovery::cleanup_workflow_exit`]).
+    ///    (delegates to
+    ///    [`cleanup_workflow_exit`](crate::workflow_recovery::cleanup_workflow_exit)).
     /// 2. Remove workflow control messages (role == `"workflow"`) from the
     ///    in-memory transcript.
     /// 3. Clear `workflow_run` and `workflow_handler` to `None`.

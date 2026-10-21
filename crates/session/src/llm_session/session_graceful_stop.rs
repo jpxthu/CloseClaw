@@ -1,9 +1,9 @@
 //! Graceful-stop / force-kill surface for `ConversationSession`.
 //!
 //! Extracted from `session_handles.rs` (issue #3164):
-//! [`ConversationSession::graceful_stop`] with its wait-state
+//! [`graceful_stop`] with its wait-state
 //! inspection helpers (`collect_waiting_items` /
-//! `has_running_tools`), plus [`ConversationSession::force_kill`].
+//! `has_running_tools`), plus [`force_kill`].
 
 use std::time::Duration;
 
@@ -21,7 +21,7 @@ impl ConversationSession {
     /// Polls every 100 ms for LLM streaming and tool execution state.
     /// Checks for forceful escalation via the session's shutdown handle.
     /// On timeout, sends a [`GracefulStopProgress`] report via
-    /// `progress_tx` and returns [`GracefulStopResult::TimedOut`].
+    /// `progress_tx` and returns [`TimedOut`](GracefulStopResult::TimedOut).
     ///
     /// This method does **not** clean up or persist state — that is
     /// the responsibility of `stop()` (cleanup) and the caller

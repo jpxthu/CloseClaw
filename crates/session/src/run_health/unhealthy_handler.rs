@@ -102,7 +102,7 @@ impl UnhealthyHandler {
     /// Produce a recovery action based on the health check output.
     ///
     /// The caller should pass the output from
-    /// [`HardRuleEngine::evaluate`](crate::run_health::HardRuleEngine::evaluate).
+    /// [`evaluate`](crate::run_health::HardRuleEngine::evaluate).
     /// If the output indicates `Healthy`, returns `None`.
     pub fn handle(&mut self, output: &HealthCheckOutput) -> Option<RecoverableAction> {
         let category = output.suggested_category.as_ref()?;

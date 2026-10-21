@@ -1,7 +1,7 @@
 //! Core persistence data structures.
 //!
 //! Defines the core [`SessionCheckpoint`] structure.
-//! The [`PersistenceService`] trait lives in [`crate::persistence_service`].
+//! The [`PersistenceService`] trait lives in [`persistence_service`](crate::persistence_service).
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,7 @@ pub use closeclaw_common::{AgentRole, PendingMessage, PlanState, ReasoningLevel,
 
 /// A single ProgressTool call record for recovery fallback.
 ///
-/// Stored in [`SessionCheckpoint::progress_tool_calls`] so that the
+/// Stored in [`progress_tool_calls`](SessionCheckpoint::progress_tool_calls) so that the
 /// recovery service can rebuild [`PlanState`] when the first three
 /// layers (PlanState persistence, system prompt injection, plan file
 /// injection) all fail.
@@ -34,7 +34,7 @@ pub struct ProgressToolCallRecord {
 
 /// A single approval tool call record for recovery layer 3 fallback.
 ///
-/// Stored in [`SessionCheckpoint::approval_tool_calls`] so that the
+/// Stored in [`approval_tool_calls`](SessionCheckpoint::approval_tool_calls) so that the
 /// recovery service can inject approval history when the first two
 /// layers (PlanState persistence, plan file disk) are unavailable.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]

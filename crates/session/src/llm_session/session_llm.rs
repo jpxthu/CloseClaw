@@ -1,6 +1,6 @@
 //! LLM invocation logic for `ConversationSession`.
 //!
-//! Provides [`ConversationSession::invoke_llm`] which encapsulates
+//! Provides [`invoke_llm`] which encapsulates
 //! the LLM call flow previously living in the Gateway layer
 //! (`SessionMessageHandler::call_llm`). The session owns the
 //! [`LlmCaller`] reference and the memory-injection consumption.
@@ -76,10 +76,10 @@ impl ConversationSession {
 /// Non-streaming LLM invocation entry points.
 impl ConversationSession {
     /// Make a non-streaming LLM call via the injected
-    /// [`LlmCaller`](closeclaw_common::LlmCaller).
+    /// [`LlmCaller`].
     ///
     /// Test-only convenience wrapper (Step 1.8 ③): production call sites
-    /// must use [`Self::invoke_llm_with_target`] so the unified
+    /// must use [`invoke_llm_with_target`](Self::invoke_llm_with_target) so the unified
     /// advancement point receives the actually-used call target; this
     /// wrapper discards it. Kept as a thin delegation because the test
     /// call surface is wide (100+ sites across session/gateway test
@@ -91,7 +91,7 @@ impl ConversationSession {
     }
 
     /// Make a non-streaming LLM call via the injected
-    /// [`LlmCaller`](closeclaw_common::LlmCaller) and
+    /// [`LlmCaller`] and
     /// return the actually-used [`CallTarget`] with the response.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
@@ -99,10 +99,10 @@ impl ConversationSession {
     /// the instruction block via `Self::build_llm_messages_with_listing`,
     /// then delegates to the LLM caller.
     ///
-    /// Builds an [`InternalRequest`](closeclaw_common::InternalRequest),
+    /// Builds an [`InternalRequest`],
     /// consuming any pending
     /// memory-injection slot, and delegates to the caller. Returns
-    /// an error if no [`LlmCaller`](closeclaw_common::LlmCaller) has been injected.
+    /// an error if no [`LlmCaller`] has been injected.
     ///
     /// The target (when the caller reports one) travels with this call's
     /// return value — no shared state — so concurrent sessions can never
@@ -115,7 +115,7 @@ impl ConversationSession {
         self.invoke_llm_with_target_inner(content, false).await
     }
 
-    /// Pre-appended-blocks variant of [`Self::invoke_llm_with_target`].
+    /// Pre-appended-blocks variant of [`invoke_llm_with_target`](Self::invoke_llm_with_target).
     ///
     /// For the gateway production path where the current user message
     /// was already appended to history in structured blocks form
@@ -211,7 +211,7 @@ impl ConversationSession {
 /// Streaming LLM invocation entry points.
 impl ConversationSession {
     /// Make a streaming LLM call via the injected
-    /// [`LlmCaller`](closeclaw_common::LlmCaller).
+    /// [`LlmCaller`].
     pub async fn invoke_llm_streaming(&mut self, content: &str) -> Result<SessionStream, LLMError> {
         self.invoke_llm_streaming_with_target(content)
             .await
@@ -219,7 +219,7 @@ impl ConversationSession {
     }
 
     /// Make a streaming LLM call via the injected
-    /// [`LlmCaller`](closeclaw_common::LlmCaller) and return
+    /// [`LlmCaller`] and return
     /// the actually-used [`CallTarget`] with the stream.
     ///
     /// Corresponds to the design doc's injection flow: prepares the
@@ -231,7 +231,7 @@ impl ConversationSession {
     /// and accumulates
     /// [`ContentBlock`](closeclaw_common::ContentBlock)s
     /// as events pass through. After the stream is fully consumed,
-    /// call [`SessionStream::into_content_blocks`] to extract the
+    /// call [`into_content_blocks`](SessionStream::into_content_blocks) to extract the
     /// assembled result.
     ///
     /// The target (when the caller reports one) travels with this call's
@@ -249,13 +249,16 @@ impl ConversationSession {
             .await
     }
 
-    /// Pre-appended-blocks variant of [`Self::invoke_llm_streaming_with_target`].
+    /// Pre-appended-blocks variant of
+    /// [`invoke_llm_streaming_with_target`](Self::invoke_llm_streaming_with_target).
     ///
     /// Same explicit declaration as
-    /// [`Self::invoke_llm_with_target_pre_appended_blocks`], for the
+    /// [`invoke_llm_with_target_pre_appended_blocks`][pre_appended_blocks], for the
     /// gateway streaming dispatch path: the current user message was
     /// already appended to history in structured blocks form, which
     /// string equality cannot recognize as the message being invoked.
+    ///
+    /// [pre_appended_blocks]: Self::invoke_llm_with_target_pre_appended_blocks
     pub async fn invoke_llm_streaming_with_target_pre_appended_blocks(
         &mut self,
         content: &str,

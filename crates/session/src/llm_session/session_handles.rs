@@ -26,8 +26,8 @@ use tokio_util::sync::CancellationToken;
 use super::ConversationSession;
 
 /// Default kill-handle timeout (5 seconds) applied per handle in
-/// [`ConversationSession::kill_tool_handles`] and per child session in
-/// [`ConversationSession::cascade_stop_children`]. After this, the
+/// [`kill_tool_handles`] and per child session in
+/// [`cascade_stop_children`]. After this, the
 /// kill attempt is abandoned and cleanup continues — orphan processes
 /// are not allowed to wedge the stop path.
 pub(super) const STOP_KILL_TIMEOUT: Duration = Duration::from_secs(5);
@@ -57,7 +57,7 @@ impl CascadeStopInfo {
 
 // ── graceful stop types ─────────────────────────────────────────────────
 
-/// Progress report emitted by [`ConversationSession::graceful_stop`]
+/// Progress report emitted by [`graceful_stop`](ConversationSession::graceful_stop)
 /// when the wait times out. Sent via `progress_tx` so the caller
 /// (SessionManager / Daemon) can report what is still running.
 #[derive(Debug, Clone)]
@@ -68,7 +68,7 @@ pub struct GracefulStopProgress {
     pub remaining: usize,
 }
 
-/// Outcome of [`ConversationSession::graceful_stop`].
+/// Outcome of [`graceful_stop`](ConversationSession::graceful_stop).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GracefulStopResult {
     /// All in-flight operations completed within the timeout.
@@ -245,7 +245,7 @@ impl ConversationSession {
     /// Signal all foreground commands to move to background.
     ///
     /// This fires the `manual_background_signal`
-    /// [`tokio::sync::Notify`], which
+    /// [`Notify`](tokio::sync::Notify), which
     /// unblocks any `tokio::select!` branch in `BashTool` waiting on
     /// the manual-background path. Each affected foreground command
     /// will be handed off to `bg_manager.backgroundize_task()` and

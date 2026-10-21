@@ -298,7 +298,7 @@ impl SpawnController {
 
     /// Read parent agent budget fields needed for concurrency/whitelist
     /// checks. Does NOT perform agentId fallback — that happens later in
-    /// [`Self::resolve_target_budget`].
+    /// [`resolve_target_budget`].
     async fn read_parent_config(&self, parent_agent_id: &str) -> ParentSpawnConfig {
         match self.budget_lookup.spawn_budget(parent_agent_id).await {
             Some(b) => ParentSpawnConfig {

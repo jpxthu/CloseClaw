@@ -82,7 +82,7 @@ impl ConversationSession {
     }
 
     /// Mark a snapshot as
-    /// [`SnapshotStatus::Complete`](crate::run_health::SnapshotStatus::Complete).
+    /// [`Complete`](crate::run_health::SnapshotStatus::Complete).
     ///
     /// Used after a guarded operation (compaction, `/system` rewrite)
     /// succeeds to transition the snapshot from `Pending` to `Complete`.
@@ -117,7 +117,7 @@ impl ConversationSession {
 
     /// Incremental transcript append with an incremental snapshot.
     ///
-    /// Creates a [`SnapshotKind::Incremental`](crate::run_health::SnapshotKind::Incremental)
+    /// Creates a [`Incremental`](crate::run_health::SnapshotKind::Incremental)
     /// snapshot recording the
     /// given `leaf_entry_id` *before* appending. This enables
     /// JSONL-truncation rollback for the appended entry.
@@ -148,7 +148,7 @@ impl ConversationSession {
     ///
     /// When `max` is `Some(n)` and the current message count exceeds `n`,
     /// the oldest messages are removed so that only the most recent `n`
-    /// remain. A [`TranscriptOp::PartialRewrite`] snapshot is created
+    /// remain. A [`PartialRewrite`](TranscriptOp::PartialRewrite) snapshot is created
     /// before replacement so the operation is undoable.
     ///
     /// Returns the number of messages that were dropped, or `0` if no

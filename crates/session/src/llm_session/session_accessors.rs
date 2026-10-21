@@ -240,7 +240,7 @@ impl ConversationSession {
     /// Inject a [`ToolRegistryQuery`] into this session.
     ///
     /// Called by Gateway after session creation so the builder can
-    /// propagate the registry through [`closeclaw_common::FragmentContext`] to
+    /// propagate the registry through [`FragmentContext`](closeclaw_common::FragmentContext) to
     /// `ToolsFragmentProvider`.
     pub fn set_tool_registry(&mut self, registry: Arc<dyn ToolRegistryQuery>) {
         self.tool_registry = Some(registry);

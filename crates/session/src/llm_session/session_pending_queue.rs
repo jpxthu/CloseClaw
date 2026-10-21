@@ -281,13 +281,13 @@ impl ConversationSession {
     /// Used by yield timeout handlers to enqueue warnings and timeout
     /// notifications with the specified priority (typically `Next`).
     /// During drain, system notifications are routed outbound via the
-    /// Gateway simplified path (audience [`NotificationAudience::All`]).
+    /// Gateway simplified path (audience [`All`](NotificationAudience::All)).
     pub fn push_system_notification(&mut self, text: String, priority: NotificationPriority) {
         self.push_system_notification_with_audience(text, priority, NotificationAudience::All);
     }
 
     /// Push a system-level notification with an explicit audience
-    /// declaration (e.g. [`NotificationAudience::OwnerOnly`] for
+    /// declaration (e.g. [`OwnerOnly`](NotificationAudience::OwnerOnly) for
     /// Owner-targeted notices such as cache-hit anomalies). The
     /// declaration only states intent — the Gateway performs the
     /// recipient judgment at delivery time.
@@ -446,7 +446,7 @@ impl ConversationSession {
     /// Persist a user message with structured content blocks.
     ///
     /// Used when the user message contains multimodal content (e.g.,
-    /// images as [`ContentBlock::Image`]) that should be preserved
+    /// images as [`Image`](ContentBlock::Image)) that should be preserved
     /// as structured blocks rather than flattened to text.
     pub fn append_user_content_blocks(&mut self, blocks: Vec<ContentBlock>) {
         self.append_transcript("user", blocks);

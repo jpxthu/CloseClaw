@@ -4,12 +4,12 @@
 //! Data flow (see `docs/design/session/llm-session-enhancements.md`,
 //! "缓存命中一致性校验", doc :73):
 //! 1. **Staging** — both LLM invocation paths
-//!    ([`ConversationSession::invoke_llm_with_target`] /
-//!    [`ConversationSession::invoke_llm_streaming_with_target`]) stage the
+//!    ([`invoke_llm_with_target`] /
+//!    [`invoke_llm_streaming_with_target`]) stage the
 //!    actually-sent request's prefix snapshot once the request is built
 //!    (messages already Thinking-cleaned, system static/dynamic finalized).
 //! 2. **Judgment + advancement** —
-//!    [`ConversationSession::check_cache_anomaly_and_advance`] runs at the
+//!    [`check_cache_anomaly_and_advance`] runs at the
 //!    unified advancement point (usage fully arrived), compares the staged
 //!    snapshot against the previous one (plus model/provider identity and
 //!    TTL interval), runs the existing numeric comparison only for
@@ -64,7 +64,7 @@ impl ConversationSession {
     /// round only). A round without a staged snapshot (compaction-style
     /// calls never stage) leaves the previous snapshot untouched.
     ///
-    /// Must run **before** [`ConversationSession::accumulate_usage`] so
+    /// Must run **before** [`accumulate_usage`](ConversationSession::accumulate_usage) so
     /// `last_prompt_tokens` / `last_call_model` / `last_call_at` still
     /// hold the previous call's values; `current_model` must be the same
     /// identifier later passed to `accumulate_usage` (the actual

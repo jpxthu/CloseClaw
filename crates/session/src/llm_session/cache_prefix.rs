@@ -144,12 +144,12 @@ pub enum CacheExemptReason {
 /// consistency check.
 ///
 /// Exemption checks, first match wins:
-/// 1. no previous snapshot → [`CacheExemptReason::NoPreviousSnapshot`];
-/// 2. prefix mismatch → [`CacheExemptReason::PrefixMismatch`];
+/// 1. no previous snapshot → [`NoPreviousSnapshot`];
+/// 2. prefix mismatch → [`PrefixMismatch`];
 /// 3. model/provider identifier differs →
-///    [`CacheExemptReason::ModelSwitch`];
+///    [`ModelSwitch`];
 /// 4. interval since the previous call exceeds `ttl_ms` →
-///    [`CacheExemptReason::CacheExpired`] (an unknown previous
+///    [`CacheExpired`] (an unknown previous
 ///    timestamp cannot prove freshness and counts as expired).
 ///
 /// Pure decision only: the exemption covers this round; snapshot
@@ -213,7 +213,7 @@ fn hash_str(value: &str) -> u64 {
 /// cache marking flag (`ToolDefinition::cache`) is not definition
 /// content and is excluded. In production the `tools` parameter is
 /// `None` (tool definitions travel via the System Prompt ToolsSection,
-/// covered by `system_hash`); see [`RequestPrefixSnapshot::tools_hash`].
+/// covered by `system_hash`); see [`tools_hash`].
 fn hash_tools(tools: Option<&[ToolDefinition]>) -> u64 {
     digest_with(|hasher| {
         let list = tools.unwrap_or(&[]);

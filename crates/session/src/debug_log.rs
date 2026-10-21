@@ -3,17 +3,17 @@
 //! Provides structured debug-log emission for session lifecycle events:
 //! session creation, lookup, and compaction.
 //!
-//! Delegates to the common [`closeclaw_debug_log::emit_event`] function.
+//! Delegates to the common [`emit_event`](closeclaw_debug_log::emit_event) function.
 
-/// Type alias for the common [`closeclaw_debug_log::DebugLogContext`].
+/// Type alias for the common [`DebugLogContext`](closeclaw_debug_log::DebugLogContext).
 pub type SessionDebugLogContext<'a> = closeclaw_debug_log::DebugLogContext<'a>;
 
-/// Type alias for the common [`closeclaw_debug_log::EmitEventParams`].
+/// Type alias for the common [`EmitEventParams`](closeclaw_debug_log::EmitEventParams).
 pub type SessionEmitEventParams<'a> = closeclaw_debug_log::EmitEventParams<'a>;
 
 /// Emit a structured debug log event for the Session module.
 ///
-/// Thin wrapper around [`closeclaw_debug_log::emit_event`] that fixes
+/// Thin wrapper around [`emit_event`](closeclaw_debug_log::emit_event) that fixes
 /// the `source_module` to `"session"`.
 pub fn emit_session_event(params: SessionEmitEventParams<'_>) {
     closeclaw_debug_log::emit_event(params)
