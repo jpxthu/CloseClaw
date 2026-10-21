@@ -574,6 +574,120 @@ class CheckSecondExportsDiffTest(unittest.TestCase):
         self.assertTrue(any("新增 0" in line for line in result.lines))
 
 
+class CheckFixTest(unittest.TestCase):
+    """check --fix 收窄编排（CLI 级，tempdir fixture 真实写回验证）。
+
+    fake runner 携带 eliminated_items / baseline_path / narrowed_label，
+    对齐 report_diff 产出的真实 CheckResult 形态；baseline 文件经临时目录
+    真实读写，走真实 apply_fix → baseline.remove_entries 链路。
+    """
+
+    GONE = "closeclaw-gateway -> closeclaw-llm"
+    KEPT = "closeclaw-im-adapter -> closeclaw-debug-log"
+    NARROWED_LABELS = {
+        "dep-edges": "越界边已消除",
+        "second-exports": "二次出口已消除",
+        "common-admission": "偏差已消除",
+        "dead-deps": "死依赖已消除",
+        "rust-version-declared": "rust-version 已声明",
+    }
+
+    def _fake_runner(
+        self, check_id: str, status: str, eliminated: list[str], new_items: list[str]
+    ):
+        def runner(repo_root: Path) -> dep_guard.CheckResult:
+            label = self.NARROWED_LABELS[check_id]
+            lines = [f"[{check_id}] 头行"]
+            if status == dep_guard.STATUS_SKIP:
+                lines.append("  [SKIP] cargo-machete 不可用")
+                return dep_guard.CheckResult(check_id, status, lines)
+            for item in new_items:
+                lines.append(f"  [FAIL] 新增条目: {item}")
+            for item in eliminated:
+                lines.append(f"  [info] 可收窄 baseline（{label}）: {item}")
+            return dep_guard.CheckResult(
+                check_id,
+                status,
+                lines,
+                eliminated_items=eliminated,
+                baseline_path=dep_guard.BASELINE_DIR / f"{check_id}.txt",
+                narrowed_label=label,
+            )
+
+        return runner
+
+    def _run_check_fix(
+        self,
+        baseline_files: dict[str, str],
+        args: list[str],
+        statuses: dict[str, tuple[str, list[str], list[str]]],
+    ) -> tuple[int, str, dict[str, str]]:
+        """搭 tempdir fixture：写 baseline 文件 + patch runners，跑 check CLI。
+
+        返回 (退出码, 输出, 各 baseline 文件终态内容)。fake runner 在调用时
+        解析 dep_guard.BASELINE_DIR，与真实 check_* 函数取路径时机一致。
+        """
+        from click.testing import CliRunner
+
+        runners = {
+            check_id: self._fake_runner(check_id, status, eliminated, new_items)
+            for check_id, (status, eliminated, new_items) in statuses.items()
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            baseline_dir = Path(tmp)
+            for name, content in baseline_files.items():
+                (baseline_dir / name).write_text(content, encoding="utf-8")
+            originals = dict(dep_guard.CHECK_RUNNERS)
+            dep_guard.CHECK_RUNNERS.clear()
+            dep_guard.CHECK_RUNNERS.update(runners)
+            try:
+                with mock.patch.object(dep_guard, "BASELINE_DIR", baseline_dir):
+                    cli_result = CliRunner().invoke(dep_guard.main, ["check", *args])
+            finally:
+                dep_guard.CHECK_RUNNERS.clear()
+                dep_guard.CHECK_RUNNERS.update(originals)
+            after = {
+                name: (baseline_dir / name).read_text(encoding="utf-8")
+                for name in baseline_files
+            }
+        return cli_result.exit_code, cli_result.output, after
+
+    def test_fix_narrows_eliminated_baseline(self) -> None:
+        """--fix：已消除条目行被删除回写；注释头、保留条目与顺序不变。"""
+        before = f"# 头部注释\n\n{self.KEPT}\n{self.GONE}\n"
+        statuses = {"dep-edges": (dep_guard.STATUS_PASS, [self.GONE], [])}
+        exit_code, output, after = self._run_check_fix(
+            {"dep-edges.txt": before}, ["--fix"], statuses
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
+        self.assertEqual(after["dep-edges.txt"], f"# 头部注释\n\n{self.KEPT}\n")
+
+    def test_fix_leaves_skip_baseline_untouched(self) -> None:
+        """SKIP 段（dead-deps machete 不可用路径）不携带 fix 数据 → baseline 不动。"""
+        content = "# machete baseline\nunused-crate\n"
+        statuses = {"dead-deps": (dep_guard.STATUS_SKIP, [], [])}
+        exit_code, output, after = self._run_check_fix(
+            {"dead-deps.txt": content}, ["--fix"], statuses
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertNotIn("[fix]", output)
+        self.assertEqual(after["dead-deps.txt"], content)
+
+    def test_fix_narrows_despite_fail_and_exit_code_counts_fail(self) -> None:
+        """有新增 FAIL 仍收窄已消除条目；退出码计入 FAIL（语义不变）。"""
+        statuses = {
+            "dep-edges": (dep_guard.STATUS_FAIL, [self.GONE], ["x -> y"]),
+        }
+        exit_code, output, after = self._run_check_fix(
+            {"dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n"}, ["--fix"], statuses
+        )
+        self.assertEqual(exit_code, 1)
+        self.assertIn("  [FAIL] 新增条目: x -> y", output)
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
+        self.assertEqual(after["dep-edges.txt"], f"{self.KEPT}\n")
+
+
 class CliExitCodeTest(unittest.TestCase):
     """CLI 退出码 = FAIL 项数（click group 须显式 ctx.exit 透传）。"""
 
