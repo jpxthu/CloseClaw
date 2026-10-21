@@ -77,6 +77,16 @@ def _fake_metadata() -> dict:
     }
 
 
+# 共享 fixture 常量：mock 允许边表与越界边（= 保留条目）/ 已消除条目。
+TABLE = {
+    allow_table.ROOT_CRATE: allow_table.ALLOW_ALL,
+    "im_adapter": frozenset({"common"}),
+}
+VIOLATION = "closeclaw-im-adapter -> closeclaw-debug-log"
+GONE = "closeclaw-gateway -> closeclaw-llm"
+KEPT = "closeclaw-im-adapter -> closeclaw-debug-log"
+
+
 class AllowTableTest(unittest.TestCase):
     def test_parse_normal(self) -> None:
         table = allow_table.parse_allow_table(FIXTURE_STANDARDS)
@@ -206,7 +216,7 @@ class CheckResultTest(unittest.TestCase):
         )
 
     def test_any_field_differs_unequal(self) -> None:
-        """任一字段不同则不等（check_id / status / lines 逐一证伪）。"""
+        """任一字段不同则不等（六个字段逐一证伪）。"""
         base = dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x"])
         self.assertNotEqual(
             base, dep_guard.CheckResult("dead-deps", dep_guard.STATUS_PASS, ["x"])
@@ -219,6 +229,24 @@ class CheckResultTest(unittest.TestCase):
         )
         self.assertNotEqual(
             base, dep_guard.CheckResult("dep-edges", dep_guard.STATUS_PASS, ["x", "y"])
+        )
+        self.assertNotEqual(
+            base,
+            dep_guard.CheckResult(
+                "dep-edges", dep_guard.STATUS_PASS, ["x"], eliminated_items=["a"]
+            ),
+        )
+        self.assertNotEqual(
+            base,
+            dep_guard.CheckResult(
+                "dep-edges", dep_guard.STATUS_PASS, ["x"], baseline_path=Path("b.txt")
+            ),
+        )
+        self.assertNotEqual(
+            base,
+            dep_guard.CheckResult(
+                "dep-edges", dep_guard.STATUS_PASS, ["x"], narrowed_label="已消除"
+            ),
         )
 
     def test_frozen_after_construction(self) -> None:
@@ -303,19 +331,13 @@ class CheckDepEdgesDiffTest(unittest.TestCase):
     diff_baseline 判定链路。
     """
 
-    TABLE = {
-        allow_table.ROOT_CRATE: allow_table.ALLOW_ALL,
-        "im_adapter": frozenset({"common"}),
-    }
-    VIOLATION = "closeclaw-im-adapter -> closeclaw-debug-log"
-
     def _run_check(self, baseline_content: str) -> dep_guard.CheckResult:
         with tempfile.TemporaryDirectory() as tmp:
             baseline_dir = Path(tmp)
             (baseline_dir / "dep-edges.txt").write_text(baseline_content, encoding="utf-8")
             with (
                 mock.patch.object(
-                    allow_table, "load_allow_table", return_value=self.TABLE
+                    allow_table, "load_allow_table", return_value=TABLE
                 ),
                 mock.patch.object(
                     dep_edges, "cargo_metadata", return_value=_fake_metadata()
@@ -331,20 +353,19 @@ class CheckDepEdgesDiffTest(unittest.TestCase):
         self.assertEqual(
             result.lines[1:],
             [
-                f"  [FAIL] 新增越界边: {self.VIOLATION}",
+                f"  [FAIL] 新增越界边: {VIOLATION}",
                 "  越界边 1 条 / baseline 0 条 / 新增 1 / 已消除 0 → FAIL",
             ],
         )
 
     def test_eliminated_violation_passes_with_info(self) -> None:
         """baseline 既有条目已消除 → PASS + [info] 可收窄行。"""
-        gone = "closeclaw-gateway -> closeclaw-llm"
-        result = self._run_check(f"{self.VIOLATION}\n{gone}\n")
+        result = self._run_check(f"{VIOLATION}\n{GONE}\n")
         self.assertEqual(result.status, dep_guard.STATUS_PASS)
         self.assertEqual(
             result.lines[1:],
             [
-                f"  [info] 可收窄 baseline（越界边已消除）: {gone}",
+                f"  [info] 可收窄 baseline（越界边已消除）: {GONE}",
                 "  越界边 1 条 / baseline 2 条 / 新增 0 / 已消除 1 → PASS",
             ],
         )
@@ -583,8 +604,6 @@ class CheckFixTest(unittest.TestCase):
     真实读写，走真实 apply_fix → baseline.remove_entries 链路。
     """
 
-    GONE = "closeclaw-gateway -> closeclaw-llm"
-    KEPT = "closeclaw-im-adapter -> closeclaw-debug-log"
     NARROWED_LABELS = {
         "dep-edges": "越界边已消除",
         "second-exports": "二次出口已消除",
@@ -655,14 +674,25 @@ class CheckFixTest(unittest.TestCase):
 
     def test_fix_narrows_eliminated_baseline(self) -> None:
         """--fix：已消除条目行被删除回写；注释头、保留条目与顺序不变。"""
-        before = f"# 头部注释\n\n{self.KEPT}\n{self.GONE}\n"
-        statuses = {"dep-edges": (dep_guard.STATUS_PASS, [self.GONE], [])}
+        before = f"# 头部注释\n\n{KEPT}\n{GONE}\n"
+        statuses = {"dep-edges": (dep_guard.STATUS_PASS, [GONE], [])}
         exit_code, output, after = self._run_check_fix(
             {"dep-edges.txt": before}, ["--fix"], statuses
         )
         self.assertEqual(exit_code, 0)
-        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
-        self.assertEqual(after["dep-edges.txt"], f"# 头部注释\n\n{self.KEPT}\n")
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {GONE}", output)
+        self.assertEqual(after["dep-edges.txt"], f"# 头部注释\n\n{KEPT}\n")
+
+    def test_fix_narrows_dead_deps_baseline(self) -> None:
+        """dead-deps 正向收窄：PASS + 已消除 → [fix] 行 + baseline 回写。"""
+        before = "# machete baseline\nunused-crate\nunused-gone\n"
+        statuses = {"dead-deps": (dep_guard.STATUS_PASS, ["unused-gone"], [])}
+        exit_code, output, after = self._run_check_fix(
+            {"dead-deps.txt": before}, ["--fix"], statuses
+        )
+        self.assertEqual(exit_code, 0)
+        self.assertIn("  [fix] 已收窄 baseline（死依赖已消除）: unused-gone", output)
+        self.assertEqual(after["dead-deps.txt"], "# machete baseline\nunused-crate\n")
 
     def test_fix_leaves_skip_baseline_untouched(self) -> None:
         """SKIP 段（dead-deps machete 不可用路径）不携带 fix 数据 → baseline 不动。"""
@@ -678,40 +708,40 @@ class CheckFixTest(unittest.TestCase):
     def test_fix_narrows_despite_fail_and_exit_code_counts_fail(self) -> None:
         """有新增 FAIL 仍收窄已消除条目；退出码计入 FAIL（语义不变）。"""
         statuses = {
-            "dep-edges": (dep_guard.STATUS_FAIL, [self.GONE], ["x -> y"]),
+            "dep-edges": (dep_guard.STATUS_FAIL, [GONE], ["x -> y"]),
         }
         exit_code, output, after = self._run_check_fix(
-            {"dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n"}, ["--fix"], statuses
+            {"dep-edges.txt": f"{KEPT}\n{GONE}\n"}, ["--fix"], statuses
         )
         self.assertEqual(exit_code, 1)
         self.assertIn("  [FAIL] 新增条目: x -> y", output)
-        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
-        self.assertEqual(after["dep-edges.txt"], f"{self.KEPT}\n")
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {GONE}", output)
+        self.assertEqual(after["dep-edges.txt"], f"{KEPT}\n")
 
     def test_fix_with_only_narrows_only_selected_segment(self) -> None:
         """--fix 与 --only 组合：仅指定段收窄，未选中段的已消除条目不动。"""
         statuses = {
-            "dep-edges": (dep_guard.STATUS_PASS, [self.GONE], []),
+            "dep-edges": (dep_guard.STATUS_PASS, [GONE], []),
             "common-admission": (dep_guard.STATUS_PASS, ["missing-in-code: Bar"], []),
         }
         exit_code, output, after = self._run_check_fix(
             {
-                "dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n",
+                "dep-edges.txt": f"{KEPT}\n{GONE}\n",
                 "common-admission.txt": "# admission\nmissing-in-code: Bar\n",
             },
             ["--fix", "--only", "dep-edges"],
             statuses,
         )
         self.assertEqual(exit_code, 0)
-        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {self.GONE}", output)
+        self.assertIn(f"[fix] 已收窄 baseline（越界边已消除）: {GONE}", output)
         self.assertNotIn("[fix] 已收窄 baseline（偏差已消除）", output)
-        self.assertEqual(after["dep-edges.txt"], f"{self.KEPT}\n")
+        self.assertEqual(after["dep-edges.txt"], f"{KEPT}\n")
         self.assertEqual(after["common-admission.txt"], "# admission\nmissing-in-code: Bar\n")
 
     def test_fix_does_not_change_exit_code(self) -> None:
         """退出码 = FAIL 项数，--fix 不改变：2 项 FAIL 时带/不带 --fix 均为 2。"""
         statuses = {
-            "dep-edges": (dep_guard.STATUS_FAIL, [self.GONE], ["x -> y"]),
+            "dep-edges": (dep_guard.STATUS_FAIL, [GONE], ["x -> y"]),
             "common-admission": (
                 dep_guard.STATUS_FAIL,
                 ["missing-in-code: Bar"],
@@ -719,16 +749,16 @@ class CheckFixTest(unittest.TestCase):
             ),
         }
         files = {
-            "dep-edges.txt": f"{self.KEPT}\n{self.GONE}\n",
+            "dep-edges.txt": f"{KEPT}\n{GONE}\n",
             "common-admission.txt": "# admission\nmissing-in-code: Bar\n",
         }
         with_fix = self._run_check_fix(files, ["--fix"], statuses)
         without_fix = self._run_check_fix(files, [], statuses)
         self.assertEqual(with_fix[0], 2)
         self.assertEqual(without_fix[0], 2)
-        self.assertEqual(with_fix[2]["dep-edges.txt"], f"{self.KEPT}\n")
+        self.assertEqual(with_fix[2]["dep-edges.txt"], f"{KEPT}\n")
         self.assertEqual(with_fix[2]["common-admission.txt"], "# admission\n")
-        self.assertEqual(without_fix[2]["dep-edges.txt"], f"{self.KEPT}\n{self.GONE}\n")
+        self.assertEqual(without_fix[2]["dep-edges.txt"], f"{KEPT}\n{GONE}\n")
         self.assertEqual(
             without_fix[2]["common-admission.txt"], "# admission\nmissing-in-code: Bar\n"
         )
@@ -743,22 +773,15 @@ class CliFixRealRunnerTest(unittest.TestCase):
     漂移按 baseline 原始条目删行。
     """
 
-    VIOLATION = "closeclaw-im-adapter -> closeclaw-debug-log"
-    GONE = "closeclaw-gateway -> closeclaw-llm"
-    TABLE = {
-        allow_table.ROOT_CRATE: allow_table.ALLOW_ALL,
-        "im_adapter": frozenset({"common"}),
-    }
-
     def test_default_no_fix_only_info_and_file_untouched(self) -> None:
         """默认（不带 --fix）：仅 [info] 提示，baseline 文件不被写。"""
-        before = f"# 头部注释\n{self.VIOLATION}\n{self.GONE}\n"
+        before = f"# 头部注释\n{VIOLATION}\n{GONE}\n"
         with tempfile.TemporaryDirectory() as tmp:
             baseline_dir = Path(tmp)
             (baseline_dir / "dep-edges.txt").write_text(before, encoding="utf-8")
             with (
                 mock.patch.object(
-                    allow_table, "load_allow_table", return_value=self.TABLE
+                    allow_table, "load_allow_table", return_value=TABLE
                 ),
                 mock.patch.object(
                     dep_edges, "cargo_metadata", return_value=_fake_metadata()
@@ -773,7 +796,7 @@ class CliFixRealRunnerTest(unittest.TestCase):
             after = (baseline_dir / "dep-edges.txt").read_text(encoding="utf-8")
         self.assertEqual(cli_result.exit_code, 0)
         self.assertIn(
-            f"  [info] 可收窄 baseline（越界边已消除）: {self.GONE}", cli_result.output
+            f"  [info] 可收窄 baseline（越界边已消除）: {GONE}", cli_result.output
         )
         self.assertNotIn("[fix]", cli_result.output)
         self.assertEqual(after, before)

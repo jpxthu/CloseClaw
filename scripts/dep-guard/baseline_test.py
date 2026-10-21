@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""baseline 单元测试：加载语义（load_baseline 跳过注释/空行）+ diff 判定（key 归一化与 None 透传）+ 收窄写回（remove_entries 行过滤删行）。"""
+"""baseline 单元测试：加载语义（load_baseline 跳过注释/空行）+ diff 判定（key 归一化
+与 None 透传）+ 收窄写回（remove_entries 行过滤删行）。
+"""
 
 from __future__ import annotations
 
@@ -139,6 +141,13 @@ class RemoveEntriesTest(unittest.TestCase):
             removed = baseline.remove_entries(path, ["a -> b"])
             self.assertEqual(removed, ["a -> b"])
             self.assertEqual(baseline.load_baseline(path), ["b -> c"])
+
+    def test_no_trailing_newline_preserved(self) -> None:
+        """文件无结尾换行时，删行写回保持无结尾换行（不新增行）。"""
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write(tmp, "# 头部注释\na -> b\nb -> c")
+            self.assertEqual(baseline.remove_entries(path, ["b -> c"]), ["b -> c"])
+            self.assertEqual(path.read_text(encoding="utf-8"), "# 头部注释\na -> b")
 
 
 if __name__ == "__main__":

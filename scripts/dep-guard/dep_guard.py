@@ -76,7 +76,7 @@ class CheckResult:
     status: str  # PASS / FAIL / SKIP（STATUS_* 常量）
     lines: list[str]  # 报文行（首行标题 + FAIL/info 条目 + 汇总行）
     eliminated_items: list[str] = field(default_factory=list)  # 已消除条目
-    baseline_path: Path | None = None  # baseline 文件路径（SKIP 段为 None）
+    baseline_path: Path | None = None  # baseline 文件路径（SKIP / 错误路径为 None）
     narrowed_label: str | None = None  # [fix] 措辞标签（对齐 spec.narrowed_label）
 
 
@@ -105,7 +105,6 @@ def report_diff(
     total_count: int,
     baseline_count: int,
     reason_by_path: dict[str, str] | None = None,
-    baseline_path: Path | None = None,
 ) -> CheckResult:
     """baseline diff 报文公共模板：FAIL 新增 / info 可收窄 / 汇总行 → CheckResult。
 
@@ -113,8 +112,9 @@ def report_diff(
     违规原因，不入 diff 仅入报文）经 ``reason_by_path`` 提供，条目缺
     reason 时回退基础格式；baseline 归一化 key 由调用方在
     ``baseline.diff_baseline`` 处选择。状态判定固定为：
-    diff 有新增 → FAIL，否则 PASS。``baseline_path`` 提供时随结果携带，
-    供 ``check --fix`` 收窄回写（rust-version-declared 不传即不参与）。
+    diff 有新增 → FAIL，否则 PASS。baseline 路径按 ``spec.check_id`` 推导
+    （``BASELINE_DIR / f"{check_id}.txt"``）随结果携带，供 ``check --fix``
+    收窄回写；rust-version-declared 的豁免由 ``FIXABLE_CHECKS`` 把关。
     """
     reasons = reason_by_path or {}
     for item in diff.new_items:
@@ -136,7 +136,7 @@ def report_diff(
         status,
         lines,
         eliminated_items=diff.eliminated_items,
-        baseline_path=baseline_path,
+        baseline_path=BASELINE_DIR / f"{spec.check_id}.txt",
         narrowed_label=spec.narrowed_label,
     )
 
@@ -158,12 +158,9 @@ def check_dep_edges(repo_root: Path) -> CheckResult:
 
     violations = dep_edges.find_violations(data.edges, table, data.root_dir)
     actual = dep_edges.violation_items(violations, data.dir_to_pkg)
-    baseline_path = BASELINE_DIR / "dep-edges.txt"
-    base_items = baseline.load_baseline(baseline_path)
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     diff = baseline.diff_baseline(base_items, actual)
-    return report_diff(
-        lines, spec, diff, len(actual), len(base_items), baseline_path=baseline_path
-    )
+    return report_diff(lines, spec, diff, len(actual), len(base_items))
 
 
 def check_second_exports(repo_root: Path) -> CheckResult:
@@ -182,14 +179,11 @@ def check_second_exports(repo_root: Path) -> CheckResult:
     except (dep_edges.DepEdgesError, second_export.SecondExportError) as exc:
         return report_error(lines, spec.check_id, exc)
 
-    baseline_path = BASELINE_DIR / "second-exports.txt"
-    base_items = baseline.load_baseline(baseline_path)
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     # second-exports 条目含行号：diff 判定键去行号归一化，行号仅作定位信息，
     # 代码移动导致的行号漂移不再触发「新增」FAIL（报告仍返回原始条目）。
     diff = baseline.diff_baseline(base_items, items, key=second_export.strip_lineno)
-    return report_diff(
-        lines, spec, diff, len(items), len(base_items), baseline_path=baseline_path
-    )
+    return report_diff(lines, spec, diff, len(items), len(base_items))
 
 
 def check_common_admission(repo_root: Path) -> CheckResult:
@@ -211,12 +205,9 @@ def check_common_admission(repo_root: Path) -> CheckResult:
     ) as exc:
         return report_error(lines, spec.check_id, exc)
 
-    baseline_path = BASELINE_DIR / "common-admission.txt"
-    base_items = baseline.load_baseline(baseline_path)
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     diff = baseline.diff_baseline(base_items, items)
-    return report_diff(
-        lines, spec, diff, len(items), len(base_items), baseline_path=baseline_path
-    )
+    return report_diff(lines, spec, diff, len(items), len(base_items))
 
 
 def check_dead_deps(repo_root: Path) -> CheckResult:
@@ -240,12 +231,9 @@ def check_dead_deps(repo_root: Path) -> CheckResult:
         summary_suffix=f"（machete {data.source} 解析）",
     )
     items = dead_deps.unused_items(data.unused)
-    baseline_path = BASELINE_DIR / f"{check_id}.txt"
-    base_items = baseline.load_baseline(baseline_path)
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{check_id}.txt")
     diff = baseline.diff_baseline(base_items, items)
-    return report_diff(
-        lines, spec, diff, len(items), len(base_items), baseline_path=baseline_path
-    )
+    return report_diff(lines, spec, diff, len(items), len(base_items))
 
 
 def check_rust_version_declared(repo_root: Path) -> CheckResult:
@@ -298,17 +286,19 @@ def run_checks(repo_root: Path, only: str | None) -> tuple[list[CheckResult], in
     return results, fail_count
 
 
-def apply_fix(result: CheckResult, fix: bool) -> list[str]:
+def apply_fix(result: CheckResult, should_fix: bool) -> list[str]:
     """``--fix`` 收窄编排：删除 FIXABLE 检查 baseline 中已消除条目，返回报文行。
 
-    仅 fix 开启、检查项属 FIXABLE_CHECKS 且结果携带 baseline 路径与已消除
-    条目时执行（SKIP 段与 rust-version-declared 天然跳过）；与 FAIL 正交，
+    仅 should_fix 开启、检查项属 FIXABLE_CHECKS、结果非 SKIP 且携带
+    baseline 路径与已消除条目时执行（SKIP 段显式跳过，
+    rust-version-declared 由 FIXABLE_CHECKS 排除）；与 FAIL 正交，
     新增偏差照常报警、退出码不受影响。每实际删除一条返回一行
     ``[fix] 已收窄 baseline（…）: <item>``；条目在文件中已不存在时
     remove_entries no-op，不报错。
     """
     if (
-        not fix
+        not should_fix
+        or result.status == STATUS_SKIP
         or result.check_id not in FIXABLE_CHECKS
         or result.baseline_path is None
         or not result.eliminated_items
@@ -336,6 +326,7 @@ def main() -> int:
 )
 @click.option(
     "--fix",
+    "should_fix",
     is_flag=True,
     default=False,
     help=(
@@ -344,13 +335,13 @@ def main() -> int:
         "rust-version-declared 不参与。新增偏差照常 FAIL，退出码不变。"
     ),
 )
-def check_cmd(only: str | None, fix: bool) -> None:
+def check_cmd(only: str | None, should_fix: bool) -> None:
     """执行检查并汇总；退出码 = FAIL 项数。--fix 额外收窄 baseline 已消除条目。"""
     results, fail_count = run_checks(REPO_ROOT, only)
     for result in results:
         for line in result.lines:
             print(line)
-        for fix_line in apply_fix(result, fix):
+        for fix_line in apply_fix(result, should_fix):
             print(fix_line)
     print("汇总: " + " ".join(f"{result.check_id}={result.status}" for result in results))
     print(f"FAIL 项数: {fail_count}")

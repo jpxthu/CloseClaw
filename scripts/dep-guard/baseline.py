@@ -1,5 +1,9 @@
 #!/usr/bin/env python3
-"""baseline 引擎：加载 baseline 文件并做三态 diff（新增 / 消除 / 一致）。"""
+"""baseline 引擎：加载 baseline 文件、三态 diff（新增 / 消除 / 一致）与收窄写回。
+
+``remove_entries`` 提供行过滤式收窄写回（供 ``check --fix`` 删除已消除
+条目并回写），与 load / diff 共同构成 baseline 生命周期闭环。
+"""
 
 from __future__ import annotations
 
