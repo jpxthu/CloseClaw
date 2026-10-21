@@ -8,9 +8,10 @@ use closeclaw_common::{BootstrapMode, ModelSpec, SlashSessionQuery};
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::persistence::{PendingMessage, PersistenceService, SessionCheckpoint};
+use closeclaw_test_support::log_capture::capture_logs_async_with_target;
 use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::sync::RwLock;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
@@ -254,53 +255,6 @@ fn count_workflow_contexts(appends: &[String]) -> usize {
 
 // ── Warn capture (log target / message parity with master) ──────────────────
 
-/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
-/// subscriber writes into it while the caller keeps a handle for reading
-/// the captured bytes back.
-#[derive(Clone, Default)]
-struct VecWriter(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for VecWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
-    type Writer = VecWriter;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// Install a thread-local WARN-level fmt subscriber (target kept — the
-/// assertions below check the master log target verbatim) writing into an
-/// in-memory buffer; returns the guard with the buffer handle.
-///
-/// File-local copy of the `capture_warn_logs` mechanism (issue #3102).
-/// Caller tests **must** carry `#[serial_test::serial]`: installing the
-/// subscriber registers WARN callsites in the process-global tracing
-/// callsite-interest cache, and concurrent registration on the same
-/// callsite can drop events.
-fn warn_capture_guard() -> (tracing::subscriber::DefaultGuard, Arc<Mutex<Vec<u8>>>) {
-    let buffer = VecWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_ansi(false)
-        .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
-    (guard, buffer.0)
-}
-
-fn captured_logs(buffer: &Arc<Mutex<Vec<u8>>>) -> String {
-    String::from_utf8(buffer.lock().unwrap().clone()).unwrap()
-}
-
 /// Store a checkpoint whose `workflow_run` value is not a decodable run.
 async fn seed_malformed_workflow_checkpoint(
     persistence: &Arc<SnapshotMockPersist>,
@@ -519,7 +473,7 @@ async fn test_reinject_workflow_context_after_compact_skips_inactive_runs() {
 /// A malformed stored run makes the phase query degrade to `None` with a
 /// warn emitted from the gateway (master-verbatim target + message), not
 /// from the session crate.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_phase_query_decode_failure_warns_from_gateway_target() {
     let sm = SessionManager::new(&make_config(), None, None, ReasoningLevel::default());
@@ -530,12 +484,13 @@ async fn test_phase_query_decode_failure_warns_from_gateway_target() {
         .await
         .set_workflow_run_value(Some(serde_json::json!({ "not": "a run" })));
 
-    let (guard, buffer) = warn_capture_guard();
-    let phase = sm.get_active_workflow_run_phase(session_id).await;
-    drop(guard);
+    let (phase, logs) = capture_logs_async_with_target(
+        || async { sm.get_active_workflow_run_phase(session_id).await },
+        tracing::Level::WARN,
+    )
+    .await;
 
     assert_eq!(phase, None, "an undecodable run reports no active phase");
-    let logs = captured_logs(&buffer);
     assert!(
         logs.contains("closeclaw_gateway::session_manager::session_lookup_impl"),
         "warn must be emitted from the gateway target: {logs}"
@@ -550,7 +505,7 @@ async fn test_phase_query_decode_failure_warns_from_gateway_target() {
 /// A malformed checkpoint run makes compaction re-injection stop with a
 /// warn emitted from the gateway (master-verbatim target + message), not
 /// from the session crate.
-#[tokio::test]
+#[tokio::test(flavor = "current_thread")]
 #[serial_test::serial]
 async fn test_reinject_decode_failure_warns_from_gateway_target() {
     let persistence = Arc::new(SnapshotMockPersist::new());
@@ -559,11 +514,12 @@ async fn test_reinject_decode_failure_warns_from_gateway_target() {
     register_conv_session(&sm, session_id).await;
     seed_malformed_workflow_checkpoint(&persistence, session_id).await;
 
-    let (guard, buffer) = warn_capture_guard();
-    sm.reinject_workflow_context_after_compact(session_id).await;
-    drop(guard);
+    let ((), logs) = capture_logs_async_with_target(
+        || async { sm.reinject_workflow_context_after_compact(session_id).await },
+        tracing::Level::WARN,
+    )
+    .await;
 
-    let logs = captured_logs(&buffer);
     assert!(
         logs.contains("closeclaw_gateway::session_manager::compaction_helpers"),
         "warn must be emitted from the gateway target: {logs}"
