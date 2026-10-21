@@ -139,14 +139,14 @@ _ALLOW_LINTS = (
     "clippy::too_many_arguments",
     "clippy::excessive_nesting",
 )
-_ALLOW_RE_CACHE = {}
+_ALLOW_RES = {
+    lint: re.compile(r"#\[\s*allow\s*\([^)]*?\b" + re.escape(lint) + r"\b")
+    for lint in _ALLOW_LINTS
+}
 
 
 def _has_allow(fname, ln, lint):
-    pat = _ALLOW_RE_CACHE.get(lint)
-    if pat is None:
-        pat = re.compile(r"#\[\s*allow\s*\([^)]*?\b" + re.escape(lint) + r"\b")
-        _ALLOW_RE_CACHE[lint] = pat
+    pat = _ALLOW_RES[lint]
     for i in range(max(1, ln - 15), ln + 16):
         if pat.search(source_line(fname, i)):
             return True
