@@ -3,11 +3,14 @@
 
 Commands
 --------
-- ``check [--only <项>]``
+- ``check [--only <项>] [--fix]``
     执行各项检查并汇总 PASS / FAIL / SKIP，退出码 = FAIL 项数。
     检查项：dep-edges（依赖方向）、second-exports（禁止二次出口）、
     common-admission（common 准入一致性）、dead-deps（死依赖）、
     rust-version-declared（rust-version 声明完整性）。
+    ``--fix``：对 FIXABLE 四项（不含 rust-version-declared）自动删除
+    baseline 中已消除的条目并回写 baseline 文件；新增偏差照常 FAIL，
+    退出码不变。
 
 baseline 策略：baseline = 现状。baseline 内既有违规不报警，仅对
 baseline 外新增越界报警 FAIL；baseline 只收窄不扩张，随各 P2 解耦
@@ -18,7 +21,7 @@ from __future__ import annotations
 
 import subprocess
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Callable
 
@@ -50,6 +53,11 @@ CHECK_IDS = (
     "rust-version-declared",
 )
 
+# check --fix 收窄范围：仅四项 baseline 参与（rust-version-declared 不参与）。
+FIXABLE_CHECKS = frozenset(
+    {"dep-edges", "second-exports", "common-admission", "dead-deps"}
+)
+
 STATUS_PASS = "PASS"
 STATUS_FAIL = "FAIL"
 STATUS_SKIP = "SKIP"
@@ -57,11 +65,19 @@ STATUS_SKIP = "SKIP"
 
 @dataclass(frozen=True)
 class CheckResult:
-    """单项检查结果：标识 + 状态 + 报文行（全链路只读，构造即定稿）。"""
+    """单项检查结果：标识 + 状态 + 报文行（全链路只读，构造即定稿）。
+
+    后三个字段供 ``check --fix`` 收窄编排消费：SKIP 段与错误路径不携带
+    （默认空 / None），apply_fix 自动跳过；eliminated_items 保持 baseline
+    原始条目（second-exports 含旧行号），回写按原始条目精确匹配。
+    """
 
     check_id: str  # 检查项标识，取值见 CHECK_IDS
     status: str  # PASS / FAIL / SKIP（STATUS_* 常量）
     lines: list[str]  # 报文行（首行标题 + FAIL/info 条目 + 汇总行）
+    eliminated_items: list[str] = field(default_factory=list)  # 已消除条目
+    baseline_path: Path | None = None  # baseline 文件路径（SKIP / 错误路径为 None）
+    narrowed_label: str | None = None  # [fix] 措辞标签（对齐 spec.narrowed_label）
 
 
 @dataclass(frozen=True)
@@ -96,7 +112,9 @@ def report_diff(
     违规原因，不入 diff 仅入报文）经 ``reason_by_path`` 提供，条目缺
     reason 时回退基础格式；baseline 归一化 key 由调用方在
     ``baseline.diff_baseline`` 处选择。状态判定固定为：
-    diff 有新增 → FAIL，否则 PASS。
+    diff 有新增 → FAIL，否则 PASS。baseline 路径按 ``spec.check_id`` 推导
+    （``BASELINE_DIR / f"{check_id}.txt"``）随结果携带，供 ``check --fix``
+    收窄回写；rust-version-declared 的豁免由 ``FIXABLE_CHECKS`` 把关。
     """
     reasons = reason_by_path or {}
     for item in diff.new_items:
@@ -113,7 +131,14 @@ def report_diff(
         f"新增 {len(diff.new_items)} / 已消除 {len(diff.eliminated_items)} "
         f"{spec.summary_suffix}→ {status}"
     )
-    return CheckResult(spec.check_id, status, lines)
+    return CheckResult(
+        spec.check_id,
+        status,
+        lines,
+        eliminated_items=diff.eliminated_items,
+        baseline_path=BASELINE_DIR / f"{spec.check_id}.txt",
+        narrowed_label=spec.narrowed_label,
+    )
 
 
 def check_dep_edges(repo_root: Path) -> CheckResult:
@@ -133,7 +158,7 @@ def check_dep_edges(repo_root: Path) -> CheckResult:
 
     violations = dep_edges.find_violations(data.edges, table, data.root_dir)
     actual = dep_edges.violation_items(violations, data.dir_to_pkg)
-    base_items = baseline.load_baseline(BASELINE_DIR / "dep-edges.txt")
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     diff = baseline.diff_baseline(base_items, actual)
     return report_diff(lines, spec, diff, len(actual), len(base_items))
 
@@ -154,7 +179,7 @@ def check_second_exports(repo_root: Path) -> CheckResult:
     except (dep_edges.DepEdgesError, second_export.SecondExportError) as exc:
         return report_error(lines, spec.check_id, exc)
 
-    base_items = baseline.load_baseline(BASELINE_DIR / "second-exports.txt")
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     # second-exports 条目含行号：diff 判定键去行号归一化，行号仅作定位信息，
     # 代码移动导致的行号漂移不再触发「新增」FAIL（报告仍返回原始条目）。
     diff = baseline.diff_baseline(base_items, items, key=second_export.strip_lineno)
@@ -180,7 +205,7 @@ def check_common_admission(repo_root: Path) -> CheckResult:
     ) as exc:
         return report_error(lines, spec.check_id, exc)
 
-    base_items = baseline.load_baseline(BASELINE_DIR / "common-admission.txt")
+    base_items = baseline.load_baseline(BASELINE_DIR / f"{spec.check_id}.txt")
     diff = baseline.diff_baseline(base_items, items)
     return report_diff(lines, spec, diff, len(items), len(base_items))
 
@@ -261,6 +286,31 @@ def run_checks(repo_root: Path, only: str | None) -> tuple[list[CheckResult], in
     return results, fail_count
 
 
+def apply_fix(result: CheckResult, should_fix: bool) -> list[str]:
+    """``--fix`` 收窄编排：删除 FIXABLE 检查 baseline 中已消除条目，返回报文行。
+
+    仅 should_fix 开启、检查项属 FIXABLE_CHECKS、结果非 SKIP 且携带
+    baseline 路径与已消除条目时执行（SKIP 段显式跳过，
+    rust-version-declared 由 FIXABLE_CHECKS 排除）；与 FAIL 正交，
+    新增偏差照常报警、退出码不受影响。每实际删除一条返回一行
+    ``[fix] 已收窄 baseline（…）: <item>``；条目在文件中已不存在时
+    remove_entries no-op，不报错。
+    """
+    if (
+        not should_fix
+        or result.status == STATUS_SKIP
+        or result.check_id not in FIXABLE_CHECKS
+        or result.baseline_path is None
+        or not result.eliminated_items
+    ):
+        return []
+    removed = baseline.remove_entries(result.baseline_path, result.eliminated_items)
+    return [
+        f"  [fix] 已收窄 baseline（{result.narrowed_label}）: {item}"
+        for item in removed
+    ]
+
+
 @click.group()
 def main() -> int:
     """Dep Guard – 解耦治理自动化守卫。"""
@@ -274,12 +324,25 @@ def main() -> int:
     default=None,
     help="只执行指定检查项（默认全部）。",
 )
-def check_cmd(only: str | None) -> None:
-    """执行检查并汇总；退出码 = FAIL 项数。"""
+@click.option(
+    "--fix",
+    "should_fix",
+    is_flag=True,
+    default=False,
+    help=(
+        "自动收窄 baseline：删除 FIXABLE 四项（dep-edges / second-exports / "
+        "common-admission / dead-deps）已消除的条目并回写 baseline 文件；"
+        "rust-version-declared 不参与。新增偏差照常 FAIL，退出码不变。"
+    ),
+)
+def check_cmd(only: str | None, should_fix: bool) -> None:
+    """执行检查并汇总；退出码 = FAIL 项数。--fix 额外收窄 baseline 已消除条目。"""
     results, fail_count = run_checks(REPO_ROOT, only)
     for result in results:
         for line in result.lines:
             print(line)
+        for fix_line in apply_fix(result, should_fix):
+            print(fix_line)
     print("汇总: " + " ".join(f"{result.check_id}={result.status}" for result in results))
     print(f"FAIL 项数: {fail_count}")
     # click group 的 standalone 模式不透传子命令返回值，须显式 ctx.exit。
