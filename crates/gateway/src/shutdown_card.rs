@@ -436,11 +436,11 @@ impl Gateway {
         }
 
         let summary = format!(
-            "{} {} \u{6210}\u{529f}, {} \u{5931}\u{8d25}, {} \u{8df3}\u{8fc7}",
-            "\u{2705} \u{5173}\u{95ed}\u{5b8c}\u{6210}\u{ff1a}",
-            result.succeeded,
-            result.failed,
-            result.skipped
+            concat!(
+                "\u{2705} \u{5173}\u{95ed}\u{5b8c}\u{6210}\u{ff1a}",
+                " {} \u{6210}\u{529f}, {} \u{5931}\u{8d25}, {} \u{8df3}\u{8fc7}"
+            ),
+            result.succeeded, result.failed, result.skipped
         );
 
         let card = json!({

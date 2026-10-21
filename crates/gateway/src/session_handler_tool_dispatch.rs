@@ -20,6 +20,7 @@ use crate::session_manager::SessionManager;
 type PermRequest = closeclaw_permission::engine::engine_types::PermissionRequest;
 type PermRequestBody = closeclaw_permission::engine::engine_types::PermissionRequestBody;
 type PermResponse = closeclaw_permission::engine::engine_types::PermissionResponse;
+type PermCaller = closeclaw_permission::engine::engine_types::Caller;
 
 /// Bundled permission dependencies for tool-call dispatch.
 ///
@@ -158,7 +159,7 @@ impl ToolExecutor for TraitObjectExecutor {
 
             // Level 1: tool-group permission check.
             let request = PermRequest::WithCaller {
-                caller: closeclaw_permission::engine::engine_types::Caller {
+                caller: PermCaller {
                     user_id: user_id.clone(),
                     agent: agent_id.clone(),
                 },
@@ -174,13 +175,8 @@ impl ToolExecutor for TraitObjectExecutor {
             drop(engine);
 
             match eval_result {
-                closeclaw_permission::engine::engine_types::PermissionResponse::Allowed {
-                    ..
-                } => {}
-                closeclaw_permission::engine::engine_types::PermissionResponse::Denied {
-                    reason,
-                    ..
-                } => {
+                PermResponse::Allowed { .. } => {}
+                PermResponse::Denied { reason, .. } => {
                     return ToolResult {
                         data: serde_json::json!({
                             "error": format!(
@@ -205,7 +201,7 @@ impl ToolExecutor for TraitObjectExecutor {
                         let cmd_args: Vec<String> =
                             parts[1..].iter().map(|s| s.to_string()).collect();
                         let cmd_request = PermRequest::WithCaller {
-                            caller: closeclaw_permission::engine::engine_types::Caller {
+                            caller: PermCaller {
                                 user_id: user_id.clone(),
                                 agent: agent_id.clone(),
                             },
@@ -244,7 +240,7 @@ impl ToolExecutor for TraitObjectExecutor {
                             .unwrap_or(false);
                         let op = if is_read_only { "read" } else { "write" };
                         let file_request = PermRequest::WithCaller {
-                            caller: closeclaw_permission::engine::engine_types::Caller {
+                            caller: PermCaller {
                                 user_id: user_id.clone(),
                                 agent: agent_id.clone(),
                             },

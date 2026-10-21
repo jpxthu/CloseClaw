@@ -58,8 +58,9 @@ fn code_line(width: usize) -> String {
     format!("{prefix}{}\";", "a".repeat(width - prefix.len() - 2))
 }
 
-/// 夹具：总宽恰为 `width` 字符的普通代码行（非注释、非字符串字面量形态；
-/// fmt 折不动的超宽形态由本脚本拦截）。
+/// 夹具：总宽恰为 `width` 字符的普通代码行（非注释代码行形态）。
+/// 非注释新增行无论 fmt 可折与否均由本脚本拦截，本夹具只代表
+/// 非注释代码行形态。
 fn plain_code_line(width: usize) -> String {
     let prefix = "let _ = f(";
     let suffix = ");";
