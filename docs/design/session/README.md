@@ -86,7 +86,7 @@ SessionManager 维护会话路由键 -> session_id 映射表，路由到最近�
   - **SqliteStorage**：生产级持久化后端。SQLite 存元数据，JSONL 文件存 transcript。
 
 - **执行层组件**：
-  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、缓存命中一致性校验的上一轮请求前缀快照（增强层运行时）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。推理呈现相关状态独立存储：`reasoning_mode`（推理呈现模式，ReasoningMode：Direct/Plan/Stream/Hidden），该字段带 `#[serde(alias = "mode")]` 兼容旧 checkpoint。
+  - **ConversationSession**：运行时对象，持有 system prompt、消息历史、追加区内容（system prompt 第三分区 AppendSection，持久化在 checkpoint 的 system_appends 字段中）、RunningStats（token/cache 统计）、缓存命中一致性校验的上一轮请求前缀快照（增强层运行时）、Verbosity 等级（控制出站信息块过滤，详见 [slash 模块 verbose 指令](../slash/verbose.md)）。同时持有执行状态句柄（LLM 状态、工具进程、子 Session 引用）。每轮执行开始时固定本轮 User 上下文（IM/CLI 消息取发送者映射，CLI 为 Owner；心跳取任务配置 User；子 Session 继承父 Session 本轮 User），写入 ToolContext.user_id 供权限评估、审批与审计使用；该值按轮次绑定，不随会话持久化。推理呈现相关状态独立存储：`reasoning_mode`（推理呈现模式，ReasoningMode：Direct/Plan/Stream/Hidden），该字段带 `#[serde(alias = "mode")]` 兼容旧 checkpoint。
   - **四维执行状态**：llm_active、foreground_tool_active、background_tool_active、child_active 四维独立跟踪。执行状态为纯内存数据，不进持久化——resume 后 session 回到 Idle；若崩溃前存在未完成操作，恢复扫描会注入恢复通知（详见 [session-recovery.md](session-recovery.md)），未完成操作在后续 turn 中处理。由四维派生整体执行状态 `SessionExecStatus`（Idle / Waiting / Busy）：Idle 对应可接收输入（四维中后台工具与子 Session 不计入），Busy 对应 LLM 推理或前台工具执行中，Waiting 仅在通过 `sessions_yield` 主动让出 turn 时出现。完整状态表见 [session-execution.md](session-execution.md) 四维执行状态节。
 
     **idle（输入就绪）**：llm_active 和 foreground_tool_active 均为 false——session 可以立即接收新输入。background_tool_active 和 child_active 不影响 idle 判定。

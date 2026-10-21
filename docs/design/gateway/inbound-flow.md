@@ -69,7 +69,7 @@ Gateway 先按 message_type 做媒体可得性校验（媒体能力暂缓，以�
 
 Gateway 检查 content 第一个字符：
 
-**以 `/` 开头 → 斜杠指令**：消息不进入 LLM，不追加到对话历史。先拦截 `/approve-once`、`/approve-whitelist`、`/deny`（拦截逻辑与权限校验见 [Gateway README](README.md#入站路径) 路由决策节）。其余斜杠指令分派给 SlashDispatcher，匹配指令 → 执行对应 Handler → 返回 [SlashResult](../common/shared-types.md#slashresult) → Gateway 执行副作用。Owner 的 `/stop` 在停止完成后经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 终止该会话的活跃 workflow；非 Owner 的 `/stop` 只停止运行。
+**以 `/` 开头 → 斜杠指令**：消息不进入 LLM，不追加到对话历史。先拦截 `/approve-once`、`/approve-whitelist`、`/deny` 与权限管理指令（`/perm` 系列、新用户注册）（拦截逻辑与权限校验见 [Gateway README](README.md#入站路径) 路由决策节）。其余斜杠指令分派给 SlashDispatcher，匹配指令 → 执行对应 Handler → 返回 [SlashResult](../common/shared-types.md#slashresult) → Gateway 执行副作用。Owner 的 `/stop` 在停止完成后经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 终止该会话的活跃 workflow；非 Owner 的 `/stop` 只停止运行。
 
 **不以 `/` 开头 → 普通对话消息**：Owner 非斜杠消息在路由到 Session 前，Gateway 经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 通知 workflow 运行时（存在 blocked workflow 时解除阻塞；无活跃 workflow 时无操作）。Gateway 通过 `session_id` 找到 Session。后续流程（忙碌队列、归档恢复、进入 LLM）详见 [Gateway README](README.md#入站路径) 路由决策节。
 

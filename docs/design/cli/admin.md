@@ -26,7 +26,7 @@ run 命令启动 daemon 进程：启动前检测 PID 文件——存在且对应
 
 config 命令管理配置文件。setup 子命令启动交互式配置向导（详见 [LLM Provider 配置向导](../llm/provider-config-wizard.md)），引导用户选择 Provider、输入凭据、发现模型并写入配置，首次配置时引导创建初始 Agent（创建规则见 [agent §F5](../../requirements/agent.md)），支持 `--yes` 跳过确认提示（对应需求 [cli §F4](../../requirements/cli.md)）。validate 子命令校验配置文件：按配置文件做 schema 级校验（字段/类型/必填），校验规则复用 [config 模块「校验规则」](../config/README.md)，不另建 schema。
 
-rule 命令查看权限规则（只读——权限规则的修改通过斜杠指令完成，对应需求 [cli §F7](../../requirements/cli.md)）：check 子命令校验单条规则语法，接受内联 JSON 字符串或文件路径（自动探测：以 `/`、`./`、`../` 开头或以 `.json` 结尾视为文件路径，否则视为内联 JSON），规则语法见 [权限模块](../permission/README.md)；list 子命令列出权限规则（规则来源、维度与存储见 [权限模块](../permission/README.md)）。
+rule 命令查看权限规则（只读——权限规则的修改通过斜杠指令完成，对应需求 [cli §F7](../../requirements/cli.md)）：check 子命令校验单条规则语法，接受内联 JSON 字符串或文件路径（自动探测：以 `/`、`./`、`../` 开头或以 `.json` 结尾视为文件路径，否则视为内联 JSON），规则语法与文件结构见 [权限配置管理](../permission/permission-configuration.md#配置文件与结构)；list 子命令列出权限规则（规则来源、维度与存储见 [权限配置管理](../permission/permission-configuration.md#配置文件与结构) 与 [权限维度](../permission/permission-dimensions.md)）。
 
 **daemon RPC**：依赖 daemon 已运行，通过管理接口查询 daemon 状态；管理接口不可达（daemon 未运行，或正处于配置触发的网关重启窗口——Admin RPC Server 随 Gateway 重建）时报错退出。
 

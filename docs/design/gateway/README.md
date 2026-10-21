@@ -60,6 +60,7 @@ Gateway 收到入站平台事件后，消息先进入入站消息队列（有界
     - 非 Owner 调用 `/approve-once`、`/approve-whitelist`、`/deny` → Gateway 直接回复"权限不足：该指令仅限 Owner 使用"，不进入 Permission 模块和 SlashDispatcher。流程到此结束。
     - `/approve-once`、`/approve-whitelist`、`/deny`（Owner 调用）：经 Permission 模块审批工作流管理审批流转（详见 [Permission 模块审批工作流](../permission/approval-workflow.md)）。审批通过后执行对应操作，结果经出站链路发送。
     - 其余斜杠指令分派给 SlashDispatcher。Gateway 将 session_id 传给 SlashDispatcher 作为执行上下文（权限校验依赖）。消息不进入 LLM，不追加到对话历史。
+    - 权限管理指令（`/perm` 系列、新用户注册）：由 Gateway 权限指令处理层硬拦截并验证 Owner，不进 SlashDispatcher；权限规则修改与注册请求流转见 [Permission 模块权限配置管理](../permission/permission-configuration.md#修改入口)。
     - Immediate 指令（如 `/stop`、`/status`、`/help` 等）→ 绕过 Session 忙碌队列立即执行。完整 Immediate 标记见 [Slash 模块 Handler 清单](../slash/README.md#handler-清单)。
     - Owner 的 `/stop` 在停止完成后，Gateway 经 [WorkflowControl](../common/core-traits.md#workflowcontrol) 终止该会话的活跃 workflow；非 Owner 的 `/stop` 只停止运行、不终止 workflow。
     - 非 Immediate 指令 → 若 Session 正忙则进入 Session 忙碌队列（FIFO），Session 空闲后取出执行。入队时由 Session 生成"⏳ 正在排队..."提示语，经 Gateway 的通用系统通知接口发送。
