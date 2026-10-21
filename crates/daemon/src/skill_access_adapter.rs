@@ -150,7 +150,7 @@ mod tests {
     // ── Error mapping（错误路径） ─────────────────────────────────────
 
     #[test]
-    fn execute_error_mapping_preserves_payload_and_display_for_all_variants() {
+    fn test_execute_error_mapping_preserves_payload_and_display_for_all_variants() {
         let cases = [
             (SkillError::NotFound("x".into()), "Skill 'x' not found"),
             (
@@ -174,7 +174,7 @@ mod tests {
     // ── Disk adapter against the real registry ───────────────────────
 
     #[test]
-    fn disk_adapter_lists_names_loads_body_and_returns_none_for_missing_skill() {
+    fn test_disk_adapter_lists_names_loads_body_and_returns_none_for_missing_skill() {
         let tmp = tempfile::TempDir::new().unwrap();
         let readme = tmp.path().join("SKILL.md");
         std::fs::write(&readme, "---\ndescription: test\n---\n\n# Hello\n").unwrap();
@@ -197,7 +197,7 @@ mod tests {
     }
 
     #[test]
-    fn disk_adapter_surfaces_body_read_failure() {
+    fn test_disk_adapter_surfaces_body_read_failure() {
         let tmp = tempfile::TempDir::new().unwrap();
         let readme = tmp.path().join("SKILL.md");
         std::fs::write(&readme, "---\ndescription: test\n---\n\n# Body").unwrap();
@@ -220,7 +220,7 @@ mod tests {
     // ── Builtin adapter against the real registry ────────────────────
 
     #[tokio::test]
-    async fn builtin_adapter_lists_names_executes_and_maps_errors() {
+    async fn test_builtin_adapter_lists_names_executes_and_maps_errors() {
         let registry = Arc::new(BuiltinSkillRegistry::new());
         registry.register(Arc::new(FailingSkill)).await;
 
@@ -239,7 +239,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn factories_return_trait_objects() {
+    async fn test_factories_return_trait_objects() {
         let registry = Arc::new(DiskSkillRegistry::new(vec![]));
         let disk: Arc<dyn DiskSkillAccess> = disk_skill_access(registry);
         assert!(disk.user_invocable_names().is_empty());

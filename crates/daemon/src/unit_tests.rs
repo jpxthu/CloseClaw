@@ -895,7 +895,7 @@ fn test_service_shutdown_receivers_destructure_like_spawn() {
 /// SessionMessageHandler with model_knowledge returns Some from getter.
 /// Locks the Step 1.3 daemon wiring invariant.
 #[test]
-fn session_handler_model_knowledge_returns_some() {
+fn test_session_handler_model_knowledge_returns_some() {
     use closeclaw_common::CompactConfig;
     use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
     use closeclaw_gateway::{SessionManager, SessionMessageHandler};
