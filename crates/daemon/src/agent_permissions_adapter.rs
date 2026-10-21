@@ -47,7 +47,7 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn get_returns_none_for_agent_without_permissions() {
+    fn test_get_returns_none_for_agent_without_permissions() {
         let tmp = tempfile::TempDir::new().unwrap();
         let adapter = AgentPermissionsAdapter::new(Arc::new(LazyAgentPermissions::new(
             tmp.path().to_path_buf(),
@@ -157,7 +157,7 @@ mod tests {
     /// file read stays allowed — the same verdicts the engine produced
     /// with config-side types before the port migration.
     #[tokio::test]
-    async fn injected_evaluate_with_chain_denies_parent_denied_dimension() {
+    async fn test_injected_evaluate_with_chain_denies_parent_denied_dimension() {
         let tmp = tempfile::TempDir::new().unwrap();
         write_parent_permissions(tmp.path());
         let adapter = AgentPermissionsAdapter::new(Arc::new(LazyAgentPermissions::new(

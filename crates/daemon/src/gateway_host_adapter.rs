@@ -161,7 +161,7 @@ mod tests {
 
     /// `InboundPayload` → `InboundRequest` copies every field verbatim.
     #[test]
-    fn to_inbound_request_copies_all_five_fields() {
+    fn test_to_inbound_request_copies_all_five_fields() {
         let payload = payload("feishu", "oc_chat");
         let request = to_inbound_request(payload.clone());
         assert_eq!(request.platform, payload.platform);
@@ -181,7 +181,7 @@ mod tests {
     /// A queue-full rejection is mapped onto the port-local `EnqueueError`
     /// (no gateway types leak through the port).
     #[tokio::test]
-    async fn enqueue_maps_queue_full_to_enqueue_error() {
+    async fn test_enqueue_maps_queue_full_to_enqueue_error() {
         let gateway = make_gateway();
         let plugin = Arc::new(ParkingPlugin::new("feishu"));
         gateway
@@ -213,7 +213,7 @@ mod tests {
 
     /// `register_plugin` forwards the plugin to the wrapped gateway.
     #[tokio::test]
-    async fn register_plugin_forwards_to_gateway() {
+    async fn test_register_plugin_forwards_to_gateway() {
         let gateway = make_gateway();
         let registrar = GatewayPluginRegistrar::new(Arc::clone(&gateway));
         registrar

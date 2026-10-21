@@ -140,7 +140,7 @@ mod tests {
     // ── Enum mapping (正常路径) ────────────────────────────────────────
 
     #[test]
-    fn format_mapping_covers_all_variants() {
+    fn test_format_mapping_covers_all_variants() {
         assert_eq!(
             format_to_session(PlanNameFormat::Timestamp),
             session_plan_file::PlanIdentifierFormat::Timestamp
@@ -159,7 +159,7 @@ mod tests {
     // ── Error mapping（错误/边界：NotFound、Ambiguous 多候选） ─────────
 
     #[test]
-    fn not_found_error_mapping_preserves_payload_and_display() {
+    fn test_not_found_error_mapping_preserves_payload_and_display() {
         let session_err = session_plan_file::PlanResolveError::NotFound {
             name: "missing-plan".to_string(),
         };
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn ambiguous_error_mapping_preserves_payload_and_display() {
+    fn test_ambiguous_error_mapping_preserves_payload_and_display() {
         let session_err = session_plan_file::PlanResolveError::Ambiguous {
             name: "auth".to_string(),
             candidates: vec!["auth-login".to_string(), "auth-logout".to_string()],
@@ -203,7 +203,7 @@ mod tests {
     // ── Adapter behavior against the real session functions ──────────
 
     #[test]
-    fn create_and_resolve_roundtrip_for_both_formats() {
+    fn test_create_and_resolve_roundtrip_for_both_formats() {
         for format in [PlanNameFormat::Timestamp, PlanNameFormat::RandomWords] {
             let tmp = tempfile::TempDir::new().unwrap();
             let store = SessionPlanFileStore;
@@ -232,7 +232,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_not_found_and_ambiguous_surfaces_slash_error() {
+    fn test_resolve_not_found_and_ambiguous_surfaces_slash_error() {
         let tmp = tempfile::TempDir::new().unwrap();
         let store = SessionPlanFileStore;
 
@@ -268,7 +268,7 @@ mod tests {
     }
 
     #[test]
-    fn touch_list_read_roundtrip_preserves_summary_fields() {
+    fn test_touch_list_read_roundtrip_preserves_summary_fields() {
         let tmp = tempfile::TempDir::new().unwrap();
         let plans = tmp.path().join("plans");
         std::fs::create_dir_all(&plans).unwrap();
@@ -305,7 +305,7 @@ mod tests {
     }
 
     #[test]
-    fn factory_returns_trait_object() {
+    fn test_factory_returns_trait_object() {
         let store = session_plan_file_store();
         let tmp = tempfile::TempDir::new().unwrap();
         assert!(store.list_plan_summaries(tmp.path()).unwrap().is_empty());
@@ -314,7 +314,7 @@ mod tests {
     // ── Tools-side adapter (error mapping + real behavior) ───────────
 
     #[test]
-    fn tools_error_mapping_preserves_payload_and_display() {
+    fn test_tools_error_mapping_preserves_payload_and_display() {
         let session_err = session_plan_file::PlanResolveError::NotFound {
             name: "missing-plan".to_string(),
         };
@@ -352,7 +352,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_adapter_resolves_and_maps_errors_verbatim() {
+    fn test_tools_adapter_resolves_and_maps_errors_verbatim() {
         let tmp = tempfile::TempDir::new().unwrap();
         let access = ToolPlanFileAccess;
 
@@ -379,7 +379,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_adapter_write_roundtrip_no_tear() {
+    fn test_tools_adapter_write_roundtrip_no_tear() {
         let tmp = tempfile::TempDir::new().unwrap();
         let access = ToolPlanFileAccess;
         let plan = tmp.path().join("plans").join("feature.md");
@@ -412,7 +412,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_adapter_write_error_surfaces_session_io_error_verbatim() {
+    fn test_tools_adapter_write_error_surfaces_session_io_error_verbatim() {
         let tmp = tempfile::TempDir::new().unwrap();
         // Parent path occupied by a regular file → parent-dir creation
         // fails inside the session helper. The adapter's error mapping
@@ -431,7 +431,7 @@ mod tests {
     }
 
     #[test]
-    fn tools_factory_returns_trait_object() {
+    fn test_tools_factory_returns_trait_object() {
         let access = tool_plan_file_access();
         let tmp = tempfile::TempDir::new().unwrap();
         match access.resolve_plan_by_name(tmp.path(), "nonexistent") {
