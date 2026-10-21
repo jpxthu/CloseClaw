@@ -117,9 +117,9 @@ async fn test_save_then_clear_cache_then_load_from_storage() {
     let mem = Arc::new(MemStorage::default());
     let cm = CheckpointManager::new(mem.clone());
 
-    // Use save_sync to ensure storage is written before we clear cache
+    // Use save_now to ensure storage is written before we clear cache
     let cp = make_cp("s2");
-    cm.save_sync(cp).await.unwrap();
+    cm.save_now(cp).await.unwrap();
     cm.clear_cache().await;
 
     // Cache is empty → load must go to storage
@@ -210,7 +210,7 @@ async fn test_delete_removes_from_cache_and_storage() {
     let mem = Arc::new(MemStorage::default());
     let cm = CheckpointManager::new(mem.clone());
 
-    cm.save_sync(make_cp("s6")).await.unwrap();
+    cm.save_now(make_cp("s6")).await.unwrap();
     assert!(cm.load("s6").await.unwrap().is_some());
 
     cm.delete("s6").await.unwrap();
@@ -230,7 +230,7 @@ async fn test_archive_removes_from_cache_and_storage() {
     let cm = CheckpointManager::new(mem.clone());
 
     let cp = make_cp("s7");
-    cm.save_sync(cp.clone()).await.unwrap();
+    cm.save_now(cp.clone()).await.unwrap();
 
     cm.archive(cp).await.unwrap();
 
@@ -269,7 +269,7 @@ async fn test_empty_checkpoint_save_load() {
     let cm = CheckpointManager::new(mem.clone());
 
     let cp = SessionCheckpoint::new("empty-session".into());
-    cm.save_sync(cp).await.unwrap();
+    cm.save_now(cp).await.unwrap();
 
     let loaded = cm.load("empty-session").await.unwrap().unwrap();
     assert_eq!(loaded.session_id, "empty-session");
@@ -294,7 +294,7 @@ async fn test_large_checkpoint_save_load() {
         });
     }
 
-    cm.save_sync(cp).await.unwrap();
+    cm.save_now(cp).await.unwrap();
 
     let loaded = cm.load("large-session").await.unwrap().unwrap();
     assert_eq!(loaded.pending_messages.len(), 1000);
@@ -321,11 +321,11 @@ async fn test_repeated_save_overwrites_cache() {
 
     let mut cp1 = make_cp("s9");
     cp1.platform = Some("old-platform".into());
-    cm.save_sync(cp1).await.unwrap();
+    cm.save_now(cp1).await.unwrap();
 
     let mut cp2 = make_cp("s9");
     cp2.platform = Some("new-platform".into());
-    cm.save_sync(cp2).await.unwrap();
+    cm.save_now(cp2).await.unwrap();
 
     let loaded = cm.load("s9").await.unwrap().unwrap();
     assert_eq!(loaded.platform.as_deref(), Some("new-platform"));

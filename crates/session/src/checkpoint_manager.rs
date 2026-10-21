@@ -82,8 +82,11 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
         Ok(())
     }
 
-    /// 保存 Checkpoint（同步写入，用于网关关闭时）
-    pub async fn save_sync(
+    /// 保存 Checkpoint（立即写入存储并等待完成，返回 `Result` 不吞错误，用于网关关闭时）
+    ///
+    /// Unlike [`save`](Self::save)（spawn 后台写入、错误仅记日志不传播），
+    /// 本方法 await 存储写入完成，并将错误传播给调用方。
+    pub async fn save_now(
         &self,
         mut checkpoint: SessionCheckpoint,
     ) -> Result<(), PersistenceError> {
@@ -146,7 +149,7 @@ impl<S: PersistenceService + ?Sized + 'static> CheckpointManager<S> {
 
     /// 保存 Checkpoint（同步写入，不注入 identity，保留原始行为）
     ///
-    /// Unlike [`save`](Self::save) and [`save_sync`](Self::save_sync),
+    /// Unlike [`save`](Self::save) and [`save_now`](Self::save_now),
     /// this method does **not** inject `agent_id` / `role` identity into
     /// the checkpoint — it writes the checkpoint as-is.
     /// The local cache is updated.
