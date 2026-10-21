@@ -2,14 +2,22 @@
 name = "closeclaw-test-support"
 version = "0.1.0"
 edition.workspace = true
-description = "Shared test support: dependency boundary guard for workspace crates"
+description = "Shared test support: dependency boundary guard and log-capture for workspace crates"
 license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
 # Manifest parsing for the dependency boundary guard
 toml.workspace = true
+# Log-capture facility (thread-local tracing subscriber + in-memory writer)
+tracing.workspace = true
+tracing-subscriber.workspace = true
 
 [dev-dependencies]
 # Synthetic manifests for the boundary guard unit tests (system temp dir)
 tempfile.workspace = true
+# Log-capture behaviour pinning tests: serial + current-thread tokio runtime
+# (threading contract), futures catch_unwind (panic-unwind path)
+serial_test.workspace = true
+tokio.workspace = true
+futures.workspace = true

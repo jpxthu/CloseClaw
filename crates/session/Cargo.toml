@@ -55,7 +55,6 @@ rusqlite.workspace = true
 tempfile.workspace = true
 serial_test.workspace = true
 filetime.workspace = true
-tracing-subscriber.workspace = true
 # Enables `#[tokio::test(start_paused = true)]` (paused-clock unit tests).
 tokio = { workspace = true, features = ["test-util"] }
 # Test-only workspace deps (outside the allowed edge table, which constrains

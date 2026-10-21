@@ -3,6 +3,7 @@
 use crate::checkpoint_manager::CheckpointManager;
 use crate::llm_session::SessionMessage;
 use crate::persistence::{AgentRole, PersistenceError, PersistenceService, SessionCheckpoint};
+use closeclaw_test_support::log_capture::capture_logs_async;
 use std::sync::{Arc, Mutex};
 
 /// In-memory storage for tests.
@@ -239,52 +240,6 @@ async fn test_save_now_storage_failure_propagates_error() {
 
 // ── Error path: save swallows background failure (returns Ok + error log) ───
 
-/// `MakeWriter` that appends into a shared in-memory buffer (minimal local
-/// twin of the `VecWriter` in `llm_session/tests/log_capture.rs`).
-#[derive(Clone, Default)]
-struct LogBuffer(Arc<Mutex<Vec<u8>>>);
-
-impl std::io::Write for LogBuffer {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for LogBuffer {
-    type Writer = LogBuffer;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// Run `f` under a thread-local fmt subscriber (filter ERROR, no ansi/target)
-/// writing into an in-memory buffer; return `f`'s output and the captured
-/// logs. Same threading contract as
-/// `llm_session/tests/log_capture.rs::capture_logs_async`: `f` must run to
-/// completion on the default current-thread `#[tokio::test]` flavor and must
-/// await every background work whose logs it wants to capture.
-async fn capture_error_logs<T, Fut>(f: impl FnOnce() -> Fut) -> (T, String)
-where
-    Fut: std::future::Future<Output = T>,
-{
-    let buffer = LogBuffer::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_max_level(tracing::Level::ERROR)
-        .with_target(false)
-        .with_ansi(false)
-        .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
-    let value = f().await;
-    drop(guard);
-    let logs = String::from_utf8(std::mem::take(&mut *buffer.0.lock().unwrap())).unwrap();
-    (value, logs)
-}
-
 /// `save()` spawns the storage write in the background and swallows its
 /// error (log-only). Pin both halves: the call still returns `Ok(())`, and
 /// the failed background write is reported via an error log.
@@ -301,22 +256,25 @@ async fn test_save_storage_failure_swallows_error_and_logs() {
     // Everything the capture needs runs inside the scope: the call itself
     // plus a deadline-bounded wait until the spawned write has attempted
     // (and failed) the storage save — only then are the logs complete.
-    let (_, logs) = capture_error_logs(|| async {
-        let result = cm.save(make_cp("fail-save")).await;
-        assert!(
-            result.is_ok(),
-            "save() must swallow the storage failure and return Ok(()), got: {result:?}"
-        );
-
-        let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
-        while mem.save_attempts() == 0 {
+    let (_, logs) = capture_logs_async(
+        || async {
+            let result = cm.save(make_cp("fail-save")).await;
             assert!(
-                tokio::time::Instant::now() < deadline,
-                "background save task did not run in time"
+                result.is_ok(),
+                "save() must swallow the storage failure and return Ok(()), got: {result:?}"
             );
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
-        }
-    })
+
+            let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(1);
+            while mem.save_attempts() == 0 {
+                assert!(
+                    tokio::time::Instant::now() < deadline,
+                    "background save task did not run in time"
+                );
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+        },
+        tracing::Level::ERROR,
+    )
     .await;
 
     assert!(

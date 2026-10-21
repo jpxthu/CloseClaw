@@ -940,7 +940,6 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
- "tracing-subscriber",
  "uuid",
 ]
 
@@ -1017,8 +1016,13 @@ dependencies = [
 name = "closeclaw-test-support"
 version = "0.1.0"
 dependencies = [
+ "futures",
+ "serial_test",
  "tempfile",
+ "tokio",
  "toml",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

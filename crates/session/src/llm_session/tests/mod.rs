@@ -1,6 +1,7 @@
 use super::*;
 use crate::persistence::PendingMessage;
 use closeclaw_common::ContentBlock;
+use closeclaw_test_support::log_capture::{capture_logs, capture_logs_async};
 
 mod announce_dedup_tests;
 mod announce_queue_tests;
@@ -25,9 +26,6 @@ mod kv_cache_tests;
 mod last_message_at_persist_tests;
 mod llm_busy_count_tests;
 mod llm_gate_check_tests;
-mod log_capture;
-use self::log_capture::{capture_logs, capture_logs_async, is_installed};
-mod log_capture_tests;
 mod manual_background_tests;
 mod memory_injection_dedup_tests;
 mod message_push_dedup_tests;

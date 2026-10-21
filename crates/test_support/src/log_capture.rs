@@ -1,19 +1,17 @@
-//! Shared log-capture helper for `llm_session` tests, extracted from
-//! `tests/mod.rs` (issue #3112) so that `mod.rs` keeps only module
-//! declarations, helper imports, and its inline tests (CONTRIBUTING.md
-//! §模块 states a stricter ideal: `pub use` / `pub mod` only).
+//! Shared log-capture test facility for workspace tests (issue #3864):
+//! a thread-local `tracing-subscriber` fmt subscriber writing into an
+//! in-memory `Vec` buffer, plus assertion helpers, extracted verbatim
+//! from `closeclaw-session`'s `llm_session` test helpers (the
+//! `VecWriter` family) so both `session` call sites share one
+//! implementation instead of per-file twins.
 //!
-//! `tests/mod.rs` re-exposes the whole helper API — [`capture_logs`],
-//! [`capture_logs_async`] and [`is_installed`] (a single merged
-//! `use self::log_capture::{…};` line, the single re-exposure point
-//! for both capture entry points) — so callers always use the plain `super::`
-//! form (`use super::capture_logs;` / `use super::capture_logs_async;`
-//! / `use super::is_installed;`), never the helper module path
-//! directly. The subscriber type and its `VecWriter`
-//! writer stay private to this module: [`install`] constructs
-//! [`CaptureSubscriber`] under an explicit type annotation
+//! Public API: [`capture_logs`] (synchronous bodies), [`capture_logs_async`]
+//! (async bodies, see its docs for the threading contract) and
+//! [`is_installed`] (guard-state helper). The subscriber type and its
+//! `VecWriter` writer stay private to this module: [`install`]
+//! constructs [`CaptureSubscriber`] under an explicit type annotation
 //! (construction and discrimination compile-time locked to one type)
-//! and [`is_installed`] answers guard-state questions, so no test
+//! and [`is_installed`] answers guard-state questions, so no caller
 //! needs the subscriber's generic parameters.
 //!
 //! Two capture entry points coexist long-term: synchronous
@@ -53,11 +51,11 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// `level`, writing into an in-memory buffer; run `f`, drop the
 /// subscriber guard so the buffer is flushed, and return the closure's
 /// result together with the captured log output. Shared log-capture
-/// helper for session tests (issue #3107).
+/// helper for workspace tests (issue #3107).
 ///
-/// # Level (difference from config's `capture_warn_logs`)
+/// # Level (difference from `closeclaw-config`'s `capture_warn_logs`)
 ///
-/// config's helper fixes the filter at `WARN`; this one takes the level
+/// `closeclaw-config`'s helper fixes the filter at `WARN`; this one takes the level
 /// as a parameter because session tests assert both `info`-level events
 /// (e.g. `skill_listing_injection`) and `warn`-level events (e.g. cache
 /// break), and a fixed `WARN` filter cannot capture the former.
@@ -68,7 +66,7 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for VecWriter {
 /// subscriber registers callsites in the process-global tracing
 /// callsite-interest cache; concurrent registration on the same callsite
 /// can drop events and empty the capture buffer (issue #3102 race).
-pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, String) {
+pub fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (T, String) {
     let buffer = VecWriter::default();
     let guard = install(&buffer, level);
     let value = f();
@@ -136,7 +134,7 @@ pub(super) fn capture_logs<T>(f: impl FnOnce() -> T, level: tracing::Level) -> (
 /// The two helpers coexist long-term: this one covers async test
 /// bodies, while the sync version keeps its existing call sites
 /// (and sync tests) unchanged.
-pub(super) async fn capture_logs_async<T, Fut>(
+pub async fn capture_logs_async<T, Fut>(
     f: impl FnOnce() -> Fut,
     level: tracing::Level,
 ) -> (T, String)
@@ -204,6 +202,6 @@ fn install(buffer: &VecWriter, level: tracing::Level) -> tracing::subscriber::De
 /// installed here). Tests pin "installed then unloaded" versus
 /// "never installed" (guard-leak detection) as a positive/negative
 /// pair of these observations without naming the subscriber type.
-pub(super) fn is_installed() -> bool {
+pub fn is_installed() -> bool {
     tracing::dispatcher::get_default(|d| d.is::<CaptureSubscriber>())
 }

@@ -27,7 +27,7 @@
 //! as `#[tokio::test(flavor = "current_thread")]`, so the hard
 //! contract no longer leans on the attribute's implicit default.
 
-use super::{capture_logs_async, is_installed};
+use crate::log_capture::{capture_logs_async, is_installed};
 
 // ── normal path: return value passes through, level logs land in the String ──
 
