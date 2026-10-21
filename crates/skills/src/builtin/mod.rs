@@ -57,7 +57,7 @@ mod extra_tests {
     use super::*;
 
     #[test]
-    fn test_builtin_skills_all_returns_seven_skills() {
+    fn test_builtin_skills_returns_seven_skills() {
         let skills = builtin_skills(trivial_validator());
         assert_eq!(skills.len(), 7);
     }
