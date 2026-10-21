@@ -2,11 +2,9 @@
 
 use super::*;
 use crate::agents::config_types::{ActionPermission, PermissionLimits};
-use std::io::Write;
+use closeclaw_test_support::log_capture::capture_logs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
 use tempfile::TempDir;
-use tracing_subscriber::fmt::MakeWriter;
 
 // Every test in this module carries `#[serial_test::serial]` (issue
 // #3102). Constructing `AgentDirectoryProvider` reaches `warn!`
@@ -16,57 +14,6 @@ use tracing_subscriber::fmt::MakeWriter;
 // empty the log-capture buffer in
 // `test_directory_provider_id_mismatch_warn`. Module-wide serialisation
 // removes the race at negligible cost (<1s).
-
-/// A `MakeWriter` that clones an `Arc<Mutex<Vec<u8>>>` buffer so the
-/// subscriber can write into it while the caller keeps a handle to
-/// read the captured bytes back.
-#[derive(Clone, Default)]
-struct VecWriter(Arc<Mutex<Vec<u8>>>);
-
-impl Write for VecWriter {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        self.0.lock().unwrap().extend_from_slice(buf);
-        Ok(buf.len())
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        Ok(())
-    }
-}
-
-impl<'a> MakeWriter<'a> for VecWriter {
-    type Writer = VecWriter;
-    fn make_writer(&'a self) -> Self::Writer {
-        self.clone()
-    }
-}
-
-/// Install a thread-local WARN-level fmt subscriber (no target/ansi)
-/// writing into an in-memory buffer, run `f`, drop the subscriber
-/// guard so the buffer is flushed, and return the closure's result
-/// together with the captured log output. Reusable log-capture helper
-/// for tests asserting WARN behaviour (issue #3102).
-///
-/// # Concurrency
-///
-/// Caller tests **must** carry `#[serial_test::serial]`. Installing the
-/// subscriber registers WARN callsites in the process-global tracing
-/// callsite-interest cache; concurrent registration on the same callsite
-/// can drop events and empty the capture buffer (issue #3102 race). This
-/// module serialises every test — see the module header convention above.
-fn capture_warn_logs<T>(f: impl FnOnce() -> T) -> (T, String) {
-    let buffer = VecWriter::default();
-    let subscriber = tracing_subscriber::fmt()
-        .with_writer(buffer.clone())
-        .with_max_level(tracing::Level::WARN)
-        .with_target(false)
-        .with_ansi(false)
-        .finish();
-    let guard = tracing::subscriber::set_default(subscriber);
-    let value = f();
-    drop(guard);
-    let logs = String::from_utf8(buffer.0.lock().unwrap().clone()).unwrap();
-    (value, logs)
-}
 
 /// Write a minimal `config.json` for the given agent ID.
 fn write_config(dir: &Path, id: &str, name: &str) {
@@ -340,15 +287,18 @@ fn test_directory_provider_id_mismatch_warn() {
     )
     .unwrap();
 
-    let (provider, logs) = capture_warn_logs(|| {
-        AgentDirectoryProvider::new(
-            vec!["foo".to_string()],
-            user.path().to_path_buf(),
-            None,
-            None,
-        )
-        .unwrap()
-    });
+    let (provider, logs) = capture_logs(
+        || {
+            AgentDirectoryProvider::new(
+                vec!["foo".to_string()],
+                user.path().to_path_buf(),
+                None,
+                None,
+            )
+            .unwrap()
+        },
+        tracing::Level::WARN,
+    );
 
     // The config's id wins (the WARN message says so explicitly).
     let entry = provider.get("foo").expect("foo should be loaded");
