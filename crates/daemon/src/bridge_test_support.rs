@@ -107,6 +107,16 @@ pub(super) async fn make_builtin(
     )
 }
 
+/// Helper: blocking variant of [`make_builtin`] for synchronous test
+/// bodies: builds a dedicated runtime and blocks on the async builder.
+pub(super) fn make_builtin_blocking(
+    skills: Vec<(&str, bool, Vec<String>)>,
+) -> Arc<BuiltinSkillRegistry> {
+    tokio::runtime::Runtime::new()
+        .unwrap()
+        .block_on(make_builtin(skills))
+}
+
 /// Helper: create a `DiskSkillRegistry` with the given skills.
 pub(super) fn make_disk_registry(skills: Vec<DiskSkill>) -> DiskSkillRegistry {
     DiskSkillRegistry::new(skills)
