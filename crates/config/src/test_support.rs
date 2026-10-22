@@ -8,3 +8,13 @@ pub(crate) fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::Pat
     std::fs::create_dir_all(&sub).unwrap();
     sub
 }
+
+/// Remove directory `path` recursively.
+///
+/// Scenario-simulation helper only: reproduces on-disk states such as
+/// "backup dir absent", "config dir vanishes" or "backup dir replaced by
+/// a file" that the production failure paths react to. Callers decide
+/// error handling — typically `.ok()` since the directory may not exist.
+pub(crate) fn remove_subdir(path: &std::path::Path) -> std::io::Result<()> {
+    std::fs::remove_dir_all(path)
+}
