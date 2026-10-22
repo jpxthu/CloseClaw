@@ -65,6 +65,7 @@ mod tests {
     }
 
     fn make_disk_skill(name: &str) -> super::super::types::DiskSkill {
+        let dir = std::env::temp_dir().join("test");
         super::super::types::DiskSkill {
             source: super::super::types::SkillSource::Global,
             manifest: super::super::types::SkillManifest {
@@ -76,8 +77,8 @@ mod tests {
                 paths: vec![],
                 user_invocable: false,
             },
-            readme_path: std::path::PathBuf::from("/tmp/test"),
-            skill_dir: std::path::PathBuf::from("/tmp/test"),
+            readme_path: dir.clone(),
+            skill_dir: dir,
         }
     }
 

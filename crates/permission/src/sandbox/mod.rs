@@ -71,7 +71,7 @@ pub enum SandboxError {
 /// # Example
 ///
 /// ```ignore
-/// let mut sandbox = Sandbox::new("/tmp/closeclaw-engine.sock");
+/// let mut sandbox = Sandbox::new(std::env::temp_dir().join("closeclaw-engine.sock"));
 /// sandbox.spawn().await?;
 ///
 /// let resp = sandbox.evaluate(request).await?;

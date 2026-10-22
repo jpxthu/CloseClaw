@@ -124,7 +124,7 @@ mod tests {
     };
     use closeclaw_skills::disk::DiskSkillRegistry;
     use closeclaw_skills::BuiltinSkillRegistry;
-    use std::path::{Path, PathBuf};
+    use std::path::PathBuf;
 
     /// Wrap a real disk registry into the port (dev-dep skills adapter).
     fn disk_port(registry: Arc<DiskSkillRegistry>) -> Arc<dyn DiskSkillAccess> {
@@ -165,30 +165,34 @@ mod tests {
     #[test]
     fn test_substitute_skill_dir() {
         let body = "Read files in ${SKILL_DIR}";
-        let result =
-            SkillSlashHandler::substitute_variables(body, Path::new("/tmp/my-skill"), "s1");
-        assert_eq!(result, "Read files in /tmp/my-skill");
+        let dir = std::env::temp_dir().join("my-skill");
+        let result = SkillSlashHandler::substitute_variables(body, &dir, "s1");
+        assert_eq!(result, format!("Read files in {}", dir.display()));
     }
 
     #[test]
     fn test_substitute_session_id() {
         let body = "Session: ${SESSION_ID}";
-        let result = SkillSlashHandler::substitute_variables(body, Path::new("/tmp"), "sess-abc");
+        let result =
+            SkillSlashHandler::substitute_variables(body, &std::env::temp_dir(), "sess-abc");
         assert_eq!(result, "Session: sess-abc");
     }
 
     #[test]
     fn test_substitute_mixed() {
         let body = "Dir: ${SKILL_DIR}, Session: ${SESSION_ID}, Unknown: ${FOO}";
-        let result =
-            SkillSlashHandler::substitute_variables(body, Path::new("/tmp/skill"), "s-999");
-        assert_eq!(result, "Dir: /tmp/skill, Session: s-999, Unknown: ${FOO}");
+        let dir = std::env::temp_dir().join("skill");
+        let result = SkillSlashHandler::substitute_variables(body, &dir, "s-999");
+        assert_eq!(
+            result,
+            format!("Dir: {}, Session: s-999, Unknown: ${{FOO}}", dir.display())
+        );
     }
 
     #[test]
     fn test_substitute_no_vars() {
         let body = "Plain text";
-        let result = SkillSlashHandler::substitute_variables(body, Path::new("/tmp"), "s1");
+        let result = SkillSlashHandler::substitute_variables(body, &std::env::temp_dir(), "s1");
         assert_eq!(result, "Plain text");
     }
 

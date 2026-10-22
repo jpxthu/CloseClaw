@@ -195,7 +195,7 @@ mod tests {
     #[test]
     fn test_validate_null_byte_storage_dir() {
         let config = MediaConfigData {
-            storage_dir: "/tmp/media\0secret".to_string(),
+            storage_dir: format!("{}\0secret", std::env::temp_dir().display()),
             ..Default::default()
         };
         let result = config.validate();
@@ -270,10 +270,12 @@ mod tests {
 
     #[test]
     fn test_from_json_str_defaults() {
-        let json = r#"{"storageDir": "/tmp/media"}"#;
-        let config = MediaConfigData::from_json_str(json)
+        let storage_dir = std::env::temp_dir().join("media");
+        let json =
+            serde_json::json!({ "storageDir": storage_dir.display().to_string() }).to_string();
+        let config = MediaConfigData::from_json_str(&json)
             .expect("JSON with only required fields should parse");
-        assert_eq!(config.storage_dir, "/tmp/media");
+        assert_eq!(config.storage_dir, storage_dir.display().to_string());
         assert_eq!(config.retention_days, DEFAULT_RETENTION_DAYS);
         assert_eq!(
             config.image_content_threshold_bytes,
@@ -296,16 +298,18 @@ mod tests {
 
     #[test]
     fn test_legacy_max_download_size_bytes_ignored() {
-        let json = r#"{
+        let storage_dir = std::env::temp_dir().join("media");
+        let json = serde_json::json!({
             "version": "1.0.0",
-            "storageDir": "/tmp/media",
+            "storageDir": storage_dir.display().to_string(),
             "retentionDays": 7,
             "imageContentThresholdBytes": 1048576,
             "maxDownloadSizeBytes": 52428800
-        }"#;
+        })
+        .to_string();
         let config =
-            MediaConfigData::from_json_str(json).expect("legacy field should be silently ignored");
-        assert_eq!(config.storage_dir, "/tmp/media");
+            MediaConfigData::from_json_str(&json).expect("legacy field should be silently ignored");
+        assert_eq!(config.storage_dir, storage_dir.display().to_string());
         assert_eq!(config.retention_days, 7);
         assert_eq!(config.image_content_threshold_bytes, 1_048_576);
     }

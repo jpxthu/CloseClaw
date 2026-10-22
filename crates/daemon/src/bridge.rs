@@ -539,8 +539,8 @@ mod tests {
                 paths,
                 user_invocable,
             },
-            readme_path: PathBuf::from(format!("/tmp/{name}/SKILL.md")),
-            skill_dir: PathBuf::from(format!("/tmp/{name}")),
+            readme_path: std::env::temp_dir().join(name).join("SKILL.md"),
+            skill_dir: std::env::temp_dir().join(name),
         }
     }
 

@@ -281,12 +281,17 @@ mod tests {
 
     #[test]
     fn test_raw_log_config_deserialization() {
-        let json = r#"{"type":"raw_log","enabled":true,"dir":"/tmp/logs"}"#;
-        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        let expected = std::env::temp_dir().join("logs");
+        let json = serde_json::json!({
+            "type": "raw_log",
+            "enabled": true,
+            "dir": expected.display().to_string(),
+        });
+        let config: ProcessorConfig = serde_json::from_value(json).unwrap();
         match config {
             ProcessorConfig::RawLog { enabled, dir } => {
                 assert!(enabled);
-                assert_eq!(dir, Some(PathBuf::from("/tmp/logs")));
+                assert_eq!(dir, Some(expected));
             }
             _ => panic!("expected RawLog variant"),
         }
@@ -314,12 +319,17 @@ mod tests {
 
     #[test]
     fn test_outbound_raw_log_deserialization() {
-        let json = r#"{"type":"outbound_raw_log","enabled":true,"dir":"/tmp/out"}"#;
-        let config: ProcessorConfig = serde_json::from_str(json).unwrap();
+        let expected = std::env::temp_dir().join("out");
+        let json = serde_json::json!({
+            "type": "outbound_raw_log",
+            "enabled": true,
+            "dir": expected.display().to_string(),
+        });
+        let config: ProcessorConfig = serde_json::from_value(json).unwrap();
         match config {
             ProcessorConfig::OutboundRawLog { enabled, dir } => {
                 assert!(enabled);
-                assert_eq!(dir, Some(PathBuf::from("/tmp/out")));
+                assert_eq!(dir, Some(expected));
             }
             _ => panic!("expected OutboundRawLog variant"),
         }

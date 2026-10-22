@@ -167,9 +167,10 @@ mod tests {
         let lookup =
             ChainLookup::parent_child("parent-session", "parent", "child-session", "child");
 
+        let test_path = tmp.path().join("test.txt");
         let write = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "child".to_string(),
-            path: "/tmp/test.txt".to_string(),
+            path: test_path.display().to_string(),
             op: "write".to_string(),
         });
         let resp = engine
@@ -186,7 +187,7 @@ mod tests {
 
         let read = PermissionRequest::Bare(PermissionRequestBody::FileOp {
             agent: "child".to_string(),
-            path: "/tmp/test.txt".to_string(),
+            path: test_path.display().to_string(),
             op: "read".to_string(),
         });
         let resp = engine
