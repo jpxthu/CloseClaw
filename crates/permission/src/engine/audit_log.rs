@@ -179,7 +179,10 @@ mod tests {
         let body = PermissionRequestBody::CommandExec {
             agent: "agent-2".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp".to_string()],
+            args: vec![
+                "-rf".to_string(),
+                std::env::temp_dir().to_string_lossy().into_owned(),
+            ],
         };
         let log = build_audit_log(
             &body,
@@ -189,7 +192,10 @@ mod tests {
             Some(SessionMode::Auto),
         );
         assert_eq!(log.tool_name, "exec");
-        assert_eq!(log.operation, "rm -rf /tmp");
+        assert_eq!(
+            log.operation,
+            format!("rm -rf {}", std::env::temp_dir().to_string_lossy())
+        );
         assert_eq!(log.disposition, AuditDisposition::Rejected);
         assert_eq!(log.session_mode, Some(SessionMode::Auto));
     }

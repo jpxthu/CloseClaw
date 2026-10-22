@@ -229,7 +229,13 @@ mod tests {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec![
+                "-rf".to_string(),
+                std::env::temp_dir()
+                    .join("foo")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::High);
     }
@@ -271,7 +277,13 @@ mod tests {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["--recursive".to_string(), "/tmp/dir".to_string()],
+            args: vec![
+                "--recursive".to_string(),
+                std::env::temp_dir()
+                    .join("dir")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::High);
     }

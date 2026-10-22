@@ -102,6 +102,10 @@ fn test_rejection_logged_in_auto_mode() {
 
 #[test]
 fn test_rejection_logged_on_command_deny_auto_mode() {
+    let target = std::env::temp_dir()
+        .join("foo")
+        .to_string_lossy()
+        .into_owned();
     let logger = Arc::new(TestLogger::new());
     let mode_query = Arc::new(MockModeQuery {
         mode: Some(SessionMode::Auto),
@@ -114,7 +118,7 @@ fn test_rejection_logged_on_command_deny_auto_mode() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "agent-2".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec!["-rf".to_string(), target.clone()],
         }),
         None,
     );
@@ -126,7 +130,7 @@ fn test_rejection_logged_on_command_deny_auto_mode() {
     let log = &entries[0];
     assert_eq!(log.agent_id, "agent-2");
     assert_eq!(log.tool_name, "exec");
-    assert_eq!(log.operation, "rm -rf /tmp/foo");
+    assert_eq!(log.operation, format!("rm -rf {target}"));
     assert!(!log.reason.is_empty());
 }
 
@@ -300,7 +304,13 @@ fn test_rejection_not_logged_without_mode_query_command() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "agent-none-cmd".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec![
+                "-rf".to_string(),
+                std::env::temp_dir()
+                    .join("foo")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         }),
         None,
     );

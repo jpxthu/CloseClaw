@@ -272,7 +272,9 @@ fn test_config_dir_outside_data_root() {
     let tmp = TempDir::new().unwrap();
     assert!(!super::engine_workspace::is_config_dir_path(
         tmp.path(),
-        "/tmp/other/file.txt"
+        &std::env::temp_dir()
+            .join("other/file.txt")
+            .to_string_lossy()
     ));
 }
 
@@ -326,7 +328,9 @@ fn test_config_file_path_normal_file() {
     let tmp = TempDir::new().unwrap();
     assert!(!super::engine_workspace::is_config_file_path(
         tmp.path(),
-        "/tmp/regular/file.txt"
+        &std::env::temp_dir()
+            .join("regular/file.txt")
+            .to_string_lossy()
     ));
 }
 

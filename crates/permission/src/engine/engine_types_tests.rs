@@ -210,12 +210,18 @@ fn representative_bodies() -> Vec<PermissionRequestBody> {
     vec![
         exhaustive_body(PermissionRequestBody::FileOp {
             agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
+            path: std::env::temp_dir()
+                .join("f")
+                .to_string_lossy()
+                .into_owned(),
             op: "read".to_string(),
         }),
         exhaustive_body(PermissionRequestBody::FileOp {
             agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
+            path: std::env::temp_dir()
+                .join("f")
+                .to_string_lossy()
+                .into_owned(),
             op: "write".to_string(),
         }),
         exhaustive_body(PermissionRequestBody::CommandExec {

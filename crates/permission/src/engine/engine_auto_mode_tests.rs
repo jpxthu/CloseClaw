@@ -183,7 +183,13 @@ fn test_auto_high_risk_rm_rf_denied() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "a".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec![
+                "-rf".to_string(),
+                std::env::temp_dir()
+                    .join("foo")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         }),
         None,
     );
@@ -781,7 +787,13 @@ fn test_auto_callback_receives_correct_parameters() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec![
+                "-rf".to_string(),
+                std::env::temp_dir()
+                    .join("foo")
+                    .to_string_lossy()
+                    .into_owned(),
+            ],
         }),
         None,
     );

@@ -99,7 +99,10 @@ async fn test_chain_intersection_file_write_denied_by_parent() {
     let engine = make_engine_with_defaults();
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "child".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
 
@@ -129,7 +132,10 @@ async fn test_chain_intersection_file_read_allowed_when_only_write_denied() {
     let engine = make_engine_with_defaults();
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "child".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "read".to_string(),
     });
 
@@ -165,7 +171,10 @@ async fn test_single_parent_denies_file_write() {
     let engine = make_engine_with_defaults();
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "child".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
 
@@ -198,7 +207,10 @@ async fn test_no_chain_matches_evaluate() {
 
     let req_chain = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "root".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
     let resp_chain = engine
@@ -213,7 +225,10 @@ async fn test_no_chain_matches_evaluate() {
     // Same request evaluated directly
     let req_direct = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "root".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
     let resp_direct = engine.evaluate(req_direct, None);
@@ -342,7 +357,10 @@ async fn test_deny_propagation_blocks_all_actions_for_child() {
     // Child file_read is also denied (same deny subject applies to all actions)
     let req_read = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "child".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "read".to_string(),
     });
     let resp_read = engine
@@ -379,7 +397,10 @@ async fn test_owner_no_chain_not_blocked() {
 
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "owner".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
 
@@ -632,7 +653,10 @@ async fn test_chain_intersection_unknown_op_not_blocked() {
     let engine = make_engine_with_defaults();
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "child".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "delete".to_string(), // unknown op → None dimension
     });
 
@@ -714,7 +738,10 @@ async fn test_three_level_chain_intersection() {
     // B tries file_write → denied by chain intersection (Root denies file_write)
     let req = PermissionRequest::Bare(PermissionRequestBody::FileOp {
         agent: "agent-b".to_string(),
-        path: "/tmp/test.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("test.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "write".to_string(),
     });
     let resp = engine
