@@ -285,6 +285,11 @@ async fn test_concurrent_get_and_reload() {
     use std::sync::Arc;
     use tokio::task;
 
+    const RELOAD_ROUNDS: i32 = 30;
+    const CONFIGS_PER_RELOAD: i32 = 10;
+    const READER_TASKS: i32 = 5;
+    const READS_PER_TASK: i32 = 50;
+
     let registry = Arc::new(AgentRegistry::new());
     registry.populate(vec![make_config("initial")]);
 
@@ -293,8 +298,8 @@ async fn test_concurrent_get_and_reload() {
     // Reload task: repeatedly replace all configs
     let reg_write = Arc::clone(&registry);
     handles.push(task::spawn_blocking(move || {
-        for i in 0..30 {
-            let configs: Vec<_> = (0..10)
+        for i in 0..RELOAD_ROUNDS {
+            let configs: Vec<_> = (0..CONFIGS_PER_RELOAD)
                 .map(|j| make_config(&format!("reload-{}-{}", i, j)))
                 .collect();
             reg_write.reload(configs);
@@ -302,10 +307,10 @@ async fn test_concurrent_get_and_reload() {
     }));
 
     // Reader tasks
-    for _ in 0..5 {
+    for _ in 0..READER_TASKS {
         let reg_read = Arc::clone(&registry);
         handles.push(task::spawn_blocking(move || {
-            for _i in 0..50 {
+            for _i in 0..READS_PER_TASK {
                 // Query any ID — should never panic
                 let _ = reg_read.get("reload-0-0");
                 let _ = tokio::runtime::Runtime::new()
