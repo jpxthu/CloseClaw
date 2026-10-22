@@ -2,6 +2,7 @@
 
 use crate::events::ConfigChangeEvent;
 use crate::manager::*;
+use crate::test_support::create_subdir;
 use crate::SectionValidator;
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::fs;
@@ -254,8 +255,7 @@ fn test_reload_section_file_not_found_emits_failed_event() {
 #[test]
 fn test_reload_agents_success() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(tmp.path(), "config");
     setup_config_dir_at(&config_dir);
 
     let agents_json = r#"{ "version": "1.0", "agents": ["alpha"] }"#;
@@ -264,8 +264,7 @@ fn test_reload_agents_success() {
 
     // agents/ is at root level (parent of config_dir)
     let root_dir = config_dir.parent().unwrap();
-    let agent_dir = root_dir.join("agents").join("alpha");
-    fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(root_dir, "agents/alpha");
     fs::write(
         agent_dir.join("config.json"),
         r#"{ "id": "alpha", "name": "Alpha Agent" }"#,
@@ -285,8 +284,7 @@ fn test_reload_agents_success() {
 #[test]
 fn test_reload_agents_failure_rollback_via_snapshot_restore() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(tmp.path(), "config");
     setup_config_dir_at(&config_dir);
 
     // Set up a valid agent: alpha
@@ -296,8 +294,7 @@ fn test_reload_agents_failure_rollback_via_snapshot_restore() {
 
     // agents/ is at root level (parent of config_dir)
     let root_dir = config_dir.parent().unwrap();
-    let agent_dir = root_dir.join("agents").join("alpha");
-    fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(root_dir, "agents/alpha");
     fs::write(
         agent_dir.join("config.json"),
         r#"{ "id": "alpha", "name": "Alpha" }"#,
@@ -387,9 +384,8 @@ fn test_reload_section_io_failure_after_load() {
 #[test]
 fn test_config_manager_new_backup_path_is_file() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("cfg");
-    fs::create_dir_all(&config_dir).unwrap();
-    // Make .backups a file so create_dir_all fails
+    let config_dir = create_subdir(tmp.path(), "cfg");
+    // Make .backups a file so directory creation in ConfigManager::new fails
     fs::write(config_dir.join(".backups"), "not a dir").unwrap();
 
     let result = ConfigManager::new(config_dir);
@@ -533,16 +529,14 @@ fn test_reload_section_success_file_contains_new_content() {
 #[test]
 fn test_restore_agents_replaces_current_state() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(tmp.path(), "config");
     setup_config_dir_at(&config_dir);
 
     // agents.json lives at config_dir root
     fs::write(config_dir.join("agents.json"), r#"{ "agents": ["alpha"] }"#).unwrap();
     // agents/ is at root level (parent of config_dir)
     let root_dir = config_dir.parent().unwrap();
-    let alpha_dir = root_dir.join("agents").join("alpha");
-    fs::create_dir_all(&alpha_dir).unwrap();
+    let alpha_dir = create_subdir(root_dir, "agents/alpha");
     fs::write(
         alpha_dir.join("config.json"),
         r#"{ "id": "alpha", "name": "Alpha" }"#,
@@ -561,8 +555,7 @@ fn test_restore_agents_replaces_current_state() {
         r#"{ "agents": ["alpha", "beta"] }"#,
     )
     .unwrap();
-    let beta_dir = root_dir.join("agents").join("beta");
-    fs::create_dir_all(&beta_dir).unwrap();
+    let beta_dir = create_subdir(root_dir, "agents/beta");
     fs::write(
         beta_dir.join("config.json"),
         r#"{ "id": "beta", "name": "Beta" }"#,
