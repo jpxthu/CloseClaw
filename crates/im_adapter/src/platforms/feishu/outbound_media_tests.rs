@@ -6,7 +6,8 @@
 
 use super::outbound_media::*;
 use super::{
-    create_echo_cli, create_failing_mock_cli, make_test_media_store_at, write_mock_script,
+    create_echo_cli, create_failing_mock_cli, create_subdir, make_test_media_store_at,
+    write_mock_script,
 };
 use crate::error::AdapterError;
 use serial_test::serial;
@@ -145,10 +146,8 @@ fn assert_captured_args_contain_path(tmp: &TempDir, outbound: &std::path::Path) 
 #[tokio::test]
 async fn test_validate_path_within_workspace() {
     let tmp = TempDir::new().unwrap();
-    let ws = tmp.path().join("workspace");
-    let media = tmp.path().join("media");
-    fs::create_dir_all(&ws).unwrap();
-    fs::create_dir_all(&media).unwrap();
+    let ws = create_subdir(tmp.path(), "workspace");
+    let media = create_subdir(tmp.path(), "media");
 
     let file = ws.join("test.txt");
     fs::write(&file, "content").unwrap();
@@ -160,10 +159,8 @@ async fn test_validate_path_within_workspace() {
 #[tokio::test]
 async fn test_validate_path_within_media_store() {
     let tmp = TempDir::new().unwrap();
-    let ws = tmp.path().join("workspace");
-    let media = tmp.path().join("media");
-    fs::create_dir_all(&ws).unwrap();
-    fs::create_dir_all(&media).unwrap();
+    let ws = create_subdir(tmp.path(), "workspace");
+    let media = create_subdir(tmp.path(), "media");
 
     let file = media.join("test.txt");
     fs::write(&file, "content").unwrap();
@@ -175,12 +172,9 @@ async fn test_validate_path_within_media_store() {
 #[tokio::test]
 async fn test_validate_path_outside_rejected() {
     let tmp = TempDir::new().unwrap();
-    let ws = tmp.path().join("workspace");
-    let media = tmp.path().join("media");
-    let outside = tmp.path().join("outside");
-    fs::create_dir_all(&ws).unwrap();
-    fs::create_dir_all(&media).unwrap();
-    fs::create_dir_all(&outside).unwrap();
+    let ws = create_subdir(tmp.path(), "workspace");
+    let media = create_subdir(tmp.path(), "media");
+    let outside = create_subdir(tmp.path(), "outside");
 
     let file = outside.join("test.txt");
     fs::write(&file, "content").unwrap();
@@ -192,8 +186,7 @@ async fn test_validate_path_outside_rejected() {
 #[tokio::test]
 async fn test_validate_path_no_workspace_only_media() {
     let tmp = TempDir::new().unwrap();
-    let media = tmp.path().join("media");
-    fs::create_dir_all(&media).unwrap();
+    let media = create_subdir(tmp.path(), "media");
 
     let file = media.join("test.txt");
     fs::write(&file, "content").unwrap();
@@ -319,8 +312,7 @@ fn upload_image_mime_detection_by_extension() {
 #[tokio::test]
 async fn test_prepare_outbound_workspace_relative_path() {
     let tmp = TempDir::new().unwrap();
-    let ws = tmp.path().join("ws");
-    fs::create_dir_all(&ws).unwrap();
+    let ws = create_subdir(tmp.path(), "ws");
     let file = ws.join("img.png");
     fs::write(&file, "data").unwrap();
     let media_store = make_test_media_store_at(tmp.path());
@@ -442,8 +434,7 @@ fn make_adapter(
 async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let ws = tmp.path().join("ws");
-    fs::create_dir_all(&ws).unwrap();
+    let ws = create_subdir(tmp.path(), "ws");
     fs::write(ws.join("photo.png"), "png data").unwrap();
     let adapter = make_adapter(&cli, tmp.path(), Some(&ws));
     let result = adapter.send_image("oc_chat1", "photo.png").await;
@@ -759,8 +750,7 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
     use closeclaw_common::processor::ContentBlock;
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let ws = tmp.path().join("ws");
-    fs::create_dir_all(&ws).unwrap();
+    let ws = create_subdir(tmp.path(), "ws");
     fs::write(ws.join("speech.opus"), "audio data").unwrap();
     let adapter = make_adapter(&cli, tmp.path(), Some(&ws));
     let block = ContentBlock::Audio {
@@ -785,9 +775,8 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
 #[tokio::test]
 async fn test_validate_path_media_store_broken_symlink_rejected() {
     let tmp = TempDir::new().unwrap();
-    let ws = tmp.path().join("workspace");
+    let ws = create_subdir(tmp.path(), "workspace");
     let media = tmp.path().join("media");
-    fs::create_dir_all(&ws).unwrap();
     // Create a broken symlink for the media store directory.
     #[cfg(unix)]
     std::os::unix::fs::symlink("/nonexistent/path", &media).unwrap();
@@ -811,8 +800,7 @@ async fn test_validate_path_media_store_broken_symlink_rejected() {
 async fn test_validate_path_workspace_broken_symlink_falls_back_to_media() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
-    let media = tmp.path().join("media");
-    fs::create_dir_all(&media).unwrap();
+    let media = create_subdir(tmp.path(), "media");
     // Create a broken symlink for the workspace directory.
     #[cfg(unix)]
     std::os::unix::fs::symlink("/nonexistent/path", &ws).unwrap();
@@ -843,8 +831,7 @@ async fn test_prepare_outbound_broken_media_store_symlink_skipped() {
 
     // We need a valid MediaStore, but since MediaStore::new validates the
     // dir, we test at the validate_outbound_path level instead.
-    let ws = tmp.path().join("ws");
-    fs::create_dir_all(&ws).unwrap();
+    let ws = create_subdir(tmp.path(), "ws");
     let file = ws.join("img.png");
     fs::write(&file, "data").unwrap();
 
