@@ -3,26 +3,12 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin_skill, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
+    make_builtin, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
 };
 use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::SkillSource;
+use closeclaw_skills::BuiltinSkillRegistry;
 use std::sync::Arc;
-
-/// Build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
-async fn make_builtin(
-    skills: Vec<(&str, bool, Vec<String>)>,
-) -> Arc<closeclaw_skills::BuiltinSkillRegistry> {
-    Arc::new(
-        closeclaw_skills::BuiltinSkillRegistry::from_skills(
-            skills
-                .into_iter()
-                .map(|(n, u, p)| make_builtin_skill(n, u, p))
-                .collect(),
-        )
-        .await,
-    )
-}
 
 // ------------------------------------------------------------------
 // generate_listing_with_activated — normal path
@@ -40,7 +26,7 @@ fn test_with_activated_includes_activated_conditional_disk() {
                 vec!["**/*.rs".to_string()],
             ),
         ]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         let listing =
@@ -79,7 +65,7 @@ fn test_with_activated_excludes_unactivated_conditional() {
                 vec!["**/*.rs".to_string()],
             ),
         ]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         let listing = wrapper.generate_listing_with_activated(None, None, &[]);
@@ -100,7 +86,7 @@ fn test_with_activated_empty_matches_excluding_conditional() {
                 vec!["**/*.md".to_string()],
             ),
         ]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         let with_activated = wrapper.generate_listing_with_activated(None, None, &[]);
@@ -121,7 +107,7 @@ fn test_with_activated_nonexistent_skill_ignored() {
             true,
             vec![],
         )]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         let listing = wrapper.generate_listing_with_activated(None, None, &["deleted".to_string()]);
@@ -157,7 +143,7 @@ fn test_with_activated_cross_registry_merge() {
 fn test_with_activated_empty_registries() {
     run_with_runtime(|| {
         let disk = make_disk_registry(vec![]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         let listing = wrapper.generate_listing_with_activated(None, None, &["any".to_string()]);

@@ -3,7 +3,7 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin_skill, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
+    make_builtin, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
 };
 use super::*;
 use closeclaw_common::AgentSkillsQuery;
@@ -22,19 +22,6 @@ const ALPHA: &str = "alpha";
 // ------------------------------------------------------------------
 // Test helpers
 // ------------------------------------------------------------------
-
-/// Build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
-async fn make_builtin(skills: Vec<(&str, bool, Vec<String>)>) -> Arc<BuiltinSkillRegistry> {
-    Arc::new(
-        BuiltinSkillRegistry::from_skills(
-            skills
-                .into_iter()
-                .map(|(n, u, p)| make_builtin_skill(n, u, p))
-                .collect(),
-        )
-        .await,
-    )
-}
 
 /// Mock `AgentSkillsQuery` that returns a fixed whitelist for each agent.
 struct MockAgentSkillsQuery {
