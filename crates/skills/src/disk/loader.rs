@@ -410,14 +410,7 @@ mod tests {
         use super::super::types::{
             DiskSkill, SkillContext, SkillEffort, SkillManifest, SkillSource,
         };
-        let nonexistent = std::path::PathBuf::from(format!(
-            "/tmp/nonexistent-skill-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let tmp = tempfile::tempdir().unwrap();
         let skill = DiskSkill {
             source: SkillSource::Bundled,
             manifest: SkillManifest {
@@ -429,8 +422,8 @@ mod tests {
                 paths: vec![],
                 user_invocable: false,
             },
-            readme_path: nonexistent.join("SKILL.md"),
-            skill_dir: nonexistent,
+            readme_path: tmp.path().join("SKILL.md"),
+            skill_dir: tmp.path().to_path_buf(),
         };
         let err = skill.load_body().unwrap_err();
         assert_eq!(err.kind(), std::io::ErrorKind::NotFound);
