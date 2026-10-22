@@ -1,4 +1,5 @@
 use super::plan_archive::*;
+use crate::test_support::create_subdir;
 use std::fs;
 use std::path::Path;
 
@@ -7,8 +8,7 @@ use std::path::Path;
 // ---------------------------------------------------------------------------
 
 fn create_plan_file(dir: &Path, name: &str, steps: &[&str]) -> std::path::PathBuf {
-    let plans_dir = dir.join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir, "plans");
     let path = plans_dir.join(name);
     let tasks_block = steps.join("\n");
     let content = format!("# Test Plan\n\n## Tasks\n\n{tasks_block}\n");
@@ -312,8 +312,7 @@ fn test_archiver_archives_done_and_skipped_mix() {
 #[test]
 fn test_archiver_skips_empty_tasks_plan() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
     let path = plans_dir.join("empty.md");
     fs::write(&path, "# Plan\n\n## Tasks\n\nNothing.\n").unwrap();
     set_old_mtime(&path);
@@ -329,8 +328,7 @@ fn test_archiver_content_intact_after_archive() {
     let dir = tempfile::TempDir::new().unwrap();
     let content = "# My Plan\n\n## Tasks\n\n- [x] Do thing\n- [x] Done\n";
 
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
     let path = plans_dir.join("content-test.md");
     fs::write(&path, content).unwrap();
     set_old_mtime(&path);
@@ -347,8 +345,7 @@ fn test_archiver_content_intact_after_archive() {
 #[test]
 fn test_archiver_multiple_files_mixed_step_status() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
 
     // All done, old → should archive
     let path1 = plans_dir.join("done-old.md");
@@ -389,8 +386,7 @@ fn test_archiver_no_plans_dir() {
 #[test]
 fn test_archiver_skips_non_md_files() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
 
     let txt_path = plans_dir.join("notes.txt");
     fs::write(&txt_path, "not a plan").unwrap();
@@ -405,8 +401,7 @@ fn test_archiver_skips_non_md_files() {
 #[test]
 fn test_archiver_skips_archive_subdir() {
     let dir = tempfile::TempDir::new().unwrap();
-    let archive_dir = dir.path().join("plans/archive");
-    fs::create_dir_all(&archive_dir).unwrap();
+    let archive_dir = create_subdir(dir.path(), "plans/archive");
 
     let archived_path = archive_dir.join("already-archived.md");
     fs::write(&archived_path, "# Old\n\n## Tasks\n\n- [x] Done\n").unwrap();
@@ -567,8 +562,7 @@ fn test_archiver_access_ts_over_just_past_threshold_archives() {
 #[test]
 fn test_archiver_multiple_plans_mixed_access_ts_and_legacy() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
 
     // Plan A: completed, access ts 10 days ago → archive
     let path_a = plans_dir.join("a.md");
@@ -614,8 +608,7 @@ fn test_archiver_content_preserved_with_access_ts() {
     let dir = tempfile::TempDir::new().unwrap();
     let content =
         "# My Plan\n\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [x] Do thing\n";
-    let plans_dir = dir.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    let plans_dir = create_subdir(dir.path(), "plans");
     let path = plans_dir.join("content-test.md");
     fs::write(&path, content).unwrap();
 
@@ -689,8 +682,7 @@ fn test_archiver_rename_failure_returns_error() {
     set_old_mtime(&path);
 
     // Create archive dir and a read-only destination file to block the rename
-    let archive_dir = dir.path().join("plans/archive");
-    fs::create_dir_all(&archive_dir).unwrap();
+    let archive_dir = create_subdir(dir.path(), "plans/archive");
     let dest = archive_dir.join("fail-rename.md");
     fs::write(&dest, "existing").unwrap();
     // Make the destination file read-only
@@ -735,8 +727,7 @@ fn test_archiver_rename_io_error_does_not_panic() {
     set_old_mtime(&path);
 
     // Create archive dir with a read-only file to block rename
-    let archive_dir = dir.path().join("plans/archive");
-    fs::create_dir_all(&archive_dir).unwrap();
+    let archive_dir = create_subdir(dir.path(), "plans/archive");
     let dest = archive_dir.join("no-panic.md");
     fs::write(&dest, "block").unwrap();
     let mut perms = fs::metadata(&dest).unwrap().permissions();
