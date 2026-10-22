@@ -6,8 +6,11 @@ pub(crate) fn tmp_path(name: &str) -> std::path::PathBuf {
 }
 
 /// Create subdirectory `rel` (any relative subpath, possibly nested,
-/// e.g. `plans/archive`) under an existing `base`, returning the created
-/// directory path.
+/// e.g. `plans/archive`) under `base`, returning the created directory
+/// path.
+///
+/// Mirrors `create_dir_all` semantics: missing path components —
+/// including `base` itself — are created, not required to pre-exist.
 pub(crate) fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
     let sub = base.join(rel);
     std::fs::create_dir_all(&sub).unwrap();

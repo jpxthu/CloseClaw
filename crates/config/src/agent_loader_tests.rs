@@ -16,7 +16,7 @@
 use std::fs;
 use std::path::Path;
 
-use crate::test_support::create_subdir;
+use crate::test_support::{create_subdir, ensure_dir};
 use crate::ConfigManager;
 
 // ---------------------------------------------------------------------------
@@ -30,7 +30,7 @@ use crate::ConfigManager;
 fn write_agents_json(dir: &Path, ids: &[&str]) {
     let content = serde_json::json!({ "agents": ids });
     let json_str = serde_json::to_string_pretty(&content).unwrap();
-    create_subdir(dir, "");
+    ensure_dir(dir);
     fs::write(dir.join("agents.json"), json_str).unwrap();
 }
 
