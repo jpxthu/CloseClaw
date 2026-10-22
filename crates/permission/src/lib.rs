@@ -49,3 +49,6 @@ pub use user_registry::{RegistryError, UserRegistry};
 
 #[cfg(test)]
 pub mod permission_op_tests;
+
+#[cfg(test)]
+pub(crate) mod test_support;

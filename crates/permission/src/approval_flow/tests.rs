@@ -2,6 +2,7 @@ use super::*;
 use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{Caller, PermissionRequestBody, RuleSet};
 use crate::mock_session_lookup::MockSessionLookup;
+use crate::test_support::tmp_str;
 use closeclaw_common::permission_types::RiskLevel;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
@@ -340,10 +341,7 @@ async fn test_whitelist_persists_only_for_whitelist_mode() {
     // Two distinct requests to avoid duplicate rejection.
     let request1 = PermissionRequestBody::FileOp {
         agent: "agent_1".to_string(),
-        path: std::env::temp_dir()
-            .join("a.txt")
-            .to_string_lossy()
-            .into_owned(),
+        path: tmp_str("a.txt"),
         op: "read".to_string(),
     };
     let request2 = PermissionRequestBody::CommandExec {

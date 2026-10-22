@@ -10,6 +10,7 @@ use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{
     Action, Caller, CommandArgs, Effect, PermissionRequestBody, Rule, RuleSet, Subject,
 };
+use crate::test_support::tmp_str;
 use crate::whitelist::{
     append_whitelist_rule, build_whitelist_rule, caller_to_subject, request_body_to_action,
 };
@@ -18,10 +19,7 @@ use crate::whitelist::{
 
 #[test]
 fn test_file_op_read_maps_to_action() {
-    let tmp_path = std::env::temp_dir()
-        .join("file.txt")
-        .to_string_lossy()
-        .into_owned();
+    let tmp_path = tmp_str("file.txt");
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
         path: tmp_path.clone(),
@@ -39,10 +37,7 @@ fn test_file_op_read_maps_to_action() {
 
 #[test]
 fn test_file_op_write_maps_to_action() {
-    let tmp_path = std::env::temp_dir()
-        .join("out.txt")
-        .to_string_lossy()
-        .into_owned();
+    let tmp_path = tmp_str("out.txt");
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
         path: tmp_path.clone(),
@@ -192,10 +187,7 @@ fn test_build_rule_for_file_op() {
     };
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
-        path: std::env::temp_dir()
-            .join("data.txt")
-            .to_string_lossy()
-            .into_owned(),
+        path: tmp_str("data.txt"),
         op: "read".into(),
     };
     let rule =
@@ -262,10 +254,7 @@ fn make_rule(name: &str) -> Rule {
         effect: Effect::Allow,
         actions: vec![Action::File {
             operation: "read".into(),
-            paths: vec![std::env::temp_dir()
-                .join("f.txt")
-                .to_string_lossy()
-                .into_owned()],
+            paths: vec![tmp_str("f.txt")],
         }],
         template: None,
         priority: 0,

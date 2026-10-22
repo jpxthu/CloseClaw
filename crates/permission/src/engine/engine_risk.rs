@@ -12,6 +12,8 @@ use crate::engine::engine_types::{Effect, PermissionRequest, PermissionResponse}
 #[cfg(test)]
 use crate::rules::RuleSetBuilder;
 #[cfg(test)]
+use crate::test_support::tmp_str;
+#[cfg(test)]
 use closeclaw_common::session_mode::SessionMode;
 #[cfg(test)]
 use closeclaw_common::session_mode_query::SessionModeQuery;
@@ -229,13 +231,7 @@ mod tests {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec![
-                "-rf".to_string(),
-                std::env::temp_dir()
-                    .join("foo")
-                    .to_string_lossy()
-                    .into_owned(),
-            ],
+            args: vec!["-rf".to_string(), tmp_str("foo")],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::High);
     }
@@ -277,13 +273,7 @@ mod tests {
         let request = PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec![
-                "--recursive".to_string(),
-                std::env::temp_dir()
-                    .join("dir")
-                    .to_string_lossy()
-                    .into_owned(),
-            ],
+            args: vec!["--recursive".to_string(), tmp_str("dir")],
         };
         assert_eq!(assess_risk_level(&request), RiskLevel::High);
     }

@@ -126,13 +126,11 @@ impl PermissionOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tmp_str;
 
     #[test]
     fn test_describe_add_file_whitelist() {
-        let path = std::env::temp_dir()
-            .join("data/**")
-            .to_string_lossy()
-            .into_owned();
+        let path = tmp_str("data/**");
         let op = PermissionOperation::AddFileWhitelist {
             agent: "eda".into(),
             op: "read".into(),

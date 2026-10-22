@@ -611,7 +611,7 @@ mod tests {
     fn test_checkpoint_with_plan_state_builder() {
         use closeclaw_common::{PlanPhase, PlanState};
 
-        let plan_path = std::env::temp_dir().join("plan.md");
+        let plan_path = crate::test_support::tmp_path("plan.md");
         let plan = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: plan_path.to_string_lossy().into_owned(),

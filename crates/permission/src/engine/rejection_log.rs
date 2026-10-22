@@ -153,13 +153,11 @@ mod tests {
 
     #[test]
     fn test_build_rejection_log_command_exec() {
+        let target = std::env::temp_dir().to_string_lossy().into_owned();
         let body = PermissionRequestBody::CommandExec {
             agent: "agent-2".to_string(),
             cmd: "rm".to_string(),
-            args: vec![
-                "-rf".to_string(),
-                std::env::temp_dir().to_string_lossy().into_owned(),
-            ],
+            args: vec!["-rf".to_string(), target.clone()],
         };
         let log = build_rejection_log(
             &body,
@@ -168,10 +166,7 @@ mod tests {
             Some(SessionMode::Plan),
         );
         assert_eq!(log.tool_name, "exec");
-        assert_eq!(
-            log.operation,
-            format!("rm -rf {}", std::env::temp_dir().to_string_lossy())
-        );
+        assert_eq!(log.operation, format!("rm -rf {target}"));
         assert_eq!(log.session_mode, Some(SessionMode::Plan));
     }
 

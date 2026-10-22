@@ -252,6 +252,7 @@ mod tests {
     use crate::approval_flow::HeartbeatApprovalMode;
     use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
     use crate::mock_session_lookup::MockSessionLookup;
+    use crate::test_support::tmp_str;
 
     fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let ruleset = RuleSet {
@@ -332,10 +333,7 @@ mod tests {
 
     #[test]
     fn test_build_request_body_file_read() {
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let body = build_request_body("file_read", &tmp_path, &serde_json::json!({}), "agent-1");
         match body {
             PermissionRequestBody::FileOp { agent, path, op } => {
@@ -464,10 +462,7 @@ mod tests {
 
     #[test]
     fn test_build_denial_body_file_read() {
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let body = build_denial_body("file_read", &tmp_path, "denied");
         match body {
             PermissionRequestBody::FileOp { path, op, .. } => {
@@ -510,10 +505,7 @@ mod tests {
             "agent_id": "test-agent",
             "user_id": "user-1"
         });
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
             .check_permission("file_read", &tmp_path, details)
             .await;
@@ -531,10 +523,7 @@ mod tests {
             "agent_id": "test-agent",
             "user_id": "user-1"
         });
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
             .check_permission("file_read", &tmp_path, details)
             .await;
@@ -552,10 +541,7 @@ mod tests {
         let engine = make_engine_with_rules(vec![]);
         let wrapper = SkillPermissionEngineWrapper::new(engine);
         let details = serde_json::json!({});
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
             .check_permission("file_read", &tmp_path, details)
             .await;
@@ -574,10 +560,7 @@ mod tests {
             agent: "agent_1".to_string(),
             is_sub_agent: true,
         };
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let result = rt.block_on(wrapper.submit_denial(
             "file_read",
             &tmp_path,
@@ -601,10 +584,7 @@ mod tests {
             agent: "agent_1".to_string(),
             is_sub_agent: false,
         };
-        let tmp_path = std::env::temp_dir()
-            .join("test.txt")
-            .to_string_lossy()
-            .into_owned();
+        let tmp_path = tmp_str("test.txt");
         let result = rt.block_on(wrapper.submit_denial(
             "file_read",
             &tmp_path,

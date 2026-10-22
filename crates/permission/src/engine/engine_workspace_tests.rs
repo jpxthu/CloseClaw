@@ -8,6 +8,7 @@ use super::engine_types::{
 };
 use crate::actions::ActionBuilder;
 use crate::rules::{RuleBuilder, RuleSetBuilder};
+use crate::test_support::tmp_str;
 
 fn make_engine() -> PermissionEngine {
     let tmp = TempDir::new().unwrap();
@@ -272,9 +273,7 @@ fn test_config_dir_outside_data_root() {
     let tmp = TempDir::new().unwrap();
     assert!(!super::engine_workspace::is_config_dir_path(
         tmp.path(),
-        &std::env::temp_dir()
-            .join("other/file.txt")
-            .to_string_lossy()
+        &tmp_str("other/file.txt")
     ));
 }
 
@@ -328,9 +327,7 @@ fn test_config_file_path_normal_file() {
     let tmp = TempDir::new().unwrap();
     assert!(!super::engine_workspace::is_config_file_path(
         tmp.path(),
-        &std::env::temp_dir()
-            .join("regular/file.txt")
-            .to_string_lossy()
+        &tmp_str("regular/file.txt")
     ));
 }
 

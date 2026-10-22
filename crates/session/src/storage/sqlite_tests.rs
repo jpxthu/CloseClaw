@@ -626,7 +626,7 @@ mod tests {
         storage.save_checkpoint(&cp).await.unwrap();
 
         // Update to Design phase
-        let plan_path = std::env::temp_dir().join("p.md");
+        let plan_path = crate::test_support::tmp_path("p.md");
         let plan2 = PlanState {
             phase: PlanPhase::Design,
             plan_file_path: plan_path.to_string_lossy().into_owned(),

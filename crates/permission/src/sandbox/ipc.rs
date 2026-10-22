@@ -221,6 +221,7 @@ async fn send_response(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tmp_str;
 
     #[test]
     fn test_sandbox_request_ping_serialization() {
@@ -263,10 +264,7 @@ mod tests {
         let req = SandboxRequest::Evaluate {
             request: crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
-                path: std::env::temp_dir()
-                    .join("test.txt")
-                    .to_string_lossy()
-                    .into_owned(),
+                path: tmp_str("test.txt"),
                 op: "read".to_string(),
             }),
             extra_deny_subjects: None,
@@ -380,10 +378,7 @@ mod tests {
     fn file_read_request(agent: &str) -> crate::PermissionRequest {
         crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
             agent: agent.to_string(),
-            path: std::env::temp_dir()
-                .join("test.txt")
-                .to_string_lossy()
-                .into_owned(),
+            path: tmp_str("test.txt"),
             op: "read".to_string(),
         })
     }

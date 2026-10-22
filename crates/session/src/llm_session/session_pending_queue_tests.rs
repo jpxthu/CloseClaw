@@ -242,7 +242,7 @@ fn test_unified_queue_background_tool_notification_priority() {
             task_id: "bg-1".into(),
             command: "ls".into(),
             state: TaskState::Completed { exit_code: 0 },
-            output_path: std::env::temp_dir().join("out"),
+            output_path: crate::test_support::tmp_path("out"),
             priority: NotificationPriority::Later,
             summary: "done".into(),
             suggestion: None,
