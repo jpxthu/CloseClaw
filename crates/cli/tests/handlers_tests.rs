@@ -542,12 +542,18 @@ fn test_json_output_structs() {
             ConfigListFile {
                 name: "a.json".into(),
                 version: "1.0".into(),
-                path: "/tmp/a.json".into(),
+                path: std::env::temp_dir()
+                    .join("a.json")
+                    .to_string_lossy()
+                    .into_owned(),
             },
             ConfigListFile {
                 name: "b.json".into(),
                 version: "2.0".into(),
-                path: "/tmp/b.json".into(),
+                path: std::env::temp_dir()
+                    .join("b.json")
+                    .to_string_lossy()
+                    .into_owned(),
             },
         ],
     };
@@ -807,13 +813,21 @@ fn test_agent_info_json_output_all_fields() {
     use closeclaw_cli::admin::rpc::protocol::{AdminResponse, AgentInfoResult};
     use closeclaw_common::{MemoryConfig, ModelSpec, SubagentsConfig};
 
+    let workspace = std::env::temp_dir()
+        .join("ws")
+        .to_string_lossy()
+        .into_owned();
+    let agent_dir = std::env::temp_dir()
+        .join("ad")
+        .to_string_lossy()
+        .into_owned();
     let info = AgentInfoResult {
         id: "cli-test-agent".to_string(),
         name: "CLI Test Agent".to_string(),
         parent_id: Some("parent-id".to_string()),
         model: Some(ModelSpec::single("claude-3-opus")),
-        workspace: Some("/tmp/ws".to_string()),
-        agent_dir: Some("/tmp/ad".to_string()),
+        workspace: Some(workspace.clone()),
+        agent_dir: Some(agent_dir.clone()),
         bootstrap_mode: closeclaw_common::BootstrapMode::Minimal,
         skills: vec!["s1".to_string()],
         tools: vec!["t1".to_string()],
@@ -832,8 +846,8 @@ fn test_agent_info_json_output_all_fields() {
     assert_eq!(v["name"], "CLI Test Agent");
     assert_eq!(v["parentId"], "parent-id");
     assert_eq!(v["model"], "claude-3-opus");
-    assert_eq!(v["workspace"], "/tmp/ws");
-    assert_eq!(v["agentDir"], "/tmp/ad");
+    assert_eq!(v["workspace"].as_str().unwrap(), workspace);
+    assert_eq!(v["agentDir"].as_str().unwrap(), agent_dir);
     assert_eq!(v["bootstrapMode"], "minimal");
     assert!(v["skills"]
         .as_array()

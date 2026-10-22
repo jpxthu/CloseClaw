@@ -7,14 +7,19 @@ const ADMIN_TIMEOUT_MS: u64 = 5000;
 
 #[test]
 fn test_admin_client_new() {
-    let client = AdminClient::new("/tmp/test.sock");
-    assert_eq!(client.path, "/tmp/test.sock");
+    let sock = std::env::temp_dir()
+        .join("test.sock")
+        .to_string_lossy()
+        .into_owned();
+    let client = AdminClient::new(sock.clone());
+    assert_eq!(client.path, sock);
     assert_eq!(client.timeout_ms, ADMIN_TIMEOUT_MS);
 }
 
 #[test]
 fn test_admin_client_with_timeout() {
-    let client = AdminClient::with_timeout("/tmp/test.sock", 1000);
+    let sock = std::env::temp_dir().join("test-timeout.sock");
+    let client = AdminClient::with_timeout(sock.to_string_lossy().into_owned(), 1000);
     assert_eq!(client.timeout_ms, 1000);
 }
 
@@ -29,13 +34,21 @@ fn test_admin_socket_path() {
 
 #[tokio::test]
 async fn test_client_connect_to_nonexistent_socket() {
-    let client = AdminClient::new("/tmp/nonexistent-admin-test.sock");
+    let sock = std::env::temp_dir()
+        .join("nonexistent-admin-test.sock")
+        .to_string_lossy()
+        .into_owned();
+    let client = AdminClient::new(sock);
     let result = client.call(&AdminRequest::Ping).await;
     assert!(result.is_err());
 }
 
 #[tokio::test]
 async fn test_client_ping_to_nonexistent_socket() {
-    let client = AdminClient::new("/tmp/nonexistent-admin-test.sock");
+    let sock = std::env::temp_dir()
+        .join("nonexistent-admin-test.sock")
+        .to_string_lossy()
+        .into_owned();
+    let client = AdminClient::new(sock);
     assert!(!client.ping().await);
 }
