@@ -225,10 +225,12 @@ for i in "${!LABELS[@]}"; do
   done
 done
 
-# 去重排序（C locale 字节序，保证与 baseline 比对及重写结果确定性）
+# 排序但保留重复条目（C locale 字节序，保证与 baseline 比对及重写结果确定性）：
+# 同一行可同时命中 '"/tmp 与 "$TEMP_ROOT 补充规则（同 label「硬编码路径」），产生重复条目；
+# 写侧塌缩会与加载/比对侧多重集计数不对称，破坏重写→加载→比对闭环自洽
 ACTUAL=()
 if [[ ${#ENTRIES[@]} -gt 0 ]]; then
-  mapfile -t ACTUAL < <(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort -u)
+  mapfile -t ACTUAL < <(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)
 fi
 
 # ── --update-baseline：全量重写 baseline 文件 ─────────────
