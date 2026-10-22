@@ -167,25 +167,29 @@ mod tests {
 
     #[test]
     fn test_from_json_str_valid() {
-        let json = r#"{
-            "version": "1.0.0",
-            "enabled": true,
-            "allow": ["minimax", "openclaw-lark"],
-            "entries": {
-                "minimax": { "enabled": true },
-                "feishu": { "enabled": false }
-            },
-            "installs": {
-                "openclaw-lark": {
-                    "source": "archive",
-                    "sourcePath": "/tmp/lark.tgz",
-                    "installPath": "/home/user/.openclaw/extensions/openclaw-lark",
-                    "version": "2026.4.8",
-                    "installedAt": "2026-04-19T12:42:35Z"
-                }
-            }
-        }"#;
-        let config = PluginsConfigData::from_json_str(json).expect("valid JSON should parse");
+        let source_path = std::env::temp_dir().join("lark.tgz");
+        let json = format!(
+            r#"{{
+                "version": "1.0.0",
+                "enabled": true,
+                "allow": ["minimax", "openclaw-lark"],
+                "entries": {{
+                    "minimax": {{ "enabled": true }},
+                    "feishu": {{ "enabled": false }}
+                }},
+                "installs": {{
+                    "openclaw-lark": {{
+                        "source": "archive",
+                        "sourcePath": "{}",
+                        "installPath": "/home/user/.openclaw/extensions/openclaw-lark",
+                        "version": "2026.4.8",
+                        "installedAt": "2026-04-19T12:42:35Z"
+                    }}
+                }}
+            }}"#,
+            source_path.display()
+        );
+        let config = PluginsConfigData::from_json_str(&json).expect("valid JSON should parse");
         assert!(config.enabled);
         assert_eq!(config.allow.len(), 2);
         assert_eq!(config.allow[0], "minimax");
@@ -197,7 +201,11 @@ mod tests {
         );
         assert_eq!(
             config.installs["openclaw-lark"].source_path.as_deref(),
-            Some("/tmp/lark.tgz")
+            Some(
+                source_path
+                    .to_str()
+                    .expect("temp path should be valid UTF-8")
+            )
         );
         assert_eq!(
             config.installs["openclaw-lark"].install_path.as_deref(),
@@ -343,17 +351,28 @@ mod tests {
 
     #[test]
     fn test_plugin_install_info_deserialize() {
-        let json = r#"{
-            "source": "archive",
-            "sourcePath": "/tmp/plugin.tgz",
-            "installPath": "/home/user/.openclaw/plugins/my-plugin",
-            "version": "1.0.0",
-            "installedAt": "2026-01-01T00:00:00Z"
-        }"#;
+        let source_path = std::env::temp_dir().join("plugin.tgz");
+        let json = format!(
+            r#"{{
+                "source": "archive",
+                "sourcePath": "{}",
+                "installPath": "/home/user/.openclaw/plugins/my-plugin",
+                "version": "1.0.0",
+                "installedAt": "2026-01-01T00:00:00Z"
+            }}"#,
+            source_path.display()
+        );
         let info: PluginInstallInfo =
-            serde_json::from_str(json).expect("valid PluginInstallInfo JSON should parse");
+            serde_json::from_str(&json).expect("valid PluginInstallInfo JSON should parse");
         assert_eq!(info.source.as_deref(), Some("archive"));
-        assert_eq!(info.source_path.as_deref(), Some("/tmp/plugin.tgz"));
+        assert_eq!(
+            info.source_path.as_deref(),
+            Some(
+                source_path
+                    .to_str()
+                    .expect("temp path should be valid UTF-8")
+            )
+        );
         assert_eq!(
             info.install_path.as_deref(),
             Some("/home/user/.openclaw/plugins/my-plugin")
