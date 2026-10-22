@@ -8,7 +8,6 @@ use closeclaw_common::processor::StreamEvent;
 use closeclaw_common::LlmState;
 use closeclaw_session::persistence::ReasoningLevel;
 use futures::stream;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::{GatewayConfig, OutboundMeta, SendOutboundIds, SessionManager};
@@ -46,7 +45,7 @@ async fn setup_receiving_test(
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs.set_llm_state(initial);
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));

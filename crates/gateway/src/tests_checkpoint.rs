@@ -38,7 +38,7 @@ async fn register_conv_session(sm: &SessionManager, session_id: &str) {
     let mut cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     // Workflow state queries decode the stored Value through this port.
     cs.set_workflow_port(crate::test_support_workflow_port::test_port::test_port());

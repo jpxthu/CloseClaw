@@ -275,7 +275,7 @@ async fn s13_busy(sm: &SessionManager, sid: &str) {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         sid.into(),
         "m".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs.set_llm_state(closeclaw_common::LlmState::Requesting);
     sm.conversation_sessions

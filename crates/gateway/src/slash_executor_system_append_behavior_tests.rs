@@ -127,7 +127,7 @@ async fn register_cs(gw: &Gateway, session_id: &str) {
     let cs = ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let mut conv = gw.session_manager.conversation_sessions.write().await;
     conv.insert(

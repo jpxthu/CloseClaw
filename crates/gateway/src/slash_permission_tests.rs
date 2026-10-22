@@ -115,7 +115,7 @@ async fn setup(action: SystemAppendAction) -> (Arc<Gateway>, Arc<AtomicBool>) {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-sys".to_owned(),
             "test-model".to_owned(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let mut conv = gw.session_manager.conversation_sessions.write().await;
         conv.insert(
@@ -254,7 +254,7 @@ async fn test_clear_without_callback_no_panic() {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-nocb".to_owned(),
             "test-model".to_owned(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let mut conv = sm.conversation_sessions.write().await;
         conv.insert(
@@ -298,7 +298,7 @@ async fn test_callback_called_on_clear() {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-cb".to_owned(),
             "test-model".to_owned(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let mut conv = sm.conversation_sessions.write().await;
         conv.insert("sess-cb".to_owned(), Arc::new(tokio::sync::RwLock::new(cs)));
@@ -590,7 +590,7 @@ async fn setup_snapshot_test() -> Arc<Gateway> {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-snap".to_owned(),
             "test-model".to_owned(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let mut conv = gw.session_manager.conversation_sessions.write().await;
         conv.insert(
@@ -787,7 +787,7 @@ async fn test_cross_step_mode_not_immediate_enqueues_when_busy() {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sess-mode-busy".to_owned(),
             "test-model".to_owned(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
         {

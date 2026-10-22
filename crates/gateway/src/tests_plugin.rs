@@ -180,7 +180,6 @@ async fn test_register_plugin_uses_plugin_platform_as_key() {
 use crate::Session;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_session::llm_session::ConversationSession;
-use std::path::PathBuf;
 use tokio::sync::RwLock;
 
 /// Mock plugin that captures the last card JSON sent via `send()`.
@@ -289,7 +288,7 @@ async fn register_session_with_conv(
     let cs = Arc::new(RwLock::new(ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )));
     sm.conversation_sessions
         .write()

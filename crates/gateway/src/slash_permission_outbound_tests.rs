@@ -95,11 +95,10 @@ async fn register_session(
     gw: &Gateway,
     session_id: &str,
 ) -> Arc<tokio::sync::RwLock<closeclaw_session::llm_session::ConversationSession>> {
-    use std::path::PathBuf;
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_owned(),
         "test-model".to_owned(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     {

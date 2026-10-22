@@ -671,7 +671,7 @@ async fn test_thinking_only_message_cleaned_from_api_request() {
     let mut session = ConversationSession::new(
         "s-think-clean".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     // User message via append_transcript.
     session.append_transcript("user", vec![ContentBlock::Text("What is 2+2?".to_string())]);
@@ -699,7 +699,7 @@ async fn test_normal_response_thinking_with_text_preserved() {
     let mut session = ConversationSession::new(
         "s-think-text".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     session.append_response(closeclaw_llm::types::UnifiedResponse {
         content_blocks: vec![
@@ -728,7 +728,7 @@ async fn test_multiple_thinking_only_messages_all_cleaned() {
     let mut session = ConversationSession::new(
         "s-multi-think".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     session.append_transcript("user", vec![ContentBlock::Text("hello".to_string())]);
     // Two Thinking-only error interruptions.

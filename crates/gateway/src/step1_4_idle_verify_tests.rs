@@ -70,7 +70,7 @@ async fn setup_session(phase: Phase, pending_verify: usize) -> (Arc<SessionManag
     let mut cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.clone(),
         "model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs.set_workflow_run_value(Some(
         serde_json::to_value(make_test_run(phase.clone(), pending_verify)).unwrap(),
@@ -371,7 +371,7 @@ async fn test_reverse_no_workflow_run_no_side_effect() {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.clone(),
         "model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     // No workflow_run set.
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
