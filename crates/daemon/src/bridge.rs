@@ -453,6 +453,6 @@ impl closeclaw_cli::admin::DaemonRunner for DaemonRunnerImpl {
 #[path = "bridge_tests.rs"]
 mod tests;
 
-#[path = "bridge_activated_tests.rs"]
 #[cfg(test)]
+#[path = "bridge_activated_tests.rs"]
 mod activated_tests;
