@@ -453,7 +453,7 @@ fn test_background_task_fields_and_traits() {
         state: TaskState::Running {
             is_backgrounded: false,
         },
-        output_path: PathBuf::from("/tmp/out"),
+        output_path: std::env::temp_dir().join("out"),
     };
     assert_eq!(task.id, "abc-123");
     assert!(matches!(task.state, TaskState::Running { .. }));
@@ -661,7 +661,7 @@ fn make_test_notification(task_id: &str, priority: NotificationPriority) -> Comp
         task_id: task_id.to_string(),
         command: format!("cmd-{}", task_id),
         state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from(format!("/tmp/{}", task_id)),
+        output_path: std::env::temp_dir().join(task_id),
         priority,
         summary: format!("task {} completed", task_id),
         suggestion: None,

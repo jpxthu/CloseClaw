@@ -327,9 +327,15 @@ fn test_git_status_enabled_includes_section_for_git_repo() {
 #[test]
 fn test_git_status_enabled_skips_section_for_non_git_repo() {
     let meta = make_meta("u", "ch", 0);
-    // /tmp is typically not a git repo
+    let workdir = std::env::temp_dir();
+    // Do not assume the system temp dir is never inside a git repo: probe
+    // repo-ness with the same detection the production path uses, and only
+    // assert the non-repo contract when it actually applies.
+    if crate::workdir::build_git_status_for(&workdir.to_string_lossy()).is_some() {
+        return;
+    }
     let sections = build_dynamic_sections(&DynamicSectionsParams {
-        workdir_path: Some("/tmp"),
+        workdir_path: Some(workdir.to_str().unwrap()),
         is_git_status_enabled: true,
         ..make_params(&meta, SessionMode::Normal)
     });
@@ -418,8 +424,9 @@ fn test_auto_mode_without_plan_file_path_no_plan_file_section() {
 #[test]
 fn test_auto_mode_plan_file_read_failure_skips_section() {
     let meta = make_meta("u", "ch", 0);
+    let missing_plan = std::env::temp_dir().join("nonexistent-plan-abc123.md");
     let sections = build_dynamic_sections(&DynamicSectionsParams {
-        plan_file_path: Some("/tmp/nonexistent-plan-abc123.md"),
+        plan_file_path: Some(missing_plan.to_str().unwrap()),
         ..make_params(&meta, SessionMode::Auto)
     });
     assert!(

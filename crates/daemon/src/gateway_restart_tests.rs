@@ -350,7 +350,7 @@ fn test_admin_context_has_no_gateway_reference() {
         agent_registry: Arc::new(AgentRegistry::new()),
         skill_registry: None,
         config_manager: cm,
-        config_dir: std::path::PathBuf::from("/tmp/test"),
+        config_dir: std::env::temp_dir().join("test"),
         restart_tx: None,
     };
     // Verify the context was constructed (field existence is compile-time).

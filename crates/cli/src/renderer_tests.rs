@@ -973,14 +973,15 @@ fn test_tool_use_format_normal_and_empty() {
 #[test]
 fn test_tool_use_format_json_input() {
     let renderer = TerminalRenderer::with_ansi(false);
+    let path = std::env::temp_dir().join("renderer-test-a.txt");
     let result = renderer.render_block(&ContentBlock::ToolUse {
         id: "t1".into(),
         name: "write".into(),
-        input: r#"{"path":"/tmp/a.txt","content":"hello"}"#.into(),
+        input: format!(r#"{{"path":"{}","content":"hello"}}"#, path.display()),
     });
     assert!(result.contains("⚙"));
     assert!(result.contains("write"));
-    assert!(result.contains("/tmp/a.txt"));
+    assert!(result.contains(path.to_str().unwrap()));
     let result = renderer.render_block(&ContentBlock::ToolUse {
         id: "t2".into(),
         name: "batch".into(),

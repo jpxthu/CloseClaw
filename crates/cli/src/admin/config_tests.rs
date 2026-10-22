@@ -819,16 +819,16 @@ async fn test_rule_list_with_rules_json() {
 /// not in config/ subdirectory.
 #[test]
 fn test_admin_socket_path_in_root() {
-    let root = Path::new("/tmp/test-closeclaw");
-    let socket = admin_socket_path(root);
+    let root = std::env::temp_dir().join("test-closeclaw");
+    let socket = admin_socket_path(&root);
     assert_eq!(
         socket,
-        Path::new("/tmp/test-closeclaw/admin.sock"),
+        root.join("admin.sock"),
         "admin socket should be <root>/admin.sock"
     );
     assert_eq!(
         socket.parent().unwrap(),
-        root,
+        root.as_path(),
         "admin socket parent should be the root dir"
     );
 }
@@ -836,13 +836,13 @@ fn test_admin_socket_path_in_root() {
 /// admin_socket_path uses the injected config_dir, not any global state.
 #[test]
 fn test_admin_socket_path_uses_injected_dir() {
-    let root1 = Path::new("/tmp/test-a");
-    let root2 = Path::new("/tmp/test-b");
-    let socket1 = admin_socket_path(root1);
-    let socket2 = admin_socket_path(root2);
+    let root1 = std::env::temp_dir().join("test-a");
+    let root2 = std::env::temp_dir().join("test-b");
+    let socket1 = admin_socket_path(&root1);
+    let socket2 = admin_socket_path(&root2);
     assert_ne!(socket1, socket2);
-    assert_eq!(socket1, Path::new("/tmp/test-a/admin.sock"));
-    assert_eq!(socket2, Path::new("/tmp/test-b/admin.sock"));
+    assert_eq!(socket1, root1.join("admin.sock"));
+    assert_eq!(socket2, root2.join("admin.sock"));
 }
 
 /// agent handler with injected root dir uses admin_socket_path correctly.

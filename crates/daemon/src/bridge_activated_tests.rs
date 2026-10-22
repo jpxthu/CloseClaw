@@ -8,7 +8,6 @@ use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
 use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_skills::SkillManifest;
-use std::path::PathBuf;
 use std::sync::Arc;
 
 fn run_with_runtime<F>(f: F)
@@ -46,8 +45,8 @@ fn make_disk_skill(
             paths,
             user_invocable,
         },
-        readme_path: PathBuf::from(format!("/tmp/{name}/SKILL.md")),
-        skill_dir: PathBuf::from(format!("/tmp/{name}")),
+        readme_path: std::env::temp_dir().join(name).join("SKILL.md"),
+        skill_dir: std::env::temp_dir().join(name),
     }
 }
 

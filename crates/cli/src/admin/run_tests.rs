@@ -435,10 +435,10 @@ fn test_prepare_run_relative_path_preserved() {
 /// Absolute path (no shorthand) passes through expand_path idempotently.
 #[test]
 fn test_prepare_run_absolute_path_idempotent() {
-    let (config_dir, _pid_file) = prepare_run("/tmp/absolute/test", None).unwrap();
+    let abs = std::env::temp_dir().join("absolute/test");
+    let (config_dir, _pid_file) = prepare_run(abs.to_str().unwrap(), None).unwrap();
     assert_eq!(
-        config_dir,
-        PathBuf::from("/tmp/absolute/test"),
+        config_dir, abs,
         "absolute path without shorthand should be unchanged"
     );
     assert!(config_dir.is_absolute());

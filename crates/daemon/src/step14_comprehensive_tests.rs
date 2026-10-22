@@ -408,7 +408,7 @@ fn test_admin_context_no_gateway_field() {
             #[allow(deprecated)]
             closeclaw_config::ConfigManager::new(tempfile::tempdir().unwrap().into_path()).unwrap()
         }),
-        config_dir: std::path::PathBuf::from("/tmp/test"),
+        config_dir: std::env::temp_dir().join("test"),
         restart_tx: None,
     };
     // Verify: no gateway field exists (compile-time check)

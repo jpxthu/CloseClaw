@@ -55,7 +55,7 @@ fn test_reasoning_level_with_builder() {
     let s = closeclaw_session::llm_session::ConversationSession::new(
         "test-b".to_owned(),
         "test-model".to_owned(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )
     .with_reasoning_level(ReasoningLevel::High);
     assert_eq!(s.reasoning_level(), ReasoningLevel::High);

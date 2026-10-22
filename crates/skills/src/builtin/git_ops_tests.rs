@@ -97,7 +97,7 @@ async fn test_execute_unknown_action() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "unknown_action",
-            "path": "/tmp"
+            "path": std::env::temp_dir()
         })))
         .await
         .unwrap_err();

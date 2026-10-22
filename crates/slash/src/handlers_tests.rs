@@ -382,7 +382,8 @@ async fn test_workdir_handler_cd_no_session() {
         session_id: "nonexistent".to_owned(),
         channel: "c".to_owned(),
     };
-    match h.handle("/tmp", &ctx).await {
+    let target = std::env::temp_dir().to_string_lossy().into_owned();
+    match h.handle(&target, &ctx).await {
         SlashResult::Reply(t) => assert!(t.contains("当前会话未激活"), "got: {t}"),
         other => panic!("expected Reply with no-session, got {other:?}"),
     }
