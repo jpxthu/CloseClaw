@@ -14,6 +14,7 @@ use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::tools::LateBoundSessionManagerOps;
+use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
 use closeclaw_tools::ToolRegistry;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
@@ -590,14 +591,14 @@ async fn test_subscriber_failed_event_with_owner_display() {
 struct RegistryHarness {
     tmp: TempDir,
     config_mgr: Arc<ConfigManager>,
-    skill_registry: Arc<RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+    skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
     tool_registry: Arc<ToolRegistry>,
     session_mgr: Arc<SessionManager>,
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     gateway: Arc<Gateway>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
     confirm_flow: Arc<closeclaw_tools::builtin::PlanExecConfirmFlow>,
-    builtin_registry: Arc<closeclaw_skills::BuiltinSkillRegistry>,
+    builtin_registry: Arc<BuiltinSkillRegistry>,
     agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
     spawn_controller: Arc<closeclaw_gateway::SpawnController>,
     late_bound: Arc<LateBoundSessionManagerOps>,
@@ -649,8 +650,7 @@ impl RegistryHarness {
         let tmp = TempDir::new().unwrap();
         let config_mgr = make_config_manager(&tmp);
         let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
-        let skill_registry: Arc<RwLock<Option<closeclaw_skills::DiskSkillRegistry>>> =
-            Arc::new(RwLock::new(None));
+        let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = Arc::new(RwLock::new(None));
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_mgr = Arc::new(SessionManager::new(
             &GatewayConfig::default(),
@@ -680,7 +680,7 @@ impl RegistryHarness {
                 closeclaw_permission::RuleSet::default(),
             ),
         ));
-        let builtin_registry = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin_registry = Arc::new(BuiltinSkillRegistry::new());
         let spawn_controller = make_spawn_controller(&config_mgr, &session_mgr, &permission_engine);
         let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
         let confirm_flow = make_confirm_flow(&session_mgr);
@@ -798,7 +798,7 @@ async fn test_populate_registries_success_with_valid_setup() {
     use crate::registries::populate_registries;
 
     let mut harness = RegistryHarness::new().await;
-    let disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
+    let disk_reg = DiskSkillRegistry::new(vec![]);
     *harness.skill_registry.write().unwrap() = Some(disk_reg);
 
     // Write mandatory config files so the watcher and ConfigManager load correctly.
