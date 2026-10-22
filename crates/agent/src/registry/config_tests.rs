@@ -310,7 +310,7 @@ async fn test_concurrent_get_and_reload() {
     for _ in 0..READER_TASKS {
         let reg_read = Arc::clone(&registry);
         handles.push(task::spawn_blocking(move || {
-            for _i in 0..READS_PER_TASK {
+            for _ in 0..READS_PER_TASK {
                 // Query any ID — should never panic
                 let _ = reg_read.get("reload-0-0");
                 let _ = tokio::runtime::Runtime::new()
