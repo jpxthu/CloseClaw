@@ -626,9 +626,10 @@ mod tests {
         storage.save_checkpoint(&cp).await.unwrap();
 
         // Update to Design phase
+        let plan_path = std::env::temp_dir().join("p.md");
         let plan2 = PlanState {
             phase: PlanPhase::Design,
-            plan_file_path: "/tmp/p.md".into(),
+            plan_file_path: plan_path.to_string_lossy().into_owned(),
         };
         cp.plan_state = Some(plan2);
         storage.save_checkpoint(&cp).await.unwrap();
@@ -640,7 +641,7 @@ mod tests {
             .unwrap();
         let ps = loaded.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.plan_file_path, "/tmp/p.md");
+        assert_eq!(ps.plan_file_path, plan_path.to_string_lossy().into_owned());
     }
 
     #[tokio::test]
