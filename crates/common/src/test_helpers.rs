@@ -3,7 +3,8 @@
 use std::io;
 use std::sync::Mutex;
 
-use crate::audit_log::{AuditLogEntry, AuditLogFilter, AuditLogger};
+use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use crate::permission_types::RiskLevel;
 
 /// Create `dir` and any missing parents — the sanctioned way for tests to
 /// add sub-directories **under** a `tempfile::TempDir` root.
@@ -58,6 +59,25 @@ pub fn write_mandatory_without_models(dir: &std::path::Path) -> io::Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// Canonical [`AuditLogEntry`] sample shared by audit-log tests across
+/// crates: `tool_name` "file", `operation` "write /x", `reason` "test",
+/// [`RiskLevel::Low`], no session mode — with agent id, timestamp and
+/// disposition parameterized. Single constructor replacing the per-crate
+/// verbatim `make_entry` copies, so a wire-format/field change to the
+/// entry family updates one place.
+pub fn sample_audit_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
+    AuditLogEntry {
+        timestamp: ts.to_string(),
+        agent_id: agent.to_string(),
+        tool_name: "file".to_string(),
+        operation: "write /x".to_string(),
+        reason: "test".to_string(),
+        risk_level: RiskLevel::Low,
+        session_mode: None,
+        disposition: disp,
+    }
 }
 
 /// In-memory [`AuditLogger`] mock shared by tests across crates.

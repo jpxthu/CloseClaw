@@ -4,22 +4,8 @@
 
 use std::sync::Arc;
 
-use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
-use crate::permission_types::RiskLevel;
-use crate::test_helpers::{ensure_dir, MemAuditLogger};
-
-fn make_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
-    AuditLogEntry {
-        timestamp: ts.to_string(),
-        agent_id: agent.to_string(),
-        tool_name: "file".to_string(),
-        operation: "write /x".to_string(),
-        reason: "test".to_string(),
-        risk_level: RiskLevel::Low,
-        session_mode: None,
-        disposition: disp,
-    }
-}
+use crate::audit_log::{AuditDisposition, AuditLogFilter, AuditLogger};
+use crate::test_helpers::{ensure_dir, sample_audit_entry, MemAuditLogger};
 
 #[test]
 fn test_ensure_dir_creates_subdir_under_tempdir() {
@@ -51,27 +37,27 @@ fn test_ensure_dir_panics_for_path_outside_tempdir() {
 #[test]
 fn test_mem_audit_logger_query_filters_matching_subset() {
     let logger = MemAuditLogger::new();
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a1",
         "2026-01-01T00:00:00Z",
         AuditDisposition::Approved,
     ));
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a2",
         "2026-01-02T00:00:00Z",
         AuditDisposition::Approved,
     ));
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a1",
         "2026-01-03T00:00:00Z",
         AuditDisposition::Rejected,
     ));
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a1",
         "2026-01-04T00:00:00Z",
         AuditDisposition::Approved,
     ));
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a3",
         "2026-01-05T00:00:00Z",
         AuditDisposition::Rejected,
@@ -120,7 +106,7 @@ fn test_mem_audit_logger_query_sorts_time_descending() {
         "2026-01-04T00:00:00Z",
     ];
     for (i, ts) in shuffled.iter().enumerate() {
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             &format!("agent-{i}"),
             ts,
             AuditDisposition::Approved,
@@ -168,7 +154,7 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
         ("a-z-prev-day", "2026-01-01T23:00:00Z"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&make_entry(agent, ts, AuditDisposition::Approved));
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -191,12 +177,12 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
 #[test]
 fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     let logger = MemAuditLogger::new();
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a1",
         "2026-01-01T00:00:00Z",
         AuditDisposition::Approved,
     ));
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a2",
         "2026-01-02T00:00:00Z",
         AuditDisposition::Rejected,
@@ -207,7 +193,7 @@ fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     let agents: Vec<&str> = snapshot.iter().map(|e| e.agent_id.as_str()).collect();
     assert_eq!(agents, vec!["a1", "a2"], "快照按插入序包含全部条目");
 
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a3",
         "2026-01-03T00:00:00Z",
         AuditDisposition::Approved,
@@ -238,7 +224,7 @@ fn test_mem_audit_logger_empty_and_zero_match_queries() {
     );
 
     let logger = MemAuditLogger::new();
-    logger.log(&make_entry(
+    logger.log(&sample_audit_entry(
         "a1",
         "2026-01-02T00:00:00Z",
         AuditDisposition::Approved,
@@ -285,7 +271,7 @@ fn test_mem_audit_logger_concurrent_log_no_lost_entries() {
                     } else {
                         AuditDisposition::Rejected
                     };
-                    logger.log(&make_entry(
+                    logger.log(&sample_audit_entry(
                         &format!("agent-{t}"),
                         &format!("2026-01-01T00:00:{i:02}Z"),
                         disp,
