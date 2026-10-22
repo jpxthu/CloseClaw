@@ -271,7 +271,8 @@ mod tests {
     #[test]
     fn test_from_json_str_defaults() {
         let storage_dir = std::env::temp_dir().join("media");
-        let json = format!(r#"{{"storageDir": "{}"}}"#, storage_dir.display());
+        let json =
+            serde_json::json!({ "storageDir": storage_dir.display().to_string() }).to_string();
         let config = MediaConfigData::from_json_str(&json)
             .expect("JSON with only required fields should parse");
         assert_eq!(config.storage_dir, storage_dir.display().to_string());
@@ -298,16 +299,14 @@ mod tests {
     #[test]
     fn test_legacy_max_download_size_bytes_ignored() {
         let storage_dir = std::env::temp_dir().join("media");
-        let json = format!(
-            r#"{{
-                "version": "1.0.0",
-                "storageDir": "{}",
-                "retentionDays": 7,
-                "imageContentThresholdBytes": 1048576,
-                "maxDownloadSizeBytes": 52428800
-            }}"#,
-            storage_dir.display()
-        );
+        let json = serde_json::json!({
+            "version": "1.0.0",
+            "storageDir": storage_dir.display().to_string(),
+            "retentionDays": 7,
+            "imageContentThresholdBytes": 1048576,
+            "maxDownloadSizeBytes": 52428800
+        })
+        .to_string();
         let config =
             MediaConfigData::from_json_str(&json).expect("legacy field should be silently ignored");
         assert_eq!(config.storage_dir, storage_dir.display().to_string());

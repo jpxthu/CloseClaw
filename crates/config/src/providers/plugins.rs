@@ -168,27 +168,25 @@ mod tests {
     #[test]
     fn test_from_json_str_valid() {
         let source_path = std::env::temp_dir().join("lark.tgz");
-        let json = format!(
-            r#"{{
-                "version": "1.0.0",
-                "enabled": true,
-                "allow": ["minimax", "openclaw-lark"],
-                "entries": {{
-                    "minimax": {{ "enabled": true }},
-                    "feishu": {{ "enabled": false }}
-                }},
-                "installs": {{
-                    "openclaw-lark": {{
-                        "source": "archive",
-                        "sourcePath": "{}",
-                        "installPath": "/home/user/.openclaw/extensions/openclaw-lark",
-                        "version": "2026.4.8",
-                        "installedAt": "2026-04-19T12:42:35Z"
-                    }}
-                }}
-            }}"#,
-            source_path.display()
-        );
+        let json = serde_json::json!({
+            "version": "1.0.0",
+            "enabled": true,
+            "allow": ["minimax", "openclaw-lark"],
+            "entries": {
+                "minimax": { "enabled": true },
+                "feishu": { "enabled": false }
+            },
+            "installs": {
+                "openclaw-lark": {
+                    "source": "archive",
+                    "sourcePath": source_path.display().to_string(),
+                    "installPath": "/home/user/.openclaw/extensions/openclaw-lark",
+                    "version": "2026.4.8",
+                    "installedAt": "2026-04-19T12:42:35Z"
+                }
+            }
+        })
+        .to_string();
         let config = PluginsConfigData::from_json_str(&json).expect("valid JSON should parse");
         assert!(config.enabled);
         assert_eq!(config.allow.len(), 2);
@@ -352,16 +350,14 @@ mod tests {
     #[test]
     fn test_plugin_install_info_deserialize() {
         let source_path = std::env::temp_dir().join("plugin.tgz");
-        let json = format!(
-            r#"{{
-                "source": "archive",
-                "sourcePath": "{}",
-                "installPath": "/home/user/.openclaw/plugins/my-plugin",
-                "version": "1.0.0",
-                "installedAt": "2026-01-01T00:00:00Z"
-            }}"#,
-            source_path.display()
-        );
+        let json = serde_json::json!({
+            "source": "archive",
+            "sourcePath": source_path.display().to_string(),
+            "installPath": "/home/user/.openclaw/plugins/my-plugin",
+            "version": "1.0.0",
+            "installedAt": "2026-01-01T00:00:00Z"
+        })
+        .to_string();
         let info: PluginInstallInfo =
             serde_json::from_str(&json).expect("valid PluginInstallInfo JSON should parse");
         assert_eq!(info.source.as_deref(), Some("archive"));
