@@ -161,6 +161,7 @@ fn parse_filter(args: &Value) -> Result<AuditLogFilter, ToolCallError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::builtin::test_helpers::test_ctx;
     use closeclaw_common::audit_log::AuditLogEntry;
     use closeclaw_common::permission_types::RiskLevel;
     use closeclaw_common::test_helpers::{sample_audit_entry, MemAuditLogger};
@@ -348,16 +349,7 @@ mod tests {
     async fn test_audit_log_tool_call_empty() {
         let logger = make_test_logger();
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
         assert_eq!(result.data["total"], 0);
         assert!(result.data["entries"].as_array().unwrap().is_empty());
@@ -369,16 +361,7 @@ mod tests {
         log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
         log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
         assert_eq!(result.data["total"], 2);
         let entries = result.data["entries"].as_array().unwrap();
@@ -405,16 +388,7 @@ mod tests {
             log_approved(&logger, agent, ts);
         }
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
         assert_eq!(result.data["total"], 4);
         let agents: Vec<&str> = result.data["entries"]
@@ -436,16 +410,7 @@ mod tests {
         log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
         log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(serde_json::json!({"agent_id": "a1"}), &ctx)
             .await
@@ -482,16 +447,7 @@ mod tests {
             disposition: AuditDisposition::Rejected,
         });
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(serde_json::json!({"disposition": "rejected"}), &ctx)
             .await
@@ -535,16 +491,7 @@ mod tests {
             disposition: AuditDisposition::Approved,
         });
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(
                 serde_json::json!({
@@ -562,16 +509,7 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_tool_call_invalid_since_returns_error() {
         let tool = AuditLogTool::new(make_test_logger());
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(serde_json::json!({"since": "not-a-time"}), &ctx)
             .await;
@@ -613,16 +551,7 @@ mod tests {
             disposition: AuditDisposition::Rejected,
         });
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(
                 serde_json::json!({
@@ -643,16 +572,7 @@ mod tests {
         let logger = make_test_logger();
         log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
         let tool = AuditLogTool::new(logger);
-        let ctx = ToolContext {
-            agent_id: "test".to_string(),
-            workdir: None,
-            session_id: None,
-            call_id: None,
-            session: None,
-            session_mode: None,
-            manual_background_signal: None,
-            media_store: None,
-        };
+        let ctx = test_ctx();
         let result = tool
             .call(serde_json::json!({"agent_id": "nonexistent"}), &ctx)
             .await
