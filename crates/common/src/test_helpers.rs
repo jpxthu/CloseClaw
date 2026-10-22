@@ -1,6 +1,9 @@
-//! Shared test helpers for daemon and integration tests.
+//! Shared test helpers for daemon, integration and cross-crate tests.
 
 use std::io;
+use std::sync::Mutex;
+
+use crate::audit_log::{AuditLogEntry, AuditLogFilter, AuditLogger};
 
 /// Create `dir` and any missing parents — the sanctioned way for tests to
 /// add sub-directories **under** a `tempfile::TempDir` root.
@@ -55,4 +58,52 @@ pub fn write_mandatory_without_models(dir: &std::path::Path) -> io::Result<()> {
         )?;
     }
     Ok(())
+}
+
+/// In-memory [`AuditLogger`] mock shared by tests across crates.
+///
+/// Stores entries in insertion order — read the full log through
+/// [`MemAuditLogger::entries`] — and answers
+/// [`AuditLogger::query_entries`] per the trait contract: keep entries
+/// matching `filter`, newest first (time-descending).
+///
+/// Consumers: the trait-contract test in `crate::audit_log`, plus the
+/// permission crate's approval-flow and engine audit-log tests
+/// (previously three verbatim-duplicated in-memory mocks).
+#[derive(Default)]
+pub struct MemAuditLogger {
+    entries: Mutex<Vec<AuditLogEntry>>,
+}
+
+impl MemAuditLogger {
+    /// Create an empty logger.
+    pub fn new() -> Self {
+        Self {
+            entries: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Snapshot of every logged entry, in insertion order.
+    pub fn entries(&self) -> Vec<AuditLogEntry> {
+        self.entries.lock().unwrap().clone()
+    }
+}
+
+impl AuditLogger for MemAuditLogger {
+    fn log(&self, entry: &AuditLogEntry) {
+        self.entries.lock().unwrap().push(entry.clone());
+    }
+
+    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
+        let mut matched: Vec<AuditLogEntry> = self
+            .entries
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|e| filter.matches(e))
+            .cloned()
+            .collect();
+        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        matched
+    }
 }
