@@ -255,6 +255,37 @@ mod tests {
         assert!(props.contains_key("until"));
     }
 
+    /// Schema description of `since`/`until` must match the actual
+    /// `parse_filter` validation contract: RFC 3339 (not loose ISO 8601),
+    /// with the correct comparison direction and a copyable example, so
+    /// that LLM-produced arguments do not trigger an avoidable error round.
+    #[test]
+    fn test_audit_log_tool_input_schema_time_bounds_rfc3339() {
+        let tool = AuditLogTool::new(make_test_logger());
+        let schema = tool.input_schema();
+        let props = schema.pointer("/properties").unwrap().as_object().unwrap();
+
+        let since = props["since"]["description"].as_str().unwrap();
+        assert!(
+            since.contains("RFC 3339") && since.contains(">="),
+            "since description should state RFC 3339 and >=: {since}"
+        );
+        assert!(
+            since.contains("2026-01-01T00:00:00Z"),
+            "since description should include an RFC 3339 example: {since}"
+        );
+
+        let until = props["until"]["description"].as_str().unwrap();
+        assert!(
+            until.contains("RFC 3339") && until.contains("<="),
+            "until description should state RFC 3339 and <=: {until}"
+        );
+        assert!(
+            until.contains("2026-01-01T00:00:00Z"),
+            "until description should include an RFC 3339 example: {until}"
+        );
+    }
+
     #[test]
     fn test_audit_log_tool_detail_mentions_audit() {
         let tool = AuditLogTool::new(make_test_logger());
