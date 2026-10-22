@@ -99,7 +99,7 @@ pub(crate) fn phase_components() -> Vec<Vec<ComponentId>> {
 /// contain cycles, or reference missing dependencies.
 pub fn validate_startup_layers(layers: &[Vec<ComponentId>]) -> Result<(), StartupError> {
     if layers.len() != STARTUP_PHASE_ORDER.len() {
-        return Err(StartupError::CircularDependency);
+        return Err(StartupError::StartupLayersMismatch);
     }
     for (i, phase) in STARTUP_PHASE_ORDER.iter().enumerate() {
         let expected = phase.component_ids();
@@ -108,7 +108,7 @@ pub fn validate_startup_layers(layers: &[Vec<ComponentId>]) -> Result<(), Startu
         actual.sort_by_key(|id| id.name().to_string());
         expected_sorted.sort_by_key(|id| id.name().to_string());
         if actual != expected_sorted {
-            return Err(StartupError::CircularDependency);
+            return Err(StartupError::StartupLayersMismatch);
         }
     }
     Ok(())

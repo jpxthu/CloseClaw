@@ -33,7 +33,7 @@ impl super::Daemon {
             actual.sort_by_key(|id| id.name().to_string());
             exp_sorted.sort_by_key(|id| id.name().to_string());
             if actual != exp_sorted {
-                return Err(StartupError::CircularDependency);
+                return Err(StartupError::StartupLayersMismatch);
             }
         }
         Ok(expected)
