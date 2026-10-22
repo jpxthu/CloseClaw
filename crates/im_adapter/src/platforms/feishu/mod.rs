@@ -107,8 +107,8 @@ pub(crate) use renderer::extract_card_plain_text;
 #[cfg(test)]
 pub(crate) use test_helpers::{
     assert_button, assert_select_menu, assert_single_action, create_echo_cli,
-    create_failing_mock_cli, create_mock_cli, make_adapter, make_adapter_with_profile,
-    make_adapter_with_store, make_plugin, make_plugin_with_store, make_selector_inst,
-    make_test_media_store, make_test_media_store_at, make_test_media_store_with_tmp,
-    write_mock_script, CAPABILITY_ERROR_JSON,
+    create_failing_mock_cli, create_mock_cli, create_subdir, make_adapter,
+    make_adapter_with_profile, make_adapter_with_store, make_plugin, make_plugin_with_store,
+    make_selector_inst, make_test_media_store, make_test_media_store_at,
+    make_test_media_store_with_tmp, write_mock_script, CAPABILITY_ERROR_JSON,
 };

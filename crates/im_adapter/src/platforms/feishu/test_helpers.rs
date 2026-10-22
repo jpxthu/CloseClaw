@@ -86,6 +86,16 @@ pub(crate) fn create_echo_cli(tmp: &TempDir) -> String {
     script_path.to_str().unwrap().to_string()
 }
 
+/// Create subdirectory `rel` (any relative subpath, possibly nested) under
+/// an existing `base`, returning the created directory path. Shared
+/// convenience for TempDir child directories (workspace / media / outside
+/// ...) that tests would otherwise hand-roll via `create_dir_all`.
+pub(crate) fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
+    let sub = base.join(rel);
+    std::fs::create_dir_all(&sub).unwrap();
+    sub
+}
+
 /// Create a `MediaStore` rooted at an externally supplied `root`; the
 /// `inbound/` and `outbound/` sub-directories are created under it.
 pub(crate) fn make_test_media_store_at(root: &std::path::Path) -> Arc<MediaStore> {

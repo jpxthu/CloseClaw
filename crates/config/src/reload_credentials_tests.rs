@@ -2,6 +2,7 @@ use crate::manager::{ConfigManager, ConfigSection};
 use crate::reload_manager::{
     dispatch_change, is_credentials_path, ConfigReloadManager, ReloadCallback,
 };
+use crate::test_support::create_subdir;
 use std::path::Path;
 use std::sync::Arc;
 use tempfile::TempDir;
@@ -102,8 +103,7 @@ fn test_credentials_happy_path_staging_and_runtime_preserved() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
     std::fs::write(
         creds_dir.join("openai.json"),
         r#"{"provider":"openai","apiKey":"sk-old"}"#,
@@ -175,7 +175,7 @@ fn test_credentials_runtime_added_file_dispatched_to_credentials_reload() {
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
     // Create credentials dir (empty initially)
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
 
     // Simulate runtime-added file
     std::fs::write(
@@ -210,7 +210,7 @@ fn test_credentials_no_old_value_first_load_success_stages() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
 
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
     std::fs::write(
         d.path().join("credentials/anthropic.json"),
         r#"{"provider":"anthropic","apiKey":"sk-ant"}"#,
@@ -243,7 +243,7 @@ fn test_credentials_no_old_value_parse_failure_blocks_load() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
     std::fs::write(d.path().join("credentials/bad.json"), r#"not valid json"#).unwrap();
 
     let result = mgr.reload_credentials();
@@ -272,8 +272,7 @@ fn test_credentials_old_value_retained_on_parse_failure() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
     std::fs::write(
         creds_dir.join("openai.json"),
         r#"{"provider":"openai","apiKey":"sk-old"}"#,
@@ -316,8 +315,7 @@ fn test_credentials_validation_failure_retains_old_value() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
     std::fs::write(
         creds_dir.join("openai.json"),
         r#"{"provider":"openai","apiKey":"sk-old"}"#,
@@ -360,8 +358,7 @@ fn test_credentials_no_old_value_validation_failure_blocks() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
     std::fs::write(
         creds_dir.join("openai.json"),
         r#"{"provider":"openai","apiKey":""}"#,
@@ -390,13 +387,12 @@ fn test_credentials_credential_path_parse_error_aborts_load() {
 
     // credentials/ dir exists but is empty (no files inside to trigger
     // load_from_dir_strict failure — we only test the credential_path path)
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
 
     // Place a valid credential file OUTSIDE credentials/, referenced via
     // models.json credentialPath. Use an absolute path because the models
     // validator resolves credentialPath relative to CWD.
-    let external_dir = d.path().join("external_creds");
-    std::fs::create_dir_all(&external_dir).unwrap();
+    let external_dir = create_subdir(d.path(), "external_creds");
     let cred_file = external_dir.join("openai.json");
     std::fs::write(
         &cred_file,
@@ -441,13 +437,12 @@ fn test_credentials_credential_path_validation_error_aborts_load() {
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
     // credentials/ dir exists but is empty
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
 
     // Place a valid credential file OUTSIDE credentials/, referenced via
     // models.json credentialPath. Use an absolute path because the models
     // validator resolves credentialPath relative to CWD.
-    let external_dir = d.path().join("external_creds");
-    std::fs::create_dir_all(&external_dir).unwrap();
+    let external_dir = create_subdir(d.path(), "external_creds");
     let cred_file = external_dir.join("openai.json");
     std::fs::write(
         &cred_file,
@@ -488,8 +483,7 @@ fn test_credentials_credential_path_missing_file_warns_only() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
 
     // Create valid credential file first so models.json validation passes.
     let cred_file = creds_dir.join("openai.json");
@@ -527,8 +521,7 @@ fn test_credentials_mixed_valid_and_invalid_batch_fails() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb.clone());
 
-    let creds_dir = d.path().join("credentials");
-    std::fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(d.path(), "credentials");
 
     // One valid file
     std::fs::write(
@@ -562,7 +555,7 @@ fn test_credentials_reload_does_not_affect_models_section() {
 
     let models_before = cm.section(ConfigSection::Models).unwrap();
 
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
     std::fs::write(
         d.path().join("credentials/openai.json"),
         r#"{"provider":"openai","apiKey":"sk-test"}"#,
@@ -588,7 +581,7 @@ fn test_models_reload_unaffected_by_credentials() {
     let mgr = ConfigReloadManager::with_defaults(cm.clone(), cb);
 
     // First establish credentials
-    std::fs::create_dir_all(d.path().join("credentials")).unwrap();
+    create_subdir(d.path(), "credentials");
     std::fs::write(
         d.path().join("credentials/openai.json"),
         r#"{"provider":"openai","apiKey":"sk-old"}"#,

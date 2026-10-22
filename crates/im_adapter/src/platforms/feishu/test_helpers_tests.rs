@@ -5,9 +5,10 @@
 //! (ETXTBSY root cause); mock scripts must live in a `tempfile::TempDir`.
 
 use super::{
-    create_failing_mock_cli, make_adapter, make_adapter_with_profile, make_adapter_with_store,
-    make_plugin, make_plugin_with_store, make_test_media_store, make_test_media_store_at,
-    make_test_media_store_with_tmp, write_mock_script, CAPABILITY_ERROR_JSON,
+    create_failing_mock_cli, create_subdir, make_adapter, make_adapter_with_profile,
+    make_adapter_with_store, make_plugin, make_plugin_with_store, make_test_media_store,
+    make_test_media_store_at, make_test_media_store_with_tmp, write_mock_script,
+    CAPABILITY_ERROR_JSON,
 };
 use serial_test::serial;
 #[cfg(unix)]
@@ -317,6 +318,37 @@ fn test_make_adapter_calls_are_independent_per_invocation() {
     assert_eq!(
         b.cli_command, "cli_b.sh",
         "each call keeps its own override"
+    );
+}
+
+// ===========================================================================
+// TempDir subdirectory helper
+// ===========================================================================
+
+/// Normal path: `create_subdir` materializes `base.join(rel)` and returns
+/// exactly that path — for a flat entry and for a nested relative subpath
+/// (intermediate parents included) alike.
+#[test]
+fn test_create_subdir_creates_dir_and_returns_path() {
+    let tmp = TempDir::new().unwrap();
+
+    let flat = create_subdir(tmp.path(), "media");
+    assert_eq!(
+        flat,
+        tmp.path().join("media"),
+        "flat rel resolves under base"
+    );
+    assert!(flat.is_dir(), "flat subdir must exist as a directory");
+
+    let nested = create_subdir(tmp.path(), "agents/agent-1/workspace");
+    assert_eq!(
+        nested,
+        tmp.path().join("agents").join("agent-1").join("workspace"),
+        "nested rel resolves under base"
+    );
+    assert!(
+        nested.is_dir(),
+        "nested subdir must exist as a directory (parents created)"
     );
 }
 
