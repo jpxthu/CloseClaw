@@ -253,7 +253,7 @@ fn test_concurrent_get_and_populate() {
     }));
 
     // Reader threads: query configs
-    for _t in 0..READER_THREADS {
+    for _ in 0..READER_THREADS {
         let reg_read = Arc::clone(&registry);
         handles.push(thread::spawn(move || {
             for i in 0..WRITER_COUNT {
