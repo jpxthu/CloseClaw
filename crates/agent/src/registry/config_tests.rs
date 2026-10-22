@@ -334,6 +334,9 @@ async fn test_concurrent_query_bootstrap_mode() {
     use std::sync::Arc;
     use tokio::task;
 
+    const QUERY_TASKS: i32 = 10;
+    const QUERIES_PER_TASK: i32 = 100;
+
     let registry = Arc::new(AgentRegistry::new());
     let mut cfg_full = make_config("full-agent");
     cfg_full.bootstrap_mode = BootstrapMode::Full;
@@ -342,11 +345,17 @@ async fn test_concurrent_query_bootstrap_mode() {
     registry.populate(vec![cfg_full, cfg_min]);
 
     let mut handles = vec![];
-    for _ in 0..10 {
+
+    // Coverage note: hoisting Runtime::new() out of the query loop keeps the
+    // totals (QUERY_TASKS × QUERIES_PER_TASK queries × 3 assertions per round)
+    // and the spawn_blocking interleaving unchanged; Runtime construction is
+    // not part of the semantics under test (concurrent queries on one
+    // Arc<AgentRegistry> must resolve bootstrap modes correctly).
+    for _ in 0..QUERY_TASKS {
         let reg = Arc::clone(&registry);
         handles.push(task::spawn_blocking(move || {
-            for _ in 0..100 {
-                let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Runtime::new().unwrap();
+            for _ in 0..QUERIES_PER_TASK {
                 let mode_full = rt.block_on(reg.query_bootstrap_mode("full-agent"));
                 assert_eq!(mode_full, Some(BootstrapMode::Full));
                 let mode_min = rt.block_on(reg.query_bootstrap_mode("min-agent"));
