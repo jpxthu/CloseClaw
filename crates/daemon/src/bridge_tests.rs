@@ -16,6 +16,10 @@ use std::sync::Arc;
 /// Shared builtin skill name used across whitelist/sorting tests.
 const ALPHA: &str = "alpha";
 
+// ------------------------------------------------------------------
+// Test helpers
+// ------------------------------------------------------------------
+
 /// Build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
 async fn make_builtin(skills: Vec<(&str, bool, Vec<String>)>) -> Arc<BuiltinSkillRegistry> {
     Arc::new(
@@ -28,10 +32,6 @@ async fn make_builtin(skills: Vec<(&str, bool, Vec<String>)>) -> Arc<BuiltinSkil
         .await,
     )
 }
-
-// ------------------------------------------------------------------
-// Test helpers
-// ------------------------------------------------------------------
 
 /// Mock `AgentSkillsQuery` that returns a fixed whitelist for each agent.
 struct MockAgentSkillsQuery {

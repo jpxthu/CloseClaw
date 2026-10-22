@@ -7,7 +7,9 @@
 use super::SkillListingProviderWrapper;
 use async_trait::async_trait;
 use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
+use closeclaw_skills::BuiltinSkillRegistry;
 use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::Skill;
 use closeclaw_skills::SkillManifest;
 use std::sync::Arc;
 
@@ -42,7 +44,7 @@ pub(super) fn make_disk_skill(
 ) -> DiskSkill {
     DiskSkill {
         source,
-        manifest: closeclaw_skills::disk::types::SkillManifest {
+        manifest: SkillManifest {
             name: name.to_string(),
             description: format!("disk skill {name}"),
             when_to_use: String::new(),
@@ -61,13 +63,13 @@ pub(super) fn make_builtin_skill(
     name: &str,
     user_invocable: bool,
     paths: Vec<String>,
-) -> Arc<dyn closeclaw_skills::Skill> {
+) -> Arc<dyn Skill> {
     struct MockBuiltin {
         manifest: SkillManifest,
     }
 
     #[async_trait]
-    impl closeclaw_skills::Skill for MockBuiltin {
+    impl Skill for MockBuiltin {
         fn manifest(&self) -> SkillManifest {
             self.manifest.clone()
         }
@@ -91,14 +93,14 @@ pub(super) fn make_builtin_skill(
 
 /// Helper: create a `DiskSkillRegistry` with the given skills.
 pub(super) fn make_disk_registry(skills: Vec<DiskSkill>) -> DiskSkillRegistry {
-    closeclaw_skills::DiskSkillRegistry::new(skills)
+    DiskSkillRegistry::new(skills)
 }
 
 /// Helper: create a `SkillListingProviderWrapper` from disk and builtin
 /// registries.
 pub(super) fn make_wrapper(
     disk: DiskSkillRegistry,
-    builtin: Arc<closeclaw_skills::BuiltinSkillRegistry>,
+    builtin: Arc<BuiltinSkillRegistry>,
 ) -> SkillListingProviderWrapper {
     SkillListingProviderWrapper::new(Arc::new(std::sync::RwLock::new(Some(disk))), builtin)
 }
