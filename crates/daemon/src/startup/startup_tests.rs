@@ -479,7 +479,7 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
 }
 
 // --------------------------------------------------------------------------
-// Layer-internal alphabetical ordering (full sort order)
+// validate_startup_layers: success, wrong layer count, wrong layer order
 // --------------------------------------------------------------------------
 
 #[test]
@@ -491,7 +491,7 @@ fn test_validate_startup_layers_succeeds() {
 
 #[test]
 fn test_validate_startup_layers_wrong_count() {
-    // Only 2 layers instead of 5 — should fail.
+    // Only 2 layers instead of 6 — should fail.
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
     let truncated = &layers[..2];

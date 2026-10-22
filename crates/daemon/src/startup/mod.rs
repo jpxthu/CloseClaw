@@ -11,7 +11,7 @@ mod phase;
 
 pub use component::{ComponentDeps, ComponentEntry, ComponentId, Foundation, Service};
 pub use graph::{all_component_entries, topo_sort_layers, StartupError};
-pub(crate) use phase::phase_components;
+pub(crate) use phase::{layers_match_phase_components, phase_components};
 pub use phase::{validate_startup_layers, StartupPhase};
 
 #[cfg(test)]

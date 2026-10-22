@@ -4,7 +4,8 @@
 //! limits (`mod.rs` only holds `pub use` / `pub mod` re-exports).
 
 use crate::startup::{
-    all_component_entries, phase_components, topo_sort_layers, ComponentId, StartupError,
+    all_component_entries, layers_match_phase_components, phase_components, topo_sort_layers,
+    ComponentId, StartupError,
 };
 use tracing::info;
 
@@ -26,17 +27,12 @@ impl super::Daemon {
     pub(crate) fn validate_phase_components(
         layers: &[Vec<ComponentId>],
     ) -> Result<Vec<Vec<ComponentId>>, StartupError> {
-        let expected: Vec<Vec<ComponentId>> = phase_components();
-        for (i, exp) in expected.iter().enumerate() {
-            let mut actual = layers.get(i).cloned().unwrap_or_default();
-            let mut exp_sorted = exp.clone();
-            actual.sort_by_key(|id| id.name().to_string());
-            exp_sorted.sort_by_key(|id| id.name().to_string());
-            if actual != exp_sorted {
-                return Err(StartupError::StartupLayersMismatch);
-            }
+        let expected = phase_components();
+        if layers_match_phase_components(layers) {
+            Ok(expected)
+        } else {
+            Err(StartupError::StartupLayersMismatch)
         }
-        Ok(expected)
     }
     /// Log the resolved startup order at `info` level for operational visibility.
     pub(super) fn log_startup_order(layers: &[Vec<ComponentId>]) {
