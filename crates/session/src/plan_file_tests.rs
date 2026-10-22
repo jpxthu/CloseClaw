@@ -1,5 +1,6 @@
 use super::plan_file;
 use super::plan_file::PlanIdentifierFormat;
+use crate::test_support::create_subdir;
 use std::path::Path;
 
 #[test]
@@ -345,8 +346,7 @@ fn test_create_plan_file_fills_both_timestamps() {
 
 /// Helper to create a plans directory with the given file stems.
 fn setup_plans_dir(dir: &Path, stems: &[&str]) {
-    let plans = dir.join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir, "plans");
     for stem in stems {
         std::fs::write(plans.join(format!("{stem}.md")), "# Plan").unwrap();
     }
@@ -456,7 +456,7 @@ fn test_resolve_not_found_no_plans_dir() {
 #[test]
 fn test_resolve_not_found_empty_plans_dir() {
     let dir = tempfile::TempDir::new().unwrap();
-    std::fs::create_dir_all(dir.path().join("plans")).unwrap();
+    create_subdir(dir.path(), "plans");
 
     let result = plan_file::resolve_plan_by_name(dir.path(), "something");
     assert!(result.is_err());
@@ -469,8 +469,7 @@ fn test_resolve_not_found_empty_plans_dir() {
 #[test]
 fn test_resolve_ignores_non_md_files() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans = dir.path().join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir.path(), "plans");
     std::fs::write(plans.join("target.txt"), "text").unwrap();
     std::fs::write(plans.join("other.md"), "# Other").unwrap();
 
@@ -544,8 +543,7 @@ fn test_resolve_ambiguous_error_display() {
 
 /// Create a plan file with the given content.
 fn create_plan_file_with_content(dir: &Path, stem: &str, content: &str) {
-    let plans = dir.join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir, "plans");
     std::fs::write(plans.join(format!("{stem}.md")), content).unwrap();
 }
 
@@ -565,7 +563,7 @@ fn test_list_summaries_empty_when_no_plans_dir() {
 #[test]
 fn test_list_summaries_empty_when_no_files() {
     let dir = tempfile::TempDir::new().unwrap();
-    std::fs::create_dir_all(dir.path().join("plans")).unwrap();
+    create_subdir(dir.path(), "plans");
     let summaries = plan_file::list_plan_summaries(dir.path()).unwrap();
     assert!(summaries.is_empty());
 }
@@ -573,8 +571,7 @@ fn test_list_summaries_empty_when_no_files() {
 #[test]
 fn test_list_summaries_ignores_non_md_files() {
     let dir = tempfile::TempDir::new().unwrap();
-    let plans = dir.path().join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir.path(), "plans");
     std::fs::write(plans.join("notes.txt"), "hello").unwrap();
     std::fs::write(plans.join("plan.json"), "{}").unwrap();
     std::fs::write(plans.join("real.md"), "# Real Plan").unwrap();
@@ -784,8 +781,7 @@ fn test_read_plan_content_chinese_content() {
 
 fn create_plan_with_sections(dir: &Path) -> std::path::PathBuf {
     let content = "# Test Plan\n\n| 字段 | 值 |\n|------|-----|\n| 创建时间 | 2026-01-01 00:00:00 |\n| 更新时间 | 2026-01-01 00:00:00 |\n\n## Context\n\nInitial context.\n\n## Tasks\n\n- [ ] Task 1\n\n## Verification\n\n## Notes\n\n";
-    let plans = dir.join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir, "plans");
     let path = plans.join("test-plan.md");
     std::fs::write(&path, content).unwrap();
     path
@@ -887,8 +883,7 @@ fn test_read_plan_section_empty_section() {
 fn test_read_plan_section_multiline() {
     let dir = tempfile::TempDir::new().unwrap();
     let content = "# Plan\n\n## Tasks\n\n- [ ] Step 1\n- [ ] Step 2\n\n## Notes\n\nSome notes.\n";
-    let plans = dir.path().join("plans");
-    std::fs::create_dir_all(&plans).unwrap();
+    let plans = create_subdir(dir.path(), "plans");
     let path = plans.join("plan.md");
     std::fs::write(&path, content).unwrap();
 
