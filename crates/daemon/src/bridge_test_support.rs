@@ -12,6 +12,7 @@ use closeclaw_skills::DiskSkillRegistry;
 use closeclaw_skills::Skill;
 use closeclaw_skills::SkillManifest;
 use std::sync::Arc;
+use std::sync::RwLock;
 
 /// Run a closure on a dedicated thread with a tokio runtime context
 /// established via `enter()`. `Handle::current()` inside the wrapper
@@ -102,5 +103,5 @@ pub(super) fn make_wrapper(
     disk: DiskSkillRegistry,
     builtin: Arc<BuiltinSkillRegistry>,
 ) -> SkillListingProviderWrapper {
-    SkillListingProviderWrapper::new(Arc::new(std::sync::RwLock::new(Some(disk))), builtin)
+    SkillListingProviderWrapper::new(Arc::new(RwLock::new(Some(disk))), builtin)
 }
