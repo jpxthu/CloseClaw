@@ -247,12 +247,16 @@ if [[ $UPDATE_BASELINE -eq 1 ]]; then
 fi
 
 # ── baseline 三态比对 ─────────────────────────────────────
-# 新增（baseline 外）→ 列出并 fail；存量（baseline 内）→ 豁免；
-# 已消除（baseline 有、实际无）→ 打「可收窄」警告（不 fail）。
+# 新增（baseline 外，或同键实际命中数超出 baseline 计数的差额）→ 列出并 fail；
+# 存量（baseline 计数覆盖的部分）→ 豁免；已消除（baseline 有、实际无，或同键
+# 缺额的差额）→ 打「可收窄」警告（不 fail）。
 # --target 过滤模式下跳过「已消除」判定（过滤子集无法证明全量消除）。
-# 比对键去行号（test-naming-guard strip_key 同语义）：`路径:行号: 规则` →
-# `路径: 规则`；违规输出与 baseline 重写格式保持含行号不变，仅比对时归一化，
+# 比对键去行号（strip_key，与 test-naming-guard 同一归一化）：`路径:行号: 规则`
+# → `路径: 规则`；违规输出与 baseline 重写格式保持含行号不变，仅比对时归一化，
 # 行号漂移不误报 FAIL。无行号段形态原样透传。
+# 比对为多重集（计数）语义，与 test_naming_guard.py Counter 语义一致：同键
+# 多条目并存不塌缩——实际计数 − baseline 计数 = 新增差额（FAIL），baseline
+# 计数 − 实际计数 = 已消除差额（提示）；每键报告一条代表条目（保留行号定位）。
 
 strip_key() {
   local entry="$1"
@@ -265,48 +269,72 @@ strip_key() {
 
 BASELINE=()
 if [[ -f "$BASELINE_FILE" ]]; then
+  # 不去重：多重集比对按行计数，重复条目各自占一个名额
   mapfile -t BASELINE < <(
     sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' "$BASELINE_FILE" \
-      | grep -vE '^(#|$)' | LC_ALL=C sort -u
+      | grep -vE '^(#|$)' | LC_ALL=C sort
   )
 fi
 
-declare -A BASELINE_SET=()
+declare -A BASELINE_COUNTS=()
+declare -A BASELINE_REPR=()
 for entry in "${BASELINE[@]}"; do
-  BASELINE_SET["$(strip_key "$entry")"]=1
+  key="$(strip_key "$entry")"
+  BASELINE_COUNTS["$key"]=$(( ${BASELINE_COUNTS["$key"]:-0} + 1 ))
+  BASELINE_REPR["$key"]="${BASELINE_REPR["$key"]:-$entry}"
+done
+
+declare -A ACTUAL_COUNTS=()
+declare -A ACTUAL_REPR=()
+for entry in "${ACTUAL[@]}"; do
+  key="$(strip_key "$entry")"
+  ACTUAL_COUNTS["$key"]=$(( ${ACTUAL_COUNTS["$key"]:-0} + 1 ))
+  ACTUAL_REPR["$key"]="${ACTUAL_REPR["$key"]:-$entry}"
 done
 
 NEW_VIOLATIONS=()
+NEW_COUNT=0
 EXEMPT_COUNT=0
-for entry in "${ACTUAL[@]}"; do
-  if [[ -z "${BASELINE_SET[$(strip_key "$entry")]+x}" ]]; then
-    NEW_VIOLATIONS+=("$entry")
+for key in "${!ACTUAL_COUNTS[@]}"; do
+  base_n="${BASELINE_COUNTS["$key"]:-0}"
+  act_n="${ACTUAL_COUNTS["$key"]}"
+  if (( act_n > base_n )); then
+    NEW_COUNT=$((NEW_COUNT + act_n - base_n))
+    NEW_VIOLATIONS+=("${ACTUAL_REPR["$key"]}")
+  fi
+  if (( act_n < base_n )); then
+    EXEMPT_COUNT=$((EXEMPT_COUNT + act_n))
   else
-    EXEMPT_COUNT=$((EXEMPT_COUNT + 1))
+    EXEMPT_COUNT=$((EXEMPT_COUNT + base_n))
   fi
 done
+if [[ ${#NEW_VIOLATIONS[@]} -gt 0 ]]; then
+  mapfile -t NEW_VIOLATIONS < <(printf '%s\n' "${NEW_VIOLATIONS[@]}" | LC_ALL=C sort)
+fi
 
 ELIMINATED=()
+ELIMINATED_COUNT=0
 if [[ -f "$BASELINE_FILE" && -z "$TARGET_FILTER" ]]; then
-  declare -A ACTUAL_SET=()
-  for entry in "${ACTUAL[@]}"; do
-    ACTUAL_SET["$(strip_key "$entry")"]=1
-  done
-  for entry in "${BASELINE[@]}"; do
-    if [[ -z "${ACTUAL_SET[$(strip_key "$entry")]+x}" ]]; then
-      ELIMINATED+=("$entry")
+  for key in "${!BASELINE_COUNTS[@]}"; do
+    base_n="${BASELINE_COUNTS["$key"]}"
+    act_n="${ACTUAL_COUNTS["$key"]:-0}"
+    if (( base_n > act_n )); then
+      ELIMINATED_COUNT=$((ELIMINATED_COUNT + base_n - act_n))
+      ELIMINATED+=("${BASELINE_REPR["$key"]}")
     fi
   done
+  if [[ ${#ELIMINATED[@]} -gt 0 ]]; then
+    mapfile -t ELIMINATED < <(printf '%s\n' "${ELIMINATED[@]}" | LC_ALL=C sort)
+  fi
 fi
 
 # ── 结果 ──────────────────────────────────────────────────
-NEW_COUNT=${#NEW_VIOLATIONS[@]}
 if [[ $NEW_COUNT -gt 0 ]]; then
   printf '%s\n' "${NEW_VIOLATIONS[@]}"
 fi
 
 if [[ ${#ELIMINATED[@]} -gt 0 ]]; then
-  echo "[test-audit] ${#ELIMINATED[@]} 条 baseline 条目已消除，可收窄（bash scripts/test-audit.sh --update-baseline 重写）:" >&2
+  echo "[test-audit] ${ELIMINATED_COUNT} 条 baseline 条目已消除，可收窄（bash scripts/test-audit.sh --update-baseline 重写）:" >&2
   printf '  %s\n' "${ELIMINATED[@]}" >&2
 fi
 
@@ -315,5 +343,5 @@ if [[ $NEW_COUNT -gt 0 || $VIOLATIONS -gt 0 ]]; then
   exit 1
 fi
 
-echo "[test-audit] 通过 — 静态命中 ${#ACTUAL[@]} 处全部在 baseline 内（豁免 ${EXEMPT_COUNT} 处），已消除 ${#ELIMINATED[@]} 条（可 --update-baseline 收窄），运行时违规 0" >&2
+echo "[test-audit] 通过 — 静态命中 ${#ACTUAL[@]} 处全部在 baseline 内（豁免 ${EXEMPT_COUNT} 处），已消除 ${ELIMINATED_COUNT} 条（可 --update-baseline 收窄），运行时违规 0" >&2
 exit 0
