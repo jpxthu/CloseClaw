@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::agents::config_types::{ActionPermission, PermissionLimits};
+use crate::test_support::create_subdir;
 use closeclaw_test_support::log_capture::capture_logs;
 use std::path::{Path, PathBuf};
 use tempfile::TempDir;
@@ -17,8 +18,7 @@ use tempfile::TempDir;
 
 /// Write a minimal `config.json` for the given agent ID.
 fn write_config(dir: &Path, id: &str, name: &str) {
-    let agent_dir = dir.join(id);
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(dir, id);
     let json = format!(r#"{{ "id": "{}", "name": "{}" }}"#, id, name);
     std::fs::write(agent_dir.join("config.json"), json).unwrap();
 }
@@ -124,7 +124,7 @@ fn test_ignores_dirs_outside_registry() {
 fn test_missing_config_json_is_skipped() {
     let user = TempDir::new().unwrap();
     // Create the agent directory but leave it empty (no config.json).
-    std::fs::create_dir_all(user.path().join("zeta")).unwrap();
+    create_subdir(user.path(), "zeta");
     std::fs::write(user.path().join("zeta/.placeholder"), b"").unwrap();
     // Another agent that DOES have a config file.
     write_config(user.path(), "eta", "Eta");
@@ -188,16 +188,14 @@ fn test_merge_falls_back_to_user_field_when_project_empty() {
     let project = TempDir::new().unwrap();
 
     // user: name and a skill; project: only a different name.
-    let user_dir = user.path().join("iota");
-    std::fs::create_dir_all(&user_dir).unwrap();
+    let user_dir = create_subdir(user.path(), "iota");
     std::fs::write(
         user_dir.join("config.json"),
         r#"{ "id": "iota", "name": "Iota", "skills": ["web"] }"#,
     )
     .unwrap();
 
-    let project_dir = project.path().join("iota");
-    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_dir = create_subdir(project.path(), "iota");
     std::fs::write(
         project_dir.join("config.json"),
         r#"{ "id": "iota", "name": "Iota Project" }"#,
@@ -245,7 +243,7 @@ fn test_action_permission_round_trip() {
 fn test_directory_provider_id_from_dirname() {
     let user = TempDir::new().unwrap();
     // Directory name is `foo`; the config.json omits `id` entirely.
-    std::fs::create_dir_all(user.path().join("foo")).unwrap();
+    create_subdir(user.path(), "foo");
     std::fs::write(
         user.path().join("foo/config.json"),
         r#"{ "name": "Foo Agent" }"#,
@@ -280,7 +278,7 @@ fn test_directory_provider_id_from_dirname() {
 fn test_directory_provider_id_mismatch_warn() {
     let user = TempDir::new().unwrap();
     // Directory name is `foo`, but the config.json declares id `other`.
-    std::fs::create_dir_all(user.path().join("foo")).unwrap();
+    create_subdir(user.path(), "foo");
     std::fs::write(
         user.path().join("foo/config.json"),
         r#"{ "id": "other", "name": "Other Agent" }"#,
@@ -336,8 +334,7 @@ fn test_directory_provider_id_mismatch_warn() {
 #[test]
 fn test_directory_provider_empty_string_id_fails_construction() {
     let user = TempDir::new().unwrap();
-    let agent_dir = user.path().join("empty-id");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(user.path(), "empty-id");
     std::fs::write(
         agent_dir.join("config.json"),
         r#"{ "id": "", "name": "Empty ID Agent" }"#,
@@ -372,8 +369,7 @@ fn test_directory_provider_empty_string_id_fails_construction() {
 #[test]
 fn test_user_config_parse_error_skips_agent() {
     let user = TempDir::new().unwrap();
-    let agent_dir = user.path().join("bad-user");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(user.path(), "bad-user");
     std::fs::write(agent_dir.join("config.json"), "not valid json {{").unwrap();
 
     // Also create a valid agent to ensure loading continues.
@@ -407,8 +403,7 @@ fn test_project_config_parse_error_falls_back_to_user() {
 
     write_config(user.path(), "mixed", "User Name");
 
-    let project_dir = project.path().join("mixed");
-    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_dir = create_subdir(project.path(), "mixed");
     std::fs::write(project_dir.join("config.json"), "totally broken json").unwrap();
 
     let provider = AgentDirectoryProvider::new(
@@ -432,12 +427,10 @@ fn test_both_configs_parse_error_skips_agent() {
     let user = TempDir::new().unwrap();
     let project = TempDir::new().unwrap();
 
-    let user_dir = user.path().join("both-bad");
-    std::fs::create_dir_all(&user_dir).unwrap();
+    let user_dir = create_subdir(user.path(), "both-bad");
     std::fs::write(user_dir.join("config.json"), "bad user json").unwrap();
 
-    let project_dir = project.path().join("both-bad");
-    std::fs::create_dir_all(&project_dir).unwrap();
+    let project_dir = create_subdir(project.path(), "both-bad");
     std::fs::write(project_dir.join("config.json"), "bad project json").unwrap();
 
     let provider = AgentDirectoryProvider::new(
@@ -462,7 +455,7 @@ fn test_config_json_is_directory_skips_agent() {
     let user = TempDir::new().unwrap();
     let agent_dir = user.path().join("dir-agent");
     // Create config.json as a directory instead of a file
-    std::fs::create_dir_all(agent_dir.join("config.json")).unwrap();
+    create_subdir(&agent_dir, "config.json");
 
     write_config(user.path(), "normal", "Normal Agent");
 

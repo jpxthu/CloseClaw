@@ -20,6 +20,9 @@ pub mod reload_manager;
 pub mod session;
 pub mod validators;
 
+#[cfg(test)]
+pub(crate) mod test_support;
+
 /// Type alias for a section validator function.
 ///
 /// Used by hot-reload and startup validation.
