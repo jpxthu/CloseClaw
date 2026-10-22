@@ -263,7 +263,10 @@ mod tests {
         let req = SandboxRequest::Evaluate {
             request: crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
                 agent: "test-agent".to_string(),
-                path: "/tmp/test.txt".to_string(),
+                path: std::env::temp_dir()
+                    .join("test.txt")
+                    .to_string_lossy()
+                    .into_owned(),
                 op: "read".to_string(),
             }),
             extra_deny_subjects: None,
@@ -321,17 +324,15 @@ mod tests {
 
     #[test]
     fn test_ipc_channel_new() {
-        let channel = IpcChannel::new("/tmp/test-socket.sock");
-        assert_eq!(
-            channel.path,
-            std::path::PathBuf::from("/tmp/test-socket.sock")
-        );
+        let socket_path = std::env::temp_dir().join("test-socket.sock");
+        let channel = IpcChannel::new(socket_path.clone());
+        assert_eq!(channel.path, socket_path);
     }
 
     #[test]
     fn test_ipc_channel_clean_up_nonexistent_path() {
         // clean_up on a non-existent path should not panic (idempotent)
-        let channel = IpcChannel::new("/tmp/nonexistent-socket-12345.sock");
+        let channel = IpcChannel::new(std::env::temp_dir().join("nonexistent-socket-12345.sock"));
         channel.clean_up(); // should not panic
                             // Running it twice is also fine (idempotent)
         channel.clean_up();
@@ -379,7 +380,10 @@ mod tests {
     fn file_read_request(agent: &str) -> crate::PermissionRequest {
         crate::PermissionRequest::Bare(crate::PermissionRequestBody::FileOp {
             agent: agent.to_string(),
-            path: "/tmp/test.txt".to_string(),
+            path: std::env::temp_dir()
+                .join("test.txt")
+                .to_string_lossy()
+                .into_owned(),
             op: "read".to_string(),
         })
     }

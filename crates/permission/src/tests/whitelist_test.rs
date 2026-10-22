@@ -18,16 +18,20 @@ use crate::whitelist::{
 
 #[test]
 fn test_file_op_read_maps_to_action() {
+    let tmp_path = std::env::temp_dir()
+        .join("file.txt")
+        .to_string_lossy()
+        .into_owned();
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
-        path: "/tmp/file.txt".into(),
+        path: tmp_path.clone(),
         op: "read".into(),
     };
     let action = request_body_to_action(&body).unwrap();
     match action {
         Action::File { operation, paths } => {
             assert_eq!(operation, "read");
-            assert_eq!(paths, vec!["/tmp/file.txt"]);
+            assert_eq!(paths, vec![tmp_path]);
         }
         other => panic!("expected Action::File, got {:?}", other),
     }
@@ -35,16 +39,20 @@ fn test_file_op_read_maps_to_action() {
 
 #[test]
 fn test_file_op_write_maps_to_action() {
+    let tmp_path = std::env::temp_dir()
+        .join("out.txt")
+        .to_string_lossy()
+        .into_owned();
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
-        path: "/tmp/out.txt".into(),
+        path: tmp_path.clone(),
         op: "write".into(),
     };
     let action = request_body_to_action(&body).unwrap();
     match action {
         Action::File { operation, paths } => {
             assert_eq!(operation, "write");
-            assert_eq!(paths, vec!["/tmp/out.txt"]);
+            assert_eq!(paths, vec![tmp_path]);
         }
         other => panic!("expected Action::File, got {:?}", other),
     }
@@ -52,10 +60,11 @@ fn test_file_op_write_maps_to_action() {
 
 #[test]
 fn test_command_exec_maps_to_action() {
+    let tmp_dir = std::env::temp_dir().to_string_lossy().into_owned();
     let body = PermissionRequestBody::CommandExec {
         agent: "a1".into(),
         cmd: "ls".into(),
-        args: vec!["-la".into(), "/tmp".into()],
+        args: vec!["-la".into(), tmp_dir.clone()],
     };
     let action = request_body_to_action(&body).unwrap();
     match action {
@@ -64,7 +73,7 @@ fn test_command_exec_maps_to_action() {
             args: CommandArgs::Allowed { allowed },
         } => {
             assert_eq!(command, "ls");
-            assert_eq!(allowed, vec!["-la", "/tmp"]);
+            assert_eq!(allowed, vec!["-la".to_string(), tmp_dir]);
         }
         other => panic!("expected Action::Command, got {:?}", other),
     }
@@ -183,7 +192,10 @@ fn test_build_rule_for_file_op() {
     };
     let body = PermissionRequestBody::FileOp {
         agent: "a1".into(),
-        path: "/tmp/data.txt".into(),
+        path: std::env::temp_dir()
+            .join("data.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "read".into(),
     };
     let rule =
@@ -250,7 +262,10 @@ fn make_rule(name: &str) -> Rule {
         effect: Effect::Allow,
         actions: vec![Action::File {
             operation: "read".into(),
-            paths: vec!["/tmp/f.txt".into()],
+            paths: vec![std::env::temp_dir()
+                .join("f.txt")
+                .to_string_lossy()
+                .into_owned()],
         }],
         template: None,
         priority: 0,

@@ -340,7 +340,10 @@ async fn test_whitelist_persists_only_for_whitelist_mode() {
     // Two distinct requests to avoid duplicate rejection.
     let request1 = PermissionRequestBody::FileOp {
         agent: "agent_1".to_string(),
-        path: "/tmp/a.txt".to_string(),
+        path: std::env::temp_dir()
+            .join("a.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "read".to_string(),
     };
     let request2 = PermissionRequestBody::CommandExec {

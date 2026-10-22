@@ -129,14 +129,18 @@ mod tests {
 
     #[test]
     fn test_describe_add_file_whitelist() {
+        let path = std::env::temp_dir()
+            .join("data/**")
+            .to_string_lossy()
+            .into_owned();
         let op = PermissionOperation::AddFileWhitelist {
             agent: "eda".into(),
             op: "read".into(),
-            paths: vec!["/tmp/data/**".into()],
+            paths: vec![path.clone()],
         };
         assert_eq!(
             op.describe(),
-            "whitelist file read for agent `eda`: /tmp/data/**"
+            format!("whitelist file read for agent `eda`: {path}")
         );
     }
 

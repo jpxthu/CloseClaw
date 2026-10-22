@@ -47,7 +47,10 @@ fn make_allow_rule(name: &str) -> Rule {
         effect: Effect::Allow,
         actions: vec![Action::File {
             operation: "read".into(),
-            paths: vec!["/tmp/data/**".into()],
+            paths: vec![std::env::temp_dir()
+                .join("data/**")
+                .to_string_lossy()
+                .into_owned()],
         }],
         template: None,
         priority: 0,
@@ -149,7 +152,10 @@ fn test_build_deny_rule_name_preserved() {
     let caller = owner_caller("eda");
     let body = PermissionRequestBody::FileOp {
         agent: "eda".into(),
-        path: "/tmp/f.txt".into(),
+        path: std::env::temp_dir()
+            .join("f.txt")
+            .to_string_lossy()
+            .into_owned(),
         op: "read".into(),
     };
     let rule = build_deny_rule(&caller, &body, "custom-name", WhitelistTarget::Auto).unwrap();
