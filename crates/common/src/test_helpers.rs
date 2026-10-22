@@ -131,12 +131,13 @@ impl AuditLogger for MemAuditLogger {
         // `AuditLogFilter::matches`' since/until window, so mixed ISO 8601
         // offset forms (`Z` / `+08:00` / `+00:00`) order by absolute time,
         // not by lexicographic string order. `None` (unparseable timestamp)
-        // sorts last; `sort_by_key` is stable, so entries at the same
-        // instant (and the trailing unparseable group) keep insertion order.
+        // has no comparable instant and sorts last: the leading `bool`
+        // groups it behind every parseable entry, and `sort_by_key` is
+        // stable, so entries at the same instant (and the trailing
+        // unparseable group) keep insertion order.
         matched.sort_by_key(|e| {
-            chrono::DateTime::parse_from_rfc3339(&e.timestamp)
-                .map(std::cmp::Reverse)
-                .ok()
+            let parsed = chrono::DateTime::parse_from_rfc3339(&e.timestamp).ok();
+            (parsed.is_none(), parsed.map(std::cmp::Reverse))
         });
         matched
     }

@@ -387,6 +387,48 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 
+    /// Mock 迁移后的顺序防回归：多条目 + 混合时区形态乱序写入后，工具
+    /// 返回的 entries 必须按解析后的真实时刻倒序——共享 MemAuditLogger
+    /// 的 query 排序口径穿透到工具响应（此前的工具用例只有数量断言，
+    /// 无一校验顺序；字典序会把 10:00+08:00 误排最前）。
+    #[tokio::test]
+    async fn test_audit_log_tool_call_returns_entries_time_descending() {
+        let logger = make_test_logger();
+        let inserted = [
+            ("t-plus8-00z", "2026-01-02T08:00:00+08:00"), // 00:00Z
+            ("t-z00-03z", "2026-01-02T03:00:00+00:00"),
+            ("t-plus8-02z", "2026-01-02T10:00:00+08:00"), // 02:00Z
+            ("t-z-01z", "2026-01-02T01:00:00Z"),
+        ];
+        for (agent, ts) in inserted {
+            logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        }
+        let tool = AuditLogTool::new(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+            media_store: None,
+        };
+        let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
+        assert_eq!(result.data["total"], 4);
+        let agents: Vec<&str> = result.data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["agent_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            agents,
+            vec!["t-z00-03z", "t-plus8-02z", "t-z-01z", "t-plus8-00z"],
+            "工具响应必须按解析后的真实时刻倒序"
+        );
+    }
+
     #[tokio::test]
     async fn test_audit_log_tool_call_with_filter() {
         let logger = make_test_logger();

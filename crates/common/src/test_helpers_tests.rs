@@ -1,6 +1,7 @@
 //! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and the
 //! shared `MemAuditLogger` audit mock behaviour (filter, time-descending
-//! query, snapshot isolation, empty/zero-match boundaries, concurrency).
+//! query, unparseable-timestamp ordering, window/matches consistency,
+//! snapshot isolation, empty/zero-match boundaries, concurrency).
 
 use std::sync::Arc;
 
@@ -169,6 +170,111 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
             "a-z-prev-day", // 前一日 23:00Z
         ],
         "query 必须按解析后的真实时刻降序，而非 timestamp 字符串字典序"
+    );
+}
+
+/// 边界（部分解析失败）：可解析条目按真实时刻降序在前，解析失败的
+/// 条目无可比时刻、稳定地排在末尾（相互保持插入序）——默认 filter
+/// 无时间窗，垃圾时间戳不影响 matches 判定，只决定排序位置。
+#[test]
+fn test_mem_audit_logger_query_unparseable_timestamps_sort_last_stable() {
+    let logger = MemAuditLogger::new();
+    let inserted = [
+        ("g1", "not-a-time"),
+        ("v1", "2026-01-01T00:00:00Z"),
+        ("g2", "2026/01/02 03:04:05"),
+        ("v2", "2026-01-03T00:00:00Z"),
+        ("g3", "yesterday-ish"),
+    ];
+    for (agent, ts) in inserted {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+    }
+
+    let queried = logger.query_entries(&AuditLogFilter::default());
+    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    assert_eq!(
+        agents,
+        vec!["v2", "v1", "g1", "g2", "g3"],
+        "可解析条目按时刻降序在前，解析失败条目稳定排末尾（保持插入序）"
+    );
+}
+
+/// 边界（全部解析失败）：所有 timestamp 都不可解析时没有可比时刻，
+/// query 不得 panic 也不得重排——稳定排序让全部条目保持插入序。
+#[test]
+fn test_mem_audit_logger_query_all_unparseable_keeps_insertion_order() {
+    let logger = MemAuditLogger::new();
+    let inserted = [
+        ("g1", "not-a-time"),
+        ("g2", "2026/01/02 03:04:05"),
+        ("g3", ""),
+    ];
+    for (agent, ts) in inserted {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+    }
+
+    let queried = logger.query_entries(&AuditLogFilter::default());
+    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    assert_eq!(
+        agents,
+        vec!["g1", "g2", "g3"],
+        "全部条目无可比时刻时必须保持插入序（稳定排序）"
+    );
+}
+
+/// 口径一致性（错误路径）：混合时区形态 + 垃圾时间戳的同批 entries，
+/// 带 since/until 时间窗（界本身也是混合形态）的 query 结果必须与
+/// `matches` 逐条判定完全一致（过滤子集相等，垃圾时间戳双双排除），
+/// 且窗口内结果按解析时刻降序——证明过滤与排序同用「解析后的时刻」
+/// 口径，二者不会漂移。
+#[test]
+fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
+    let logger = MemAuditLogger::new();
+    let inserted = [
+        ("w1-in-02z", "2026-01-02T10:00:00+08:00"), // 02:00Z
+        ("w2-before", "2026-01-01T23:00:00Z"),
+        ("w3-in-0130z", "2026-01-02T09:30:00+08:00"), // 01:30Z
+        ("w4-garbage", "yesterday-ish"),
+        ("w5-at-since", "2026-01-02T00:00:00+00:00"), // 00:00Z，恰在 since
+        ("w6-after", "2026-01-02T16:00:00+08:00"),    // 08:00Z
+        ("w7-in-01z", "2026-01-02T01:00:00Z"),
+    ];
+    for (agent, ts) in inserted {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+    }
+
+    let window = AuditLogFilter {
+        since: Some("2026-01-02T08:00:00+08:00".to_string()), // 00:00Z
+        until: Some("2026-01-02T03:00:00Z".to_string()),
+        ..Default::default()
+    };
+    let queried = logger.query_entries(&window);
+    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    assert_eq!(
+        agents,
+        vec!["w1-in-02z", "w3-in-0130z", "w7-in-01z", "w5-at-since"],
+        "窗口内条目必须按解析时刻降序（含端点），垃圾时间戳被排除"
+    );
+
+    // 一致性：query 的过滤子集必须与「entries() 逐条 matches」完全相等
+    //（同一批条目，仅序不同——序已由上一断言按时刻降序核对），
+    // 且返回的每一条都单独通过 matches。
+    let snapshot = logger.entries();
+    let mut from_matches: Vec<&str> = snapshot
+        .iter()
+        .filter(|e| window.matches(e))
+        .map(|e| e.agent_id.as_str())
+        .collect();
+    from_matches.sort_unstable();
+    let mut queried_set: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    queried_set.sort_unstable();
+    assert_eq!(
+        queried_set, from_matches,
+        "query 过滤子集必须与 matches 逐条判定一致"
+    );
+    assert!(
+        queried.iter().all(|e| window.matches(e)),
+        "返回的每一条都必须通过 matches 判定"
     );
 }
 
