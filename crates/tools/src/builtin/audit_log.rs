@@ -169,6 +169,12 @@ mod tests {
         Arc::new(MemAuditLogger::new())
     }
 
+    /// Thin wrapper logging one approved sample entry — the field
+    /// construction point stays unique in `sample_audit_entry`.
+    fn log_approved(logger: &Arc<dyn AuditLogger>, agent: &str, ts: &str) {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+    }
+
     #[test]
     fn test_audit_log_tool_name_group() {
         let tool = AuditLogTool::new(make_test_logger());
@@ -360,16 +366,8 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_tool_call_returns_entries() {
         let logger = make_test_logger();
-        logger.log(&sample_audit_entry(
-            "a1",
-            "2026-01-01T00:00:00Z",
-            AuditDisposition::Approved,
-        ));
-        logger.log(&sample_audit_entry(
-            "a2",
-            "2026-01-01T00:01:00Z",
-            AuditDisposition::Approved,
-        ));
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+        log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -387,10 +385,13 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 
-    /// Mock 迁移后的顺序防回归：多条目 + 混合时区形态乱序写入后，工具
-    /// 返回的 entries 必须按解析后的真实时刻倒序——共享 MemAuditLogger
-    /// 的 query 排序口径穿透到工具响应（此前的工具用例只有数量断言，
-    /// 无一校验顺序；字典序会把 10:00+08:00 误排最前）。
+    /// Order regression guard after the mock migration: after multiple
+    /// entries with mixed timezone forms are logged out of order, the
+    /// entries returned by the tool must be in descending order by the
+    /// parsed absolute instant — the shared `MemAuditLogger`'s query
+    /// ordering must carry through to the tool response (previous tool
+    /// cases only asserted counts, none checked order; lexicographic
+    /// string order would wrongly rank `10:00+08:00` first).
     #[tokio::test]
     async fn test_audit_log_tool_call_returns_entries_time_descending() {
         let logger = make_test_logger();
@@ -401,7 +402,7 @@ mod tests {
             ("t-z-01z", "2026-01-02T01:00:00Z"),
         ];
         for (agent, ts) in inserted {
-            logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+            log_approved(&logger, agent, ts);
         }
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
@@ -425,23 +426,15 @@ mod tests {
         assert_eq!(
             agents,
             vec!["t-z00-03z", "t-plus8-02z", "t-z-01z", "t-plus8-00z"],
-            "工具响应必须按解析后的真实时刻倒序"
+            "tool response must be ordered by the parsed absolute instant, descending"
         );
     }
 
     #[tokio::test]
     async fn test_audit_log_tool_call_with_filter() {
         let logger = make_test_logger();
-        logger.log(&sample_audit_entry(
-            "a1",
-            "2026-01-01T00:00:00Z",
-            AuditDisposition::Approved,
-        ));
-        logger.log(&sample_audit_entry(
-            "a2",
-            "2026-01-01T00:01:00Z",
-            AuditDisposition::Approved,
-        ));
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+        log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -648,11 +641,7 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_tool_call_no_entries_matching() {
         let logger = make_test_logger();
-        logger.log(&sample_audit_entry(
-            "a1",
-            "2026-01-01T00:00:00Z",
-            AuditDisposition::Approved,
-        ));
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),

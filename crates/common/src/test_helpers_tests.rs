@@ -5,8 +5,13 @@
 
 use std::sync::Arc;
 
-use crate::audit_log::{AuditDisposition, AuditLogFilter, AuditLogger};
+use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 use crate::test_helpers::{ensure_dir, sample_audit_entry, MemAuditLogger};
+
+/// query 结果中 agent_id 的出现顺序（排序断言的公共取样口径）。
+fn agent_order(entries: &[AuditLogEntry]) -> Vec<&str> {
+    entries.iter().map(|e| e.agent_id.as_str()).collect()
+}
 
 #[test]
 fn test_ensure_dir_creates_subdir_under_tempdir() {
@@ -159,7 +164,7 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
-    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&queried);
     assert_eq!(
         agents,
         vec![
@@ -191,7 +196,7 @@ fn test_mem_audit_logger_query_unparseable_timestamps_sort_last_stable() {
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
-    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&queried);
     assert_eq!(
         agents,
         vec!["v2", "v1", "g1", "g2", "g3"],
@@ -214,11 +219,37 @@ fn test_mem_audit_logger_query_all_unparseable_keeps_insertion_order() {
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
-    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&queried);
     assert_eq!(
         agents,
         vec!["g1", "g2", "g3"],
         "全部条目无可比时刻时必须保持插入序（稳定排序）"
+    );
+}
+
+/// 同刻稳定性：解析到同一时刻的条目（含同刻不同形态 `00:00:00Z` vs
+/// `08:00:00+08:00` vs `00:00:00+00:00`）在 query 结果中保持插入序，
+/// 唯一更晚的条目排最前——`sort_by_key` 稳定排序承诺的行为（sort
+/// 注释与 commit message 均已声明同刻保持插入序）。
+#[test]
+fn test_mem_audit_logger_query_same_instant_keeps_insertion_order() {
+    let logger = MemAuditLogger::new();
+    let inserted = [
+        ("s1-z", "2026-01-02T00:00:00Z"),
+        ("s2-plus8", "2026-01-02T08:00:00+08:00"), // 同刻不同形态
+        ("s3-z00", "2026-01-02T00:00:00+00:00"),   // 同刻第三种形态
+        ("s4-later", "2026-01-02T00:00:01Z"),      // 晚 1 秒，验证倒序
+    ];
+    for (agent, ts) in inserted {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+    }
+
+    let queried = logger.query_entries(&AuditLogFilter::default());
+    let agents = agent_order(&queried);
+    assert_eq!(
+        agents,
+        vec!["s4-later", "s1-z", "s2-plus8", "s3-z00"],
+        "更晚条目排最前，同刻条目（含同刻不同形态）保持插入序"
     );
 }
 
@@ -249,7 +280,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
         ..Default::default()
     };
     let queried = logger.query_entries(&window);
-    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&queried);
     assert_eq!(
         agents,
         vec!["w1-in-02z", "w3-in-0130z", "w7-in-01z", "w5-at-since"],
