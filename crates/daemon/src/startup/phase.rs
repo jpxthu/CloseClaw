@@ -76,6 +76,17 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::PostGateway,
 ];
 
+/// Returns the expected [`ComponentId`] set of each startup phase.
+///
+/// This is the single source of truth for the phase-to-component mapping,
+/// derived from [`STARTUP_PHASE_ORDER`] and [`StartupPhase::component_ids`].
+pub(crate) fn phase_components() -> Vec<Vec<ComponentId>> {
+    STARTUP_PHASE_ORDER
+        .iter()
+        .map(|phase| phase.component_ids().to_vec())
+        .collect()
+}
+
 /// Validate that the topological sort layers match the expected phase order.
 ///
 /// This ensures the dependency graph produces the same phase structure as
