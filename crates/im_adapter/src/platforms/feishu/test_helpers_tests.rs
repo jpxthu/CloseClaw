@@ -338,10 +338,7 @@ fn test_create_subdir_creates_dir_and_returns_path() {
         tmp.path().join("media"),
         "flat rel resolves under base"
     );
-    assert!(
-        std::path::Path::new(&flat).is_dir(),
-        "flat subdir must exist as a directory"
-    );
+    assert!(flat.is_dir(), "flat subdir must exist as a directory");
 
     let nested = create_subdir(tmp.path(), "agents/agent-1/workspace");
     assert_eq!(
@@ -350,7 +347,7 @@ fn test_create_subdir_creates_dir_and_returns_path() {
         "nested rel resolves under base"
     );
     assert!(
-        std::path::Path::new(&nested).is_dir(),
+        nested.is_dir(),
         "nested subdir must exist as a directory (parents created)"
     );
 }
