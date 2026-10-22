@@ -13,6 +13,12 @@ fn agent_order(entries: &[AuditLogEntry]) -> Vec<&str> {
     entries.iter().map(|e| e.agent_id.as_str()).collect()
 }
 
+/// Thin wrapper logging one approved sample entry — the field
+/// construction point stays unique in `sample_audit_entry`.
+fn log_approved(logger: &MemAuditLogger, agent: &str, ts: &str) {
+    logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+}
+
 #[test]
 fn test_ensure_dir_creates_subdir_under_tempdir() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
@@ -43,26 +49,14 @@ fn test_ensure_dir_panics_for_path_outside_tempdir() {
 #[test]
 fn test_mem_audit_logger_query_filters_matching_subset() {
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-01T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
-    logger.log(&sample_audit_entry(
-        "a2",
-        "2026-01-02T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+    log_approved(&logger, "a2", "2026-01-02T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a1",
         "2026-01-03T00:00:00Z",
         AuditDisposition::Rejected,
     ));
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-04T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-04T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a3",
         "2026-01-05T00:00:00Z",
@@ -112,11 +106,7 @@ fn test_mem_audit_logger_query_sorts_time_descending() {
         "2026-01-04T00:00:00Z",
     ];
     for (i, ts) in shuffled.iter().enumerate() {
-        logger.log(&sample_audit_entry(
-            &format!("agent-{i}"),
-            ts,
-            AuditDisposition::Approved,
-        ));
+        log_approved(&logger, &format!("agent-{i}"), ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -160,7 +150,7 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
         ("a-z-prev-day", "2026-01-01T23:00:00Z"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -192,7 +182,7 @@ fn test_mem_audit_logger_query_unparseable_timestamps_sort_last_stable() {
         ("g3", "yesterday-ish"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -215,7 +205,7 @@ fn test_mem_audit_logger_query_all_unparseable_keeps_insertion_order() {
         ("g3", ""),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -241,7 +231,7 @@ fn test_mem_audit_logger_query_same_instant_keeps_insertion_order() {
         ("s4-later", "2026-01-02T00:00:01Z"),      // 晚 1 秒，验证倒序
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -271,7 +261,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
         ("w7-in-01z", "2026-01-02T01:00:00Z"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let window = AuditLogFilter {
@@ -314,11 +304,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
 #[test]
 fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-01T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a2",
         "2026-01-02T00:00:00Z",
@@ -330,11 +316,7 @@ fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     let agents = agent_order(&snapshot);
     assert_eq!(agents, vec!["a1", "a2"], "快照按插入序包含全部条目");
 
-    logger.log(&sample_audit_entry(
-        "a3",
-        "2026-01-03T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a3", "2026-01-03T00:00:00Z");
     assert_eq!(snapshot.len(), 2, "后续写入不得改变已取得的快照");
 
     let mut mutable = logger.entries();
@@ -361,11 +343,7 @@ fn test_mem_audit_logger_empty_and_zero_match_queries() {
     );
 
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-02T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-02T00:00:00Z");
 
     let no_agent = logger.query_entries(&AuditLogFilter {
         agent_id: Some("missing".to_string()),
