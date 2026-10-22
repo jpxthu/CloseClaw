@@ -265,25 +265,17 @@ mod tests {
         let schema = tool.input_schema();
         let props = schema.pointer("/properties").unwrap().as_object().unwrap();
 
-        let since = props["since"]["description"].as_str().unwrap();
-        assert!(
-            since.contains("RFC 3339") && since.contains(">="),
-            "since description should state RFC 3339 and >=: {since}"
-        );
-        assert!(
-            since.contains("2026-01-01T00:00:00Z"),
-            "since description should include an RFC 3339 example: {since}"
-        );
-
-        let until = props["until"]["description"].as_str().unwrap();
-        assert!(
-            until.contains("RFC 3339") && until.contains("<="),
-            "until description should state RFC 3339 and <=: {until}"
-        );
-        assert!(
-            until.contains("2026-01-01T00:00:00Z"),
-            "until description should include an RFC 3339 example: {until}"
-        );
+        for (key, op) in [("since", ">="), ("until", "<=")] {
+            let desc = props[key]["description"].as_str().unwrap();
+            assert!(
+                desc.contains("RFC 3339") && desc.contains(op),
+                "{key} description should state RFC 3339 and {op}: {desc}"
+            );
+            assert!(
+                desc.contains("2026-01-01T00:00:00Z"),
+                "{key} description should include an RFC 3339 example: {desc}"
+            );
+        }
     }
 
     #[test]
