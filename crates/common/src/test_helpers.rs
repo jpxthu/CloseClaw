@@ -27,6 +27,22 @@ pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
     std::fs::create_dir_all(dir)
 }
 
+/// Create subdirectory `rel` (any relative subpath, possibly nested) under
+/// `base`, returning the created directory path; missing components —
+/// including `base` itself — are created (`create_dir_all` semantics) and
+/// failures panic via `unwrap` (test-helper contract: callers stay inside
+/// their managed temp tree).
+///
+/// Cross-crate shared test helper — consumers use it through the
+/// `closeclaw_common::test_helpers::` path. Deduplicates the verbatim
+/// per-crate copies (config / session / feishu `create_subdir`), which
+/// remain in place until their call sites migrate in a follow-up batch.
+pub fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
+    let sub = base.join(rel);
+    std::fs::create_dir_all(&sub).unwrap();
+    sub
+}
+
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus a valid placeholder models.json.
