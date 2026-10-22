@@ -29,7 +29,7 @@ use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
 use serial_test::serial;
 use std::collections::HashSet;
-use std::path::PathBuf;
+
 use std::sync::Arc;
 use tempfile::TempDir;
 // ── 1. test_push_and_drain_announce ─────────────────────────────────────────
@@ -581,7 +581,7 @@ async fn test_next_priority_notification_has_urgency_marker() {
         task_id: "task-next-1".to_string(),
         command: "important_cmd".to_string(),
         state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from("/tmp/test/output-next"),
+        output_path: std::env::temp_dir().join("test/output-next"),
         priority: NotificationPriority::Next,
         summary: "Background command 'important_cmd' completed".to_string(),
         suggestion: None,
@@ -643,7 +643,7 @@ async fn test_later_priority_notification_normal_format() {
         task_id: "task-later-1".to_string(),
         command: "normal_cmd".to_string(),
         state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from("/tmp/test/output-later"),
+        output_path: std::env::temp_dir().join("test/output-later"),
         priority: NotificationPriority::Later,
         summary: "Background command 'normal_cmd' completed".to_string(),
         suggestion: None,
@@ -713,7 +713,7 @@ async fn test_priority_consistency_from_generation_to_consumption() {
             task_id: "task-consist-later".to_string(),
             command: "echo done".to_string(),
             state: TaskState::Completed { exit_code: 0 },
-            output_path: PathBuf::from("/tmp/output-later"),
+            output_path: std::env::temp_dir().join("output-later"),
             priority: NotificationPriority::Later,
             summary: "Background command 'echo done' completed".to_string(),
             suggestion: None,
@@ -722,7 +722,7 @@ async fn test_priority_consistency_from_generation_to_consumption() {
             task_id: "task-consist-next".to_string(),
             command: "stuck command".to_string(),
             state: TaskState::Failed { exit_code: 1 },
-            output_path: PathBuf::from("/tmp/output-next"),
+            output_path: std::env::temp_dir().join("output-next"),
             priority: NotificationPriority::Next,
             summary: "Background command 'stuck command' appears stuck at an interactive prompt"
                 .to_string(),
@@ -769,7 +769,7 @@ async fn test_next_vs_later_prefix_comparison() {
             task_id: "task-a".to_string(),
             command: "cmd_a".to_string(),
             state: TaskState::Completed { exit_code: 0 },
-            output_path: PathBuf::from("/tmp/a"),
+            output_path: std::env::temp_dir().join("a"),
             priority: NotificationPriority::Next,
             summary: "Background command 'cmd_a' completed".to_string(),
             suggestion: None,
@@ -778,7 +778,7 @@ async fn test_next_vs_later_prefix_comparison() {
             task_id: "task-b".to_string(),
             command: "cmd_b".to_string(),
             state: TaskState::Completed { exit_code: 0 },
-            output_path: PathBuf::from("/tmp/b"),
+            output_path: std::env::temp_dir().join("b"),
             priority: NotificationPriority::Later,
             summary: "Background command 'cmd_b' completed".to_string(),
             suggestion: None,
@@ -858,7 +858,7 @@ async fn test_now_priority_notification_has_urgent_prefix() {
         task_id: "task-now-1".to_string(),
         command: "critical_cmd".to_string(),
         state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from("/tmp/test/output-now"),
+        output_path: std::env::temp_dir().join("test/output-now"),
         priority: NotificationPriority::Now,
         summary: "Background command 'critical_cmd' completed".to_string(),
         suggestion: None,
@@ -923,7 +923,7 @@ async fn test_mock_task_manager_dedup() {
         task_id: "task-dedup".to_string(),
         command: "echo dedup".to_string(),
         state: TaskState::Completed { exit_code: 0 },
-        output_path: PathBuf::from("/tmp/dedup"),
+        output_path: std::env::temp_dir().join("dedup"),
         priority: NotificationPriority::Later,
         summary: "Background command 'echo dedup' completed".to_string(),
         suggestion: None,
