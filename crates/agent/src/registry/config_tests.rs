@@ -307,10 +307,11 @@ async fn test_concurrent_get_and_reload() {
     }));
 
     // Reader tasks. Coverage note: hoisting Runtime::new() out of the read loop
-    // keeps the totals (5 readers × 50 reads × 2 read calls; 30 reload rounds ×
-    // 10 full-replacement configs) and the spawn_blocking interleaving unchanged;
-    // Runtime construction is not part of the semantics under test (concurrent
-    // reads vs. reload on one Arc<AgentRegistry> must never panic).
+    // keeps the totals (READER_TASKS × READS_PER_TASK reads × 2 read calls;
+    // RELOAD_ROUNDS reload rounds × CONFIGS_PER_RELOAD full-replacement configs)
+    // and the spawn_blocking interleaving unchanged; Runtime construction is not
+    // part of the semantics under test (concurrent reads vs. reload on one
+    // Arc<AgentRegistry> must never panic).
     for _ in 0..READER_TASKS {
         let reg_read = Arc::clone(&registry);
         handles.push(task::spawn_blocking(move || {
