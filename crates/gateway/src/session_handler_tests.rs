@@ -325,7 +325,7 @@ async fn setup_session_with_conv(sm: &SessionManager, sid: &str) -> String {
         closeclaw_session::llm_session::ConversationSession::new(
             sid.to_string(),
             "test-model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     sm.conversation_sessions
@@ -568,7 +568,7 @@ async fn setup_for_compact_test(
         closeclaw_session::llm_session::ConversationSession::new(
             session_id.to_string(),
             "test-model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         ),
     ));
     {

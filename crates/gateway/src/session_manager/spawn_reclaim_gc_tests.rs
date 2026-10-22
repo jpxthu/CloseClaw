@@ -40,7 +40,7 @@ async fn setup_parent_full(mgr: &super::SessionManager, parent_id: &str) {
     let cs = Arc::new(RwLock::new(ConversationSession::new(
         parent_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )));
     mgr.conversation_sessions
         .write()

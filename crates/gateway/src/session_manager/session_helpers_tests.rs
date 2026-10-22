@@ -104,7 +104,7 @@ async fn test_restored_checkpoint_both_ids() {
         .with_sender_id("cp-user".to_string());
     let cm = make_cm(Some(cp));
     let msg = test_message();
-    let wd = Some(PathBuf::from("/tmp/test-ws"));
+    let wd = Some(std::env::temp_dir().join("test-ws"));
 
     let result = compute_session_workdir(true, "s1", &msg, &wd, &cm)
         .await
@@ -139,7 +139,7 @@ async fn test_restored_sender_id_missing_fallback_to_message_from() {
     let cp = SessionCheckpoint::new("s2".to_string()).with_agent_id("cp-agent".to_string());
     let cm = make_cm(Some(cp));
     let msg = test_message();
-    let wd = Some(PathBuf::from("/tmp/test-ws"));
+    let wd = Some(std::env::temp_dir().join("test-ws"));
 
     let result = compute_session_workdir(true, "s2", &msg, &wd, &cm)
         .await
@@ -163,7 +163,7 @@ async fn test_restored_agent_id_missing_fallback_to_message_to() {
     let cp = SessionCheckpoint::new("s3".to_string()).with_sender_id("cp-user".to_string());
     let cm = make_cm(Some(cp));
     let msg = test_message();
-    let wd = Some(PathBuf::from("/tmp/test-ws"));
+    let wd = Some(std::env::temp_dir().join("test-ws"));
 
     let result = compute_session_workdir(true, "s3", &msg, &wd, &cm)
         .await
@@ -202,7 +202,7 @@ async fn test_restored_no_checkpoint_fallback_to_message() {
     // Checkpoint not found
     let cm = make_cm(None);
     let msg = test_message();
-    let wd = Some(PathBuf::from("/tmp/test-ws"));
+    let wd = Some(std::env::temp_dir().join("test-ws"));
 
     let result = compute_session_workdir(true, "s5", &msg, &wd, &cm)
         .await

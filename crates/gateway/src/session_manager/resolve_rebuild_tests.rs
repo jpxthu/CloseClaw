@@ -205,7 +205,7 @@ async fn test_archived_restore_needs_conv_false_rebuilds_system_prompt() {
     let conv = ConversationSession::new(
         session_id.clone(),
         "test-model".to_string(),
-        PathBuf::from("/tmp/test-workspace"),
+        std::env::temp_dir().join("test-workspace"),
     )
     .with_system_prompt("old-stale-prompt");
 
@@ -306,7 +306,7 @@ async fn test_archived_restore_system_appends_stacked_on_rebuilt_prompt() {
     let mut conv = ConversationSession::new(
         session_id.clone(),
         "test-model".to_string(),
-        PathBuf::from("/tmp/test-workspace"),
+        std::env::temp_dir().join("test-workspace"),
     )
     .with_system_prompt("old-prompt");
     // Pre-populate system_appends that should be overwritten by checkpoint restore
@@ -467,7 +467,7 @@ async fn test_archived_restore_path3_needs_conv_false() {
     let mut conv = ConversationSession::new(
         session_id.clone(),
         "test-model".to_string(),
-        PathBuf::from("/tmp/test-workspace"),
+        std::env::temp_dir().join("test-workspace"),
     )
     .with_system_prompt("old-path3-prompt");
     conv.set_system_prompt_builder(Arc::new(TestPromptBuilder::new(
@@ -822,7 +822,7 @@ async fn pre_populate_archived_session(mgr: &SessionManager, session_id: &str, r
     let conv = ConversationSession::new(
         session_id.to_string(),
         "test-model".into(),
-        PathBuf::from("/tmp/test-workspace"),
+        std::env::temp_dir().join("test-workspace"),
     )
     .with_system_prompt("old-prompt");
     {

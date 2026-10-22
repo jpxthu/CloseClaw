@@ -63,7 +63,7 @@ async fn insert_session_with_messages(sm: &SessionManager, session_id: &str, n: 
     let cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let mut cs_write = cs;
     for i in 0..n {

@@ -238,7 +238,7 @@ async fn make_session_busy(sm: &SessionManager, session_id: &str) {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs.set_llm_state(closeclaw_common::LlmState::Requesting);
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
@@ -253,7 +253,7 @@ async fn make_session_idle(sm: &SessionManager, session_id: &str) {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     sm.conversation_sessions

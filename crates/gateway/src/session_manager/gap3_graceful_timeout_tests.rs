@@ -44,7 +44,7 @@ async fn register_child_with_session(
     let cs = Arc::new(tokio::sync::RwLock::new(ConversationSession::new(
         child_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     )));
     mgr.conversation_sessions
         .write()

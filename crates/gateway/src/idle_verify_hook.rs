@@ -285,7 +285,7 @@ pub(crate) mod tests {
         let mut cs = closeclaw_session::llm_session::ConversationSession::new(
             "test-sid".to_string(),
             "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         let handler = WorkflowHandler::new(
             serde_json::to_value(make_test_run(phase, pending_verify)).unwrap(),
@@ -330,7 +330,7 @@ pub(crate) mod tests {
         let cs = closeclaw_session::llm_session::ConversationSession::new(
             "sid".to_string(),
             "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         // No workflow handler set.
         assert!(cs.workflow_handler().is_none());

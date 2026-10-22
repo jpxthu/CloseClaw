@@ -96,7 +96,7 @@ async fn register_child_session(
     let mut cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     cs = cs.with_communication_config(config);
     let arc = Arc::new(RwLock::new(cs));

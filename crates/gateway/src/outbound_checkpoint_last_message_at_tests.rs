@@ -10,7 +10,6 @@ use closeclaw_session::checkpoint_manager::CheckpointManager;
 use closeclaw_session::llm_session::ConversationSession;
 use closeclaw_session::persistence::{PersistenceService, ReasoningLevel, SessionCheckpoint};
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
@@ -59,7 +58,7 @@ async fn register_conv_session(sm: &SessionManager, session_id: &str) {
     let cs = ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let arc = Arc::new(RwLock::new(cs));
     sm.conversation_sessions

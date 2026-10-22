@@ -64,7 +64,7 @@ async fn test_rebuild_spawn_tree_basic() {
     let child_cs = closeclaw_session::llm_session::ConversationSession::new(
         "child-1".to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     mgr.conversation_sessions.write().await.insert(
         "child-1".to_string(),

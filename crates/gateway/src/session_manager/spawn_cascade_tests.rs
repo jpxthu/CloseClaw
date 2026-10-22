@@ -11,7 +11,6 @@ use super::SessionManager;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_session::llm_session::ConversationSession;
 use serial_test::serial;
-use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::RwLock;
@@ -19,7 +18,7 @@ use tokio::sync::RwLock;
 /// Helper: register a `ConversationSession` in the manager's
 /// `conversation_sessions` map and in `sessions`.
 async fn register_session(mgr: &SessionManager, id: &str, agent_id: &str, depth: u32) {
-    let cs = ConversationSession::new(id.to_string(), "test-model".into(), PathBuf::from("/tmp"));
+    let cs = ConversationSession::new(id.to_string(), "test-model".into(), std::env::temp_dir());
     mgr.conversation_sessions
         .write()
         .await

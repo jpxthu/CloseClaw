@@ -364,7 +364,7 @@ async fn test_image_message_content_has_reference_tokens() {
         "media_refs".to_string(),
         serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
             key: "img_abc".into(),
-            path: "/tmp/img".into(),
+            path: std::env::temp_dir().join("img").display().to_string(),
             media_type: closeclaw_common::im_plugin::MediaType::Image,
             size: 1024,
             mime: "image/png".into(),
@@ -420,7 +420,7 @@ async fn test_handle_inbound_image_with_media_refs_smoke() {
         "media_refs".to_string(),
         serde_json::to_string(&vec![closeclaw_common::im_plugin::MediaRef {
             key: "img_abc".into(),
-            path: "/tmp/img".into(),
+            path: std::env::temp_dir().join("img").display().to_string(),
             media_type: closeclaw_common::im_plugin::MediaType::Image,
             size: 1024,
             mime: "image/png".into(),
@@ -741,6 +741,8 @@ async fn test_unavailable_media_audio_intercepted() {
 /// produces combined output (text + reference tokens).
 #[tokio::test]
 async fn test_build_context_content_post_mixed_text_and_media() {
+    let pic_path = std::env::temp_dir().join("pic").display().to_string();
+    let doc_path = std::env::temp_dir().join("doc").display().to_string();
     let pm = ProcessedMessage {
         content_blocks: vec![ContentBlock::Text("check this image".to_string())],
         metadata: {
@@ -754,14 +756,14 @@ async fn test_build_context_content_post_mixed_text_and_media() {
                 serde_json::to_string(&vec![
                     closeclaw_common::im_plugin::MediaRef {
                         key: "pic_99".into(),
-                        path: "/tmp/pic".into(),
+                        path: pic_path.clone(),
                         media_type: closeclaw_common::im_plugin::MediaType::Image,
                         size: 512,
                         mime: "image/jpeg".into(),
                     },
                     closeclaw_common::im_plugin::MediaRef {
                         key: "doc_1".into(),
-                        path: "/tmp/doc".into(),
+                        path: doc_path.clone(),
                         media_type: closeclaw_common::im_plugin::MediaType::File,
                         size: 1024,
                         mime: "application/pdf".into(),
@@ -786,7 +788,7 @@ async fn test_build_context_content_post_mixed_text_and_media() {
         "should contain file reference token: {content}"
     );
     assert!(
-        !content.contains("/tmp"),
+        !content.contains(&pic_path) && !content.contains(&doc_path),
         "must not contain local paths: {content}"
     );
 }

@@ -126,8 +126,15 @@ async fn test_cd_pwd_unaffected_by_permission_engine() {
     gw.set_slash_dispatcher(Arc::new(WorkdirRouter)).await;
     gw.set_permission_engine(deny_engine()).await;
 
+    let cd_target = std::env::temp_dir().join("cd-routing");
     let result_cd = gw
-        .dispatch_slash("sess3", "/cd /tmp", Some("user1"), "feishu", Some("p"))
+        .dispatch_slash(
+            "sess3",
+            &format!("/cd {}", cd_target.display()),
+            Some("user1"),
+            "feishu",
+            Some("p"),
+        )
         .await;
     assert!(
         matches!(result_cd, Some(HandleResult::SlashHandled)),

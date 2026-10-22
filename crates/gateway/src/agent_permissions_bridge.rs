@@ -79,12 +79,12 @@ mod tests {
     };
 
     /// Build a config-side permissions entry with fully populated limits.
-    fn config_action(allowed: bool) -> ConfigActionPermission {
+    fn config_action(allowed: bool, paths_entry: &str) -> ConfigActionPermission {
         ConfigActionPermission {
             allowed,
             limits: ConfigPermissionLimits {
                 commands: vec!["ls".into(), "cat".into()],
-                paths: vec!["/tmp".into()],
+                paths: vec![paths_entry.to_string()],
                 timeout_ms: Some(5000),
             },
         }
@@ -92,11 +92,12 @@ mod tests {
 
     #[test]
     fn mapping_preserves_all_fields_including_limits() {
+        let tmp_path = std::env::temp_dir().display().to_string();
         let config = ConfigAgentPermissions {
             agent_id: "agent-a".into(),
             permissions: [
-                ("exec".to_string(), config_action(true)),
-                ("file_write".to_string(), config_action(false)),
+                ("exec".to_string(), config_action(true, &tmp_path)),
+                ("file_write".to_string(), config_action(false, &tmp_path)),
             ]
             .into_iter()
             .collect(),
@@ -113,7 +114,7 @@ mod tests {
             exec.limits.commands,
             vec!["ls".to_string(), "cat".to_string()]
         );
-        assert_eq!(exec.limits.paths, vec!["/tmp".to_string()]);
+        assert_eq!(exec.limits.paths, vec![tmp_path.clone()]);
         assert_eq!(exec.limits.timeout_ms, Some(5000));
         let file_write = mapped.permissions.get("file_write").unwrap();
         assert!(!file_write.allowed);
@@ -121,7 +122,7 @@ mod tests {
             file_write.limits.commands,
             vec!["ls".to_string(), "cat".to_string()]
         );
-        assert_eq!(file_write.limits.paths, vec!["/tmp".to_string()]);
+        assert_eq!(file_write.limits.paths, vec![tmp_path.clone()]);
         assert_eq!(file_write.limits.timeout_ms, Some(5000));
     }
 

@@ -385,7 +385,7 @@ async fn setup_verbosity_session(
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         sid.clone(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     cs_arc.write().await.set_verbosity_level(verbosity);
