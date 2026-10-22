@@ -154,6 +154,38 @@ fn test_mem_audit_logger_query_sorts_time_descending() {
     );
 }
 
+/// 混合时区形态：`+08:00` / `Z` / `+00:00` 乱序写入后，query 按解析后的
+/// 真实时刻降序返回（与 `AuditLogFilter::matches` 时间窗同口径）——
+/// 字符串字典序会把 `08:00+08:00`（= `00:00Z`）排到 `01:00Z` 之前而误判。
+#[test]
+fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
+    let logger = MemAuditLogger::new();
+    let inserted = [
+        ("a-plus8-02z", "2026-01-02T10:00:00+08:00"),
+        ("a-z-01z", "2026-01-02T01:00:00Z"),
+        ("a-plus8-00z", "2026-01-02T08:00:00+08:00"),
+        ("a-z00-03z", "2026-01-02T03:00:00+00:00"),
+        ("a-z-prev-day", "2026-01-01T23:00:00Z"),
+    ];
+    for (agent, ts) in inserted {
+        logger.log(&make_entry(agent, ts, AuditDisposition::Approved));
+    }
+
+    let queried = logger.query_entries(&AuditLogFilter::default());
+    let agents: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    assert_eq!(
+        agents,
+        vec![
+            "a-z00-03z",    // 03:00Z
+            "a-plus8-02z",  // 02:00Z（10:00+08:00）
+            "a-z-01z",      // 01:00Z
+            "a-plus8-00z",  // 00:00Z（08:00+08:00）
+            "a-z-prev-day", // 前一日 23:00Z
+        ],
+        "query 必须按解析后的真实时刻降序，而非 timestamp 字符串字典序"
+    );
+}
+
 /// 快照语义：`entries()` 返回全量快照且与后续写入隔离——拍快照后
 /// 继续 log，快照不变；修改快照 Vec 也不得穿透到 logger 内部状态。
 #[test]

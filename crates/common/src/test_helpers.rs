@@ -65,7 +65,11 @@ pub fn write_mandatory_without_models(dir: &std::path::Path) -> io::Result<()> {
 /// Stores entries in insertion order — read the full log through
 /// [`MemAuditLogger::entries`] — and answers
 /// [`AuditLogger::query_entries`] per the trait contract: keep entries
-/// matching `filter`, newest first (time-descending).
+/// matching `filter`, newest first. Newest-first compares parsed RFC 3339
+/// instants — the same basis as [`AuditLogFilter::matches`]' since/until
+/// window, so mixed `Z` / `+08:00` / `+00:00` forms order by absolute
+/// time instead of lexicographically; an entry whose timestamp fails to
+/// parse has no comparable instant and sorts last.
 ///
 /// Consumers: the trait-contract test in `crate::audit_log`, plus the
 /// permission crate's approval-flow and engine audit-log tests
@@ -103,7 +107,17 @@ impl AuditLogger for MemAuditLogger {
             .filter(|e| filter.matches(e))
             .cloned()
             .collect();
-        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+        // Newest first by the parsed RFC 3339 instant — the same basis as
+        // `AuditLogFilter::matches`' since/until window, so mixed ISO 8601
+        // offset forms (`Z` / `+08:00` / `+00:00`) order by absolute time,
+        // not by lexicographic string order. `None` (unparseable timestamp)
+        // sorts last; `sort_by_key` is stable, so entries at the same
+        // instant (and the trailing unparseable group) keep insertion order.
+        matched.sort_by_key(|e| {
+            chrono::DateTime::parse_from_rfc3339(&e.timestamp)
+                .map(std::cmp::Reverse)
+                .ok()
+        });
         matched
     }
 }
