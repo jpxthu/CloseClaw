@@ -70,11 +70,13 @@ impl Tool for AuditLogTool {
                 },
                 "since": {
                     "type": "string",
-                    "description": "Only return entries with timestamp >= this ISO 8601 value"
+                    "description": "Only return entries with timestamp \
+        >= this value (RFC 3339, e.g. 2026-01-01T00:00:00Z)"
                 },
                 "until": {
                     "type": "string",
-                    "description": "Only return entries with timestamp <= this ISO 8601 value"
+                    "description": "Only return entries with timestamp \
+        <= this value (RFC 3339, e.g. 2026-01-01T00:00:00Z)"
                 }
             },
             "required": []
@@ -251,6 +253,29 @@ mod tests {
         assert!(props.contains_key("disposition"));
         assert!(props.contains_key("since"));
         assert!(props.contains_key("until"));
+    }
+
+    /// Schema description of `since`/`until` must match the actual
+    /// `parse_filter` validation contract: RFC 3339 (not loose ISO 8601),
+    /// with the correct comparison direction and a copyable example, so
+    /// that LLM-produced arguments do not trigger an avoidable error round.
+    #[test]
+    fn test_audit_log_tool_input_schema_time_bounds_rfc3339() {
+        let tool = AuditLogTool::new(make_test_logger());
+        let schema = tool.input_schema();
+        let props = schema.pointer("/properties").unwrap().as_object().unwrap();
+
+        for (key, op) in [("since", ">="), ("until", "<=")] {
+            let desc = props[key]["description"].as_str().unwrap();
+            assert!(
+                desc.contains("RFC 3339") && desc.contains(op),
+                "{key} description should state RFC 3339 and {op}: {desc}"
+            );
+            assert!(
+                desc.contains("2026-01-01T00:00:00Z"),
+                "{key} description should include an RFC 3339 example: {desc}"
+            );
+        }
     }
 
     #[test]
