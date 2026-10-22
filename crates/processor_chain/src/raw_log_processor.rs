@@ -193,8 +193,9 @@ mod tests {
 
     #[test]
     fn test_require_dir_returns_path_when_some() {
-        let config = RawLogConfig::new(true, Some("/tmp/test".into()));
-        assert_eq!(config.require_dir().unwrap().to_str().unwrap(), "/tmp/test");
+        let dir = std::env::temp_dir().join("test");
+        let config = RawLogConfig::new(true, Some(dir.clone()));
+        assert_eq!(config.require_dir().unwrap(), &dir);
     }
 
     #[tokio::test]
