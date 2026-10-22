@@ -76,29 +76,52 @@ const STARTUP_PHASE_ORDER: &[StartupPhase] = &[
     StartupPhase::PostGateway,
 ];
 
+/// Returns the expected [`ComponentId`] set of each startup phase.
+///
+/// This is the single source of truth for the phase-to-component mapping,
+/// derived from [`STARTUP_PHASE_ORDER`] and [`StartupPhase::component_ids`].
+pub(crate) fn phase_components() -> Vec<Vec<ComponentId>> {
+    STARTUP_PHASE_ORDER
+        .iter()
+        .map(|phase| phase.component_ids().to_vec())
+        .collect()
+}
+
+/// Compare resolved layers against [`phase_components`], order-insensitively
+/// within each layer.
+///
+/// Returns `true` when the layer count matches and every layer contains
+/// exactly the expected component set.
+pub(crate) fn layers_match_phase_components(layers: &[Vec<ComponentId>]) -> bool {
+    let expected = phase_components();
+    if layers.len() != expected.len() {
+        return false;
+    }
+    layers.iter().zip(expected.iter()).all(|(actual, exp)| {
+        let mut actual_sorted = actual.clone();
+        let mut exp_sorted = exp.clone();
+        actual_sorted.sort_by_key(|id| id.name().to_string());
+        exp_sorted.sort_by_key(|id| id.name().to_string());
+        actual_sorted == exp_sorted
+    })
+}
+
 /// Validate that the topological sort layers match the expected phase order.
 ///
 /// This ensures the dependency graph produces the same phase structure as
-/// the hardcoded initialization order. If the topo sort result diverges,
-/// the daemon must refuse to start (the initialization code would be wrong).
+/// the expected initialization order: the layer count and each layer's
+/// component set (order-insensitive) must match [`phase_components`].
 ///
 /// # Errors
 ///
-/// Returns [`StartupError`] if the layers don't match expected phases,
-/// contain cycles, or reference missing dependencies.
+/// Returns [`StartupError::StartupLayersMismatch`] when the layer count or
+/// any layer's component set diverges from the expected phases. Circular
+/// dependencies and missing dependencies are not detected here; they are
+/// reported by [`super::graph::topo_sort_layers`].
 pub fn validate_startup_layers(layers: &[Vec<ComponentId>]) -> Result<(), StartupError> {
-    if layers.len() != STARTUP_PHASE_ORDER.len() {
-        return Err(StartupError::CircularDependency);
+    if layers_match_phase_components(layers) {
+        Ok(())
+    } else {
+        Err(StartupError::StartupLayersMismatch)
     }
-    for (i, phase) in STARTUP_PHASE_ORDER.iter().enumerate() {
-        let expected = phase.component_ids();
-        let mut actual = layers[i].clone();
-        let mut expected_sorted = expected.to_vec();
-        actual.sort_by_key(|id| id.name().to_string());
-        expected_sorted.sort_by_key(|id| id.name().to_string());
-        if actual != expected_sorted {
-            return Err(StartupError::CircularDependency);
-        }
-    }
-    Ok(())
 }

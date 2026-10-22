@@ -435,7 +435,7 @@ fn test_validate_layers_catches_wrong_spawn_controller_layer() {
     ];
     let err = validate_startup_layers(&wrong_layers).unwrap_err();
     assert!(
-        matches!(err, StartupError::CircularDependency),
+        matches!(err, StartupError::StartupLayersMismatch),
         "validation should reject wrong SpawnController layer placement"
     );
 }
@@ -473,13 +473,13 @@ fn test_validate_layers_catches_wrong_admin_rpc_server_layer() {
     ];
     let err = validate_startup_layers(&wrong_layers).unwrap_err();
     assert!(
-        matches!(err, StartupError::CircularDependency),
+        matches!(err, StartupError::StartupLayersMismatch),
         "validation should reject wrong AdminRpcServer layer placement"
     );
 }
 
 // --------------------------------------------------------------------------
-// Layer-internal alphabetical ordering (full sort order)
+// validate_startup_layers: success, wrong layer count, wrong layer order
 // --------------------------------------------------------------------------
 
 #[test]
@@ -491,12 +491,12 @@ fn test_validate_startup_layers_succeeds() {
 
 #[test]
 fn test_validate_startup_layers_wrong_count() {
-    // Only 2 layers instead of 5 — should fail.
+    // Only 2 layers instead of 6 — should fail.
     let entries = all_component_entries();
     let layers = topo_sort_layers(&entries).expect("topo sort should succeed");
     let truncated = &layers[..2];
     let err = validate_startup_layers(truncated).unwrap_err();
-    assert!(matches!(err, StartupError::CircularDependency));
+    assert!(matches!(err, StartupError::StartupLayersMismatch));
 }
 
 #[test]
@@ -507,7 +507,7 @@ fn test_validate_startup_layers_wrong_order() {
     let mut swapped = layers.clone();
     swapped.swap(0, 1);
     let err = validate_startup_layers(&swapped).unwrap_err();
-    assert!(matches!(err, StartupError::CircularDependency));
+    assert!(matches!(err, StartupError::StartupLayersMismatch));
 }
 
 // --------------------------------------------------------------------------
@@ -919,7 +919,7 @@ fn test_validate_rejects_llm_registry_in_foundation_phase() {
     wrong_layers[0].sort_by_key(|id| id.name().to_string());
     let err = crate::Daemon::validate_phase_components(&wrong_layers).unwrap_err();
     assert!(
-        matches!(err, StartupError::CircularDependency),
+        matches!(err, StartupError::StartupLayersMismatch),
         "validation must reject LLMRegistry in Foundation phase"
     );
 }
@@ -936,7 +936,7 @@ fn test_validate_rejects_llm_registry_in_wiring_phase() {
     wrong_layers[3].sort_by_key(|id| id.name().to_string());
     let err = crate::Daemon::validate_phase_components(&wrong_layers).unwrap_err();
     assert!(
-        matches!(err, StartupError::CircularDependency),
+        matches!(err, StartupError::StartupLayersMismatch),
         "validation must reject LLMRegistry in Wiring phase"
     );
 }

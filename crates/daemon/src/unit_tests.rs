@@ -350,7 +350,7 @@ fn test_validate_phase_components_with_announce_sweeper_succeeds() {
 }
 
 /// Boundary: removing AnnounceSweeper from Layer 3 causes
-/// validate_phase_components to return CircularDependency.
+/// validate_phase_components to return StartupLayersMismatch.
 #[test]
 fn test_validate_phase_components_missing_announce_sweeper_fails() {
     use crate::startup::{all_component_entries, topo_sort_layers, ComponentId, Service};
@@ -368,8 +368,8 @@ fn test_validate_phase_components_missing_announce_sweeper_fails() {
     );
     let err = result.unwrap_err();
     assert!(
-        matches!(err, crate::startup::StartupError::CircularDependency),
-        "expected CircularDependency error, got: {err:?}"
+        matches!(err, crate::startup::StartupError::StartupLayersMismatch),
+        "expected StartupLayersMismatch error, got: {err:?}"
     );
 }
 
