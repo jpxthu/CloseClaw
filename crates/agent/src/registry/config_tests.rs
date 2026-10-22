@@ -306,16 +306,19 @@ async fn test_concurrent_get_and_reload() {
         }
     }));
 
-    // Reader tasks
+    // Reader tasks. Coverage note: hoisting Runtime::new() out of the read loop
+    // keeps the totals (5 readers × 50 reads × 2 read calls; 30 reload rounds ×
+    // 10 full-replacement configs) and the spawn_blocking interleaving unchanged;
+    // Runtime construction is not part of the semantics under test (concurrent
+    // reads vs. reload on one Arc<AgentRegistry> must never panic).
     for _ in 0..READER_TASKS {
         let reg_read = Arc::clone(&registry);
         handles.push(task::spawn_blocking(move || {
+            let rt = tokio::runtime::Runtime::new().unwrap();
             for _ in 0..READS_PER_TASK {
                 // Query any ID — should never panic
                 let _ = reg_read.get("reload-0-0");
-                let _ = tokio::runtime::Runtime::new()
-                    .unwrap()
-                    .block_on(reg_read.query_bootstrap_mode("any"));
+                let _ = rt.block_on(reg_read.query_bootstrap_mode("any"));
             }
         }));
     }
