@@ -44,12 +44,16 @@ async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
     );
 }
 
-/// Purging session A must not invoke cleanup for session B,
-/// verifying session-level isolation of task output cleanup.
+/// Purging expired session A must be isolated: `cleanup_all_finished`
+/// receives exactly session-a, and independent session-b — not expired,
+/// with its own persisted checkpoint — is never cleaned or purged, and its
+/// persisted data survives.
 #[tokio::test]
 async fn test_purge_session_a_does_not_affect_session_b() {
     let mem = Arc::new(MemStorage::default());
     mem.add_expired_session("session-a".into());
+    mem.add_root("session-a");
+    mem.add_root("session-b");
     let storage = mem.storage_arc();
 
     let tm = Arc::new(MockTaskManager::new());
@@ -62,10 +66,31 @@ async fn test_purge_session_a_does_not_affect_session_b() {
     .await
     .unwrap();
 
+    let purge_called = mem.purge_called.lock().unwrap().clone();
     assert_eq!(
-        tm.last_session_id().as_deref(),
-        Some("session-a"),
-        "cleanup_all_finished must receive session-a, not session-b"
+        purge_called,
+        vec!["session-a".to_owned()],
+        "only expired session-a must be purged; actual purge calls: {purge_called:?}"
+    );
+    assert_eq!(
+        tm.called_session_ids(),
+        vec!["session-a".to_owned()],
+        "cleanup_all_finished must be invoked for session-a only; actual: {:?}",
+        tm.called_session_ids()
+    );
+    let b_checkpoint = storage
+        .load_checkpoint("session-b")
+        .await
+        .unwrap()
+        .expect("session-b checkpoint must survive purging session-a");
+    assert_eq!(
+        b_checkpoint.session_id, "session-b",
+        "session-b persisted data must be unaffected by purging session-a"
+    );
+    assert!(
+        !mem.deleted_ids().contains(&"session-b".into()),
+        "session-b must not be deleted; actual deletions: {:?}",
+        mem.deleted_ids()
     );
 }
 
