@@ -212,24 +212,15 @@ fn make_workflow_run(phase: Phase) -> WorkflowRun {
 fn write_workflow_definition(dir: &std::path::Path) {
     let wf_dir = dir.join("workflows").join("Test WF");
     std::fs::create_dir_all(&wf_dir).unwrap();
-    let yaml = concat!(
-        "id: test-wf\n",
-        "name: Test WF\n",
-        "description: A test workflow\n",
-        "steps:\n",
-        "  - id: 0\n",
-        "    name: Step 0\n",
-        "    goal: Do first thing\n",
-        "    verify:\n",
-        "      - Check output\n",
-        "    transitions:\n",
-        "      - action: complete\n",
-    );
-    std::fs::write(
-        wf_dir.join("SKILL.md"),
-        format!("---\n{yaml}---\n\nBody.\n"),
-    )
-    .unwrap();
+    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("tests")
+        .join("fixtures")
+        .join("workflow")
+        .join("one_step_skill_md.md");
+    let content = std::fs::read_to_string(fixture).unwrap();
+    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
 }
 
 /// Store a checkpoint carrying `run` (optionally bound to an agent).
