@@ -78,4 +78,6 @@ mod plan_file_lock_tests;
 #[cfg(test)]
 mod plan_file_tests;
 #[cfg(test)]
+mod test_support_tests;
+#[cfg(test)]
 mod workflow_state_tests;
