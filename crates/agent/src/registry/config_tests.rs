@@ -233,6 +233,7 @@ fn test_concurrent_get_and_populate() {
     use std::thread;
 
     const WRITER_COUNT: i32 = 50;
+    const READER_THREADS: i32 = 5;
     fn writer_id(i: i32) -> String {
         format!("writer-{i}")
     }
@@ -252,7 +253,7 @@ fn test_concurrent_get_and_populate() {
     }));
 
     // Reader threads: query configs
-    for _t in 0..5 {
+    for _ in 0..READER_THREADS {
         let reg_read = Arc::clone(&registry);
         handles.push(thread::spawn(move || {
             for i in 0..WRITER_COUNT {
