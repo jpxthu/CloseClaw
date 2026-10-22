@@ -31,6 +31,10 @@ crates/config/src/step_1_8_tests.rs:195: 手动目录管理
 crates/config/src/step_1_8_tests.rs:217: 手动目录管理
 crates/config/src/step_1_8_tests.rs:242: 手动目录管理
 crates/config/src/step_1_8_tests.rs:265: 手动目录管理
+crates/daemon/src/bridge_tests.rs:378: 手动目录管理
+crates/daemon/src/bridge_tests.rs:403: 手动目录管理
+crates/daemon/src/bridge_tests.rs:445: 手动目录管理
+crates/daemon/src/bridge_tests.rs:469: 手动目录管理
 crates/daemon/src/config_reload/manager_reload_tests.rs:258: 手动目录管理
 crates/daemon/src/config_reload/manager_reload_tests.rs:268: 手动目录管理
 crates/daemon/src/config_reload/manager_reload_tests.rs:289: 手动目录管理
