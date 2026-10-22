@@ -442,7 +442,7 @@ outbound:
   - type: dsl_parser
   - type: outbound_raw_log
     enabled: true
-    dir: {}
+    dir: "{}"
 "#,
         dir.display()
     );
