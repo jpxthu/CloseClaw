@@ -741,20 +741,16 @@ fn test_validate_media_fail_not_object() {
 fn test_validate_media_structural_only_passes_field_errors() {
     // StorageDir field-level validation is delegated to MediaConfigData::validate();
     // the structural validator (mod.rs) only checks top-level shape.
+    let tmp = std::env::temp_dir();
     for json in [
         r#"{"storageDir":""}"#,
         r#"{"storageDir":"   "}"#,
-        r#"{"storageDir":"/tmp/media\u0000bad"}"#,
+        &format!(r#"{{"storageDir":"{}/media\u0000bad"}}"#, tmp.display()),
+        r#"{"storageDir":123}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
         assert!(validate_media(&v).is_ok(), "json={}", json);
     }
-    // Non-string types are still rejected by the structural validator
-    let v: serde_json::Value = serde_json::from_str(r#"{"storageDir":123}"#).unwrap();
-    assert!(
-        validate_media(&v).is_ok(),
-        "non-string storageDir passes structural check"
-    );
 }
 
 // validate_session

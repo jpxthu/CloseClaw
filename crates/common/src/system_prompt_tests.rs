@@ -92,10 +92,11 @@ fn test_dynamic_prompt_context_fields() {
         timestamp: 1000,
         chat_name: "test-group".into(),
     };
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &[],
         session_created_at: 999,
         session_mode: super::SessionMode::Normal,

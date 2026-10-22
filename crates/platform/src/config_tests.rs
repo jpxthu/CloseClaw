@@ -5,14 +5,16 @@ use std::path::Path;
 
 #[test]
 fn test_root_dir_path_pure_computation() {
-    let path = root_dir_path("/tmp/fakehome");
-    assert_eq!(path, Path::new("/tmp/fakehome/.closeclaw"));
+    let home = std::env::temp_dir().join("fakehome");
+    let path = root_dir_path(home.to_str().unwrap());
+    assert_eq!(path, home.join(".closeclaw"));
 }
 
 #[test]
 fn test_config_dir_path_pure_computation() {
-    let path = config_dir_path("/tmp/fakehome");
-    assert_eq!(path, Path::new("/tmp/fakehome/.closeclaw/config"));
+    let home = std::env::temp_dir().join("fakehome");
+    let path = config_dir_path(home.to_str().unwrap());
+    assert_eq!(path, home.join(".closeclaw/config"));
 }
 
 /// Empty home dir — path computation still appends .closeclaw suffix.

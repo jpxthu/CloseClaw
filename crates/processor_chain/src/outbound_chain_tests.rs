@@ -433,18 +433,32 @@ type: outbound_raw_log
 
 #[test]
 fn test_full_config_yaml_with_outbound_raw_log() {
-    let yaml = r#"
+    let dir = std::env::temp_dir().join("logs");
+    let yaml = format!(
+        r#"
 inbound:
   - type: content_normalizer
 outbound:
   - type: dsl_parser
   - type: outbound_raw_log
     enabled: true
-    dir: /tmp/logs
-"#;
-    let config: ProcessorChainConfig = serde_yaml::from_str(yaml).unwrap();
+    dir: {}
+"#,
+        dir.display()
+    );
+    let config: ProcessorChainConfig = serde_yaml::from_str(&yaml).unwrap();
     assert_eq!(config.inbound.len(), 1);
     assert_eq!(config.outbound.len(), 2);
+    match &config.outbound[1] {
+        ProcessorConfig::OutboundRawLog {
+            enabled,
+            dir: parsed_dir,
+        } => {
+            assert!(*enabled);
+            assert_eq!(parsed_dir.as_deref(), Some(dir.as_path()));
+        }
+        other => panic!("expected OutboundRawLog, got: {other:?}"),
+    }
 }
 
 #[test]

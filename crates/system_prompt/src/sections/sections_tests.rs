@@ -733,7 +733,7 @@ fn test_is_cacheable_all_remaining_variants() {
     assert!(!channel.is_cacheable());
     let git = Section::GitStatus("status".to_string());
     assert!(!git.is_cacheable());
-    let workdir = Section::WorkingDirectory("/tmp".to_string());
+    let workdir = Section::WorkingDirectory(std::env::temp_dir().display().to_string());
     assert!(!workdir.is_cacheable());
     let mode = Section::ModeInstruction {
         mode: SessionMode::Normal,
@@ -794,7 +794,7 @@ fn test_section_render_no_panic_all_variants() {
             chat_name: "test-chat".to_string(),
         },
         Section::GitStatus("On branch main".to_string()),
-        Section::WorkingDirectory("/tmp/work".to_string()),
+        Section::WorkingDirectory(std::env::temp_dir().join("work").display().to_string()),
         Section::ModeInstruction {
             mode: SessionMode::Plan,
             sparse: false,
@@ -840,8 +840,9 @@ fn test_role_and_heartbeat_section_removed() {
 /// PlanFile section renders correctly with path and content.
 #[test]
 fn test_plan_file_section_render_variants() {
+    let plan_path = std::env::temp_dir().join("plans").join("my-plan.md");
     let s = Section::PlanFile {
-        path: "/tmp/plans/my-plan.md".to_string(),
+        path: plan_path.display().to_string(),
         content: "# My Plan
 Step 1: do stuff
 "
@@ -849,13 +850,13 @@ Step 1: do stuff
     };
     let rendered = s.render();
     assert!(rendered.contains("## Plan File"));
-    assert!(rendered.contains("路径：/tmp/plans/my-plan.md"));
+    assert!(rendered.contains(&format!("路径：{}", plan_path.display())));
     assert!(rendered.contains("# My Plan"));
     assert!(rendered.contains("Step 1: do stuff"));
 
     // Empty content renders without panic
     let s = Section::PlanFile {
-        path: "/tmp/empty.md".to_string(),
+        path: std::env::temp_dir().join("empty.md").display().to_string(),
         content: String::new(),
     };
     let rendered = s.render();

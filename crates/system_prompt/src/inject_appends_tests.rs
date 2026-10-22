@@ -11,7 +11,6 @@ use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::{
     DynamicPromptBuilder, DynamicPromptContext, PromptOverrides, RequestContext,
 };
-use std::path::Path;
 
 use super::inject_tests::{make_meta, make_params};
 
@@ -78,10 +77,11 @@ fn test_dynamic_builder_override_merges_appends_into_dynamic() {
         custom_prompt: None,
     };
     let appends = vec!["append1".to_string(), "append2".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -124,10 +124,11 @@ fn test_dynamic_builder_normal_path_merges_appends_into_dynamic() {
         chat_name: "test".into(),
     };
     let appends = vec!["my-note".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static base"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -175,10 +176,11 @@ fn test_dynamic_builder_empty_appends_returns_none() {
         timestamp: 0,
         chat_name: String::new(),
     };
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &[],
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -221,10 +223,11 @@ fn test_dynamic_empty_appends_nonempty() {
         custom_prompt: None,
     };
     let appends = vec!["note A".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -266,10 +269,11 @@ fn test_both_empty_dynamic_is_none() {
         agent_prompt: None,
         custom_prompt: None,
     };
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &[],
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -326,10 +330,11 @@ fn test_dynamic_builder_multi_entry_appends_numbering() {
         custom_prompt: None,
     };
     let appends = vec!["alpha".to_string(), "beta".to_string(), "gamma".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -387,10 +392,11 @@ fn test_dynamic_builder_agent_prompt_merges_appends() {
         custom_prompt: None,
     };
     let appends = vec!["note".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,
@@ -448,10 +454,11 @@ fn test_dynamic_builder_custom_prompt_merges_appends() {
         custom_prompt: Some("custom prompt".into()),
     };
     let appends = vec!["item".to_string()];
+    let workdir = std::env::temp_dir();
     let dpctx = DynamicPromptContext {
         system_prompt: Some("static"),
         ctx: &ctx,
-        workdir: Path::new("/tmp"),
+        workdir: &workdir,
         system_appends: &appends,
         session_created_at: 0,
         session_mode: SessionMode::Normal,

@@ -363,8 +363,10 @@ fn test_tool_context_clone() {
 
 #[test]
 fn test_build_workdir_context_with_absolute_path() {
-    let ctx = build_workdir_context("/tmp");
-    assert!(ctx.path.starts_with("/tmp"));
+    let base = std::env::temp_dir();
+    let ctx = build_workdir_context(base.to_str().unwrap());
+    let canonical_base = base.canonicalize().unwrap_or(base);
+    assert!(std::path::Path::new(&ctx.path).starts_with(&canonical_base));
     assert!(!ctx.has_git || ctx.branch.is_some()); // git info is valid
 }
 
