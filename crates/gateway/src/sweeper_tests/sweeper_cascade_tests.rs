@@ -1,7 +1,6 @@
 //! cascade_kill_children / cascade_archive tests: descendant cleanup and
 //! deletion ordering across the session tree.
 
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
 use std::sync::Arc;
 
 use crate::sweeper::ArchiveSweeper;
@@ -17,23 +16,12 @@ async fn test_cascade_kill_children_deletes_descendants() {
     let mem = Arc::new(MemStorage::default());
 
     // Build a 3-level tree: parent -> child1 -> grandchild
-    let mut parent = SessionCheckpoint::new("parent".into());
-    parent.parent_session_id = None;
-    parent.depth = 0;
-    mem.add_checkpoint(parent);
-
-    let mut child1 = SessionCheckpoint::new("child1".into());
-    child1.parent_session_id = Some("parent".into());
-    child1.depth = 1;
-    mem.add_checkpoint(child1);
-
-    let mut grandchild = SessionCheckpoint::new("grandchild".into());
-    grandchild.parent_session_id = Some("child1".into());
-    grandchild.depth = 2;
-    mem.add_checkpoint(grandchild);
+    mem.add_root("parent");
+    mem.add_child("child1", "parent", 1);
+    mem.add_child("grandchild", "child1", 2);
 
     // Run cascade
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
         .await
         .unwrap();
@@ -58,9 +46,9 @@ async fn test_cascade_kill_children_deletes_descendants() {
 #[tokio::test]
 async fn test_cascade_kill_children_no_children_noop() {
     let mem = Arc::new(MemStorage::default());
-    mem.add_checkpoint(SessionCheckpoint::new("leaf".into()));
+    mem.add_root("leaf");
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "leaf")
         .await
         .unwrap();
@@ -77,24 +65,14 @@ async fn test_cascade_kill_children_no_children_noop() {
 async fn test_cascade_kill_children_siblings_only() {
     let mem = Arc::new(MemStorage::default());
 
-    let mut parent = SessionCheckpoint::new("parent".into());
-    parent.parent_session_id = None;
-    mem.add_checkpoint(parent);
-
-    let mut child_a = SessionCheckpoint::new("child_a".into());
-    child_a.parent_session_id = Some("parent".into());
-    mem.add_checkpoint(child_a);
-
-    let mut child_b = SessionCheckpoint::new("child_b".into());
-    child_b.parent_session_id = Some("parent".into());
-    mem.add_checkpoint(child_b);
+    mem.add_root("parent");
+    mem.add_child("child_a", "parent", 0);
+    mem.add_child("child_b", "parent", 0);
 
     // Unrelated child under a different parent
-    let mut other_child = SessionCheckpoint::new("other_child".into());
-    other_child.parent_session_id = Some("other_parent".into());
-    mem.add_checkpoint(other_child);
+    mem.add_child("other_child", "other_parent", 0);
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
         .await
         .unwrap();
@@ -123,15 +101,10 @@ async fn test_cascade_kill_children_siblings_only() {
 async fn test_cascade_archive_kills_children_then_archives_parent() {
     let mem = Arc::new(MemStorage::default());
 
-    let mut parent = SessionCheckpoint::new("parent-archive".into());
-    parent.parent_session_id = None;
-    mem.add_checkpoint(parent);
+    mem.add_root("parent-archive");
+    mem.add_child("child-archive", "parent-archive", 0);
 
-    let mut child = SessionCheckpoint::new("child-archive".into());
-    child.parent_session_id = Some("parent-archive".into());
-    mem.add_checkpoint(child);
-
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into())
         .await
         .unwrap();
@@ -154,9 +127,9 @@ async fn test_cascade_archive_kills_children_then_archives_parent() {
 #[tokio::test]
 async fn test_cascade_archive_no_children_archives_parent() {
     let mem = Arc::new(MemStorage::default());
-    mem.add_checkpoint(SessionCheckpoint::new("solo-parent".into()));
+    mem.add_root("solo-parent");
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into())
         .await
         .unwrap();
@@ -190,38 +163,15 @@ async fn test_cascade_kill_children_multi_branch_tree() {
     //    child_a  child_b
     //    /    \        \
     //  gc_a1  gc_a2    gc_b1
-    let mut root = SessionCheckpoint::new("root".into());
-    root.parent_session_id = None;
-    root.depth = 0;
-    mem.add_checkpoint(root);
-
-    let mut child_a = SessionCheckpoint::new("child_a".into());
-    child_a.parent_session_id = Some("root".into());
-    child_a.depth = 1;
-    mem.add_checkpoint(child_a);
-
-    let mut child_b = SessionCheckpoint::new("child_b".into());
-    child_b.parent_session_id = Some("root".into());
-    child_b.depth = 1;
-    mem.add_checkpoint(child_b);
-
-    let mut gc_a1 = SessionCheckpoint::new("gc_a1".into());
-    gc_a1.parent_session_id = Some("child_a".into());
-    gc_a1.depth = 2;
-    mem.add_checkpoint(gc_a1);
-
-    let mut gc_a2 = SessionCheckpoint::new("gc_a2".into());
-    gc_a2.parent_session_id = Some("child_a".into());
-    gc_a2.depth = 2;
-    mem.add_checkpoint(gc_a2);
-
-    let mut gc_b1 = SessionCheckpoint::new("gc_b1".into());
-    gc_b1.parent_session_id = Some("child_b".into());
-    gc_b1.depth = 2;
-    mem.add_checkpoint(gc_b1);
+    mem.add_root("root");
+    mem.add_child("child_a", "root", 1);
+    mem.add_child("child_b", "root", 1);
+    mem.add_child("gc_a1", "child_a", 2);
+    mem.add_child("gc_a2", "child_a", 2);
+    mem.add_child("gc_b1", "child_b", 2);
 
     // Run cascade
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "root")
         .await
         .unwrap();

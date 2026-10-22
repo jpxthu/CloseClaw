@@ -65,9 +65,33 @@ impl MemStorage {
         self.checkpoints.lock().unwrap().push(checkpoint);
     }
 
+    /// Add a root checkpoint (no parent, spawn depth 0) under `session_id`.
+    pub fn add_root(&self, session_id: &str) {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.parent_session_id = None;
+        cp.depth = 0;
+        self.add_checkpoint(cp);
+    }
+
+    /// Add a child checkpoint under `parent` at the given spawn `depth`.
+    pub fn add_child(&self, session_id: &str, parent: &str, depth: u32) {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.parent_session_id = Some(parent.to_owned());
+        cp.depth = depth;
+        self.add_checkpoint(cp);
+    }
+
     /// Get IDs of sessions deleted via `delete_checkpoint`.
     pub fn deleted_ids(&self) -> Vec<String> {
         self.deleted.lock().unwrap().clone()
+    }
+
+    /// Shared handle typed as the trait object the sweeper consumes —
+    /// single point for the `Arc<MemStorage>` →
+    /// `Arc<dyn PersistenceService>` upcast so test sites need no cast
+    /// boilerplate.
+    pub fn storage_arc(self: &Arc<Self>) -> Arc<dyn PersistenceService> {
+        Arc::clone(self) as Arc<dyn PersistenceService>
     }
 
     /// Arm `count` faults on the next `list_idle_sessions_for_agent`
@@ -279,7 +303,7 @@ pub fn sweeper_with_session_config(
     let mem = Arc::new(MemStorage::default());
     let config = Arc::new(MockConfig::with_agents(agents));
     *config.session_config.lock().unwrap() = session_config;
-    let storage: Arc<dyn PersistenceService> = Arc::clone(&mem) as _;
+    let storage = mem.storage_arc();
     let sweeper = ArchiveSweeper::new(storage, config);
     (mem, sweeper)
 }
@@ -311,6 +335,28 @@ impl MockActiveQueryWithDimensions {
             dimensions: Mutex::new(dimensions),
         }
     }
+
+    /// Mock where each listed session ID reports all four activity
+    /// dimensions true (`any_active()` → archive skip); unlisted sessions
+    /// report the all-false default.
+    pub fn all_active(active_ids: Vec<String>) -> Self {
+        Self::new(
+            active_ids
+                .into_iter()
+                .map(|id| {
+                    (
+                        id,
+                        SessionActivityDimensions {
+                            llm_active: true,
+                            foreground_tool_active: true,
+                            background_tool_active: true,
+                            child_active: true,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
 }
 
 #[async_trait]
@@ -330,11 +376,12 @@ impl ActiveSessionQuery for MockActiveQueryWithDimensions {
 ///
 /// Callers hold the mock directly (e.g. `Arc::new(MockTaskManager::new())`)
 /// and read the recorded state back via [`Self::was_called`] /
-/// [`Self::last_session_id`].
+/// [`Self::last_session_id`] / [`Self::called_session_ids`].
 #[derive(Default)]
 pub struct MockTaskManager {
-    cleanup_all_finished_called: Mutex<bool>,
-    last_session_id: Mutex<Option<String>>,
+    /// Every `session_id` passed to `cleanup_all_finished`, in call order —
+    /// the single source of truth all readers derive from.
+    calls: Mutex<Vec<String>>,
 }
 
 impl MockTaskManager {
@@ -345,12 +392,18 @@ impl MockTaskManager {
 
     /// Whether `cleanup_all_finished` has been invoked.
     pub fn was_called(&self) -> bool {
-        *self.cleanup_all_finished_called.lock().unwrap()
+        !self.calls.lock().unwrap().is_empty()
     }
 
     /// `session_id` passed to the most recent `cleanup_all_finished` call.
     pub fn last_session_id(&self) -> Option<String> {
-        self.last_session_id.lock().unwrap().clone()
+        self.calls.lock().unwrap().last().cloned()
+    }
+
+    /// All `session_id`s passed to `cleanup_all_finished`, in call order —
+    /// lets tests assert exactly which sessions were (and were not) cleaned.
+    pub fn called_session_ids(&self) -> Vec<String> {
+        self.calls.lock().unwrap().clone()
     }
 }
 
@@ -387,8 +440,7 @@ impl TaskManager for MockTaskManager {
         unimplemented!()
     }
     async fn cleanup_all_finished(&self, session_id: &str) {
-        *self.cleanup_all_finished_called.lock().unwrap() = true;
-        *self.last_session_id.lock().unwrap() = Some(session_id.to_owned());
+        self.calls.lock().unwrap().push(session_id.to_owned());
     }
     fn max_execution_secs(&self) -> u64 {
         3600

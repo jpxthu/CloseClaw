@@ -35,6 +35,8 @@ mod inbound_queue_test_utils;
 mod inbound_queue_tests;
 pub(crate) mod inbound_wal;
 #[cfg(test)]
+mod inbound_wal_e2e_tests;
+#[cfg(test)]
 mod inbound_wal_tests;
 pub mod injection_convert;
 #[cfg(test)]
@@ -118,8 +120,6 @@ mod slash_permission_tests;
 mod slash_workflow_start_tests;
 #[cfg(test)]
 mod slash_workflow_stop_tests;
-#[cfg(test)]
-mod step1_4_e2e_tests;
 #[cfg(test)]
 mod streaming_dsl_finish_tests;
 #[cfg(test)]
@@ -928,8 +928,12 @@ pub mod compute_session_key_tests;
 pub mod confirm;
 #[cfg(test)]
 pub mod construction_tests;
+#[cfg(all(test, feature = "full-tests"))]
+pub mod design_alignment_tests;
 #[cfg(test)]
 pub mod gateway_alignment_tests;
+#[cfg(test)]
+pub mod idle_verify_tests;
 #[cfg(test)]
 pub mod inbound_chain_tests;
 #[cfg(test)]
@@ -971,11 +975,7 @@ pub mod shutdown_handle_tests;
 #[cfg(test)]
 pub mod shutdown_phase_tests;
 #[cfg(test)]
-mod step1_3_tests;
-#[cfg(test)]
-pub mod step1_4_idle_verify_tests;
-#[cfg(all(test, feature = "full-tests"))]
-pub mod step1_5_tests;
+mod slash_degradation_acceptance_tests;
 #[cfg(all(test, feature = "full-tests"))]
 pub mod tests;
 #[cfg(all(test, feature = "full-tests"))]

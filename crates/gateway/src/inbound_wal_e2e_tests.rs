@@ -1,4 +1,4 @@
-//! End-to-end tests for inbound queue WAL lifecycle (Step 1.4).
+//! End-to-end tests for inbound queue WAL lifecycle.
 //!
 //! Covers the full lifecycle: enqueue → WAL append pending → consumer
 //! processes → WAL entry deleted → reopen same dir → no stale entries.

@@ -1,6 +1,6 @@
-//! Step 1.3 — Unit tests for Step 1.1 (slash queuing notification),
-//! Step 1.2 (streaming degradation error markers), and
-//! the max_message_size / session_key-empty acceptance criteria.
+//! Unit tests for slash queuing notification, streaming degradation
+//! error markers, and the max_message_size / session_key-empty
+//! acceptance criteria.
 
 use std::sync::Arc;
 
@@ -198,7 +198,7 @@ impl FailingPlugin {
 
 fn test_config() -> GatewayConfig {
     GatewayConfig {
-        name: "step1_3_test".into(),
+        name: "slash_degradation_test".into(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         ..Default::default()
@@ -365,7 +365,7 @@ async fn build_degradation_env(
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Step 1.1: Slash command queuing notification tests
+// Slash command queuing notification tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Non-immediate slash command + busy session → notification via
@@ -494,7 +494,7 @@ async fn test_non_immediate_slash_idle_executes_directly() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Step 1.2: Streaming degradation error marker tests
+// Streaming degradation error marker tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Normal completion (no error_reason) → metadata is empty.
@@ -636,7 +636,7 @@ fn test_raw_log_dir_config_does_not_affect_error_markers() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// Step 1.3: max_message_size and session_key-empty acceptance tests
+// max_message_size and session_key-empty acceptance tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 use closeclaw_common::processor::ProcessedMessage;

@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-//! Unit tests for Step 1.1–1.4 design doc alignment changes.
+//! Unit tests for design doc alignment changes.
 //!
 //! Covers:
 //! 1. Verbosity filtering: VerbosityFilter is an in-chain processor running
@@ -179,7 +179,7 @@ fn make_message(to: &str, content: &str) -> Message {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 1. Verbosity Filtering Order Tests (Step 1.1)
+// 1. Verbosity Filtering Order Tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Outbound processor that records the content_blocks it received.
@@ -273,7 +273,7 @@ async fn setup_with_verbosity(
     gw
 }
 
-/// Step 1.1 — Verbosity filtering is an in-chain processor
+/// Verbosity filtering is an in-chain processor
 /// (VerbosityFilter, priority 5) that runs before downstream processors
 /// (e.g. the priority-200 trace processor registered after it).
 ///
@@ -319,7 +319,7 @@ async fn test_verbosity_filter_precedes_downstream_processors() {
     );
 }
 
-/// Step 1.1 — Verbosity Level::Normal strips Thinking within the chain,
+/// Verbosity Level::Normal strips Thinking within the chain,
 /// before downstream processors see them.
 #[tokio::test]
 async fn test_verbosity_normal_strips_thinking_in_chain() {
@@ -364,7 +364,7 @@ async fn test_verbosity_normal_strips_thinking_in_chain() {
     assert!(matches!(&received[1], ContentBlock::ToolUse { .. }));
 }
 
-/// Step 1.1 — Verbosity Level::Full: all blocks pass through the chain
+/// Verbosity Level::Full: all blocks pass through the chain
 /// to downstream processors.
 #[tokio::test]
 async fn test_verbosity_full_all_blocks_pass_through_chain() {
@@ -403,7 +403,7 @@ async fn test_verbosity_full_all_blocks_pass_through_chain() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 2. Gateway Does NOT Directly Call LLM Tests (Step 1.2)
+// 2. Gateway Does NOT Directly Call LLM Tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Verify that `SessionMessageHandler` delegates LLM calls
@@ -451,7 +451,7 @@ async fn test_gateway_delegates_llm_via_injected_caller() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 3. Slash Permission Check Timing Tests (Step 1.3)
+// 3. Slash Permission Check Timing Tests
 // ═════════════════════════════════════════════════════════════════════════════
 
 /// Handler that records the order of operations.
@@ -492,7 +492,7 @@ impl closeclaw_slash::SlashHandler for TimingHandler {
     }
 }
 
-/// Step 1.2 — Permission check happens BEFORE handler.handle(), BEFORE execute().
+/// Permission check happens BEFORE handler.handle(), BEFORE execute().
 ///
 /// The design doc requires: permission check → handler.handle() → result.execute().
 #[tokio::test]
@@ -535,7 +535,7 @@ async fn test_permission_check_after_handler_before_execute() {
     );
 }
 
-/// Step 1.2 — When permission is denied, handler.handle() is NOT invoked
+/// When permission is denied, handler.handle() is NOT invoked
 /// and result.execute() is skipped.
 #[tokio::test]
 async fn test_permission_denied_handler_still_invoked() {
@@ -605,10 +605,10 @@ async fn test_permission_denied_handler_still_invoked() {
 }
 
 // ═════════════════════════════════════════════════════════════════════════════
-// 4. Restore Notification Path Tests (Step 1.4)
+// 4. Restore Notification Path Tests
 // ═════════════════════════════════════════════════════════════════════════════
 
-/// Step 1.4 — When an archived session is restored via Path 2 (key_registry
+/// When an archived session is restored via Path 2 (key_registry
 /// hit + archived), the restore notification is stored in
 /// `pending_restore_notifications` for Gateway outbound routing.
 ///
@@ -633,7 +633,7 @@ async fn test_restore_notification_mechanism_session_scoped() {
     );
 }
 
-/// Step 1.4 — Non-archived sessions do not produce a restore notification.
+/// Non-archived sessions do not produce a restore notification.
 #[tokio::test]
 async fn test_non_archived_session_no_notification() {
     use closeclaw_session::persistence::SessionStatus;
@@ -671,7 +671,7 @@ async fn test_non_archived_session_no_notification() {
     );
 }
 
-/// Step 1.4 — `take_restore_notification` returns None after consumption.
+/// `take_restore_notification` returns None after consumption.
 #[tokio::test]
 async fn test_take_restore_notification_idempotent() {
     use closeclaw_session::persistence::SessionStatus;
