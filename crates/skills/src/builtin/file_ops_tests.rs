@@ -83,7 +83,7 @@ async fn test_execute_unknown_action() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "unknown_action",
-            "path": "/tmp"
+            "path": std::env::temp_dir()
         })))
         .await
         .unwrap_err();
@@ -96,7 +96,7 @@ async fn test_execute_read_nonexistent_file() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "read",
-            "path": "/tmp/__nonexistent_closeclaw_test__"
+            "path": std::env::temp_dir().join("__nonexistent_closeclaw_test__")
         })))
         .await
         .unwrap_err();
@@ -109,7 +109,7 @@ async fn test_execute_read_directory() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "read",
-            "path": "/tmp"
+            "path": std::env::temp_dir()
         })))
         .await
         .unwrap_err();
@@ -145,7 +145,7 @@ async fn test_execute_list_nonexistent_dir() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "list",
-            "path": "/tmp/__nonexistent_closeclaw_test__"
+            "path": std::env::temp_dir().join("__nonexistent_closeclaw_test__")
         })))
         .await
         .unwrap_err();
@@ -168,16 +168,18 @@ async fn test_execute_list_file_not_dir() {
 #[tokio::test]
 async fn test_execute_list_existing_dir() {
     let skill = FileOpsSkill::new();
+    let dir = std::env::temp_dir();
+    let dir_str = dir.to_str().unwrap();
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "list",
-            "path": "/tmp"
+            "path": dir_str
         })))
         .await
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["action"], "list");
-    assert_eq!(v["path"], "/tmp");
+    assert_eq!(v["path"], dir_str);
     assert!(v["entries"].is_array());
 }
 
@@ -187,7 +189,7 @@ async fn test_execute_stat_nonexistent_path() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "stat",
-            "path": "/tmp/__nonexistent_closeclaw_test__"
+            "path": std::env::temp_dir().join("__nonexistent_closeclaw_test__")
         })))
         .await
         .unwrap_err();
@@ -216,7 +218,7 @@ async fn test_execute_stat_existing_dir() {
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "stat",
-            "path": "/tmp"
+            "path": std::env::temp_dir()
         })))
         .await
         .unwrap();

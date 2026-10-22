@@ -59,20 +59,16 @@ fn test_scan_config_returns_none_when_unset() {
 #[test]
 fn test_scan_config_returns_config_when_set() {
     let mut reg = DiskSkillRegistry::new(vec![]);
+    let global_dir = std::env::temp_dir().join("closeclaw-skills-global");
+    let extra_dir = std::env::temp_dir().join("closeclaw-skills-extra");
     let config = ScanConfig {
-        global_dir: Some(std::path::PathBuf::from("/tmp/global")),
-        extra_dirs: vec![std::path::PathBuf::from("/tmp/extra")],
+        global_dir: Some(global_dir.clone()),
+        extra_dirs: vec![extra_dir.clone()],
         ..Default::default()
     };
     reg.set_scan_config(config);
 
     let returned = reg.scan_config().unwrap();
-    assert_eq!(
-        returned.global_dir,
-        Some(std::path::PathBuf::from("/tmp/global"))
-    );
-    assert_eq!(
-        returned.extra_dirs,
-        vec![std::path::PathBuf::from("/tmp/extra")]
-    );
+    assert_eq!(returned.global_dir, Some(global_dir));
+    assert_eq!(returned.extra_dirs, vec![extra_dir]);
 }
