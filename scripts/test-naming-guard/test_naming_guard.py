@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
 """test-naming-guard — 测试函数 test_ 前缀静态守卫（STANDARDS.md §3 的 CI 固化）。
 
-多行状态机扫描仓库 `.rs` 文件：识别 `#[test]` / `#[tokio::test]` 属性行（边界同
-``scripts/code-stats/collect_code_stats.py`` 的 ``TEST_ATTR_RE``：`#[cfg(test)]` /
-`#[test_case]` / `#[test_suite]` 均不算），向后跳过连续属性行（如 `#[should_panic]`）
-取第一个 ``(async )?fn`` 声明行，函数名缺 `test_` 前缀即违规。扫描按测试属性定位、
-不按文件名猜：全仓 `.rs`（`src/`、`tests/`、`crates/*/src`、`crates/*/tests`），
-排除 `target/` 与隐藏目录。
+多行状态机扫描仓库 `.rs` 文件：识别 `#[test]` / `#[tokio::test]` 属性行（含带参
+形态如 `#[tokio::test(flavor = "current_thread")]` 与折行 `(` 结尾；`#[cfg(test)]` /
+`#[test_case]` / `#[test_suite]` 均不算——排除边界同 ``scripts/code-stats/collect_code_stats.py``
+的 ``TEST_ATTR_RE``，属性行 ``test`` 词后内容不限，故比其更宽），向后跳过连续属性行
+（如 `#[should_panic]`）取第一个 ``(async )?fn`` 声明行，函数名缺 `test_` 前缀即违规。
+扫描按测试属性定位、不按文件名猜：全仓 `.rs`（`src/`、`tests/`、`crates/*/src`、
+`crates/*/tests`），排除 `target/` 与隐藏目录。
 
 baseline 策略（dep-guard 同款）：baseline = 现状。baseline 内既有违规豁免，仅对
 baseline 外新增违规报警 FAIL；比对键去行号归一化（``strip_key``），行号漂移不触发
@@ -28,18 +29,21 @@ SCRIPT_DIR = Path(__file__).parent.resolve()
 BASELINE_PATH = SCRIPT_DIR / "baselines" / "missing_test_prefix.txt"
 RULE_LABEL = "missing_test_prefix"
 
-# ---------- 测试属性识别（边界与 collect_code_stats.py TEST_ATTR_RE 一致）--------
+# ---------- 测试属性识别（collect_code_stats.py TEST_ATTR_RE 的放宽版）----------
 
-# 匹配（对 strip 后的行）：
-#   #[test]                - 是
-#   #[test (flavor = "x")] - 是（带括号参数）
-#   #[test                 - 是（属性行折行、内容跟随）
-#   #[tokio::test]         - 是
-#   #[async_std::test]     - 是
-#   #[test_suite]          - 否（`_` 是 word char，挡住 \b）
-#   #[test_case]           - 否
-#   #[cfg(test)]           - 否（`#\[` 后不是 test）
-TEST_ATTR_RE = re.compile(r"^#\[\s*(?:\w+::)*test\b\s*[\]\(]?$")
+# 匹配（对 strip 后的行；``test`` 词边界后允许任意内容，兼容带参与尾注释）：
+#   #[test]                                   - 是
+#   #[test (flavor = "x")]                    - 是（带括号参数）
+#   #[tokio::test(flavor = "current_thread")] - 是（单行带参）
+#   #[test] // comment                        - 是（属性行尾注释）
+#   #[test                                    - 是（属性行折行、内容跟随）
+#   #[tokio::test(                            - 是（折行 `(` 结尾、参数跟随）
+#   #[tokio::test]                            - 是
+#   #[async_std::test]                        - 是
+#   #[test_suite]                             - 否（`_` 是 word char，挡住 \b）
+#   #[test_case] / #[test_case(1)]            - 否（同上）
+#   #[cfg(test)]                              - 否（`#\[` 后不是 test）
+TEST_ATTR_RE = re.compile(r"^#\[\s*(?:\w+::)*test\b.*$")
 
 # fn 声明行：可选可见性（pub / pub(...)）+ 可选 async + fn + 函数名
 FN_DECL_RE = re.compile(r"^\s*(?:pub(?:\s*\([^)]*\))?\s+)?(?:async\s+)?fn\s+([A-Za-z_]\w*)")

@@ -8,7 +8,8 @@
 #                    runtime 模式下同时传递给 nextest（如 --target permission）
 # --update-baseline  以当前静态扫描结果全量重写 baseline 文件
 #                    （scripts/test-audit-baseline.txt）；运行时违规不入 baseline；
-#                    与 --target 互斥（baseline 必须来自全量扫描，避免过滤子集覆盖）
+#                    与 --target、--runtime 互斥（baseline 必须来自全量扫描，
+#                    且不得吞掉 runtime 违规报告）
 
 set -euo pipefail
 
@@ -49,7 +50,7 @@ while [[ $# -gt 0 ]]; do
       echo "选项:"
       echo "  --runtime           用 strace 包住 cargo nextest run --lib，抓运行时违规"
       echo "  --target PAT        过滤扫描/测试范围"
-      echo "  --update-baseline   以当前静态扫描结果全量重写 baseline 文件（与 --target 互斥）"
+      echo "  --update-baseline   以当前静态扫描结果全量重写 baseline 文件（与 --target、--runtime 互斥）"
       exit 0
       ;;
     *)
@@ -61,6 +62,11 @@ done
 
 if [[ $UPDATE_BASELINE -eq 1 && -n "$TARGET_FILTER" ]]; then
   echo "错误: --update-baseline 与 --target 互斥（baseline 必须来自全量扫描）" >&2
+  exit 2
+fi
+
+if [[ $UPDATE_BASELINE -eq 1 && $RUNTIME -eq 1 ]]; then
+  echo "错误: --update-baseline 与 --runtime 互斥（防 runtime 违规被 baseline 重写吞掉）" >&2
   exit 2
 fi
 
@@ -200,6 +206,9 @@ if [[ -n "$TARGET_FILTER" ]]; then
   FIND_ARGS+=(-path "*${TARGET_FILTER}*")
 fi
 
+# 文件清单只执行一次 find（规则循环不变量），逐规则复用
+mapfile -t RS_FILES < <(find "${FIND_ARGS[@]}" 2>/dev/null)
+
 ENTRIES=()
 for i in "${!LABELS[@]}"; do
   label="${LABELS[$i]}"
@@ -207,13 +216,13 @@ for i in "${!LABELS[@]}"; do
   mode="${MODES[$i]}"
 
   # grep 扫描；条目键 = 相对路径:行号: 规则label（与 baseline 条目一致）
-  while IFS= read -r file; do
+  for file in "${RS_FILES[@]}"; do
     rel_path="${file#"$PROJECT_ROOT"/}"
     while IFS= read -r match; do
       line="${match%%:*}"
       ENTRIES+=("${rel_path}:${line}: ${label}")
     done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
-  done < <(find "${FIND_ARGS[@]}" 2>/dev/null)
+  done
 done
 
 # 去重排序（C locale 字节序，保证与 baseline 比对及重写结果确定性）
@@ -241,6 +250,19 @@ fi
 # 新增（baseline 外）→ 列出并 fail；存量（baseline 内）→ 豁免；
 # 已消除（baseline 有、实际无）→ 打「可收窄」警告（不 fail）。
 # --target 过滤模式下跳过「已消除」判定（过滤子集无法证明全量消除）。
+# 比对键去行号（test-naming-guard strip_key 同语义）：`路径:行号: 规则` →
+# `路径: 规则`；违规输出与 baseline 重写格式保持含行号不变，仅比对时归一化，
+# 行号漂移不误报 FAIL。无行号段形态原样透传。
+
+strip_key() {
+  local entry="$1"
+  if [[ "$entry" =~ ^(.+):[0-9]+:\ (.+)$ ]]; then
+    printf '%s: %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  else
+    printf '%s\n' "$entry"
+  fi
+}
+
 BASELINE=()
 if [[ -f "$BASELINE_FILE" ]]; then
   mapfile -t BASELINE < <(
@@ -251,13 +273,13 @@ fi
 
 declare -A BASELINE_SET=()
 for entry in "${BASELINE[@]}"; do
-  BASELINE_SET["$entry"]=1
+  BASELINE_SET["$(strip_key "$entry")"]=1
 done
 
 NEW_VIOLATIONS=()
 EXEMPT_COUNT=0
 for entry in "${ACTUAL[@]}"; do
-  if [[ -z "${BASELINE_SET[$entry]+x}" ]]; then
+  if [[ -z "${BASELINE_SET[$(strip_key "$entry")]+x}" ]]; then
     NEW_VIOLATIONS+=("$entry")
   else
     EXEMPT_COUNT=$((EXEMPT_COUNT + 1))
@@ -268,10 +290,10 @@ ELIMINATED=()
 if [[ -f "$BASELINE_FILE" && -z "$TARGET_FILTER" ]]; then
   declare -A ACTUAL_SET=()
   for entry in "${ACTUAL[@]}"; do
-    ACTUAL_SET["$entry"]=1
+    ACTUAL_SET["$(strip_key "$entry")"]=1
   done
   for entry in "${BASELINE[@]}"; do
-    if [[ -z "${ACTUAL_SET[$entry]+x}" ]]; then
+    if [[ -z "${ACTUAL_SET[$(strip_key "$entry")]+x}" ]]; then
       ELIMINATED+=("$entry")
     fi
   done

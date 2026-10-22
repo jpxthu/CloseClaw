@@ -39,6 +39,14 @@ class ScannerNormalTest(unittest.TestCase):
         content = "#[tokio::test]\nasync fn test_foo() {}\n"
         self.assertEqual(self._scan(content), [])
 
+    def test_parameterized_attr_captures_missing_prefix(self) -> None:
+        content = '#[tokio::test(flavor = "current_thread")]\nfn bad_name() {}\n'
+        self.assertEqual(self._scan(content), [(2, "bad_name")])
+
+    def test_parameterized_attr_prefixed_passes(self) -> None:
+        content = '#[tokio::test(flavor = "current_thread")]\nasync fn test_foo() {}\n'
+        self.assertEqual(self._scan(content), [])
+
 
 # ---------- 扫描器：边界 ---------------------------------------------------------
 
@@ -55,6 +63,10 @@ class ScannerBoundaryTest(unittest.TestCase):
 
     def test_test_case_attr_not_a_test_attribute(self) -> None:
         self.assertEqual(self._scan("#[test_case(1)]\nfn bad_name() {}\n"), [])
+
+    def test_test_case_multi_arg_attr_still_excluded(self) -> None:
+        content = '#[test_case(1, "a")]\nfn bad_name() {}\n'
+        self.assertEqual(self._scan(content), [])
 
     def test_test_suite_attr_not_a_test_attribute(self) -> None:
         self.assertEqual(self._scan("#[test_suite]\nfn bad_name() {}\n"), [])
@@ -125,6 +137,18 @@ class ScanRootTest(unittest.TestCase):
                 "src/b.rs:2: missing_test_prefix(bad_b)",
             ],
         )
+
+    def test_hidden_dirs_pruned(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / ".git").mkdir()
+            (root / ".git" / "x.rs").write_text("#[test]\nfn bad_a() {}\n", encoding="utf-8")
+            (root / ".cache").mkdir()
+            (root / ".cache" / "y.rs").write_text("#[test]\nfn bad_b() {}\n", encoding="utf-8")
+            (root / "src").mkdir()
+            (root / "src" / "z.rs").write_text("#[test]\nfn bad_c() {}\n", encoding="utf-8")
+            entries = tng.scan_root(root)
+        self.assertEqual(entries, ["src/z.rs:2: missing_test_prefix(bad_c)"])
 
     def test_strip_key_removes_lineno_only(self) -> None:
         self.assertEqual(
