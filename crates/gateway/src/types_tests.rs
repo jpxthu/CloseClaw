@@ -139,14 +139,17 @@ fn test_serde_deserialize_null_inbound_wal_dir_disables() {
 /// Deserializing JSON with a specific `inbound_wal_dir` path must preserve it.
 #[test]
 fn test_serde_deserialize_custom_inbound_wal_dir() {
-    let json = r#"{
+    let wal_dir = std::env::temp_dir().join("custom-wal");
+    let json = serde_json::json!({
         "name": "test",
-        "inbound_wal_dir": "/tmp/custom-wal"
-    }"#;
-    let config: GatewayConfig = serde_json::from_str(json).expect("deserialization should succeed");
+        "inbound_wal_dir": wal_dir.display().to_string()
+    })
+    .to_string();
+    let config: GatewayConfig =
+        serde_json::from_str(&json).expect("deserialization should succeed");
     assert_eq!(
         config.inbound_wal_dir,
-        Some(std::path::PathBuf::from("/tmp/custom-wal")),
+        Some(wal_dir),
         "custom inbound_wal_dir must be preserved"
     );
 }

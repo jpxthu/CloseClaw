@@ -398,7 +398,7 @@ mod tests {
             MessageType::Image,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "img_abc123".into(),
-                path: "/tmp/img.png".into(),
+                path: std::env::temp_dir().join("img.png").display().to_string(),
                 media_type: closeclaw_common::im_plugin::MediaType::Image,
                 size: 1024,
                 mime: "image/png".into(),
@@ -417,7 +417,7 @@ mod tests {
             MessageType::File,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "doc_xyz".into(),
-                path: "/tmp/doc.pdf".into(),
+                path: std::env::temp_dir().join("doc.pdf").display().to_string(),
                 media_type: closeclaw_common::im_plugin::MediaType::File,
                 size: 2048,
                 mime: "application/pdf".into(),
@@ -436,7 +436,7 @@ mod tests {
             MessageType::Audio,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "voice_001".into(),
-                path: "/tmp/voice.ogg".into(),
+                path: std::env::temp_dir().join("voice.ogg").display().to_string(),
                 media_type: closeclaw_common::im_plugin::MediaType::Audio,
                 size: 512,
                 mime: "audio/ogg".into(),
@@ -461,7 +461,7 @@ mod tests {
             MessageType::Post,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "pic_42".into(),
-                path: "/tmp/pic.jpg".into(),
+                path: std::env::temp_dir().join("pic.jpg").display().to_string(),
                 media_type: closeclaw_common::im_plugin::MediaType::Image,
                 size: 512,
                 mime: "image/jpeg".into(),
@@ -480,7 +480,7 @@ mod tests {
             MessageType::Post,
             vec![closeclaw_common::im_plugin::MediaRef {
                 key: "vid_7".into(),
-                path: "/tmp/vid.mp4".into(),
+                path: std::env::temp_dir().join("vid.mp4").display().to_string(),
                 media_type: closeclaw_common::im_plugin::MediaType::File,
                 size: 4096,
                 mime: "video/mp4".into(),
@@ -947,13 +947,24 @@ mod tests {
     fn extract_filename_with_extension() {
         assert_eq!(extract_filename("small.png"), Some("small.png"));
         assert_eq!(extract_filename("doc.pdf"), Some("doc.pdf"));
-        assert_eq!(extract_filename("/tmp/my_file.jpg"), Some("my_file.jpg"));
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            extract_filename(&dir.join("my_file.jpg").to_string_lossy()),
+            Some("my_file.jpg")
+        );
     }
 
     #[test]
     fn extract_filename_without_extension() {
-        assert_eq!(extract_filename("/tmp/img"), Some("img"));
-        assert_eq!(extract_filename("/tmp/voice"), Some("voice"));
+        let dir = std::env::temp_dir();
+        assert_eq!(
+            extract_filename(&dir.join("img").to_string_lossy()),
+            Some("img")
+        );
+        assert_eq!(
+            extract_filename(&dir.join("voice").to_string_lossy()),
+            Some("voice")
+        );
     }
 
     #[test]

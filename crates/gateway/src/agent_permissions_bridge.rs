@@ -84,7 +84,7 @@ mod tests {
             allowed,
             limits: ConfigPermissionLimits {
                 commands: vec!["ls".into(), "cat".into()],
-                paths: vec!["/tmp".into()],
+                paths: vec![std::env::temp_dir().display().to_string()],
                 timeout_ms: Some(5000),
             },
         }
@@ -113,7 +113,10 @@ mod tests {
             exec.limits.commands,
             vec!["ls".to_string(), "cat".to_string()]
         );
-        assert_eq!(exec.limits.paths, vec!["/tmp".to_string()]);
+        assert_eq!(
+            exec.limits.paths,
+            vec![std::env::temp_dir().display().to_string()]
+        );
         assert_eq!(exec.limits.timeout_ms, Some(5000));
         let file_write = mapped.permissions.get("file_write").unwrap();
         assert!(!file_write.allowed);
@@ -121,7 +124,10 @@ mod tests {
             file_write.limits.commands,
             vec!["ls".to_string(), "cat".to_string()]
         );
-        assert_eq!(file_write.limits.paths, vec!["/tmp".to_string()]);
+        assert_eq!(
+            file_write.limits.paths,
+            vec![std::env::temp_dir().display().to_string()]
+        );
         assert_eq!(file_write.limits.timeout_ms, Some(5000));
     }
 

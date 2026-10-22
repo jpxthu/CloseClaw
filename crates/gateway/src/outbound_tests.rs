@@ -287,7 +287,6 @@ use closeclaw_common::processor::{StreamEvent, UnifiedUsage};
 use closeclaw_common::StreamingRenderer;
 use closeclaw_session::persistence::ReasoningLevel;
 use futures::stream;
-use std::path::PathBuf;
 
 /// Mock plugin that records thinking indicator calls for assertions.
 pub(crate) struct ThinkingIndicatorMock {
@@ -640,7 +639,7 @@ async fn test_thinking_indicator_sends_on_block_start() {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     cs_arc
@@ -736,7 +735,7 @@ async fn test_thinking_indicator_suppressed_at_off() {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     {
@@ -836,7 +835,7 @@ async fn test_thinking_indicator_stops_on_block_end() {
     let cs = closeclaw_session::llm_session::ConversationSession::new(
         session_id.to_string(),
         "test-model".to_string(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let cs_arc = Arc::new(tokio::sync::RwLock::new(cs));
     cs_arc
@@ -908,7 +907,7 @@ async fn test_process_outbound_raw_log_only_fail_open() {
         name: "test-rawlog-fail-open".to_string(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
-        raw_log_dir: Some("/tmp/nonexistent_closeclaw_rawlog_dir".into()),
+        raw_log_dir: Some(std::env::temp_dir().join("nonexistent_closeclaw_rawlog_dir")),
         ..Default::default()
     };
     let sm = Arc::new(SessionManager::new(
