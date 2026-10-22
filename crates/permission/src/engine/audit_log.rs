@@ -675,4 +675,130 @@ mod tests {
         assert_eq!(entries[0].disposition, AuditDisposition::Rejected);
         assert_eq!(entries[0].timestamp, "2026-03-15T12:00:00Z");
     }
+
+    // ------------------------------------------------------------------
+    // Acceptance (issue #3403): mixed timestamp forms, absolute-time
+    // filter boundaries + unchanged JSONL wire format
+    // ------------------------------------------------------------------
+
+    /// One file mixes the production `to_rfc3339()` form (`+00:00` with a
+    /// nanosecond fraction), plain `Z` second-precision stamps and
+    /// `+08:00` offsets. `query_entries` must apply `since` / `until` as
+    /// inclusive bounds on parsed absolute instants; lexicographic
+    /// comparison would misjudge these (`+` sorts before `Z`, `.` sorts
+    /// before digits against `Z`).
+    #[test]
+    fn test_query_entries_mixed_timestamp_forms_absolute_time_bounds() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path).unwrap();
+
+        // All around the same instant T0 = 2026-01-02T00:00:00Z.
+        let entries = [
+            ("before", "2026-01-01T23:59:59Z"),
+            ("z", "2026-01-02T00:00:00Z"),
+            ("offset", "2026-01-02T08:00:00+08:00"),
+            ("nano", "2026-01-02T00:00:00.123456789+00:00"),
+            ("after", "2026-01-02T08:00:01+08:00"),
+        ];
+        for (agent, ts) in entries {
+            logger.log(&make_entry(agent, ts, AuditDisposition::Approved));
+        }
+
+        let hits = |filter: &AuditLogFilter| -> Vec<String> {
+            let mut ids: Vec<String> = logger
+                .query_entries(filter)
+                .into_iter()
+                .map(|e| e.agent_id)
+                .collect();
+            ids.sort();
+            ids
+        };
+        let ids = |labels: &[&str]| -> Vec<String> {
+            let mut v: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+            v.sort();
+            v
+        };
+
+        // Same-instant equality hits the closed interval across offset
+        // forms: T0 written as `Z` and as `+08:00` both match T0 bounds.
+        let at_t0 = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-02T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(hits(&at_t0), ids(&["z", "offset"]));
+
+        // Nanosecond-precision bounds match only the exact production-form
+        // instant; second-precision stamps sit a fraction before it.
+        let at_nano = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00.123456789+00:00".to_string()),
+            until: Some("2026-01-02T00:00:00.123456789+00:00".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(hits(&at_nano), ids(&["nano"]));
+
+        // Mixed-form window (`Z` since, `+08:00` until = T0+1s): the
+        // nanosecond entry is inside, the T0+1s entry hits the inclusive
+        // `until` despite the offset form.
+        let mixed_window = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-02T08:00:01+08:00".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(hits(&mixed_window), ids(&["z", "offset", "nano", "after"]));
+
+        // An explicit zero fraction at `until` still excludes the entry a
+        // fraction later — precision differences order by instant, not
+        // character code. (`since` is unset, so earlier entries match.)
+        let zero_fraction_until = AuditLogFilter {
+            until: Some("2026-01-02T00:00:00.000000000Z".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(hits(&zero_fraction_until), ids(&["before", "z", "offset"]));
+    }
+
+    /// Serialization round-trip and file write/read must keep the
+    /// timestamp string verbatim — the JSONL wire format is not rewritten
+    /// or normalized by this change (issue #3403 acceptance).
+    #[test]
+    fn test_audit_entry_jsonl_roundtrip_keeps_timestamp_verbatim() {
+        let stamps = [
+            "2026-01-02T00:00:00.123456789+00:00",
+            "2026-01-02T00:00:00Z",
+            "2026-01-02T08:00:00+08:00",
+        ];
+        for ts in stamps {
+            let line =
+                serde_json::to_string(&make_entry("a1", ts, AuditDisposition::Approved)).unwrap();
+            assert!(
+                line.contains(&format!("\"timestamp\":\"{ts}\"")),
+                "wire format must keep {ts} verbatim: line={line}"
+            );
+            let parsed: AuditLogEntry = serde_json::from_str(&line).unwrap();
+            assert_eq!(parsed.timestamp, ts);
+        }
+
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("audit.log");
+        let logger = FileAuditLogger::new(path.clone()).unwrap();
+        for ts in stamps {
+            logger.log(&make_entry("a1", ts, AuditDisposition::Approved));
+        }
+        let content = std::fs::read_to_string(&path).unwrap();
+        for ts in stamps {
+            assert!(
+                content.contains(&format!("\"timestamp\":\"{ts}\"")),
+                "file content must keep {ts} verbatim"
+            );
+        }
+        let read_back = logger.read_entries();
+        assert_eq!(read_back.len(), 3);
+        let mut read_timestamps: Vec<&str> =
+            read_back.iter().map(|e| e.timestamp.as_str()).collect();
+        read_timestamps.sort_unstable();
+        let mut expected: Vec<&str> = stamps.to_vec();
+        expected.sort_unstable();
+        assert_eq!(read_timestamps, expected);
+    }
 }

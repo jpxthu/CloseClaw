@@ -82,7 +82,7 @@ impl Tool for AuditLogTool {
     }
 
     async fn call(&self, args: Value, _ctx: &ToolContext) -> Result<ToolResult, ToolCallError> {
-        let filter = parse_filter(&args);
+        let filter = parse_filter(&args)?;
         let entries = self.logger.query_entries(&filter);
 
         let data = serde_json::json!({
@@ -109,7 +109,12 @@ impl Tool for AuditLogTool {
 }
 
 /// Parse filter parameters from tool call arguments.
-fn parse_filter(args: &Value) -> AuditLogFilter {
+///
+/// Returns `ToolCallError::InvalidArgs` when a string `since`/`until`
+/// is not valid RFC 3339 (message names the field, quotes the value and
+/// states the expected format); a missing or non-string value stays
+/// `None` (no constraint).
+fn parse_filter(args: &Value) -> Result<AuditLogFilter, ToolCallError> {
     let agent_id = args
         .get("agent_id")
         .and_then(Value::as_str)
@@ -124,16 +129,31 @@ fn parse_filter(args: &Value) -> AuditLogFilter {
             _ => None,
         });
 
-    let since = args.get("since").and_then(Value::as_str).map(String::from);
+    let parse_time_bound = |key: &str| -> Result<Option<String>, ToolCallError> {
+        match args.get(key).and_then(Value::as_str) {
+            Some(raw) => {
+                chrono::DateTime::parse_from_rfc3339(raw).map_err(|e| {
+                    ToolCallError::InvalidArgs(format!(
+                        "invalid {key} filter: {raw:?} is not a valid ISO 8601 / \
+                         RFC 3339 timestamp (e.g. 2026-01-01T00:00:00Z or \
+                         2026-01-01T08:00:00+08:00): {e}"
+                    ))
+                })?;
+                Ok(Some(raw.to_string()))
+            }
+            None => Ok(None),
+        }
+    };
 
-    let until = args.get("until").and_then(Value::as_str).map(String::from);
+    let since = parse_time_bound("since")?;
+    let until = parse_time_bound("until")?;
 
-    AuditLogFilter {
+    Ok(AuditLogFilter {
         agent_id,
         disposition,
         since,
         until,
-    }
+    })
 }
 
 #[cfg(test)]
@@ -244,7 +264,7 @@ mod tests {
     #[test]
     fn test_parse_filter_empty() {
         let args = serde_json::json!({});
-        let filter = parse_filter(&args);
+        let filter = parse_filter(&args).unwrap();
         assert!(filter.agent_id.is_none());
         assert!(filter.disposition.is_none());
         assert!(filter.since.is_none());
@@ -259,7 +279,7 @@ mod tests {
             "since": "2026-01-01T00:00:00Z",
             "until": "2026-12-31T23:59:59Z"
         });
-        let filter = parse_filter(&args);
+        let filter = parse_filter(&args).unwrap();
         assert_eq!(filter.agent_id.as_deref(), Some("a1"));
         assert_eq!(filter.disposition, Some(AuditDisposition::Rejected));
         assert_eq!(filter.since.as_deref(), Some("2026-01-01T00:00:00Z"));
@@ -269,8 +289,72 @@ mod tests {
     #[test]
     fn test_parse_filter_invalid_disposition() {
         let args = serde_json::json!({"disposition": "invalid"});
-        let filter = parse_filter(&args);
+        let filter = parse_filter(&args).unwrap();
         assert!(filter.disposition.is_none());
+    }
+
+    #[test]
+    fn test_parse_filter_invalid_since_rejected_with_format_hint() {
+        let args = serde_json::json!({"since": "not-a-time"});
+        let err = parse_filter(&args).unwrap_err();
+        let ToolCallError::InvalidArgs(msg) = err else {
+            panic!("expected InvalidArgs, got {err:?}");
+        };
+        assert!(
+            msg.contains("since"),
+            "message should name the field: {msg}"
+        );
+        assert!(
+            msg.contains("RFC 3339"),
+            "message should contain format hint: {msg}"
+        );
+        assert!(
+            msg.contains("not-a-time"),
+            "message should quote the value: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_filter_invalid_until_rejected_with_format_hint() {
+        let args = serde_json::json!({"until": "2026/06/15 12:00:00"});
+        let err = parse_filter(&args).unwrap_err();
+        let ToolCallError::InvalidArgs(msg) = err else {
+            panic!("expected InvalidArgs, got {err:?}");
+        };
+        assert!(
+            msg.contains("until"),
+            "message should name the field: {msg}"
+        );
+        assert!(
+            msg.contains("RFC 3339"),
+            "message should contain format hint: {msg}"
+        );
+        assert!(
+            msg.contains("2026/06/15 12:00:00"),
+            "message should quote the value: {msg}"
+        );
+    }
+
+    #[test]
+    fn test_parse_filter_valid_mixed_iso8601_forms_preserved() {
+        let args = serde_json::json!({
+            "since": "2026-01-01T00:00:00.123456789Z",
+            "until": "2026-12-31T23:59:59+08:00"
+        });
+        let filter = parse_filter(&args).unwrap();
+        assert_eq!(
+            filter.since.as_deref(),
+            Some("2026-01-01T00:00:00.123456789Z")
+        );
+        assert_eq!(filter.until.as_deref(), Some("2026-12-31T23:59:59+08:00"));
+    }
+
+    #[test]
+    fn test_parse_filter_missing_or_non_string_time_is_none() {
+        let args = serde_json::json!({"since": 12345, "until": true});
+        let filter = parse_filter(&args).unwrap();
+        assert!(filter.since.is_none());
+        assert!(filter.until.is_none());
     }
 
     #[tokio::test]
@@ -441,6 +525,26 @@ mod tests {
             .unwrap();
         assert_eq!(result.data["total"], 1);
         assert_eq!(result.data["entries"][0]["agent_id"], "mid");
+    }
+
+    #[tokio::test]
+    async fn test_audit_log_tool_call_invalid_since_returns_error() {
+        let tool = AuditLogTool::new(make_test_logger());
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+            media_store: None,
+        };
+        let result = tool
+            .call(serde_json::json!({"since": "not-a-time"}), &ctx)
+            .await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), ToolCallError::InvalidArgs(_)));
     }
 
     #[tokio::test]
