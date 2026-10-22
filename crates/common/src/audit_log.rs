@@ -126,20 +126,7 @@ impl AuditLogFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::test_helpers::MemAuditLogger;
-
-    fn make_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
-        AuditLogEntry {
-            timestamp: ts.to_string(),
-            agent_id: agent.to_string(),
-            tool_name: "file".to_string(),
-            operation: "write /x".to_string(),
-            reason: "test".to_string(),
-            risk_level: RiskLevel::Low,
-            session_mode: None,
-            disposition: disp,
-        }
-    }
+    use crate::test_helpers::{sample_audit_entry, MemAuditLogger};
 
     #[test]
     fn test_audit_log_entry_serialize_deserialize() {
@@ -240,7 +227,7 @@ mod tests {
     #[test]
     fn test_audit_log_filter_matches_all_none() {
         let filter = AuditLogFilter::default();
-        let entry = make_entry("a", "2026-01-01T00:00:00Z", AuditDisposition::Approved);
+        let entry = sample_audit_entry("a", "2026-01-01T00:00:00Z", AuditDisposition::Approved);
         assert!(filter.matches(&entry));
     }
 
@@ -254,7 +241,8 @@ mod tests {
     /// permission crate's `FileAuditLogger` query tests.)
     #[test]
     fn test_audit_log_filter_time_bounds_inclusive_and_exclusive() {
-        let entry_at = |ts: &str, agent: &str| make_entry(agent, ts, AuditDisposition::Approved);
+        let entry_at =
+            |ts: &str, agent: &str| sample_audit_entry(agent, ts, AuditDisposition::Approved);
 
         let window = AuditLogFilter {
             since: Some("2026-01-02T00:00:00Z".to_string()),
@@ -317,7 +305,7 @@ mod tests {
             !full.matches(&entry_at("2026-01-02T12:00:00Z", "a2")),
             "in-window entry for another agent must be excluded"
         );
-        let rejected = make_entry("a1", "2026-01-02T12:00:00Z", AuditDisposition::Rejected);
+        let rejected = sample_audit_entry("a1", "2026-01-02T12:00:00Z", AuditDisposition::Rejected);
         assert!(
             !full.matches(&rejected),
             "in-window entry with another disposition must be excluded"
@@ -339,7 +327,7 @@ mod tests {
             ..Default::default()
         };
         // Same instant as the bounds, written with a +08:00 offset.
-        let same_instant = make_entry(
+        let same_instant = sample_audit_entry(
             "a1",
             "2026-01-02T08:00:00+08:00",
             AuditDisposition::Approved,
@@ -349,7 +337,7 @@ mod tests {
             "entry at the same instant with another offset must match both inclusive bounds"
         );
         // One second before / after the window instant, +08:00 form.
-        let before = make_entry(
+        let before = sample_audit_entry(
             "a1",
             "2026-01-02T07:59:59+08:00",
             AuditDisposition::Approved,
@@ -358,7 +346,7 @@ mod tests {
             !window.matches(&before),
             "entry one second before the window must be excluded"
         );
-        let after = make_entry(
+        let after = sample_audit_entry(
             "a1",
             "2026-01-02T08:00:01+08:00",
             AuditDisposition::Approved,
@@ -379,19 +367,20 @@ mod tests {
             until: Some("2026-01-02T00:00:01Z".to_string()),
             ..Default::default()
         };
-        let mid = make_entry("a1", "2026-01-02T00:00:00.500Z", AuditDisposition::Approved);
+        let mid = sample_audit_entry("a1", "2026-01-02T00:00:00.500Z", AuditDisposition::Approved);
         assert!(
             window.matches(&mid),
             "entry with fractional seconds inside the window must match"
         );
         // Exactly at `since`, written with a redundant zero fraction.
-        let at_since = make_entry("a1", "2026-01-02T00:00:00.000Z", AuditDisposition::Approved);
+        let at_since =
+            sample_audit_entry("a1", "2026-01-02T00:00:00.000Z", AuditDisposition::Approved);
         assert!(
             window.matches(&at_since),
             "entry exactly at `since` with a zero fraction must match (inclusive)"
         );
         // Exactly at `until` with a nanosecond zero fraction.
-        let at_until = make_entry(
+        let at_until = sample_audit_entry(
             "a1",
             "2026-01-02T00:00:01.000000000Z",
             AuditDisposition::Approved,
@@ -402,7 +391,7 @@ mod tests {
         );
         // One nanosecond after `until`: excluded although the second field
         // reads equal to the bound.
-        let just_after = make_entry(
+        let just_after = sample_audit_entry(
             "a1",
             "2026-01-02T00:00:01.000000001Z",
             AuditDisposition::Approved,
@@ -427,7 +416,7 @@ mod tests {
     /// on the other side still applies.
     #[test]
     fn test_audit_log_filter_invalid_bound_ignored() {
-        let entry = make_entry("a1", "2026-01-02T00:00:00Z", AuditDisposition::Approved);
+        let entry = sample_audit_entry("a1", "2026-01-02T00:00:00Z", AuditDisposition::Approved);
         let bad_since = AuditLogFilter {
             since: Some("not-a-time".to_string()),
             ..Default::default()
@@ -460,7 +449,7 @@ mod tests {
     /// time bounds it still participates in the other dimensions.
     #[test]
     fn test_audit_log_filter_unparseable_entry_timestamp() {
-        let garbage = make_entry("a1", "yesterday-ish", AuditDisposition::Approved);
+        let garbage = sample_audit_entry("a1", "yesterday-ish", AuditDisposition::Approved);
         let since_only = AuditLogFilter {
             since: Some("2026-01-02T00:00:00Z".to_string()),
             ..Default::default()
@@ -497,7 +486,7 @@ mod tests {
     /// the entry fail (pin: unparseable-with-time-bound means no match).
     #[test]
     fn test_audit_log_filter_invalid_bound_and_garbage_timestamp_no_match() {
-        let garbage = make_entry("a1", "yesterday-ish", AuditDisposition::Approved);
+        let garbage = sample_audit_entry("a1", "yesterday-ish", AuditDisposition::Approved);
         let bad_since = AuditLogFilter {
             since: Some("not-a-time".to_string()),
             ..Default::default()
@@ -519,17 +508,17 @@ mod tests {
     #[test]
     fn test_audit_logger_trait_log_and_query_roundtrip() {
         let logger: std::sync::Arc<dyn AuditLogger> = std::sync::Arc::new(MemAuditLogger::new());
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-02T00:00:00Z",
             AuditDisposition::Rejected,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-03T00:00:00Z",
             AuditDisposition::Approved,

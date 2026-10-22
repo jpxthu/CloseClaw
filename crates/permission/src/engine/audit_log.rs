@@ -150,6 +150,7 @@ pub fn build_audit_log(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::sample_audit_entry;
 
     #[test]
     fn test_build_audit_log_file_op() {
@@ -201,16 +202,11 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path.clone()).unwrap();
 
-        let entry = AuditLogEntry {
-            timestamp: "2026-01-01T00:00:00Z".to_string(),
-            agent_id: "agent-1".to_string(),
-            tool_name: "file".to_string(),
-            operation: "write /x".to_string(),
-            reason: "approved".to_string(),
-            risk_level: RiskLevel::Low,
-            session_mode: None,
-            disposition: AuditDisposition::Approved,
-        };
+        let entry = sample_audit_entry(
+            "agent-1",
+            "2026-01-01T00:00:00Z",
+            AuditDisposition::Approved,
+        );
         logger.log(&entry);
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -227,16 +223,11 @@ mod tests {
         let logger = FileAuditLogger::new(path.clone()).unwrap();
 
         for i in 0..3 {
-            let entry = AuditLogEntry {
-                timestamp: format!("2026-01-01T00:00:{:02}Z", i),
-                agent_id: format!("agent-{}", i),
-                tool_name: "file".to_string(),
-                operation: "write /x".to_string(),
-                reason: "test".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            };
+            let entry = sample_audit_entry(
+                &format!("agent-{}", i),
+                &format!("2026-01-01T00:00:{:02}Z", i),
+                AuditDisposition::Approved,
+            );
             logger.log(&entry);
         }
 
@@ -256,16 +247,11 @@ mod tests {
         let logger = FileAuditLogger::new_with_limit(path.clone(), Some(3)).unwrap();
 
         for i in 0..5 {
-            let entry = AuditLogEntry {
-                timestamp: format!("2026-01-01T00:00:{:02}Z", i),
-                agent_id: format!("agent-{}", i),
-                tool_name: "file".to_string(),
-                operation: "write /x".to_string(),
-                reason: "test".to_string(),
-                risk_level: RiskLevel::Low,
-                session_mode: None,
-                disposition: AuditDisposition::Approved,
-            };
+            let entry = sample_audit_entry(
+                &format!("agent-{}", i),
+                &format!("2026-01-01T00:00:{:02}Z", i),
+                AuditDisposition::Approved,
+            );
             logger.log(&entry);
         }
 
@@ -329,19 +315,6 @@ mod tests {
     // read_entries / query_entries tests
     // ------------------------------------------------------------------
 
-    fn make_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
-        AuditLogEntry {
-            timestamp: ts.to_string(),
-            agent_id: agent.to_string(),
-            tool_name: "file".to_string(),
-            operation: "write /x".to_string(),
-            reason: "test".to_string(),
-            risk_level: RiskLevel::Low,
-            session_mode: None,
-            disposition: disp,
-        }
-    }
-
     #[test]
     fn test_read_entries_empty_file() {
         let dir = tempfile::tempdir().unwrap();
@@ -367,12 +340,12 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-01T00:01:00Z",
             AuditDisposition::Rejected,
@@ -390,7 +363,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path.clone()).unwrap();
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "x",
             "2026-02-01T00:00:00Z",
             AuditDisposition::Approved,
@@ -407,17 +380,17 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-01T00:01:00Z",
             AuditDisposition::Rejected,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:02:00Z",
             AuditDisposition::Approved,
@@ -438,17 +411,17 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-01T00:01:00Z",
             AuditDisposition::Rejected,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a3",
             "2026-01-01T00:02:00Z",
             AuditDisposition::Approved,
@@ -469,17 +442,17 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-02T00:00:00Z",
             AuditDisposition::Rejected,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a3",
             "2026-01-03T00:00:00Z",
             AuditDisposition::Approved,
@@ -502,17 +475,17 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T10:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T12:00:00Z",
             AuditDisposition::Rejected,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-01T14:00:00Z",
             AuditDisposition::Approved,
@@ -554,7 +527,7 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path.clone()).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
@@ -565,7 +538,7 @@ mod tests {
         content.push_str("not valid json\n");
         std::fs::write(&path, &content).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a2",
             "2026-01-01T00:01:00Z",
             AuditDisposition::Rejected,
@@ -609,12 +582,12 @@ mod tests {
         let logger = FileAuditLogger::new(path).unwrap();
 
         // First cycle: write 2 entries, read
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "cycle1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
         ));
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "cycle1",
             "2026-01-01T00:01:00Z",
             AuditDisposition::Rejected,
@@ -622,7 +595,7 @@ mod tests {
         assert_eq!(logger.read_entries().len(), 2);
 
         // Second cycle: write 1 more, read
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "cycle2",
             "2026-01-01T00:02:00Z",
             AuditDisposition::Approved,
@@ -641,7 +614,7 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "a1",
             "2026-01-01T00:00:00Z",
             AuditDisposition::Approved,
@@ -664,7 +637,7 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path).unwrap();
 
-        logger.log(&make_entry(
+        logger.log(&sample_audit_entry(
             "solo",
             "2026-03-15T12:00:00Z",
             AuditDisposition::Rejected,
@@ -703,7 +676,7 @@ mod tests {
             ("after", "2026-01-02T08:00:01+08:00"),
         ];
         for (agent, ts) in entries {
-            logger.log(&make_entry(agent, ts, AuditDisposition::Approved));
+            logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
         }
 
         let hits = |filter: &AuditLogFilter| -> Vec<String> {
@@ -771,7 +744,8 @@ mod tests {
         ];
         for ts in stamps {
             let line =
-                serde_json::to_string(&make_entry("a1", ts, AuditDisposition::Approved)).unwrap();
+                serde_json::to_string(&sample_audit_entry("a1", ts, AuditDisposition::Approved))
+                    .unwrap();
             assert!(
                 line.contains(&format!("\"timestamp\":\"{ts}\"")),
                 "wire format must keep {ts} verbatim: line={line}"
@@ -784,7 +758,7 @@ mod tests {
         let path = dir.path().join("audit.log");
         let logger = FileAuditLogger::new(path.clone()).unwrap();
         for ts in stamps {
-            logger.log(&make_entry("a1", ts, AuditDisposition::Approved));
+            logger.log(&sample_audit_entry("a1", ts, AuditDisposition::Approved));
         }
         let content = std::fs::read_to_string(&path).unwrap();
         for ts in stamps {

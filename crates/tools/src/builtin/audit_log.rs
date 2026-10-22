@@ -163,54 +163,16 @@ mod tests {
     use super::*;
     use closeclaw_common::audit_log::AuditLogEntry;
     use closeclaw_common::permission_types::RiskLevel;
-    use std::sync::Mutex;
-
-    /// In-memory `AuditLogger` fake mirroring `FileAuditLogger` semantics:
-    /// filtering via `AuditLogFilter::matches`, newest first.
-    struct MemAuditLogger {
-        entries: Mutex<Vec<AuditLogEntry>>,
-    }
-
-    impl MemAuditLogger {
-        fn new() -> Self {
-            Self {
-                entries: Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    impl AuditLogger for MemAuditLogger {
-        fn log(&self, entry: &AuditLogEntry) {
-            self.entries.lock().unwrap().push(entry.clone());
-        }
-
-        fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
-            let entries = self.entries.lock().unwrap();
-            let mut matched: Vec<AuditLogEntry> = entries
-                .iter()
-                .filter(|e| filter.matches(e))
-                .cloned()
-                .collect();
-            matched.reverse();
-            matched
-        }
-    }
+    use closeclaw_common::test_helpers::{sample_audit_entry, MemAuditLogger};
 
     fn make_test_logger() -> Arc<dyn AuditLogger> {
         Arc::new(MemAuditLogger::new())
     }
 
-    fn write_test_entry(logger: &dyn AuditLogger, agent: &str, ts: &str) {
-        logger.log(&AuditLogEntry {
-            timestamp: ts.to_string(),
-            agent_id: agent.to_string(),
-            tool_name: "file".to_string(),
-            operation: "write /x".to_string(),
-            reason: "test".to_string(),
-            risk_level: RiskLevel::Low,
-            session_mode: None,
-            disposition: AuditDisposition::Approved,
-        });
+    /// Thin wrapper logging one approved sample entry — the field
+    /// construction point stays unique in `sample_audit_entry`.
+    fn log_approved(logger: &Arc<dyn AuditLogger>, agent: &str, ts: &str) {
+        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
     }
 
     #[test]
@@ -404,8 +366,8 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_tool_call_returns_entries() {
         let logger = make_test_logger();
-        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
-        write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+        log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -423,11 +385,56 @@ mod tests {
         assert_eq!(entries.len(), 2);
     }
 
+    /// Order regression guard after the mock migration: after multiple
+    /// entries with mixed timezone forms are logged out of order, the
+    /// entries returned by the tool must be in descending order by the
+    /// parsed absolute instant — the shared `MemAuditLogger`'s query
+    /// ordering must carry through to the tool response (previous tool
+    /// cases only asserted counts, none checked order; lexicographic
+    /// string order would wrongly rank `10:00+08:00` first).
+    #[tokio::test]
+    async fn test_audit_log_tool_call_returns_entries_time_descending() {
+        let logger = make_test_logger();
+        let inserted = [
+            ("t-plus8-00z", "2026-01-02T08:00:00+08:00"), // 00:00Z
+            ("t-z00-03z", "2026-01-02T03:00:00+00:00"),
+            ("t-plus8-02z", "2026-01-02T10:00:00+08:00"), // 02:00Z
+            ("t-z-01z", "2026-01-02T01:00:00Z"),
+        ];
+        for (agent, ts) in inserted {
+            log_approved(&logger, agent, ts);
+        }
+        let tool = AuditLogTool::new(logger);
+        let ctx = ToolContext {
+            agent_id: "test".to_string(),
+            workdir: None,
+            session_id: None,
+            call_id: None,
+            session: None,
+            session_mode: None,
+            manual_background_signal: None,
+            media_store: None,
+        };
+        let result = tool.call(serde_json::json!({}), &ctx).await.unwrap();
+        assert_eq!(result.data["total"], 4);
+        let agents: Vec<&str> = result.data["entries"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|e| e["agent_id"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            agents,
+            vec!["t-z00-03z", "t-plus8-02z", "t-z-01z", "t-plus8-00z"],
+            "tool response must be ordered by the parsed absolute instant, descending"
+        );
+    }
+
     #[tokio::test]
     async fn test_audit_log_tool_call_with_filter() {
         let logger = make_test_logger();
-        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
-        write_test_entry(&*logger, "a2", "2026-01-01T00:01:00Z");
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+        log_approved(&logger, "a2", "2026-01-01T00:01:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
@@ -634,7 +641,7 @@ mod tests {
     #[tokio::test]
     async fn test_audit_log_tool_call_no_entries_matching() {
         let logger = make_test_logger();
-        write_test_entry(&*logger, "a1", "2026-01-01T00:00:00Z");
+        log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
         let tool = AuditLogTool::new(logger);
         let ctx = ToolContext {
             agent_id: "test".to_string(),
