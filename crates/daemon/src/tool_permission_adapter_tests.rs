@@ -43,12 +43,12 @@ fn test_body_mapping_preserves_all_fields_for_every_variant() {
         (
             PermRequestBody::FileOp {
                 agent: "a".into(),
-                path: "/tmp/x".into(),
+                path: std::env::temp_dir().join("x").display().to_string(),
                 op: "read".into(),
             },
             PermissionRequestBody::FileOp {
                 agent: "a".into(),
-                path: "/tmp/x".into(),
+                path: std::env::temp_dir().join("x").display().to_string(),
                 op: "read".into(),
             },
         ),
@@ -238,7 +238,12 @@ async fn test_factory_returns_trait_object() {
         Arc::new(ConfigManager::new(tmp.path().to_path_buf()).unwrap()),
         approval_flow,
     );
-    assert!(!port.is_config_file("/tmp/regular/file.txt"));
+    assert!(!port.is_config_file(
+        std::env::temp_dir()
+            .join("regular/file.txt")
+            .to_str()
+            .unwrap()
+    ));
 }
 
 // ── evaluate：checkpoint Owner 注入路径 ─────────────────────────

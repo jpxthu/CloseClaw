@@ -94,26 +94,26 @@ fn test_cleanup_before_empty_dir() {
 
 #[test]
 fn test_parse_date_from_path_valid() {
-    let path = PathBuf::from("/tmp/debug-2026-08-07.jsonl");
+    let path = std::env::temp_dir().join("debug-2026-08-07.jsonl");
     let date = LogRetention::parse_date_from_path(&path).unwrap();
     assert_eq!(date, NaiveDate::from_ymd_opt(2026, 8, 7).unwrap());
 }
 
 #[test]
 fn test_parse_date_from_path_invalid_format() {
-    let path = PathBuf::from("/tmp/debug-not-a-date.jsonl");
+    let path = std::env::temp_dir().join("debug-not-a-date.jsonl");
     assert!(LogRetention::parse_date_from_path(&path).is_none());
 }
 
 #[test]
 fn test_parse_date_from_path_wrong_prefix() {
-    let path = PathBuf::from("/tmp/app-2026-08-07.jsonl");
+    let path = std::env::temp_dir().join("app-2026-08-07.jsonl");
     assert!(LogRetention::parse_date_from_path(&path).is_none());
 }
 
 #[test]
 fn test_parse_date_from_path_wrong_extension() {
-    let path = PathBuf::from("/tmp/debug-2026-08-07.log");
+    let path = std::env::temp_dir().join("debug-2026-08-07.log");
     assert!(LogRetention::parse_date_from_path(&path).is_none());
 }
 

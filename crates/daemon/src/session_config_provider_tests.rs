@@ -249,8 +249,10 @@ async fn test_init_phase_2_fallback_defaults_without_session_config() {
 /// This is the fallback path used by init_phase_2_registries.
 #[test]
 fn test_json_session_config_provider_missing_file_defaults() {
-    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_session_cfg_defaults__.json")
-        .expect("should succeed with defaults for missing file");
+    let provider = JsonSessionConfigProvider::new(
+        std::env::temp_dir().join("__nonexistent_session_cfg_defaults__.json"),
+    )
+    .expect("should succeed with defaults for missing file");
 
     let cfg = provider.session_config_for("any-agent", AgentRole::MainAgent);
     assert_eq!(cfg.idle_minutes, DEFAULT_IDLE_MINUTES);
@@ -275,8 +277,10 @@ fn test_json_session_config_provider_missing_file_defaults() {
 /// (the file-not-found path is handled with a warn, not an error).
 #[test]
 fn test_json_session_config_provider_nonexistent_file_defaults() {
-    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_session_config__.json")
-        .expect("should succeed with defaults");
+    let provider = JsonSessionConfigProvider::new(
+        std::env::temp_dir().join("__nonexistent_session_config__.json"),
+    )
+    .expect("should succeed with defaults");
 
     let cfg = provider.session_config_for("any-agent", AgentRole::MainAgent);
     assert_eq!(cfg.idle_minutes, DEFAULT_IDLE_MINUTES);
@@ -478,8 +482,10 @@ async fn test_consistency_check_interval_from_provider() {
 /// Consistency check interval defaults to 3600 when not configured.
 #[tokio::test]
 async fn test_consistency_check_interval_default() {
-    let provider = JsonSessionConfigProvider::new("/tmp/__nonexistent_consistency_default__.json")
-        .expect("should succeed with defaults for missing file");
+    let provider = JsonSessionConfigProvider::new(
+        std::env::temp_dir().join("__nonexistent_consistency_default__.json"),
+    )
+    .expect("should succeed with defaults for missing file");
     assert_eq!(
         provider.consistency_check_interval_secs(),
         DEFAULT_CONSISTENCY_CHECK_INTERVAL_SECS
