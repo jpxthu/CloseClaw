@@ -78,11 +78,15 @@ async fn test_purge_session_a_does_not_affect_session_b() {
         vec!["session-a".to_owned()],
         "cleanup_all_finished must be invoked for session-a only; actual calls: {cleanup_calls:?}"
     );
-    storage
+    let survivor = storage
         .load_checkpoint("session-b")
         .await
         .unwrap()
         .expect("session-b checkpoint must survive purging session-a");
+    assert!(
+        survivor.parent_session_id.is_none() && survivor.depth == 0,
+        "session-b root checkpoint content must be untouched, actual: {survivor:?}"
+    );
     let deleted = mem.deleted_ids();
     assert!(
         deleted.is_empty(),

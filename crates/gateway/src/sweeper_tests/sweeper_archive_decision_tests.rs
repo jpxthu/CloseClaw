@@ -53,7 +53,8 @@ async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_fa
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         archive_called.contains(&"pend-but-archive".into()),
-        "pending_operations non-empty but all dimensions false → must still archive"
+        "pending_operations non-empty but all dimensions false → must still archive; \
+         actual archive calls: {archive_called:?}"
     );
 }
 
@@ -114,19 +115,19 @@ async fn test_any_single_active_dimension_skips_archive() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         !archive_called.contains(&"dim-llm".into()),
-        "llm_active=true → must skip archive"
+        "llm_active=true → must skip archive; actual archive calls: {archive_called:?}"
     );
     assert!(
         !archive_called.contains(&"dim-fg".into()),
-        "foreground_tool_active=true → must skip archive"
+        "foreground_tool_active=true → must skip archive; actual archive calls: {archive_called:?}"
     );
     assert!(
         !archive_called.contains(&"dim-bg".into()),
-        "background_tool_active=true → must skip archive"
+        "background_tool_active=true → must skip archive; actual archive calls: {archive_called:?}"
     );
     assert!(
         !archive_called.contains(&"dim-child".into()),
-        "child_active=true → must skip archive"
+        "child_active=true → must skip archive; actual archive calls: {archive_called:?}"
     );
 }
 
@@ -151,6 +152,7 @@ async fn test_session_not_in_memory_archives_normally() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         archive_called.contains(&"not-in-mem".into()),
-        "session not in memory (all dimensions false) → must archive"
+        "session not in memory (all dimensions false) → must archive; \
+         actual archive calls: {archive_called:?}"
     );
 }

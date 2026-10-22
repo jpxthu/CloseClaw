@@ -379,9 +379,8 @@ impl ActiveSessionQuery for MockActiveQueryWithDimensions {
 /// [`Self::last_session_id`] / [`Self::called_session_ids`].
 #[derive(Default)]
 pub struct MockTaskManager {
-    cleanup_all_finished_called: Mutex<bool>,
-    last_session_id: Mutex<Option<String>>,
-    /// Every `session_id` passed to `cleanup_all_finished`, in call order.
+    /// Every `session_id` passed to `cleanup_all_finished`, in call order —
+    /// the single source of truth all readers derive from.
     calls: Mutex<Vec<String>>,
 }
 
@@ -393,12 +392,12 @@ impl MockTaskManager {
 
     /// Whether `cleanup_all_finished` has been invoked.
     pub fn was_called(&self) -> bool {
-        *self.cleanup_all_finished_called.lock().unwrap()
+        !self.calls.lock().unwrap().is_empty()
     }
 
     /// `session_id` passed to the most recent `cleanup_all_finished` call.
     pub fn last_session_id(&self) -> Option<String> {
-        self.last_session_id.lock().unwrap().clone()
+        self.calls.lock().unwrap().last().cloned()
     }
 
     /// All `session_id`s passed to `cleanup_all_finished`, in call order —
@@ -441,8 +440,6 @@ impl TaskManager for MockTaskManager {
         unimplemented!()
     }
     async fn cleanup_all_finished(&self, session_id: &str) {
-        *self.cleanup_all_finished_called.lock().unwrap() = true;
-        *self.last_session_id.lock().unwrap() = Some(session_id.to_owned());
         self.calls.lock().unwrap().push(session_id.to_owned());
     }
     fn max_execution_secs(&self) -> u64 {

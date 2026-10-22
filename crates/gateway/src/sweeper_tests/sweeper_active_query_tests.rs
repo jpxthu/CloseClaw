@@ -27,7 +27,8 @@ async fn test_sweeper_skips_active_session() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         !archive_called.contains(&"active-sess".into()),
-        "session reported as active should NOT be archived"
+        "session reported as active should NOT be archived; \
+         actual archive calls: {archive_called:?}"
     );
 }
 
@@ -43,7 +44,8 @@ async fn test_sweeper_archives_inactive_session_no_active_query() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         archive_called.contains(&"inactive-sess".into()),
-        "session with no active_query should be archived"
+        "session with no active_query should be archived; \
+         actual archive calls: {archive_called:?}"
     );
 }
 
@@ -60,7 +62,7 @@ async fn test_sweeper_archives_inactive_session_with_active_query() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         archive_called.contains(&"not-active-sess".into()),
-        "session not in active list should be archived"
+        "session not in active list should be archived; actual archive calls: {archive_called:?}"
     );
 }
 
@@ -82,10 +84,10 @@ async fn test_sweeper_mixed_active_and_inactive_sessions() {
     let archive_called = mem.archive_called.lock().unwrap();
     assert!(
         !archive_called.contains(&"mixed-active".into()),
-        "active session should be skipped"
+        "active session should be skipped; actual archive calls: {archive_called:?}"
     );
     assert!(
         archive_called.contains(&"mixed-inactive".into()),
-        "inactive session should be archived"
+        "inactive session should be archived; actual archive calls: {archive_called:?}"
     );
 }
