@@ -70,11 +70,13 @@ impl Tool for AuditLogTool {
                 },
                 "since": {
                     "type": "string",
-                    "description": "Only return entries with timestamp >= this ISO 8601 value"
+                    "description": "Only return entries with timestamp \
+        >= this value (RFC 3339, e.g. 2026-01-01T00:00:00Z)"
                 },
                 "until": {
                     "type": "string",
-                    "description": "Only return entries with timestamp <= this ISO 8601 value"
+                    "description": "Only return entries with timestamp \
+        <= this value (RFC 3339, e.g. 2026-01-01T00:00:00Z)"
                 }
             },
             "required": []
