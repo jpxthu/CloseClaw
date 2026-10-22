@@ -492,6 +492,30 @@ mod tests {
         );
     }
 
+    /// Combined case: an unparseable bound does not rescue an entry whose
+    /// timestamp is also garbage — the mere presence of a time bound makes
+    /// the entry fail (pin: unparseable-with-time-bound means no match).
+    #[test]
+    fn test_audit_log_filter_invalid_bound_and_garbage_timestamp_no_match() {
+        let garbage = make_entry("a1", "yesterday-ish", AuditDisposition::Approved);
+        let bad_since = AuditLogFilter {
+            since: Some("not-a-time".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !bad_since.matches(&garbage),
+            "garbage timestamp must not match even when `since` itself is unparseable"
+        );
+        let bad_until = AuditLogFilter {
+            until: Some("not-a-time".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !bad_until.matches(&garbage),
+            "garbage timestamp must not match even when `until` itself is unparseable"
+        );
+    }
+
     /// In-memory [`AuditLogger`] used to exercise the trait contract
     /// (record + query) through `Arc<dyn AuditLogger>`.
     struct MemAuditLogger {

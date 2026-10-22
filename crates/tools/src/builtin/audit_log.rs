@@ -109,6 +109,11 @@ impl Tool for AuditLogTool {
 }
 
 /// Parse filter parameters from tool call arguments.
+///
+/// Returns `ToolCallError::InvalidArgs` when a string `since`/`until`
+/// is not valid RFC 3339 (message names the field, quotes the value and
+/// states the expected format); a missing or non-string value stays
+/// `None` (no constraint).
 fn parse_filter(args: &Value) -> Result<AuditLogFilter, ToolCallError> {
     let agent_id = args
         .get("agent_id")
