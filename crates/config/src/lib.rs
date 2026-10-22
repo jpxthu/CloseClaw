@@ -22,6 +22,8 @@ pub mod validators;
 
 #[cfg(test)]
 pub(crate) mod test_support;
+#[cfg(test)]
+mod test_support_tests;
 
 /// Type alias for a section validator function.
 ///

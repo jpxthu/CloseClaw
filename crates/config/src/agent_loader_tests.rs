@@ -16,6 +16,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::test_support::{create_subdir, ensure_dir};
 use crate::ConfigManager;
 
 // ---------------------------------------------------------------------------
@@ -29,15 +30,14 @@ use crate::ConfigManager;
 fn write_agents_json(dir: &Path, ids: &[&str]) {
     let content = serde_json::json!({ "agents": ids });
     let json_str = serde_json::to_string_pretty(&content).unwrap();
-    fs::create_dir_all(dir).unwrap();
+    ensure_dir(dir);
     fs::write(dir.join("agents.json"), json_str).unwrap();
 }
 
 /// Create a minimal `config.json` for an agent so
 /// `AgentDirectoryProvider` can resolve it.
 fn create_agent_config(agents_dir: &Path, id: &str) {
-    let agent_dir = agents_dir.join(id);
-    fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(agents_dir, id);
     let config = serde_json::json!({
         "id": id,
         "name": id,
@@ -52,8 +52,7 @@ fn create_agent_config(agents_dir: &Path, id: &str) {
 /// Build a `ConfigManager` with `config_dir = <base>/config/`.
 /// The agents directory is `<base>/agents/` (root level).
 fn make_config_manager(base: &Path) -> ConfigManager {
-    let config_dir = base.join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(base, "config");
     ConfigManager::new(config_dir).expect("ConfigManager::new should succeed")
 }
 
@@ -113,8 +112,7 @@ fn test_load_agents_json_nonexistent() {
 #[test]
 fn test_load_agents_json_valid() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(tmp.path(), "config");
     write_agents_json(&config_dir, &["orchestrator", "coder"]);
     let cm = make_config_manager(tmp.path());
     let ids = cm
@@ -128,8 +126,7 @@ fn test_load_agents_json_valid() {
 #[test]
 fn test_load_agents_json_with_comments() {
     let tmp = tempfile::tempdir().unwrap();
-    let config_dir = tmp.path().join("config");
-    fs::create_dir_all(&config_dir).unwrap();
+    let config_dir = create_subdir(tmp.path(), "config");
     // Comments come first, then real entries (avoids trailing comma)
     let json = r#"{
   "agents": [
@@ -138,7 +135,6 @@ fn test_load_agents_json_with_comments() {
     "c"
   ]
 }"#;
-    fs::create_dir_all(&config_dir).unwrap();
     fs::write(config_dir.join("agents.json"), json).unwrap();
     let cm = make_config_manager(tmp.path());
     let ids = cm
@@ -169,8 +165,7 @@ fn test_load_agents_merges_user_and_project() {
 
     // Fake repo root with project-level agents.json
     let repo_dir = tempfile::tempdir().unwrap();
-    let project_closeclaw = repo_dir.path().join(".closeclaw");
-    fs::create_dir_all(&project_closeclaw).unwrap();
+    let project_closeclaw = create_subdir(repo_dir.path(), ".closeclaw");
     write_agents_json(&project_closeclaw, &["agent-2", "agent-3"]);
     let project_agents = project_closeclaw.join("agents");
     create_agent_config(&project_agents, "agent-2");

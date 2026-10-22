@@ -1,6 +1,7 @@
 //! Tests for ConfigManager
 use super::*;
 use crate::agents::AgentPermissionProvider;
+use crate::test_support::{create_subdir, remove_subdir};
 use closeclaw_common::test_helpers::write_mandatory_configs;
 use std::fs;
 
@@ -27,8 +28,7 @@ fn test_write_atomically_cleanup_on_failure() {
     let tmp = tempfile::tempdir().unwrap();
     // Target path is a directory — rename to it will fail.
     // The temp file must be cleaned up.
-    let dir = tmp.path().join("subdir");
-    fs::create_dir_all(&dir).unwrap();
+    let dir = create_subdir(tmp.path(), "subdir");
     let result = write_atomically(&dir, b"test", None);
     assert!(result.is_err()); // rename must fail
                               // No .tmp.* files should remain in tmp
@@ -199,7 +199,7 @@ fn test_config_manager_load_corrupted_no_backup() {
 
     // Ensure .backups directory does not exist
     let backup_dir = tmp.path().join(".backups");
-    fs::remove_dir_all(&backup_dir).ok();
+    remove_subdir(&backup_dir).ok();
 
     // Corrupt models.json
     let models_path = tmp.path().join("models.json");
@@ -257,8 +257,7 @@ fn test_config_manager_load_credentials_corrupted_file() {
     setup_config_dir(&tmp);
 
     // Create credentials/ directory with a bad JSON file
-    let creds_dir = tmp.path().join("credentials");
-    fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(tmp.path(), "credentials");
     fs::write(creds_dir.join("openai.json"), "not valid json {{").unwrap();
 
     let manager = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
@@ -435,8 +434,7 @@ fn test_config_manager_load_missing_file() {
 #[test]
 fn test_config_manager_load_missing_dir() {
     let tmp = tempfile::tempdir().unwrap();
-    let empty_dir = tmp.path().join("empty_config");
-    fs::create_dir_all(&empty_dir).unwrap();
+    let empty_dir = create_subdir(tmp.path(), "empty_config");
     let manager = ConfigManager::new(empty_dir).unwrap();
     let result = manager.load();
     assert!(result.is_err());
@@ -526,7 +524,7 @@ fn test_config_manager_update_backup_failure() {
 
     // Replace the backup directory with a file so backup creation fails.
     let backup_dir = tmp.path().join(".backups");
-    fs::remove_dir_all(&backup_dir).ok();
+    remove_subdir(&backup_dir).ok();
     fs::write(&backup_dir, b"not a directory").unwrap();
 
     let new_value = serde_json::json!({"version": "3.0"});
@@ -603,7 +601,7 @@ fn test_load_fails_on_missing_config_dir() {
     let target = tmp.path().join("vanishing_dir");
     let manager = ConfigManager::new(target.clone()).unwrap();
     // Remove the directory after construction to simulate it disappearing
-    fs::remove_dir_all(&target).ok();
+    remove_subdir(&target).ok();
     let result = manager.load();
     assert!(
         result.is_err(),
@@ -632,13 +630,7 @@ fn test_agent_permissions_missing_file_returns_default() {
 
     // Create agent directory with config.json but NO permissions.json
     // agents/ is at root level (parent of config_dir)
-    let agent_dir = tmp
-        .path()
-        .parent()
-        .unwrap()
-        .join("agents")
-        .join("test-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    let agent_dir = create_subdir(tmp.path().parent().unwrap(), "agents/test-agent");
     let agent_config = r#"{ "id": "test-agent", "name": "Test Agent" }"#;
     fs::write(agent_dir.join("config.json"), agent_config).unwrap();
     // Deliberately NOT creating permissions.json
@@ -666,8 +658,7 @@ fn test_agent_permissions_missing_file_returns_default() {
 /// Helper: write a backup file for the given section.
 /// Backup naming follows BackupManager convention: `{stem}.{timestamp}.{ext}`
 fn write_backup(dir: &std::path::Path, section: ConfigSection, content: &str) {
-    let backup_dir = dir.join(".backups");
-    fs::create_dir_all(&backup_dir).unwrap();
+    let backup_dir = create_subdir(dir, ".backups");
     let filename = section.filename();
     let stem = filename.split('.').next().unwrap_or(filename);
     let ext = filename.split('.').next_back().unwrap_or("json");
@@ -941,8 +932,7 @@ fn test_config_manager_update_credentials_section_sets_0600() {
     setup_config_dir(&tmp);
 
     // Create the credentials directory and a test file inside it
-    let creds_dir = tmp.path().join("credentials");
-    fs::create_dir_all(&creds_dir).unwrap();
+    let creds_dir = create_subdir(tmp.path(), "credentials");
     let cred_file = creds_dir.join("openai.json");
 
     // Write via write_atomically with permissions (simulating what
