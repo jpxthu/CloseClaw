@@ -456,3 +456,7 @@ mod tests;
 #[cfg(test)]
 #[path = "bridge_activated_tests.rs"]
 mod activated_tests;
+
+#[cfg(test)]
+#[path = "bridge_test_support.rs"]
+mod test_support;
