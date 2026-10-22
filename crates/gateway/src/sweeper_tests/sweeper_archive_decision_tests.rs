@@ -2,15 +2,10 @@
 //! and any active SessionActivityDimensions dimension skips it.
 
 use closeclaw_common::SessionActivityDimensions;
-use closeclaw_config::SessionConfigProvider;
 use closeclaw_session::persistence::{PendingOperationDetail, SessionCheckpoint};
 use std::sync::Arc;
 
-use crate::sweeper::{ActiveSessionQuery, ArchiveSweeper};
-
-use super::sweeper_test_utils::{
-    MemStorage, MockActiveQuery, MockActiveQueryWithDimensions, MockConfig,
-};
+use super::sweeper_test_utils::{sweeper_with_agents, MockActiveQueryWithDimensions};
 
 // ── archive determination behavior tests ─────────────────────────────────
 
@@ -23,7 +18,7 @@ async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_fa
         PendingOperation, PendingOperationStatus, PendingOperationType,
     };
 
-    let mem = Arc::new(MemStorage::default());
+    let (mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
     mem.add_idle_session("pend-but-archive".into());
 
     let mut cp = SessionCheckpoint::new("pend-but-archive".into());
@@ -39,15 +34,8 @@ async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_fa
     }]);
     mem.add_checkpoint(cp);
 
-    let storage = mem.storage_arc();
-    let config: Arc<dyn SessionConfigProvider> =
-        Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
-
     // active_query returns all-false (session not actively executing)
-    let active_query: Arc<dyn ActiveSessionQuery> = Arc::new(MockActiveQuery::none());
-
-    let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
-        .with_active_query(active_query);
+    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(vec![])));
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();
@@ -62,7 +50,7 @@ async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_fa
 /// (Four sub-cases: llm, foreground, background, child.)
 #[tokio::test]
 async fn test_any_single_active_dimension_skips_archive() {
-    let mem = Arc::new(MemStorage::default());
+    let (mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
     mem.add_idle_session("dim-llm".into());
     mem.add_idle_session("dim-fg".into());
     mem.add_idle_session("dim-bg".into());
@@ -71,45 +59,38 @@ async fn test_any_single_active_dimension_skips_archive() {
         mem.add_checkpoint(SessionCheckpoint::new(id.into()));
     }
 
-    let storage = mem.storage_arc();
-    let config: Arc<dyn SessionConfigProvider> =
-        Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
-
     // Each session has exactly one dimension true.
-    let active_query: Arc<dyn ActiveSessionQuery> =
-        Arc::new(MockActiveQueryWithDimensions::new(vec![
-            (
-                "dim-llm".into(),
-                SessionActivityDimensions {
-                    llm_active: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                "dim-fg".into(),
-                SessionActivityDimensions {
-                    foreground_tool_active: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                "dim-bg".into(),
-                SessionActivityDimensions {
-                    background_tool_active: true,
-                    ..Default::default()
-                },
-            ),
-            (
-                "dim-child".into(),
-                SessionActivityDimensions {
-                    child_active: true,
-                    ..Default::default()
-                },
-            ),
-        ]));
-
-    let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
-        .with_active_query(active_query);
+    let dims = vec![
+        (
+            "dim-llm".into(),
+            SessionActivityDimensions {
+                llm_active: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "dim-fg".into(),
+            SessionActivityDimensions {
+                foreground_tool_active: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "dim-bg".into(),
+            SessionActivityDimensions {
+                background_tool_active: true,
+                ..Default::default()
+            },
+        ),
+        (
+            "dim-child".into(),
+            SessionActivityDimensions {
+                child_active: true,
+                ..Default::default()
+            },
+        ),
+    ];
+    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(dims)));
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();
@@ -135,18 +116,11 @@ async fn test_any_single_active_dimension_skips_archive() {
 /// (Document: not in memory = no active operations.)
 #[tokio::test]
 async fn test_session_not_in_memory_archives_normally() {
-    let mem = Arc::new(MemStorage::default());
+    let (mem, sweeper) = sweeper_with_agents(vec!["agent-x".into()]);
     mem.add_idle_session("not-in-mem".into());
     mem.add_checkpoint(SessionCheckpoint::new("not-in-mem".into()));
 
-    let storage = mem.storage_arc();
-    let config: Arc<dyn SessionConfigProvider> =
-        Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
-
-    let active_query: Arc<dyn ActiveSessionQuery> = Arc::new(MockActiveQuery::none());
-
-    let sweeper = ArchiveSweeper::new(Arc::clone(&storage), Arc::clone(&config))
-        .with_active_query(active_query);
+    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(vec![])));
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();

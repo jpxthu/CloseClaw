@@ -3,9 +3,7 @@
 //! Verifies that the sweeper correctly skips archiving sessions that are
 //! actively executing work (LLM call, tool execution, etc.).
 
-use super::sweeper_test_utils::{
-    sweeper_with_agents, MockActiveQuery, MockActiveQueryWithDimensions,
-};
+use super::sweeper_test_utils::{sweeper_with_agents, MockActiveQueryWithDimensions};
 use closeclaw_session::persistence::SessionCheckpoint;
 use std::sync::Arc;
 
@@ -56,7 +54,7 @@ async fn test_sweeper_archives_inactive_session_with_active_query() {
     mem.add_idle_session("not-active-sess".into());
     mem.add_checkpoint(SessionCheckpoint::new("not-active-sess".into()));
 
-    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQuery::none()));
+    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(vec![])));
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();
