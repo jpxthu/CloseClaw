@@ -1,16 +1,23 @@
-//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and the
-//! shared `MemAuditLogger` audit mock behaviour (filter, time-descending
+//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract,
+//! `create_subdir`'s nested-path creation, and the shared `MemAuditLogger`
+//! audit mock behaviour (filter, time-descending
 //! query, unparseable-timestamp ordering, window/matches consistency,
 //! snapshot isolation, empty/zero-match boundaries, concurrency).
 
 use std::sync::Arc;
 
 use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
-use crate::test_helpers::{ensure_dir, sample_audit_entry, MemAuditLogger};
+use crate::test_helpers::{create_subdir, ensure_dir, sample_audit_entry, MemAuditLogger};
 
 /// query 结果中 agent_id 的出现顺序（排序断言的公共取样口径）。
 fn agent_order(entries: &[AuditLogEntry]) -> Vec<&str> {
     entries.iter().map(|e| e.agent_id.as_str()).collect()
+}
+
+/// Thin wrapper logging one approved sample entry — the field
+/// construction point stays unique in `sample_audit_entry`.
+fn log_approved(logger: &MemAuditLogger, agent: &str, ts: &str) {
+    logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
 }
 
 #[test]
@@ -37,32 +44,44 @@ fn test_ensure_dir_panics_for_path_outside_tempdir() {
         .expect("ensure_dir: create_dir_all outside temp dir must fail");
 }
 
+/// 正常路径：`create_subdir` 在 TempDir 基目录下创建嵌套相对路径，
+/// 返回值恰为 `base.join(rel)` 且目录真实存在。
+#[test]
+fn test_create_subdir_creates_nested_path_under_tempdir() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let created = create_subdir(tmp.path(), "a/b/c");
+    assert_eq!(
+        created,
+        tmp.path().join("a/b/c"),
+        "返回路径必须等于 base.join(rel)"
+    );
+    assert!(created.is_dir(), "嵌套子目录应真实存在：{created:?}");
+}
+
+/// 幂等：对已存在的目录再次调用不报错、返回相同路径（创建语义幂等）。
+#[test]
+fn test_create_subdir_existing_dir_is_idempotent() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let first = create_subdir(tmp.path(), "a/b/c");
+    let second = create_subdir(tmp.path(), "a/b/c");
+    assert_eq!(first, second, "重复调用必须返回相同路径");
+    assert!(second.is_dir(), "目录应保持存在：{second:?}");
+}
+
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集
 /// ——agent_id 单维命中全部该 agent 条目；agent_id + disposition 双维
 /// 只保留同时匹配的条目（时间戳逐一核对，非仅数量断言）。
 #[test]
 fn test_mem_audit_logger_query_filters_matching_subset() {
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-01T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
-    logger.log(&sample_audit_entry(
-        "a2",
-        "2026-01-02T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
+    log_approved(&logger, "a2", "2026-01-02T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a1",
         "2026-01-03T00:00:00Z",
         AuditDisposition::Rejected,
     ));
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-04T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-04T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a3",
         "2026-01-05T00:00:00Z",
@@ -112,11 +131,7 @@ fn test_mem_audit_logger_query_sorts_time_descending() {
         "2026-01-04T00:00:00Z",
     ];
     for (i, ts) in shuffled.iter().enumerate() {
-        logger.log(&sample_audit_entry(
-            &format!("agent-{i}"),
-            ts,
-            AuditDisposition::Approved,
-        ));
+        log_approved(&logger, &format!("agent-{i}"), ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -160,7 +175,7 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
         ("a-z-prev-day", "2026-01-01T23:00:00Z"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -192,7 +207,7 @@ fn test_mem_audit_logger_query_unparseable_timestamps_sort_last_stable() {
         ("g3", "yesterday-ish"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -215,7 +230,7 @@ fn test_mem_audit_logger_query_all_unparseable_keeps_insertion_order() {
         ("g3", ""),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -241,7 +256,7 @@ fn test_mem_audit_logger_query_same_instant_keeps_insertion_order() {
         ("s4-later", "2026-01-02T00:00:01Z"),      // 晚 1 秒，验证倒序
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let queried = logger.query_entries(&AuditLogFilter::default());
@@ -271,7 +286,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
         ("w7-in-01z", "2026-01-02T01:00:00Z"),
     ];
     for (agent, ts) in inserted {
-        logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
+        log_approved(&logger, agent, ts);
     }
 
     let window = AuditLogFilter {
@@ -297,7 +312,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
         .map(|e| e.agent_id.as_str())
         .collect();
     from_matches.sort_unstable();
-    let mut queried_set: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let mut queried_set = agent_order(&queried);
     queried_set.sort_unstable();
     assert_eq!(
         queried_set, from_matches,
@@ -314,11 +329,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
 #[test]
 fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-01T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-01T00:00:00Z");
     logger.log(&sample_audit_entry(
         "a2",
         "2026-01-02T00:00:00Z",
@@ -327,21 +338,17 @@ fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
 
     let snapshot = logger.entries();
     assert_eq!(snapshot.len(), 2, "快照必须包含全部已写入条目");
-    let agents: Vec<&str> = snapshot.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&snapshot);
     assert_eq!(agents, vec!["a1", "a2"], "快照按插入序包含全部条目");
 
-    logger.log(&sample_audit_entry(
-        "a3",
-        "2026-01-03T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a3", "2026-01-03T00:00:00Z");
     assert_eq!(snapshot.len(), 2, "后续写入不得改变已取得的快照");
 
     let mut mutable = logger.entries();
     mutable.clear();
     let fresh = logger.entries();
     assert_eq!(fresh.len(), 3, "修改快照 Vec 不得穿透到 logger 内部");
-    let fresh_agents: Vec<&str> = fresh.iter().map(|e| e.agent_id.as_str()).collect();
+    let fresh_agents = agent_order(&fresh);
     assert_eq!(fresh_agents, vec!["a1", "a2", "a3"]);
 }
 
@@ -361,11 +368,7 @@ fn test_mem_audit_logger_empty_and_zero_match_queries() {
     );
 
     let logger = MemAuditLogger::new();
-    logger.log(&sample_audit_entry(
-        "a1",
-        "2026-01-02T00:00:00Z",
-        AuditDisposition::Approved,
-    ));
+    log_approved(&logger, "a1", "2026-01-02T00:00:00Z");
 
     let no_agent = logger.query_entries(&AuditLogFilter {
         agent_id: Some("missing".to_string()),
