@@ -1,12 +1,13 @@
-//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and the
-//! shared `MemAuditLogger` audit mock behaviour (filter, time-descending
+//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract,
+//! `create_subdir`'s nested-path creation, and the shared `MemAuditLogger`
+//! audit mock behaviour (filter, time-descending
 //! query, unparseable-timestamp ordering, window/matches consistency,
 //! snapshot isolation, empty/zero-match boundaries, concurrency).
 
 use std::sync::Arc;
 
 use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
-use crate::test_helpers::{ensure_dir, sample_audit_entry, MemAuditLogger};
+use crate::test_helpers::{create_subdir, ensure_dir, sample_audit_entry, MemAuditLogger};
 
 /// query 结果中 agent_id 的出现顺序（排序断言的公共取样口径）。
 fn agent_order(entries: &[AuditLogEntry]) -> Vec<&str> {
@@ -41,6 +42,30 @@ fn test_ensure_dir_panics_for_path_outside_tempdir() {
         .unwrap_or_else(|| std::path::PathBuf::from("/proc"));
     ensure_dir(&outside.join("closeclaw_ensure_dir_outside_probe"))
         .expect("ensure_dir: create_dir_all outside temp dir must fail");
+}
+
+/// 正常路径：`create_subdir` 在 TempDir 基目录下创建嵌套相对路径，
+/// 返回值恰为 `base.join(rel)` 且目录真实存在。
+#[test]
+fn test_create_subdir_creates_nested_path_under_tempdir() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let created = create_subdir(tmp.path(), "a/b/c");
+    assert_eq!(
+        created,
+        tmp.path().join("a/b/c"),
+        "返回路径必须等于 base.join(rel)"
+    );
+    assert!(created.is_dir(), "嵌套子目录应真实存在：{created:?}");
+}
+
+/// 幂等：对已存在的目录再次调用不报错、返回相同路径（创建语义幂等）。
+#[test]
+fn test_create_subdir_existing_dir_is_idempotent() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let first = create_subdir(tmp.path(), "a/b/c");
+    let second = create_subdir(tmp.path(), "a/b/c");
+    assert_eq!(first, second, "重复调用必须返回相同路径");
+    assert!(second.is_dir(), "目录应保持存在：{second:?}");
 }
 
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集
