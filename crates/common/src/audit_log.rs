@@ -83,6 +83,14 @@ pub struct AuditLogFilter {
 
 impl AuditLogFilter {
     /// Check whether an entry matches this filter.
+    ///
+    /// Time bounds compare parsed absolute instants (RFC 3339) so mixed
+    /// ISO 8601 forms — offsets like `+08:00` vs `Z`, differing
+    /// fractional-second precision — order correctly; lexicographic
+    /// comparison would misjudge them (`+` sorts before `Z`). A bound
+    /// that fails to parse acts as no constraint; an entry timestamp that
+    /// fails to parse cannot be compared, so it fails whenever a time
+    /// bound is present. Both bounds stay inclusive.
     pub fn matches(&self, entry: &AuditLogEntry) -> bool {
         if let Some(ref agent) = self.agent_id {
             if entry.agent_id != *agent {
@@ -94,14 +102,21 @@ impl AuditLogFilter {
                 return false;
             }
         }
-        if let Some(ref since) = self.since {
-            if entry.timestamp < *since {
-                return false;
+        if self.since.is_some() || self.until.is_some() {
+            let parse_bound = |value: &str| chrono::DateTime::parse_from_rfc3339(value).ok();
+            let entry_time = match parse_bound(&entry.timestamp) {
+                Some(time) => time,
+                None => return false,
+            };
+            if let Some(bound) = self.since.as_deref().and_then(parse_bound) {
+                if entry_time < bound {
+                    return false;
+                }
             }
-        }
-        if let Some(ref until) = self.until {
-            if entry.timestamp > *until {
-                return false;
+            if let Some(bound) = self.until.as_deref().and_then(parse_bound) {
+                if entry_time > bound {
+                    return false;
+                }
             }
         }
         true
@@ -230,8 +245,9 @@ mod tests {
     }
 
     /// Time-window semantics of `matches`: `since` / `until` are inclusive
-    /// ISO 8601 bounds compared lexicographically, each bound is open-ended
-    /// when `None`, and the window ANDs with the other dimensions.
+    /// ISO 8601 bounds compared as parsed absolute instants, each bound is
+    /// open-ended when `None`, and the window ANDs with the other
+    /// dimensions.
     ///
     /// (agent_id / disposition alone, combination and empty filter are
     /// covered by `test_audit_logger_trait_log_and_query_roundtrip` and the
@@ -309,6 +325,170 @@ mod tests {
         assert!(
             !full.matches(&entry_at("2026-01-04T00:00:00Z", "a1")),
             "out-of-window entry for the right agent must still be excluded"
+        );
+    }
+
+    /// Bounds compare parsed absolute instants: an entry written with a
+    /// `+08:00` offset matches a `Z`-form window at the same instant
+    /// (both bounds inclusive), and instants outside are excluded.
+    #[test]
+    fn test_audit_log_filter_cross_offset_bounds() {
+        let window = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-02T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        // Same instant as the bounds, written with a +08:00 offset.
+        let same_instant = make_entry(
+            "a1",
+            "2026-01-02T08:00:00+08:00",
+            AuditDisposition::Approved,
+        );
+        assert!(
+            window.matches(&same_instant),
+            "entry at the same instant with another offset must match both inclusive bounds"
+        );
+        // One second before / after the window instant, +08:00 form.
+        let before = make_entry(
+            "a1",
+            "2026-01-02T07:59:59+08:00",
+            AuditDisposition::Approved,
+        );
+        assert!(
+            !window.matches(&before),
+            "entry one second before the window must be excluded"
+        );
+        let after = make_entry(
+            "a1",
+            "2026-01-02T08:00:01+08:00",
+            AuditDisposition::Approved,
+        );
+        assert!(
+            !window.matches(&after),
+            "entry one second after the window must be excluded"
+        );
+    }
+
+    /// Bounds compare parsed instants, so differing fractional-second
+    /// precision orders correctly (lexicographic comparison would misjudge
+    /// `.` against `Z`).
+    #[test]
+    fn test_audit_log_filter_fractional_second_precision() {
+        let window = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            until: Some("2026-01-02T00:00:01Z".to_string()),
+            ..Default::default()
+        };
+        let mid = make_entry("a1", "2026-01-02T00:00:00.500Z", AuditDisposition::Approved);
+        assert!(
+            window.matches(&mid),
+            "entry with fractional seconds inside the window must match"
+        );
+        // Exactly at `since`, written with a redundant zero fraction.
+        let at_since = make_entry("a1", "2026-01-02T00:00:00.000Z", AuditDisposition::Approved);
+        assert!(
+            window.matches(&at_since),
+            "entry exactly at `since` with a zero fraction must match (inclusive)"
+        );
+        // Exactly at `until` with a nanosecond zero fraction.
+        let at_until = make_entry(
+            "a1",
+            "2026-01-02T00:00:01.000000000Z",
+            AuditDisposition::Approved,
+        );
+        assert!(
+            window.matches(&at_until),
+            "entry exactly at `until` with a zero fraction must match (inclusive)"
+        );
+        // One nanosecond after `until`: excluded although the second field
+        // reads equal to the bound.
+        let just_after = make_entry(
+            "a1",
+            "2026-01-02T00:00:01.000000001Z",
+            AuditDisposition::Approved,
+        );
+        assert!(
+            !window.matches(&just_after),
+            "entry one nanosecond after `until` must be excluded"
+        );
+        // The bound itself carries the fractional part instead.
+        let nano_since = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00.000000001Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !nano_since.matches(&at_since),
+            "entry one nanosecond before a nanosecond `since` must be excluded"
+        );
+    }
+
+    /// A bound that is not valid RFC 3339 is treated as no constraint on
+    /// that side (bound values are pre-validated upstream); a valid bound
+    /// on the other side still applies.
+    #[test]
+    fn test_audit_log_filter_invalid_bound_ignored() {
+        let entry = make_entry("a1", "2026-01-02T00:00:00Z", AuditDisposition::Approved);
+        let bad_since = AuditLogFilter {
+            since: Some("not-a-time".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            bad_since.matches(&entry),
+            "unparseable `since` must act as no constraint"
+        );
+        let bad_until = AuditLogFilter {
+            until: Some("not-a-time".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            bad_until.matches(&entry),
+            "unparseable `until` must act as no constraint"
+        );
+        let mixed = AuditLogFilter {
+            since: Some("not-a-time".to_string()),
+            until: Some("2026-01-01T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !mixed.matches(&entry),
+            "the valid `until` must still exclude when `since` is unparseable"
+        );
+    }
+
+    /// An entry timestamp that cannot be parsed cannot be compared to a
+    /// time bound, so it fails whenever a time bound is present; without
+    /// time bounds it still participates in the other dimensions.
+    #[test]
+    fn test_audit_log_filter_unparseable_entry_timestamp() {
+        let garbage = make_entry("a1", "yesterday-ish", AuditDisposition::Approved);
+        let since_only = AuditLogFilter {
+            since: Some("2026-01-02T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !since_only.matches(&garbage),
+            "unparseable timestamp must not match a `since`-bounded filter"
+        );
+        let until_only = AuditLogFilter {
+            until: Some("2026-01-02T00:00:00Z".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            !until_only.matches(&garbage),
+            "unparseable timestamp must not match an `until`-bounded filter"
+        );
+        // Without time bounds the entry is judged on the other dimensions.
+        let agent_only = AuditLogFilter {
+            agent_id: Some("a1".to_string()),
+            ..Default::default()
+        };
+        assert!(
+            agent_only.matches(&garbage),
+            "unparseable timestamp must not matter without time bounds"
+        );
+        assert!(
+            AuditLogFilter::default().matches(&garbage),
+            "unparseable timestamp must not matter for an empty filter"
         );
     }
 
