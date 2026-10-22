@@ -308,22 +308,6 @@ pub fn sweeper_with_session_config(
     (mem, sweeper)
 }
 
-/// Mock ActiveSessionQuery that returns all-false (no active dimensions).
-pub struct MockActiveQuery;
-
-impl MockActiveQuery {
-    pub fn none() -> Self {
-        Self
-    }
-}
-
-#[async_trait]
-impl ActiveSessionQuery for MockActiveQuery {
-    async fn activity_dimensions(&self, _session_id: &str) -> SessionActivityDimensions {
-        SessionActivityDimensions::default()
-    }
-}
-
 /// Mock ActiveSessionQuery that returns custom dimensions per session ID.
 pub struct MockActiveQueryWithDimensions {
     dimensions: Mutex<Vec<(String, SessionActivityDimensions)>>,
