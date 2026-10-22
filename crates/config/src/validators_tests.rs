@@ -749,7 +749,11 @@ fn test_validate_media_structural_only_passes_field_errors() {
         r#"{"storageDir":123}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
-        assert!(validate_media(&v).is_ok(), "json={}", json);
+        assert!(
+            validate_media(&v).is_ok(),
+            "structural check should pass: json={}",
+            json
+        );
     }
 }
 
