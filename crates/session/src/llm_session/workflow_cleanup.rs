@@ -88,7 +88,6 @@ mod tests {
     use closeclaw_workflow::run::{
         GoalHint, Phase, StepHistoryEntry, StepHistoryStatus, WorkflowRun,
     };
-    use std::path::PathBuf;
 
     fn make_test_workflow() -> Workflow {
         Workflow {
@@ -139,7 +138,7 @@ mod tests {
         let mut session = ConversationSession::new(
             "test-sid".to_string(),
             "test-model".to_string(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         session.set_workflow_run(Some(make_test_run()));
         session.inject_workflow_message("goal: do something");
@@ -161,7 +160,7 @@ mod tests {
         let mut session = ConversationSession::new(
             "test-sid".to_string(),
             "test-model".to_string(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         session.set_workflow_run(Some(make_test_run()));
         session.add_system_injection_append(build_workflow_context_append(&make_test_workflow()));
@@ -182,7 +181,7 @@ mod tests {
         let mut session = ConversationSession::new(
             "test-sid".to_string(),
             "test-model".to_string(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         session.set_workflow_run(Some(make_test_run()));
 
@@ -197,7 +196,7 @@ mod tests {
         let mut session = ConversationSession::new(
             "test-sid".to_string(),
             "test-model".to_string(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         // No workflow_run set.
 
@@ -211,7 +210,7 @@ mod tests {
         let mut session = ConversationSession::new(
             "test-sid".to_string(),
             "test-model".to_string(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
         session.set_workflow_run(Some(make_test_run()));
         session.push_message("user", vec![ContentBlock::Text("question".to_string())]);

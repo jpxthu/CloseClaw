@@ -9,10 +9,9 @@
 
 use super::super::*;
 use closeclaw_common::ChildSessionState;
-use std::path::PathBuf;
 
 fn make_session(id: &str) -> ConversationSession {
-    ConversationSession::new(id.to_string(), "test-model".into(), PathBuf::from("/tmp"))
+    ConversationSession::new(id.to_string(), "test-model".into(), std::env::temp_dir())
 }
 
 // ═══════════════════════════════════════════════════════════════════════════

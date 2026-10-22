@@ -57,7 +57,7 @@ fn session_with_provider(listing: &str) -> ConversationSession {
     let mut session = ConversationSession::new(
         "test-skill-listing".into(),
         "test-model".into(),
-        PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
     let provider: Arc<dyn SkillListingProvider> = Arc::new(StubListingProvider {
         listing: listing.to_string(),

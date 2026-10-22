@@ -542,7 +542,10 @@ fn test_verify_tool_exchange_cleanup_preserves_non_workflow() {
         &mut session,
         "tc_read",
         "read_file",
-        r#"{"path": "/tmp/x"}"#,
+        &format!(
+            r#"{{"path": "{}"}}"#,
+            std::env::temp_dir().join("x").display()
+        ),
         "file data",
     );
 

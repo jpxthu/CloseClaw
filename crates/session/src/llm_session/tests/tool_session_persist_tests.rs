@@ -136,7 +136,7 @@ async fn test_deregister_tool_call_removes_from_checkpoint() {
         &session,
         "call_del".into(),
         "bash".into(),
-        "rm -rf /tmp/test".into(),
+        format!("rm -rf {}", std::env::temp_dir().join("test").display()),
     )
     .await;
 
