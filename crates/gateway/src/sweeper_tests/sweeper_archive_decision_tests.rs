@@ -3,9 +3,7 @@
 
 use closeclaw_common::SessionActivityDimensions;
 use closeclaw_config::SessionConfigProvider;
-use closeclaw_session::persistence::{
-    PendingOperationDetail, PersistenceService, SessionCheckpoint,
-};
+use closeclaw_session::persistence::{PendingOperationDetail, SessionCheckpoint};
 use std::sync::Arc;
 
 use crate::sweeper::{ActiveSessionQuery, ArchiveSweeper};
@@ -41,7 +39,7 @@ async fn test_pending_operations_non_empty_still_archives_when_all_dimensions_fa
     }]);
     mem.add_checkpoint(cp);
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
 
@@ -72,7 +70,7 @@ async fn test_any_single_active_dimension_skips_archive() {
         mem.add_checkpoint(SessionCheckpoint::new(id.into()));
     }
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
 
@@ -140,7 +138,7 @@ async fn test_session_not_in_memory_archives_normally() {
     mem.add_idle_session("not-in-mem".into());
     mem.add_checkpoint(SessionCheckpoint::new("not-in-mem".into()));
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::with_agents(vec!["agent-x".into()]));
 

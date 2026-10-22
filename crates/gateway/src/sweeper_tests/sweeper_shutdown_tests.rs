@@ -147,7 +147,7 @@ impl FakeSweeper {
 async fn test_shutdown_grace_period_expires_aborts() {
     let mem = Arc::new(MemStorage::default());
     let sweeper = FakeSweeper {
-        storage: mem.clone() as _,
+        storage: mem.storage_arc(),
     };
     let (tx, rx) = watch::channel(());
     let handle = tokio::spawn(async move {

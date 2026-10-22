@@ -1,7 +1,6 @@
 //! purge + TaskManager integration tests: terminal task output cleanup on
 //! purge, with session-level isolation.
 
-use closeclaw_session::persistence::PersistenceService;
 use std::sync::Arc;
 
 use crate::sweeper::ArchiveSweeper;
@@ -17,7 +16,7 @@ use super::sweeper_test_utils::{MemStorage, MockTaskManager};
 async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
     let mem = Arc::new(MemStorage::default());
     mem.add_expired_session("purge-with-tm".into());
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
 
     let tm = Arc::new(MockTaskManager::new());
 
@@ -51,7 +50,7 @@ async fn test_purge_and_invalidate_calls_cleanup_all_finished() {
 async fn test_purge_session_a_does_not_affect_session_b() {
     let mem = Arc::new(MemStorage::default());
     mem.add_expired_session("session-a".into());
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
 
     let tm = Arc::new(MockTaskManager::new());
 
@@ -76,7 +75,7 @@ async fn test_purge_session_a_does_not_affect_session_b() {
 async fn test_purge_and_invalidate_without_task_manager_skips_cleanup() {
     let mem = Arc::new(MemStorage::default());
     mem.add_expired_session("purge-no-tm".into());
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
 
     ArchiveSweeper::purge_and_invalidate_impl(Arc::clone(&storage), "purge-no-tm".into(), None)
         .await

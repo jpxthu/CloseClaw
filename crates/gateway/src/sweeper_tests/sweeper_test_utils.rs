@@ -70,6 +70,13 @@ impl MemStorage {
         self.deleted.lock().unwrap().clone()
     }
 
+    /// Shared handle typed as the trait object the sweeper consumes —
+    /// single point for the `Arc<MemStorage>` → `Arc<dyn
+    /// PersistenceService>` upcast so test sites need no cast boilerplate.
+    pub fn storage_arc(self: &Arc<Self>) -> Arc<dyn PersistenceService> {
+        Arc::clone(self) as Arc<dyn PersistenceService>
+    }
+
     /// Arm `count` faults on the next `list_idle_sessions_for_agent`
     /// calls: each armed call either returns `Err` or panics (see
     /// [`StorageFault`]), letting tests execute the production error
@@ -279,7 +286,7 @@ pub fn sweeper_with_session_config(
     let mem = Arc::new(MemStorage::default());
     let config = Arc::new(MockConfig::with_agents(agents));
     *config.session_config.lock().unwrap() = session_config;
-    let storage: Arc<dyn PersistenceService> = Arc::clone(&mem) as _;
+    let storage = mem.storage_arc();
     let sweeper = ArchiveSweeper::new(storage, config);
     (mem, sweeper)
 }

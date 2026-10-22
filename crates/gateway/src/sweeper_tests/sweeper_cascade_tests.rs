@@ -1,7 +1,7 @@
 //! cascade_kill_children / cascade_archive tests: descendant cleanup and
 //! deletion ordering across the session tree.
 
-use closeclaw_session::persistence::{PersistenceService, SessionCheckpoint};
+use closeclaw_session::persistence::SessionCheckpoint;
 use std::sync::Arc;
 
 use crate::sweeper::ArchiveSweeper;
@@ -33,7 +33,7 @@ async fn test_cascade_kill_children_deletes_descendants() {
     mem.add_checkpoint(grandchild);
 
     // Run cascade
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
         .await
         .unwrap();
@@ -60,7 +60,7 @@ async fn test_cascade_kill_children_no_children_noop() {
     let mem = Arc::new(MemStorage::default());
     mem.add_checkpoint(SessionCheckpoint::new("leaf".into()));
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "leaf")
         .await
         .unwrap();
@@ -94,7 +94,7 @@ async fn test_cascade_kill_children_siblings_only() {
     other_child.parent_session_id = Some("other_parent".into());
     mem.add_checkpoint(other_child);
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "parent")
         .await
         .unwrap();
@@ -131,7 +131,7 @@ async fn test_cascade_archive_kills_children_then_archives_parent() {
     child.parent_session_id = Some("parent-archive".into());
     mem.add_checkpoint(child);
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_archive_impl(storage, "parent-archive".into())
         .await
         .unwrap();
@@ -156,7 +156,7 @@ async fn test_cascade_archive_no_children_archives_parent() {
     let mem = Arc::new(MemStorage::default());
     mem.add_checkpoint(SessionCheckpoint::new("solo-parent".into()));
 
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_archive_impl(storage, "solo-parent".into())
         .await
         .unwrap();
@@ -221,7 +221,7 @@ async fn test_cascade_kill_children_multi_branch_tree() {
     mem.add_checkpoint(gc_b1);
 
     // Run cascade
-    let storage: Arc<dyn PersistenceService> = mem.clone() as _;
+    let storage = mem.storage_arc();
     ArchiveSweeper::cascade_kill_children(storage.as_ref(), "root")
         .await
         .unwrap();
