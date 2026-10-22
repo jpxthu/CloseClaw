@@ -9,6 +9,7 @@ use crate::adapter::SystemPromptBuilderAdapter;
 use crate::fragment::{FragmentContext, PromptFragment, SectionType};
 use crate::providers::bootstrap::BootstrapFragmentProvider;
 use crate::test_adapters::FakeAgentLookup;
+use crate::test_support::{create_agent_workspace, create_agent_workspace_with_file};
 use async_trait::async_trait;
 
 // ---------------------------------------------------------------------------
@@ -99,9 +100,12 @@ async fn test_build_prompt_returns_non_empty_string() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
     // Create a minimal workspace with a bootstrap file.
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap file content").unwrap();
+    create_agent_workspace_with_file(
+        tmp.path(),
+        agent_id,
+        "BOOTSTRAP.md",
+        "bootstrap file content",
+    );
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let result = adapter
@@ -114,9 +118,12 @@ async fn test_build_prompt_returns_non_empty_string() {
 async fn test_build_prompt_includes_bootstrap_content() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap content here").unwrap();
+    create_agent_workspace_with_file(
+        tmp.path(),
+        agent_id,
+        "BOOTSTRAP.md",
+        "bootstrap content here",
+    );
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let result = adapter
@@ -133,9 +140,7 @@ async fn test_build_prompt_includes_bootstrap_content() {
 async fn test_invalidate_cache_clears_sections() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("AGENTS.md"), "agents content").unwrap();
+    create_agent_workspace_with_file(tmp.path(), agent_id, "AGENTS.md", "agents content");
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     // Build once to populate the cache.
@@ -167,9 +172,7 @@ async fn test_invalidate_cache_clears_sections() {
 async fn test_prompt_overrides_override_replaces_static() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "original content").unwrap();
+    create_agent_workspace_with_file(tmp.path(), agent_id, "BOOTSTRAP.md", "original content");
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let overrides = PromptOverrides {
@@ -194,9 +197,7 @@ async fn test_prompt_overrides_override_replaces_static() {
 async fn test_prompt_overrides_agent_prompt_appends() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "base content").unwrap();
+    create_agent_workspace_with_file(tmp.path(), agent_id, "BOOTSTRAP.md", "base content");
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let overrides = PromptOverrides {
@@ -222,8 +223,7 @@ async fn test_prompt_overrides_agent_prompt_appends() {
 async fn test_prompt_overrides_priority_override_gt_agent_gt_custom() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let adapter = test_adapter(tmp.path(), bootstrap_providers());
     let overrides = PromptOverrides {
@@ -266,10 +266,13 @@ async fn test_workspace_not_exists_fallback() {
 async fn test_bootstrap_mode_override_takes_precedence() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
     // BOOTSTRAP.md is only loaded in Full mode.
-    std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
+    create_agent_workspace_with_file(
+        tmp.path(),
+        agent_id,
+        "BOOTSTRAP.md",
+        "bootstrap only in full",
+    );
 
     // Agent configured with Minimal mode.
     let adapter = test_adapter_with_agent(
@@ -301,9 +304,12 @@ async fn test_bootstrap_mode_override_takes_precedence() {
 async fn test_bootstrap_mode_from_registry_when_no_override() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "bootstrap only in full").unwrap();
+    create_agent_workspace_with_file(
+        tmp.path(),
+        agent_id,
+        "BOOTSTRAP.md",
+        "bootstrap only in full",
+    );
 
     // Agent configured with Minimal mode — should NOT load BOOTSTRAP.md.
     let adapter = test_adapter_with_agent(
@@ -330,9 +336,12 @@ async fn test_bootstrap_mode_from_registry_when_no_override() {
 async fn test_agent_lookup_none_falls_back_to_full() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::write(ws.join("BOOTSTRAP.md"), "full fallback content").unwrap();
+    create_agent_workspace_with_file(
+        tmp.path(),
+        agent_id,
+        "BOOTSTRAP.md",
+        "full fallback content",
+    );
 
     // Empty fake — query_bootstrap_mode returns None for every agent.
     let lookup = Arc::new(FakeAgentLookup::new());
@@ -354,8 +363,7 @@ async fn test_agent_lookup_none_falls_back_to_full() {
 async fn test_adapter_multiple_providers_priority() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
         Arc::new(MockProvider::with_content("memory", 4, "memory content")),
@@ -442,8 +450,7 @@ impl PromptFragmentProvider for ActivationRecordingProvider {
 async fn test_build_prompt_with_activated_passes_skills_to_provider() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
     let provider = ActivationRecordingProvider {
@@ -480,8 +487,7 @@ async fn test_build_prompt_with_activated_passes_skills_to_provider() {
 async fn test_build_prompt_without_activated_empty_ctx() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
     let provider = ActivationRecordingProvider {
@@ -509,8 +515,7 @@ async fn test_build_prompt_without_activated_empty_ctx() {
 async fn test_build_prompt_vs_with_activated_different_output() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<String>::new()));
     let provider = ActivationRecordingProvider {
@@ -580,8 +585,7 @@ impl PromptFragmentProvider for RoleRecordingProvider {
 async fn test_adapter_passes_sub_role_to_fragment_context() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<SessionRole>::new()));
     let provider = RoleRecordingProvider {
@@ -603,8 +607,7 @@ async fn test_adapter_passes_sub_role_to_fragment_context() {
 async fn test_adapter_passes_main_role_to_fragment_context() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded = std::sync::Arc::new(tokio::sync::Mutex::new(Vec::<SessionRole>::new()));
     let provider = RoleRecordingProvider {
@@ -717,8 +720,7 @@ async fn test_build_prompt_with_params_propagates_tool_registry() {
 
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded: RecordedToolRegistries = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let provider = ToolRegistryRecordingProvider {
@@ -754,8 +756,7 @@ async fn test_build_prompt_with_params_propagates_tool_registry() {
 async fn test_build_prompt_passes_tool_registry_none() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let recorded: RecordedToolRegistries = Arc::new(tokio::sync::Mutex::new(Vec::new()));
     let provider = ToolRegistryRecordingProvider {
@@ -814,8 +815,7 @@ async fn test_build_prompt_with_params_propagates_no_bootstrap_true() {
 
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let observed = Arc::new(std::sync::atomic::AtomicBool::new(false));
     let provider = NoBootstrapRecordingProvider {
@@ -848,8 +848,7 @@ async fn test_build_prompt_with_params_propagates_no_bootstrap_true() {
 async fn test_build_prompt_legacy_entry_keeps_no_bootstrap_false() {
     let tmp = tempfile::tempdir().unwrap();
     let agent_id = "test-agent";
-    let ws = tmp.path().join("agents").join(agent_id);
-    std::fs::create_dir_all(&ws).unwrap();
+    create_agent_workspace(tmp.path(), agent_id);
 
     let observed = Arc::new(std::sync::atomic::AtomicBool::new(true));
     let provider = NoBootstrapRecordingProvider {

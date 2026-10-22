@@ -22,6 +22,9 @@ mod workdir;
 pub mod test_adapters;
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 pub mod inject_tests;
 
 #[cfg(test)]
