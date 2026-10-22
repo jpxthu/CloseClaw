@@ -37,7 +37,7 @@ async fn test_shutdown_exits_loop() {
     let join_result = result.expect("timeout is Ok, per assertion above");
     assert!(
         join_result.is_ok(),
-        "sweeper task must not panic while exiting"
+        "sweeper task must not panic while exiting, actual: {join_result:?}"
     );
 }
 
@@ -176,7 +176,7 @@ async fn test_shutdown_grace_period_expires_aborts() {
     let elapsed = start.elapsed();
     assert!(
         result.is_ok(),
-        "sweeper should exit after grace period abort"
+        "sweeper should exit after grace period abort, actual: {result:?}"
     );
     // Lower bound: the sweeper must actually wait out the entire
     // grace period before aborting (never vacuously early).

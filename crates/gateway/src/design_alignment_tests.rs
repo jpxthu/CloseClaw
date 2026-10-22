@@ -1,6 +1,6 @@
 #![allow(deprecated)]
 
-//! Unit tests for Step 1.1–1.4 design doc alignment changes.
+//! Unit tests for design doc alignment changes.
 //!
 //! Covers:
 //! 1. Verbosity filtering: VerbosityFilter is an in-chain processor running

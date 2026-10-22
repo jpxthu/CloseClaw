@@ -1,6 +1,6 @@
-//! Step 1.3 — Unit tests for Step 1.1 (slash queuing notification),
-//! Step 1.2 (streaming degradation error markers), and
-//! the max_message_size / session_key-empty acceptance criteria.
+//! Unit tests for slash queuing notification, streaming degradation
+//! error markers, and the max_message_size / session_key-empty
+//! acceptance criteria.
 
 use std::sync::Arc;
 
@@ -198,7 +198,7 @@ impl FailingPlugin {
 
 fn test_config() -> GatewayConfig {
     GatewayConfig {
-        name: "step1_3_test".into(),
+        name: "slash_degradation_test".into(),
         rate_limit_per_minute: 100,
         max_message_size: 1024,
         ..Default::default()

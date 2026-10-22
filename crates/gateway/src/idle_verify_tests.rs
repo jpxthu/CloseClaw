@@ -1,4 +1,4 @@
-//! Integration tests for idle→verify injection loop (Step 1.4).
+//! Integration tests for idle→verify injection loop.
 //!
 //! Covers the full chain: idle hook fires → verify injected → re-inject
 //! removes old → counter increments → limit exceeded → Blocked + notification.
