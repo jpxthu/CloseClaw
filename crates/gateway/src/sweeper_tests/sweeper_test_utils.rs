@@ -65,6 +65,22 @@ impl MemStorage {
         self.checkpoints.lock().unwrap().push(checkpoint);
     }
 
+    /// Add a root checkpoint (no parent, spawn depth 0) under `session_id`.
+    pub fn add_root(&self, session_id: &str) {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.parent_session_id = None;
+        cp.depth = 0;
+        self.add_checkpoint(cp);
+    }
+
+    /// Add a child checkpoint under `parent` at the given spawn `depth`.
+    pub fn add_child(&self, session_id: &str, parent: &str, depth: u32) {
+        let mut cp = SessionCheckpoint::new(session_id.to_owned());
+        cp.parent_session_id = Some(parent.to_owned());
+        cp.depth = depth;
+        self.add_checkpoint(cp);
+    }
+
     /// Get IDs of sessions deleted via `delete_checkpoint`.
     pub fn deleted_ids(&self) -> Vec<String> {
         self.deleted.lock().unwrap().clone()
