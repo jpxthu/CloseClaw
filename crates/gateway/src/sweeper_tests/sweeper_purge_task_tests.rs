@@ -72,25 +72,21 @@ async fn test_purge_session_a_does_not_affect_session_b() {
         vec!["session-a".to_owned()],
         "only expired session-a must be purged; actual purge calls: {purge_called:?}"
     );
+    let cleanup_calls = tm.called_session_ids();
     assert_eq!(
-        tm.called_session_ids(),
+        cleanup_calls,
         vec!["session-a".to_owned()],
-        "cleanup_all_finished must be invoked for session-a only; actual: {:?}",
-        tm.called_session_ids()
+        "cleanup_all_finished must be invoked for session-a only; actual calls: {cleanup_calls:?}"
     );
-    let b_checkpoint = storage
+    storage
         .load_checkpoint("session-b")
         .await
         .unwrap()
         .expect("session-b checkpoint must survive purging session-a");
-    assert_eq!(
-        b_checkpoint.session_id, "session-b",
-        "session-b persisted data must be unaffected by purging session-a"
-    );
+    let deleted = mem.deleted_ids();
     assert!(
-        !mem.deleted_ids().contains(&"session-b".into()),
-        "session-b must not be deleted; actual deletions: {:?}",
-        mem.deleted_ids()
+        deleted.is_empty(),
+        "purging session-a must not delete any session; actual deleted ids: {deleted:?}"
     );
 }
 

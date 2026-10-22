@@ -87,8 +87,9 @@ impl MemStorage {
     }
 
     /// Shared handle typed as the trait object the sweeper consumes —
-    /// single point for the `Arc<MemStorage>` → `Arc<dyn
-    /// PersistenceService>` upcast so test sites need no cast boilerplate.
+    /// single point for the `Arc<MemStorage>` →
+    /// `Arc<dyn PersistenceService>` upcast so test sites need no cast
+    /// boilerplate.
     pub fn storage_arc(self: &Arc<Self>) -> Arc<dyn PersistenceService> {
         Arc::clone(self) as Arc<dyn PersistenceService>
     }

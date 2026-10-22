@@ -443,7 +443,7 @@ async fn test_reverse_blocked_phase_no_injection() {
     assert_eq!(messages.len(), 1, "only goal when phase is Blocked");
 }
 
-// ── Jumping phase integration tests (Step 1.3) ───────────────────────
+// ── Jumping phase integration tests ──────────────────────────────────
 
 /// Full chain: Jumping session becomes idle → jump question message
 /// injected with role=workflow, content matches build_jump_message output.

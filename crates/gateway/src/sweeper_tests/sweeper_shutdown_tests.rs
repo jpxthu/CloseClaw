@@ -176,7 +176,7 @@ async fn test_shutdown_grace_period_expires_aborts() {
     let elapsed = start.elapsed();
     assert!(
         result.is_ok(),
-        "sweeper should exit after grace period abort, actual: {result:?}"
+        "sweeper should exit after grace period abort, elapsed: {elapsed:?}"
     );
     // Lower bound: the sweeper must actually wait out the entire
     // grace period before aborting (never vacuously early).

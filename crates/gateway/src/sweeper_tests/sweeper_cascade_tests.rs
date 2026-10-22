@@ -163,12 +163,6 @@ async fn test_cascade_kill_children_multi_branch_tree() {
     //    child_a  child_b
     //    /    \        \
     //  gc_a1  gc_a2    gc_b1
-    // Build a multi-branch tree:
-    //       root
-    //      /    \
-    //    child_a  child_b
-    //    /    \        \
-    //  gc_a1  gc_a2    gc_b1
     mem.add_root("root");
     mem.add_child("child_a", "root", 1);
     mem.add_child("child_b", "root", 1);
