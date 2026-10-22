@@ -297,7 +297,7 @@ fn test_mem_audit_logger_query_window_consistent_with_matches_ordering() {
         .map(|e| e.agent_id.as_str())
         .collect();
     from_matches.sort_unstable();
-    let mut queried_set: Vec<&str> = queried.iter().map(|e| e.agent_id.as_str()).collect();
+    let mut queried_set = agent_order(&queried);
     queried_set.sort_unstable();
     assert_eq!(
         queried_set, from_matches,
@@ -327,7 +327,7 @@ fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
 
     let snapshot = logger.entries();
     assert_eq!(snapshot.len(), 2, "快照必须包含全部已写入条目");
-    let agents: Vec<&str> = snapshot.iter().map(|e| e.agent_id.as_str()).collect();
+    let agents = agent_order(&snapshot);
     assert_eq!(agents, vec!["a1", "a2"], "快照按插入序包含全部条目");
 
     logger.log(&sample_audit_entry(
@@ -341,7 +341,7 @@ fn test_mem_audit_logger_entries_snapshot_isolated_from_later_writes() {
     mutable.clear();
     let fresh = logger.entries();
     assert_eq!(fresh.len(), 3, "修改快照 Vec 不得穿透到 logger 内部");
-    let fresh_agents: Vec<&str> = fresh.iter().map(|e| e.agent_id.as_str()).collect();
+    let fresh_agents = agent_order(&fresh);
     assert_eq!(fresh_agents, vec!["a1", "a2", "a3"]);
 }
 
