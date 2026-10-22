@@ -30,7 +30,7 @@ fn make_bg_notification(
         task_id: task_id.to_string(),
         command: "echo test".to_string(),
         state: closeclaw_common::TaskState::Completed { exit_code: 0 },
-        output_path: std::path::PathBuf::from("/tmp/output"),
+        output_path: crate::test_support::tmp_path("output"),
         priority,
         summary: format!("task {} done", task_id),
         suggestion: None,

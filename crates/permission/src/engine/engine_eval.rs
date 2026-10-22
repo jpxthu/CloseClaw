@@ -147,7 +147,7 @@ impl PermissionEngine {
     /// to read agent permission files from disk. This ensures deterministic
     /// behavior in test/snapshot evaluation paths (no /tmp file reads).
     pub fn new_with_default_data_root(rules: RuleSet) -> Self {
-        Self::new_inner(rules, PathBuf::from("/tmp/closeclaw_test"), false)
+        Self::new_inner(rules, std::env::temp_dir().join("closeclaw_test"), false)
     }
 
     /// Rebuild the lookup indices from a given ruleset (sync helper).

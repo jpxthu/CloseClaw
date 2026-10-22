@@ -487,7 +487,7 @@ fn test_init_health_checker_sets_health_checker() {
     let mut session = ConversationSession::new(
         "test-session".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     // Before init, health_checker() should return None.
@@ -627,7 +627,7 @@ fn test_init_health_checker_passes_hooks_to_factory() {
     let mut session = ConversationSession::new(
         "test-hooks-session".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     let hooks = vec![HookConfig {

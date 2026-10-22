@@ -611,14 +611,15 @@ mod tests {
     fn test_checkpoint_with_plan_state_builder() {
         use closeclaw_common::{PlanPhase, PlanState};
 
+        let plan_path = crate::test_support::tmp_path("plan.md");
         let plan = PlanState {
             phase: PlanPhase::Design,
-            plan_file_path: "/tmp/plan.md".into(),
+            plan_file_path: plan_path.to_string_lossy().into_owned(),
         };
         let cp = SessionCheckpoint::new("s-plan-builder".into()).with_plan_state(plan.clone());
         let ps = cp.plan_state.unwrap();
         assert_eq!(ps.phase, PlanPhase::Design);
-        assert_eq!(ps.plan_file_path, "/tmp/plan.md");
+        assert_eq!(ps.plan_file_path, plan_path.to_string_lossy().into_owned());
     }
 
     #[test]

@@ -844,12 +844,11 @@ mod tests {
     #[tokio::test]
     async fn test_conversation_session_plan_file_path_roundtrip() {
         use crate::llm_session::ConversationSession;
-        use std::path::PathBuf;
 
         let mut cs = ConversationSession::new(
             "s-roundtrip".into(),
             "test-model".into(),
-            PathBuf::from("/tmp"),
+            std::env::temp_dir(),
         );
 
         assert!(cs.plan_file_path().is_none());

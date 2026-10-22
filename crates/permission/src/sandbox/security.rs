@@ -110,7 +110,7 @@ mod tests {
         let policy = SecurityPolicy {
             seccomp: false,
             landlock: false,
-            allowed_fs_paths: vec![std::path::PathBuf::from("/tmp/custom")],
+            allowed_fs_paths: vec![std::env::temp_dir().join("custom")],
             blocked_syscalls: vec!["read".to_string(), "write".to_string()],
         };
         assert!(!policy.seccomp);

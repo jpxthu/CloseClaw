@@ -39,6 +39,9 @@ pub mod workflow_recovery;
 pub mod workspace;
 
 #[cfg(test)]
+pub(crate) mod test_support;
+
+#[cfg(test)]
 mod active_searcher_session_tests;
 #[cfg(test)]
 mod active_searcher_tests;

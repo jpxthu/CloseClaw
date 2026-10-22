@@ -3,10 +3,9 @@
 use super::{ConversationSession, SessionMessage};
 use crate::run_health::TranscriptOp;
 use closeclaw_common::ContentBlock;
-use std::path::PathBuf;
 
 fn make_session(id: &str) -> ConversationSession {
-    ConversationSession::new(id.into(), "test-model".into(), PathBuf::from("/tmp"))
+    ConversationSession::new(id.into(), "test-model".into(), std::env::temp_dir())
 }
 
 // ── snapshot_current_state ────────────────────────────────────────────────

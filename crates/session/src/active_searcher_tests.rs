@@ -3,7 +3,6 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
-    use std::path::PathBuf;
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -12,6 +11,7 @@ mod tests {
         SearcherInput, SessionMessageSnapshot,
     };
     use crate::active_searcher_session::SearcherSessionStatus;
+    use crate::test_support::tmp_path;
 
     // ── Helpers ──────────────────────────────────────────────────────
 
@@ -78,7 +78,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_spawn_when_db_path_set() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
         let ran = Arc::clone(&task_ran);
         let mut deps = noop_deps();
@@ -103,7 +103,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_user_message_after_current() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let session_id = "test-session-user";
         let agent_id = "test-agent-user";
 
@@ -155,7 +155,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_assistant_message_before_next() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let session_id = "test-session-assistant";
         let agent_id = "test-agent-assistant";
 
@@ -218,7 +218,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_graceful_degradation_on_agent_config_error() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
 
         let ran = Arc::clone(&task_ran);
@@ -254,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_search_returns_none_no_injection() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let injection_called: Arc<tokio::sync::Mutex<bool>> =
             Arc::new(tokio::sync::Mutex::new(false));
 
@@ -283,7 +283,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_event_ids_forwarded_to_injection() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let seen_ids: Arc<tokio::sync::Mutex<HashSet<i64>>> =
             Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
@@ -324,7 +324,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_context_messages_passed_through() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let seen_ctx: Arc<tokio::sync::Mutex<Vec<SessionMessageSnapshot>>> =
             Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
@@ -368,7 +368,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_injected_event_ids_passed_through() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let seen_ids: Arc<tokio::sync::Mutex<HashSet<i64>>> =
             Arc::new(tokio::sync::Mutex::new(HashSet::new()));
 
@@ -401,7 +401,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_timeout_triggers_abandonment() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let injection_called: Arc<tokio::sync::Mutex<bool>> =
             Arc::new(tokio::sync::Mutex::new(false));
 
@@ -491,7 +491,7 @@ mod tests {
     /// not write any injection.
     #[tokio::test]
     async fn test_begin_none_skips_run_and_injection() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let searcher_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
         let injection_called: Arc<tokio::sync::Mutex<bool>> =
             Arc::new(tokio::sync::Mutex::new(false));
@@ -537,7 +537,7 @@ mod tests {
     /// no observable side-effect).
     #[tokio::test]
     async fn test_end_unknown_id_is_safe_noop() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_called_with: Arc<tokio::sync::Mutex<Vec<String>>> =
             Arc::new(tokio::sync::Mutex::new(Vec::new()));
 
@@ -567,7 +567,7 @@ mod tests {
     /// be called with status "Injected".
     #[tokio::test]
     async fn test_inject_success_calls_end_injected() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 
@@ -594,7 +594,7 @@ mod tests {
     /// with status "NoResult".
     #[tokio::test]
     async fn test_no_result_calls_end_no_result() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 
@@ -619,7 +619,7 @@ mod tests {
     /// with status "Abandoned" (distinct from NoResult).
     #[tokio::test]
     async fn test_timeout_calls_end_abandoned() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 
@@ -653,7 +653,7 @@ mod tests {
     /// with status "Abandoned".
     #[tokio::test]
     async fn test_config_error_calls_end_abandoned() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 
@@ -680,7 +680,7 @@ mod tests {
     /// must be forwarded to `end_searcher_session`.
     #[tokio::test]
     async fn test_searcher_session_id_forwarded_to_end() {
-        let db = PathBuf::from("/tmp/test.db");
+        let db = tmp_path("test.db");
         let end_sid: Arc<tokio::sync::Mutex<Option<String>>> =
             Arc::new(tokio::sync::Mutex::new(None));
 

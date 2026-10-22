@@ -232,7 +232,6 @@ fn test_unified_queue_push_entry_preserves_order() {
 fn test_unified_queue_background_tool_notification_priority() {
     use closeclaw_common::CompletionNotification;
     use closeclaw_common::TaskState;
-    use std::path::PathBuf;
 
     let mut q = UnifiedMessageQueue::default();
 
@@ -243,7 +242,7 @@ fn test_unified_queue_background_tool_notification_priority() {
             task_id: "bg-1".into(),
             command: "ls".into(),
             state: TaskState::Completed { exit_code: 0 },
-            output_path: PathBuf::from("/tmp/out"),
+            output_path: crate::test_support::tmp_path("out"),
             priority: NotificationPriority::Later,
             summary: "done".into(),
             suggestion: None,

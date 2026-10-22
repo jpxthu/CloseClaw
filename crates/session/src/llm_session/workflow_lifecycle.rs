@@ -230,7 +230,6 @@ mod tests {
     use closeclaw_common::ContentBlock;
     use closeclaw_workflow::definition::{Step, Workflow};
     use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
-    use std::path::PathBuf;
 
     /// Decode the handler's serialized run state into the typed form.
     fn typed_run(session: &ConversationSession) -> WorkflowRun {
@@ -334,11 +333,8 @@ mod tests {
 
     #[test]
     fn test_ensure_workflow_handler_no_run() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // No workflow_run set.
         session.ensure_workflow_handler();
         assert!(session.workflow_handler().is_none());
@@ -392,11 +388,8 @@ mod tests {
 
     #[test]
     fn test_remove_verify_messages_preserves_goal_and_recovered() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
         session.push_message("user", vec![ContentBlock::Text("hello".to_string())]);
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
@@ -434,11 +427,8 @@ mod tests {
 
     #[test]
     fn test_remove_verify_messages_no_verify() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo thing");
         session.push_message("user", vec![ContentBlock::Text("hi".to_string())]);
 
@@ -449,11 +439,8 @@ mod tests {
 
     #[test]
     fn test_remove_verify_messages_only_removes_role_workflow() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Non-workflow message with same prefix text — should NOT be removed.
         session.push_message(
             "assistant",
@@ -470,11 +457,8 @@ mod tests {
 
     #[test]
     fn test_remove_verify_messages_empty_transcript() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.remove_workflow_verify_messages();
         assert!(session.messages.is_empty());
     }
@@ -483,11 +467,8 @@ mod tests {
 
     #[test]
     fn test_remove_jump_messages_removes_jump() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
         session.push_message("user", vec![ContentBlock::Text("hello".to_string())]);
         session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast\n  B: slow");
@@ -505,11 +486,8 @@ mod tests {
 
     #[test]
     fn test_remove_jump_messages_preserves_goal_and_verify() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.inject_workflow_message("[workflow goal] Step 0: Step 0\n\nDo first thing");
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
         session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast");
@@ -538,22 +516,16 @@ mod tests {
 
     #[test]
     fn test_remove_jump_messages_empty_transcript() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.remove_workflow_jump_messages();
         assert!(session.messages.is_empty());
     }
 
     #[test]
     fn test_remove_jump_messages_only_removes_role_workflow() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Non-workflow message with same prefix text — should NOT be removed.
         session.push_message(
             "assistant",

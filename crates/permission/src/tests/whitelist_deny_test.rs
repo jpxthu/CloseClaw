@@ -9,6 +9,7 @@ use crate::approval::WhitelistTarget;
 use crate::engine::engine_types::{
     Action, Caller, CommandArgs, Effect, PermissionRequestBody, Rule, RuleSet,
 };
+use crate::test_support::tmp_str;
 use crate::whitelist::{append_deny_rule, append_rule, append_whitelist_rule, build_deny_rule};
 
 // ── helpers ──────────────────────────────────────────────────────────────────
@@ -47,7 +48,7 @@ fn make_allow_rule(name: &str) -> Rule {
         effect: Effect::Allow,
         actions: vec![Action::File {
             operation: "read".into(),
-            paths: vec!["/tmp/data/**".into()],
+            paths: vec![tmp_str("data/**")],
         }],
         template: None,
         priority: 0,
@@ -149,7 +150,7 @@ fn test_build_deny_rule_name_preserved() {
     let caller = owner_caller("eda");
     let body = PermissionRequestBody::FileOp {
         agent: "eda".into(),
-        path: "/tmp/f.txt".into(),
+        path: tmp_str("f.txt"),
         op: "read".into(),
     };
     let rule = build_deny_rule(&caller, &body, "custom-name", WhitelistTarget::Auto).unwrap();

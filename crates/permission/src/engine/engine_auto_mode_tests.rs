@@ -9,6 +9,7 @@ use super::engine_types::{
     Caller, Effect, MessageDirection, PermissionRequest, PermissionRequestBody, PermissionResponse,
 };
 use crate::rules::RuleSetBuilder;
+use crate::test_support::tmp_str;
 use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
@@ -183,7 +184,7 @@ fn test_auto_high_risk_rm_rf_denied() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "a".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec!["-rf".to_string(), tmp_str("foo")],
         }),
         None,
     );
@@ -781,7 +782,7 @@ fn test_auto_callback_receives_correct_parameters() {
         PermissionRequest::Bare(PermissionRequestBody::CommandExec {
             agent: "test-agent".to_string(),
             cmd: "rm".to_string(),
-            args: vec!["-rf".to_string(), "/tmp/foo".to_string()],
+            args: vec!["-rf".to_string(), tmp_str("foo")],
         }),
         None,
     );

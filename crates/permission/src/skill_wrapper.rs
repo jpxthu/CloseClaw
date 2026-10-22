@@ -252,6 +252,7 @@ mod tests {
     use crate::approval_flow::HeartbeatApprovalMode;
     use crate::engine::engine_types::{Defaults, Effect, MatchType, Rule, RuleSet, Subject};
     use crate::mock_session_lookup::MockSessionLookup;
+    use crate::test_support::tmp_str;
 
     fn make_engine_with_rules(rules: Vec<Rule>) -> Arc<tokio::sync::RwLock<PermissionEngine>> {
         let ruleset = RuleSet {
@@ -332,16 +333,12 @@ mod tests {
 
     #[test]
     fn test_build_request_body_file_read() {
-        let body = build_request_body(
-            "file_read",
-            "/tmp/test.txt",
-            &serde_json::json!({}),
-            "agent-1",
-        );
+        let tmp_path = tmp_str("test.txt");
+        let body = build_request_body("file_read", &tmp_path, &serde_json::json!({}), "agent-1");
         match body {
             PermissionRequestBody::FileOp { agent, path, op } => {
                 assert_eq!(agent, "agent-1");
-                assert_eq!(path, "/tmp/test.txt");
+                assert_eq!(path, tmp_path);
                 assert_eq!(op, "read");
             }
             other => panic!("expected FileOp, got {:?}", other),
@@ -350,17 +347,18 @@ mod tests {
 
     #[test]
     fn test_build_request_body_command() {
+        let tmp_dir = std::env::temp_dir().to_string_lossy().into_owned();
         let body = build_request_body(
             "exec",
             "ls",
-            &serde_json::json!({"args": ["-la", "/tmp"]}),
+            &serde_json::json!({"args": ["-la", tmp_dir]}),
             "agent-1",
         );
         match body {
             PermissionRequestBody::CommandExec { agent, cmd, args } => {
                 assert_eq!(agent, "agent-1");
                 assert_eq!(cmd, "ls");
-                assert_eq!(args, vec!["-la".to_string(), "/tmp".to_string()]);
+                assert_eq!(args, vec!["-la".to_string(), tmp_dir]);
             }
             other => panic!("expected CommandExec, got {:?}", other),
         }
@@ -464,10 +462,11 @@ mod tests {
 
     #[test]
     fn test_build_denial_body_file_read() {
-        let body = build_denial_body("file_read", "/tmp/test.txt", "denied");
+        let tmp_path = tmp_str("test.txt");
+        let body = build_denial_body("file_read", &tmp_path, "denied");
         match body {
             PermissionRequestBody::FileOp { path, op, .. } => {
-                assert_eq!(path, "/tmp/test.txt");
+                assert_eq!(path, tmp_path);
                 assert_eq!(op, "read");
             }
             other => panic!("expected FileOp, got {:?}", other),
@@ -506,8 +505,9 @@ mod tests {
             "agent_id": "test-agent",
             "user_id": "user-1"
         });
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
-            .check_permission("file_read", "/tmp/test.txt", details)
+            .check_permission("file_read", &tmp_path, details)
             .await;
         match result {
             PermissionEvalResult::Allowed { .. } => {}
@@ -523,8 +523,9 @@ mod tests {
             "agent_id": "test-agent",
             "user_id": "user-1"
         });
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
-            .check_permission("file_read", "/tmp/test.txt", details)
+            .check_permission("file_read", &tmp_path, details)
             .await;
         match result {
             PermissionEvalResult::Denied { reason, risk_level } => {
@@ -540,8 +541,9 @@ mod tests {
         let engine = make_engine_with_rules(vec![]);
         let wrapper = SkillPermissionEngineWrapper::new(engine);
         let details = serde_json::json!({});
+        let tmp_path = tmp_str("test.txt");
         let result = wrapper
-            .check_permission("file_read", "/tmp/test.txt", details)
+            .check_permission("file_read", &tmp_path, details)
             .await;
         // Should not panic — agent_id defaults to "unknown"
         assert!(matches!(result, PermissionEvalResult::Denied { .. }));
@@ -558,9 +560,10 @@ mod tests {
             agent: "agent_1".to_string(),
             is_sub_agent: true,
         };
+        let tmp_path = tmp_str("test.txt");
         let result = rt.block_on(wrapper.submit_denial(
             "file_read",
-            "/tmp/test.txt",
+            &tmp_path,
             "denied",
             RiskLevel::Low,
             "session_1",
@@ -581,9 +584,10 @@ mod tests {
             agent: "agent_1".to_string(),
             is_sub_agent: false,
         };
+        let tmp_path = tmp_str("test.txt");
         let result = rt.block_on(wrapper.submit_denial(
             "file_read",
-            "/tmp/test.txt",
+            &tmp_path,
             "denied",
             RiskLevel::Low,
             "session_1",

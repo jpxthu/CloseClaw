@@ -327,7 +327,7 @@ async fn test_crash_recovery_full_lifecycle_tool_call() {
     let session = ConversationSession::new(
         "lifecycle_tool".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     // Register a tool call (simulates tool fork before crash)
@@ -371,7 +371,7 @@ async fn test_crash_recovery_full_lifecycle_child_session() {
     let session = ConversationSession::new(
         "lifecycle_child".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     // Register a child session (simulates spawn before crash)
@@ -415,7 +415,7 @@ async fn test_crash_recovery_then_deregister_cleans_session() {
     let session = ConversationSession::new(
         "lifecycle_clean".into(),
         "test-model".into(),
-        std::path::PathBuf::from("/tmp"),
+        std::env::temp_dir(),
     );
 
     // Register then collect (simulates crash recovery followed by

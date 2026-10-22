@@ -2,6 +2,7 @@ use tempfile::TempDir;
 
 use super::engine_test_utils::assert_keys_match_dimensions;
 use super::PermissionRequestBody;
+use crate::test_support::tmp_str;
 
 #[test]
 fn test_dimension_name_file_op_read() {
@@ -210,12 +211,12 @@ fn representative_bodies() -> Vec<PermissionRequestBody> {
     vec![
         exhaustive_body(PermissionRequestBody::FileOp {
             agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
+            path: tmp_str("f"),
             op: "read".to_string(),
         }),
         exhaustive_body(PermissionRequestBody::FileOp {
             agent: "a".to_string(),
-            path: "/tmp/f".to_string(),
+            path: tmp_str("f"),
             op: "write".to_string(),
         }),
         exhaustive_body(PermissionRequestBody::CommandExec {

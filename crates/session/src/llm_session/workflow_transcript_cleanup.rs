@@ -81,11 +81,8 @@ mod tests {
 
     #[test]
     fn test_remove_tool_exchange_removes_verify_tool_call_and_result() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Setup: goal → verify injected → assistant calls workflow_verify → tool_result.
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
         session.push_message(
@@ -129,11 +126,8 @@ mod tests {
 
     #[test]
     fn test_remove_tool_exchange_removes_jump_tool_call_and_result() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Setup: jump injected → assistant calls workflow_jump → tool_result.
         session.inject_workflow_message("Jump Step 0 (Step 0):\nQ1\n  A: fast");
         session.push_message(
@@ -170,18 +164,18 @@ mod tests {
 
     #[test]
     fn test_remove_tool_exchange_preserves_non_matching_tools() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Assistant calls a different tool — should not be touched.
         session.push_message(
             "assistant",
             vec![ContentBlock::ToolUse {
                 id: "call_read".to_string(),
                 name: "read_file".to_string(),
-                input: r#"{"path": "/tmp/foo"}"#.to_string(),
+                input: format!(
+                    r#"{{"path": "{}"}}"#,
+                    std::env::temp_dir().join("foo").display()
+                ),
             }],
         );
         session.push_message(
@@ -200,22 +194,16 @@ mod tests {
 
     #[test]
     fn test_remove_tool_exchange_empty_transcript() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.remove_workflow_tool_exchange(&["workflow_verify"]);
         assert!(session.messages.is_empty());
     }
 
     #[test]
     fn test_remove_tool_exchange_removes_empty_assistant_after_cleanup() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         // Assistant message with only a workflow_verify ToolUse — after removal
         // the message becomes empty and should be dropped.
         session.push_message(
@@ -243,11 +231,8 @@ mod tests {
 
     #[test]
     fn test_remove_tool_exchange_preserves_goal_in_transcript() {
-        let mut session = ConversationSession::new(
-            "sid".to_string(),
-            "model".to_string(),
-            std::path::PathBuf::from("/tmp"),
-        );
+        let mut session =
+            ConversationSession::new("sid".to_string(), "model".to_string(), std::env::temp_dir());
         session.inject_workflow_message("[workflow goal] Step 0: Do thing");
         session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
         session.push_message(

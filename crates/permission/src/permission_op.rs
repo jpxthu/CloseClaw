@@ -126,17 +126,19 @@ impl PermissionOperation {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_support::tmp_str;
 
     #[test]
     fn test_describe_add_file_whitelist() {
+        let path = tmp_str("data/**");
         let op = PermissionOperation::AddFileWhitelist {
             agent: "eda".into(),
             op: "read".into(),
-            paths: vec!["/tmp/data/**".into()],
+            paths: vec![path.clone()],
         };
         assert_eq!(
             op.describe(),
-            "whitelist file read for agent `eda`: /tmp/data/**"
+            format!("whitelist file read for agent `eda`: {path}")
         );
     }
 
