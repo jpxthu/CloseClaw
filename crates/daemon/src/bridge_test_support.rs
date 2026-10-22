@@ -92,6 +92,21 @@ pub(super) fn make_builtin_skill(
     })
 }
 
+/// Helper: build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
+pub(super) async fn make_builtin(
+    skills: Vec<(&str, bool, Vec<String>)>,
+) -> Arc<BuiltinSkillRegistry> {
+    Arc::new(
+        BuiltinSkillRegistry::from_skills(
+            skills
+                .into_iter()
+                .map(|(n, u, p)| make_builtin_skill(n, u, p))
+                .collect(),
+        )
+        .await,
+    )
+}
+
 /// Helper: create a `DiskSkillRegistry` with the given skills.
 pub(super) fn make_disk_registry(skills: Vec<DiskSkill>) -> DiskSkillRegistry {
     DiskSkillRegistry::new(skills)

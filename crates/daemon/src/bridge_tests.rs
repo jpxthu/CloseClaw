@@ -3,12 +3,15 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin_skill, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
+    make_builtin, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
 };
 use super::*;
 use closeclaw_common::AgentSkillsQuery;
 use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::SkillSource;
+use closeclaw_skills::BuiltinSkillRegistry;
+use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::ScanConfig;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -19,19 +22,6 @@ const ALPHA: &str = "alpha";
 // ------------------------------------------------------------------
 // Test helpers
 // ------------------------------------------------------------------
-
-/// Build a `BuiltinSkillRegistry` from `(name, user_invocable, paths)`.
-async fn make_builtin(skills: Vec<(&str, bool, Vec<String>)>) -> Arc<BuiltinSkillRegistry> {
-    Arc::new(
-        closeclaw_skills::BuiltinSkillRegistry::from_skills(
-            skills
-                .into_iter()
-                .map(|(n, u, p)| make_builtin_skill(n, u, p))
-                .collect(),
-        )
-        .await,
-    )
-}
 
 /// Mock `AgentSkillsQuery` that returns a fixed whitelist for each agent.
 struct MockAgentSkillsQuery {
@@ -103,7 +93,7 @@ fn test_builtin_filtered_via_agent_skills_query() {
 
         // Simulate agent_skills_query returning whitelist ["alpha", "gamma"]
         // by injecting the query into the disk registry.
-        let mut disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
+        let mut disk_reg = DiskSkillRegistry::new(vec![]);
         disk_reg.set_agent_skills_query(Arc::new(MockAgentSkillsQuery::new(HashMap::from([(
             "agent1".to_string(),
             vec!["alpha".to_string(), "gamma".to_string()],
@@ -292,16 +282,15 @@ fn test_wrapper_rescan_picks_up_new_disk_skill() {
         .unwrap();
 
         // Build disk registry with scan_config pointing at temp dir
-        let mut disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
-        disk_reg.set_scan_config(closeclaw_skills::ScanConfig {
+        let mut disk_reg = DiskSkillRegistry::new(vec![]);
+        disk_reg.set_scan_config(ScanConfig {
             global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         });
         disk_reg.rescan(); // initial scan
 
-        let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
-        let wrapper = SkillListingProviderWrapper::new(disk, builtin);
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
+        let wrapper = make_wrapper(disk_reg, builtin);
 
         // Listing should contain the existing skill
         let listing = wrapper.generate_listing(None, None);
@@ -332,7 +321,7 @@ fn test_wrapper_rescan_picks_up_new_disk_skill() {
 fn test_empty_registries() {
     run_with_runtime(|| {
         let disk = make_disk_registry(vec![]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
 
         let wrapper = make_wrapper(disk, builtin);
         assert!(wrapper.generate_listing(None, None).is_empty());
@@ -358,15 +347,15 @@ fn test_fingerprint_changes_after_rescan_picks_up_new_skill() {
         )
         .unwrap();
 
-        let mut disk_reg = closeclaw_skills::DiskSkillRegistry::new(vec![]);
-        disk_reg.set_scan_config(closeclaw_skills::ScanConfig {
+        let mut disk_reg = DiskSkillRegistry::new(vec![]);
+        disk_reg.set_scan_config(ScanConfig {
             global_dir: Some(temp.path().to_path_buf()),
             ..Default::default()
         });
         disk_reg.rescan();
 
         let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = SkillListingProviderWrapper::new(disk.clone(), builtin);
 
         let fp_before = wrapper.fingerprint();
@@ -405,7 +394,7 @@ fn test_fingerprint_stable_when_no_scan_config() {
             true,
             vec![],
         )]);
-        let builtin = Arc::new(closeclaw_skills::BuiltinSkillRegistry::new());
+        let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = make_wrapper(disk, builtin);
 
         // No scan_config set → fingerprint uses count fallback
