@@ -302,9 +302,8 @@ fn test_wrapper_rescan_picks_up_new_disk_skill() {
         });
         disk_reg.rescan(); // initial scan
 
-        let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let wrapper = SkillListingProviderWrapper::new(disk, builtin);
+        let wrapper = make_wrapper(disk_reg, builtin);
 
         // Listing should contain the existing skill
         let listing = wrapper.generate_listing(None, None);
