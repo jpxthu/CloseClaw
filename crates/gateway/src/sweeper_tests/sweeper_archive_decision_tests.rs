@@ -60,7 +60,7 @@ async fn test_any_single_active_dimension_skips_archive() {
     }
 
     // Each session has exactly one dimension true.
-    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(vec![
+    let dims = vec![
         (
             "dim-llm".into(),
             SessionActivityDimensions {
@@ -89,7 +89,8 @@ async fn test_any_single_active_dimension_skips_archive() {
                 ..Default::default()
             },
         ),
-    ])));
+    ];
+    let sweeper = sweeper.with_active_query(Arc::new(MockActiveQueryWithDimensions::new(dims)));
     sweeper.run_once().await.unwrap();
 
     let archive_called = mem.archive_called.lock().unwrap();

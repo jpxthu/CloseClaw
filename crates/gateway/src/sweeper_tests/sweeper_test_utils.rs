@@ -314,6 +314,12 @@ pub struct MockActiveQueryWithDimensions {
 }
 
 impl MockActiveQueryWithDimensions {
+    /// Create a mock from an explicit `(session_id, dimensions)` table.
+    ///
+    /// Sessions not listed in the table — including when the table is
+    /// empty (`new(vec![])`) — report the all-false
+    /// `SessionActivityDimensions::default()`, i.e. "no activity": an
+    /// empty table therefore behaves exactly like a none-mock.
     pub fn new(dimensions: Vec<(String, SessionActivityDimensions)>) -> Self {
         Self {
             dimensions: Mutex::new(dimensions),
