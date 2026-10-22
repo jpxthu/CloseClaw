@@ -8,46 +8,11 @@ use super::{test_approval_flow, test_runtime, test_session_lookup};
 use crate::engine::audit_log::FileAuditLogger;
 use crate::engine::engine_types::RuleSet;
 use crate::mock_session_lookup::MockSessionLookup;
-use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogger};
 use closeclaw_common::permission_types::RiskLevel;
+use closeclaw_common::test_helpers::MemAuditLogger;
 use std::sync::atomic::AtomicUsize;
-use std::sync::{Arc, Mutex};
-
-/// Thread-safe in-memory audit logger for tests.
-struct TestAuditLogger {
-    entries: Mutex<Vec<AuditLogEntry>>,
-}
-
-impl TestAuditLogger {
-    fn new() -> Self {
-        Self {
-            entries: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn entries(&self) -> Vec<AuditLogEntry> {
-        self.entries.lock().unwrap().clone()
-    }
-}
-
-impl AuditLogger for TestAuditLogger {
-    fn log(&self, entry: &AuditLogEntry) {
-        self.entries.lock().unwrap().push(entry.clone());
-    }
-
-    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
-        let mut matched: Vec<AuditLogEntry> = self
-            .entries
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|e| filter.matches(e))
-            .cloned()
-            .collect();
-        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        matched
-    }
-}
+use std::sync::Arc;
 
 fn flow_with_audit_logger(logger: Arc<dyn AuditLogger>) -> ApprovalFlow {
     ApprovalFlow::new(
@@ -79,7 +44,7 @@ fn test_request() -> PermissionRequestBody {
 
 #[tokio::test]
 async fn test_approval_flow_logs_approved_to_audit_log() {
-    let logger = Arc::new(TestAuditLogger::new());
+    let logger = Arc::new(MemAuditLogger::new());
     let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
     let caller = test_caller();
     let request = test_request();
@@ -102,7 +67,7 @@ async fn test_approval_flow_logs_approved_to_audit_log() {
 
 #[tokio::test]
 async fn test_approval_flow_logs_denied_to_audit_log() {
-    let logger = Arc::new(TestAuditLogger::new());
+    let logger = Arc::new(MemAuditLogger::new());
     let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
     let caller = test_caller();
     let request = test_request();
@@ -163,7 +128,7 @@ async fn test_file_audit_logger_integration() {
 
 #[tokio::test]
 async fn test_approved_audit_log_records_high_risk_level() {
-    let logger = Arc::new(TestAuditLogger::new());
+    let logger = Arc::new(MemAuditLogger::new());
     let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
     let caller = test_caller();
     let request = test_request();
@@ -182,7 +147,7 @@ async fn test_approved_audit_log_records_high_risk_level() {
 
 #[tokio::test]
 async fn test_denied_audit_log_records_high_risk_level() {
-    let logger = Arc::new(TestAuditLogger::new());
+    let logger = Arc::new(MemAuditLogger::new());
     let mut flow = flow_with_audit_logger(logger.clone() as Arc<dyn AuditLogger>);
     let caller = test_caller();
     let request = test_request();

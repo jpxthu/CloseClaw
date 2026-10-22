@@ -10,10 +10,11 @@ use crate::engine::engine_types::{
 };
 use crate::engine::rejection_log::{RejectionLog, RejectionLogger};
 use crate::rules::RuleSetBuilder;
-use closeclaw_common::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
+use closeclaw_common::audit_log::{AuditDisposition, AuditLogger};
 use closeclaw_common::permission_types::RiskLevel;
 use closeclaw_common::session_mode::SessionMode;
 use closeclaw_common::session_mode_query::SessionModeQuery;
+use closeclaw_common::test_helpers::MemAuditLogger;
 use std::sync::{Arc, Mutex};
 
 // ---------------------------------------------------------------------------
@@ -52,41 +53,6 @@ impl RejectionLogger for TestRejectionLogger {
     }
 }
 
-struct TestAuditLogger {
-    entries: Mutex<Vec<AuditLogEntry>>,
-}
-
-impl TestAuditLogger {
-    fn new() -> Self {
-        Self {
-            entries: Mutex::new(Vec::new()),
-        }
-    }
-
-    fn entries(&self) -> Vec<AuditLogEntry> {
-        self.entries.lock().unwrap().clone()
-    }
-}
-
-impl AuditLogger for TestAuditLogger {
-    fn log(&self, entry: &AuditLogEntry) {
-        self.entries.lock().unwrap().push(entry.clone());
-    }
-
-    fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
-        let mut matched: Vec<AuditLogEntry> = self
-            .entries
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|e| filter.matches(e))
-            .cloned()
-            .collect();
-        matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-        matched
-    }
-}
-
 /// Build a deny-all engine with both loggers injected.
 fn deny_all_engine_with_loggers(
     mode: Option<SessionMode>,
@@ -116,7 +82,7 @@ fn deny_all_engine_with_loggers(
 #[test]
 fn test_engine_logs_rejection_to_audit_log() {
     let rejection_logger = Arc::new(TestRejectionLogger::new());
-    let audit_logger = Arc::new(TestAuditLogger::new());
+    let audit_logger = Arc::new(MemAuditLogger::new());
     let engine = deny_all_engine_with_loggers(
         Some(SessionMode::Auto),
         rejection_logger.clone(),
@@ -167,7 +133,7 @@ fn test_engine_logs_rejection_to_audit_log() {
 #[test]
 fn test_engine_audit_log_auto_mode_only() {
     let rejection_logger = Arc::new(TestRejectionLogger::new());
-    let audit_logger = Arc::new(TestAuditLogger::new());
+    let audit_logger = Arc::new(MemAuditLogger::new());
 
     // --- Plan Mode: audit log should NOT be written ---
     let engine_plan = deny_all_engine_with_loggers(

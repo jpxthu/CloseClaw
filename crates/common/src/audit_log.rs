@@ -126,7 +126,7 @@ impl AuditLogFilter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
+    use crate::test_helpers::MemAuditLogger;
 
     fn make_entry(agent: &str, ts: &str, disp: AuditDisposition) -> AuditLogEntry {
         AuditLogEntry {
@@ -514,39 +514,6 @@ mod tests {
             !bad_until.matches(&garbage),
             "garbage timestamp must not match even when `until` itself is unparseable"
         );
-    }
-
-    /// In-memory [`AuditLogger`] used to exercise the trait contract
-    /// (record + query) through `Arc<dyn AuditLogger>`.
-    struct MemAuditLogger {
-        entries: Mutex<Vec<AuditLogEntry>>,
-    }
-
-    impl MemAuditLogger {
-        fn new() -> Self {
-            Self {
-                entries: Mutex::new(Vec::new()),
-            }
-        }
-    }
-
-    impl AuditLogger for MemAuditLogger {
-        fn log(&self, entry: &AuditLogEntry) {
-            self.entries.lock().unwrap().push(entry.clone());
-        }
-
-        fn query_entries(&self, filter: &AuditLogFilter) -> Vec<AuditLogEntry> {
-            let mut matched: Vec<AuditLogEntry> = self
-                .entries
-                .lock()
-                .unwrap()
-                .iter()
-                .filter(|e| filter.matches(e))
-                .cloned()
-                .collect();
-            matched.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-            matched
-        }
     }
 
     #[test]
