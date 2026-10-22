@@ -311,6 +311,28 @@ impl MockActiveQueryWithDimensions {
             dimensions: Mutex::new(dimensions),
         }
     }
+
+    /// Mock where each listed session ID reports all four activity
+    /// dimensions true (`any_active()` → archive skip); unlisted sessions
+    /// report the all-false default.
+    pub fn all_active(active_ids: Vec<String>) -> Self {
+        Self::new(
+            active_ids
+                .into_iter()
+                .map(|id| {
+                    (
+                        id,
+                        SessionActivityDimensions {
+                            llm_active: true,
+                            foreground_tool_active: true,
+                            background_tool_active: true,
+                            child_active: true,
+                        },
+                    )
+                })
+                .collect(),
+        )
+    }
 }
 
 #[async_trait]
