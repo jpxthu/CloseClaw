@@ -46,18 +46,24 @@ fn seed_run(cp: &mut SessionCheckpoint, run: WorkflowRun) {
     cp.workflow_run = Some(serde_json::to_value(run).unwrap());
 }
 
-/// Write `<dir>/workflows/<name>/SKILL.md` with a one-step definition.
-fn write_workflow_definition(dir: &std::path::Path, name: &str) {
-    let wf_dir = dir.join("workflows").join(name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+/// Path of the shared one-step workflow SKILL.md fixture under `tests/fixtures/workflow/`.
+fn one_step_skill_fixture_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
         .join("tests")
         .join("fixtures")
         .join("workflow")
-        .join("one_step_skill_md.md");
-    let content = std::fs::read_to_string(fixture).unwrap();
+        .join("one_step_skill_md.md")
+}
+
+/// Write `<dir>/workflows/<name>/SKILL.md` with a one-step definition.
+fn write_workflow_definition(dir: &std::path::Path, name: &str) {
+    let wf_dir = dir.join("workflows").join(name);
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    let fixture = one_step_skill_fixture_path();
+    let content = std::fs::read_to_string(&fixture)
+        .unwrap_or_else(|e| panic!("failed to read workflow fixture {}: {e}", fixture.display()));
     std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
 }
 

@@ -208,18 +208,24 @@ fn make_workflow_run(phase: Phase) -> WorkflowRun {
     }
 }
 
-/// Write `<dir>/workflows/Test WF/SKILL.md` with a one-step definition.
-fn write_workflow_definition(dir: &std::path::Path) {
-    let wf_dir = dir.join("workflows").join("Test WF");
-    std::fs::create_dir_all(&wf_dir).unwrap();
-    let fixture = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+/// Path of the shared one-step workflow SKILL.md fixture under `tests/fixtures/workflow/`.
+fn one_step_skill_fixture_path() -> std::path::PathBuf {
+    std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
         .join("tests")
         .join("fixtures")
         .join("workflow")
-        .join("one_step_skill_md.md");
-    let content = std::fs::read_to_string(fixture).unwrap();
+        .join("one_step_skill_md.md")
+}
+
+/// Write `<dir>/workflows/Test WF/SKILL.md` with a one-step definition.
+fn write_workflow_definition(dir: &std::path::Path) {
+    let wf_dir = dir.join("workflows").join("Test WF");
+    std::fs::create_dir_all(&wf_dir).unwrap();
+    let fixture = one_step_skill_fixture_path();
+    let content = std::fs::read_to_string(&fixture)
+        .unwrap_or_else(|e| panic!("failed to read workflow fixture {}: {e}", fixture.display()));
     std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
 }
 
