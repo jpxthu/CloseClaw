@@ -29,7 +29,6 @@ use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::llm_session::{AnnounceEvent, ChatSession};
 use serial_test::serial;
 use std::collections::HashSet;
-
 use std::sync::Arc;
 use tempfile::TempDir;
 // ── 1. test_push_and_drain_announce ─────────────────────────────────────────
