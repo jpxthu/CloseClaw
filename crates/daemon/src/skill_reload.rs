@@ -242,10 +242,11 @@ mod tests {
     /// build_scan_config: single extra_dir is preserved.
     #[test]
     fn test_build_scan_config_single_extra_dir() {
-        let extra = vec![PathBuf::from("/tmp/skills")];
+        let dir = std::env::temp_dir().join("skills");
+        let extra = vec![dir.clone()];
         let scan_config = build_scan_config(None, None, None, extra.clone());
         assert_eq!(scan_config.extra_dirs.len(), 1);
-        assert_eq!(scan_config.extra_dirs[0], PathBuf::from("/tmp/skills"));
+        assert_eq!(scan_config.extra_dirs[0], dir);
     }
 
     /// build_scan_config: extra_dirs coexist with other dirs.
