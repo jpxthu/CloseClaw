@@ -10,9 +10,11 @@
   类型 / trait 名按 UpperCamelCase 命名规范以大写字母开头，小写标识符段
   （模块名、crate 名等）不构成条目；同名去重。
 - 代码侧：common crate 的 pub struct / enum / trait 与 pub type 别名——沿
-  lib.rs pub mod 树取公共可达模块内的定义；测试相关模块（`#[cfg(test)]` 声明、
-  `mod tests`、inline `mod tests {}`）内的项经公共可达性判定自然排除；机械包装
-  别名（`Shared…` = `Arc<…>` 形式）、函数、常量、模块、再导出声明不参与比对。
+  lib.rs pub mod 树取公共可达模块内的定义；测试相关模块内的项不参与比对
+  （`#[cfg(test)]` 声明、`mod tests`、inline `mod tests {}` 经公共可达性判定
+  自然排除；`test_helpers` 模块及其子模块为公共可达的常规模块，按模块名豁免）；
+  机械包装别名（`Shared…` = `Arc<…>` 形式）、函数、常量、模块、再导出声明
+  不参与比对。
 - 双向比对：清单缺名（common 有 pub 项而清单无条目）∪ 清单多名（清单有条目
   而 common 无 pub 项）= 偏差集合。
 """
@@ -109,6 +111,11 @@ def _is_shared_wrapper(name: str, stmt_text: str) -> bool:
     return bool(rhs) and bool(_SHARED_ALIAS_RE.match(rhs.group(1).strip()))
 
 
+def _is_test_module(node: second_export.ModNode) -> bool:
+    """测试相关模块判定：`test_helpers` 模块及其子模块（按模块路径判）。"""
+    return "test_helpers" in node.module_path
+
+
 def _collect_node_names(node: second_export.ModNode, names: set[str]) -> None:
     """单个公共可达 mod 节点 → pub 类型 / trait 名（type 语句 + 定义声明）。"""
     for item in node.items:
@@ -132,7 +139,7 @@ def collect_pub_items(crate_root: Path) -> set[str]:
         raise CommonAdmissionError(f"{crate_root}: 未找到 lib 入口（src/lib.rs）")
     names: set[str] = set()
     for node in nodes:
-        if node.reachable:
+        if node.reachable and not _is_test_module(node):
             _collect_node_names(node, names)
     return names
 

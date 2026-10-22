@@ -156,6 +156,53 @@ class CollectPubItemsTest(unittest.TestCase):
         })
         self.assertEqual(common_admission.collect_pub_items(crate), {"In"})
 
+    def test_test_helpers_mod_excluded(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": "pub mod a;\npub mod test_helpers;\n",
+            "src/a.rs": "pub struct S;\n",
+            "src/test_helpers.rs": "pub struct TestOnly;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), {"S"})
+
+    def test_test_helpers_inline_mod_excluded(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": (
+                "pub mod test_helpers { pub struct TestOnly; }\npub mod a;\n"
+            ),
+            "src/a.rs": "pub struct S;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), {"S"})
+
+    def test_test_helpers_child_mod_excluded(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": "pub mod test_helpers;\n",
+            "src/test_helpers.rs": "pub mod inner;\n",
+            "src/test_helpers/inner.rs": "pub struct Deep;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), set())
+
+    def test_test_helpers_prefix_mod_not_exempted(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": "pub mod test_helpers_ext;\n",
+            "src/test_helpers_ext.rs": "pub struct NotTest;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), {"NotTest"})
+
+    def test_test_helpers_exempt_alongside_cfg_test_and_tests_mods(self) -> None:
+        crate = _make_crate(self, {
+            "src/lib.rs": (
+                "pub mod a;\n"
+                "pub mod test_helpers;\n"
+                "#[cfg(test)]\npub mod a_tests;\n"
+                '#[path = "t.rs"]\nmod tests;\n'
+            ),
+            "src/a.rs": "pub struct S;\n",
+            "src/test_helpers.rs": "pub struct TestOnly;\n",
+            "src/a_tests.rs": "pub struct CfgTestOnly;\n",
+            "src/t.rs": "pub struct TestsOnly;\n",
+        })
+        self.assertEqual(common_admission.collect_pub_items(crate), {"S"})
+
     def test_private_mod_items_excluded(self) -> None:
         crate = _make_crate(self, {
             "src/lib.rs": "mod hidden { pub struct Hidden; }\npub mod open;\n",
