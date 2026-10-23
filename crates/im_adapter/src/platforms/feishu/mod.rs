@@ -31,7 +31,6 @@ mod events_tests;
 mod feishu_adapter_tests;
 #[cfg(test)]
 mod feishu_tests;
-mod identity;
 #[cfg(test)]
 mod identity_isolation_tests;
 #[cfg(test)]
