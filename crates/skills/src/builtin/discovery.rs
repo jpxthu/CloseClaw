@@ -28,7 +28,6 @@ impl SkillDiscoverySkill {
     /// Construct the skill with a custom clawhub CLI command
     /// (test-only injection point; production uses [`Self::new`]).
     #[cfg(test)]
-    #[allow(dead_code)] // used from Step 1.2 mock-injection tests onward
     pub(crate) fn with_cli_command(cli_command: impl Into<String>) -> Self {
         Self {
             cli_command: cli_command.into(),
