@@ -4,7 +4,10 @@
 //! creates and actually spawns a mock clawhub script must be marked
 //! `#[serial_test::serial]` (ETXTBSY root cause); mock scripts must live
 //! in a `tempfile::TempDir`.
-use super::discovery_test_helpers::{create_mock_clawhub, MOCK_LIST_OUTPUT, MOCK_SEARCH_OUTPUT};
+use super::discovery_test_helpers::{
+    create_failing_mock_clawhub, create_mock_clawhub, MOCK_FAILURE_MESSAGE, MOCK_LIST_OUTPUT,
+    MOCK_SEARCH_OUTPUT,
+};
 use crate::builtin::SkillDiscoverySkill;
 use crate::registry::{Skill, SkillError};
 use serial_test::serial;
@@ -126,6 +129,25 @@ async fn test_execute_list_returns_structured_result() {
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["action"], "list");
     assert_eq!(v["installed"], MOCK_LIST_OUTPUT);
+}
+
+#[serial]
+#[tokio::test]
+async fn test_execute_find_propagates_clawhub_failure() {
+    let tmp = TempDir::new().unwrap();
+    let mock = create_failing_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
+    let err = skill
+        .execute(Some(serde_json::json!({
+            "action": "find",
+            "query": "alpha"
+        })))
+        .await
+        .unwrap_err();
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("clawhub failure should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(msg.contains(MOCK_FAILURE_MESSAGE));
 }
 
 #[tokio::test]

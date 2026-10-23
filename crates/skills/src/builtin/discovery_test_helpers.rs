@@ -73,7 +73,6 @@ esac
 /// Create a mock clawhub script under `tmp` that always fails: emits
 /// [`MOCK_FAILURE_MESSAGE`] to stderr and exits 1. Returns the script path
 /// (pass to `SkillDiscoverySkill::with_cli_command`).
-#[allow(dead_code)] // used from Step 1.3 error-path tests onward
 pub(super) fn create_failing_mock_clawhub(tmp: &TempDir) -> String {
     let script_path = tmp.path().join("failing_mock_clawhub.sh");
     let content = format!("#!/bin/bash\necho '{MOCK_FAILURE_MESSAGE}' >&2\nexit 1\n");
