@@ -12,7 +12,11 @@ impl Daemon {
     /// Initialize the terminal (CLI) IM plugin and register with Gateway.
     pub(crate) async fn init_terminal_plugin(gateway: &Arc<closeclaw_gateway::Gateway>) {
         use closeclaw_cli::terminal::TerminalPlugin;
-        let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+        // Placeholder agent id: this registration is shadowed by the
+        // daemon-side RpcTerminalPlugin (chat_rpc.rs), so its parse_inbound
+        // is unreachable in daemon production and the placeholder never
+        // flows into message routing.
+        let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new("daemon"));
         gateway.register_plugin(plugin).await;
         info!("Terminal plugin registered");
     }

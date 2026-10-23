@@ -128,7 +128,7 @@ pub(crate) async fn build_gateway(
     let slash_router = build_slash_router(sm_query);
     gateway.set_slash_dispatcher(slash_router).await;
 
-    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new());
+    let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new(agent_id));
     gateway.register_plugin(plugin).await;
 
     Ok((gateway, output_rx))
@@ -184,7 +184,7 @@ pub async fn run_chat(
          Type 'quit' or 'exit' to stop.\n"
     );
 
-    match repl_loop(&gateway, &mut output_rx).await {
+    match repl_loop(&gateway, &mut output_rx, agent_id).await {
         ExitReason::Quit => Ok(()),
         ExitReason::Error(e) => Err(e),
     }
@@ -232,8 +232,9 @@ async fn route_message(
 async fn repl_loop(
     gateway: &Arc<Gateway>,
     output_rx: &mut tokio::sync::mpsc::Receiver<(String, Vec<closeclaw_common::ContentBlock>)>,
+    agent_id: &str,
 ) -> ExitReason {
-    let adapter = TerminalAdapter::new();
+    let adapter = TerminalAdapter::new(agent_id);
 
     loop {
         print!("> ");

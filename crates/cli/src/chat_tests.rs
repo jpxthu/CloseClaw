@@ -297,7 +297,7 @@ fn test_chat_module_uses_gateway_not_rpc() {
 #[test]
 fn test_empty_content_filtered() {
     use crate::terminal::TerminalAdapter;
-    let adapter = TerminalAdapter::new();
+    let adapter = TerminalAdapter::new("test-agent");
     // Empty string should return None
     assert!(adapter.make_message("".to_string()).content.is_empty());
 }
@@ -306,7 +306,7 @@ fn test_empty_content_filtered() {
 #[test]
 fn test_whitespace_only_content_filtered() {
     use crate::terminal::TerminalAdapter;
-    let adapter = TerminalAdapter::new();
+    let adapter = TerminalAdapter::new("test-agent");
     let msg = adapter.make_message("   \n  \t  ".to_string());
     assert!(msg.content.trim().is_empty());
 }
