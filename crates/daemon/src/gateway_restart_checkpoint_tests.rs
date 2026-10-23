@@ -4,10 +4,11 @@
 //! `CheckpointManager` from `SessionManager` into the new Gateway,
 //! so outbound checkpoint persistence survives a restart.
 
-use std::sync::Arc;
-
+use closeclaw_common::ReasoningLevel;
+use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
 use closeclaw_session::checkpoint_manager::CheckpointManager;
-use closeclaw_session::persistence::{PersistenceError, PersistenceService};
+use closeclaw_session::persistence::{PersistenceError, PersistenceService, SessionCheckpoint};
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // Mock persistence
@@ -18,16 +19,13 @@ struct NoopPersist;
 
 #[async_trait::async_trait]
 impl PersistenceService for NoopPersist {
-    async fn save_checkpoint(
-        &self,
-        _: &closeclaw_session::persistence::SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(&self, _: &SessionCheckpoint) -> Result<(), PersistenceError> {
         Ok(())
     }
     async fn load_checkpoint(
         &self,
         _: &str,
-    ) -> Result<Option<closeclaw_session::persistence::SessionCheckpoint>, PersistenceError> {
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         Ok(None)
     }
     async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
@@ -44,7 +42,7 @@ impl PersistenceService for NoopPersist {
 /// Mock persistence that tracks save_checkpoint calls.
 #[derive(Default)]
 struct MockPersist {
-    saves: std::sync::Mutex<Vec<closeclaw_session::persistence::SessionCheckpoint>>,
+    saves: std::sync::Mutex<Vec<SessionCheckpoint>>,
 }
 
 impl MockPersist {
@@ -55,17 +53,14 @@ impl MockPersist {
 
 #[async_trait::async_trait]
 impl PersistenceService for MockPersist {
-    async fn save_checkpoint(
-        &self,
-        cp: &closeclaw_session::persistence::SessionCheckpoint,
-    ) -> Result<(), PersistenceError> {
+    async fn save_checkpoint(&self, cp: &SessionCheckpoint) -> Result<(), PersistenceError> {
         self.saves.lock().unwrap().push(cp.clone());
         Ok(())
     }
     async fn load_checkpoint(
         &self,
         _: &str,
-    ) -> Result<Option<closeclaw_session::persistence::SessionCheckpoint>, PersistenceError> {
+    ) -> Result<Option<SessionCheckpoint>, PersistenceError> {
         Ok(self.saves.lock().unwrap().last().cloned())
     }
     async fn delete_checkpoint(&self, _: &str) -> Result<(), PersistenceError> {
@@ -84,12 +79,12 @@ impl PersistenceService for MockPersist {
 // ---------------------------------------------------------------------------
 
 /// Shared setup: a `SessionManager` built from the given config.
-fn new_sm(config: &closeclaw_gateway::GatewayConfig) -> Arc<closeclaw_gateway::SessionManager> {
-    Arc::new(closeclaw_gateway::SessionManager::new(
+fn new_sm(config: &GatewayConfig) -> Arc<SessionManager> {
+    Arc::new(SessionManager::new(
         config,
         None,
         None,
-        closeclaw_common::ReasoningLevel::default(),
+        ReasoningLevel::default(),
     ))
 }
 
@@ -97,7 +92,7 @@ fn new_sm(config: &closeclaw_gateway::GatewayConfig) -> Arc<closeclaw_gateway::S
 /// the accessor and can be injected into a new Gateway.
 #[tokio::test]
 async fn test_checkpoint_manager_accessible_from_session_manager() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     let persist: Arc<dyn PersistenceService> = Arc::new(NoopPersist);
     let cm = Arc::new(CheckpointManager::new(persist));
@@ -111,7 +106,7 @@ async fn test_checkpoint_manager_accessible_from_session_manager() {
     );
 
     // Inject into a new Gateway — simulates build_new_gateway.
-    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let new_gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     new_gw.set_checkpoint_manager(injected_cm.unwrap());
     // The setter succeeded: the Gateway now has the checkpoint_manager.
     assert!(
@@ -126,7 +121,7 @@ async fn test_checkpoint_manager_accessible_from_session_manager() {
 /// None and build_new_gateway skips injection (defensive branch).
 #[tokio::test]
 async fn test_build_new_gateway_no_checkpoint_manager_does_not_panic() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     // Do NOT set checkpoint_manager — it defaults to None.
 
@@ -135,7 +130,7 @@ async fn test_build_new_gateway_no_checkpoint_manager_does_not_panic() {
     assert!(cm_result.is_none(), "no checkpoint_manager should be None");
 
     // Build Gateway without checkpoint_manager — no panic.
-    let _gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let _gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     // Not injecting is explicit: the Gateway must have no checkpoint_manager.
     assert!(
         !_gw.has_checkpoint_manager(),
@@ -147,18 +142,18 @@ async fn test_build_new_gateway_no_checkpoint_manager_does_not_panic() {
 /// the new Gateway also has the same checkpoint_manager.
 #[tokio::test]
 async fn test_checkpoint_manager_survives_gateway_restart() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     let persist: Arc<dyn PersistenceService> = Arc::new(NoopPersist);
     let cm = Arc::new(CheckpointManager::new(persist));
     sm.set_checkpoint_manager(cm.clone()).await;
 
     // Old gateway
-    let old_gw = closeclaw_gateway::Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
+    let old_gw = Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
     old_gw.set_checkpoint_manager(cm.clone());
 
     // Simulate restart: build new gateway from same SessionManager
-    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let new_gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(injected) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(injected);
     }
@@ -175,14 +170,14 @@ async fn test_checkpoint_manager_survives_gateway_restart() {
 /// from SessionManager, inject into new Gateway.
 #[tokio::test]
 async fn test_build_new_gateway_injects_checkpoint_manager_from_sm() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     let persist: Arc<dyn PersistenceService> = Arc::new(NoopPersist);
     let cm = Arc::new(CheckpointManager::new(persist));
     sm.set_checkpoint_manager(cm).await;
 
     // Exact code path from gateway_restart.rs build_new_gateway:
-    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let new_gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
         // Injection succeeded.
@@ -198,11 +193,11 @@ async fn test_build_new_gateway_injects_checkpoint_manager_from_sm() {
 /// Verifies the defensive branch does not panic.
 #[tokio::test]
 async fn test_build_new_gateway_skips_injection_when_no_checkpoint_manager() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     // No checkpoint_manager set — build_new_gateway defensive branch.
 
-    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let new_gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
     } else {
@@ -219,7 +214,7 @@ async fn test_build_new_gateway_skips_injection_when_no_checkpoint_manager() {
 /// verify new Gateway has checkpoint_manager → persist triggers mock.
 #[tokio::test]
 async fn test_restart_injects_cm_and_new_gw_has_it() {
-    let config = closeclaw_gateway::GatewayConfig::default();
+    let config = GatewayConfig::default();
     let sm = new_sm(&config);
     let mock_persist = Arc::new(MockPersist::default());
     let mock_for_cm: Arc<dyn PersistenceService> = mock_persist.clone();
@@ -227,12 +222,12 @@ async fn test_restart_injects_cm_and_new_gw_has_it() {
     sm.set_checkpoint_manager(cm).await;
 
     // Old gateway with cm
-    let old_gw = closeclaw_gateway::Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
+    let old_gw = Gateway::new_for_tests(config.clone(), Arc::clone(&sm));
     old_gw.set_checkpoint_manager(sm.checkpoint_manager().await.unwrap());
     assert!(old_gw.has_checkpoint_manager());
 
     // Simulate restart: build new gateway, inject cm from sm
-    let new_gw = closeclaw_gateway::Gateway::new_for_tests(config, Arc::clone(&sm));
+    let new_gw = Gateway::new_for_tests(config, Arc::clone(&sm));
     if let Some(cm) = sm.checkpoint_manager().await {
         new_gw.set_checkpoint_manager(cm);
     }
@@ -246,7 +241,7 @@ async fn test_restart_injects_cm_and_new_gw_has_it() {
     // the shared cm, the mock records the call — proving the injected
     // cm is the same instance that the old gateway used.
     assert_eq!(mock_persist.save_count(), 0, "no saves yet");
-    let cp = closeclaw_session::persistence::SessionCheckpoint::new("test-session".to_string());
+    let cp = SessionCheckpoint::new("test-session".to_string());
     let injected_cm = sm.checkpoint_manager().await.unwrap();
     injected_cm.save_now(cp).await.unwrap();
     assert_eq!(

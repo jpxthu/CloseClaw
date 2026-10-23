@@ -4,12 +4,17 @@
 //! Duplicated from root crate's `bridge.rs` because the daemon crate
 //! cannot depend on the root crate (circular dependency).
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use async_trait::async_trait;
 
 use crate::shutdown::ShutdownHandle as DaemonShutdownHandle;
-use closeclaw_skills::BuiltinSkillRegistry;
+use closeclaw_cli::admin::DaemonRunner;
+use closeclaw_common::{ConditionalSkillMatch, SkillListingProvider, SkillRegistryQuery};
+use closeclaw_gateway::ShutdownHandle;
+use closeclaw_skills::{
+    disk::scan_all_skills, BuiltinSkillRegistry, DiskSkillRegistry, SkillSource,
+};
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ShutdownHandle conversion
@@ -17,12 +22,8 @@ use closeclaw_skills::BuiltinSkillRegistry;
 
 /// Create a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
 /// `ShutdownHandle`.
-pub fn common_shutdown_handle(
-    daemon_handle: &DaemonShutdownHandle,
-) -> Arc<closeclaw_gateway::shutdown_handle::ShutdownHandle> {
-    Arc::new(closeclaw_gateway::shutdown_handle::ShutdownHandle::new(
-        Arc::new(daemon_handle.clone()),
-    ))
+pub fn common_shutdown_handle(daemon_handle: &DaemonShutdownHandle) -> Arc<ShutdownHandle> {
+    Arc::new(ShutdownHandle::new(Arc::new(daemon_handle.clone())))
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -31,12 +32,10 @@ pub fn common_shutdown_handle(
 
 /// Newtype wrapper around `Arc<RwLock<Option<DiskSkillRegistry>>>` to
 /// satisfy the orphan rule when implementing `SkillRegistryQuery`.
-pub struct SkillRegistryWrapper(
-    pub Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
-);
+pub struct SkillRegistryWrapper(pub Arc<RwLock<Option<DiskSkillRegistry>>>);
 
 #[async_trait]
-impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapper {
+impl SkillRegistryQuery for SkillRegistryWrapper {
     async fn has_skill(&self, name: &str) -> bool {
         self.0
             .read()
@@ -106,7 +105,7 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
         };
 
         // Step 2: Perform the expensive disk scan outside any lock.
-        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+        let new_skills = scan_all_skills(&config);
 
         // Step 3: Briefly acquire write lock to replace the skills list.
         if let Ok(mut guard) = self.0.write() {
@@ -127,7 +126,7 @@ impl closeclaw_common::skill_registry::SkillRegistryQuery for SkillRegistryWrapp
 /// Merges listings from both registries with priority-based deduplication:
 /// disk skills override builtin skills when names collide.
 pub struct SkillListingProviderWrapper {
-    pub disk: Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+    pub disk: Arc<RwLock<Option<DiskSkillRegistry>>>,
     pub builtin: Arc<BuiltinSkillRegistry>,
 }
 
@@ -156,7 +155,7 @@ where
 
 impl SkillListingProviderWrapper {
     pub fn new(
-        disk: Arc<std::sync::RwLock<Option<closeclaw_skills::DiskSkillRegistry>>>,
+        disk: Arc<RwLock<Option<DiskSkillRegistry>>>,
         builtin: Arc<BuiltinSkillRegistry>,
     ) -> Self {
         Self { disk, builtin }
@@ -202,7 +201,7 @@ impl SkillListingProviderWrapper {
         &self,
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
-    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
+    ) -> Vec<(String, SkillSource, String)> {
         let guard = self.disk.read().ok();
         let Some(guard) = guard else {
             return Vec::new();
@@ -220,7 +219,7 @@ impl SkillListingProviderWrapper {
         &self,
         resolved_whitelist: Option<&[String]>,
         exclude_conditional: bool,
-    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
+    ) -> Vec<(String, SkillSource, String)> {
         block_on_join_thread(
             tokio::runtime::Handle::current(),
             self.builtin
@@ -237,7 +236,7 @@ impl SkillListingProviderWrapper {
         &self,
         resolved_whitelist: Option<&[String]>,
         activated: &[String],
-    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
+    ) -> Vec<(String, SkillSource, String)> {
         let guard = self.disk.read().ok();
         let Some(guard) = guard else {
             return Vec::new();
@@ -253,7 +252,7 @@ impl SkillListingProviderWrapper {
     fn collect_builtin_activated_entries(
         &self,
         activated: &[String],
-    ) -> Vec<(String, closeclaw_skills::SkillSource, String)> {
+    ) -> Vec<(String, SkillSource, String)> {
         block_on_join_thread(
             tokio::runtime::Handle::current(),
             self.builtin
@@ -268,18 +267,16 @@ impl SkillListingProviderWrapper {
     /// by `(source, name)` — source priority descending (lower index =
     /// higher priority).
     fn merge_and_sort_listings(
-        disk: Vec<(String, closeclaw_skills::SkillSource, String)>,
-        builtin: Vec<(String, closeclaw_skills::SkillSource, String)>,
+        disk: Vec<(String, SkillSource, String)>,
+        builtin: Vec<(String, SkillSource, String)>,
     ) -> String {
-        let mut builtin_by_name: std::collections::HashMap<
-            String,
-            (String, closeclaw_skills::SkillSource, String),
-        > = builtin
-            .into_iter()
-            .map(|(name, source, line)| (name.clone(), (name, source, line)))
-            .collect();
+        let mut builtin_by_name: std::collections::HashMap<String, (String, SkillSource, String)> =
+            builtin
+                .into_iter()
+                .map(|(name, source, line)| (name.clone(), (name, source, line)))
+                .collect();
         let mut seen = std::collections::HashSet::new();
-        let mut merged: Vec<(String, closeclaw_skills::SkillSource, String)> = Vec::new();
+        let mut merged: Vec<(String, SkillSource, String)> = Vec::new();
 
         for (name, source, line) in disk {
             seen.insert(name.clone());
@@ -303,8 +300,8 @@ impl SkillListingProviderWrapper {
     fn merged_conditional_matches(
         &self,
         paths: &[std::path::PathBuf],
-    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
-        let mut disk_matches: Vec<closeclaw_common::ConditionalSkillMatch> = self
+    ) -> Vec<ConditionalSkillMatch> {
+        let mut disk_matches: Vec<ConditionalSkillMatch> = self
             .disk
             .read()
             .ok()
@@ -355,7 +352,7 @@ impl SkillListingProviderWrapper {
     }
 }
 
-impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
+impl SkillListingProvider for SkillListingProviderWrapper {
     fn fingerprint(&self) -> String {
         self.combined_fingerprint()
     }
@@ -373,7 +370,7 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
         };
 
         // Step 2: Perform the expensive disk scan outside any lock.
-        let new_skills = closeclaw_skills::disk::scan_all_skills(&config);
+        let new_skills = scan_all_skills(&config);
 
         // Step 3: Briefly acquire write lock to replace the skills list.
         if let Ok(mut guard) = self.disk.write() {
@@ -395,10 +392,7 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
         self.merged_listing(agent_id, agent_skills, true)
     }
 
-    fn find_conditional_matches(
-        &self,
-        paths: &[std::path::PathBuf],
-    ) -> Vec<closeclaw_common::ConditionalSkillMatch> {
+    fn find_conditional_matches(&self, paths: &[std::path::PathBuf]) -> Vec<ConditionalSkillMatch> {
         self.merged_conditional_matches(paths)
     }
 
@@ -437,7 +431,7 @@ impl closeclaw_common::SkillListingProvider for SkillListingProviderWrapper {
 pub struct DaemonRunnerImpl;
 
 #[async_trait]
-impl closeclaw_cli::admin::DaemonRunner for DaemonRunnerImpl {
+impl DaemonRunner for DaemonRunnerImpl {
     async fn start_and_run(&self, config_dir: &str) -> anyhow::Result<()> {
         use crate::Daemon;
         let mut daemon = Daemon::start(config_dir).await?;

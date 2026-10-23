@@ -5,8 +5,15 @@
 
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::{Daemon, Phase5Deps};
-use closeclaw_common::AuditLogger;
+use closeclaw_common::shutdown::ShutdownMode;
+use closeclaw_common::{AuditLogger, CompactConfig, LlmCaller, SessionLookup};
+use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
+use closeclaw_gateway::session_manager::stop::{StopProgress, StopResult};
+use closeclaw_gateway::{Gateway, SessionMessageHandler};
+use closeclaw_llm::ProviderModelKnowledge;
 use closeclaw_platform::process;
+use closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
+use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -128,9 +135,9 @@ impl Daemon {
 
         // Create PlanExecConfirmFlow for independent plan-execution confirmation.
         let confirm_flow = {
-            let sm_lookup: Arc<dyn closeclaw_common::SessionLookup> =
-                Arc::clone(&session_manager) as Arc<dyn closeclaw_common::SessionLookup>;
-            let mut cf = closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
+            let sm_lookup: Arc<dyn SessionLookup> =
+                Arc::clone(&session_manager) as Arc<dyn SessionLookup>;
+            let mut cf = PlanExecConfirmFlow::new_without_notify(
                 sm_lookup,
                 tokio::runtime::Handle::current(),
             );
@@ -182,30 +189,28 @@ impl Daemon {
         // LLM caller injection: layer 2's init_llm_registry returns the
         // registry + UnifiedFallbackClient in one step; layer 4 wires it
         // into SessionManager (design doc § layer 4).
-        let fallback_llm_caller = Arc::new(closeclaw_gateway::llm_caller_impl::FallbackLlmCaller(
-            Arc::clone(&fallback_client),
-        ));
+        let fallback_llm_caller = Arc::new(FallbackLlmCaller(Arc::clone(&fallback_client)));
         // Create SessionMessageHandler for busy/pending state machine.
         let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
         let searcher_runner = crate::searcher_runner::build_searcher_runner(
-            fallback_llm_caller.clone() as Arc<dyn closeclaw_common::LlmCaller>,
+            fallback_llm_caller.clone() as Arc<dyn LlmCaller>,
         );
         session_manager
-            .set_llm_caller(fallback_llm_caller as Arc<dyn closeclaw_common::LlmCaller>)
+            .set_llm_caller(fallback_llm_caller as Arc<dyn LlmCaller>)
             .await;
         info!(
             chain_len = fallback_client.chain().len(),
             "LLM call chain injected into SessionManager (layer 4)"
         );
         let session_handler = Arc::new(
-            closeclaw_gateway::SessionMessageHandler::new(
+            SessionMessageHandler::new(
                 Arc::clone(&session_manager),
                 Arc::clone(&fallback_client),
                 output_tx,
                 Some(searcher_runner),
-                closeclaw_common::CompactConfig::default(),
+                CompactConfig::default(),
             )
-            .with_model_knowledge(closeclaw_llm::ProviderModelKnowledge::new()),
+            .with_model_knowledge(ProviderModelKnowledge::new()),
         );
         gateway.set_session_handler(session_handler);
 
@@ -288,7 +293,7 @@ impl Daemon {
         // signal triggers graceful shutdown, subsequent calls to
         // next_signal() still receive repeated signals during Phase 1
         // drain for escalation.
-        let mut shutdown_sub = closeclaw_platform::process::subscribe_shutdown_signals().await?;
+        let mut shutdown_sub = process::subscribe_shutdown_signals().await?;
 
         // Process restart signals until shutdown is initiated.
         // The restart_rx receives change summaries from DaemonReloadCallback
@@ -393,7 +398,7 @@ impl Daemon {
     }
 
     /// Shutdown inbound for all registered IM plugins.
-    async fn shutdown_inbound_plugins(gateway: &Arc<closeclaw_gateway::Gateway>) {
+    async fn shutdown_inbound_plugins(gateway: &Arc<Gateway>) {
         let plugins = gateway.get_all_plugins().await;
         for plugin in &plugins {
             if let Err(e) = plugin.shutdown_inbound().await {
@@ -430,10 +435,7 @@ impl Daemon {
     /// - Calls `shutdown()` on all registered IM plugins
     /// - Initiates graceful drain (waits for in-flight operations)
     /// - Monitors for escalation signals (repeated SIGTERM/SIGINT)
-    async fn phase_1_inbound_drain(
-        &self,
-        shutdown_sub: &mut closeclaw_platform::process::ShutdownSignalSubscription,
-    ) {
+    async fn phase_1_inbound_drain(&self, shutdown_sub: &mut process::ShutdownSignalSubscription) {
         Self::shutdown_inbound_plugins(&self.gateway().await).await;
 
         let shutdown_handle = self.shutdown.clone();
@@ -483,17 +485,12 @@ impl Daemon {
     /// Sends a progress notification card at the start, monitors for
     /// graceful → forceful escalation to update the card, and sends a
     /// final card when all sessions have stopped.
-    async fn phase_2_session_stop(
-        &self,
-        mode: crate::shutdown::ShutdownMode,
-    ) -> closeclaw_gateway::session_manager::stop::StopResult {
+    async fn phase_2_session_stop(&self, mode: ShutdownMode) -> StopResult {
         // Send initial progress card (no-op if no active sessions)
         self.gateway().await.send_shutdown_progress_card(mode).await;
 
         // Create progress channel for real-time session stop updates
-        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<
-            closeclaw_gateway::session_manager::stop::StopProgress,
-        >(64);
+        let (progress_tx, mut progress_rx) = tokio::sync::mpsc::channel::<StopProgress>(64);
 
         // Spawn session stop as a background task
         let sm = self.gateway().await.session_manager().clone();
@@ -505,9 +502,7 @@ impl Daemon {
                 .section(ConfigSection::System)
                 .and_then(|v| serde_json::from_value::<SystemConfigData>(v).ok())
                 .map(|sys| Duration::from_secs(sys.effective_shutdown().graceful_timeout_secs))
-                .unwrap_or(
-                    closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT,
-                )
+                .unwrap_or(DEFAULT_GRACEFUL_TIMEOUT)
         };
         let mut stop_handle = tokio::spawn(async move {
             sm.stop_all_sessions(mode, timeout, Some(&progress_tx))
@@ -517,7 +512,7 @@ impl Daemon {
         // Spawn a fresh signal subscription for escalation monitoring
         // during Phase 2. Phase 1's subscription is consumed by its
         // tokio::select! loop.
-        let mut escalation_sub = closeclaw_platform::process::subscribe_shutdown_signals()
+        let mut escalation_sub = process::subscribe_shutdown_signals()
             .await
             .inspect_err(|e| warn!(error = %e, "failed to subscribe for escalation signals"))
             .ok();
@@ -544,9 +539,7 @@ impl Daemon {
                         }
                         Err(e) => {
                             error!(error = %e, "session stop task panicked");
-                            stop_result = Some(
-                                closeclaw_gateway::session_manager::stop::StopResult::default()
-                            );
+                            stop_result = Some(StopResult::default());
                         }
                     }
                     stop_completed = true;
@@ -559,8 +552,7 @@ impl Daemon {
                     if progress.remaining == 0
                         || now.duration_since(last_card_update) >= throttle_interval
                     {
-                        let current_mode: closeclaw_common::shutdown::ShutdownMode =
-                            self.shutdown.mode();
+                        let current_mode: ShutdownMode = self.shutdown.mode();
                         self.gateway()
                             .await
                             .send_shutdown_progress_card(current_mode)
@@ -592,7 +584,7 @@ impl Daemon {
             }
 
             // Check if mode changed and update card
-            let current_mode: closeclaw_common::shutdown::ShutdownMode = self.shutdown.mode();
+            let current_mode: ShutdownMode = self.shutdown.mode();
             if current_mode != last_mode {
                 info!(
                     ?last_mode,
@@ -663,7 +655,7 @@ impl Daemon {
     ///
     /// These two steps together correspond to the design doc's
     /// "全局 fsync 同步" (global fsync synchronization) for Phase 4.
-    async fn phase_4_final_persist(&self, mode: crate::shutdown::ShutdownMode) {
+    async fn phase_4_final_persist(&self, mode: ShutdownMode) {
         match self.gateway().await.flush_all_sessions(mode).await {
             Ok(n) => info!(count = n, mode = ?mode, "flushed session checkpoints"),
             Err(e) => warn!(error = %e, "failed to flush sessions"),

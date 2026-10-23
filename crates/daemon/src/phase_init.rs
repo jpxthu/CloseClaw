@@ -6,16 +6,24 @@
 use super::Daemon;
 use crate::metrics::NoopMetricsEmitter;
 use crate::{llm_init, registries, shutdown, skill_reload, skills_helper};
+use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::{AuditLogger, MediaStoreAccess};
 use closeclaw_config::providers::SystemConfigData;
-use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use closeclaw_config::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
+use closeclaw_im_adapter::{media_store::MediaStore, platforms::register_platform_plugins};
+use closeclaw_llm::{unified_fallback::UnifiedFallbackClient, LLMRegistry};
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::{
     checkpoint_manager::CheckpointManager, persistence::PersistenceService, storage::SqliteStorage,
 };
 use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_system_prompt::sections::SectionCache;
+use closeclaw_tasks::media_cleanup::{
+    start_media_cleanup, CleanupFn, MediaCleanupHandle, RetentionProvider,
+};
 use closeclaw_tools::ToolRegistry;
 use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
@@ -50,21 +58,21 @@ impl Daemon {
     pub(crate) async fn init_phase_2_registries(
         config_dir: &str,
         config_manager: &ConfigManager,
-        audit_logger: &Option<Arc<dyn closeclaw_common::AuditLogger>>,
+        audit_logger: &Option<Arc<dyn AuditLogger>>,
     ) -> anyhow::Result<(
-        Arc<closeclaw_agent::registry::AgentRegistry>,
+        Arc<AgentRegistry>,
         Arc<RwLock<Option<DiskSkillRegistry>>>,
         Arc<ToolRegistry>,
         Arc<RwLock<SectionCache>>,
         Arc<dyn SessionConfigProvider>,
-        Arc<closeclaw_llm::LLMRegistry>,
-        Arc<closeclaw_llm::unified_fallback::UnifiedFallbackClient>,
+        Arc<LLMRegistry>,
+        Arc<UnifiedFallbackClient>,
         Arc<tokio::sync::RwLock<PermissionEngine>>,
         tokio::sync::watch::Sender<()>,
         tokio::task::JoinHandle<()>,
     )> {
         // Synchronous components: no async work, create directly.
-        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
+        let agent_registry = Arc::new(AgentRegistry::new());
         info!("Agent registry initialized");
         let permission_engine =
             Self::build_permission_engine(config_dir, audit_logger.as_ref().cloned());
@@ -73,9 +81,7 @@ impl Daemon {
         let session_config_provider =
             config_manager.session_config_provider().unwrap_or_else(|| {
                 warn!("session config provider not available after load, using defaults");
-                Arc::new(
-                    closeclaw_config::session::JsonSessionConfigProvider::new("/dev/null").unwrap(),
-                )
+                Arc::new(JsonSessionConfigProvider::new("/dev/null").unwrap())
             });
         let data_dir = std::path::PathBuf::from(config_dir);
         let (plan_archive_shutdown_tx, plan_archive_sweeper_handle) =
@@ -111,8 +117,8 @@ impl Daemon {
         Arc<SessionManager>,
         shutdown::ShutdownHandle,
         Vec<String>,
-        Arc<closeclaw_slash::registry::HandlerRegistry>,
-        Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle>,
+        Arc<HandlerRegistry>,
+        Option<MediaCleanupHandle>,
     )> {
         let gateway_config = GatewayConfig {
             name: "closeclaw".to_string(),
@@ -236,25 +242,22 @@ impl Daemon {
         // resolver, feishu profile, media config (issue #3347).
         let injection = crate::platform_injection::PlatformInjection::load(config_dir);
         let media_config = injection.media_config.clone();
-        let shared_media_store =
-            match closeclaw_im_adapter::media_store::MediaStore::new(&media_config.storage_dir) {
-                Ok(store) => {
-                    let store = Arc::new(store);
-                    gateway.set_media_store(
-                        store.clone() as Arc<dyn closeclaw_common::MediaStoreAccess>
-                    );
-                    gateway.set_media_config(media_config.clone());
-                    Some(store)
-                }
-                Err(e) => {
-                    warn!(error = %e, storage_dir = %media_config.storage_dir,
+        let shared_media_store = match MediaStore::new(&media_config.storage_dir) {
+            Ok(store) => {
+                let store = Arc::new(store);
+                gateway.set_media_store(store.clone() as Arc<dyn MediaStoreAccess>);
+                gateway.set_media_config(media_config.clone());
+                Some(store)
+            }
+            Err(e) => {
+                warn!(error = %e, storage_dir = %media_config.storage_dir,
                         "failed to create MediaStore — media features disabled");
-                    None
-                }
-            };
+                None
+            }
+        };
         let media_config_snapshot = injection.media_config_snapshot();
         let host = crate::gateway_host_adapter::gateway_host(&gateway);
-        closeclaw_im_adapter::platforms::register_platform_plugins(
+        register_platform_plugins(
             &host,
             config_dir,
             shared_media_store.clone(),
@@ -267,18 +270,13 @@ impl Daemon {
         let media_cleanup_handle = if let Some(ref store) = shared_media_store {
             let retention_days = media_config.retention_days;
             let store_for_cleanup = Arc::new(store.as_ref().clone());
-            let cleanup_fn: closeclaw_tasks::media_cleanup::CleanupFn = Arc::new(move |d| {
+            let cleanup_fn: CleanupFn = Arc::new(move |d| {
                 store_for_cleanup
                     .cleanup_expired(d)
                     .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
             });
-            let rp: closeclaw_tasks::media_cleanup::RetentionProvider =
-                Arc::new(move || retention_days);
-            let handle = closeclaw_tasks::media_cleanup::start_media_cleanup(
-                Duration::from_secs(3600),
-                rp,
-                cleanup_fn,
-            );
+            let rp: RetentionProvider = Arc::new(move || retention_days);
+            let handle = start_media_cleanup(Duration::from_secs(3600), rp, cleanup_fn);
             tracing::info!(retention_days, "media cleanup task started");
             Some(handle)
         } else {
