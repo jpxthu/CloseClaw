@@ -99,6 +99,64 @@ mod tests {
         assert!(result.is_err(), "unknown subcommand should fail parsing");
     }
 
+    // ── issue #3945 — chat --agent-id 非空校验 ─────────────────────────────
+
+    /// Wrapper to test `ChatArgs` parsing in isolation.
+    #[derive(Parser)]
+    struct ChatArgsTestCli {
+        #[command(flatten)]
+        args: ChatArgs,
+    }
+
+    /// Error path: `chat -a ""` (empty short value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_empty_short_value_rejected() {
+        let Err(err) = ChatArgsTestCli::try_parse_from(["test", "-a", ""]) else {
+            panic!("empty --agent-id should fail parsing");
+        };
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("--agent-id"),
+            "error should mention --agent-id: {}",
+            err_msg
+        );
+    }
+
+    /// Error path: `chat --agent-id ""` (empty long value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_empty_long_value_rejected() {
+        let Err(err) = ChatArgsTestCli::try_parse_from(["test", "--agent-id", ""]) else {
+            panic!("empty --agent-id should fail parsing");
+        };
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("--agent-id"),
+            "error should mention --agent-id: {}",
+            err_msg
+        );
+    }
+
+    /// Error path: `chat -a "   "` (whitespace-only value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_whitespace_only_value_rejected() {
+        let result = ChatArgsTestCli::try_parse_from(["test", "-a", "   "]);
+        assert!(
+            result.is_err(),
+            "whitespace-only --agent-id should fail parsing"
+        );
+    }
+
+    /// Normal path: a valid agent id parses and is preserved verbatim, including
+    /// leading/trailing whitespace (no trimming; only empty/whitespace-only is rejected).
+    #[test]
+    fn test_chat_agent_id_valid_value_preserved_as_is() {
+        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", "agent-1"]).unwrap();
+        assert_eq!(cli.args.agent_id, "agent-1");
+
+        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", " agent-1 "]).unwrap();
+        assert_eq!(cli.args.agent_id, " agent-1 ");
+    }
+
     // ── Step 1.3 — skill rescan removal ──────────────────────────────────
 
     /// skill rescan command must not exist: clap rejects the "rescan" variant
