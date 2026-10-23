@@ -16,13 +16,12 @@ use closeclaw_common::im_plugin::{AdapterError, IMPlugin};
 use closeclaw_common::processor::{DslParseResult, ProcessError, ProcessedMessage, ProcessorChain};
 use closeclaw_llm::types::ContentBlock;
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_test_support::log_capture::capture_logs_async;
 use serde_json::json;
 use serial_test::serial;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use std::sync::{Arc, Mutex};
-use tracing::Level;
-use tracing_subscriber::layer::SubscriberExt;
+use std::sync::Arc;
 
 // ── Mock plugin ─────────────────────────────────────────────────────────────
 
@@ -484,61 +483,6 @@ async fn test_session_key_empty_fallback_no_outbound_chain() {
 // 6. Step 1.3 — Routing field fallback tests
 // ═════════════════════════════════════════════════════════════════════════════
 
-// ═════════════════════════════════════════════════════════════════════════════
-// Warn-level collector for testing warn! macros
-// ═════════════════════════════════════════════════════════════════════════════
-
-#[derive(Clone)]
-struct WarnCollector {
-    messages: Arc<Mutex<Vec<String>>>,
-}
-
-impl WarnCollector {
-    fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
-        let messages = Arc::new(Mutex::new(Vec::new()));
-        (
-            Self {
-                messages: messages.clone(),
-            },
-            messages,
-        )
-    }
-}
-
-impl<S> tracing_subscriber::Layer<S> for WarnCollector
-where
-    S: tracing::Subscriber,
-{
-    fn on_event(
-        &self,
-        event: &tracing::Event<'_>,
-        _ctx: tracing_subscriber::layer::Context<'_, S>,
-    ) {
-        if *event.metadata().level() == Level::WARN {
-            let mut visitor = WarnVisitor(String::new());
-            event.record(&mut visitor);
-            self.messages.lock().unwrap().push(visitor.0);
-        }
-    }
-}
-
-struct WarnVisitor(String);
-
-impl tracing::field::Visit for WarnVisitor {
-    fn record_debug(&mut self, field: &tracing::field::Field, value: &dyn std::fmt::Debug) {
-        if field.name() == "message" {
-            self.0 = format!("{:?}", value);
-        }
-    }
-}
-
-fn install_warn_collector(collector: &WarnCollector) {
-    let layer = collector.clone();
-    let subscriber = tracing_subscriber::Registry::default().with(layer);
-    let dispatch = tracing::Dispatch::new(subscriber);
-    let _ = tracing::dispatcher::set_global_default(dispatch);
-}
-
 // ── 6a. Normal path: empty session_key, complete routing fields ───────────
 
 /// session_key is empty but peer_id and sender_id are present and valid.
@@ -577,29 +521,32 @@ async fn test_empty_session_key_routing_fields_complete_returns_handle() {
 ///
 /// NOTE: Step 1.4 reverted log level from info back to warn, per Design Doc
 /// which explicitly requires "Gateway 记录 warning 日志".
-#[tokio::test]
+///
+/// `#[serial]` + explicit current-thread flavor per the `capture_logs_async`
+/// threading contract (issue #3102 callsite race).
 #[serial]
+#[tokio::test(flavor = "current_thread")]
 async fn test_empty_session_key_emits_warn_log() {
-    let (collector, messages) = WarnCollector::new();
-    install_warn_collector(&collector);
+    let (_result, logs) = capture_logs_async(
+        || async {
+            let (gw, _plugin) = make_gw("mock").await;
+            let msg = make_message("agent-1", "test");
+            let processed = make_processed_no_session_key(&msg, "mock");
 
-    let (gw, _plugin) = make_gw("mock").await;
-    let msg = make_message("agent-1", "test");
-    let processed = make_processed_no_session_key(&msg, "mock");
-
-    let _result: Option<HandleResult> = gw
-        .handle_inbound_message(processed, Some("ou_sender"), "mock")
-        .await;
-
-    let captured = messages.lock().unwrap();
+            let _result: Option<HandleResult> = gw
+                .handle_inbound_message(processed, Some("ou_sender"), "mock")
+                .await;
+        },
+        tracing::Level::WARN,
+    )
+    .await;
     assert!(
-        !captured.is_empty(),
+        !logs.is_empty(),
         "expected a warn log when session_key is empty"
     );
     assert!(
-        captured.iter().any(|w| w.contains("session_key is empty")),
-        "warn log should mention session_key is empty, got: {:?}",
-        *captured
+        logs.contains("session_key is empty"),
+        "warn log should mention session_key is empty, got: {logs}"
     );
 }
 
