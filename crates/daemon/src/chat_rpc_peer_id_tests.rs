@@ -20,8 +20,6 @@ use super::*;
 use crate::test_helpers::effective_test_config;
 use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::SessionManager;
-use std::collections::HashMap;
-use std::path::Path;
 
 /// Non-constant target agent values (unrelated to the historical
 /// hardcode "cli"): a constant-value regression (any hardcode) fails on
