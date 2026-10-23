@@ -3,8 +3,8 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin, make_builtin_blocking, make_disk_registry, make_disk_skill, make_wrapper,
-    run_with_runtime,
+    make_builtin, make_builtin_blocking, make_disk_registry, make_disk_skill,
+    make_scan_dir_registry, make_wrapper, run_with_runtime, write_skill_dir,
 };
 use super::*;
 use closeclaw_common::AgentSkillsQuery;
@@ -13,7 +13,6 @@ use closeclaw_common::SkillRegistryQuery;
 use closeclaw_skills::disk::types::SkillSource;
 use closeclaw_skills::BuiltinSkillRegistry;
 use closeclaw_skills::DiskSkillRegistry;
-use closeclaw_skills::ScanConfig;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -259,31 +258,17 @@ fn test_find_conditional_matches_merged() {
 }
 
 // ------------------------------------------------------------------
-// Test 9: SkillRegistryWrapper::rescan() integration
+// Dimension: SkillRegistryWrapper::rescan() picks up new disk skills
 // ------------------------------------------------------------------
 
 #[test]
 fn test_registry_wrapper_rescan_picks_up_new_disk_skill() {
     run_with_runtime(|| {
-        // Create a temp directory with an initial skill
         let temp = tempfile::tempdir().unwrap();
-        let skill_dir = temp.path().join("existing-skill");
-        std::fs::create_dir(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\ndescription: existing\nuser-invocable: true\n---\n# Existing\n",
-        )
-        .unwrap();
-
-        // Build disk registry with scan_config pointing at temp dir
-        let mut disk_reg = DiskSkillRegistry::new(vec![]);
-        disk_reg.set_scan_config(ScanConfig {
-            global_dir: Some(temp.path().to_path_buf()),
-            ..Default::default()
-        });
-        disk_reg.rescan(); // initial scan
-
-        let wrapper = SkillRegistryWrapper(Arc::new(std::sync::RwLock::new(Some(disk_reg))));
+        write_skill_dir(temp.path(), "existing-skill");
+        let wrapper = SkillRegistryWrapper(Arc::new(std::sync::RwLock::new(Some(
+            make_scan_dir_registry(temp.path()),
+        ))));
         let handle = tokio::runtime::Handle::current();
 
         // Registry should contain the existing skill
@@ -291,13 +276,7 @@ fn test_registry_wrapper_rescan_picks_up_new_disk_skill() {
         assert!(skills.contains(&"existing-skill".to_string()));
 
         // Add a new skill to disk
-        let new_skill_dir = temp.path().join("new-skill");
-        std::fs::create_dir(&new_skill_dir).unwrap();
-        std::fs::write(
-            new_skill_dir.join("SKILL.md"),
-            "---\ndescription: new skill\nuser-invocable: true\n---\n# New\n",
-        )
-        .unwrap();
+        write_skill_dir(temp.path(), "new-skill");
 
         // After rescan, the registry should pick up the new skill
         handle.block_on(wrapper.rescan());
@@ -308,7 +287,7 @@ fn test_registry_wrapper_rescan_picks_up_new_disk_skill() {
 }
 
 // ------------------------------------------------------------------
-// Test 9b: SkillRegistryWrapper::rescan() with no disk registry
+// Dimension: SkillRegistryWrapper::rescan() with no disk registry
 // ------------------------------------------------------------------
 
 #[test]
@@ -326,45 +305,63 @@ fn test_registry_wrapper_rescan_without_registry_does_not_panic() {
 }
 
 // ------------------------------------------------------------------
+// Dimension: SkillRegistryWrapper::rescan() with a poisoned read lock
+// ------------------------------------------------------------------
+
+#[test]
+fn test_registry_wrapper_rescan_with_poisoned_lock_does_not_panic() {
+    run_with_runtime(|| {
+        let temp = tempfile::tempdir().unwrap();
+        write_skill_dir(temp.path(), "existing-skill");
+        let slot = Arc::new(std::sync::RwLock::new(Some(make_scan_dir_registry(
+            temp.path(),
+        ))));
+        let wrapper = SkillRegistryWrapper(slot.clone());
+        let handle = tokio::runtime::Handle::current();
+
+        // Registry should contain the existing skill
+        let skills = handle.block_on(wrapper.list_skills());
+        assert!(skills.contains(&"existing-skill".to_string()));
+
+        // Poison the RwLock: a child thread panics while holding a write
+        // guard (a read-guard panic does not poison on current toolchains)
+        let poisoner = slot.clone();
+        std::thread::spawn(move || {
+            let _guard = poisoner.write().unwrap();
+            panic!("poison the lock while holding it");
+        })
+        .join()
+        .unwrap_err();
+        assert!(slot.is_poisoned(), "lock should be poisoned after panic");
+
+        // Add a new skill, then rescan: the poisoned read lock makes the
+        // rescan a silent no-op — no panic, and the new skill is not picked up
+        write_skill_dir(temp.path(), "new-skill");
+        handle.block_on(wrapper.rescan());
+        let skills = handle.block_on(wrapper.list_skills());
+        assert!(!skills.contains(&"new-skill".to_string()));
+        assert!(skills.contains(&"existing-skill".to_string()));
+    });
+}
+
+// ------------------------------------------------------------------
 // Test 10: SkillListingProviderWrapper::rescan() integration
 // ------------------------------------------------------------------
 
 #[test]
 fn test_wrapper_rescan_picks_up_new_disk_skill() {
     run_with_runtime(|| {
-        // Create a temp directory with an initial skill
         let temp = tempfile::tempdir().unwrap();
-        let skill_dir = temp.path().join("existing-skill");
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\ndescription: existing\nuser-invocable: true\n---\n# Existing\n",
-        )
-        .unwrap();
-
-        // Build disk registry with scan_config pointing at temp dir
-        let mut disk_reg = DiskSkillRegistry::new(vec![]);
-        disk_reg.set_scan_config(ScanConfig {
-            global_dir: Some(temp.path().to_path_buf()),
-            ..Default::default()
-        });
-        disk_reg.rescan(); // initial scan
-
+        write_skill_dir(temp.path(), "existing-skill");
         let builtin = Arc::new(BuiltinSkillRegistry::new());
-        let wrapper = make_wrapper(disk_reg, builtin);
+        let wrapper = make_wrapper(make_scan_dir_registry(temp.path()), builtin);
 
         // Listing should contain the existing skill
         let listing = wrapper.generate_listing(None, None);
         assert!(listing.contains("existing-skill"));
 
         // Add a new skill to disk
-        let new_skill_dir = temp.path().join("new-skill");
-        std::fs::create_dir_all(&new_skill_dir).unwrap();
-        std::fs::write(
-            new_skill_dir.join("SKILL.md"),
-            "---\ndescription: new skill\nuser-invocable: true\n---\n# New\n",
-        )
-        .unwrap();
+        write_skill_dir(temp.path(), "new-skill");
 
         // After rescan, listing should reflect the new skill
         wrapper.rescan();
@@ -400,22 +397,10 @@ fn test_empty_registries() {
 fn test_fingerprint_changes_after_rescan_picks_up_new_skill() {
     run_with_runtime(|| {
         let temp = tempfile::tempdir().unwrap();
-        let skill_dir = temp.path().join("skill-a");
-        std::fs::create_dir_all(&skill_dir).unwrap();
-        std::fs::write(
-            skill_dir.join("SKILL.md"),
-            "---\ndescription: a\nuser-invocable: true\n---\n# A\n",
-        )
-        .unwrap();
-
-        let mut disk_reg = DiskSkillRegistry::new(vec![]);
-        disk_reg.set_scan_config(ScanConfig {
-            global_dir: Some(temp.path().to_path_buf()),
-            ..Default::default()
-        });
-        disk_reg.rescan();
-
-        let disk = Arc::new(std::sync::RwLock::new(Some(disk_reg)));
+        write_skill_dir(temp.path(), "skill-a");
+        let disk = Arc::new(std::sync::RwLock::new(Some(make_scan_dir_registry(
+            temp.path(),
+        ))));
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = SkillListingProviderWrapper::new(disk.clone(), builtin);
 
@@ -424,13 +409,7 @@ fn test_fingerprint_changes_after_rescan_picks_up_new_skill() {
         assert!(listing_before.contains("skill-a"));
 
         // Add new skill
-        let new_dir = temp.path().join("skill-b");
-        std::fs::create_dir_all(&new_dir).unwrap();
-        std::fs::write(
-            new_dir.join("SKILL.md"),
-            "---\ndescription: b\nuser-invocable: true\n---\n# B\n",
-        )
-        .unwrap();
+        write_skill_dir(temp.path(), "skill-b");
 
         wrapper.rescan();
         let fp_after = wrapper.fingerprint();

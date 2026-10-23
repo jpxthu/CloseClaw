@@ -9,8 +9,10 @@ use async_trait::async_trait;
 use closeclaw_skills::disk::types::{DiskSkill, SkillSource};
 use closeclaw_skills::BuiltinSkillRegistry;
 use closeclaw_skills::DiskSkillRegistry;
+use closeclaw_skills::ScanConfig;
 use closeclaw_skills::Skill;
 use closeclaw_skills::SkillManifest;
+use std::path::Path;
 use std::sync::Arc;
 use std::sync::RwLock;
 
@@ -120,6 +122,34 @@ pub(super) fn make_builtin_blocking(
 /// Helper: create a `DiskSkillRegistry` with the given skills.
 pub(super) fn make_disk_registry(skills: Vec<DiskSkill>) -> DiskSkillRegistry {
     DiskSkillRegistry::new(skills)
+}
+
+/// Helper: write a single-level skill directory with a SKILL.md
+/// frontmatter into the existing directory `root`, named `name`.
+///
+/// Uses single-level `std::fs::create_dir` (parent must exist), matching
+/// the loader.rs test pattern and the test-audit baseline's stance on
+/// `create_dir_all`.
+pub(super) fn write_skill_dir(root: &Path, name: &str) {
+    let skill_dir = root.join(name);
+    std::fs::create_dir(&skill_dir).unwrap();
+    std::fs::write(
+        skill_dir.join("SKILL.md"),
+        format!("---\ndescription: {name}\nuser-invocable: true\n---\n# {name}\n"),
+    )
+    .unwrap();
+}
+
+/// Helper: build a `DiskSkillRegistry` whose `ScanConfig` points at
+/// `global_dir`, with the initial rescan already performed.
+pub(super) fn make_scan_dir_registry(global_dir: &Path) -> DiskSkillRegistry {
+    let mut disk_reg = DiskSkillRegistry::new(vec![]);
+    disk_reg.set_scan_config(ScanConfig {
+        global_dir: Some(global_dir.to_path_buf()),
+        ..Default::default()
+    });
+    disk_reg.rescan(); // initial scan
+    disk_reg
 }
 
 /// Helper: create a `SkillListingProviderWrapper` from disk and builtin

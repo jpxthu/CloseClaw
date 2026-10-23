@@ -36,7 +36,7 @@ pub fn common_shutdown_handle(daemon_handle: &DaemonShutdownHandle) -> Arc<Shutd
 /// short read lock to fetch `scan_config`, lock-free disk scan, then a brief
 /// write lock to replace the skills list. All lock/error paths are identical
 /// between the two trait impls, hence this shared helper.
-fn rescan_disk_skills(disk: &Arc<RwLock<Option<DiskSkillRegistry>>>) {
+fn rescan_disk_skills(disk: &RwLock<Option<DiskSkillRegistry>>) {
     // Step 1: Read scan_config under a short read lock.
     let scan_config = disk
         .read()
