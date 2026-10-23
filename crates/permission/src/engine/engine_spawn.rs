@@ -16,7 +16,8 @@ pub enum SpawnPermissionError {
         parent_agent_id: String,
     },
     #[error(
-        "spawn denied: '{child_agent_id}' denied by three-way intersection (parent: '{parent_agent_id}', user: '{user_id}')"
+        "spawn denied: '{child_agent_id}' denied by three-way intersection \
+        (parent: '{parent_agent_id}', user: '{user_id}')"
     )]
     FullyDeniedWithUser {
         child_agent_id: String,
