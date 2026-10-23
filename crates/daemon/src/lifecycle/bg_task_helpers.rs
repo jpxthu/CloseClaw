@@ -8,6 +8,19 @@ use tracing::{error, info, warn};
 
 use crate::lifecycle::TaskStopStatus;
 
+/// Phase 3 per-task join timeout in seconds (design doc: total stop
+/// budget 10s = join 7s + abort grace 3s).
+pub(crate) const BG_TASK_JOIN_TIMEOUT_SECS: u64 = 7;
+
+/// Phase 3 abort grace period in seconds after the join timeout.
+pub(crate) const BG_TASK_ABORT_GRACE_SECS: u64 = 3;
+
+/// Phase 3 per-task join timeout before aborting the task.
+pub(crate) const BG_TASK_JOIN_TIMEOUT: Duration = Duration::from_secs(BG_TASK_JOIN_TIMEOUT_SECS);
+
+/// Phase 3 grace period given to a task after `abort()`.
+pub(crate) const BG_TASK_ABORT_GRACE: Duration = Duration::from_secs(BG_TASK_ABORT_GRACE_SECS);
+
 impl Daemon {
     /// Wait for all background tasks to exit, sending periodic heartbeats.
     ///
@@ -15,13 +28,10 @@ impl Daemon {
     /// ArchiveSweeper, AnnounceSweeper, PlanArchiveSweeper,
     /// DreamingScheduler, and ConfigWatcher subscriber.
     pub(crate) async fn wait_all_bg_tasks(&mut self) -> Vec<(&'static str, TaskStopStatus)> {
-        let join_timeout = Duration::from_secs(7);
-        let abort_grace = Duration::from_secs(3);
-
         // Compile-time: total Phase 3 budget must be 10s per design doc.
         #[allow(clippy::assertions_on_constants, clippy::eq_op)]
         const _: () = assert!(
-            7 + 3 == 10,
+            BG_TASK_JOIN_TIMEOUT_SECS + BG_TASK_ABORT_GRACE_SECS == 10,
             "Phase 3 total timeout (join_timeout + abort_grace) must equal 10s"
         );
         let mut heartbeat = ShutdownHeartbeat::new();
@@ -45,8 +55,8 @@ impl Daemon {
                     .wait_for_background_task_with_heartbeat(
                         h,
                         name,
-                        join_timeout,
-                        abort_grace,
+                        BG_TASK_JOIN_TIMEOUT,
+                        BG_TASK_ABORT_GRACE,
                         &mut heartbeat,
                     )
                     .await;
