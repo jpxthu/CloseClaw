@@ -140,17 +140,22 @@ pub(crate) struct BackgroundKillHandle {
 impl KillHandle for BackgroundKillHandle {
     fn kill(&self) -> io::Result<()> {
         // The `KillHandle` trait is synchronous (`fn kill() -> io::Result<()>`),
-        // but `BackgroundTaskManager::kill` is async. We bridge by
-        // dispatching through a dedicated tokio runtime: the
-        // BackgroundTaskManager is `Send + Sync` and its `kill`
-        // future is short-lived, so the runtime cost is negligible
-        // compared to the wall-clock budget enforced by
-        // `ConversationSession::kill_tool_handles` (5 s).
+        // but `TaskManager::kill_task` is async. We bridge by capturing the
+        // current ambient tokio runtime with `Handle::try_current()` and
+        // driving the short-lived `kill_task` future on it via
+        // `Handle::block_on`.
         //
-        // If we are not inside a tokio runtime (e.g. a non-tokio
-        // test driver), fall back to `block_in_place` to drive the
-        // future to completion. If that also fails, we surface the
-        // error to the caller — stop() will log it and move on.
+        // Caller precondition: `Handle::block_on` panics when called from
+        // an async context, so `kill()` must run on a non-async thread.
+        // The production call site guarantees this —
+        // `ConversationSession::kill_tool_handles` dispatches `kill()` via
+        // `spawn_blocking` (crates/session/src/llm_session/session_stop.rs),
+        // so it executes on the blocking pool.
+        //
+        // Without a current tokio runtime (e.g. a non-tokio test driver)
+        // there is nothing to block on and we fail fast: `Err` with a
+        // "called outside a tokio runtime" message. `kill_tool_handles`
+        // logs the error and moves on.
         match tokio::runtime::Handle::try_current() {
             Ok(handle) => {
                 // Inside a tokio runtime — block on the future.
