@@ -95,7 +95,7 @@ fn test_defaults_message_is_allow() {
 fn test_defaults_json_missing_message() {
     // Old config without `message` field should deserialize with default Allow
     let json = "{\"file\":\"deny\",\"exec\":\"deny\",\"network\":\"deny\",\
-  \"inter_agent\":\"deny\",\"config\":\"deny\",\"tool_call\":\"deny\"}";
+               \"inter_agent\":\"deny\",\"config\":\"deny\",\"tool_call\":\"deny\"}";
     let defaults: super::Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, super::Effect::Allow);
     assert_eq!(defaults.file_read, super::Effect::Deny);

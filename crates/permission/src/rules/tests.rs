@@ -200,7 +200,7 @@ fn test_defaults_json_missing_tool_call() {
 fn test_defaults_json_missing_message_defaults_to_allow() {
     // Old config without `message` field should default to Allow
     let json = "{\"file\":\"deny\",\"exec\":\"deny\",\"network\":\"deny\",\
-  \"inter_agent\":\"deny\",\"config\":\"deny\",\"tool_call\":\"deny\"}";
+               \"inter_agent\":\"deny\",\"config\":\"deny\",\"tool_call\":\"deny\"}";
     let defaults: Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, Effect::Allow);
 }
