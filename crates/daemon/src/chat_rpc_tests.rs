@@ -292,7 +292,7 @@ fn test_dispatch_ping_returns_pong() {
 /// sender_id must be the system UID, not agent_id.
 #[test]
 fn test_build_inbound_input_sender_id_is_system_uid() {
-    let input = build_inbound_input("test content".to_string());
+    let input = build_inbound_input("test-agent", "test content".to_string());
     let expected_uid = closeclaw_platform::current_uid();
     assert_eq!(
         input.sender_id, expected_uid,
