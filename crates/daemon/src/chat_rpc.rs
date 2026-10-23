@@ -304,12 +304,17 @@ async fn setup_rpc_channel(context: &ChatContext) -> (mpsc::Receiver<RenderedOut
 }
 
 /// Build a [`NormalizedMessage`] from the chat message content.
-fn build_inbound_input(content: String) -> NormalizedMessage {
+///
+/// `peer_id` is the request's target agent (chat.md §入站
+/// TerminalAdapter): it anchors the message to the per-agent session
+/// route key so conversations with different agents land in different
+/// sessions.
+fn build_inbound_input(agent_id: &str, content: String) -> NormalizedMessage {
     let now_ms = chrono::Utc::now().timestamp_millis();
     NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id: closeclaw_platform::current_uid(),
-        peer_id: "cli".to_string(),
+        peer_id: agent_id.to_string(),
         content,
         timestamp: now_ms,
         message_type: MessageType::Text,
@@ -332,15 +337,16 @@ async fn process_gateway_response(
     content: String,
     context: &ChatContext,
 ) -> Vec<ChatResponse> {
-    let input = build_inbound_input(content);
+    let input = build_inbound_input(&agent_id, content);
     let sender_id = input.sender_id.clone();
     let platform = input.platform.clone();
     // Run the inbound processor chain
     // (RawLog → SessionRouter → ContentNormalizer).
     let mut processed = context.gateway.process_inbound_chain(&input).await;
-    // Design doc (cli/chat.md): the user names the target agent via
-    // `--agent-id`; carry it on the processed message so Gateway session
-    // resolution routes to that agent instead of the peer_id fallback.
+    // Design doc (cli/chat.md): the message's peer_id is already the
+    // target agent (session peer anchor); this metadata key stays so
+    // Gateway session resolution still names the agent explicitly
+    // (priority over bot→Agent bindings).
     attach_target_agent(&mut processed, &agent_id);
 
     // Dispatch through Gateway: resolves session, routes to LLM or slash
@@ -438,12 +444,16 @@ fn extract_text_from_payload(payload: &serde_json::Value) -> String {
 }
 
 /// Build the `/stop` [`NormalizedMessage`] for a stop-session request.
-fn build_stop_input(sender_id: String) -> NormalizedMessage {
+///
+/// `peer_id` is the request's target agent, mirroring
+/// [`build_inbound_input`] so the stop message resolves the same
+/// per-agent session route key as the conversation it stops.
+fn build_stop_input(agent_id: &str, sender_id: String) -> NormalizedMessage {
     let now_ms = chrono::Utc::now().timestamp_millis();
     NormalizedMessage {
         platform: "terminal".to_string(),
         sender_id,
-        peer_id: "cli".to_string(),
+        peer_id: agent_id.to_string(),
         content: "/stop".to_string(),
         timestamp: now_ms,
         message_type: MessageType::Text,
@@ -476,7 +486,7 @@ async fn dispatch_stop_session(agent_id: String, context: &ChatContext) -> Vec<C
         .register_agent_route(&agent_id, conn_id)
         .await;
 
-    let input = build_stop_input(sender_id.clone());
+    let input = build_stop_input(&agent_id, sender_id.clone());
     let mut processed = context.gateway.process_inbound_chain(&input).await;
     // Route `/stop` to the same target agent as chat requests
     // (requirements cli §F1: `/stop` ends the current conversation).
@@ -819,3 +829,9 @@ pub fn chat_socket_path(config_dir: &Path) -> PathBuf {
 #[cfg(test)]
 #[path = "chat_rpc_tests.rs"]
 mod tests;
+
+// peer_id 契约测试（issue #3943）独立成文件：chat_rpc_tests.rs 已近
+// 1000 行硬限，拆分挂载沿用上面的 `#[cfg(test)] #[path]` 模式。
+#[cfg(test)]
+#[path = "chat_rpc_peer_id_tests.rs"]
+mod peer_id_tests;

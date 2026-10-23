@@ -1,7 +1,11 @@
-//! Plugin initialization: terminal plugin and slash dispatcher registration.
+//! Plugin initialization: slash dispatcher registration.
 //!
 //! Extracted from `mod.rs` to keep source files within the CONTRIBUTING.md
 //! limits (`mod.rs` only holds `pub use` / `pub mod` re-exports).
+//!
+//! Note: the terminal channel's only daemon-side plugin registration is the
+//! `RpcTerminalPlugin` from Phase 6 (`init_phase_6_chat_rpc` →
+//! `spawn_chat_rpc_server`); this module has no terminal registration.
 
 use crate::Daemon;
 use std::sync::Arc;
@@ -9,18 +13,6 @@ use tracing::{info, warn};
 
 // --- Service init helpers ---
 impl Daemon {
-    /// Initialize the terminal (CLI) IM plugin and register with Gateway.
-    pub(crate) async fn init_terminal_plugin(gateway: &Arc<closeclaw_gateway::Gateway>) {
-        use closeclaw_cli::terminal::TerminalPlugin;
-        // Placeholder agent id: this registration is shadowed by the
-        // daemon-side RpcTerminalPlugin (chat_rpc.rs), so its parse_inbound
-        // is unreachable in daemon production and the placeholder never
-        // flows into message routing.
-        let plugin: Arc<dyn closeclaw_common::IMPlugin> = Arc::new(TerminalPlugin::new("daemon"));
-        gateway.register_plugin(plugin).await;
-        info!("Terminal plugin registered");
-    }
-
     /// Initialize the slash command dispatcher and register all handlers.
     ///
     /// Returns the shared [`HandlerRegistry`] so callers can later register
