@@ -8,7 +8,7 @@ use closeclaw_common::identity::IdentityResolver;
 use closeclaw_common::{AdapterError as CommonAdapterError, IMPlugin, NormalizedMessage};
 use tracing::debug;
 
-use super::{identity, FeishuPlugin};
+use super::FeishuPlugin;
 use crate::normalized::{add_code_block_language_hint, normalize_urls};
 use crate::IMAdapter;
 
@@ -62,11 +62,7 @@ impl FeishuPlugin {
         let trace_id = self.generate_trace_id(self.platform());
 
         let start = Instant::now();
-        let mut msg = self
-            .adapter
-            .parse_inbound(payload)
-            .await
-            .map_err(identity::convert_to_common_error)?;
+        let mut msg = self.adapter.parse_inbound(payload).await?;
         let parse_duration_ms = start.elapsed().as_millis() as u64;
 
         // Re-insert trace_id after adapter call — adapter's parse_message_event

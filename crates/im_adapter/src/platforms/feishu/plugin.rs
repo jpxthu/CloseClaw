@@ -21,7 +21,6 @@ use tracing::{info, warn};
 
 use super::cardkit_streaming::CardkitStreamingRenderer;
 use super::config::load_platforms_config;
-use super::identity;
 use super::process_manager;
 use super::send_helpers;
 use super::{cleaner, FeishuAdapter};
@@ -215,7 +214,7 @@ impl IMPlugin for FeishuPlugin {
         self.adapter
             .parse_card_action(payload)
             .await
-            .map_err(identity::convert_to_common_error)
+            .map_err(CommonAdapterError::from)
     }
 
     async fn validate_signature(&self, signature: &str, payload: &[u8]) -> bool {
