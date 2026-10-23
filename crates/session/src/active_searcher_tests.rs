@@ -118,10 +118,8 @@ mod tests {
         let session_id = "test-session-user";
         let agent_id = "test-agent-user";
 
-        let seen_position: Arc<tokio::sync::Mutex<Option<String>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (inj_tx, mut inj_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let seen = Arc::clone(&seen_position);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Ok((Some("m".to_string()), None)) })
@@ -132,12 +130,8 @@ mod tests {
                   position: String,
                   _event_ids: HashSet<i64>|
                   -> BoxFuture<()> {
-                let seen = Arc::clone(&seen);
-                Box::pin(async move {
-                    assert_eq!(sid, session_id);
-                    assert_eq!(content, "user-search-result");
-                    *seen.lock().await = Some(position);
-                })
+                let _ = inj_tx.send((sid, content, position));
+                Box::pin(async {})
             },
         );
         deps.run_searcher = Box::new(|input: SearcherInput| {
@@ -159,12 +153,12 @@ mod tests {
             Some(db.as_path()),
             deps,
         );
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let pos = seen_position.lock().await;
+        let (sid, content, position) = wait_for_spy_signal(&mut inj_rx).await;
+        assert_eq!(sid, session_id);
+        assert_eq!(content, "user-search-result");
         assert_eq!(
-            pos.as_deref(),
-            Some("after_current"),
+            position, "after_current",
             "user message should write AfterCurrent"
         );
     }
@@ -177,10 +171,8 @@ mod tests {
         let session_id = "test-session-assistant";
         let agent_id = "test-agent-assistant";
 
-        let seen_position: Arc<tokio::sync::Mutex<Option<String>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (inj_tx, mut inj_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let seen = Arc::clone(&seen_position);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Ok((Some("m".to_string()), None)) })
@@ -191,12 +183,8 @@ mod tests {
                   position: String,
                   _event_ids: HashSet<i64>|
                   -> BoxFuture<()> {
-                let seen = Arc::clone(&seen);
-                Box::pin(async move {
-                    assert_eq!(sid, session_id);
-                    assert_eq!(content, "assistant-search-result");
-                    *seen.lock().await = Some(position);
-                })
+                let _ = inj_tx.send((sid, content, position));
+                Box::pin(async {})
             },
         );
         deps.run_searcher = Box::new(|input: SearcherInput| {
@@ -222,12 +210,12 @@ mod tests {
             Some(db.as_path()),
             deps,
         );
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let pos = seen_position.lock().await;
+        let (sid, content, position) = wait_for_spy_signal(&mut inj_rx).await;
+        assert_eq!(sid, session_id);
+        assert_eq!(content, "assistant-search-result");
         assert_eq!(
-            pos.as_deref(),
-            Some("before_next"),
+            position, "before_next",
             "assistant message should write BeforeNext"
         );
     }
@@ -302,10 +290,8 @@ mod tests {
     #[tokio::test]
     async fn test_event_ids_forwarded_to_injection() {
         let db = tmp_path("test.db");
-        let seen_ids: Arc<tokio::sync::Mutex<HashSet<i64>>> =
-            Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let (inj_tx, mut inj_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let ids_ref = Arc::clone(&seen_ids);
         let mut deps = noop_deps();
         deps.set_memory_injection = Box::new(
             move |_sid: String,
@@ -313,10 +299,8 @@ mod tests {
                   _position: String,
                   event_ids: HashSet<i64>|
                   -> BoxFuture<()> {
-                let ids_ref = Arc::clone(&ids_ref);
-                Box::pin(async move {
-                    *ids_ref.lock().await = event_ids;
-                })
+                let _ = inj_tx.send(event_ids);
+                Box::pin(async {})
             },
         );
         deps.run_searcher = Box::new(|_input: SearcherInput| {
@@ -330,9 +314,8 @@ mod tests {
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let ids = seen_ids.lock().await;
+        let ids = wait_for_spy_signal(&mut inj_rx).await;
         assert!(ids.contains(&42));
         assert!(ids.contains(&99));
         assert!(ids.contains(&100));
