@@ -55,10 +55,6 @@ pub enum SkillAction {
     List,
 }
 
-/// Default agent used when `chat --agent-id` is omitted: the initial `master`
-/// agent created by the config wizard (docs/design/agent/agent-config.md).
-const DEFAULT_AGENT_ID: &str = "master";
-
 /// Interactive chat with an agent via the terminal.
 #[derive(Args, Debug)]
 pub struct ChatArgs {
@@ -67,7 +63,7 @@ pub struct ChatArgs {
         short = 'a',
         long = "agent-id",
         value_parser = parse_agent_id,
-        default_value = DEFAULT_AGENT_ID
+        default_value = crate::constants::DEFAULT_AGENT_ID
     )]
     pub agent_id: String,
 }
@@ -85,6 +81,7 @@ fn parse_agent_id(s: &str) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::test_util::ChatArgsCli;
     use clap::Parser;
 
     /// Wrapper to test subcommand parsing in isolation.
@@ -110,19 +107,12 @@ mod tests {
 
     // ── issue #3945 — chat --agent-id 非空校验 ─────────────────────────────
 
-    /// Wrapper to test `ChatArgs` parsing in isolation.
-    #[derive(Parser, Debug)]
-    struct ChatArgsTestCli {
-        #[command(flatten)]
-        args: ChatArgs,
-    }
-
     /// Asserts that parsing `chat {flag_and_value}` fails and that the rendered
     /// clap error mentions `--agent-id` plus the validator's rejection reason.
     fn assert_agent_id_rejected(flag_and_value: &[&str]) {
         let mut cli_args = vec!["test"];
         cli_args.extend_from_slice(flag_and_value);
-        let Err(err) = ChatArgsTestCli::try_parse_from(cli_args) else {
+        let Err(err) = ChatArgsCli::try_parse_from(cli_args) else {
             panic!("--agent-id {flag_and_value:?} should fail parsing");
         };
         let err_msg = err.to_string();
@@ -167,10 +157,10 @@ mod tests {
     /// leading/trailing whitespace (no trimming; only empty/whitespace-only is rejected).
     #[test]
     fn test_chat_agent_id_valid_value_preserved_as_is() {
-        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", "agent-1"]).unwrap();
+        let cli = ChatArgsCli::try_parse_from(["test", "-a", "agent-1"]).unwrap();
         assert_eq!(cli.args.agent_id, "agent-1");
 
-        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", " agent-1 "]).unwrap();
+        let cli = ChatArgsCli::try_parse_from(["test", "-a", " agent-1 "]).unwrap();
         assert_eq!(cli.args.agent_id, " agent-1 ");
     }
 
@@ -180,7 +170,7 @@ mod tests {
     /// the default agent `master` (system base entry, docs/design/agent/agent-config.md).
     #[test]
     fn test_chat_agent_id_default_is_master() {
-        let cli = ChatArgsTestCli::try_parse_from(["test"]).unwrap();
+        let cli = ChatArgsCli::try_parse_from(["test"]).unwrap();
         assert_eq!(cli.args.agent_id, "master");
     }
 
@@ -188,10 +178,10 @@ mod tests {
     /// default and is not overwritten by it.
     #[test]
     fn test_chat_agent_id_explicit_overrides_default() {
-        let cli = ChatArgsTestCli::try_parse_from(["test", "--agent-id", "foo"]).unwrap();
+        let cli = ChatArgsCli::try_parse_from(["test", "--agent-id", "foo"]).unwrap();
         assert_eq!(cli.args.agent_id, "foo");
 
-        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", "foo"]).unwrap();
+        let cli = ChatArgsCli::try_parse_from(["test", "-a", "foo"]).unwrap();
         assert_eq!(cli.args.agent_id, "foo");
     }
 

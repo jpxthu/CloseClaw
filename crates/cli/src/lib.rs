@@ -4,6 +4,7 @@ pub mod admin;
 pub mod args;
 pub mod chat;
 pub mod config_wizard;
+pub mod constants;
 pub mod llm_init;
 pub mod renderer;
 pub mod terminal;
