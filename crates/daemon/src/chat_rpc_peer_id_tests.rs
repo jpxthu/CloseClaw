@@ -68,9 +68,10 @@ fn test_build_stop_input_peer_id_is_target_agent() {
 }
 
 /// Dimension 2 — the inbound messages constructed by `build_inbound_input` are substituted
-/// field-by-field into the `compute_session_key` signature (platform + sender_id + peer_id
-/// + account_id): different agent_id → different session route keys (isolation), same agent_id →
-/// stable and consistent. The timestamp is fixed to eliminate its effect on equality.
+/// field-by-field into the `compute_session_key` signature (platform + sender_id +
+/// peer_id + account_id): different agent_id → different session route keys (isolation),
+/// same agent_id → stable and consistent. The timestamp is fixed to eliminate its effect
+/// on equality.
 #[test]
 fn test_inbound_session_key_isolates_per_agent() {
     let key_for = |agent: &str| {
