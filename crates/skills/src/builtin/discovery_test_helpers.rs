@@ -1,4 +1,4 @@
-//! Mock clawhub CLI helpers for discovery tests.
+//! Mock clawhub CLI and failure-propagation assertion helpers for discovery tests.
 //!
 //! # 硬性约定（本模块所有测试适用）
 //!
@@ -6,6 +6,8 @@
 //!   （ETXTBSY 根因）。
 //! - mock 脚本必须落 `tempfile::TempDir`（系统临时目录），禁止仓库固定路径。
 
+use super::SkillDiscoverySkill;
+use crate::registry::{Skill, SkillError};
 use tempfile::TempDir;
 
 /// Fixed stdout emitted by [`create_mock_clawhub`] for the `search`
@@ -78,4 +80,28 @@ pub(super) fn create_failing_mock_clawhub(tmp: &TempDir) -> String {
     let content = format!("#!/bin/bash\necho '{MOCK_FAILURE_MESSAGE}' >&2\nexit 1\n");
     write_mock_script(&script_path, &content);
     script_path.to_str().unwrap().to_string()
+}
+
+/// Assert that executing the discovery skill with `payload` against a
+/// failing mock clawhub ([`create_failing_mock_clawhub`]) propagates the
+/// failure: `execute` must return `SkillError::ExecutionFailed` whose
+/// message contains [`MOCK_FAILURE_MESSAGE`].
+///
+/// - `payload` is the full `execute` argument (must carry the `action`
+///   to exercise).
+/// - `action` only appears in the panic message for diagnostics.
+/// - Spawns a mock script, so the calling test must be marked
+///   `#[serial_test::serial]` (see the module-level 硬性约定).
+pub(super) async fn assert_clawhub_failure(payload: serde_json::Value, action: &str) {
+    let tmp = TempDir::new().unwrap();
+    let mock = create_failing_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
+    let err = skill.execute(Some(payload)).await.unwrap_err();
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("clawhub {action} failure should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(MOCK_FAILURE_MESSAGE),
+        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
+    );
 }
