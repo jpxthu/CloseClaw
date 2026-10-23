@@ -829,3 +829,9 @@ pub fn chat_socket_path(config_dir: &Path) -> PathBuf {
 #[cfg(test)]
 #[path = "chat_rpc_tests.rs"]
 mod tests;
+
+// peer_id 契约测试（issue #3943）独立成文件：chat_rpc_tests.rs 已近
+// 1000 行硬限，拆分挂载沿用上面的 `#[cfg(test)] #[path]` 模式。
+#[cfg(test)]
+#[path = "chat_rpc_peer_id_tests.rs"]
+mod peer_id_tests;
