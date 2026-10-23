@@ -62,3 +62,7 @@ mod validators_memory_tests;
 #[cfg(test)]
 #[path = "../validators_step_1_7_tests.rs"]
 mod validators_step_1_7_tests;
+
+#[cfg(test)]
+#[path = "../validators_models_refs_tests.rs"]
+mod validators_models_refs_tests;
