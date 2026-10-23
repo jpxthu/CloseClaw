@@ -4,18 +4,24 @@ use super::*;
 use crate::registries::RegistryContext;
 use crate::test_helpers::load_system_config_manager;
 use crate::trait_adapters::ConfigSpawnBudgetLookup;
+use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, RunningTaskInfo, TaskManager,
+    BackgroundTask, BackgroundTaskError, CompletionNotification, PermissionChecker,
+    RunningTaskInfo, SessionLookup, TaskManager,
 };
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
 use closeclaw_config::manager::{ConfigManager, ConfigSection};
-use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
-use closeclaw_permission::approval_flow::ApprovalFlow;
-use closeclaw_permission::PermissionEngine;
+use closeclaw_gateway::{
+    session_manager::spawn_adapter::GatewayPermissionChecker, Gateway, GatewayConfig,
+    SessionManager, SpawnController,
+};
+use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
+use closeclaw_permission::{PermissionEngine, RuleSet};
 use closeclaw_session::persistence::ReasoningLevel;
+use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
 use closeclaw_session::tools::LateBoundSessionManagerOps;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
-use closeclaw_tools::ToolRegistry;
+use closeclaw_tools::{builtin::PlanExecConfirmFlow, ToolRegistry};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tempfile::TempDir;
@@ -597,24 +603,20 @@ struct RegistryHarness {
     permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
     gateway: Arc<Gateway>,
     approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
-    confirm_flow: Arc<closeclaw_tools::builtin::PlanExecConfirmFlow>,
+    confirm_flow: Arc<PlanExecConfirmFlow>,
     builtin_registry: Arc<BuiltinSkillRegistry>,
-    agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
-    spawn_controller: Arc<closeclaw_gateway::SpawnController>,
+    agent_registry: Arc<AgentRegistry>,
+    spawn_controller: Arc<SpawnController>,
     late_bound: Arc<LateBoundSessionManagerOps>,
 }
 
 /// Build the plan-execution confirm flow sharing `session_mgr` (used by
 /// [`RegistryHarness::new`]).
-fn make_confirm_flow(
-    session_mgr: &Arc<SessionManager>,
-) -> Arc<closeclaw_tools::builtin::PlanExecConfirmFlow> {
-    Arc::new(
-        closeclaw_tools::builtin::PlanExecConfirmFlow::new_without_notify(
-            Arc::clone(session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
-            tokio::runtime::Handle::current(),
-        ),
-    )
+fn make_confirm_flow(session_mgr: &Arc<SessionManager>) -> Arc<PlanExecConfirmFlow> {
+    Arc::new(PlanExecConfirmFlow::new_without_notify(
+        Arc::clone(session_mgr) as Arc<dyn SessionLookup>,
+        tokio::runtime::Handle::current(),
+    ))
 }
 
 /// Build the spawn controller wiring config/session/permission deps
@@ -623,19 +625,18 @@ fn make_spawn_controller(
     config_mgr: &Arc<ConfigManager>,
     session_mgr: &Arc<SessionManager>,
     permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
-) -> Arc<closeclaw_session::spawn::controller::SpawnController> {
+) -> Arc<SpawnController> {
     Arc::new({
-        let permission_checker: Arc<dyn closeclaw_common::PermissionChecker> = Arc::new(
-            closeclaw_gateway::session_manager::spawn_adapter::GatewayPermissionChecker::new(
+        let permission_checker: Arc<dyn PermissionChecker> =
+            Arc::new(GatewayPermissionChecker::new(
                 Arc::clone(session_mgr),
                 Arc::clone(config_mgr),
                 Arc::clone(permission_engine),
-            ),
-        );
-        closeclaw_session::spawn::controller::SpawnController::new(
+            ));
+        SpawnController::new(
             Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_mgr)))
-                as Arc<dyn closeclaw_session::spawn::controller::SpawnBudgetLookup>,
-            Arc::clone(session_mgr) as Arc<dyn closeclaw_session::spawn::controller::SpawnContext>,
+                as Arc<dyn SpawnBudgetLookup>,
+            Arc::clone(session_mgr) as Arc<dyn SpawnContext>,
             permission_checker,
         )
     })
@@ -649,7 +650,7 @@ impl RegistryHarness {
     async fn new() -> Self {
         let tmp = TempDir::new().unwrap();
         let config_mgr = make_config_manager(&tmp);
-        let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
+        let agent_registry = Arc::new(AgentRegistry::new());
         let skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>> = Arc::new(RwLock::new(None));
         let tool_registry = Arc::new(ToolRegistry::new());
         let session_mgr = Arc::new(SessionManager::new(
@@ -662,27 +663,23 @@ impl RegistryHarness {
         session_mgr
             .set_task_manager(Arc::new(MockTaskManager) as Arc<dyn TaskManager>)
             .await;
-        let permission_engine = Arc::new(tokio::sync::RwLock::new(
-            closeclaw_permission::PermissionEngine::new(
-                closeclaw_permission::RuleSet::default(),
-                tmp.path().to_path_buf(),
-            ),
-        ));
+        let permission_engine = Arc::new(tokio::sync::RwLock::new(PermissionEngine::new(
+            RuleSet::default(),
+            tmp.path().to_path_buf(),
+        )));
         let gateway = make_gateway();
-        let approval_flow = Arc::new(tokio::sync::Mutex::new(
-            closeclaw_permission::approval_flow::ApprovalFlow::new(
-                Arc::clone(&session_mgr) as Arc<dyn closeclaw_common::SessionLookup>,
-                Arc::new(|_| {}),
-                Arc::new(|_: &str| {}),
-                tokio::runtime::Handle::current(),
-                closeclaw_permission::approval_flow::HeartbeatApprovalMode::default(),
-                tmp.path().to_path_buf(),
-                closeclaw_permission::RuleSet::default(),
-            ),
-        ));
+        let approval_flow = Arc::new(tokio::sync::Mutex::new(ApprovalFlow::new(
+            Arc::clone(&session_mgr) as Arc<dyn SessionLookup>,
+            Arc::new(|_| {}),
+            Arc::new(|_: &str| {}),
+            tokio::runtime::Handle::current(),
+            HeartbeatApprovalMode::default(),
+            tmp.path().to_path_buf(),
+            RuleSet::default(),
+        )));
         let builtin_registry = Arc::new(BuiltinSkillRegistry::new());
         let spawn_controller = make_spawn_controller(&config_mgr, &session_mgr, &permission_engine);
-        let late_bound = Arc::new(closeclaw_session::tools::LateBoundSessionManagerOps::new());
+        let late_bound = Arc::new(LateBoundSessionManagerOps::new());
         let confirm_flow = make_confirm_flow(&session_mgr);
 
         Self {
@@ -743,7 +740,7 @@ async fn test_hot_reload_init_success_with_valid_config_dir() {
     let config_mgr = make_config_manager(&tmp);
     let session_mgr = make_session_manager();
     let gateway = make_gateway();
-    let agent_registry = Arc::new(closeclaw_agent::registry::AgentRegistry::new());
+    let agent_registry = Arc::new(AgentRegistry::new());
 
     let result = super::init_config_hot_reload(
         tmp.path().to_str().unwrap(),
