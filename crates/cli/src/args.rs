@@ -55,10 +55,6 @@ pub enum SkillAction {
     List,
 }
 
-/// Default agent used when `chat --agent-id` is omitted: the initial `master`
-/// agent created by the config wizard (docs/design/agent/agent-config.md).
-const DEFAULT_AGENT_ID: &str = "master";
-
 /// Interactive chat with an agent via the terminal.
 #[derive(Args, Debug)]
 pub struct ChatArgs {
@@ -67,7 +63,7 @@ pub struct ChatArgs {
         short = 'a',
         long = "agent-id",
         value_parser = parse_agent_id,
-        default_value = DEFAULT_AGENT_ID
+        default_value = crate::constants::DEFAULT_AGENT_ID
     )]
     pub agent_id: String,
 }
