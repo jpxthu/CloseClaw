@@ -200,7 +200,7 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
     assert_eq!(
         processed.metadata.get("peer_id").map(String::as_str),
         Some("cli"),
-        "peer_id must be 'cli' per design doc"
+        "terminal test peer_id must reach session routing unchanged as 'cli'"
     );
 }
 
