@@ -4,6 +4,7 @@
 //! it into `build_gateway`; these tests drive that seam with a parameterized
 //! fake router, so the cli crate keeps zero dependency on the slash crate.
 
+use crate::test_util::terminal_msg;
 use closeclaw_common::{
     NormalizedMessage, ReasoningLevel, SlashContext, SlashHandler, SlashResult, SlashRouter,
     SlashSessionQuery,
@@ -164,9 +165,7 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
         closeclaw_gateway::Gateway::new(config, session_manager, chat_processor_chain(), None);
     gateway.set_slash_dispatcher(router).await;
 
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("/stop"))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("/stop")).await;
     let result = gateway
         .handle_inbound_message(processed, Some("owner"), "terminal")
         .await;
@@ -362,7 +361,7 @@ async fn test_slash_router_injection_reply_reaches_output() {
 
     let processed = fx
         .gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("/ping"))
+        .process_inbound_chain(&terminal_msg("/ping"))
         .await;
     let result = fx
         .gateway
@@ -421,9 +420,7 @@ async fn test_slash_input_without_dispatcher_does_not_panic() {
         "precondition: no slash dispatcher injected"
     );
 
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("/ping"))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("/ping")).await;
     let result = gateway
         .handle_inbound_message(processed, Some("owner"), "terminal")
         .await;

@@ -3,6 +3,10 @@
 //! Single source of truth for constructing terminal [`NormalizedMessage`]s
 //! in tests (chat.md §入站：TerminalAdapter field values, with deterministic
 //! test values where the production path is non-deterministic).
+//!
+//! `terminal_tests.rs` deliberately does NOT use this helper: its
+//! `NormalizedMessage` literals are intentionally differentiated per test
+//! case. Do not "fix" that by converging them here.
 
 use closeclaw_common::NormalizedMessage;
 
@@ -50,7 +54,7 @@ mod tests {
         assert_eq!(msg.account_id, "owner");
         assert_eq!(msg.content, "x");
         assert_eq!(msg.timestamp, 0);
-        assert!(matches!(msg.message_type, MessageType::Text));
+        assert_eq!(msg.message_type, MessageType::Text);
         assert!(msg.thread_id.is_none());
         assert!(msg.reply_ref.is_none());
         assert!(msg.media_refs.is_empty());

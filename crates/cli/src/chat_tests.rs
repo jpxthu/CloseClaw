@@ -5,6 +5,7 @@
 //! and Gateway architecture verification. Slash injection seam tests live
 //! in `chat_slash_injection_tests.rs`.
 
+use crate::test_util::terminal_msg;
 use closeclaw_gateway::GatewayConfig;
 use std::sync::Arc;
 
@@ -134,9 +135,7 @@ async fn test_process_inbound_chain_cleans_control_characters() {
     let gateway = make_gw_with_registry(registry);
 
     let input = "hello\x1b[31mworld\x1b[0m";
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg(input))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg(input)).await;
 
     assert_eq!(processed.text_content(), Some("helloworld"));
     assert!(!processed.content_blocks.is_empty());
@@ -148,9 +147,7 @@ async fn test_process_inbound_chain_suppress_message() {
     registry.register(Arc::new(SuppressProcessor));
     let gateway = make_gw_with_registry(registry);
 
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("hello"))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("hello")).await;
 
     assert!(
         processed.content_blocks.is_empty(),
@@ -165,9 +162,7 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
     let gateway = make_gw_with_registry(registry);
 
     for cmd in &["quit", "exit", "/stop"] {
-        let processed = gateway
-            .process_inbound_chain(&crate::test_util::terminal_msg(cmd))
-            .await;
+        let processed = gateway.process_inbound_chain(&terminal_msg(cmd)).await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
     }
 }
@@ -178,9 +173,7 @@ async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
     registry.register(Arc::new(ContentNormalizer::new()));
     let gateway = make_gw_with_registry(registry);
 
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("/stop"))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("/stop")).await;
 
     assert_eq!(
         processed.text_content(),
@@ -193,18 +186,20 @@ async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
 
 #[tokio::test]
 async fn test_process_inbound_chain_peer_id_is_cli() {
+    use closeclaw_processor_chain::session_router::SessionRouter;
+
     let mut registry = ProcessorRegistry::new();
-    registry.register(Arc::new(ContentNormalizer::new()));
+    registry.register(Arc::new(SessionRouter::new()));
     let gateway = make_gw_with_registry(registry);
 
-    let peer_id_argument = "cli";
-    let processed = gateway
-        .process_inbound_chain(&crate::test_util::terminal_msg("hello"))
-        .await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("hello")).await;
 
     assert!(!processed.content_blocks.is_empty());
+    // SessionRouter copies msg.peer_id into metadata: assert the observable
+    // behavior instead of re-stating the helper's literal.
     assert_eq!(
-        peer_id_argument, "cli",
+        processed.metadata.get("peer_id").map(String::as_str),
+        Some("cli"),
         "peer_id must be 'cli' per design doc"
     );
 }
