@@ -5,7 +5,7 @@
 //! and Gateway architecture verification. Slash injection seam tests live
 //! in `chat_slash_injection_tests.rs`.
 
-use crate::test_util::terminal_msg;
+use crate::test_util::{terminal_msg, terminal_msg_with_peer};
 use closeclaw_gateway::GatewayConfig;
 use std::sync::Arc;
 
@@ -182,25 +182,28 @@ async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
     );
 }
 
-// ── peer_id "cli" verification ────────────────────────────────────────────
+// ── peer_id pass-through verification ─────────────────────────────────────
 
+/// peer_id must pass through the inbound chain into session routing:
+/// SessionRouter copies msg.peer_id into metadata, so a non-"cli" agent id
+/// (production peer_id = the `--agent-id` value) must surface there
+/// unchanged, with no special-casing of any constant.
 #[tokio::test]
-async fn test_process_inbound_chain_peer_id_is_cli() {
+async fn test_process_inbound_chain_peer_id_passthrough() {
     use closeclaw_processor_chain::session_router::SessionRouter;
 
     let mut registry = ProcessorRegistry::new();
     registry.register(Arc::new(SessionRouter::new()));
     let gateway = make_gw_with_registry(registry);
 
-    let processed = gateway.process_inbound_chain(&terminal_msg("hello")).await;
+    let input = terminal_msg_with_peer("hello", "agent-x");
+    let processed = gateway.process_inbound_chain(&input).await;
 
     assert!(!processed.content_blocks.is_empty());
-    // SessionRouter copies msg.peer_id into metadata: assert the observable
-    // behavior instead of re-stating the helper's literal.
     assert_eq!(
         processed.metadata.get("peer_id").map(String::as_str),
-        Some("cli"),
-        "terminal test peer_id must reach session routing unchanged as 'cli'"
+        Some("agent-x"),
+        "peer_id must reach session routing unchanged"
     );
 }
 

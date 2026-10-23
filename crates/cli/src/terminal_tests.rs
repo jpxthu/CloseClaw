@@ -329,13 +329,15 @@ mod tests {
         assert_eq!(msg.account_id, "owner");
     }
 
-    /// make_message preserves platform, peer_id, sender_id, and message_type.
+    /// make_message passes the constructed agent_id through as peer_id
+    /// (a non-"cli" value guards against hardcoded regressions) and
+    /// preserves platform, sender_id, and message_type.
     #[test]
     fn test_make_message_other_fields_unchanged() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new("agent-x");
         let msg = adapter.make_message("test".to_string());
         assert_eq!(msg.platform, "terminal");
-        assert_eq!(msg.peer_id, "test-agent");
+        assert_eq!(msg.peer_id, "agent-x");
         assert_eq!(msg.sender_id, closeclaw_platform::current_uid());
         assert_eq!(msg.message_type, MessageType::Text);
         assert!(msg.media_refs.is_empty());
