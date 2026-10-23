@@ -32,8 +32,12 @@ fn test_cross_ref_accounts_nonexistent_channel_warns() {
     write_mandatory(tmp.path());
     fs::write(
         tmp.path().join("accounts.json"),
-        serde_json::json!({"accounts": [{"accountId": "a1", "senderId": "s1", "platform": "telegram"}]}).to_string(),
-    ).unwrap();
+        serde_json::json!({
+            "accounts": [{"accountId": "a1", "senderId": "s1", "platform": "telegram"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
     let mgr = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     mgr.load().unwrap();
     assert!(mgr.section(ConfigSection::Accounts).is_some());
@@ -46,8 +50,12 @@ fn test_cross_ref_models_unknown_credential_warns() {
     write_mandatory(tmp.path());
     fs::write(
         tmp.path().join("models.json"),
-        serde_json::json!({"providers": {"openai": {"apiKey": "sk-test", "models": [{"id": "gpt-4"}]}}}).to_string(),
-    ).unwrap();
+        serde_json::json!({
+            "providers": {"openai": {"apiKey": "sk-test", "models": [{"id": "gpt-4"}]}}
+        })
+        .to_string(),
+    )
+    .unwrap();
     let mgr = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     mgr.load().unwrap();
     assert!(mgr.section(ConfigSection::Models).is_some());
@@ -60,8 +68,12 @@ fn test_cross_ref_accounts_matching_channels() {
     write_mandatory(tmp.path());
     fs::write(
         tmp.path().join("accounts.json"),
-        serde_json::json!({"accounts": [{"accountId": "a1", "senderId": "s1", "platform": "feishu"}]}).to_string(),
-    ).unwrap();
+        serde_json::json!({
+            "accounts": [{"accountId": "a1", "senderId": "s1", "platform": "feishu"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
     fs::write(
         tmp.path().join("channels.json"),
         serde_json::json!({"channels": {"feishu": {"enabled": true}}}).to_string(),
@@ -96,8 +108,12 @@ fn test_structural_validation_enforced_for_accounts() {
     write_mandatory(tmp.path());
     fs::write(
         tmp.path().join("accounts.json"),
-        serde_json::json!({"accounts": [{"accountId": "", "senderId": "s1", "platform": "feishu"}]}).to_string(),
-    ).unwrap();
+        serde_json::json!({
+            "accounts": [{"accountId": "", "senderId": "s1", "platform": "feishu"}]
+        })
+        .to_string(),
+    )
+    .unwrap();
     let mgr = ConfigManager::new(tmp.path().to_path_buf()).unwrap();
     assert!(mgr.load().is_err());
 }

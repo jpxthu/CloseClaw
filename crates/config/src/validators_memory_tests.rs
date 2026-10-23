@@ -172,8 +172,13 @@ fn test_validate_memory_forgetting_negative_rejected() {
 fn test_validate_memory_zero_values_pass() {
     let json = r#"{
         "mining": {"maxEventsPerSession": 0, "dedupWindowDays": 0},
-        "search": {"timeoutMs": 0, "contextTurns": 0, "maxSummaryChars": 0, "minEntityHits": 0, "topKEvents": 0},
-        "forgetting": {"initialTtlDays": 0, "reidentifyExtensionDays": 0, "injectionExtensionDays": 0}
+        "search": {
+            "timeoutMs": 0, "contextTurns": 0,
+            "maxSummaryChars": 0, "minEntityHits": 0, "topKEvents": 0
+        },
+        "forgetting": {
+            "initialTtlDays": 0, "reidentifyExtensionDays": 0, "injectionExtensionDays": 0
+        }
     }"#;
     let v: serde_json::Value = serde_json::from_str(json).unwrap();
     assert!(validate_memory(&v).is_ok());

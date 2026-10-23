@@ -14,7 +14,9 @@ use crate::validators::validate_session;
 #[test]
 fn test_validate_session_pass_compact_valid() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.10,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":0.10,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     assert!(validate_session(&v).is_ok());
@@ -47,7 +49,9 @@ fn test_validate_session_pass_compact_null() {
 #[test]
 fn test_validate_session_fail_compact_chars_per_token_zero() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.0,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.10,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.0,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":0.10,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -58,7 +62,9 @@ fn test_validate_session_fail_compact_chars_per_token_zero() {
 #[test]
 fn test_validate_session_fail_compact_chars_per_token_negative() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":-1.0,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.10,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":-1.0,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":0.10,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -73,7 +79,9 @@ fn test_validate_session_fail_compact_chars_per_token_negative() {
 #[test]
 fn test_validate_session_fail_compact_auto_threshold_negative() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":-0.1,"warningThresholdPct":0.10,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":-0.1,\"warningThresholdPct\":0.10,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -84,7 +92,9 @@ fn test_validate_session_fail_compact_auto_threshold_negative() {
 #[test]
 fn test_validate_session_fail_compact_auto_threshold_over_one() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":1.5,"warningThresholdPct":2.0,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":1.5,\"warningThresholdPct\":2.0,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -94,7 +104,9 @@ fn test_validate_session_fail_compact_auto_threshold_over_one() {
 #[test]
 fn test_validate_session_fail_compact_warning_threshold_negative() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.05,"warningThresholdPct":-0.1,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":-0.1,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -105,7 +117,9 @@ fn test_validate_session_fail_compact_warning_threshold_negative() {
 #[test]
 fn test_validate_session_fail_compact_warning_threshold_over_one() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.05,"warningThresholdPct":1.5,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":1.5,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -120,7 +134,9 @@ fn test_validate_session_fail_compact_warning_threshold_over_one() {
 #[test]
 fn test_validate_session_fail_compact_warning_equals_auto() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.05,"warningThresholdPct":0.05,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.05,\"warningThresholdPct\":0.05,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -131,7 +147,9 @@ fn test_validate_session_fail_compact_warning_equals_auto() {
 #[test]
 fn test_validate_session_fail_compact_warning_less_than_auto() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.10,"warningThresholdPct":0.05,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.10,\"warningThresholdPct\":0.05,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();
@@ -165,7 +183,9 @@ fn test_validate_session_fail_compact_number() {
 fn test_validate_session_pass_compact_thresholds_at_zero() {
     // auto at exactly 0 boundary with warning > auto
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.0,"warningThresholdPct":0.1,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.0,\"warningThresholdPct\":0.1,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     assert!(validate_session(&v).is_ok());
@@ -175,7 +195,9 @@ fn test_validate_session_pass_compact_thresholds_at_zero() {
 fn test_validate_session_pass_compact_thresholds_at_one() {
     // warning at exactly 1 boundary with auto < warning
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.9,"warningThresholdPct":1.0,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.9,\"warningThresholdPct\":1.0,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     assert!(validate_session(&v).is_ok());
@@ -184,7 +206,9 @@ fn test_validate_session_pass_compact_thresholds_at_one() {
 #[test]
 fn test_validate_session_pass_compact_auto_at_zero_warning_at_one() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"charsPerToken":0.25,"autoCompactThresholdPct":0.0,"warningThresholdPct":1.0,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"charsPerToken\":0.25,\
+         \"autoCompactThresholdPct\":0.0,\"warningThresholdPct\":1.0,\
+         \"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     assert!(validate_session(&v).is_ok());
@@ -197,7 +221,8 @@ fn test_validate_session_pass_compact_auto_at_zero_warning_at_one() {
 #[test]
 fn test_validate_session_fail_compact_missing_chars_per_token() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"compact":{"autoCompactThresholdPct":0.05,"warningThresholdPct":0.10,"maxConsecutiveFailures":3}}"#,
+        "{\"compact\":{\"autoCompactThresholdPct\":0.05,\
+         \"warningThresholdPct\":0.10,\"maxConsecutiveFailures\":3}}",
     )
     .unwrap();
     let err = validate_session(&v).unwrap_err();

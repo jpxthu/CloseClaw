@@ -560,10 +560,14 @@ mod tests {
         std::fs::write(
             &path,
             concat!(
-                "{\"timestamp\":\"t2\",\"agent_id\":\"a2\",\"tool_name\":\"f\",\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",\"disposition\":\"rejected\"}\n",
+                "{\"timestamp\":\"t2\",\"agent_id\":\"a2\",\"tool_name\":\"f\",",
+                "\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",",
+                "\"disposition\":\"rejected\"}\n",
                 "\n",
                 "\n",
-                "{\"timestamp\":\"t1\",\"agent_id\":\"a1\",\"tool_name\":\"f\",\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",\"disposition\":\"approved\"}\n",
+                "{\"timestamp\":\"t1\",\"agent_id\":\"a1\",\"tool_name\":\"f\",",
+                "\"operation\":\"w x\",\"reason\":\"r\",\"risk_level\":\"low\",",
+                "\"disposition\":\"approved\"}\n",
             ),
         )
         .unwrap();

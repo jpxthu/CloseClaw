@@ -52,7 +52,8 @@ struct AgentRuleEntry {
 /// the updated global rules.
 ///
 /// The store is designed for synchronous evaluation paths and contains no
-/// global state — instances are held as fields on [`PermissionEngine`](super::engine_eval::PermissionEngine).
+/// global state — instances are held as fields on
+/// [`PermissionEngine`](super::engine_eval::PermissionEngine).
 pub(crate) struct AgentRuleStore {
     data_root: PathBuf,
     cache: HashMap<String, AgentRuleEntry>,
@@ -190,12 +191,20 @@ fn load_agent_entry(path: &Path, global_rules: &RuleSet, global_version: &str) -
                 rs
             }
             Err(e) => {
-                warn!(path = %path.display(), error = %e, "failed to parse agent permissions, treating as empty");
+                warn!(
+                    path = %path.display(),
+                    error = %e,
+                    "failed to parse agent permissions, treating as empty"
+                );
                 RuleSet::default()
             }
         },
         Err(e) => {
-            warn!(path = %path.display(), error = %e, "failed to read agent permissions, treating as empty");
+            warn!(
+                path = %path.display(),
+                error = %e,
+                "failed to read agent permissions, treating as empty"
+            );
             RuleSet::default()
         }
     };
@@ -229,7 +238,14 @@ mod tests {
 
     fn make_ruleset_json(rules_json: &str) -> String {
         format!(
-            r#"{{"rules":{},"defaults":{{"file_read":"allow","file_write":"deny","exec":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny","message":"allow"}},"user_defaults":{{"file_read":"deny","file_write":"deny","exec":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny","message":"deny"}}}}"#,
+            concat!(
+                r#"{{"rules":{},"defaults":{{"file_read":"allow","file_write":"deny","#,
+                r#""exec":"deny","network":"deny","inter_agent":"deny","#,
+                r#""config":"deny","tool_call":"deny","message":"allow"}},"#,
+                r#""user_defaults":{{"file_read":"deny","file_write":"deny","exec":"deny","#,
+                r#""network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny","#,
+                r#""message":"deny"}}}}"#
+            ),
             rules_json
         )
     }
@@ -251,7 +267,10 @@ mod tests {
     #[test]
     fn load_existing_agent_rules() {
         let tmp = TempDir::new().unwrap();
-        let rules_json = r#"[{"name":"allow_read","subject":{"agent":"test-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#;
+        let rules_json = concat!(
+            r#"[{"name":"allow_read","subject":{"agent":"test-agent"},"effect":"allow","actions":"#,
+            r#"[{"type":"file","operation":"read","paths":["*"]}]}]"#
+        );
         setup_agent_file(tmp.path(), "test-agent", rules_json);
 
         let global = empty_global_rules();
@@ -294,7 +313,10 @@ mod tests {
     #[test]
     fn invalidate_forces_reload() {
         let tmp = TempDir::new().unwrap();
-        let rules_v1 = r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#;
+        let rules_v1 = concat!(
+            r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions""#,
+            r#":[{"type":"file","operation":"read","paths":["*"]}]}]"#
+        );
         setup_agent_file(tmp.path(), "a", rules_v1);
 
         let global = empty_global_rules();
@@ -303,7 +325,10 @@ mod tests {
         assert_eq!(merged1.rules.rules[0].name, "rule_v1");
 
         // Update file
-        let rules_v2 = r#"[{"name":"rule_v2","subject":{"agent":"a"},"effect":"deny","actions":[{"type":"command","command":"rm"}]}]"#;
+        let rules_v2 = concat!(
+            r#"[{"name":"rule_v2","subject":{"agent":"a"},"effect":"deny","actions""#,
+            r#":[{"type":"command","command":"rm"}]}]"#
+        );
         setup_agent_file(tmp.path(), "a", rules_v2);
 
         // Without invalidate, cache is still valid (mtime might not change instantly)
@@ -318,12 +343,18 @@ mod tests {
         setup_agent_file(
             tmp.path(),
             "agent-a",
-            r#"[{"name":"rule_a","subject":{"agent":"agent-a"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#,
+            concat!(
+                r#"[{"name":"rule_a","subject":{"agent":"agent-a"},"effect":"allow","actions":"#,
+                r#"[{"type":"file","operation":"read","paths":["*"]}]}]"#
+            ),
         );
         setup_agent_file(
             tmp.path(),
             "agent-b",
-            r#"[{"name":"rule_b","subject":{"agent":"agent-b"},"effect":"deny","actions":[{"type":"command","command":"rm"}]}]"#,
+            concat!(
+                r#"[{"name":"rule_b","subject":{"agent":"agent-b"},"effect":"deny","actions":"#,
+                r#"[{"type":"command","command":"rm"}]}]"#
+            ),
         );
 
         let global = empty_global_rules();
@@ -339,8 +370,11 @@ mod tests {
     fn indices_match_rules() {
         let tmp = TempDir::new().unwrap();
         let rules_json = r#"[
-            {"name":"r1","subject":{"agent":"ag1"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]},
-            {"name":"r2","subject":{"match_mode":"user_and_agent","fields":{"user_id":"u1","agent":"ag1"}},"effect":"deny","actions":[{"type":"command","command":"rm"}]}
+            {"name":"r1","subject":{"agent":"ag1"},"effect":"allow","actions":[
+                {"type":"file","operation":"read","paths":["*"]}]},
+            {"name":"r2","subject":{"match_mode":"user_and_agent",
+                "fields":{"user_id":"u1","agent":"ag1"}},
+                "effect":"deny","actions":[{"type":"command","command":"rm"}]}
         ]"#;
         setup_agent_file(tmp.path(), "ag1", rules_json);
 
@@ -359,7 +393,10 @@ mod tests {
     #[test]
     fn global_version_change_invalidates_all_entries() {
         let tmp = TempDir::new().unwrap();
-        let rules_v1 = r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#;
+        let rules_v1 = concat!(
+            r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions""#,
+            r#":[{"type":"file","operation":"read","paths":["*"]}]}]"#
+        );
         setup_agent_file(tmp.path(), "a", rules_v1);
 
         let global = empty_global_rules();
@@ -368,7 +405,10 @@ mod tests {
         assert_eq!(merged1.rules.rules[0].name, "rule_v1");
 
         // Update file content
-        let rules_v2 = r#"[{"name":"rule_v2","subject":{"agent":"a"},"effect":"deny","actions":[{"type":"command","command":"rm"}]}]"#;
+        let rules_v2 = concat!(
+            r#"[{"name":"rule_v2","subject":{"agent":"a"},"effect":"deny","actions""#,
+            r#":[{"type":"command","command":"rm"}]}]"#
+        );
         setup_agent_file(tmp.path(), "a", rules_v2);
 
         // Different global version → all entries invalidated, re-reads from disk
@@ -383,12 +423,18 @@ mod tests {
         setup_agent_file(
             tmp.path(),
             "agent-x",
-            r#"[{"name":"rule_x","subject":{"agent":"agent-x"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#,
+            concat!(
+                r#"[{"name":"rule_x","subject":{"agent":"agent-x"},"effect":"allow","actions":"#,
+                r#"[{"type":"file","operation":"read","paths":["*"]}]}]"#
+            ),
         );
         setup_agent_file(
             tmp.path(),
             "agent-y",
-            r#"[{"name":"rule_y","subject":{"agent":"agent-y"},"effect":"deny","actions":[{"type":"command","command":"rm"}]}]"#,
+            concat!(
+                r#"[{"name":"rule_y","subject":{"agent":"agent-y"},"effect":"deny","actions":"#,
+                r#"[{"type":"command","command":"rm"}]}]"#
+            ),
         );
 
         let global = empty_global_rules();
@@ -403,7 +449,10 @@ mod tests {
         setup_agent_file(
             tmp.path(),
             "agent-x",
-            r#"[{"name":"rule_x2","subject":{"agent":"agent-x"},"effect":"deny","actions":[{"type":"command","command":"rm"}]}]"#,
+            concat!(
+                r#"[{"name":"rule_x2","subject":{"agent":"agent-x"},"effect":"deny","actions":"#,
+                r#"[{"type":"command","command":"rm"}]}]"#
+            ),
         );
 
         // global-v2 invalidates ALL entries, even agent-y (which hasn't changed)
@@ -419,7 +468,10 @@ mod tests {
         setup_agent_file(
             tmp.path(),
             "agent-g",
-            r#"[{"name":"agent_rule","subject":{"agent":"agent-g"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#,
+            concat!(
+                r#"[{"name":"agent_rule","subject":{"agent":"agent-g"},"effect":"allow","actions""#,
+                r#":[{"type":"file","operation":"read","paths":["*"]}]}]"#
+            ),
         );
 
         // Global has its own rule
@@ -457,7 +509,10 @@ mod tests {
         setup_agent_file(
             tmp.path(),
             "put-agent",
-            r#"[{"name":"put_rule","subject":{"agent":"put-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["*"]}]}]"#,
+            concat!(
+                r#"[{"name":"put_rule","subject":{"agent":"put-agent"},"effect":"allow","actions""#,
+                r#":[{"type":"file","operation":"read","paths":["*"]}]}]"#
+            ),
         );
 
         let global = empty_global_rules();

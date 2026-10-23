@@ -94,7 +94,8 @@ fn test_defaults_message_is_allow() {
 #[test]
 fn test_defaults_json_missing_message() {
     // Old config without `message` field should deserialize with default Allow
-    let json = r#"{"file":"deny","exec":"deny","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny"}"#;
+    let json = "{\"file\":\"deny\",\"exec\":\"deny\",\"network\":\"deny\",\
+               \"inter_agent\":\"deny\",\"config\":\"deny\",\"tool_call\":\"deny\"}";
     let defaults: super::Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(defaults.message, super::Effect::Allow);
     assert_eq!(defaults.file_read, super::Effect::Deny);
@@ -120,7 +121,9 @@ fn test_defaults_json_with_message_deny() {
 /// should deserialize correctly via the custom Deserialize impl.
 #[test]
 fn test_defaults_backward_compat_command_field() {
-    let json = r#"{"command":"deny","file_read":"allow","file_write":"allow","network":"deny","inter_agent":"deny","config":"deny","tool_call":"deny","message":"deny"}"#;
+    let json = "{\"command\":\"deny\",\"file_read\":\"allow\",\"file_write\":\"allow\",\
+        \"network\":\"deny\",\"inter_agent\":\"deny\",\"config\":\"deny\",\
+        \"tool_call\":\"deny\",\"message\":\"deny\"}";
     let defaults: super::Defaults = serde_json::from_str(json).unwrap();
     assert_eq!(
         defaults.exec,

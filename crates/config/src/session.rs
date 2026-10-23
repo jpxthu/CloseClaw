@@ -356,7 +356,8 @@ mod tests {
         dreaming_interval_secs: u64,
     ) -> String {
         format!(
-            r#"{{"defaults":{},"agents":{},"sweeperIntervalSeconds":{},"dreamingIntervalSecs":{}}}"#,
+            "{{\"defaults\":{},\"agents\":{},\"sweeperIntervalSeconds\":{},\
+             \"dreamingIntervalSecs\":{}}}",
             defaults, agents, sweeper_interval_secs, dreaming_interval_secs
         )
     }

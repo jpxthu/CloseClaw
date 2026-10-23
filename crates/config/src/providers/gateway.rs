@@ -326,7 +326,10 @@ mod tests {
         );
         let err = result.unwrap_err();
         assert!(
-            matches!(err, ConfigError::ValueError { field, .. } if field == "inbound_queue_capacity"),
+            matches!(
+                err,
+                ConfigError::ValueError { field, .. } if field == "inbound_queue_capacity"
+            ),
             "error should be about inbound_queue_capacity field"
         );
     }

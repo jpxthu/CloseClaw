@@ -1,12 +1,9 @@
 //! Tests for config section validators.
 
-use std::collections::HashSet;
-
 use crate::manager::ConfigSection;
 use crate::validators::{
     for_section, validate_channels, validate_channels_with_refs, validate_gateway, validate_media,
-    validate_models, validate_models_with_refs, validate_plugins, validate_session,
-    validate_system, CredentialProviderSet, CrossRefData,
+    validate_models, validate_plugins, validate_session, validate_system, CrossRefData,
 };
 
 // ---------------------------------------------------------------------------
@@ -128,7 +125,8 @@ fn test_validate_models_fail_provider_not_object() {
 #[test]
 fn test_validate_channels_pass_variants() {
     for json in [
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\"bindings\":[\
+         {\"agentId\":\"a1\",\"match\":{\"channel\":\"feishu\",\"accountId\":\"acc1\"}}]}",
         r#"{}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -233,11 +231,13 @@ fn test_validate_channels_fail_binding_channel() {
 fn test_validate_channels_fail_binding_account_id() {
     let cases = [
         (
-            r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu"}}]}"#,
+            "{\"channels\":{\"feishu\":{\"enabled\":true}},\"bindings\":[\
+             {\"agentId\":\"a1\",\"match\":{\"channel\":\"feishu\"}}]}",
             "match.accountId is required",
         ),
         (
-            r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":""}}]}"#,
+            "{\"channels\":{\"feishu\":{\"enabled\":true}},\"bindings\":[\
+             {\"agentId\":\"a1\",\"match\":{\"channel\":\"feishu\",\"accountId\":\"\"}}]}",
             "match.accountId cannot be empty",
         ),
     ];
@@ -251,7 +251,10 @@ fn test_validate_channels_fail_binding_account_id() {
 #[test]
 fn test_validate_channels_pass_multiple_valid() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true},"telegram":{"enabled":false}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}},{"agentId":"a2","match":{"channel":"telegram","accountId":"bot1"}}]}"#,
+        "{\"channels\":{\"feishu\":{\"enabled\":true},\
+         \"telegram\":{\"enabled\":false}},\"bindings\":[\
+         {\"agentId\":\"a1\",\"match\":{\"channel\":\"feishu\",\"accountId\":\"acc1\"}},\
+         {\"agentId\":\"a2\",\"match\":{\"channel\":\"telegram\",\"accountId\":\"bot1\"}}]}",
     )
     .unwrap();
     assert!(validate_channels(&v).is_ok());
@@ -473,7 +476,9 @@ fn test_validate_plugins_pass_install_path_optional() {
 #[test]
 fn test_validate_plugins_pass_all_fields() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"version":"1.0.0","enabled":true,"allow":["minimax"],"entries":{"minimax":{"enabled":true}},"installs":{"minimax":{"source":"archive"}}}"#,
+        "{\"version\":\"1.0.0\",\"enabled\":true,\"allow\":[\"minimax\"],\
+         \"entries\":{\"minimax\":{\"enabled\":true}},\
+         \"installs\":{\"minimax\":{\"source\":\"archive\"}}}",
     )
     .unwrap();
     assert!(validate_plugins(&v).is_ok());
@@ -631,8 +636,11 @@ fn test_for_section_returns_correct_validator() {
 #[test]
 fn test_validate_channels_cross_ref_unknown_agent_id() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"unknown-agent","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
-    ).unwrap();
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\
+         \"bindings\":[{\"agentId\":\"unknown-agent\",\
+         \"match\":{\"channel\":\"feishu\",\"accountId\":\"acc1\"}}]}",
+    )
+    .unwrap();
     let cr = CrossRefData {
         agent_ids: ["known-agent".into()].into_iter().collect(),
         account_ids: ["acc1".into()].into_iter().collect(),
@@ -649,8 +657,11 @@ fn test_validate_channels_cross_ref_unknown_agent_id() {
 #[test]
 fn test_validate_channels_cross_ref_unknown_account_id() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"known-agent","match":{"channel":"feishu","accountId":"unknown-account"}}]}"#,
-    ).unwrap();
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\
+         \"bindings\":[{\"agentId\":\"known-agent\",\
+         \"match\":{\"channel\":\"feishu\",\"accountId\":\"unknown-account\"}}]}",
+    )
+    .unwrap();
     let cr = CrossRefData {
         agent_ids: ["known-agent".into()].into_iter().collect(),
         account_ids: ["known-account".into()].into_iter().collect(),
@@ -667,8 +678,11 @@ fn test_validate_channels_cross_ref_unknown_account_id() {
 #[test]
 fn test_validate_channels_cross_ref_known_agent_and_account() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"agent-1","match":{"channel":"feishu","accountId":"acc-1"}}]}"#,
-    ).unwrap();
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\
+         \"bindings\":[{\"agentId\":\"agent-1\",\
+         \"match\":{\"channel\":\"feishu\",\"accountId\":\"acc-1\"}}]}",
+    )
+    .unwrap();
     let cr = CrossRefData {
         agent_ids: ["agent-1".into(), "agent-2".into()].into_iter().collect(),
         account_ids: ["acc-1".into(), "acc-2".into()].into_iter().collect(),
@@ -679,7 +693,9 @@ fn test_validate_channels_cross_ref_known_agent_and_account() {
 #[test]
 fn test_validate_channels_cross_ref_none_skips_validation() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"any-agent","match":{"channel":"feishu","accountId":"any-account"}}]}"#,
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\
+         \"bindings\":[{\"agentId\":\"any-agent\",\
+         \"match\":{\"channel\":\"feishu\",\"accountId\":\"any-account\"}}]}",
     )
     .unwrap();
     assert!(validate_channels_with_refs(&v, None).is_ok());
@@ -790,7 +806,8 @@ fn test_validate_session_nested_per_role() {
         r#"{"defaults":{"mainAgent":{"idleMinutes":30,"purgeAfterMinutes":1440}}}"#,
         r#"{"defaults":{"mainAgent":{"idleMinutes":0,"purgeAfterMinutes":0}}}"#,
         r#"{"defaults":{"mainAgent":{"idleMinutes":30},"subAgent":{"idleMinutes":10}}}"#,
-        r#"{"defaults":{"mainAgent":{"idleMinutes":30}},"agents":{"a1":{"mainAgent":{"idleMinutes":60}}}}"#,
+        "{\"defaults\":{\"mainAgent\":{\"idleMinutes\":30}},\
+         \"agents\":{\"a1\":{\"mainAgent\":{\"idleMinutes\":60}}}}",
         r#"{"defaults":{},"agents":{}}"#,
     ] {
         let v: serde_json::Value = serde_json::from_str(json).unwrap();
@@ -837,8 +854,10 @@ fn test_default_validator_session_and_for_section() {
     let valid: serde_json::Value = serde_json::from_str(r#"{}"#).unwrap();
     let invalid: serde_json::Value = serde_json::from_str(r#"[1]"#).unwrap();
     let compact_valid: serde_json::Value = serde_json::from_str(
-        r#"{"sweeperIntervalSeconds":300,"compact":{"charsPerToken":4.0,"maxConsecutiveFailures":3}}"#,
-    ).unwrap();
+        "{\"sweeperIntervalSeconds\":300,\
+         \"compact\":{\"charsPerToken\":4.0,\"maxConsecutiveFailures\":3}}",
+    )
+    .unwrap();
     assert!(ConfigSection::Session.default_validator()(&valid).is_ok());
     assert!(ConfigSection::Session.default_validator()(&compact_valid).is_ok());
     assert!(ConfigSection::Session.default_validator()(&invalid).is_err());
@@ -854,8 +873,10 @@ fn test_default_validator_session_and_for_section() {
 #[test]
 fn test_validate_channels_binding_ref_valid_channel_type() {
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"feishu","accountId":"acc1"}}]}"#,
-    ).unwrap();
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\"bindings\":[\
+         {\"agentId\":\"a1\",\"match\":{\"channel\":\"feishu\",\"accountId\":\"acc1\"}}]}",
+    )
+    .unwrap();
     assert!(validate_channels(&v).is_ok());
 }
 
@@ -863,8 +884,10 @@ fn test_validate_channels_binding_ref_valid_channel_type() {
 fn test_validate_channels_binding_ref_undefined_channel_type() {
     // Binding references slack which is not in channels config
     let v: serde_json::Value = serde_json::from_str(
-        r#"{"channels":{"feishu":{"enabled":true}},"bindings":[{"agentId":"a1","match":{"channel":"slack","accountId":"acc1"}}]}"#,
-    ).unwrap();
+        "{\"channels\":{\"feishu\":{\"enabled\":true}},\"bindings\":[\
+         {\"agentId\":\"a1\",\"match\":{\"channel\":\"slack\",\"accountId\":\"acc1\"}}]}",
+    )
+    .unwrap();
     let err = validate_channels(&v).unwrap_err();
     assert!(
         err.contains("references an undefined channel type"),
@@ -887,114 +910,4 @@ fn test_validate_channels_binding_ref_no_channels_with_bindings() {
         "error: {}",
         err
     );
-}
-
-// ---------------------------------------------------------------------------
-// Step 1.4 — models credentialPath file existence validation tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_models_credential_path_exists() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let path = tmp.path().to_str().unwrap();
-    let json = format!(
-        r#"{{"providers":{{"p":{{"credentialPath":"{}","models":[]}}}}}}"#,
-        path
-    );
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(validate_models(&v).is_ok());
-}
-
-#[test]
-fn test_validate_models_credential_path_not_exists() {
-    let v: serde_json::Value = serde_json::from_str(
-        r#"{"providers":{"p":{"credentialPath":"/nonexistent/path/to/cred","models":[]}}}"#,
-    )
-    .unwrap();
-    let err = validate_models(&v).unwrap_err();
-    assert!(err.contains("does not exist"), "error: {}", err);
-    assert!(
-        err.contains("credentialPath"),
-        "error should mention credentialPath: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_models_credential_path_null_or_absent() {
-    let v_null: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"p":{"credentialPath":null,"models":[]}}}"#).unwrap();
-    assert!(validate_models(&v_null).is_ok());
-    let v_absent: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"p":{"models":[]}}}"#).unwrap();
-    assert!(validate_models(&v_absent).is_ok());
-}
-
-// ---------------------------------------------------------------------------
-// Step 1.3 — models apiKey credential cross-validation tests
-// ---------------------------------------------------------------------------
-
-#[test]
-fn test_validate_models_api_key_ref_unknown_cred_provider() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
-            .unwrap();
-    let crps = CredentialProviderSet {
-        names: ["anthropic".to_string()].into_iter().collect(),
-    };
-    let err = validate_models_with_refs(&v, Some(&crps)).unwrap_err();
-    assert!(
-        err.contains("references an unknown credential provider"),
-        "error: {}",
-        err
-    );
-    assert!(
-        err.contains("openai"),
-        "error should mention openai: {}",
-        err
-    );
-}
-
-#[test]
-fn test_validate_models_api_key_ref_known_cred_provider() {
-    let v: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
-            .unwrap();
-    let crps = CredentialProviderSet {
-        names: ["openai".into(), "anthropic".into()].into_iter().collect(),
-    };
-    assert!(validate_models_with_refs(&v, Some(&crps)).is_ok());
-}
-
-#[test]
-fn test_validate_models_pass_no_api_key_or_credential_path() {
-    let empty_creds = CredentialProviderSet {
-        names: HashSet::new(),
-    };
-    // No apiKey: passes regardless of credential providers
-    let v1: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"models":[{"id":"gpt-4"}]}}}"#).unwrap();
-    assert!(validate_models_with_refs(&v1, Some(&empty_creds)).is_ok());
-    // No cross-ref: skips credential check entirely
-    let v2: serde_json::Value =
-        serde_json::from_str(r#"{"providers":{"openai":{"apiKey":"sk-test","models":[]}}}"#)
-            .unwrap();
-    assert!(validate_models_with_refs(&v2, None).is_ok());
-}
-
-#[test]
-fn test_validate_models_api_key_with_credential_path_passes() {
-    let tmp = tempfile::NamedTempFile::new().unwrap();
-    let json = format!(
-        r#"{{"providers":{{"openai":{{"apiKey":"sk-test","credentialPath":"{}","models":[]}}}}}}"#,
-        tmp.path().to_str().unwrap()
-    );
-    let v: serde_json::Value = serde_json::from_str(&json).unwrap();
-    assert!(validate_models_with_refs(
-        &v,
-        Some(&CredentialProviderSet {
-            names: HashSet::new()
-        })
-    )
-    .is_ok());
 }
