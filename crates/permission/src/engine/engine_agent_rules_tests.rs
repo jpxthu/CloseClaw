@@ -111,7 +111,10 @@ fn test_first_evaluate_triggers_lazy_load_allow() {
     write_agent_rules(
         &tmp,
         "agent-1",
-        r#"[{"name":"agent-allow-read","subject":{"agent":"agent-1"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"agent-allow-read\",\
+         \"subject\":{\"agent\":\"agent-1\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = deny_all_global_rules();
@@ -132,7 +135,10 @@ fn test_first_evaluate_triggers_lazy_load_deny() {
     write_agent_rules(
         &tmp,
         "agent-deny",
-        r#"[{"name":"agent-deny-read","subject":{"agent":"agent-deny"},"effect":"deny","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"agent-deny-read\",\
+         \"subject\":{\"agent\":\"agent-deny\"},\
+         \"effect\":\"deny\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     // Global: Allow file_read (so without agent rule, it would be Allowed).
@@ -166,7 +172,10 @@ fn test_global_and_agent_rules_both_participate() {
     write_agent_rules(
         &tmp,
         "agent-merge",
-        r#"[{"name":"agent-allow-read","subject":{"agent":"agent-merge"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"agent-allow-read\",\
+         \"subject\":{\"agent\":\"agent-merge\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = RuleSetBuilder::new()
@@ -224,7 +233,10 @@ fn test_startup_does_not_read_agent_directory() {
     write_agent_rules(
         &tmp,
         "agent-lazy",
-        r#"[{"name":"should-not-load","subject":{"agent":"agent-lazy"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"should-not-load\",\
+         \"subject\":{\"agent\":\"agent-lazy\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = deny_all_global_rules();
@@ -251,7 +263,10 @@ fn test_mtime_change_picks_up_new_rules() {
     write_agent_rules(
         &tmp,
         "hot-agent",
-        r#"[{"name":"old-rule","subject":{"agent":"hot-agent"},"effect":"deny","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"old-rule\",\
+         \"subject\":{\"agent\":\"hot-agent\"},\
+         \"effect\":\"deny\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = RuleSetBuilder::new()
@@ -279,7 +294,10 @@ fn test_mtime_change_picks_up_new_rules() {
     write_agent_rules(
         &tmp,
         "hot-agent",
-        r#"[{"name":"new-rule","subject":{"agent":"hot-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"new-rule\",\
+         \"subject\":{\"agent\":\"hot-agent\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
     // Ensure mtime differs (some filesystems have 1s granularity).
     // Write again to bump mtime.
@@ -306,7 +324,10 @@ fn test_explicit_invalidate_causes_immediate_reload() {
     write_agent_rules(
         &tmp,
         "inv-agent",
-        r#"[{"name":"initial","subject":{"agent":"inv-agent"},"effect":"deny","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"initial\",\
+         \"subject\":{\"agent\":\"inv-agent\"},\
+         \"effect\":\"deny\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = RuleSetBuilder::new()
@@ -330,7 +351,10 @@ fn test_explicit_invalidate_causes_immediate_reload() {
     write_agent_rules(
         &tmp,
         "inv-agent",
-        r#"[{"name":"updated","subject":{"agent":"inv-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"updated\",\
+         \"subject\":{\"agent\":\"inv-agent\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     // Explicitly invalidate → forces re-read.
@@ -350,7 +374,10 @@ fn test_reload_rules_invalidates_agent_cache() {
     write_agent_rules(
         &tmp,
         "gr-agent",
-        r#"[{"name":"agent-rule","subject":{"agent":"gr-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"agent-rule\",\
+         \"subject\":{\"agent\":\"gr-agent\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset_v1 = deny_all_global_rules();
@@ -464,7 +491,10 @@ fn test_deleted_file_after_load_uses_stale_cache() {
     write_agent_rules(
         &tmp,
         "del-agent",
-        r#"[{"name":"del-rule","subject":{"agent":"del-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"del-rule\",\
+         \"subject\":{\"agent\":\"del-agent\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = deny_all_global_rules();
@@ -503,12 +533,18 @@ fn test_multiple_agents_isolated_caches() {
     write_agent_rules(
         &tmp,
         "iso-a",
-        r#"[{"name":"allow-a","subject":{"agent":"iso-a"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"allow-a\",\
+         \"subject\":{\"agent\":\"iso-a\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
     write_agent_rules(
         &tmp,
         "iso-b",
-        r#"[{"name":"deny-b","subject":{"agent":"iso-b"},"effect":"deny","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"deny-b\",\
+         \"subject\":{\"agent\":\"iso-b\"},\
+         \"effect\":\"deny\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = deny_all_global_rules();
@@ -532,7 +568,10 @@ fn test_multiple_agents_isolated_caches() {
     write_agent_rules(
         &tmp,
         "iso-b",
-        r#"[{"name":"allow-b-new","subject":{"agent":"iso-b"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"allow-b-new\",\
+         \"subject\":{\"agent\":\"iso-b\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
     let agent_dir = tmp.path().join("agents").join("iso-b");
     let content = fs::read_to_string(agent_dir.join("permissions.json")).unwrap();
@@ -564,7 +603,10 @@ fn test_high_frequency_evaluate_cache_hit() {
     write_agent_rules(
         &tmp,
         "freq-agent",
-        r#"[{"name":"freq-rule","subject":{"agent":"freq-agent"},"effect":"allow","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"freq-rule\",\
+         \"subject\":{\"agent\":\"freq-agent\"},\
+         \"effect\":\"allow\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = deny_all_global_rules();
@@ -621,7 +663,10 @@ fn test_agent_rules_deny_priority_over_global_allow() {
     write_agent_rules(
         &tmp,
         "dp-agent",
-        r#"[{"name":"agent-deny","subject":{"agent":"dp-agent"},"effect":"deny","actions":[{"type":"file","operation":"read","paths":["/**"]}]}]"#,
+        "[{\"name\":\"agent-deny\",\
+         \"subject\":{\"agent\":\"dp-agent\"},\
+         \"effect\":\"deny\",\
+         \"actions\":[{\"type\":\"file\",\"operation\":\"read\",\"paths\":[\"/**\"]}]}]",
     );
 
     let ruleset = RuleSetBuilder::new()

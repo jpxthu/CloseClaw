@@ -129,9 +129,10 @@ fn test_subject_deserialize_old_agent_only() {
 fn test_subject_deserialize_old_with_glob() {
     let json = r#"{"agent": "dev-*", "match": "glob"}"#;
     let subject: Subject = serde_json::from_str(json).unwrap();
-    assert!(
-        matches!(subject, Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*")
-    );
+    assert!(matches!(
+        subject,
+        Subject::AgentOnly { agent, match_type: MatchType::Glob } if agent == "dev-*"
+    ));
 }
 
 #[test]
