@@ -130,12 +130,12 @@ mod tests {
         let tracker = SearcherSessionTracker::new();
         let mut running_ids = Vec::new();
         // Fill beyond capacity with Running sessions.
-        for i in 0..=128 {
+        for i in 0..=TRACKER_CAPACITY {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
             running_ids.push(id);
         }
         // All Running records must survive.
-        assert_eq!(tracker.len(), 129);
+        assert_eq!(tracker.len(), TRACKER_CAPACITY + 1);
         for id in &running_ids {
             assert!(
                 tracker.get(id).is_some(),
@@ -150,7 +150,8 @@ mod tests {
     fn test_eviction_removes_oldest_finished_preserves_newer() {
         let tracker = SearcherSessionTracker::new();
 
-        // Create and finish 64 sessions.
+        // Create and finish 64 sessions (a test-chosen count, not
+        // capacity-derived): the initial finished pool.
         let mut old_ids = Vec::new();
         for i in 0..64 {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
@@ -158,16 +159,18 @@ mod tests {
             old_ids.push(id);
         }
 
-        // Create and finish 65 more (total 129 > 128).
+        // Create and finish TRACKER_CAPACITY + 1 - 64 more, so the total
+        // (TRACKER_CAPACITY + 1) exceeds capacity by one.
         // The oldest finished ones should be evicted.
         let mut new_ids = Vec::new();
-        for i in 64..129 {
+        for i in 64..TRACKER_CAPACITY + 1 {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
             tracker.end(&id, SearcherSessionStatus::Injected);
             new_ids.push(id);
         }
 
-        // Exactly one old_id should be evicted (excess = 129 - 128 = 1).
+        // Exactly one old_id should be evicted
+        // (excess = TRACKER_CAPACITY + 1 - TRACKER_CAPACITY = 1).
         // The evicted record must be the oldest (lowest finish_seq), which is old_ids[0].
         let evicted = old_ids
             .iter()
@@ -199,13 +202,15 @@ mod tests {
         let mut running_ids = Vec::new();
         let mut finished_ids = Vec::new();
 
-        // 64 Running sessions.
+        // 64 Running sessions (64 is a test-chosen count, not
+        // capacity-derived).
         for i in 0..64 {
             let id = tracker.begin(format!("r{i}"), "a".into(), "user".into());
             running_ids.push(id);
         }
-        // 65 finished sessions (total 129 > 128).
-        for i in 0..65 {
+        // TRACKER_CAPACITY + 1 - 64 finished sessions: the total
+        // (TRACKER_CAPACITY + 1) exceeds capacity by one.
+        for i in 0..TRACKER_CAPACITY + 1 - 64 {
             let id = tracker.begin(format!("f{i}"), "a".into(), "user".into());
             tracker.end(&id, SearcherSessionStatus::Abandoned);
             finished_ids.push(id);
@@ -219,7 +224,8 @@ mod tests {
             );
         }
 
-        // Exactly one finished record should be evicted (excess = 129 - 128 = 1).
+        // Exactly one finished record should be evicted
+        // (excess = TRACKER_CAPACITY + 1 - TRACKER_CAPACITY = 1).
         let evicted = finished_ids
             .iter()
             .filter(|id| tracker.get(id).is_none())
@@ -418,7 +424,8 @@ mod tests {
     fn test_eviction_same_millisecond_tiebreaks_by_finish_seq() {
         let tracker = SearcherSessionTracker::new();
 
-        // Batch 1: begin and end 64 sessions (all finish in same tick).
+        // Batch 1: begin and end 64 sessions (all finish in same tick);
+        // 64 is a test-chosen count, not capacity-derived.
         let mut batch1_ids = Vec::new();
         for i in 0..64 {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
@@ -426,10 +433,11 @@ mod tests {
             batch1_ids.push(id);
         }
 
-        // Batch 2: begin and end 65 more (all finish in same tick).
-        // Total 129 > 128 capacity.
+        // Batch 2: begin and end TRACKER_CAPACITY + 1 - 64 more (all
+        // finish in same tick). Total TRACKER_CAPACITY + 1 exceeds
+        // capacity by one.
         let mut batch2_ids = Vec::new();
-        for i in 64..129 {
+        for i in 64..TRACKER_CAPACITY + 1 {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
             tracker.end(&id, SearcherSessionStatus::Injected);
             batch2_ids.push(id);
