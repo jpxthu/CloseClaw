@@ -192,7 +192,7 @@ fn test_truncation_matches_expected_floor_char_boundary() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn test_kill_without_runtime_returns_err_with_runtime_message() {
+fn test_kill_without_runtime_returns_err_with_missing_runtime_message() {
     // Contract from the `kill()` doc comment: with no current tokio
     // runtime there is nothing to `block_on`, so the call fails fast
     // with a "called outside a tokio runtime" error. The Err branch
