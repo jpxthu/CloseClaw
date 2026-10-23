@@ -35,6 +35,8 @@ fn test_config_wizard_reexports_compile() {
         crate::config_wizard::format_discovery_source_suffix;
     let _wizard_context: fn() -> crate::config_wizard::WizardContext = || unreachable!();
     let _providers: &'static [crate::config_wizard::ProviderInfo] = crate::config_wizard::PROVIDERS;
+    let _wizard_state: crate::config_wizard::WizardState =
+        crate::config_wizard::WizardState::SelectProvider;
 
     // fetch.rs re-export surfaced via `pub use fetch::*;`.
     let _ = crate::config_wizard::knowledge_fallback;

@@ -23,9 +23,10 @@ pub(crate) use parse::{compute_default_selection, format_discovery_source_suffix
 // Test-glob dependencies: child test modules resolve these external types via
 // `use super::*;` — keep the bindings alive after the functions moved out.
 #[cfg(test)]
-use closeclaw_config::agents::{AgentConfig, AgentsConfig};
-#[cfg(test)]
-use closeclaw_config::providers::models::{ModelDefinition, ModelsConfigData, ProviderConfig};
+use closeclaw_config::{
+    agents::{AgentConfig, AgentsConfig},
+    providers::models::{ModelDefinition, ModelsConfigData, ProviderConfig},
+};
 #[cfg(test)]
 use closeclaw_llm::model_info::ModelInfo;
 

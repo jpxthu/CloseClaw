@@ -18,7 +18,6 @@ use super::types::{
 use super::write_config::find_models_config;
 
 /// Build an `Arc<dyn ModelLister>` from the selected `ProviderInfo`.
-/// Build provider instances and return as a `ModelLister`.
 fn build_model_lister(info: &ProviderInfo, credential: &str) -> Arc<dyn ModelLister> {
     match info.provider_type {
         ProviderType::Minimax => Arc::new(MiniMaxProvider::new(credential.to_string())),
