@@ -32,4 +32,6 @@ use closeclaw_llm::model_info::ModelInfo;
 #[cfg(test)]
 mod default_agent_id_same_source_tests;
 #[cfg(test)]
+mod reexport_tests;
+#[cfg(test)]
 mod tests;
