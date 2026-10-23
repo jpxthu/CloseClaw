@@ -4,6 +4,7 @@
 //! it into `build_gateway`; these tests drive that seam with a parameterized
 //! fake router, so the cli crate keeps zero dependency on the slash crate.
 
+use crate::test_util::terminal_msg;
 use closeclaw_common::{
     NormalizedMessage, ReasoningLevel, SlashContext, SlashHandler, SlashResult, SlashRouter,
     SlashSessionQuery,
@@ -129,26 +130,6 @@ pub(crate) fn chat_processor_chain() -> Arc<dyn closeclaw_common::processor::Pro
     Arc::new(registry)
 }
 
-/// Build the inbound message used by the injection-path tests.
-fn slash_input(content: &str) -> NormalizedMessage {
-    NormalizedMessage {
-        platform: "terminal".into(),
-        sender_id: "owner".into(),
-        peer_id: "cli".into(),
-        content: content.to_string(),
-        timestamp: 0,
-        account_id: "owner".into(),
-        thread_id: None,
-        chat_name: String::new(),
-        trace_id: String::new(),
-        message_id: String::new(),
-        message_type: Default::default(),
-        media_refs: Vec::new(),
-        reply_ref: None,
-        unavailable_media: Vec::new(),
-    }
-}
-
 /// Verify that `/stop` reaches the router injected into the Gateway and
 /// that the router's `SlashResult::Stop` is consumed by the Gateway as a
 /// handled slash command (the cli-side injection seam).
@@ -184,7 +165,7 @@ async fn test_stop_routes_through_gateway_slash_dispatcher() {
         closeclaw_gateway::Gateway::new(config, session_manager, chat_processor_chain(), None);
     gateway.set_slash_dispatcher(router).await;
 
-    let processed = gateway.process_inbound_chain(&slash_input("/stop")).await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("/stop")).await;
     let result = gateway
         .handle_inbound_message(processed, Some("owner"), "terminal")
         .await;
@@ -380,7 +361,7 @@ async fn test_slash_router_injection_reply_reaches_output() {
 
     let processed = fx
         .gateway
-        .process_inbound_chain(&slash_input("/ping"))
+        .process_inbound_chain(&terminal_msg("/ping"))
         .await;
     let result = fx
         .gateway
@@ -439,7 +420,7 @@ async fn test_slash_input_without_dispatcher_does_not_panic() {
         "precondition: no slash dispatcher injected"
     );
 
-    let processed = gateway.process_inbound_chain(&slash_input("/ping")).await;
+    let processed = gateway.process_inbound_chain(&terminal_msg("/ping")).await;
     let result = gateway
         .handle_inbound_message(processed, Some("owner"), "terminal")
         .await;

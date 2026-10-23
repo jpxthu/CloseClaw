@@ -28,3 +28,5 @@ mod renderer_tests;
 mod renderer_tool_result_tests;
 #[cfg(test)]
 mod terminal_tests;
+#[cfg(test)]
+mod test_util;
