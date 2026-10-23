@@ -11,25 +11,27 @@ mod tests {
     use closeclaw_common::{IMPlugin, MessageType, NormalizedMessage, RenderedOutput};
     use closeclaw_llm::types::ContentBlock;
 
+    const TEST_AGENT: &str = "test-agent";
+
     // =========================================================================
     // TerminalAdapter tests
     // =========================================================================
 
     #[test]
     fn test_adapter_new() {
-        let _adapter = TerminalAdapter::new("test-agent");
+        let _adapter = TerminalAdapter::new(TEST_AGENT);
     }
 
     #[test]
     fn test_read_input_returns_none_on_eof() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new(TEST_AGENT);
         // stdin is empty in test environment -> EOF -> None
         assert!(adapter.read_input().is_none());
     }
 
     #[test]
     fn test_read_input_blank_lines_only_returns_none() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new(TEST_AGENT);
         // Leading blank lines are skipped; with no content accumulated -> None
         assert!(adapter.read_input().is_none());
     }
@@ -156,33 +158,33 @@ mod tests {
 
     #[test]
     fn test_plugin_platform_returns_terminal() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         assert_eq!(plugin.platform(), "terminal");
     }
 
     #[test]
     fn test_plugin_with_ansi_platform() {
-        let plugin = TerminalPlugin::with_ansi(true, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(true, TEST_AGENT);
         assert_eq!(plugin.platform(), "terminal");
     }
 
     #[tokio::test]
     async fn test_plugin_parse_inbound_eof() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let result = plugin.parse_inbound(b"").await.unwrap();
         assert!(result.is_none());
     }
 
     #[tokio::test]
     async fn test_plugin_parse_inbound_none_with_ansi() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let result = plugin.parse_inbound(b"").await.unwrap();
         assert!(result.is_none());
     }
 
     #[test]
     fn test_plugin_render_delegates_to_renderer() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let blocks = vec![ContentBlock::Text("hello world".into())];
         let output = plugin.render(&blocks, None);
         assert_eq!(output.msg_type, "text");
@@ -192,7 +194,7 @@ mod tests {
 
     #[test]
     fn test_plugin_render_with_ansi() {
-        let plugin = TerminalPlugin::with_ansi(true, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(true, TEST_AGENT);
         let blocks = vec![ContentBlock::Text("**bold**".into())];
         let output = plugin.render(&blocks, None);
         let text = output.payload.as_str().unwrap();
@@ -201,14 +203,14 @@ mod tests {
 
     #[test]
     fn test_plugin_render_empty_blocks() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let output = plugin.render(&[], None);
         assert_eq!(output.msg_type, "text");
     }
 
     #[test]
     fn test_plugin_render_mixed_content() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let blocks = vec![
             ContentBlock::Text("first".into()),
             ContentBlock::ToolUse {
@@ -230,7 +232,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_send_ok() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::Value::String("test output".into()),
@@ -241,7 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_send_empty_text() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::Value::String(String::new()),
@@ -252,7 +254,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_send_null_payload() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::Value::Null,
@@ -263,7 +265,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_send_missing_content_key() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::json!({}),
@@ -274,7 +276,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_plugin_send_with_thread_id() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let output = RenderedOutput {
             msg_type: "text".into(),
             payload: serde_json::Value::String("thread reply".into()),
@@ -289,14 +291,14 @@ mod tests {
     /// TerminalPlugin shutdown is a no-op (default from IMPlugin trait).
     #[tokio::test]
     async fn test_terminal_plugin_shutdown_noop() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         plugin.shutdown().await.unwrap();
     }
 
     /// TerminalPlugin shutdown is idempotent.
     #[tokio::test]
     async fn test_terminal_plugin_shutdown_idempotent() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         plugin.shutdown().await.unwrap();
         plugin.shutdown().await.unwrap();
     }
@@ -304,7 +306,7 @@ mod tests {
     /// TerminalPlugin init is a no-op (default from IMPlugin trait).
     #[tokio::test]
     async fn test_terminal_plugin_init_noop() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         plugin.init().await.unwrap();
     }
 
@@ -316,7 +318,7 @@ mod tests {
     /// aligning with the design doc: "local user defaults to Owner".
     #[test]
     fn test_make_message_account_id_is_owner() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new(TEST_AGENT);
         let msg = adapter.make_message("hello world".to_string());
         assert_eq!(msg.account_id, "owner");
     }
@@ -324,7 +326,7 @@ mod tests {
     /// Empty content still receives the correct account_id.
     #[test]
     fn test_make_message_empty_content_account_id() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new(TEST_AGENT);
         let msg = adapter.make_message(String::new());
         assert_eq!(msg.account_id, "owner");
     }
@@ -347,7 +349,7 @@ mod tests {
     /// Multiline content is preserved correctly.
     #[test]
     fn test_make_message_multiline_content_preserved() {
-        let adapter = TerminalAdapter::new("test-agent");
+        let adapter = TerminalAdapter::new(TEST_AGENT);
         let msg = adapter.make_message("line1\nline2\nline3".to_string());
         assert_eq!(msg.content, "line1\nline2\nline3");
         assert_eq!(msg.account_id, "owner");
@@ -359,7 +361,7 @@ mod tests {
     /// Verify DSL Button text appears in plugin-level render output.
     #[test]
     fn test_plugin_render_dsl_not_in_output() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let blocks = vec![ContentBlock::Text("Some text".into())];
         let dsl = DslParseResult {
             instructions: vec![DslInstruction {
@@ -383,7 +385,7 @@ mod tests {
     /// Verify DSL Selector text appears in plugin-level render output.
     #[test]
     fn test_plugin_render_dsl_selector_in_output() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let blocks = vec![ContentBlock::Text("Reply here".into())];
         let dsl = DslParseResult {
             instructions: vec![DslInstruction {
@@ -407,7 +409,7 @@ mod tests {
     /// Verify multiple DSL instructions each generate their own hint line.
     #[test]
     fn test_plugin_render_dsl_multiple_instructions() {
-        let plugin = TerminalPlugin::with_ansi(false, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(false, TEST_AGENT);
         let blocks = vec![ContentBlock::Text("Content".into())];
         let dsl = DslParseResult {
             instructions: vec![
@@ -438,7 +440,7 @@ mod tests {
     /// Verify DSL hints are wrapped in ANSI dim when ansi=true.
     #[test]
     fn test_plugin_render_dsl_ansi_no_style() {
-        let plugin = TerminalPlugin::with_ansi(true, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(true, TEST_AGENT);
         let blocks = vec![];
         let dsl = DslParseResult {
             instructions: vec![DslInstruction {
@@ -463,21 +465,21 @@ mod tests {
     /// streaming_renderer() returns Some for TerminalPlugin.
     #[test]
     fn test_streaming_renderer_returns_some() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         assert!(plugin.streaming_renderer().is_some());
     }
 
-    /// streaming_renderer() returns Some for TerminalPlugin::with_ansi(true, "test-agent").
+    /// streaming_renderer() returns Some for TerminalPlugin::with_ansi(true, ..).
     #[test]
     fn test_streaming_renderer_returns_some_with_ansi() {
-        let plugin = TerminalPlugin::with_ansi(true, "test-agent");
+        let plugin = TerminalPlugin::with_ansi(true, TEST_AGENT);
         assert!(plugin.streaming_renderer().is_some());
     }
 
     /// Handle a single text BlockDelta and verify streaming output is non-empty.
     #[test]
     fn test_streaming_handle_block_delta_produces_output() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -509,7 +511,7 @@ mod tests {
     /// Flush drains remaining buffered content.
     #[test]
     fn test_streaming_flush_drains_buffer() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -533,7 +535,7 @@ mod tests {
     /// Flush on empty state returns empty output.
     #[test]
     fn test_streaming_flush_empty_returns_empty() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -547,7 +549,7 @@ mod tests {
     /// Empty text delta does not panic and produces no output.
     #[test]
     fn test_streaming_empty_text_delta() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -566,7 +568,7 @@ mod tests {
     /// Rapid consecutive deltas accumulate correctly.
     #[test]
     fn test_streaming_rapid_consecutive_deltas() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -599,7 +601,7 @@ mod tests {
     /// Code block content is handled without panicking.
     #[test]
     fn test_streaming_code_block_content() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -626,7 +628,7 @@ mod tests {
     /// BlockStart and BlockEnd events are accepted without error.
     #[test]
     fn test_streaming_block_start_end_no_panic() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -646,7 +648,7 @@ mod tests {
     /// Full streaming lifecycle: BlockStart → BlockDelta → BlockEnd → flush.
     #[test]
     fn test_streaming_full_lifecycle() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -681,7 +683,7 @@ mod tests {
     /// MessageEnd event is accepted and flush drains remaining content.
     #[test]
     fn test_streaming_message_end_triggers_flush() {
-        let plugin = TerminalPlugin::new("test-agent");
+        let plugin = TerminalPlugin::new(TEST_AGENT);
         let renderer = plugin.streaming_renderer().unwrap();
         let mut r = renderer.lock().unwrap();
 
@@ -709,8 +711,8 @@ mod tests {
     /// Streaming renderer is independent across TerminalPlugin instances.
     #[test]
     fn test_streaming_renderer_independent_across_instances() {
-        let plugin_a = TerminalPlugin::new("test-agent");
-        let plugin_b = TerminalPlugin::new("test-agent");
+        let plugin_a = TerminalPlugin::new(TEST_AGENT);
+        let plugin_b = TerminalPlugin::new(TEST_AGENT);
 
         let ra = plugin_a.streaming_renderer().unwrap();
         let rb = plugin_b.streaming_renderer().unwrap();
