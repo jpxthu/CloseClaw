@@ -61,28 +61,41 @@ mod tests {
 
     // ── Test: memory_db_path not set → no task spawned ──────────────
 
+    /// Zero-wait negative test (pattern: tool_session_persist_tests):
+    /// `spawn_active_searcher` is a plain (non-async) fn whose
+    /// `memory_db_path = None` guard returns synchronously *before*
+    /// `tokio::spawn` is ever reached (active_searcher.rs:167-169), so
+    /// once the call returns the no-spawn decision is final and the
+    /// spy flags can be asserted immediately — no sleep, no race
+    /// window.
     #[tokio::test]
     async fn test_no_spawn_when_db_path_none() {
-        // With memory_db_path = None, spawn_active_searcher is a no-op.
-        // We verify by confirming the injected flag was never set.
-        let injection_called: Arc<tokio::sync::Mutex<bool>> =
-            Arc::new(tokio::sync::Mutex::new(false));
-        let called = Arc::clone(&injection_called);
+        let began = Arc::new(AtomicBool::new(false));
+        let ran = Arc::new(AtomicBool::new(false));
+
+        let began_spy = Arc::clone(&began);
+        let ran_spy = Arc::clone(&ran);
         let mut deps = noop_deps();
+        deps.begin_searcher_session = Box::new(move |_sid: String, _aid: String, _role: String| {
+            began_spy.store(true, Ordering::SeqCst);
+            Box::pin(async { Some("test-searcher-session".to_string()) })
+        });
         deps.run_searcher = Box::new(move |_input: SearcherInput| {
-            let called = Arc::clone(&called);
-            Box::pin(async move {
-                *called.lock().await = true;
-                None
-            })
+            ran_spy.store(true, Ordering::SeqCst);
+            Box::pin(async { None })
         });
 
+        // memory_db_path = None → the guard returns synchronously;
+        // nothing can set the flags after this line.
         spawn_active_searcher("s1", "a1", "hello", "user", None, deps);
-        // Give a brief moment (shouldn't be needed since no spawn happens).
-        tokio::time::sleep(Duration::from_millis(50)).await;
+
         assert!(
-            !*injection_called.lock().await,
-            "should not spawn task when memory_db_path is None"
+            !began.load(Ordering::SeqCst),
+            "begin_searcher_session should not be called when memory_db_path is None"
+        );
+        assert!(
+            !ran.load(Ordering::SeqCst),
+            "run_searcher should not be called when memory_db_path is None"
         );
     }
 
@@ -496,43 +509,55 @@ mod tests {
     /// When `begin_searcher_session` returns `None` (parent session
     /// missing), the spawn task must not call `run_searcher` and must
     /// not write any injection.
+    ///
+    /// Deterministic via the begin spy signal: the begin=None branch
+    /// (active_searcher.rs:202-208) contains no `.await` points — only
+    /// `tracing::warn!` + `return` — so the spawned task finishes
+    /// synchronously within the same poll after the spy sends its
+    /// signal; by the time `recv` below wakes, the task has already
+    /// returned and can never touch the flags again.
     #[tokio::test]
     async fn test_begin_none_skips_run_and_injection() {
         let db = tmp_path("test.db");
-        let searcher_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
-        let injection_called: Arc<tokio::sync::Mutex<bool>> =
-            Arc::new(tokio::sync::Mutex::new(false));
+        let (begin_tx, mut begin_rx) = tokio::sync::mpsc::unbounded_channel();
+        let searcher_ran = Arc::new(AtomicBool::new(false));
+        let injection_called = Arc::new(AtomicBool::new(false));
 
         let ran = Arc::clone(&searcher_ran);
-        let called = Arc::clone(&injection_called);
+        let injected = Arc::clone(&injection_called);
         let mut deps = noop_deps();
-        deps.begin_searcher_session =
-            Box::new(|_sid: String, _aid: String, _role: String| Box::pin(async { None }));
+        deps.begin_searcher_session = Box::new(move |sid: String, aid: String, role: String| {
+            let _ = begin_tx.send((sid, aid, role));
+            Box::pin(async { None })
+        });
         deps.run_searcher = Box::new(move |_input: SearcherInput| {
-            let ran = Arc::clone(&ran);
-            Box::pin(async move {
-                *ran.lock().await = true;
-                Some(("result".into(), "after_current".into(), HashSet::new()))
-            })
+            ran.store(true, Ordering::SeqCst);
+            Box::pin(async { Some(("result".into(), "after_current".into(), HashSet::new())) })
         });
         deps.set_memory_injection = Box::new(
             move |_sid: String, _c: String, _p: String, _e: HashSet<i64>| {
-                let called = Arc::clone(&called);
-                Box::pin(async move {
-                    *called.lock().await = true;
-                })
+                injected.store(true, Ordering::SeqCst);
+                Box::pin(async {})
             },
         );
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
+        // Positive signal: begin was actually reached with the test
+        // arguments (the setup was exercised, spawn did not silently
+        // fail).
+        let (sid, aid, role) = wait_for_spy_signal(&mut begin_rx).await;
+        assert_eq!(sid, "s1");
+        assert_eq!(aid, "a1");
+        assert_eq!(role, "user");
+        // Race-free: after the signal the task has already returned
+        // (see doc comment above).
         assert!(
-            !*searcher_ran.lock().await,
+            !searcher_ran.load(Ordering::SeqCst),
             "run_searcher must not be called when begin returns None"
         );
         assert!(
-            !*injection_called.lock().await,
+            !injection_called.load(Ordering::SeqCst),
             "set_memory_injection must not be called when begin returns None"
         );
     }
