@@ -177,7 +177,17 @@ impl SearcherSessionTracker {
         finished.sort_by_key(|x| (x.1, x.2));
 
         // Remove oldest until back at capacity.
+        //
+        // `finished.len() < excess` is a legal state: when all or most
+        // tracked sessions are `Running` while the map is over capacity,
+        // `Running` records are never evicted (see the tracker docs above),
+        // so fewer finished records may exist than the excess. In that case
+        // we only evict all finished records and `map.len()` may remain
+        // above `TRACKER_CAPACITY`. The explicit `min()` makes this
+        // truncation semantics visible instead of relying on `take()`'s
+        // implicit truncation, which a future call path could misread.
         let excess = map.len() - TRACKER_CAPACITY;
+        let excess = excess.min(finished.len());
         for (id, _, _) in finished.into_iter().take(excess) {
             map.remove(&id);
         }
