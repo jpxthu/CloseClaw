@@ -59,8 +59,18 @@ pub enum SkillAction {
 #[derive(Args)]
 pub struct ChatArgs {
     /// Agent ID to chat with.
-    #[arg(short = 'a', long = "agent-id")]
+    #[arg(short = 'a', long = "agent-id", value_parser = parse_agent_id)]
     pub agent_id: String,
+}
+
+/// Validates the `--agent-id` value: an agent ID must not be empty or
+/// whitespace-only, otherwise it degrades the session routing key.
+fn parse_agent_id(s: &str) -> Result<String, String> {
+    if s.trim().is_empty() {
+        Err("--agent-id must not be empty".to_string())
+    } else {
+        Ok(s.to_string())
+    }
 }
 
 #[cfg(test)]
