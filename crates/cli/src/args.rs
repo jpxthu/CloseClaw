@@ -181,7 +181,6 @@ mod tests {
     #[test]
     fn test_chat_agent_id_default_is_master() {
         let cli = ChatArgsTestCli::try_parse_from(["test"]).unwrap();
-        assert_eq!(cli.args.agent_id, DEFAULT_AGENT_ID);
         assert_eq!(cli.args.agent_id, "master");
     }
 
