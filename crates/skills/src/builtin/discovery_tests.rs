@@ -5,8 +5,7 @@
 //! `#[serial_test::serial]` (ETXTBSY root cause); mock scripts must live
 //! in a `tempfile::TempDir`.
 use super::discovery_test_helpers::{
-    create_failing_mock_clawhub, create_mock_clawhub, MOCK_FAILURE_MESSAGE, MOCK_LIST_OUTPUT,
-    MOCK_SEARCH_OUTPUT,
+    assert_clawhub_failure, create_mock_clawhub, MOCK_LIST_OUTPUT, MOCK_SEARCH_OUTPUT,
 };
 use crate::builtin::SkillDiscoverySkill;
 use crate::registry::{Skill, SkillError};
@@ -134,67 +133,40 @@ async fn test_execute_list_returns_structured_result() {
 #[serial]
 #[tokio::test]
 async fn test_execute_find_propagates_clawhub_failure() {
-    let tmp = TempDir::new().unwrap();
-    let mock = create_failing_mock_clawhub(&tmp);
-    let skill = SkillDiscoverySkill::with_cli_command(mock);
-    let err = skill
-        .execute(Some(serde_json::json!({
+    assert_clawhub_failure(
+        serde_json::json!({
             "action": "find",
             "query": "alpha"
-        })))
-        .await
-        .unwrap_err();
-    let SkillError::ExecutionFailed(msg) = err else {
-        panic!("clawhub failure should return ExecutionFailed, got: {err:?}");
-    };
-    assert!(
-        msg.contains(MOCK_FAILURE_MESSAGE),
-        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
-    );
+        }),
+        "find",
+    )
+    .await;
 }
 
 #[serial]
 #[tokio::test]
 async fn test_execute_install_propagates_clawhub_failure() {
-    let tmp = TempDir::new().unwrap();
-    let mock = create_failing_mock_clawhub(&tmp);
-    let skill = SkillDiscoverySkill::with_cli_command(mock);
-    let err = skill
-        .execute(Some(serde_json::json!({
+    assert_clawhub_failure(
+        serde_json::json!({
             "action": "install",
             "name": "skill_under_test_abc123"
-        })))
-        .await
-        .unwrap_err();
-    let SkillError::ExecutionFailed(msg) = err else {
-        panic!("clawhub install failure should return ExecutionFailed, got: {err:?}");
-    };
-    assert!(
-        msg.contains(MOCK_FAILURE_MESSAGE),
-        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
-    );
+        }),
+        "install",
+    )
+    .await;
 }
 
 #[serial]
 #[tokio::test]
 async fn test_execute_update_propagates_clawhub_failure() {
-    let tmp = TempDir::new().unwrap();
-    let mock = create_failing_mock_clawhub(&tmp);
-    let skill = SkillDiscoverySkill::with_cli_command(mock);
-    let err = skill
-        .execute(Some(serde_json::json!({
+    assert_clawhub_failure(
+        serde_json::json!({
             "action": "update",
             "name": "skill_under_test_abc123"
-        })))
-        .await
-        .unwrap_err();
-    let SkillError::ExecutionFailed(msg) = err else {
-        panic!("clawhub update failure should return ExecutionFailed, got: {err:?}");
-    };
-    assert!(
-        msg.contains(MOCK_FAILURE_MESSAGE),
-        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
-    );
+        }),
+        "update",
+    )
+    .await;
 }
 
 #[tokio::test]
