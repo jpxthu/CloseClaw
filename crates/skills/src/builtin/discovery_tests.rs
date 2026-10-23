@@ -149,7 +149,7 @@ async fn test_execute_find_propagates_clawhub_failure() {
     };
     assert!(
         msg.contains(MOCK_FAILURE_MESSAGE),
-        "stderr not propagated, got: {msg}"
+        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
     );
 }
 
