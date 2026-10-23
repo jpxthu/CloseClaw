@@ -55,11 +55,20 @@ pub enum SkillAction {
     List,
 }
 
+/// Default agent used when `chat --agent-id` is omitted: the initial `master`
+/// agent created by the config wizard (docs/design/agent/agent-config.md).
+const DEFAULT_AGENT_ID: &str = "master";
+
 /// Interactive chat with an agent via the terminal.
 #[derive(Args, Debug)]
 pub struct ChatArgs {
     /// Agent ID to chat with.
-    #[arg(short = 'a', long = "agent-id", value_parser = parse_agent_id)]
+    #[arg(
+        short = 'a',
+        long = "agent-id",
+        value_parser = parse_agent_id,
+        default_value = DEFAULT_AGENT_ID
+    )]
     pub agent_id: String,
 }
 
@@ -163,6 +172,27 @@ mod tests {
 
         let cli = ChatArgsTestCli::try_parse_from(["test", "-a", " agent-1 "]).unwrap();
         assert_eq!(cli.args.agent_id, " agent-1 ");
+    }
+
+    // ── issue #3948 — chat --agent-id 缺省兜底默认 Agent ─────────────────────
+
+    /// Normal path: omitting `--agent-id` parses successfully and falls back to
+    /// the default agent `master` (system base entry, docs/design/agent/agent-config.md).
+    #[test]
+    fn test_chat_agent_id_default_is_master() {
+        let cli = ChatArgsTestCli::try_parse_from(["test"]).unwrap();
+        assert_eq!(cli.args.agent_id, "master");
+    }
+
+    /// Normal path: an explicit `--agent-id` (long or short form) wins over the
+    /// default and is not overwritten by it.
+    #[test]
+    fn test_chat_agent_id_explicit_overrides_default() {
+        let cli = ChatArgsTestCli::try_parse_from(["test", "--agent-id", "foo"]).unwrap();
+        assert_eq!(cli.args.agent_id, "foo");
+
+        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", "foo"]).unwrap();
+        assert_eq!(cli.args.agent_id, "foo");
     }
 
     // ── Step 1.3 — skill rescan removal ──────────────────────────────────
