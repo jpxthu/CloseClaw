@@ -334,6 +334,51 @@ mod tests {
         assert_eq!(tracker.len(), RUNNING_COUNT);
     }
 
+    // ── eviction: end() does not trigger eviction (temporary overage) ─
+
+    #[test]
+    fn test_end_does_not_evict_finished_may_temporarily_exceed_capacity() {
+        let tracker = SearcherSessionTracker::new();
+        let mut ids = Vec::new();
+
+        // Fill beyond capacity with Running sessions: eviction runs on
+        // begin() but no finished record exists, so all survive overage.
+        for i in 0..TRACKER_CAPACITY + 2 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            ids.push(id);
+        }
+        assert_eq!(tracker.len(), TRACKER_CAPACITY + 2);
+
+        // end() only transitions status and never triggers eviction:
+        // the finished count may temporarily exceed TRACKER_CAPACITY.
+        for id in &ids {
+            tracker.end(id, SearcherSessionStatus::NoResult);
+        }
+        assert_eq!(tracker.len(), TRACKER_CAPACITY + 2);
+        for id in &ids {
+            let s = tracker.get(id).unwrap();
+            assert_eq!(s.status, SearcherSessionStatus::NoResult);
+        }
+
+        // The overage is temporary: the next begin() evicts the oldest
+        // finished records (deterministic by finish_seq) and returns
+        // the tracker to capacity.
+        tracker.begin("overflow".into(), "a".into(), "user".into());
+        assert_eq!(tracker.len(), TRACKER_CAPACITY);
+        for id in ids.iter().take(3) {
+            assert!(
+                tracker.get(id).is_none(),
+                "oldest finished record {id} should be evicted on next begin()"
+            );
+        }
+        for id in ids.iter().skip(3) {
+            assert!(
+                tracker.get(id).is_some(),
+                "newer finished record {id} should survive"
+            );
+        }
+    }
+
     // ── query: get returns None for unknown ───────────────────────────
 
     #[test]

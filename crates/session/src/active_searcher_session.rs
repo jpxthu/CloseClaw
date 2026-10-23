@@ -10,7 +10,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 use serde::{Deserialize, Serialize};
 
-/// Maximum number of finished (non-Running) records kept in the tracker.
+/// Target cap on total tracked records; only finished records are evicted (may fall short).
 pub(crate) const TRACKER_CAPACITY: usize = 128;
 
 /// Lifecycle status of a searcher session.
