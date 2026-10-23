@@ -6,12 +6,32 @@ use async_trait::async_trait;
 use serde_json::json;
 use tokio::task::spawn_blocking;
 
-#[derive(Default)]
-pub struct SkillDiscoverySkill;
+const DEFAULT_CLI_COMMAND: &str = "clawhub";
+
+pub struct SkillDiscoverySkill {
+    cli_command: String,
+}
+
+impl Default for SkillDiscoverySkill {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 impl SkillDiscoverySkill {
     pub fn new() -> Self {
-        Self
+        Self {
+            cli_command: DEFAULT_CLI_COMMAND.to_string(),
+        }
+    }
+
+    /// Construct the skill with a custom clawhub CLI command
+    /// (test-only injection point; production uses [`Self::new`]).
+    #[cfg(test)]
+    pub(crate) fn with_cli_command(cli_command: impl Into<String>) -> Self {
+        Self {
+            cli_command: cli_command.into(),
+        }
     }
 
     /// Build the default capability description returned when no
@@ -32,17 +52,20 @@ impl SkillDiscoverySkill {
     }
 
     /// Run a clawhub CLI command and return its stdout.
-    async fn run_clawhub(args: &[&str]) -> Result<String, SkillError> {
+    async fn run_clawhub(&self, args: &[&str]) -> Result<String, SkillError> {
+        let cli_command = self.cli_command.clone();
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         spawn_blocking(move || {
-            let output = std::process::Command::new("clawhub")
+            let output = std::process::Command::new(&cli_command)
                 .args(&args)
                 .output()
-                .map_err(|e| SkillError::ExecutionFailed(format!("failed to run clawhub: {e}")))?;
+                .map_err(|e| {
+                    SkillError::ExecutionFailed(format!("failed to run {cli_command}: {e}"))
+                })?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(SkillError::ExecutionFailed(format!(
-                    "clawhub {} failed: {}",
+                    "{cli_command} {} failed: {}",
                     args.join(" "),
                     stderr.trim()
                 )));
@@ -54,8 +77,8 @@ impl SkillDiscoverySkill {
     }
 
     /// Execute `clawhub search <query>`.
-    async fn execute_find(query: &str) -> Result<String, SkillError> {
-        let stdout = Self::run_clawhub(&["search", query]).await?;
+    async fn execute_find(&self, query: &str) -> Result<String, SkillError> {
+        let stdout = self.run_clawhub(&["search", query]).await?;
         Ok(json!({
             "action": "find",
             "query": query,
@@ -65,7 +88,11 @@ impl SkillDiscoverySkill {
     }
 
     /// Execute `clawhub install <name>` with optional version.
-    async fn execute_install(name: &str, version: Option<&str>) -> Result<String, SkillError> {
+    async fn execute_install(
+        &self,
+        name: &str,
+        version: Option<&str>,
+    ) -> Result<String, SkillError> {
         let mut args = vec!["install", name];
         let ver_str;
         if let Some(v) = version {
@@ -73,7 +100,7 @@ impl SkillDiscoverySkill {
             args.push("--version");
             args.push(&ver_str);
         }
-        let stdout = Self::run_clawhub(&args).await?;
+        let stdout = self.run_clawhub(&args).await?;
         Ok(json!({
             "action": "install",
             "name": name,
@@ -84,8 +111,8 @@ impl SkillDiscoverySkill {
     }
 
     /// Execute `clawhub list`.
-    async fn execute_list() -> Result<String, SkillError> {
-        let stdout = Self::run_clawhub(&["list"]).await?;
+    async fn execute_list(&self) -> Result<String, SkillError> {
+        let stdout = self.run_clawhub(&["list"]).await?;
         Ok(json!({
             "action": "list",
             "installed": stdout.trim()
@@ -94,11 +121,11 @@ impl SkillDiscoverySkill {
     }
 
     /// Execute `clawhub update [name]`.
-    async fn execute_update(name: Option<&str>) -> Result<String, SkillError> {
+    async fn execute_update(&self, name: Option<&str>) -> Result<String, SkillError> {
         let stdout = if let Some(n) = name {
-            Self::run_clawhub(&["update", n]).await?
+            self.run_clawhub(&["update", n]).await?
         } else {
-            Self::run_clawhub(&["update", "--all"]).await?
+            self.run_clawhub(&["update", "--all"]).await?
         };
         Ok(json!({
             "action": "update",
@@ -155,19 +182,19 @@ Always confirm before installing or updating skills."#
                 let query = args.get("query").and_then(|v| v.as_str()).ok_or_else(|| {
                     SkillError::InvalidArgs("missing 'query' for find action".into())
                 })?;
-                Self::execute_find(query).await
+                self.execute_find(query).await
             }
             Some("install") => {
                 let name = args.get("name").and_then(|v| v.as_str()).ok_or_else(|| {
                     SkillError::InvalidArgs("missing 'name' for install action".into())
                 })?;
                 let version = args.get("version").and_then(|v| v.as_str());
-                Self::execute_install(name, version).await
+                self.execute_install(name, version).await
             }
-            Some("list") => Self::execute_list().await,
+            Some("list") => self.execute_list().await,
             Some("update") => {
                 let name = args.get("name").and_then(|v| v.as_str());
-                Self::execute_update(name).await
+                self.execute_update(name).await
             }
             Some(other) => Err(SkillError::InvalidArgs(format!(
                 "unknown action '{other}', supported: find, install, list, update"

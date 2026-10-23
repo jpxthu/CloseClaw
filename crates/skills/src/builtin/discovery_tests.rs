@@ -1,6 +1,17 @@
 //! Tests for skill_discovery skill execute()
+//!
+//! Convention (see `discovery_test_helpers` module docs): any test that
+//! creates and actually spawns a mock clawhub script must be marked
+//! `#[serial_test::serial]` (ETXTBSY root cause); mock scripts must live
+//! in a `tempfile::TempDir`.
+use super::discovery_test_helpers::{
+    create_failing_mock_clawhub, create_mock_clawhub, MOCK_FAILURE_MESSAGE, MOCK_LIST_OUTPUT,
+    MOCK_SEARCH_OUTPUT,
+};
 use crate::builtin::SkillDiscoverySkill;
 use crate::registry::{Skill, SkillError};
+use serial_test::serial;
+use tempfile::TempDir;
 
 #[tokio::test]
 async fn test_discovery_body_not_empty() {
@@ -86,52 +97,60 @@ async fn test_execute_unknown_action() {
     assert!(matches!(err, SkillError::InvalidArgs(_)));
 }
 
+#[serial]
 #[tokio::test]
 async fn test_execute_find_returns_structured_result() {
-    if std::process::Command::new("clawhub")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_err()
-    {
-        eprintln!("skipping: clawhub not found in PATH");
-        return;
-    }
-    let skill = SkillDiscoverySkill::new();
+    let tmp = TempDir::new().unwrap();
+    let mock = create_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
     let result = skill
         .execute(Some(serde_json::json!({
             "action": "find",
-            "query": "nonexistent_skill_abc123"
+            "query": "alpha"
         })))
         .await
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["action"], "find");
-    assert_eq!(v["query"], "nonexistent_skill_abc123");
-    assert!(v["results"].is_string());
+    assert_eq!(v["query"], "alpha");
+    assert_eq!(v["results"], MOCK_SEARCH_OUTPUT);
 }
 
+#[serial]
 #[tokio::test]
 async fn test_execute_list_returns_structured_result() {
-    if std::process::Command::new("clawhub")
-        .arg("--version")
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .status()
-        .is_err()
-    {
-        eprintln!("skipping: clawhub not found in PATH");
-        return;
-    }
-    let skill = SkillDiscoverySkill::new();
+    let tmp = TempDir::new().unwrap();
+    let mock = create_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
     let result = skill
         .execute(Some(serde_json::json!({"action": "list"})))
         .await
         .unwrap();
     let v: serde_json::Value = serde_json::from_str(&result).unwrap();
     assert_eq!(v["action"], "list");
-    assert!(v["installed"].is_string());
+    assert_eq!(v["installed"], MOCK_LIST_OUTPUT);
+}
+
+#[serial]
+#[tokio::test]
+async fn test_execute_find_propagates_clawhub_failure() {
+    let tmp = TempDir::new().unwrap();
+    let mock = create_failing_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
+    let err = skill
+        .execute(Some(serde_json::json!({
+            "action": "find",
+            "query": "alpha"
+        })))
+        .await
+        .unwrap_err();
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("clawhub failure should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(MOCK_FAILURE_MESSAGE),
+        "stderr not propagated, got: {msg}"
+    );
 }
 
 #[tokio::test]

@@ -8,6 +8,8 @@ pub mod create_workflow;
 mod create_workflow_tests;
 pub mod discovery;
 #[cfg(test)]
+mod discovery_test_helpers;
+#[cfg(test)]
 mod discovery_tests;
 pub mod file_ops;
 #[cfg(test)]
