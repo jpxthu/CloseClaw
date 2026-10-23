@@ -150,9 +150,8 @@ mod tests {
     fn test_eviction_removes_oldest_finished_preserves_newer() {
         let tracker = SearcherSessionTracker::new();
 
-        // 64 is a test-chosen count (not capacity-derived): the size of
-        // the initial finished pool.
-        // Create and finish 64 sessions.
+        // Create and finish 64 sessions (a test-chosen count, not
+        // capacity-derived): the initial finished pool.
         let mut old_ids = Vec::new();
         for i in 0..64 {
             let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());

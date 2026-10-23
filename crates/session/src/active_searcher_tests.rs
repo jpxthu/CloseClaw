@@ -21,6 +21,11 @@ mod tests {
     /// Return future of the `get_agent_config` dependency closure.
     type AgentConfigFuture = BoxFuture<Result<(Option<String>, Option<serde_json::Value>), String>>;
 
+    /// Full closure type of the `set_memory_injection` dependency (the
+    /// production alias is module-private, so it is spelled out here).
+    type SetMemoryInjectionClosure =
+        Box<dyn Fn(String, String, String, HashSet<i64>) -> BoxFuture<()> + Send + Sync>;
+
     /// Build default noop dependencies for testing.
     fn noop_deps() -> SearcherDependencies {
         SearcherDependencies {
@@ -50,13 +55,36 @@ mod tests {
 
     /// Bounded deterministic wait for a spy signal. Spies push through an
     /// unbounded mpsc channel (`send` is synchronous, fitting the sync
-    /// dependency closures); the test side awaits the signal with a 5s
-    /// timeout instead of sleeping a fixed duration.
+    /// dependency closures); the test side awaits the signal with a 1s
+    /// timeout instead of sleeping a fixed duration. All signal paths in
+    /// this file become ready in microseconds, so 1s is a generous
+    /// hang-guard (STANDARDS.md §6 caps unit tests at 1s waits).
     async fn wait_for_spy_signal<T>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<T>) -> T {
-        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+        tokio::time::timeout(Duration::from_secs(1), rx.recv())
             .await
-            .expect("background task did not send spy signal within 5s")
+            .expect("background task did not send spy signal within 1s")
             .expect("spy sender dropped without sending a signal")
+    }
+
+    /// End-spy factory: an `end_searcher_session` closure that forwards
+    /// the terminal status through the given channel.
+    fn end_status_spy(
+        tx: tokio::sync::mpsc::UnboundedSender<SearcherSessionStatus>,
+    ) -> crate::active_searcher::EndSearcherSession {
+        Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let _ = tx.send(status);
+        })
+    }
+
+    /// Injection-flag spy factory: a `set_memory_injection` closure that
+    /// raises the given flag when an injection is written.
+    fn injection_flag_spy(flag: Arc<AtomicBool>) -> SetMemoryInjectionClosure {
+        Box::new(
+            move |_sid: String, _content: String, _position: String, _ids: HashSet<i64>| {
+                flag.store(true, Ordering::SeqCst);
+                Box::pin(async {})
+            },
+        )
     }
 
     // ── Test: memory_db_path not set → no task spawned ──────────────
@@ -126,6 +154,7 @@ mod tests {
         let agent_id = "test-agent-user";
 
         let (inj_tx, mut inj_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (role_tx, mut role_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
@@ -141,8 +170,12 @@ mod tests {
                 Box::pin(async {})
             },
         );
-        deps.run_searcher = Box::new(|input: SearcherInput| {
-            assert_eq!(input.role, "user");
+        // The trigger role is sent through the signal channel instead of
+        // being asserted inside the closure: a panic here would be
+        // swallowed by the dropped JoinHandle and only surface as a
+        // misleading timeout.
+        deps.run_searcher = Box::new(move |input: SearcherInput| {
+            let _ = role_tx.send(input.role);
             Box::pin(async move {
                 Some((
                     "user-search-result".to_string(),
@@ -161,6 +194,8 @@ mod tests {
             deps,
         );
 
+        let role = wait_for_spy_signal(&mut role_rx).await;
+        assert_eq!(role, "user", "run_searcher should receive the user role");
         let (sid, content, position) = wait_for_spy_signal(&mut inj_rx).await;
         assert_eq!(sid, session_id);
         assert_eq!(content, "user-search-result");
@@ -179,6 +214,7 @@ mod tests {
         let agent_id = "test-agent-assistant";
 
         let (inj_tx, mut inj_rx) = tokio::sync::mpsc::unbounded_channel();
+        let (role_tx, mut role_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
@@ -194,8 +230,12 @@ mod tests {
                 Box::pin(async {})
             },
         );
-        deps.run_searcher = Box::new(|input: SearcherInput| {
-            assert_eq!(input.role, "assistant");
+        // The trigger role is sent through the signal channel instead of
+        // being asserted inside the closure: a panic here would be
+        // swallowed by the dropped JoinHandle and only surface as a
+        // misleading timeout.
+        deps.run_searcher = Box::new(move |input: SearcherInput| {
+            let _ = role_tx.send(input.role);
             Box::pin(async move {
                 let mut ids = HashSet::new();
                 ids.insert(1);
@@ -218,6 +258,11 @@ mod tests {
             deps,
         );
 
+        let role = wait_for_spy_signal(&mut role_rx).await;
+        assert_eq!(
+            role, "assistant",
+            "run_searcher should receive the assistant role"
+        );
         let (sid, content, position) = wait_for_spy_signal(&mut inj_rx).await;
         assert_eq!(sid, session_id);
         assert_eq!(content, "assistant-search-result");
@@ -237,20 +282,12 @@ mod tests {
         let injection_called = Arc::new(AtomicBool::new(false));
 
         let ran = Arc::clone(&run_searcher_ran);
-        let injected = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Err("agent not found".to_string()) })
         });
-        deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                injected.store(true, Ordering::SeqCst);
-                Box::pin(async {})
-            },
-        );
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.set_memory_injection = injection_flag_spy(Arc::clone(&injection_called));
+        deps.end_searcher_session = end_status_spy(end_tx);
         deps.run_searcher = Box::new(move |_input: SearcherInput| {
             ran.store(true, Ordering::SeqCst);
             Box::pin(async { None })
@@ -281,17 +318,9 @@ mod tests {
         let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
         let injection_called = Arc::new(AtomicBool::new(false));
 
-        let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
-        deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                called.store(true, Ordering::SeqCst);
-                Box::pin(async {})
-            },
-        );
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.set_memory_injection = injection_flag_spy(Arc::clone(&injection_called));
+        deps.end_searcher_session = end_status_spy(end_tx);
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
@@ -420,7 +449,6 @@ mod tests {
         let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
         let injection_called = Arc::new(AtomicBool::new(false));
 
-        let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         // Return memory_config with a very short timeout.
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
@@ -429,15 +457,8 @@ mod tests {
             });
             Box::pin(async move { Ok((Some("m".to_string()), Some(cfg))) })
         });
-        deps.set_memory_injection = Box::new(
-            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                called.store(true, Ordering::SeqCst);
-                Box::pin(async {})
-            },
-        );
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.set_memory_injection = injection_flag_spy(Arc::clone(&injection_called));
+        deps.end_searcher_session = end_status_spy(end_tx);
         // Searcher sleeps longer than the timeout and is dropped when
         // the pipeline's timeout elapses.
         deps.run_searcher = Box::new(|_input: SearcherInput| {
@@ -524,7 +545,6 @@ mod tests {
         let injection_called = Arc::new(AtomicBool::new(false));
 
         let ran = Arc::clone(&searcher_ran);
-        let injected = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         deps.begin_searcher_session = Box::new(move |sid: String, aid: String, role: String| {
             let _ = begin_tx.send((sid, aid, role));
@@ -534,12 +554,7 @@ mod tests {
             ran.store(true, Ordering::SeqCst);
             Box::pin(async { Some(("result".into(), "after_current".into(), HashSet::new())) })
         });
-        deps.set_memory_injection = Box::new(
-            move |_sid: String, _c: String, _p: String, _e: HashSet<i64>| {
-                injected.store(true, Ordering::SeqCst);
-                Box::pin(async {})
-            },
-        );
+        deps.set_memory_injection = injection_flag_spy(Arc::clone(&injection_called));
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
 
@@ -596,9 +611,7 @@ mod tests {
         let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut deps = noop_deps();
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.end_searcher_session = end_status_spy(end_tx);
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async { Some(("found".into(), "after_current".into(), HashSet::new())) })
         });
@@ -619,9 +632,7 @@ mod tests {
         let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
         let mut deps = noop_deps();
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.end_searcher_session = end_status_spy(end_tx);
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
@@ -644,9 +655,7 @@ mod tests {
             let cfg = serde_json::json!({ "search": { "timeout_ms": 1 } });
             Box::pin(async move { Ok((Some("m".into()), Some(cfg))) })
         });
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.end_searcher_session = end_status_spy(end_tx);
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async {
                 tokio::time::sleep(Duration::from_secs(60)).await;
@@ -673,9 +682,7 @@ mod tests {
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Err("not found".into()) })
         });
-        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let _ = end_tx.send(status);
-        });
+        deps.end_searcher_session = end_status_spy(end_tx);
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
 
