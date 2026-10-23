@@ -1,14 +1,24 @@
-//! Shared test utilities for cli terminal-channel tests.
+//! Shared test utilities for cli tests.
 //!
 //! Single source of truth for constructing terminal [`NormalizedMessage`]s
 //! in tests (chat.md §入站：TerminalAdapter field values, with deterministic
-//! test values where the production path is non-deterministic).
+//! test values where the production path is non-deterministic), and for the
+//! clap wrapper used to parse [`crate::args::ChatArgs`] in isolation.
 //!
 //! `terminal_tests.rs` deliberately does NOT use this helper: its
 //! `NormalizedMessage` literals are intentionally differentiated per test
 //! case. Do not "fix" that by converging them here.
 
 use closeclaw_common::NormalizedMessage;
+
+/// Wrapper to parse `ChatArgs` through clap in isolation (the `chat`
+/// subcommand's argument set without the surrounding command). Shared by the
+/// `args.rs` parsing tests and the config-wizard same-source invariant tests.
+#[derive(clap::Parser, Debug)]
+pub(crate) struct ChatArgsCli {
+    #[command(flatten)]
+    pub(crate) args: crate::args::ChatArgs,
+}
 
 /// Build the canonical terminal-channel [`NormalizedMessage`] for tests.
 ///

@@ -7,12 +7,7 @@ use super::*;
 use clap::Parser;
 use tempfile::TempDir;
 
-/// Wrapper to resolve the `chat` subcommand's default `--agent-id` via clap.
-#[derive(clap::Parser, Debug)]
-struct ChatDefaultCli {
-    #[command(flatten)]
-    args: crate::args::ChatArgs,
-}
+use crate::test_util::ChatArgsCli;
 
 /// 同源不变量：chat `--agent-id` 缺省值 = 配置向导创建的初始 Agent id。
 ///
@@ -22,7 +17,7 @@ struct ChatDefaultCli {
 #[test]
 fn test_chat_default_agent_id_matches_wizard_initial_agent() {
     // chat 子命令缺省 agent_id（不带 --agent-id 解析）
-    let cli = ChatDefaultCli::try_parse_from(["test"]).unwrap();
+    let cli = ChatArgsCli::try_parse_from(["test"]).unwrap();
     let chat_default_id = cli.args.agent_id;
 
     // 缺省值必须来自 crate 共享常量
@@ -40,16 +35,6 @@ fn test_chat_default_agent_id_matches_wizard_initial_agent() {
     let agents_dir = tmp.path().join("agents");
     ensure_master_agent(config_dir, &agents_dir).unwrap();
 
-    // agents.json 清单包含 chat 缺省 agent id
-    let agents_json_path = config_dir.join("agents.json");
-    let content = std::fs::read_to_string(&agents_json_path).unwrap();
-    let agents_config: AgentsConfig = serde_json::from_str(&content).unwrap();
-    assert!(
-        agents_config.agents.iter().any(|a| a == &chat_default_id),
-        "agents.json manifest should contain chat default agent id {chat_default_id:?}, got: {:?}",
-        agents_config.agents
-    );
-
     // agents/<id>/config.json 的 id 与 chat 缺省 agent id 一致
     let config_path = agents_dir.join(&chat_default_id).join("config.json");
     let content =
@@ -59,4 +44,10 @@ fn test_chat_default_agent_id_matches_wizard_initial_agent() {
         agent_config.id, chat_default_id,
         "wizard-created initial agent id must equal chat --agent-id default"
     );
+
+    // agents.json 清单与 chat 缺省 agent id 全等（向导只注册初始 Agent）
+    let agents_json_path = config_dir.join("agents.json");
+    let content = std::fs::read_to_string(&agents_json_path).unwrap();
+    let agents_config: AgentsConfig = serde_json::from_str(&content).unwrap();
+    assert_eq!(agents_config.agents, vec![chat_default_id]);
 }
