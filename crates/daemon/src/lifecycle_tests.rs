@@ -1,23 +1,13 @@
 //! Unit tests for daemon lifecycle module
 
 use super::*;
-use crate::lifecycle::{BG_TASK_ABORT_GRACE_SECS, BG_TASK_JOIN_TIMEOUT_SECS};
+use crate::test_helpers::PHASE3_STOP_TOTAL_BUDGET;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::Instant;
-
-/// Total Phase 3 stop budget for one background task: 10s
-/// (= join 7s + abort grace 3s — compile-time asserted by
-/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`). Anchored on
-/// the production second constants so test assertions track
-/// production values at compile time.
-/// Test-side join waits anchor on this budget as their upper bound,
-/// mirroring `phase_3_background_stop`.
-const PHASE3_STOP_TOTAL_BUDGET: Duration =
-    Duration::from_secs(BG_TASK_JOIN_TIMEOUT_SECS + BG_TASK_ABORT_GRACE_SECS);
 
 /// Verify `Defaults::user_defaults()` returns all Deny for every field.
 /// This is the semantic contract: non-Owner users have no privileges
@@ -326,7 +316,8 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
 }
 
 /// Verify that a hung background task does not block the daemon.
-/// After the 10s join timeout, `phase_3_background_stop` continues.
+/// After the 7s join timeout (+3s abort grace, 10s total budget),
+/// `phase_3_background_stop` continues.
 /// This test uses a short 100ms timeout to stay within CONTRIBUTING.md
 /// <1s limit while still verifying the timeout path.
 #[tokio::test]
@@ -336,7 +327,8 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
         std::future::pending::<()>().await;
     });
 
-    // Use a short timeout for testing (real code uses 15s)
+    // Use a short timeout for testing (production stop budget is
+    // 7s join + 3s abort grace = 10s total — PHASE3_STOP_TOTAL_BUDGET)
     let test_timeout = Duration::from_millis(100);
     let start = Instant::now();
     let result = tokio::time::timeout(test_timeout, &mut hang_handle).await;

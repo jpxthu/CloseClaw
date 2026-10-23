@@ -5,21 +5,12 @@
 //! trivial filter-count tests, and direct tests for
 //! `wait_for_background_task_with_heartbeat`.
 
-use crate::lifecycle::{TaskStopStatus, BG_TASK_ABORT_GRACE_SECS, BG_TASK_JOIN_TIMEOUT_SECS};
+use crate::lifecycle::TaskStopStatus;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
-use crate::test_helpers::observe_heartbeat_until;
+use crate::test_helpers::{observe_heartbeat_until, PHASE3_STOP_TOTAL_BUDGET};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
-
-/// Total Phase 3 stop budget for one background task: 10s
-/// (= join 7s + abort grace 3s — compile-time asserted by
-/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`). Anchored on
-/// the production second constants so test grace windows track
-/// production values at compile time. Naming mirrors
-/// `lifecycle_tests::PHASE3_STOP_TOTAL_BUDGET`.
-const PHASE3_STOP_TOTAL_BUDGET: Duration =
-    Duration::from_secs(BG_TASK_JOIN_TIMEOUT_SECS + BG_TASK_ABORT_GRACE_SECS);
 
 // =====================================================================
 // Phase 3 heartbeat periodicity tests
