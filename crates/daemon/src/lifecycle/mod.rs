@@ -9,5 +9,7 @@ mod plugin_init;
 mod run;
 
 #[cfg(test)]
+pub(crate) use bg_task_helpers::{BG_TASK_ABORT_GRACE_SECS, BG_TASK_JOIN_TIMEOUT_SECS};
+#[cfg(test)]
 pub(crate) use run::resolve_pid_file_path;
 pub(crate) use run::TaskStopStatus;

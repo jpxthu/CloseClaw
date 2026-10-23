@@ -1,6 +1,7 @@
 //! Unit tests for daemon lifecycle module
 
 use super::*;
+use crate::lifecycle::{BG_TASK_ABORT_GRACE_SECS, BG_TASK_JOIN_TIMEOUT_SECS};
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
@@ -10,10 +11,13 @@ use tokio::time::Instant;
 
 /// Total Phase 3 stop budget for one background task: 10s
 /// (= join 7s + abort grace 3s — compile-time asserted by
-/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`).
+/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`). Anchored on
+/// the production second constants so test assertions track
+/// production values at compile time.
 /// Test-side join waits anchor on this budget as their upper bound,
 /// mirroring `phase_3_background_stop`.
-const PHASE3_STOP_TOTAL_BUDGET: Duration = Duration::from_secs(10);
+const PHASE3_STOP_TOTAL_BUDGET: Duration =
+    Duration::from_secs(BG_TASK_JOIN_TIMEOUT_SECS + BG_TASK_ABORT_GRACE_SECS);
 
 /// Verify `Defaults::user_defaults()` returns all Deny for every field.
 /// This is the semantic contract: non-Owner users have no privileges
