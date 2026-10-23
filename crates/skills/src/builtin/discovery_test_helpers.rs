@@ -1,4 +1,4 @@
-//! Mock clawhub CLI helpers for discovery tests.
+//! Mock clawhub CLI and failure-propagation assertion helpers for discovery tests.
 //!
 //! # 硬性约定（本模块所有测试适用）
 //!
