@@ -26,13 +26,20 @@ use super::renderer::TerminalRenderer;
 /// Messages are delimited by blank lines: a sequence of non-empty lines
 /// followed by an empty line forms one message. Trailing newlines within
 /// a message are preserved.
-#[derive(Debug, Clone, Default)]
-pub struct TerminalAdapter;
+#[derive(Debug, Clone)]
+pub struct TerminalAdapter {
+    /// Target agent identifier — becomes the [`NormalizedMessage::peer_id`]
+    /// of every message this adapter produces (chat.md §入站：TerminalAdapter),
+    /// anchoring conversations to per-agent session route keys.
+    agent_id: String,
+}
 
 impl TerminalAdapter {
-    /// Create a new adapter.
-    pub fn new() -> Self {
-        Self
+    /// Create a new adapter targeting the given agent.
+    pub fn new(agent_id: impl Into<String>) -> Self {
+        Self {
+            agent_id: agent_id.into(),
+        }
     }
 
     /// Read a single message from stdin.
@@ -72,7 +79,7 @@ impl TerminalAdapter {
         NormalizedMessage {
             platform: "terminal".to_string(),
             sender_id: closeclaw_platform::current_uid(),
-            peer_id: "cli".to_string(),
+            peer_id: self.agent_id.clone(),
             content,
             timestamp: current_timestamp(),
             message_type: MessageType::Text,
@@ -113,9 +120,12 @@ pub struct TerminalPlugin {
 
 impl TerminalPlugin {
     /// Create a new terminal plugin with auto-detected ANSI capability.
-    pub fn new() -> Self {
+    ///
+    /// `agent_id` is forwarded to the inner [`TerminalAdapter`] and flows
+    /// into produced messages' `peer_id`.
+    pub fn new(agent_id: impl Into<String>) -> Self {
         Self {
-            adapter: TerminalAdapter::new(),
+            adapter: TerminalAdapter::new(agent_id),
             renderer: TerminalRenderer::new(),
             streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
@@ -123,19 +133,14 @@ impl TerminalPlugin {
 
     /// Create a terminal plugin with explicit ANSI mode.
     ///
-    /// Useful for testing or forcing a specific output mode.
-    pub fn with_ansi(ansi: bool) -> Self {
+    /// Useful for testing or forcing a specific output mode. `agent_id` is
+    /// forwarded to the inner [`TerminalAdapter`] (same as [`Self::new`]).
+    pub fn with_ansi(ansi: bool, agent_id: impl Into<String>) -> Self {
         Self {
-            adapter: TerminalAdapter::new(),
+            adapter: TerminalAdapter::new(agent_id),
             renderer: TerminalRenderer::with_ansi(ansi),
             streaming_renderer: std::sync::Mutex::new(DefaultStreamingRenderer::new()),
         }
-    }
-}
-
-impl Default for TerminalPlugin {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
