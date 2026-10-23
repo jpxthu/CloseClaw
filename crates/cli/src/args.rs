@@ -56,11 +56,21 @@ pub enum SkillAction {
 }
 
 /// Interactive chat with an agent via the terminal.
-#[derive(Args)]
+#[derive(Args, Debug)]
 pub struct ChatArgs {
     /// Agent ID to chat with.
-    #[arg(short = 'a', long = "agent-id")]
+    #[arg(short = 'a', long = "agent-id", value_parser = parse_agent_id)]
     pub agent_id: String,
+}
+
+/// Validates the `--agent-id` value: an agent ID must not be empty or
+/// whitespace-only, otherwise it degrades the session routing key.
+fn parse_agent_id(s: &str) -> Result<String, String> {
+    if s.trim().is_empty() {
+        Err("must not be empty or whitespace-only".to_string())
+    } else {
+        Ok(s.to_string())
+    }
 }
 
 #[cfg(test)]
@@ -87,6 +97,72 @@ mod tests {
     fn test_skill_unknown_subcommand_rejected() {
         let result = TestCli::try_parse_from(["test", "unknown"]);
         assert!(result.is_err(), "unknown subcommand should fail parsing");
+    }
+
+    // ── issue #3945 — chat --agent-id 非空校验 ─────────────────────────────
+
+    /// Wrapper to test `ChatArgs` parsing in isolation.
+    #[derive(Parser, Debug)]
+    struct ChatArgsTestCli {
+        #[command(flatten)]
+        args: ChatArgs,
+    }
+
+    /// Asserts that parsing `chat {flag_and_value}` fails and that the rendered
+    /// clap error mentions `--agent-id` plus the validator's rejection reason.
+    fn assert_agent_id_rejected(flag_and_value: &[&str]) {
+        let mut cli_args = vec!["test"];
+        cli_args.extend_from_slice(flag_and_value);
+        let Err(err) = ChatArgsTestCli::try_parse_from(cli_args) else {
+            panic!("--agent-id {flag_and_value:?} should fail parsing");
+        };
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("--agent-id"),
+            "error should mention --agent-id: {}",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("must not be empty or whitespace-only"),
+            "error should explain the rejection reason: {}",
+            err_msg
+        );
+    }
+
+    /// Error path: `chat -a ""` (empty short value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_empty_short_value_rejected() {
+        assert_agent_id_rejected(&["-a", ""]);
+    }
+
+    /// Error path: `chat --agent-id ""` (empty long value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_empty_long_value_rejected() {
+        assert_agent_id_rejected(&["--agent-id", ""]);
+    }
+
+    /// Error path: `chat -a "   "` (whitespace-only value) is rejected at parse time.
+    #[test]
+    fn test_chat_agent_id_whitespace_only_value_rejected() {
+        assert_agent_id_rejected(&["-a", "   "]);
+    }
+
+    /// Error path: `chat -a "\t"` (tab-only value) is rejected at parse time,
+    /// pinning down the trim boundary.
+    #[test]
+    fn test_chat_agent_id_tab_only_value_rejected() {
+        assert_agent_id_rejected(&["-a", "\t"]);
+    }
+
+    /// Normal path: a valid agent id parses and is preserved verbatim, including
+    /// leading/trailing whitespace (no trimming; only empty/whitespace-only is rejected).
+    #[test]
+    fn test_chat_agent_id_valid_value_preserved_as_is() {
+        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", "agent-1"]).unwrap();
+        assert_eq!(cli.args.agent_id, "agent-1");
+
+        let cli = ChatArgsTestCli::try_parse_from(["test", "-a", " agent-1 "]).unwrap();
+        assert_eq!(cli.args.agent_id, " agent-1 ");
     }
 
     // ── Step 1.3 — skill rescan removal ──────────────────────────────────
