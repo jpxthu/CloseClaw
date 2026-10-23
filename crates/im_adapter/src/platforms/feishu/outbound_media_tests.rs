@@ -426,6 +426,45 @@ fn make_adapter(
     adapter
 }
 
+/// Thin-wrapper mapping of the local `make_adapter`: the 3-arg call must map
+/// onto the shared [`super::test_helpers::make_adapter_with_store`] plus the
+/// `workspace_dir` injection —
+/// ① `Some(ws)` → `cli_command` passthrough and `workspace_dir == Some(ws)`;
+/// ② `None` → `workspace_dir == None`;
+/// ③ media store rooted at the passed `tmp` (a copy made through the
+/// adapter's own store lands under `tmp`).
+#[tokio::test]
+async fn test_make_adapter_wrapper_maps_cli_workspace_and_store_root() {
+    let tmp = TempDir::new().unwrap();
+    let cli = "/mock/bin/lark-cli";
+    let ws = create_subdir(tmp.path(), "ws");
+
+    // ① cli_command passthrough + workspace injection.
+    let adapter = make_adapter(cli, &tmp, Some(&ws));
+    assert_eq!(adapter.cli_command, cli);
+    assert_eq!(
+        adapter.workspace_dir.as_deref(),
+        Some(ws.as_path()),
+        "workspace_dir should be injected verbatim"
+    );
+
+    // ② workspace=None → workspace_dir stays None.
+    let adapter = make_adapter(cli, &tmp, None);
+    assert!(adapter.workspace_dir.is_none());
+
+    // ③ media store rooted at the passed tmp.
+    let source = tmp.path().join("source.png");
+    fs::write(&source, "png data").unwrap();
+    let result = copy_to_outbound(&source, &adapter.media_store)
+        .await
+        .unwrap();
+    assert!(
+        result.outbound_path.starts_with(tmp.path()),
+        "outbound copy should live under tmp, got {}",
+        result.outbound_path.display()
+    );
+}
+
 /// send_image with workspace-relative path → outbound copy created,
 /// sent path is the outbound copy, returns Ok.
 #[serial]
