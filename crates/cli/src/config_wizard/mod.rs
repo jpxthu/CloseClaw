@@ -133,7 +133,9 @@ fn config_dir() -> anyhow::Result<PathBuf> {
 /// Idempotent: skips files that already exist.
 pub(crate) fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyhow::Result<()> {
     // ── Write master agent config.json if missing ──────────────────────────────
-    let master_config_path = agents_dir.join("master").join("config.json");
+    let master_config_path = agents_dir
+        .join(crate::constants::DEFAULT_AGENT_ID)
+        .join("config.json");
     if !master_config_path.exists() {
         let dir = master_config_path
             .parent()
@@ -141,7 +143,7 @@ pub(crate) fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyho
         std::fs::create_dir_all(dir)?;
 
         let config = AgentConfig {
-            id: "master".to_string(),
+            id: crate::constants::DEFAULT_AGENT_ID.to_string(),
             bootstrap_mode: Some(BootstrapMode::Full),
             ..Default::default()
         };
@@ -157,15 +159,20 @@ pub(crate) fn ensure_master_agent(config_dir: &Path, agents_dir: &Path) -> anyho
         let content = std::fs::read_to_string(&agents_json_path)?;
         let provider = AgentsConfigProvider::from_json_str(&content)?;
         let mut agents_config = provider.inner().clone();
-        if !agents_config.agents.contains(&"master".to_string()) {
-            agents_config.agents.push("master".to_string());
+        if !agents_config
+            .agents
+            .contains(&crate::constants::DEFAULT_AGENT_ID.to_string())
+        {
+            agents_config
+                .agents
+                .push(crate::constants::DEFAULT_AGENT_ID.to_string());
             let json = serde_json::to_string_pretty(&agents_config)
                 .map_err(|e| anyhow::anyhow!("failed to serialize agents.json: {}", e))?;
             std::fs::write(&agents_json_path, json)?;
         }
     } else {
         let agents_config = AgentsConfig {
-            agents: vec!["master".to_string()],
+            agents: vec![crate::constants::DEFAULT_AGENT_ID.to_string()],
         };
         let json = serde_json::to_string_pretty(&agents_config)
             .map_err(|e| anyhow::anyhow!("failed to serialize agents.json: {}", e))?;
