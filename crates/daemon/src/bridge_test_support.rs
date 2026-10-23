@@ -152,6 +152,12 @@ pub(super) fn make_scan_dir_registry(global_dir: &Path) -> DiskSkillRegistry {
     disk_reg
 }
 
+/// Helper: build a scan-dir registry via [`make_scan_dir_registry`] and
+/// wrap it in the shared `Arc<RwLock<Option<...>>>` slot.
+pub(super) fn make_scan_dir_slot(global_dir: &Path) -> Arc<RwLock<Option<DiskSkillRegistry>>> {
+    Arc::new(RwLock::new(Some(make_scan_dir_registry(global_dir))))
+}
+
 /// Helper: create a `SkillListingProviderWrapper` from disk and builtin
 /// registries.
 pub(super) fn make_wrapper(

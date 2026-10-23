@@ -4,7 +4,7 @@
 
 use super::test_support::{
     make_builtin, make_builtin_blocking, make_disk_registry, make_disk_skill,
-    make_scan_dir_registry, make_wrapper, run_with_runtime, write_skill_dir,
+    make_scan_dir_registry, make_scan_dir_slot, make_wrapper, run_with_runtime, write_skill_dir,
 };
 use super::*;
 use closeclaw_common::AgentSkillsQuery;
@@ -43,7 +43,7 @@ impl AgentSkillsQuery for MockAgentSkillsQuery {
 }
 
 // ------------------------------------------------------------------
-// Test 1: Agent whitelist filters builtin skills
+// Dimension: Agent whitelist filters builtin skills
 // ------------------------------------------------------------------
 
 #[test]
@@ -78,7 +78,7 @@ fn test_whitelist_filters_builtin_skills() {
 }
 
 // ------------------------------------------------------------------
-// Test 2: Agent skills query fallback for builtin filtering
+// Dimension: Agent skills query fallback for builtin filtering
 // ------------------------------------------------------------------
 
 #[test]
@@ -108,7 +108,7 @@ fn test_builtin_filtered_via_agent_skills_query() {
 }
 
 // ------------------------------------------------------------------
-// Test 3: Disk skills override builtin skills with same name
+// Dimension: Disk skills override builtin skills with same name
 // ------------------------------------------------------------------
 
 #[test]
@@ -137,7 +137,7 @@ fn test_disk_overrides_builtin() {
 }
 
 // ------------------------------------------------------------------
-// Test 4: Cross-registry sorting by source priority then name
+// Dimension: Cross-registry sorting by source priority then name
 // ------------------------------------------------------------------
 
 #[test]
@@ -165,7 +165,7 @@ fn test_cross_registry_sorting() {
 }
 
 // ------------------------------------------------------------------
-// Test 5: Conditional skill exclusion
+// Dimension: Conditional skill exclusion
 // ------------------------------------------------------------------
 
 #[test]
@@ -186,7 +186,7 @@ fn test_conditional_exclusion() {
 }
 
 // ------------------------------------------------------------------
-// Test 6: SP rebuild path — listing includes activated conditionals,
+// Dimension: SP rebuild path — listing includes activated conditionals,
 //         excluding does not
 // ------------------------------------------------------------------
 
@@ -213,7 +213,7 @@ fn test_sp_rebuild_path() {
 }
 
 // ------------------------------------------------------------------
-// Test 7: Whitelist filters both disk and builtin skills
+// Dimension: Whitelist filters both disk and builtin skills
 // ------------------------------------------------------------------
 
 #[test]
@@ -238,7 +238,7 @@ fn test_whitelist_filters_disk_and_builtin() {
 }
 
 // ------------------------------------------------------------------
-// Test 8: find_conditional_matches from merged registries
+// Dimension: find_conditional_matches from merged registries
 // ------------------------------------------------------------------
 
 #[test]
@@ -266,9 +266,7 @@ fn test_registry_wrapper_rescan_picks_up_new_disk_skill() {
     run_with_runtime(|| {
         let temp = tempfile::tempdir().unwrap();
         write_skill_dir(temp.path(), "existing-skill");
-        let wrapper = SkillRegistryWrapper(Arc::new(std::sync::RwLock::new(Some(
-            make_scan_dir_registry(temp.path()),
-        ))));
+        let wrapper = SkillRegistryWrapper(make_scan_dir_slot(temp.path()));
         let handle = tokio::runtime::Handle::current();
 
         // Registry should contain the existing skill
@@ -313,9 +311,7 @@ fn test_registry_wrapper_rescan_with_poisoned_lock_does_not_panic() {
     run_with_runtime(|| {
         let temp = tempfile::tempdir().unwrap();
         write_skill_dir(temp.path(), "existing-skill");
-        let slot = Arc::new(std::sync::RwLock::new(Some(make_scan_dir_registry(
-            temp.path(),
-        ))));
+        let slot = make_scan_dir_slot(temp.path());
         let wrapper = SkillRegistryWrapper(slot.clone());
         let handle = tokio::runtime::Handle::current();
 
@@ -345,7 +341,7 @@ fn test_registry_wrapper_rescan_with_poisoned_lock_does_not_panic() {
 }
 
 // ------------------------------------------------------------------
-// Test 10: SkillListingProviderWrapper::rescan() integration
+// Dimension: SkillListingProviderWrapper::rescan() integration
 // ------------------------------------------------------------------
 
 #[test]
@@ -372,7 +368,7 @@ fn test_wrapper_rescan_picks_up_new_disk_skill() {
 }
 
 // ------------------------------------------------------------------
-// Test 11: empty registries produce empty listing
+// Dimension: empty registries produce empty listing
 // ------------------------------------------------------------------
 
 #[test]
@@ -398,9 +394,7 @@ fn test_fingerprint_changes_after_rescan_picks_up_new_skill() {
     run_with_runtime(|| {
         let temp = tempfile::tempdir().unwrap();
         write_skill_dir(temp.path(), "skill-a");
-        let disk = Arc::new(std::sync::RwLock::new(Some(make_scan_dir_registry(
-            temp.path(),
-        ))));
+        let disk = make_scan_dir_slot(temp.path());
         let builtin = Arc::new(BuiltinSkillRegistry::new());
         let wrapper = SkillListingProviderWrapper::new(disk.clone(), builtin);
 
