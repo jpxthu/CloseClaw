@@ -47,6 +47,17 @@ mod tests {
         }
     }
 
+    /// Bounded deterministic wait for a spy signal. Spies push through an
+    /// unbounded mpsc channel (`send` is synchronous, fitting the sync
+    /// dependency closures); the test side awaits the signal with a 5s
+    /// timeout instead of sleeping a fixed duration.
+    async fn wait_for_spy_signal<T>(rx: &mut tokio::sync::mpsc::UnboundedReceiver<T>) -> T {
+        tokio::time::timeout(Duration::from_secs(5), rx.recv())
+            .await
+            .expect("background task did not send spy signal within 5s")
+            .expect("spy sender dropped without sending a signal")
+    }
+
     // ── Test: memory_db_path not set → no task spawned ──────────────
 
     #[tokio::test]
@@ -545,25 +556,18 @@ mod tests {
     #[tokio::test]
     async fn test_end_unknown_id_is_safe_noop() {
         let db = tmp_path("test.db");
-        let end_called_with: Arc<tokio::sync::Mutex<Vec<String>>> =
-            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let recorded = Arc::clone(&end_called_with);
         let mut deps = noop_deps();
-        deps.end_searcher_session = Box::new(move |sid: String, status: SearcherSessionStatus| {
-            let recorded = Arc::clone(&recorded);
-            recorded
-                .try_lock()
-                .unwrap()
-                .push(format!("{sid}:{status:?}"));
-        });
+        deps.end_searcher_session =
+            Box::new(move |_sid: String, _status: SearcherSessionStatus| {
+                let _ = end_tx.send(());
+            });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
         // end_searcher_session was called with the test ID.
-        let calls = end_called_with.lock().await;
-        assert!(!calls.is_empty(), "end_searcher_session should be called");
+        wait_for_spy_signal(&mut end_rx).await;
         // The ID is "test-searcher-session" from noop_deps' begin;
         // the closure receives it and should not panic.
     }
@@ -575,24 +579,20 @@ mod tests {
     #[tokio::test]
     async fn test_inject_success_calls_end_injected() {
         let db = tmp_path("test.db");
-        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
         deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let status_ref = Arc::clone(&status_ref);
-            *status_ref.try_lock().unwrap() = Some(status);
+            let _ = end_tx.send(status);
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async { Some(("found".into(), "after_current".into(), HashSet::new())) })
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let status = end_status.lock().await;
-        assert_eq!(*status, Some(SearcherSessionStatus::Injected));
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::Injected);
     }
 
     // ── Step 1.3: no result → end(NoResult) ─────────────────────────
@@ -602,22 +602,18 @@ mod tests {
     #[tokio::test]
     async fn test_no_result_calls_end_no_result() {
         let db = tmp_path("test.db");
-        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
         deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let status_ref = Arc::clone(&status_ref);
-            *status_ref.try_lock().unwrap() = Some(status);
+            let _ = end_tx.send(status);
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let status = end_status.lock().await;
-        assert_eq!(*status, Some(SearcherSessionStatus::NoResult));
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::NoResult);
     }
 
     // ── Step 1.3: timeout → end(Abandoned) ──────────────────────────
@@ -627,18 +623,15 @@ mod tests {
     #[tokio::test]
     async fn test_timeout_calls_end_abandoned() {
         let db = tmp_path("test.db");
-        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             let cfg = serde_json::json!({ "search": { "timeout_ms": 1 } });
             Box::pin(async move { Ok((Some("m".into()), Some(cfg))) })
         });
         deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let status_ref = Arc::clone(&status_ref);
-            *status_ref.try_lock().unwrap() = Some(status);
+            let _ = end_tx.send(status);
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async {
@@ -648,10 +641,9 @@ mod tests {
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let status = end_status.lock().await;
-        assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::Abandoned);
     }
 
     // ── Step 1.3: agent config error → end(Abandoned) ───────────────
@@ -661,24 +653,20 @@ mod tests {
     #[tokio::test]
     async fn test_config_error_calls_end_abandoned() {
         let db = tmp_path("test.db");
-        let end_status: Arc<tokio::sync::Mutex<Option<SearcherSessionStatus>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let status_ref = Arc::clone(&end_status);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Err("not found".into()) })
         });
         deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
-            let status_ref = Arc::clone(&status_ref);
-            *status_ref.try_lock().unwrap() = Some(status);
+            let _ = end_tx.send(status);
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let status = end_status.lock().await;
-        assert_eq!(*status, Some(SearcherSessionStatus::Abandoned));
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::Abandoned);
     }
 
     // ── Step 1.3: searcher session ID passed to end ─────────────────
@@ -688,23 +676,19 @@ mod tests {
     #[tokio::test]
     async fn test_searcher_session_id_forwarded_to_end() {
         let db = tmp_path("test.db");
-        let end_sid: Arc<tokio::sync::Mutex<Option<String>>> =
-            Arc::new(tokio::sync::Mutex::new(None));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let sid_ref = Arc::clone(&end_sid);
         let mut deps = noop_deps();
         deps.begin_searcher_session = Box::new(|_sid: String, _aid: String, _role: String| {
             Box::pin(async { Some("my-searcher-id-123".to_string()) })
         });
         deps.end_searcher_session = Box::new(move |sid: String, _status: SearcherSessionStatus| {
-            let sid_ref = Arc::clone(&sid_ref);
-            *sid_ref.try_lock().unwrap() = Some(sid);
+            let _ = end_tx.send(sid);
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let sid = end_sid.lock().await;
-        assert_eq!(sid.as_deref(), Some("my-searcher-id-123"));
+        let sid = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(sid, "my-searcher-id-123");
     }
 }
