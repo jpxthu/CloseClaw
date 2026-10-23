@@ -5,7 +5,6 @@
 //! and Gateway architecture verification. Slash injection seam tests live
 //! in `chat_slash_injection_tests.rs`.
 
-use closeclaw_common::NormalizedMessage;
 use closeclaw_gateway::GatewayConfig;
 use std::sync::Arc;
 
@@ -136,22 +135,7 @@ async fn test_process_inbound_chain_cleans_control_characters() {
 
     let input = "hello\x1b[31mworld\x1b[0m";
     let processed = gateway
-        .process_inbound_chain(&NormalizedMessage {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: "cli".into(),
-            content: input.into(),
-            timestamp: 0,
-            account_id: String::new(),
-            thread_id: None,
-            chat_name: String::new(),
-            trace_id: String::new(),
-            message_id: String::new(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            reply_ref: None,
-            unavailable_media: Vec::new(),
-        })
+        .process_inbound_chain(&crate::test_util::terminal_msg(input))
         .await;
 
     assert_eq!(processed.text_content(), Some("helloworld"));
@@ -165,22 +149,7 @@ async fn test_process_inbound_chain_suppress_message() {
     let gateway = make_gw_with_registry(registry);
 
     let processed = gateway
-        .process_inbound_chain(&NormalizedMessage {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: "cli".into(),
-            content: "hello".into(),
-            timestamp: 0,
-            account_id: String::new(),
-            thread_id: None,
-            chat_name: String::new(),
-            trace_id: String::new(),
-            message_id: String::new(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            reply_ref: None,
-            unavailable_media: Vec::new(),
-        })
+        .process_inbound_chain(&crate::test_util::terminal_msg("hello"))
         .await;
 
     assert!(
@@ -197,22 +166,7 @@ async fn test_process_inbound_chain_quit_exit_not_affected() {
 
     for cmd in &["quit", "exit", "/stop"] {
         let processed = gateway
-            .process_inbound_chain(&NormalizedMessage {
-                platform: "terminal".into(),
-                sender_id: "u1".into(),
-                peer_id: "cli".into(),
-                content: cmd.to_string(),
-                timestamp: 0,
-                account_id: String::new(),
-                thread_id: None,
-                chat_name: String::new(),
-                trace_id: String::new(),
-                message_id: String::new(),
-                message_type: Default::default(),
-                media_refs: Vec::new(),
-                reply_ref: None,
-                unavailable_media: Vec::new(),
-            })
+            .process_inbound_chain(&crate::test_util::terminal_msg(cmd))
             .await;
         assert_eq!(processed.text_content().unwrap_or(""), *cmd);
     }
@@ -225,22 +179,7 @@ async fn test_inbound_chain_preserves_stop_for_gateway_routing() {
     let gateway = make_gw_with_registry(registry);
 
     let processed = gateway
-        .process_inbound_chain(&NormalizedMessage {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: "cli".into(),
-            content: "/stop".into(),
-            timestamp: 0,
-            account_id: String::new(),
-            thread_id: None,
-            chat_name: String::new(),
-            trace_id: String::new(),
-            message_id: String::new(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            reply_ref: None,
-            unavailable_media: Vec::new(),
-        })
+        .process_inbound_chain(&crate::test_util::terminal_msg("/stop"))
         .await;
 
     assert_eq!(
@@ -260,22 +199,7 @@ async fn test_process_inbound_chain_peer_id_is_cli() {
 
     let peer_id_argument = "cli";
     let processed = gateway
-        .process_inbound_chain(&NormalizedMessage {
-            platform: "terminal".into(),
-            sender_id: "u1".into(),
-            peer_id: peer_id_argument.into(),
-            content: "hello".into(),
-            timestamp: 0,
-            account_id: String::new(),
-            thread_id: None,
-            chat_name: String::new(),
-            trace_id: String::new(),
-            message_id: String::new(),
-            message_type: Default::default(),
-            media_refs: Vec::new(),
-            reply_ref: None,
-            unavailable_media: Vec::new(),
-        })
+        .process_inbound_chain(&crate::test_util::terminal_msg("hello"))
         .await;
 
     assert!(!processed.content_blocks.is_empty());
