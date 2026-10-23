@@ -3,7 +3,7 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
+    make_builtin_blocking, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
 };
 use closeclaw_common::SkillListingProvider;
 use closeclaw_skills::disk::types::SkillSource;
@@ -39,11 +39,10 @@ fn test_with_activated_includes_activated_conditional_disk() {
 #[test]
 fn test_with_activated_includes_activated_conditional_builtin() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("base_b", true, vec![]),
             ("cond_b", true, vec!["**/*.toml".to_string()]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![]);
         let wrapper = make_wrapper(disk, builtin);
 
@@ -119,11 +118,10 @@ fn test_with_activated_nonexistent_skill_ignored() {
 #[test]
 fn test_with_activated_cross_registry_merge() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("builtin_only", true, vec![]),
             ("shared", true, vec![]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![make_disk_skill(
             SkillSource::Project,
             "shared",

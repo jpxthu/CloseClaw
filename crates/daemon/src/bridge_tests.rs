@@ -3,7 +3,8 @@
 //! Extracted from `bridge.rs` to stay within the 1000-line limit.
 
 use super::test_support::{
-    make_builtin, make_disk_registry, make_disk_skill, make_wrapper, run_with_runtime,
+    make_builtin, make_builtin_blocking, make_disk_registry, make_disk_skill, make_wrapper,
+    run_with_runtime,
 };
 use super::*;
 use closeclaw_common::AgentSkillsQuery;
@@ -48,12 +49,11 @@ impl AgentSkillsQuery for MockAgentSkillsQuery {
 #[test]
 fn test_whitelist_filters_builtin_skills() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             (ALPHA, true, vec![]),
             ("beta", true, vec![]),
             ("gamma", true, vec![]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![]);
         let wrapper = make_wrapper(disk, builtin);
 
@@ -84,12 +84,11 @@ fn test_whitelist_filters_builtin_skills() {
 #[test]
 fn test_builtin_filtered_via_agent_skills_query() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             (ALPHA, true, vec![]),
             ("beta", true, vec![]),
             ("gamma", true, vec![]),
-        ]));
+        ]);
 
         // Simulate agent_skills_query returning whitelist ["alpha", "gamma"]
         // by injecting the query into the disk registry.
@@ -115,11 +114,10 @@ fn test_builtin_filtered_via_agent_skills_query() {
 #[test]
 fn test_disk_overrides_builtin() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("shared_skill", true, vec![]),
             ("other_skill", true, vec![]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![make_disk_skill(
             SkillSource::Project,
             "shared_skill",
@@ -145,8 +143,7 @@ fn test_disk_overrides_builtin() {
 #[test]
 fn test_cross_registry_sorting() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![("b_skill", true, vec![])]));
+        let builtin = make_builtin_blocking(vec![("b_skill", true, vec![])]);
         // Disk: Agent-priority "z_skill", Project-priority "a_skill"
         let disk = make_disk_registry(vec![
             make_disk_skill(SkillSource::Agent, "z_skill", true, vec![]),
@@ -174,11 +171,10 @@ fn test_cross_registry_sorting() {
 #[test]
 fn test_conditional_exclusion() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("regular", true, vec![]),
             ("conditional", true, vec!["**/*.rs".to_string()]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![]);
         let wrapper = make_wrapper(disk, builtin);
 
@@ -197,11 +193,10 @@ fn test_conditional_exclusion() {
 #[test]
 fn test_sp_rebuild_path() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("always", true, vec![]),
             ("conditional", true, vec!["**/*.rs".to_string()]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![]);
         let wrapper = make_wrapper(disk, builtin);
 
@@ -224,11 +219,10 @@ fn test_sp_rebuild_path() {
 #[test]
 fn test_whitelist_filters_disk_and_builtin() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("builtin_only", true, vec![]),
             ("shared", true, vec![]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![
             make_disk_skill(SkillSource::Global, "disk_only", true, vec![]),
             make_disk_skill(SkillSource::Global, "shared", true, vec![]),
@@ -250,11 +244,10 @@ fn test_whitelist_filters_disk_and_builtin() {
 #[test]
 fn test_find_conditional_matches_merged() {
     run_with_runtime(|| {
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let builtin = rt.block_on(make_builtin(vec![
+        let builtin = make_builtin_blocking(vec![
             ("rust_skill", true, vec!["**/*.rs".to_string()]),
             ("txt_skill", true, vec!["**/*.txt".to_string()]),
-        ]));
+        ]);
         let disk = make_disk_registry(vec![]);
         let wrapper = make_wrapper(disk, builtin);
 
