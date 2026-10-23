@@ -56,14 +56,16 @@ impl SkillDiscoverySkill {
         let cli_command = self.cli_command.clone();
         let args: Vec<String> = args.iter().map(|s| s.to_string()).collect();
         spawn_blocking(move || {
-            let output = std::process::Command::new(cli_command)
+            let output = std::process::Command::new(&cli_command)
                 .args(&args)
                 .output()
-                .map_err(|e| SkillError::ExecutionFailed(format!("failed to run clawhub: {e}")))?;
+                .map_err(|e| {
+                    SkillError::ExecutionFailed(format!("failed to run {cli_command}: {e}"))
+                })?;
             if !output.status.success() {
                 let stderr = String::from_utf8_lossy(&output.stderr);
                 return Err(SkillError::ExecutionFailed(format!(
-                    "clawhub {} failed: {}",
+                    "{cli_command} {} failed: {}",
                     args.join(" "),
                     stderr.trim()
                 )));

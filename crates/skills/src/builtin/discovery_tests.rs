@@ -147,7 +147,10 @@ async fn test_execute_find_propagates_clawhub_failure() {
     let SkillError::ExecutionFailed(msg) = err else {
         panic!("clawhub failure should return ExecutionFailed, got: {err:?}");
     };
-    assert!(msg.contains(MOCK_FAILURE_MESSAGE));
+    assert!(
+        msg.contains(MOCK_FAILURE_MESSAGE),
+        "stderr not propagated, got: {msg}"
+    );
 }
 
 #[tokio::test]
