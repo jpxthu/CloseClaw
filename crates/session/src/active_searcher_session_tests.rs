@@ -361,8 +361,8 @@ mod tests {
         }
 
         // The overage is temporary: the next begin() evicts the oldest
-        // finished records (deterministic by finish_seq) and returns
-        // the tracker to capacity.
+        // finished records (deterministic by (finished_at, finish_seq)
+        // eviction sort key) and returns the tracker to capacity.
         tracker.begin("overflow".into(), "a".into(), "user".into());
         assert_eq!(tracker.len(), TRACKER_CAPACITY);
         for id in ids.iter().take(3) {
