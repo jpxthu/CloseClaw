@@ -27,6 +27,39 @@ pub fn common_shutdown_handle(daemon_handle: &DaemonShutdownHandle) -> Arc<Shutd
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Shared rescan helper
+// ═══════════════════════════════════════════════════════════════════════════
+
+/// Re-scan disk skills into the registry slot shared by both wrapper impls.
+///
+/// Used by [`SkillRegistryQuery::rescan`] and [`SkillListingProvider::rescan`]:
+/// short read lock to fetch `scan_config`, lock-free disk scan, then a brief
+/// write lock to replace the skills list. All lock/error paths are identical
+/// between the two trait impls, hence this shared helper.
+fn rescan_disk_skills(disk: &RwLock<Option<DiskSkillRegistry>>) {
+    // Step 1: Read scan_config under a short read lock.
+    let scan_config = disk
+        .read()
+        .ok()
+        .and_then(|g| g.as_ref().map(|r| r.scan_config()))
+        .flatten();
+
+    let Some(config) = scan_config else {
+        return;
+    };
+
+    // Step 2: Perform the expensive disk scan outside any lock.
+    let new_skills = scan_all_skills(&config);
+
+    // Step 3: Briefly acquire write lock to replace the skills list.
+    if let Ok(mut guard) = disk.write() {
+        if let Some(ref mut registry) = *guard {
+            registry.replace_skills(new_skills);
+        }
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // SkillRegistryQuery
 // ═══════════════════════════════════════════════════════════════════════════
 
@@ -92,27 +125,7 @@ impl SkillRegistryQuery for SkillRegistryWrapper {
     }
 
     async fn rescan(&self) {
-        // Step 1: Read scan_config under a short read lock.
-        let scan_config = self
-            .0
-            .read()
-            .ok()
-            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
-            .flatten();
-
-        let Some(config) = scan_config else {
-            return;
-        };
-
-        // Step 2: Perform the expensive disk scan outside any lock.
-        let new_skills = scan_all_skills(&config);
-
-        // Step 3: Briefly acquire write lock to replace the skills list.
-        if let Ok(mut guard) = self.0.write() {
-            if let Some(ref mut registry) = *guard {
-                registry.replace_skills(new_skills);
-            }
-        }
+        rescan_disk_skills(&self.0);
     }
 }
 
@@ -357,27 +370,7 @@ impl SkillListingProvider for SkillListingProviderWrapper {
         self.combined_fingerprint()
     }
     fn rescan(&self) {
-        // Step 1: Read scan_config under a short read lock.
-        let scan_config = self
-            .disk
-            .read()
-            .ok()
-            .and_then(|g| g.as_ref().map(|r| r.scan_config()))
-            .flatten();
-
-        let Some(config) = scan_config else {
-            return;
-        };
-
-        // Step 2: Perform the expensive disk scan outside any lock.
-        let new_skills = scan_all_skills(&config);
-
-        // Step 3: Briefly acquire write lock to replace the skills list.
-        if let Ok(mut guard) = self.disk.write() {
-            if let Some(ref mut registry) = *guard {
-                registry.replace_skills(new_skills);
-            }
-        }
+        rescan_disk_skills(&self.disk);
     }
 
     fn generate_listing(&self, agent_id: Option<&str>, agent_skills: Option<&[String]>) -> String {
