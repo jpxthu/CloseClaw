@@ -3,6 +3,7 @@
 #[cfg(test)]
 mod tests {
     use std::collections::HashSet;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
     use std::time::Duration;
 
@@ -218,34 +219,44 @@ mod tests {
     #[tokio::test]
     async fn test_graceful_degradation_on_agent_config_error() {
         let db = tmp_path("test.db");
-        let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
+        let run_searcher_ran = Arc::new(AtomicBool::new(false));
+        let injection_called = Arc::new(AtomicBool::new(false));
 
-        let ran = Arc::clone(&task_ran);
+        let ran = Arc::clone(&run_searcher_ran);
+        let injected = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Err("agent not found".to_string()) })
         });
         deps.set_memory_injection = Box::new(
-            |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                Box::pin(async {
-                    panic!("set_injection should not be called when agent config fails");
-                })
+            move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
+                injected.store(true, Ordering::SeqCst);
+                Box::pin(async {})
             },
         );
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let _ = end_tx.send(status);
+        });
         deps.run_searcher = Box::new(move |_input: SearcherInput| {
-            let ran = Arc::clone(&ran);
-            Box::pin(async move {
-                *ran.lock().await = true;
-                panic!("run_searcher should not be called when agent config fails");
-            })
+            ran.store(true, Ordering::SeqCst);
+            Box::pin(async { None })
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        // If we reach here without panicking, graceful degradation works.
+
+        // A config failure must deterministically end the session as
+        // Abandoned; receiving that signal proves the task finished, so
+        // the negative assertions below are race-free.
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::Abandoned);
         assert!(
-            !*task_ran.lock().await,
+            !run_searcher_ran.load(Ordering::SeqCst),
             "run_searcher should not be called when config loading fails"
+        );
+        assert!(
+            !injection_called.load(Ordering::SeqCst),
+            "set_memory_injection should not be called when agent config fails"
         );
     }
 
@@ -254,26 +265,31 @@ mod tests {
     #[tokio::test]
     async fn test_search_returns_none_no_injection() {
         let db = tmp_path("test.db");
-        let injection_called: Arc<tokio::sync::Mutex<bool>> =
-            Arc::new(tokio::sync::Mutex::new(false));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
+        let injection_called = Arc::new(AtomicBool::new(false));
 
         let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
         deps.set_memory_injection = Box::new(
             move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                let called = Arc::clone(&called);
-                Box::pin(async move {
-                    *called.lock().await = true;
-                })
+                called.store(true, Ordering::SeqCst);
+                Box::pin(async {})
             },
         );
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let _ = end_tx.send(status);
+        });
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
+        // A None result must deterministically end the session as
+        // NoResult; receiving that signal proves the task finished, so
+        // the negative assertion below is race-free.
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::NoResult);
         assert!(
-            !*injection_called.lock().await,
+            !injection_called.load(Ordering::SeqCst),
             "set_injection should not be called when search returns None"
         );
     }
@@ -388,8 +404,8 @@ mod tests {
     #[tokio::test]
     async fn test_timeout_triggers_abandonment() {
         let db = tmp_path("test.db");
-        let injection_called: Arc<tokio::sync::Mutex<bool>> =
-            Arc::new(tokio::sync::Mutex::new(false));
+        let (end_tx, mut end_rx) = tokio::sync::mpsc::unbounded_channel();
+        let injection_called = Arc::new(AtomicBool::new(false));
 
         let called = Arc::clone(&injection_called);
         let mut deps = noop_deps();
@@ -402,13 +418,15 @@ mod tests {
         });
         deps.set_memory_injection = Box::new(
             move |_sid: String, _content: String, _position: String, _event_ids: HashSet<i64>| {
-                let called = Arc::clone(&called);
-                Box::pin(async move {
-                    *called.lock().await = true;
-                })
+                called.store(true, Ordering::SeqCst);
+                Box::pin(async {})
             },
         );
-        // Searcher sleeps longer than the timeout.
+        deps.end_searcher_session = Box::new(move |_sid: String, status: SearcherSessionStatus| {
+            let _ = end_tx.send(status);
+        });
+        // Searcher sleeps longer than the timeout and is dropped when
+        // the pipeline's timeout elapses.
         deps.run_searcher = Box::new(|_input: SearcherInput| {
             Box::pin(async {
                 tokio::time::sleep(Duration::from_secs(60)).await;
@@ -417,11 +435,14 @@ mod tests {
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        // Injection should NOT have been called because the searcher timed out.
+        // The 1ms timeout deterministically abandons the round; the end
+        // signal proves the task finished, so the negative assertion
+        // below is race-free.
+        let status = wait_for_spy_signal(&mut end_rx).await;
+        assert_eq!(status, SearcherSessionStatus::Abandoned);
         assert!(
-            !*injection_called.lock().await,
+            !injection_called.load(Ordering::SeqCst),
             "set_injection should not be called when searcher times out"
         );
     }
