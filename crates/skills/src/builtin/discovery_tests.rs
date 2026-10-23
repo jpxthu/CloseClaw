@@ -162,7 +162,7 @@ async fn test_execute_install_propagates_clawhub_failure() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "install",
-            "name": "nonexistent_skill_abc123"
+            "name": "skill_under_test_abc123"
         })))
         .await
         .unwrap_err();
@@ -184,7 +184,7 @@ async fn test_execute_update_propagates_clawhub_failure() {
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "update",
-            "name": "nonexistent_skill_abc123"
+            "name": "skill_under_test_abc123"
         })))
         .await
         .unwrap_err();
