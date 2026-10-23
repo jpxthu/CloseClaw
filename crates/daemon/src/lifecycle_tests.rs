@@ -332,14 +332,14 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
 #[tokio::test]
 async fn test_phase3_hung_task_timeout_does_not_block() {
     // Spawn a task that never exits (simulates a hung background task)
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
     // Use a short timeout for testing (real code uses 15s)
     let test_timeout = Duration::from_millis(100);
     let start = Instant::now();
-    let result = tokio::time::timeout(test_timeout, hang_handle).await;
+    let result = tokio::time::timeout(test_timeout, &mut hang_handle).await;
     let elapsed = start.elapsed();
 
     // Timeout should fire — the hung task is not awaited forever
@@ -348,6 +348,7 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
         elapsed < Duration::from_secs(1),
         "timeout should fire well within 1s"
     );
+    hang_handle.abort();
 }
 
 /// Verify that after phase_3 pattern (signal + join with timeout),
@@ -365,7 +366,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     });
 
     // Hung task: never exits
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
@@ -378,7 +379,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     // Join both with timeout — neither should block overall
     let (clean_result, hang_result) = tokio::join!(
         tokio::time::timeout(test_timeout, clean_handle),
-        tokio::time::timeout(test_timeout, hang_handle),
+        tokio::time::timeout(test_timeout, &mut hang_handle),
     );
 
     let elapsed = start.elapsed();
@@ -392,6 +393,7 @@ async fn test_phase3_mixed_tasks_resolved() {
 
     // Hung task timed out
     assert!(hang_result.is_err(), "hung task should timeout");
+    hang_handle.abort();
 
     // Total elapsed should be bounded (timeout, not infinite)
     assert!(
@@ -432,12 +434,12 @@ async fn test_phase3_panicked_task_returns_err() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_phase3_join_timeout_is_10_seconds() {
     // Spawn a task that never exits
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
     let start = Instant::now();
-    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, hang_handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, &mut hang_handle).await;
     let elapsed = start.elapsed();
 
     // Timeout should fire — the hung task is abandoned
@@ -449,6 +451,7 @@ async fn test_phase3_join_timeout_is_10_seconds() {
         "expected full 10s join budget to elapse before hung task is abandoned, got {:?}",
         elapsed
     );
+    hang_handle.abort();
 }
 
 /// Verify that tasks completing well within 10s are not cut short.
