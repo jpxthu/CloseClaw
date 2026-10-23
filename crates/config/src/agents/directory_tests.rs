@@ -232,15 +232,16 @@ fn test_action_permission_round_trip() {
 }
 
 // =====================================================================
-// Step 1.5 — Tests for `AgentDirectoryProvider` dirname-id backfill and
-// WARN-on-mismatch behaviour.
+// Step 1.5 — Tests for `AgentDirectoryProvider` missing-id skip
+// (config.json without `id` → deserialization fails → agent skipped)
+// and WARN-on-mismatch behaviour.
 // =====================================================================
 
 /// `config.json` without an `id` field must fail to load — the agent
 /// is skipped (deserialization of the required `id` field fails).
 #[serial_test::serial]
 #[test]
-fn test_directory_provider_id_from_dirname() {
+fn test_directory_provider_missing_id_skips_agent() {
     let user = TempDir::new().unwrap();
     // Directory name is `foo`; the config.json omits `id` entirely.
     create_subdir(user.path(), "foo");
@@ -304,7 +305,7 @@ fn test_directory_provider_id_mismatch_warn() {
     assert_eq!(entry.name, "Other Agent");
 
     // Rendering source: `agent_id` / `dirname` are structured fields
-    // on the `warn!` in `inject_dirname_id` (directory.rs:155-160),
+    // on the `warn!` in `inject_dirname_id` (directory.rs:152-156),
     // rendered as `field=value` by tracing-subscriber fmt defaults;
     // re-verified after the `=0.3.17` pin was lifted to a semver
     // range (issue #3604 PR-3).
