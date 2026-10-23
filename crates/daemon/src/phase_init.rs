@@ -310,7 +310,6 @@ impl Daemon {
                 });
             }
         }
-        Self::init_terminal_plugin(&gateway).await;
         let slash_registry = Self::init_slash_dispatcher(&gateway, &session_manager).await;
         // Start the inbound queue consumer so webhook messages are buffered.
         gateway.start_inbound_queue();
