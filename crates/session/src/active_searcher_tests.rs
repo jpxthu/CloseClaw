@@ -90,24 +90,17 @@ mod tests {
     #[tokio::test]
     async fn test_spawn_when_db_path_set() {
         let db = tmp_path("test.db");
-        let task_ran: Arc<tokio::sync::Mutex<bool>> = Arc::new(tokio::sync::Mutex::new(false));
-        let ran = Arc::clone(&task_ran);
+        let (ran_tx, mut ran_rx) = tokio::sync::mpsc::unbounded_channel();
         let mut deps = noop_deps();
         deps.run_searcher = Box::new(move |_input: SearcherInput| {
-            let ran = Arc::clone(&ran);
-            Box::pin(async move {
-                *ran.lock().await = true;
-                None
-            })
+            let _ = ran_tx.send(());
+            Box::pin(async { None })
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        // Wait for the spawned task to complete.
-        tokio::time::sleep(Duration::from_millis(200)).await;
-        assert!(
-            *task_ran.lock().await,
-            "background task should have run when memory_db_path is Some"
-        );
+        // The signal fires after run_searcher has been entered; receiving
+        // it deterministically proves the background task ran.
+        wait_for_spy_signal(&mut ran_rx).await;
     }
 
     // ── Test: user message triggers AfterCurrent ────────────────────
@@ -326,10 +319,8 @@ mod tests {
     #[tokio::test]
     async fn test_context_messages_passed_through() {
         let db = tmp_path("test.db");
-        let seen_ctx: Arc<tokio::sync::Mutex<Vec<SessionMessageSnapshot>>> =
-            Arc::new(tokio::sync::Mutex::new(Vec::new()));
+        let (ctx_tx, mut ctx_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let ctx_ref = Arc::clone(&seen_ctx);
         let mut deps = noop_deps();
         deps.get_context_messages = Box::new(
             |_sid: String| -> BoxFuture<(Vec<SessionMessageSnapshot>, usize)> {
@@ -347,17 +338,15 @@ mod tests {
             },
         );
         deps.run_searcher = Box::new(move |input: SearcherInput| {
-            let ctx_ref = Arc::clone(&ctx_ref);
-            Box::pin(async move {
-                *ctx_ref.lock().await = input.context_messages;
-                Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
-            })
+            let _ = ctx_tx.send(input.context_messages);
+            Box::pin(
+                async move { Some(("r".to_string(), "after_current".to_string(), HashSet::new())) },
+            )
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let ctx = seen_ctx.lock().await;
+        let ctx = wait_for_spy_signal(&mut ctx_rx).await;
         assert_eq!(ctx.len(), 2);
         assert_eq!(ctx[0].role, "user");
         assert_eq!(ctx[0].content, "hello");
@@ -370,10 +359,8 @@ mod tests {
     #[tokio::test]
     async fn test_injected_event_ids_passed_through() {
         let db = tmp_path("test.db");
-        let seen_ids: Arc<tokio::sync::Mutex<HashSet<i64>>> =
-            Arc::new(tokio::sync::Mutex::new(HashSet::new()));
+        let (ids_tx, mut ids_rx) = tokio::sync::mpsc::unbounded_channel();
 
-        let ids_ref = Arc::clone(&seen_ids);
         let mut deps = noop_deps();
         deps.get_injected_event_ids = Box::new(|_sid: String| -> BoxFuture<HashSet<i64>> {
             let mut ids = HashSet::new();
@@ -382,17 +369,15 @@ mod tests {
             Box::pin(async move { ids })
         });
         deps.run_searcher = Box::new(move |input: SearcherInput| {
-            let ids_ref = Arc::clone(&ids_ref);
-            Box::pin(async move {
-                *ids_ref.lock().await = input.injected_ids;
-                Some(("r".to_string(), "after_current".to_string(), HashSet::new()))
-            })
+            let _ = ids_tx.send(input.injected_ids);
+            Box::pin(
+                async move { Some(("r".to_string(), "after_current".to_string(), HashSet::new())) },
+            )
         });
 
         spawn_active_searcher("s1", "a1", "hello", "user", Some(db.as_path()), deps);
-        tokio::time::sleep(Duration::from_millis(200)).await;
 
-        let ids = seen_ids.lock().await;
+        let ids = wait_for_spy_signal(&mut ids_rx).await;
         assert!(ids.contains(&10));
         assert!(ids.contains(&20));
         assert_eq!(ids.len(), 2);
