@@ -87,6 +87,20 @@ mod tests {
         )
     }
 
+    /// Injection-payload spy factory: a `set_memory_injection` closure
+    /// that forwards `(session_id, content, position)` through the
+    /// given channel.
+    fn injection_payload_spy(
+        tx: tokio::sync::mpsc::UnboundedSender<(String, String, String)>,
+    ) -> SetMemoryInjectionClosure {
+        Box::new(
+            move |sid: String, content: String, position: String, _ids: HashSet<i64>| {
+                let _ = tx.send((sid, content, position));
+                Box::pin(async {})
+            },
+        )
+    }
+
     // ── Test: memory_db_path not set → no task spawned ──────────────
 
     /// Zero-wait negative test (pattern: tool_session_persist_tests):
@@ -160,16 +174,7 @@ mod tests {
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Ok((Some("m".to_string()), None)) })
         });
-        deps.set_memory_injection = Box::new(
-            move |sid: String,
-                  content: String,
-                  position: String,
-                  _event_ids: HashSet<i64>|
-                  -> BoxFuture<()> {
-                let _ = inj_tx.send((sid, content, position));
-                Box::pin(async {})
-            },
-        );
+        deps.set_memory_injection = injection_payload_spy(inj_tx);
         // The trigger role is sent through the signal channel instead of
         // being asserted inside the closure: a panic here would be
         // swallowed by the dropped JoinHandle and only surface as a
@@ -220,16 +225,7 @@ mod tests {
         deps.get_agent_config = Box::new(|_aid: String| -> AgentConfigFuture {
             Box::pin(async { Ok((Some("m".to_string()), None)) })
         });
-        deps.set_memory_injection = Box::new(
-            move |sid: String,
-                  content: String,
-                  position: String,
-                  _event_ids: HashSet<i64>|
-                  -> BoxFuture<()> {
-                let _ = inj_tx.send((sid, content, position));
-                Box::pin(async {})
-            },
-        );
+        deps.set_memory_injection = injection_payload_spy(inj_tx);
         // The trigger role is sent through the signal channel instead of
         // being asserted inside the closure: a panic here would be
         // swallowed by the dropped JoinHandle and only surface as a
