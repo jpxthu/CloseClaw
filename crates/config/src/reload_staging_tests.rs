@@ -188,7 +188,9 @@ fn test_accounts_im_mapping_change_updates_runtime_immediately() {
 
     // Set initial cache value with a binding
     let initial = serde_json::json!({
-        "accounts": [{"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}],
+        "accounts": [
+            {"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}
+        ],
         "bindings": [{"bot_app_id": "b1", "agent_id": "agent1"}]
     });
     init_accounts_cache(&cm, initial);
@@ -196,7 +198,9 @@ fn test_accounts_im_mapping_change_updates_runtime_immediately() {
     // Write file with only senderId changed (bindings unchanged)
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s2","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent1"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s2\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent1\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();
@@ -218,7 +222,9 @@ fn test_accounts_binding_change_stages_to_pending_restart() {
 
     // Set initial cache value with a binding
     let initial = serde_json::json!({
-        "accounts": [{"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}],
+        "accounts": [
+            {"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}
+        ],
         "bindings": [{"bot_app_id": "b1", "agent_id": "agent_old"}]
     });
     init_accounts_cache(&cm, initial);
@@ -226,7 +232,9 @@ fn test_accounts_binding_change_stages_to_pending_restart() {
     // Write file with changed binding
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s1","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent_new"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s1\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent_new\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();
@@ -251,7 +259,9 @@ fn test_accounts_adding_binding_stages_to_pending_restart() {
 
     // Set initial cache value with no bindings
     let initial = serde_json::json!({
-        "accounts": [{"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}],
+        "accounts": [
+            {"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}
+        ],
         "bindings": []
     });
     init_accounts_cache(&cm, initial);
@@ -259,7 +269,9 @@ fn test_accounts_adding_binding_stages_to_pending_restart() {
     // Write file with a new binding
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s1","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent1"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s1\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent1\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();
@@ -284,7 +296,9 @@ fn test_accounts_both_fields_changed_stages_to_pending_restart() {
 
     // Set initial cache value
     let initial = serde_json::json!({
-        "accounts": [{"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}],
+        "accounts": [
+            {"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}
+        ],
         "bindings": [{"bot_app_id": "b1", "agent_id": "agent_old"}]
     });
     init_accounts_cache(&cm, initial);
@@ -292,7 +306,9 @@ fn test_accounts_both_fields_changed_stages_to_pending_restart() {
     // Write file with both accounts and bindings changed
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s2","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent_new"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s2\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent_new\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();
@@ -319,7 +335,9 @@ fn test_accounts_first_load_with_bindings_stages() {
 
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s1","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent1"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s1\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent1\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();
@@ -338,7 +356,9 @@ fn test_accounts_apply_pending_restart_applies_staged_value() {
 
     // Set initial cache value with a binding
     let initial = serde_json::json!({
-        "accounts": [{"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}],
+        "accounts": [
+            {"platform": "feishu", "bot_app_id": "b1", "senderId": "s1", "accountId": "a1"}
+        ],
         "bindings": [{"bot_app_id": "b1", "agent_id": "agent_old"}]
     });
     init_accounts_cache(&cm, initial);
@@ -346,7 +366,9 @@ fn test_accounts_apply_pending_restart_applies_staged_value() {
     // Change binding → should stage
     std::fs::write(
         d.path().join("accounts.json"),
-        r#"{"accounts":[{"platform":"feishu","bot_app_id":"b1","senderId":"s1","accountId":"a1"}],"bindings":[{"bot_app_id":"b1","agent_id":"agent_new"}]}"#,
+        "{\"accounts\":[{\"platform\":\"feishu\",\"bot_app_id\":\"b1\",\
+         \"senderId\":\"s1\",\"accountId\":\"a1\"}],\
+         \"bindings\":[{\"bot_app_id\":\"b1\",\"agent_id\":\"agent_new\"}]}",
     )
     .unwrap();
     mgr.reload_section(ConfigSection::Accounts).unwrap();

@@ -129,7 +129,9 @@ fn test_from_json_str_empty() {
 
 #[test]
 fn test_from_json_str_partial() {
-    let json = r#"{"wizard":{"lastRunAt":"2026-04-22T03:11:53.234Z","lastRunVersion":"2026.4.15"},"update":{"checkOnStart":false},"commands":{"ownerDisplay":"raw"}}"#;
+    let json = "{\"wizard\":{\"lastRunAt\":\"2026-04-22T03:11:53.234Z\",\
+        \"lastRunVersion\":\"2026.4.15\"},\"update\":{\"checkOnStart\":false},\
+        \"commands\":{\"ownerDisplay\":\"raw\"}}";
     let cfg = SystemConfigData::from_json_str(json).expect("partial JSON should parse");
     assert!(cfg.wizard.is_some());
     assert_eq!(
@@ -154,7 +156,8 @@ fn test_from_json_str_with_hooks() {
 
 #[test]
 fn test_from_json_str_with_auth_profiles() {
-    let json = r#"{"auth":{"profiles":{"minimax-portal:default":{"provider":"minimax-portal","mode":"oauth"}}}}"#;
+    let json = "{\"auth\":{\"profiles\":{\"minimax-portal:default\":\
+        {\"provider\":\"minimax-portal\",\"mode\":\"oauth\"}}}}";
     let cfg = SystemConfigData::from_json_str(json).expect("auth profiles JSON should parse");
     let entry = cfg
         .auth
