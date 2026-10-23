@@ -652,4 +652,6 @@ pub async fn run_wizard() -> anyhow::Result<Option<WizardOutput>> {
 }
 
 #[cfg(test)]
+mod default_agent_id_same_source_tests;
+#[cfg(test)]
 mod tests;
