@@ -232,7 +232,7 @@ fn test_action_permission_round_trip() {
 }
 
 // =====================================================================
-// Step 1.5 — Tests for `AgentDirectoryProvider` missing-id skip
+// Tests for `AgentDirectoryProvider` missing-id skip
 // (config.json without `id` → deserialization fails → agent skipped)
 // and WARN-on-mismatch behaviour.
 // =====================================================================
