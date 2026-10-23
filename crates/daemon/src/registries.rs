@@ -8,18 +8,32 @@ use crate::tool_permission_adapter::tool_permission_check;
 use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
-use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
-use closeclaw_common::AgentConfigLookup;
+use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_agent::{AgentSkillsQuery, AgentToolsConfigQuery};
+use closeclaw_common::permission_types::{ApprovalSubmission, PermissionEvaluator};
+use closeclaw_common::tool_registry::{ToolRegistry as ToolRegistryTrait, ToolRegistryQuery};
+use closeclaw_common::{
+    AgentConfigLookup, AgentRegistryQuery, AuditLogger, SessionLookup, SpawnValidator, TaskManager,
+    Tool,
+};
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
+use closeclaw_im_adapter::ImAdapterToolsRegistrar;
 use closeclaw_permission::approval_flow::ApprovalFlow;
 use closeclaw_permission::engine::audit_log::FileAuditLogger;
 use closeclaw_permission::PermissionEngine;
-use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionToolsRegistrar};
+use closeclaw_session::background::PlanArchiveTask;
+use closeclaw_session::plan_archive::DEFAULT_THRESHOLD_DAYS;
+use closeclaw_session::spawn::SpawnTargetConfigLookup;
+use closeclaw_session::tools::{
+    LateBoundSessionManagerOps, SessionManagerOps, SessionToolsRegistrar,
+};
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsToolsRegistrar};
-use closeclaw_tools::builtin::PlanExecConfirmFlow;
-use closeclaw_tools::builtin::SkillTool;
+use closeclaw_tools::builtin::{
+    ModeExecutionTriggerTool, PlanExecConfirmFlow, SkillTool, WorkflowBlockedTool,
+    WorkflowJumpTool, WorkflowStartTool, WorkflowVerifyTool,
+};
 use closeclaw_tools::{CoreToolsRegistrar, ToolRegistrar, ToolRegistry};
 use std::path::Path;
 use std::sync::{Arc, RwLock};
@@ -33,7 +47,7 @@ pub(crate) struct RegistryContext<'a> {
     /// Config manager providing agent and skill configurations.
     pub config_manager: &'a Arc<ConfigManager>,
     /// Agent registry to be populated.
-    pub agent_registry: &'a Arc<closeclaw_agent::registry::AgentRegistry>,
+    pub agent_registry: &'a Arc<AgentRegistry>,
     /// Shared skill registry handle (may or may not contain a DiskSkillRegistry).
     pub skill_registry: &'a Arc<RwLock<Option<DiskSkillRegistry>>>,
     /// Builtin skill registry — compiled-in skills, not subject to hot reload.
@@ -119,24 +133,21 @@ fn load_and_populate_agents(ctx: &RegistryContext<'_>, _disk_reg: &DiskSkillRegi
 /// Inject AgentRegistry into DiskSkillRegistry.
 fn inject_agent_registry_into_skill_registry(
     skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
-    agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
+    agent_registry: &Arc<AgentRegistry>,
 ) {
     let mut guard = skill_registry.write().unwrap();
     if let Some(ref mut disk_reg) = *guard {
-        disk_reg.set_agent_skills_query(
-            Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentSkillsQuery>
-        );
+        disk_reg.set_agent_skills_query(Arc::clone(agent_registry) as Arc<dyn AgentSkillsQuery>);
     }
 }
 
 /// Inject AgentRegistry into ToolRegistry.
 fn inject_agent_registry_into_tool_registry(
     tool_registry: &Arc<ToolRegistry>,
-    agent_registry: &Arc<closeclaw_agent::registry::AgentRegistry>,
+    agent_registry: &Arc<AgentRegistry>,
 ) {
-    tool_registry.set_agent_tools_query(
-        Arc::clone(agent_registry) as Arc<dyn closeclaw_agent::AgentToolsConfigQuery>
-    );
+    tool_registry
+        .set_agent_tools_query(Arc::clone(agent_registry) as Arc<dyn AgentToolsConfigQuery>);
 }
 
 /// Wire ConfigManager and AgentRegistry into SessionManager.
@@ -150,9 +161,7 @@ async fn wire_session_manager(ctx: &RegistryContext<'_>) {
         .set_config_manager(Arc::clone(ctx.config_manager))
         .await;
     ctx.session_manager
-        .set_agent_registry(
-            Arc::clone(ctx.agent_registry) as Arc<dyn closeclaw_common::AgentRegistryQuery>
-        )
+        .set_agent_registry(Arc::clone(ctx.agent_registry) as Arc<dyn AgentRegistryQuery>)
         .await;
 }
 
@@ -186,9 +195,8 @@ pub(crate) fn spawn_plan_archive_sweeper(
     let threshold_days = config_manager
         .session_config_provider()
         .map(|p| p.plan_archive_days())
-        .unwrap_or(closeclaw_session::plan_archive::DEFAULT_THRESHOLD_DAYS);
-    let plan_archive_task =
-        closeclaw_session::background::PlanArchiveTask::new(data_dir.to_path_buf(), threshold_days);
+        .unwrap_or(DEFAULT_THRESHOLD_DAYS);
+    let plan_archive_task = PlanArchiveTask::new(data_dir.to_path_buf(), threshold_days);
     let (shutdown_tx, shutdown_rx) = tokio::sync::watch::channel(());
     let task = tokio::spawn(async move {
         plan_archive_task.run(shutdown_rx).await;
@@ -206,28 +214,24 @@ pub(crate) fn spawn_plan_archive_sweeper(
 /// Uses trait adapters to bridge `PermissionEngine` and `ApprovalFlow`
 /// into the session tool interfaces.
 fn build_session_registrar(ctx: &RegistryContext<'_>) -> SessionToolsRegistrar {
-    let spawn_validator: Arc<dyn closeclaw_common::SpawnValidator> =
-        Arc::clone(&ctx.spawn_controller) as Arc<dyn closeclaw_common::SpawnValidator>;
+    let spawn_validator: Arc<dyn SpawnValidator> =
+        Arc::clone(&ctx.spawn_controller) as Arc<dyn SpawnValidator>;
     // Session-internal channel: full target agent config never enters the
     // shared SpawnValidationResult (design doc §shared-types).
-    let spawn_target_config: Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup> =
-        Arc::clone(&ctx.spawn_controller)
-            as Arc<dyn closeclaw_session::spawn::SpawnTargetConfigLookup>;
+    let spawn_target_config: Arc<dyn SpawnTargetConfigLookup> =
+        Arc::clone(&ctx.spawn_controller) as Arc<dyn SpawnTargetConfigLookup>;
     let agent_config_lookup: Arc<dyn AgentConfigLookup> =
         Arc::clone(ctx.agent_registry) as Arc<dyn AgentConfigLookup>;
-    let permission_evaluator: Arc<dyn closeclaw_common::permission_types::PermissionEvaluator> =
+    let permission_evaluator: Arc<dyn PermissionEvaluator> =
         Arc::new(PermissionEngineAdapter(Arc::clone(ctx.permission_engine)));
-    let approval_submission: Arc<
-        tokio::sync::Mutex<dyn closeclaw_common::permission_types::ApprovalSubmission>,
-    > = Arc::new(tokio::sync::Mutex::new(ApprovalFlowAdapter(Arc::clone(
-        ctx.approval_flow,
-    ))));
+    let approval_submission: Arc<tokio::sync::Mutex<dyn ApprovalSubmission>> = Arc::new(
+        tokio::sync::Mutex::new(ApprovalFlowAdapter(Arc::clone(ctx.approval_flow))),
+    );
 
     SessionToolsRegistrar::new(
         spawn_validator,
         spawn_target_config,
-        Arc::clone(&ctx.late_bound_session_manager)
-            as Arc<dyn closeclaw_session::tools::SessionManagerOps>,
+        Arc::clone(&ctx.late_bound_session_manager) as Arc<dyn SessionManagerOps>,
         agent_config_lookup,
         permission_evaluator,
         approval_submission,
@@ -245,7 +249,7 @@ async fn register_standard_registrars(
     ctx: &RegistryContext<'_>,
     disk_reg: &Arc<DiskSkillRegistry>,
 ) -> anyhow::Result<()> {
-    let task_manager: Arc<dyn closeclaw_common::TaskManager> = ctx
+    let task_manager: Arc<dyn TaskManager> = ctx
         .session_manager
         .get_task_manager()
         .await
@@ -260,17 +264,16 @@ async fn register_standard_registrars(
 
     let mut core_registrar = CoreToolsRegistrar::new(
         tool_permission,
-        task_manager as Arc<dyn closeclaw_common::TaskManager>,
-        Arc::clone(ctx.tool_registry)
-            as Arc<dyn closeclaw_common::tool_registry::ToolRegistryQuery>,
+        task_manager as Arc<dyn TaskManager>,
+        Arc::clone(ctx.tool_registry) as Arc<dyn ToolRegistryQuery>,
     )
     .with_read_truncation(read_truncation_provider(Arc::clone(ctx.config_manager)))
     .with_plan_file_access(tool_plan_file_access());
     let audit_log_path = ctx.data_dir.join("logs").join("audit.log");
     match FileAuditLogger::new(audit_log_path.clone()) {
         Ok(logger) => {
-            core_registrar = core_registrar
-                .with_audit_logger(Arc::new(logger) as Arc<dyn closeclaw_common::AuditLogger>);
+            core_registrar =
+                core_registrar.with_audit_logger(Arc::new(logger) as Arc<dyn AuditLogger>);
         }
         Err(e) => {
             tracing::warn!(
@@ -283,12 +286,12 @@ async fn register_standard_registrars(
 
     let session_registrar = build_session_registrar(ctx);
 
-    let skill_tool: Arc<dyn closeclaw_common::Tool> = Arc::new(SkillTool::new(
+    let skill_tool: Arc<dyn Tool> = Arc::new(SkillTool::new(
         tool_disk_skill_access(Arc::clone(disk_reg)),
         tool_builtin_skill_access(Arc::clone(ctx.builtin_registry)),
     ));
     let skills_registrar = SkillsToolsRegistrar::new(vec![skill_tool]);
-    let im_adapter_registrar = closeclaw_im_adapter::ImAdapterToolsRegistrar::new();
+    let im_adapter_registrar = ImAdapterToolsRegistrar::new();
 
     let registrars: Vec<Box<dyn ToolRegistrar>> = vec![
         Box::new(core_registrar),
@@ -310,12 +313,11 @@ async fn register_standard_registrars(
 /// completes but before `freeze()`.
 async fn register_system_level_tools(registry: &ToolRegistry, ctx: &RegistryContext<'_>) {
     // Mode execution trigger tool
-    let mode_tool: Arc<dyn closeclaw_common::Tool> =
-        Arc::new(closeclaw_tools::builtin::ModeExecutionTriggerTool::new(
-            tool_plan_file_access(),
-            Arc::clone(ctx.session_manager) as Arc<dyn closeclaw_common::SessionLookup>,
-            Arc::clone(ctx.confirm_flow),
-        ));
+    let mode_tool: Arc<dyn Tool> = Arc::new(ModeExecutionTriggerTool::new(
+        tool_plan_file_access(),
+        Arc::clone(ctx.session_manager) as Arc<dyn SessionLookup>,
+        Arc::clone(ctx.confirm_flow),
+    ));
     if let Err(e) = registry
         .register_before_freeze(mode_tool, "SystemLevel")
         .await
@@ -324,11 +326,11 @@ async fn register_system_level_tools(registry: &ToolRegistry, ctx: &RegistryCont
     }
 
     // Workflow tools
-    let workflow_tools: Vec<Arc<dyn closeclaw_common::Tool>> = vec![
-        Arc::new(closeclaw_tools::builtin::WorkflowStartTool),
-        Arc::new(closeclaw_tools::builtin::WorkflowVerifyTool),
-        Arc::new(closeclaw_tools::builtin::WorkflowJumpTool),
-        Arc::new(closeclaw_tools::builtin::WorkflowBlockedTool),
+    let workflow_tools: Vec<Arc<dyn Tool>> = vec![
+        Arc::new(WorkflowStartTool),
+        Arc::new(WorkflowVerifyTool),
+        Arc::new(WorkflowJumpTool),
+        Arc::new(WorkflowBlockedTool),
     ];
     for tool in workflow_tools {
         if let Err(e) = registry.register_before_freeze(tool, "SystemLevel").await {
@@ -360,7 +362,8 @@ mod tests {
 
     use async_trait::async_trait;
     use closeclaw_common::tool_registry::{
-        ToolRegistrar, ToolRegistrarError, ToolRegistry as ToolRegistryTrait,
+        RegistryError, ToolBox, ToolRegistrar, ToolRegistrarError,
+        ToolRegistry as ToolRegistryTrait,
     };
     use closeclaw_common::tool_trait::Tool;
     use closeclaw_tools::ToolFlags;
@@ -413,13 +416,12 @@ mod tests {
             registry: &dyn ToolRegistryTrait,
         ) -> Result<(), ToolRegistrarError> {
             for tool in &self.tools {
-                let boxed: Box<dyn std::any::Any + Send + Sync> =
-                    Box::new(closeclaw_common::tool_registry::ToolBox(tool.clone()));
+                let boxed: Box<dyn std::any::Any + Send + Sync> = Box::new(ToolBox(tool.clone()));
                 registry
                     .register_any(boxed, &format!("TestRegistrar-{}", self.priority))
                     .await
                     .map_err(|e| match e {
-                        closeclaw_common::tool_registry::RegistryError::Conflict {
+                        RegistryError::Conflict {
                             tool,
                             registrar,
                             attempting,
