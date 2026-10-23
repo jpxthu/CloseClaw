@@ -292,11 +292,15 @@ mod tests {
 
     #[test]
     fn test_eviction_mixed_overload_fewer_finished_than_excess() {
+        const FINISHED_COUNT: usize = 10;
+        const RUNNING_COUNT: usize = 130;
+        // excess = FINISHED_COUNT + RUNNING_COUNT - TRACKER_CAPACITY = 12
+        // > FINISHED_COUNT: eviction is clamped to the finished records.
         let tracker = SearcherSessionTracker::new();
         let mut finished_ids = Vec::new();
 
         // 10 finished sessions first (all terminal before overload).
-        for i in 0..10 {
+        for i in 0..FINISHED_COUNT {
             let id = tracker.begin(format!("f{i}"), "a".into(), "user".into());
             tracker.end(&id, SearcherSessionStatus::NoResult);
             finished_ids.push(id);
@@ -305,7 +309,7 @@ mod tests {
         // 130 Running sessions: total 140, excess grows past the
         // number of finished records while Running are never evicted.
         let mut running_ids = Vec::new();
-        for i in 0..130 {
+        for i in 0..RUNNING_COUNT {
             let id = tracker.begin(format!("r{i}"), "a".into(), "user".into());
             running_ids.push(id);
         }
@@ -326,8 +330,8 @@ mod tests {
         }
         // With fewer finished than excess, eviction falls short: the
         // tracker legitimately remains above TRACKER_CAPACITY, holding
-        // exactly the 130 surviving Running records.
-        assert_eq!(tracker.len(), 130);
+        // exactly the surviving Running records.
+        assert_eq!(tracker.len(), RUNNING_COUNT);
     }
 
     // ── query: get returns None for unknown ───────────────────────────
