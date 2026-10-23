@@ -155,7 +155,7 @@ async fn test_execute_find_propagates_clawhub_failure() {
 
 #[serial]
 #[tokio::test]
-async fn test_execute_install_nonexistent_skill() {
+async fn test_execute_install_propagates_clawhub_failure() {
     let tmp = TempDir::new().unwrap();
     let mock = create_failing_mock_clawhub(&tmp);
     let skill = SkillDiscoverySkill::with_cli_command(mock);
@@ -177,10 +177,9 @@ async fn test_execute_install_nonexistent_skill() {
 
 #[serial]
 #[tokio::test]
-async fn test_execute_update_nonexistent_skill() {
+async fn test_execute_update_propagates_clawhub_failure() {
     let tmp = TempDir::new().unwrap();
     let mock = create_failing_mock_clawhub(&tmp);
-    // update with a specific non-existent skill name should fail
     let skill = SkillDiscoverySkill::with_cli_command(mock);
     let err = skill
         .execute(Some(serde_json::json!({
