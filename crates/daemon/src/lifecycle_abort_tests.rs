@@ -7,6 +7,7 @@
 //! tests exercise the abort-and-join pattern indirectly by reproducing
 //! the same logic used in `phase_3_background_stop`.
 
+use crate::test_helpers::PHASE3_STOP_TOTAL_BUDGET;
 use std::time::Duration;
 use tokio::time::Instant;
 
@@ -23,9 +24,7 @@ async fn test_abort_join_clean_task_exits_normally() {
 
     let _ = tx.send(());
 
-    // Must match phase_3_background_stop() join_timeout (10s).
-    let join_timeout = Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
     assert!(result.is_ok(), "clean task should join within timeout");
     assert!(result.unwrap().is_ok(), "clean task should not panic");
 }
@@ -60,8 +59,7 @@ async fn test_abort_join_panicked_task_returns_err() {
         panic!("mock background task panic");
     });
 
-    let join_timeout = Duration::from_secs(10);
-    let result = tokio::time::timeout(join_timeout, handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, handle).await;
 
     // Join completes (not timeout) — it's an Err from the panic
     assert!(result.is_ok(), "panicked task join should not timeout");
