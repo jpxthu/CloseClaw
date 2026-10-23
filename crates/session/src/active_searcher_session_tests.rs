@@ -233,6 +233,103 @@ mod tests {
         );
     }
 
+    // ── eviction: boundary at exact capacity ─────────────────────────
+
+    #[test]
+    fn test_eviction_at_exact_capacity_keeps_all() {
+        let tracker = SearcherSessionTracker::new();
+        let mut ids = Vec::new();
+        // Fill to exactly TRACKER_CAPACITY (128) with finished sessions.
+        for i in 0..128 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            ids.push(id);
+        }
+
+        // At exact capacity nothing may be evicted.
+        assert_eq!(tracker.len(), 128);
+        for id in &ids {
+            assert!(
+                tracker.get(id).is_some(),
+                "record {id} must survive at exact capacity"
+            );
+        }
+    }
+
+    // ── eviction: far over capacity evicts oldest in bulk ─────────────
+
+    #[test]
+    fn test_eviction_far_over_capacity_evicts_oldest_twenty() {
+        let tracker = SearcherSessionTracker::new();
+        let mut ids = Vec::new();
+        // 148 finished sessions = TRACKER_CAPACITY + 20.
+        for i in 0..148 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            ids.push(id);
+        }
+
+        // Back at capacity: the oldest 20 are evicted, newest 128 remain.
+        assert_eq!(tracker.len(), 128);
+        for (i, id) in ids.iter().enumerate() {
+            if i < 20 {
+                assert!(
+                    tracker.get(id).is_none(),
+                    "record {i} (oldest) should be evicted"
+                );
+            } else {
+                assert!(
+                    tracker.get(id).is_some(),
+                    "record {i} (newer) should survive"
+                );
+            }
+        }
+    }
+
+    // ── eviction: finished fewer than excess (min clamp) ──────────────
+
+    #[test]
+    fn test_eviction_mixed_overload_fewer_finished_than_excess() {
+        let tracker = SearcherSessionTracker::new();
+        let mut finished_ids = Vec::new();
+
+        // 10 finished sessions first (all terminal before overload).
+        for i in 0..10 {
+            let id = tracker.begin(format!("f{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            finished_ids.push(id);
+        }
+
+        // 130 Running sessions: total 140, excess grows past the
+        // number of finished records while Running are never evicted.
+        let mut running_ids = Vec::new();
+        for i in 0..130 {
+            let id = tracker.begin(format!("r{i}"), "a".into(), "user".into());
+            running_ids.push(id);
+        }
+
+        // All finished records are evicted (bounded by finished.len()).
+        for id in &finished_ids {
+            assert!(
+                tracker.get(id).is_none(),
+                "finished record {id} should be evicted"
+            );
+        }
+        // Every Running record survives eviction.
+        for id in &running_ids {
+            assert!(
+                tracker.get(id).is_some(),
+                "Running record {id} must survive"
+            );
+        }
+        // With fewer finished than excess, the tracker may remain above capacity.
+        assert_eq!(tracker.len(), 130);
+        assert!(
+            tracker.len() > 128,
+            "map may stay above TRACKER_CAPACITY when finished < excess"
+        );
+    }
+
     // ── query: get returns None for unknown ───────────────────────────
 
     #[test]
