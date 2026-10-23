@@ -412,17 +412,16 @@ async fn test_prepare_outbound_duplicate_filename_unique_suffix() {
 // send_media_file integration — outbound copy before send
 // =================================================================
 
-/// Helper: create a FeishuAdapter with a mock CLI and optional workspace.
+/// Helper: create a FeishuAdapter with a mock CLI and optional workspace
+/// (media store rooted at `tmp`; delegates assembly to the shared
+/// [`super::test_helpers::make_adapter_with_store`], then injects
+/// `workspace_dir`).
 fn make_adapter(
     cli: &str,
-    media_root: &std::path::Path,
+    tmp: &TempDir,
     workspace: Option<&std::path::Path>,
 ) -> super::adapter::FeishuAdapter {
-    let mut adapter = super::adapter::FeishuAdapter::new(
-        "test_profile".into(),
-        make_test_media_store_at(media_root),
-    );
-    adapter.cli_command = cli.to_string();
+    let mut adapter = super::test_helpers::make_adapter_with_store(cli, tmp);
     adapter.workspace_dir = workspace.map(std::path::PathBuf::from);
     adapter
 }
@@ -436,7 +435,7 @@ async fn test_send_image_workspace_relative_sends_outbound_copy() {
     let cli = create_echo_cli(&tmp);
     let ws = create_subdir(tmp.path(), "ws");
     fs::write(ws.join("photo.png"), "png data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), Some(&ws));
+    let adapter = make_adapter(&cli, &tmp, Some(&ws));
     let result = adapter.send_image("oc_chat1", "photo.png").await;
     assert!(
         result.is_ok(),
@@ -459,7 +458,7 @@ async fn test_send_file_media_store_absolute_sends_outbound_copy() {
     let cli = create_echo_cli(&tmp);
     let file = tmp.path().join("report.pdf");
     fs::write(&file, "pdf data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = adapter.send_file("oc_chat2", file.to_str().unwrap()).await;
     assert!(
         result.is_ok(),
@@ -476,7 +475,7 @@ async fn test_send_file_media_store_absolute_sends_outbound_copy() {
 async fn test_send_image_http_url_skips_send() {
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = adapter
         .send_image("oc_chat3", "https://example.com/img.png")
         .await;
@@ -491,7 +490,7 @@ async fn test_send_image_http_url_skips_send() {
 async fn test_send_image_nonexistent_skips_send() {
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = adapter.send_image("oc_chat4", "no_such_file.png").await;
     assert!(result.is_ok(), "non-existent file should return Ok (skip)");
     let args_file = tmp.path().join("captured_args");
@@ -506,7 +505,7 @@ async fn test_send_image_nonexistent_skips_send() {
 async fn test_send_file_whitelist_violation_skips_send() {
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = adapter.send_file("oc_chat5", "/etc/hosts").await;
     assert!(
         result.is_ok(),
@@ -550,7 +549,7 @@ async fn test_upload_image_reject_returns_send_failed_with_code_msg() {
     let cli = create_reject_cli(&tmp, 99001, "image too large");
     let file = tmp.path().join("photo.png");
     fs::write(&file, "data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = upload_image(&adapter, &file).await;
     match result {
         Err(AdapterError::SendFailed(msg)) => {
@@ -576,7 +575,7 @@ async fn test_upload_file_reject_returns_send_failed_with_code_msg() {
     let cli = create_reject_cli(&tmp, 99002, "file type not allowed");
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = upload_file(&adapter, &file, "doc.pdf").await;
     match result {
         Err(AdapterError::SendFailed(msg)) => {
@@ -603,7 +602,7 @@ async fn test_upload_image_success_returns_image_key() {
     let cli = create_success_cli(&tmp, data);
     let file = tmp.path().join("photo.png");
     fs::write(&file, "data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = upload_image(&adapter, &file).await;
     assert_eq!(result.unwrap(), "img_v3_test123");
 }
@@ -618,7 +617,7 @@ async fn test_upload_file_success_returns_file_key() {
     let cli = create_success_cli(&tmp, data);
     let file = tmp.path().join("report.pdf");
     fs::write(&file, "data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = upload_file(&adapter, &file, "report.pdf").await;
     assert_eq!(result.unwrap(), "file_v3_abc789");
 }
@@ -645,7 +644,7 @@ async fn test_send_file_copy_preserved_on_upload_failure() {
 
     let file = tmp.path().join("doc.pdf");
     fs::write(&file, "pdf content").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let result = adapter
         .send_file("oc_chat_fail", file.to_str().unwrap())
         .await;
@@ -689,7 +688,7 @@ async fn test_send_file_copy_preserved_on_upload_failure() {
 async fn test_send_image_no_workspace_relative_skipped() {
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     // No workspace set, relative path can't resolve → skipped.
     let result = adapter.send_image("oc_chat6", "relative/path.png").await;
     assert!(result.is_ok(), "should return Ok (skip) when no workspace");
@@ -703,7 +702,7 @@ async fn test_dispatch_send_media_whitelist_violation_skips() {
     use closeclaw_common::processor::ContentBlock;
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let block = ContentBlock::Image {
         name: "evil.png".into(),
         url: "/etc/passwd".into(),
@@ -728,7 +727,7 @@ async fn test_dispatch_send_media_http_url_skips_local_copy() {
     use closeclaw_common::processor::ContentBlock;
     let tmp = TempDir::new().unwrap();
     let cli = create_echo_cli(&tmp);
-    let adapter = make_adapter(&cli, tmp.path(), None);
+    let adapter = make_adapter(&cli, &tmp, None);
     let block = ContentBlock::Image {
         name: "remote.png".into(),
         url: "https://example.com/img.png".into(),
@@ -752,7 +751,7 @@ async fn test_dispatch_send_media_audio_file_outbound_copy() {
     let cli = create_echo_cli(&tmp);
     let ws = create_subdir(tmp.path(), "ws");
     fs::write(ws.join("speech.opus"), "audio data").unwrap();
-    let adapter = make_adapter(&cli, tmp.path(), Some(&ws));
+    let adapter = make_adapter(&cli, &tmp, Some(&ws));
     let block = ContentBlock::Audio {
         name: "speech".into(),
         url: "speech.opus".into(),
