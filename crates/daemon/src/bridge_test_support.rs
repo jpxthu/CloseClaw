@@ -152,10 +152,16 @@ pub(super) fn make_scan_dir_registry(global_dir: &Path) -> DiskSkillRegistry {
     disk_reg
 }
 
+/// Helper: wrap a `DiskSkillRegistry` in the shared
+/// `Arc<RwLock<Option<...>>>` slot used by the bridge wrappers.
+pub(super) fn make_slot(disk: DiskSkillRegistry) -> Arc<RwLock<Option<DiskSkillRegistry>>> {
+    Arc::new(RwLock::new(Some(disk)))
+}
+
 /// Helper: build a scan-dir registry via [`make_scan_dir_registry`] and
-/// wrap it in the shared `Arc<RwLock<Option<...>>>` slot.
+/// wrap it via [`make_slot`].
 pub(super) fn make_scan_dir_slot(global_dir: &Path) -> Arc<RwLock<Option<DiskSkillRegistry>>> {
-    Arc::new(RwLock::new(Some(make_scan_dir_registry(global_dir))))
+    make_slot(make_scan_dir_registry(global_dir))
 }
 
 /// Helper: create a `SkillListingProviderWrapper` from disk and builtin
@@ -164,5 +170,5 @@ pub(super) fn make_wrapper(
     disk: DiskSkillRegistry,
     builtin: Arc<BuiltinSkillRegistry>,
 ) -> SkillListingProviderWrapper {
-    SkillListingProviderWrapper::new(Arc::new(RwLock::new(Some(disk))), builtin)
+    SkillListingProviderWrapper::new(make_slot(disk), builtin)
 }
