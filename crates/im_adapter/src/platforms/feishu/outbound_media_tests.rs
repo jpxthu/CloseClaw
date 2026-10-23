@@ -440,22 +440,22 @@ async fn test_make_adapter_wrapper_maps_cli_workspace_and_store_root() {
     let ws = create_subdir(tmp.path(), "ws");
 
     // ① cli_command passthrough + workspace injection.
-    let adapter = make_adapter(cli, &tmp, Some(&ws));
-    assert_eq!(adapter.cli_command, cli);
+    let adapter_with_ws = make_adapter(cli, &tmp, Some(&ws));
+    assert_eq!(adapter_with_ws.cli_command, cli);
     assert_eq!(
-        adapter.workspace_dir.as_deref(),
+        adapter_with_ws.workspace_dir.as_deref(),
         Some(ws.as_path()),
         "workspace_dir should be injected verbatim"
     );
 
     // ② workspace=None → workspace_dir stays None.
-    let adapter = make_adapter(cli, &tmp, None);
-    assert!(adapter.workspace_dir.is_none());
-
-    // ③ media store rooted at the passed tmp.
+    // ③ media store rooted at the passed tmp (asserted on the same no-ws
+    // adapter below).
+    let adapter_no_ws = make_adapter(cli, &tmp, None);
+    assert!(adapter_no_ws.workspace_dir.is_none());
     let source = tmp.path().join("source.png");
     fs::write(&source, "png data").unwrap();
-    let result = copy_to_outbound(&source, &adapter.media_store)
+    let result = copy_to_outbound(&source, &adapter_no_ws.media_store)
         .await
         .unwrap();
     assert!(
