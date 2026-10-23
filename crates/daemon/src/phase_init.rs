@@ -12,10 +12,8 @@ use closeclaw_config::providers::SystemConfigData;
 use closeclaw_config::session::{JsonSessionConfigProvider, SessionConfigProvider};
 use closeclaw_config::{ConfigManager, ConfigSection};
 use closeclaw_gateway::{Gateway, GatewayConfig, SessionManager};
-use closeclaw_im_adapter::media_store::MediaStore;
-use closeclaw_im_adapter::platforms::register_platform_plugins;
-use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
-use closeclaw_llm::LLMRegistry;
+use closeclaw_im_adapter::{media_store::MediaStore, platforms::register_platform_plugins};
+use closeclaw_llm::{unified_fallback::UnifiedFallbackClient, LLMRegistry};
 use closeclaw_permission::PermissionEngine;
 use closeclaw_session::{
     checkpoint_manager::CheckpointManager, persistence::PersistenceService, storage::SqliteStorage,

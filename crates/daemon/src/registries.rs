@@ -8,8 +8,7 @@ use crate::tool_permission_adapter::tool_permission_check;
 use crate::tool_skill_access_adapter::{tool_builtin_skill_access, tool_disk_skill_access};
 use crate::trait_adapters::{ApprovalFlowAdapter, PermissionEngineAdapter};
 use anyhow::Context;
-use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_agent::{AgentSkillsQuery, AgentToolsConfigQuery};
+use closeclaw_agent::{registry::AgentRegistry, AgentSkillsQuery, AgentToolsConfigQuery};
 use closeclaw_common::permission_types::{ApprovalSubmission, PermissionEvaluator};
 use closeclaw_common::tool_registry::{ToolRegistry as ToolRegistryTrait, ToolRegistryQuery};
 use closeclaw_common::{

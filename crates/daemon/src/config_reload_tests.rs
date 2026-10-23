@@ -6,7 +6,7 @@ use crate::test_helpers::load_system_config_manager;
 use crate::trait_adapters::ConfigSpawnBudgetLookup;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::{
-    BackgroundTask, BackgroundTaskError, CompletionNotification, PermissionChecker,
+    BackgroundTask, BackgroundTaskError, CompletionNotification, PermissionChecker, ReasoningLevel,
     RunningTaskInfo, SessionLookup, TaskManager,
 };
 use closeclaw_config::events::{ConfigChangeBroadcaster, ConfigChangeEvent};
@@ -17,7 +17,6 @@ use closeclaw_gateway::{
 };
 use closeclaw_permission::approval_flow::{ApprovalFlow, HeartbeatApprovalMode};
 use closeclaw_permission::{PermissionEngine, RuleSet};
-use closeclaw_session::persistence::ReasoningLevel;
 use closeclaw_session::spawn::controller::{SpawnBudgetLookup, SpawnContext};
 use closeclaw_session::tools::LateBoundSessionManagerOps;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry};
