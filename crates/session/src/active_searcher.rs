@@ -161,7 +161,7 @@ pub fn spawn_active_searcher(
     agent_id: &str,
     content: &str,
     message_role: &str,
-    memory_db_path: Option<&PathBuf>,
+    memory_db_path: Option<&Path>,
     deps: SearcherDependencies,
 ) {
     let Some(db_path) = memory_db_path else {
@@ -173,7 +173,7 @@ pub fn spawn_active_searcher(
         agent_id,
         content,
         message_role,
-        db_path.clone(),
+        db_path.to_path_buf(),
         deps,
     );
 }
