@@ -5,7 +5,9 @@
 
 #[cfg(test)]
 mod tests {
-    use crate::active_searcher_session::{SearcherSessionStatus, SearcherSessionTracker};
+    use crate::active_searcher_session::{
+        SearcherSessionStatus, SearcherSessionTracker, TRACKER_CAPACITY,
+    };
 
     #[test]
     fn test_begin_record_fields_are_correct() {
@@ -231,6 +233,105 @@ mod tests {
             tracker.get(&finished_ids[0]).is_none(),
             "the first finished record (lowest finish_seq) must be evicted"
         );
+    }
+
+    // ── eviction: boundary at exact capacity ─────────────────────────
+
+    #[test]
+    fn test_eviction_at_exact_capacity_keeps_all() {
+        let tracker = SearcherSessionTracker::new();
+        let mut ids = Vec::new();
+        // Fill to exactly TRACKER_CAPACITY with finished sessions.
+        for i in 0..TRACKER_CAPACITY {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            ids.push(id);
+        }
+
+        // At exact capacity nothing may be evicted.
+        assert_eq!(tracker.len(), TRACKER_CAPACITY);
+        for id in &ids {
+            assert!(
+                tracker.get(id).is_some(),
+                "record {id} must survive at exact capacity"
+            );
+        }
+    }
+
+    // ── eviction: far over capacity evicts oldest in bulk ─────────────
+
+    #[test]
+    fn test_eviction_far_over_capacity_evicts_oldest_twenty() {
+        let tracker = SearcherSessionTracker::new();
+        let mut ids = Vec::new();
+        // (TRACKER_CAPACITY + 20) finished sessions.
+        for i in 0..TRACKER_CAPACITY + 20 {
+            let id = tracker.begin(format!("p{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            ids.push(id);
+        }
+
+        // The oldest 20 are evicted, newest TRACKER_CAPACITY remain.
+        assert_eq!(tracker.len(), TRACKER_CAPACITY);
+        for (i, id) in ids.iter().enumerate() {
+            if i < 20 {
+                assert!(
+                    tracker.get(id).is_none(),
+                    "record {i} (oldest) should be evicted"
+                );
+            } else {
+                assert!(
+                    tracker.get(id).is_some(),
+                    "record {i} (newer) should survive"
+                );
+            }
+        }
+    }
+
+    // ── eviction: finished fewer than excess (min clamp) ──────────────
+
+    #[test]
+    fn test_eviction_mixed_overload_fewer_finished_than_excess() {
+        const FINISHED_COUNT: usize = 10;
+        const RUNNING_COUNT: usize = 130;
+        // excess = FINISHED_COUNT + RUNNING_COUNT - TRACKER_CAPACITY = 12
+        // > FINISHED_COUNT: eviction is clamped to the finished records.
+        let tracker = SearcherSessionTracker::new();
+        let mut finished_ids = Vec::new();
+
+        // 10 finished sessions first (all terminal before overload).
+        for i in 0..FINISHED_COUNT {
+            let id = tracker.begin(format!("f{i}"), "a".into(), "user".into());
+            tracker.end(&id, SearcherSessionStatus::NoResult);
+            finished_ids.push(id);
+        }
+
+        // 130 Running sessions: total 140, excess grows past the
+        // number of finished records while Running are never evicted.
+        let mut running_ids = Vec::new();
+        for i in 0..RUNNING_COUNT {
+            let id = tracker.begin(format!("r{i}"), "a".into(), "user".into());
+            running_ids.push(id);
+        }
+
+        // All finished records are evicted (bounded by finished.len()).
+        for id in &finished_ids {
+            assert!(
+                tracker.get(id).is_none(),
+                "finished record {id} should be evicted"
+            );
+        }
+        // Every Running record survives eviction.
+        for id in &running_ids {
+            assert!(
+                tracker.get(id).is_some(),
+                "Running record {id} must survive"
+            );
+        }
+        // With fewer finished than excess, eviction falls short: the
+        // tracker legitimately remains above TRACKER_CAPACITY, holding
+        // exactly the surviving Running records.
+        assert_eq!(tracker.len(), RUNNING_COUNT);
     }
 
     // ── query: get returns None for unknown ───────────────────────────

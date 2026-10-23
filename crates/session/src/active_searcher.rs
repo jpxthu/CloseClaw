@@ -161,10 +161,10 @@ pub fn spawn_active_searcher(
     agent_id: &str,
     content: &str,
     message_role: &str,
-    memory_db_path: &Option<PathBuf>,
+    memory_db_path: Option<&PathBuf>,
     deps: SearcherDependencies,
 ) {
-    let Some(ref db_path) = *memory_db_path else {
+    let Some(db_path) = memory_db_path else {
         return;
     };
 

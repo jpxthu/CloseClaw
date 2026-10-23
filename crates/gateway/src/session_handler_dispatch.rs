@@ -274,7 +274,7 @@ impl SearcherTriggerDeps {
             agent_id,
             content,
             message_role,
-            &self.memory_db_path,
+            self.memory_db_path.as_ref(),
             deps,
         );
     }

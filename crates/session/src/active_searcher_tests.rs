@@ -65,7 +65,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &None, deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", None, deps);
         // Give a brief moment (shouldn't be needed since no spawn happens).
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(
@@ -90,7 +90,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         // Wait for the spawned task to complete.
         tokio::time::sleep(Duration::from_millis(200)).await;
         assert!(
@@ -140,7 +140,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher(session_id, agent_id, "hello", "user", &Some(db), deps);
+        spawn_active_searcher(session_id, agent_id, "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let pos = seen_position.lock().await;
@@ -201,7 +201,7 @@ mod tests {
             agent_id,
             "my response",
             "assistant",
-            &Some(db),
+            Some(&db),
             deps,
         );
         tokio::time::sleep(Duration::from_millis(200)).await;
@@ -241,7 +241,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
         // If we reach here without panicking, graceful degradation works.
         assert!(
@@ -270,7 +270,7 @@ mod tests {
         );
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert!(
@@ -311,7 +311,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
@@ -353,7 +353,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ctx = seen_ctx.lock().await;
@@ -388,7 +388,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let ids = seen_ids.lock().await;
@@ -430,7 +430,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // Injection should NOT have been called because the searcher timed out.
@@ -517,7 +517,7 @@ mod tests {
             },
         );
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         assert!(
@@ -551,7 +551,7 @@ mod tests {
                 .push(format!("{sid}:{status:?}"));
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         // end_searcher_session was called with the test ID.
@@ -581,7 +581,7 @@ mod tests {
             Box::pin(async { Some(("found".into(), "after_current".into(), HashSet::new())) })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
@@ -606,7 +606,7 @@ mod tests {
         });
         deps.run_searcher = Box::new(|_input: SearcherInput| Box::pin(async { None }));
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
@@ -640,7 +640,7 @@ mod tests {
             })
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
@@ -667,7 +667,7 @@ mod tests {
             *status_ref.try_lock().unwrap() = Some(status);
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let status = end_status.lock().await;
@@ -694,7 +694,7 @@ mod tests {
             *sid_ref.try_lock().unwrap() = Some(sid);
         });
 
-        spawn_active_searcher("s1", "a1", "hello", "user", &Some(db), deps);
+        spawn_active_searcher("s1", "a1", "hello", "user", Some(&db), deps);
         tokio::time::sleep(Duration::from_millis(200)).await;
 
         let sid = end_sid.lock().await;
