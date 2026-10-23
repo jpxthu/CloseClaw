@@ -153,9 +153,12 @@ async fn test_execute_find_propagates_clawhub_failure() {
     );
 }
 
+#[serial]
 #[tokio::test]
 async fn test_execute_install_nonexistent_skill() {
-    let skill = SkillDiscoverySkill::new();
+    let tmp = TempDir::new().unwrap();
+    let mock = create_failing_mock_clawhub(&tmp);
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "install",
@@ -163,14 +166,22 @@ async fn test_execute_install_nonexistent_skill() {
         })))
         .await
         .unwrap_err();
-    // Skill not found returns ExecutionFailed from clawhub
-    assert!(matches!(err, SkillError::ExecutionFailed(_)));
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("clawhub install failure should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(MOCK_FAILURE_MESSAGE),
+        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
+    );
 }
 
+#[serial]
 #[tokio::test]
 async fn test_execute_update_nonexistent_skill() {
-    let skill = SkillDiscoverySkill::new();
+    let tmp = TempDir::new().unwrap();
+    let mock = create_failing_mock_clawhub(&tmp);
     // update with a specific non-existent skill name should fail
+    let skill = SkillDiscoverySkill::with_cli_command(mock);
     let err = skill
         .execute(Some(serde_json::json!({
             "action": "update",
@@ -178,7 +189,13 @@ async fn test_execute_update_nonexistent_skill() {
         })))
         .await
         .unwrap_err();
-    assert!(matches!(err, SkillError::ExecutionFailed(_)));
+    let SkillError::ExecutionFailed(msg) = err else {
+        panic!("clawhub update failure should return ExecutionFailed, got: {err:?}");
+    };
+    assert!(
+        msg.contains(MOCK_FAILURE_MESSAGE),
+        "expected stderr containing {MOCK_FAILURE_MESSAGE:?}, got: {msg}"
+    );
 }
 
 #[tokio::test]
