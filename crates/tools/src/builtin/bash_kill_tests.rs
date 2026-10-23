@@ -1,4 +1,7 @@
 use super::bash_kill::truncate_summary;
+use super::bash_kill::BackgroundKillHandle;
+use super::bash_test_support::FakeTaskManager;
+use closeclaw_common::tool_session::KillHandle;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -182,4 +185,29 @@ fn test_truncation_matches_expected_floor_char_boundary() {
         assert_eq!(head, &cmd[..expected_end]);
         assert_eq!(out, format!("{}...", &cmd[..expected_end]));
     }
+}
+
+// ---------------------------------------------------------------------------
+// BackgroundKillHandle::kill — error path (no tokio runtime context)
+// ---------------------------------------------------------------------------
+
+#[test]
+fn test_kill_without_runtime_returns_err_with_runtime_message() {
+    // Contract from the `kill()` doc comment: with no current tokio
+    // runtime there is nothing to `block_on`, so the call fails fast
+    // with a "called outside a tokio runtime" error. The Err branch
+    // returns before touching the manager, so a bare fake plus an
+    // arbitrary task id is a sufficient construction.
+    let (_fake, bg_manager) = FakeTaskManager::pair();
+    let handle = BackgroundKillHandle {
+        bg_manager,
+        task_id: "no-such-task".to_string(),
+    };
+    let err = handle
+        .kill()
+        .expect_err("kill must fail outside a tokio runtime");
+    assert!(
+        err.to_string().contains("outside a tokio runtime"),
+        "unexpected error message: {err}"
+    );
 }
