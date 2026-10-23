@@ -82,9 +82,8 @@ pub(crate) fn gateway_host(gateway: &Arc<Gateway>) -> GatewayHost {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_common::{AdapterError, NormalizedMessage, RenderedOutput};
+    use closeclaw_common::{AdapterError, NormalizedMessage, ReasoningLevel, RenderedOutput};
     use closeclaw_gateway::{GatewayConfig, SessionManager};
-    use closeclaw_session::persistence::ReasoningLevel;
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::time::Duration;
     use tokio::time::Instant;

@@ -9,9 +9,8 @@
 //! a duplicated replica.
 
 use crate::llm_components::assemble_llm_components;
-use closeclaw_common::InternalMessage;
+use closeclaw_common::{InternalMessage, ReasoningLevel};
 use closeclaw_llm::types::{InternalRequest, UnifiedResponse, UnifiedUsage};
-use closeclaw_session::persistence::ReasoningLevel;
 
 // ── Test helpers ─────────────────────────────────────────────────────────────
 

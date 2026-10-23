@@ -307,7 +307,7 @@ async fn session_manager_with_checkpoint_sender(
         &closeclaw_gateway::GatewayConfig::default(),
         Some(persist),
         None,
-        closeclaw_session::persistence::ReasoningLevel::default(),
+        closeclaw_common::ReasoningLevel::default(),
     ))
 }
 
@@ -638,6 +638,6 @@ fn test_session_manager() -> Arc<SessionManager> {
         &closeclaw_gateway::GatewayConfig::default(),
         None,
         None,
-        closeclaw_session::persistence::ReasoningLevel::default(),
+        closeclaw_common::ReasoningLevel::default(),
     ))
 }
