@@ -7,7 +7,7 @@
 
 use crate::lifecycle::TaskStopStatus;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
-use crate::test_helpers::observe_heartbeat_until;
+use crate::test_helpers::{observe_heartbeat_until, PHASE3_STOP_TOTAL_BUDGET};
 use std::time::Duration;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
@@ -303,7 +303,7 @@ async fn test_grace_period_within_boundary_no_abort() {
         tokio::time::sleep(task_duration).await;
     });
 
-    let grace = Duration::from_secs(10);
+    let grace = PHASE3_STOP_TOTAL_BUDGET;
     let start = Instant::now();
 
     tokio::select! {
@@ -342,7 +342,7 @@ async fn test_grace_period_past_boundary_aborts() {
         tokio::time::sleep(Duration::from_secs(20)).await;
     });
 
-    let grace = Duration::from_secs(10);
+    let grace = PHASE3_STOP_TOTAL_BUDGET;
     let start = Instant::now();
 
     match tokio::time::timeout(grace, &mut task).await {
@@ -402,7 +402,7 @@ async fn test_grace_period_halfway_completion_no_abort() {
         tokio::time::sleep(task_duration).await;
     });
 
-    let grace = Duration::from_secs(10);
+    let grace = PHASE3_STOP_TOTAL_BUDGET;
     let start = Instant::now();
 
     tokio::select! {

@@ -1,19 +1,13 @@
 //! Unit tests for daemon lifecycle module
 
 use super::*;
+use crate::test_helpers::PHASE3_STOP_TOTAL_BUDGET;
 use closeclaw_common::shutdown::ShutdownMode;
 use closeclaw_config::ConfigSection;
 use closeclaw_permission::{Defaults, Effect};
 use std::time::Duration;
 use tempfile::TempDir;
 use tokio::time::Instant;
-
-/// Total Phase 3 stop budget for one background task: 10s
-/// (= join 7s + abort grace 3s — compile-time asserted by
-/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`).
-/// Test-side join waits anchor on this budget as their upper bound,
-/// mirroring `phase_3_background_stop`.
-const PHASE3_STOP_TOTAL_BUDGET: Duration = Duration::from_secs(10);
 
 /// Verify `Defaults::user_defaults()` returns all Deny for every field.
 /// This is the semantic contract: non-Owner users have no privileges
@@ -322,20 +316,22 @@ async fn test_phase3_all_tasks_exit_on_respective_signals() {
 }
 
 /// Verify that a hung background task does not block the daemon.
-/// After the 10s join timeout, `phase_3_background_stop` continues.
+/// After the 7s join timeout (+3s abort grace, 10s total budget),
+/// `phase_3_background_stop` continues.
 /// This test uses a short 100ms timeout to stay within CONTRIBUTING.md
 /// <1s limit while still verifying the timeout path.
 #[tokio::test]
 async fn test_phase3_hung_task_timeout_does_not_block() {
     // Spawn a task that never exits (simulates a hung background task)
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
-    // Use a short timeout for testing (real code uses 15s)
+    // Use a short timeout for testing (production stop budget is
+    // 7s join + 3s abort grace = 10s total — PHASE3_STOP_TOTAL_BUDGET)
     let test_timeout = Duration::from_millis(100);
     let start = Instant::now();
-    let result = tokio::time::timeout(test_timeout, hang_handle).await;
+    let result = tokio::time::timeout(test_timeout, &mut hang_handle).await;
     let elapsed = start.elapsed();
 
     // Timeout should fire — the hung task is not awaited forever
@@ -344,6 +340,7 @@ async fn test_phase3_hung_task_timeout_does_not_block() {
         elapsed < Duration::from_secs(1),
         "timeout should fire well within 1s"
     );
+    hang_handle.abort();
 }
 
 /// Verify that after phase_3 pattern (signal + join with timeout),
@@ -361,7 +358,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     });
 
     // Hung task: never exits
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
@@ -374,7 +371,7 @@ async fn test_phase3_mixed_tasks_resolved() {
     // Join both with timeout — neither should block overall
     let (clean_result, hang_result) = tokio::join!(
         tokio::time::timeout(test_timeout, clean_handle),
-        tokio::time::timeout(test_timeout, hang_handle),
+        tokio::time::timeout(test_timeout, &mut hang_handle),
     );
 
     let elapsed = start.elapsed();
@@ -388,6 +385,7 @@ async fn test_phase3_mixed_tasks_resolved() {
 
     // Hung task timed out
     assert!(hang_result.is_err(), "hung task should timeout");
+    hang_handle.abort();
 
     // Total elapsed should be bounded (timeout, not infinite)
     assert!(
@@ -428,12 +426,12 @@ async fn test_phase3_panicked_task_returns_err() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_phase3_join_timeout_is_10_seconds() {
     // Spawn a task that never exits
-    let hang_handle = tokio::spawn(async {
+    let mut hang_handle = tokio::spawn(async {
         std::future::pending::<()>().await;
     });
 
     let start = Instant::now();
-    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, hang_handle).await;
+    let result = tokio::time::timeout(PHASE3_STOP_TOTAL_BUDGET, &mut hang_handle).await;
     let elapsed = start.elapsed();
 
     // Timeout should fire — the hung task is abandoned
@@ -445,6 +443,7 @@ async fn test_phase3_join_timeout_is_10_seconds() {
         "expected full 10s join budget to elapse before hung task is abandoned, got {:?}",
         elapsed
     );
+    hang_handle.abort();
 }
 
 /// Verify that tasks completing well within 10s are not cut short.

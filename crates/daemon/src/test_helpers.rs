@@ -27,7 +27,21 @@ use tokio::time::Instant;
 
 use crate::chat_rpc::{ChatContext, RpcTerminalPlugin};
 use crate::dreaming_scheduler::DreamingScheduler;
+use crate::lifecycle::{BG_TASK_ABORT_GRACE_SECS, BG_TASK_JOIN_TIMEOUT_SECS};
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
+
+// ── Shared Phase 3 stop budget (test-side anchor) ────────────────────────
+
+/// Total Phase 3 stop budget for one background task: 10s
+/// (= join 7s + abort grace 3s — compile-time asserted by
+/// `lifecycle::bg_task_helpers::wait_all_bg_tasks`). Anchored on the
+/// production second constants so test assertions track production
+/// values at compile time. Single definition shared by the lifecycle
+/// test files: join-wait tests use it as their upper bound and
+/// grace-window tests as the grace period, mirroring
+/// `phase_3_background_stop`.
+pub(crate) const PHASE3_STOP_TOTAL_BUDGET: Duration =
+    Duration::from_secs(BG_TASK_JOIN_TIMEOUT_SECS + BG_TASK_ABORT_GRACE_SECS);
 
 /// Duplicate of `crate::bridge::common_shutdown_handle` for daemon-crate tests.
 /// Creates a `closeclaw_gateway::shutdown_handle::ShutdownHandle` from the daemon's
