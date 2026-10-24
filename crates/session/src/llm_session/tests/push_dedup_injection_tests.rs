@@ -63,7 +63,7 @@ fn inject_tool_result(session: &mut ConversationSession) {
 /// 把尾部顶成 tool 消息，声明 true 时守卫回扫命中预 append 消息 → 不再
 /// 双写。
 #[test]
-fn tool_injection_cover_skips_push() {
+fn test_tool_injection_cover_skips_push() {
     let mut session = make_session();
     session.append_user_message("tell me a joke");
     inject_tool_result(&mut session);
@@ -81,7 +81,7 @@ fn tool_injection_cover_skips_push() {
 
 /// workflow 注入覆盖变体：回扫跳过 workflow 消息命中预 append 消息。
 #[test]
-fn workflow_injection_cover_skips_push() {
+fn test_workflow_injection_cover_skips_push() {
     let mut session = make_session();
     session.append_user_message("tell me a joke");
     session.inject_workflow_message("Verify Step 0 (Step 0):\nCheck output");
@@ -98,7 +98,7 @@ fn workflow_injection_cover_skips_push() {
 
 /// system 注入覆盖变体：回扫跳过 system 消息命中预 append 消息。
 #[test]
-fn system_injection_cover_skips_push() {
+fn test_system_injection_cover_skips_push() {
     let mut session = make_session();
     session.append_user_message("tell me a joke");
     session.inject_system_message("retry instruction".to_string());
@@ -114,7 +114,7 @@ fn system_injection_cover_skips_push() {
 /// 注意转换排序：ToolResult 提升块统一追加在整条历史之后，故真实形态
 /// 为 [user, tool 占位, system, workflow, tool(result)]。
 #[test]
-fn stacked_injections_cover_skips_push() {
+fn test_stacked_injections_cover_skips_push() {
     let mut session = make_session();
     session.append_user_message("tell me a joke");
     inject_tool_result(&mut session);
@@ -141,7 +141,7 @@ fn stacked_injections_cover_skips_push() {
 /// 覆盖层下内容不等价：第一条非注入消息 role==user 但内容不同 → 照常
 /// push，待发消息不丢。
 #[test]
-fn injection_cover_pushes_when_content_differs() {
+fn test_injection_cover_pushes_when_content_differs() {
     let mut session = make_session();
     session.append_user_message("earlier question");
     inject_tool_result(&mut session);
@@ -161,7 +161,7 @@ fn injection_cover_pushes_when_content_differs() {
 /// 覆盖层下第一条非注入消息是 assistant（role 不匹配）→ 停止回扫并照常
 /// push。
 #[test]
-fn injection_cover_stops_at_assistant_and_pushes() {
+fn test_injection_cover_stops_at_assistant_and_pushes() {
     let mut session = make_session();
     session.append_user_message("earlier question");
     session.append_transcript("assistant", vec![ContentBlock::Text("ok".into())]);
@@ -192,7 +192,7 @@ fn injection_cover_stops_at_assistant_and_pushes() {
 /// 声明 false 不回扫：历史 [user("q"), tool 注入] 直接 invoke 同文本 "q"
 /// → 照常 push，不误删（pending drain 跨轮安全）。
 #[test]
-fn declaration_false_keeps_push_behind_injections() {
+fn test_declaration_false_keeps_push_behind_injections() {
     let mut session = make_session();
     session.append_user_message("hi");
     inject_tool_result(&mut session);
@@ -216,7 +216,7 @@ fn declaration_false_keeps_push_behind_injections() {
 /// blocks 声明形态（图轮）+ 注入覆盖：回扫命中空展平文本的 blocks 消息 →
 /// 不 push 展平文本副本。
 #[test]
-fn blocks_declaration_under_injection_cover_skips_push() {
+fn test_blocks_declaration_under_injection_cover_skips_push() {
     let mut session = make_session();
     let blocks = vec![ContentBlock::Image {
         name: "img_1".into(),
@@ -244,7 +244,7 @@ fn blocks_declaration_under_injection_cover_skips_push() {
 /// 空历史 corner case（声明 true）：回扫 `find` 无非注入消息可判（返回
 /// None）→ 照常 push，出站恰 1 条 user 消息，不 panic 也不静默丢弃。
 #[test]
-fn empty_history_with_declaration_pushes_single_user_message() {
+fn test_empty_history_with_declaration_pushes_single_user_message() {
     let session = make_session();
     let messages = session.build_llm_messages_with_listing("first message", None, true);
     assert_eq!(
