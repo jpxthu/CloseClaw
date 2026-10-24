@@ -379,6 +379,7 @@ impl ConfigProvider for CredentialsProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::create_subdir;
     use std::fs;
     use tempfile::TempDir;
 
@@ -738,8 +739,7 @@ mod tests {
     fn test_validate_model_references_credential_path_valid() {
         let tmp = TempDir::new().unwrap();
         // Create a credential file at credentials/openai.json
-        let creds_dir = tmp.path().join("credentials");
-        std::fs::create_dir_all(&creds_dir).unwrap();
+        let creds_dir = create_subdir(tmp.path(), "credentials");
         std::fs::write(
             creds_dir.join("openai.json"),
             r#"{"provider":"openai","apiKey":"sk-test"}"#,

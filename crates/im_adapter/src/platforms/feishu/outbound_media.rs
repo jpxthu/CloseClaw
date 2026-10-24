@@ -291,16 +291,15 @@ pub(crate) fn detect_file_type(path: &Path) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::platforms::feishu::create_subdir;
     use std::fs;
     use tempfile::TempDir;
 
     #[tokio::test]
     async fn validate_path_within_workspace() {
         let tmp = TempDir::new().unwrap();
-        let ws = tmp.path().join("workspace");
-        let media = tmp.path().join("media");
-        fs::create_dir_all(&ws).unwrap();
-        fs::create_dir_all(&media).unwrap();
+        let ws = create_subdir(tmp.path(), "workspace");
+        let media = create_subdir(tmp.path(), "media");
         let file = ws.join("test.txt");
         fs::write(&file, "content").unwrap();
         let result = validate_outbound_path(&file, Some(&ws), &media).await;
@@ -310,10 +309,8 @@ mod tests {
     #[tokio::test]
     async fn validate_path_within_media_store() {
         let tmp = TempDir::new().unwrap();
-        let ws = tmp.path().join("workspace");
-        let media = tmp.path().join("media");
-        fs::create_dir_all(&ws).unwrap();
-        fs::create_dir_all(&media).unwrap();
+        let ws = create_subdir(tmp.path(), "workspace");
+        let media = create_subdir(tmp.path(), "media");
         let file = media.join("test.txt");
         fs::write(&file, "content").unwrap();
         let result = validate_outbound_path(&file, Some(&ws), &media).await;
@@ -323,12 +320,9 @@ mod tests {
     #[tokio::test]
     async fn validate_path_outside_rejected() {
         let tmp = TempDir::new().unwrap();
-        let ws = tmp.path().join("workspace");
-        let media = tmp.path().join("media");
-        let outside = tmp.path().join("outside");
-        fs::create_dir_all(&ws).unwrap();
-        fs::create_dir_all(&media).unwrap();
-        fs::create_dir_all(&outside).unwrap();
+        let ws = create_subdir(tmp.path(), "workspace");
+        let media = create_subdir(tmp.path(), "media");
+        let outside = create_subdir(tmp.path(), "outside");
         let file = outside.join("test.txt");
         fs::write(&file, "content").unwrap();
         let result = validate_outbound_path(&file, Some(&ws), &media).await;
@@ -338,8 +332,7 @@ mod tests {
     #[tokio::test]
     async fn validate_path_no_workspace_only_media() {
         let tmp = TempDir::new().unwrap();
-        let media = tmp.path().join("media");
-        fs::create_dir_all(&media).unwrap();
+        let media = create_subdir(tmp.path(), "media");
         let file = media.join("test.txt");
         fs::write(&file, "content").unwrap();
         let result = validate_outbound_path(&file, None, &media).await;

@@ -77,6 +77,7 @@ fn build_scan_config(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::ensure_dir;
     use tempfile::TempDir;
 
     #[test]
@@ -84,7 +85,7 @@ mod tests {
         // Create a temp dir structure: <tmp>/home/user/.closeclaw/eda
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join("home/user/.closeclaw/eda");
-        std::fs::create_dir_all(&config_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
 
         let result = derive_global_dir(config_dir.to_str().unwrap());
         let expected = tmp.path().join("home/user/.closeclaw/skills");
@@ -95,7 +96,7 @@ mod tests {
     fn test_scan_config_contains_global_dir() {
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join("home/user/.closeclaw/eda");
-        std::fs::create_dir_all(&config_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
 
         let global_dir = derive_global_dir(config_dir.to_str().unwrap());
         let expected_agent_skills = config_dir
@@ -128,7 +129,7 @@ mod tests {
     fn test_agent_skills_dir_none_without_agent_id() {
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join("home/user/.closeclaw");
-        std::fs::create_dir_all(&config_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
 
         let scan_config = build_scan_config(None, None, None, vec![]);
         assert!(scan_config.agent_skills_dir.is_none());
@@ -142,7 +143,7 @@ mod tests {
     fn test_agent_skills_dir_points_to_parent_agents_id_skills() {
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join("home/user/.closeclaw/eda");
-        std::fs::create_dir_all(&config_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
 
         // Simulate what init_skill_registry does: extract agent_id from
         // config_dir and compute the agent skills directory.
@@ -166,7 +167,7 @@ mod tests {
     fn test_project_root_set_in_scan_config() {
         let tmp = TempDir::new().unwrap();
         let project_root = tmp.path().join("my/project");
-        std::fs::create_dir_all(&project_root).unwrap();
+        ensure_dir(&project_root).unwrap();
 
         let scan_config = build_scan_config(None, None, Some(project_root.clone()), vec![]);
         assert_eq!(scan_config.project_root, Some(project_root));
@@ -284,7 +285,7 @@ mod tests {
     /// Helper: create a minimal SKILL.md in the given directory.
     fn create_skill_in_dir(dir: &Path, name: &str) {
         let skill_dir = dir.join(name);
-        std::fs::create_dir_all(&skill_dir).unwrap();
+        ensure_dir(&skill_dir).unwrap();
         std::fs::write(
             skill_dir.join("SKILL.md"),
             format!("---\ndescription: {} skill\n---\n# {}\n", name, name),
@@ -298,11 +299,11 @@ mod tests {
     async fn test_init_skill_registry_returns_populated_registry() {
         let tmp = TempDir::new().unwrap();
         let config_dir = tmp.path().join("home/user/.closeclaw/eda");
-        std::fs::create_dir_all(&config_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
 
         // Create a skill in the global dir
         let global_dir = tmp.path().join("home/user/.closeclaw/skills");
-        std::fs::create_dir_all(&global_dir).unwrap();
+        ensure_dir(&global_dir).unwrap();
         create_skill_in_dir(&global_dir, "test-skill");
 
         let registry = init_skill_registry(config_dir.to_str().unwrap(), None, vec![])

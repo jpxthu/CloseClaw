@@ -3,7 +3,7 @@
 use super::*;
 use crate::lifecycle::resolve_pid_file_path;
 use crate::test_helpers::write_mandatory_configs;
-use closeclaw_common::test_helpers::write_mandatory_without_models;
+use closeclaw_common::test_helpers::{ensure_dir, write_mandatory_without_models};
 use closeclaw_session::persistence::PersistenceService;
 use std::path::PathBuf;
 
@@ -14,7 +14,7 @@ use std::path::PathBuf;
 /// inside the TempDir instead of the real `~/.closeclaw`.
 fn isolated_pid_file(root: &std::path::Path) -> PathBuf {
     let pid_dir = root.join(".closeclaw");
-    std::fs::create_dir_all(&pid_dir).expect("failed to create .closeclaw dir");
+    ensure_dir(&pid_dir).expect("failed to create .closeclaw dir");
     pid_dir.join("daemon.pid")
 }
 
@@ -34,7 +34,7 @@ fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
         ]
     });
     let config_dir = dir.join("config");
-    std::fs::create_dir_all(&config_dir)?;
+    ensure_dir(&config_dir)?;
     std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
     Ok(())
 }

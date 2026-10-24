@@ -110,12 +110,12 @@ impl WorkflowDefinitionLoader {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::create_subdir;
     use std::fs;
     use tempfile::TempDir;
 
     fn write_skill_md(dir: &Path, workflow_name: &str, yaml_body: &str) {
-        let wf_dir = dir.join("workflows").join(workflow_name);
-        fs::create_dir_all(&wf_dir).unwrap();
+        let wf_dir = create_subdir(dir, &format!("workflows/{workflow_name}"));
         let content = format!("---\n{yaml_body}\n---\n\nBody content.\n");
         fs::write(wf_dir.join("SKILL.md"), content).unwrap();
     }
@@ -386,8 +386,7 @@ mod tests {
     #[test]
     fn test_invalid_skill_md_returns_parse_error() {
         let tmp = TempDir::new().unwrap();
-        let wf_dir = tmp.path().join("workflows").join("bad-wf");
-        fs::create_dir_all(&wf_dir).unwrap();
+        let wf_dir = create_subdir(tmp.path(), "workflows/bad-wf");
         fs::write(
             wf_dir.join("SKILL.md"),
             "---\nid: bad\nname: Bad\nsteps: not-an-array\n---\n",
@@ -406,8 +405,7 @@ mod tests {
     #[test]
     fn test_empty_skill_md_returns_error() {
         let tmp = TempDir::new().unwrap();
-        let wf_dir = tmp.path().join("workflows").join("empty-wf");
-        fs::create_dir_all(&wf_dir).unwrap();
+        let wf_dir = create_subdir(tmp.path(), "workflows/empty-wf");
         fs::write(wf_dir.join("SKILL.md"), "no frontmatter here").unwrap();
 
         let result = WorkflowDefinitionLoader::load("empty-wf", Some(tmp.path()), None);

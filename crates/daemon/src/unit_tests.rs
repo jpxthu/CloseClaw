@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::test_helpers::load_cm;
+use closeclaw_common::test_helpers::ensure_dir;
 use std::io::Write;
 use tempfile::TempDir;
 
@@ -740,7 +741,7 @@ fn test_fallback_llm_caller_chain_accessible() {
 fn config_manager_with_extra_dirs(dirs: &[&str]) -> closeclaw_config::ConfigManager {
     let tmp = tempfile::tempdir().unwrap();
     let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
+    ensure_dir(&config_subdir).unwrap();
     // Write mandatory config files so load() succeeds
     crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
     let skills_json = serde_json::json!({
@@ -795,7 +796,7 @@ fn test_resolve_extra_dirs_relative_path_unchanged() {
 fn test_resolve_extra_dirs_no_skills_config() {
     let tmp = tempfile::tempdir().unwrap();
     let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
+    ensure_dir(&config_subdir).unwrap();
     crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
     // Overwrite system.json with empty object (no skills section)
     std::fs::write(
@@ -814,7 +815,7 @@ fn test_resolve_extra_dirs_no_skills_config() {
 fn test_resolve_extra_dirs_invalid_json() {
     let tmp = tempfile::tempdir().unwrap();
     let config_subdir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_subdir).unwrap();
+    ensure_dir(&config_subdir).unwrap();
     crate::test_helpers::write_mandatory_configs(&config_subdir).unwrap();
     // Write malformed JSON to skills.json
     std::fs::write(config_subdir.join("skills.json"), "not valid json {{{").unwrap();
