@@ -153,7 +153,7 @@ mod tests {
     }
 
     #[test]
-    fn noop_adapter_does_nothing() {
+    fn test_noop_adapter_does_nothing() {
         let mut req = make_request();
         let adapter = NoopCacheAdapter;
         adapter.apply(&mut req);
@@ -162,12 +162,12 @@ mod tests {
     }
 
     #[test]
-    fn noop_adapter_name() {
+    fn test_noop_adapter_name() {
         assert_eq!(NoopCacheAdapter.name(), "noop");
     }
 
     #[test]
-    fn anthropic_adapter_static_only() {
+    fn test_anthropic_adapter_static_only() {
         let mut req = make_request();
         req.system_static = Some("Section A\n\nSection B".to_owned());
         AnthropicCacheAdapter.apply(&mut req);
@@ -181,7 +181,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_static_and_dynamic() {
+    fn test_anthropic_adapter_static_and_dynamic() {
         let mut req = make_request();
         req.system_static = Some("Static content".to_owned());
         req.system_dynamic = Some("Dynamic content".to_owned());
@@ -195,7 +195,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_empty_fields_no_blocks() {
+    fn test_anthropic_adapter_empty_fields_no_blocks() {
         let mut req = make_request();
         req.system_static = Some("".to_owned());
         AnthropicCacheAdapter.apply(&mut req);
@@ -203,19 +203,19 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_no_fields_no_blocks() {
+    fn test_anthropic_adapter_no_fields_no_blocks() {
         let mut req = make_request();
         AnthropicCacheAdapter.apply(&mut req);
         assert!(req.system_blocks.is_none());
     }
 
     #[test]
-    fn anthropic_adapter_name() {
+    fn test_anthropic_adapter_name() {
         assert_eq!(AnthropicCacheAdapter.name(), "anthropic");
     }
 
     #[test]
-    fn anthropic_adapter_marks_tools_as_cacheable() {
+    fn test_anthropic_adapter_marks_tools_as_cacheable() {
         use crate::types::ToolDefinition;
 
         let mut req = make_request();
@@ -242,7 +242,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_no_tools_no_change() {
+    fn test_anthropic_adapter_no_tools_no_change() {
         let mut req = make_request();
         req.tools = None;
         AnthropicCacheAdapter.apply(&mut req);
@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_empty_tools_no_change() {
+    fn test_anthropic_adapter_empty_tools_no_change() {
         let mut req = make_request();
         req.tools = Some(vec![]);
         AnthropicCacheAdapter.apply(&mut req);
@@ -259,7 +259,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_adapter_tools_section_in_static() {
+    fn test_anthropic_adapter_tools_section_in_static() {
         let mut req = make_request();
         req.system_static = Some(
             "## RoleSection\n\n\
@@ -288,19 +288,19 @@ mod tests {
     // ------------------------------------------------------------------
 
     #[test]
-    fn for_provider_anthropic_returns_anthropic_adapter() {
+    fn test_for_provider_anthropic_returns_anthropic_adapter() {
         let adapter = for_provider("anthropic");
         assert_eq!(adapter.name(), "anthropic");
     }
 
     #[test]
-    fn for_provider_kimi_returns_noop() {
+    fn test_for_provider_kimi_returns_noop() {
         let adapter = for_provider("kimi");
         assert_eq!(adapter.name(), "noop");
     }
 
     #[test]
-    fn for_provider_unknown_returns_noop() {
+    fn test_for_provider_unknown_returns_noop() {
         for provider_id in ["openai", "deepseek", "mimo", "kimi", ""] {
             let adapter = for_provider(provider_id);
             assert_eq!(
@@ -312,13 +312,13 @@ mod tests {
     }
 
     #[test]
-    fn for_provider_minimax_returns_anthropic_adapter() {
+    fn test_for_provider_minimax_returns_anthropic_adapter() {
         let adapter = for_provider("minimax");
         assert_eq!(adapter.name(), "anthropic");
     }
 
     #[test]
-    fn for_provider_anthropic_applies_cache_marks() {
+    fn test_for_provider_anthropic_applies_cache_marks() {
         let adapter = for_provider("anthropic");
         let mut req = make_request();
         req.system_static = Some("Static section".to_owned());
@@ -344,7 +344,7 @@ mod tests {
     /// `prompt_cache_key` nor clear/modify the map — it is a strict
     /// passthrough (see docs/design/llm/cache-adapter.md § 其他供应商).
     #[test]
-    fn noop_preserves_extra_body_with_session_id() {
+    fn test_noop_preserves_extra_body_with_session_id() {
         let mut req = make_request();
         req.session_id = Some("sess-kimi-123".to_owned());
         req.extra_body
@@ -368,7 +368,7 @@ mod tests {
     /// Verify that NoopCacheAdapter clears nothing and adds nothing
     /// when session_id is None — an empty extra_body stays empty.
     #[test]
-    fn noop_empty_request_unchanged() {
+    fn test_noop_empty_request_unchanged() {
         let mut req = make_request();
         req.session_id = None;
 
@@ -389,7 +389,7 @@ mod tests {
     /// must return NoopCacheAdapter. This covers the full set of
     /// known providers plus the empty-string edge case.
     #[test]
-    fn for_provider_noop_providers_exhaustive() {
+    fn test_for_provider_noop_providers_exhaustive() {
         for provider_id in [
             "openai",
             "deepseek",
@@ -412,7 +412,7 @@ mod tests {
     /// (docs/design/llm/cache-adapter.md § Anthropic 适配 + § MiniMax)
     /// must return AnthropicCacheAdapter.
     #[test]
-    fn for_provider_anthropic_providers_exhaustive() {
+    fn test_for_provider_anthropic_providers_exhaustive() {
         for provider_id in ["anthropic", "minimax"] {
             let adapter = for_provider(provider_id);
             assert_eq!(
@@ -435,7 +435,7 @@ mod tests {
     /// Static + dynamic-with-appends: appends are merged into the dynamic
     /// field by the builder; adapter produces two blocks.
     #[test]
-    fn anthropic_adapter_static_and_dynamic_with_appends() {
+    fn test_anthropic_adapter_static_and_dynamic_with_appends() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         // Builder merges appends into dynamic field
@@ -452,7 +452,7 @@ mod tests {
 
     /// Dynamic-only with appends merged: single non-cacheable block.
     #[test]
-    fn anthropic_adapter_dynamic_only_with_appends_merged() {
+    fn test_anthropic_adapter_dynamic_only_with_appends_merged() {
         let mut req = make_request();
         // Builder puts appends into system_dynamic
         req.system_dynamic = Some("Dynamic\n\n## Append\n1. Appended text".to_owned());
@@ -466,7 +466,7 @@ mod tests {
 
     /// Appends alone in dynamic field (no static): single non-cacheable block.
     #[test]
-    fn anthropic_adapter_appends_in_dynamic_only() {
+    fn test_anthropic_adapter_appends_in_dynamic_only() {
         let mut req = make_request();
         // When dynamic layer is empty, builder sets dynamic to only append段
         req.system_dynamic = Some("## Append\n1. Append content".to_owned());
@@ -480,7 +480,7 @@ mod tests {
 
     /// Two-partition model: only static + dynamic blocks, no appends partition.
     #[test]
-    fn anthropic_adapter_two_partition_no_separate_appends() {
+    fn test_anthropic_adapter_two_partition_no_separate_appends() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         req.system_dynamic = Some("Dynamic".to_owned());
@@ -502,7 +502,7 @@ mod tests {
     /// Static-only + dynamic-with-appends (no appends in static): the dynamic
     /// field contains merged appends, producing a single non-cacheable block.
     #[test]
-    fn anthropic_adapter_static_only_with_dynamic_appends() {
+    fn test_anthropic_adapter_static_only_with_dynamic_appends() {
         let mut req = make_request();
         req.system_static = Some("Static content".to_owned());
         // Builder merges appends into system_dynamic
@@ -519,7 +519,7 @@ mod tests {
 
     /// Dynamic-only + appends merged into dynamic: single non-cacheable block.
     #[test]
-    fn anthropic_adapter_dynamic_only_with_appends_merged_regression() {
+    fn test_anthropic_adapter_dynamic_only_with_appends_merged_regression() {
         let mut req = make_request();
         // Builder merges appends into system_dynamic
         req.system_dynamic = Some("Dynamic content\n\n## Append\n1. Append text".to_owned());
@@ -536,7 +536,7 @@ mod tests {
 
     /// Static + dynamic (with merged appends): two partitions.
     #[test]
-    fn anthropic_adapter_two_partition_order_and_marks() {
+    fn test_anthropic_adapter_two_partition_order_and_marks() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         req.system_dynamic = Some("Dynamic\n\n## Append\n1. Appends".to_owned());
@@ -557,7 +557,7 @@ mod tests {
     /// Static zone split into multiple blocks by double-newline: all blocks
     /// must have cache: true (each section is independently cacheable).
     #[test]
-    fn anthropic_adapter_static_multi_blocks_all_cached() {
+    fn test_anthropic_adapter_static_multi_blocks_all_cached() {
         let mut req = make_request();
         req.system_static = Some("Section A\n\nSection B\n\nSection C".to_owned());
         AnthropicCacheAdapter.apply(&mut req);
@@ -576,7 +576,7 @@ mod tests {
     /// The entire dynamic+append text is wrapped as one SystemBlock with
     /// cache: false — appends do not create separate blocks.
     #[test]
-    fn anthropic_adapter_dynamic_with_appends_single_block_no_cache() {
+    fn test_anthropic_adapter_dynamic_with_appends_single_block_no_cache() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         req.system_dynamic =
@@ -599,7 +599,7 @@ mod tests {
     /// The entire dynamic text (including ## Append heading and entries)
     /// is a single non-cacheable block.
     #[test]
-    fn anthropic_adapter_appends_not_independent_block() {
+    fn test_anthropic_adapter_appends_not_independent_block() {
         let mut req = make_request();
         req.system_static = Some("Static".to_owned());
         // Dynamic field contains merged appends (two ## sections separated
@@ -621,7 +621,7 @@ mod tests {
     /// Static multi-block + dynamic with appends: static blocks cached,
     /// single dynamic block not cached.
     #[test]
-    fn anthropic_adapter_static_multi_dynamic_with_appends() {
+    fn test_anthropic_adapter_static_multi_dynamic_with_appends() {
         let mut req = make_request();
         req.system_static = Some("Part A\n\nPart B".to_owned());
         req.system_dynamic = Some("Dynamic\n\n## Append\n[0] item".to_owned());

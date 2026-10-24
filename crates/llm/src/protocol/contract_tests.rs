@@ -55,7 +55,7 @@ fn assert_usage_eq(actual: &RawUsage, expected: &RawUsage) {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn openai_simple_text() {
+fn test_openai_simple_text() {
     let proto = OpenAiProtocol::new();
     let body = fixture_response(&openai_fixture_dir().join("simple.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -86,7 +86,7 @@ fn openai_simple_text() {
 }
 
 #[test]
-fn openai_reasoning() {
+fn test_openai_reasoning() {
     let proto = OpenAiProtocol::new();
     let body = fixture_response(&openai_fixture_dir().join("reasoning.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -128,7 +128,7 @@ fn openai_reasoning() {
 }
 
 #[test]
-fn openai_tool_use() {
+fn test_openai_tool_use() {
     let proto = OpenAiProtocol::new();
     let body = fixture_response(&openai_fixture_dir().join("tool-use.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -168,7 +168,7 @@ fn openai_tool_use() {
 }
 
 #[test]
-fn openai_cache() {
+fn test_openai_cache() {
     let proto = OpenAiProtocol::new();
     let body = fixture_response(&openai_fixture_dir().join("cache.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -201,7 +201,7 @@ fn openai_cache() {
 }
 
 #[test]
-fn openai_error_auth() {
+fn test_openai_error_auth() {
     let proto = OpenAiProtocol::new();
     let fixture = load_protocol_fixture(&openai_fixture_dir().join("error-auth.json")).unwrap();
     let body = fixture.response.unwrap();
@@ -219,7 +219,7 @@ fn openai_error_auth() {
 }
 
 #[test]
-fn openai_error_rate_limit() {
+fn test_openai_error_rate_limit() {
     let proto = OpenAiProtocol::new();
     let fixture =
         load_protocol_fixture(&openai_fixture_dir().join("error-rate-limit.json")).unwrap();
@@ -235,7 +235,7 @@ fn openai_error_rate_limit() {
 }
 
 #[test]
-fn openai_error_server() {
+fn test_openai_error_server() {
     let proto = OpenAiProtocol::new();
     let fixture = load_protocol_fixture(&openai_fixture_dir().join("error-server.json")).unwrap();
     let body = fixture.response.unwrap();
@@ -254,7 +254,7 @@ fn openai_error_server() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 #[test]
-fn anthropic_simple_text() {
+fn test_anthropic_simple_text() {
     let proto = AnthropicProtocol::new();
     let body = fixture_response(&anthropic_fixture_dir().join("anthropic-simple.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -286,7 +286,7 @@ fn anthropic_simple_text() {
 }
 
 #[test]
-fn anthropic_thinking() {
+fn test_anthropic_thinking() {
     let proto = AnthropicProtocol::new();
     let body = fixture_response(&anthropic_fixture_dir().join("anthropic-thinking.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -335,7 +335,7 @@ fn anthropic_thinking() {
 }
 
 #[test]
-fn anthropic_tool_use() {
+fn test_anthropic_tool_use() {
     let proto = AnthropicProtocol::new();
     let body = fixture_response(&anthropic_fixture_dir().join("anthropic-tool-use.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -380,7 +380,7 @@ fn anthropic_tool_use() {
 }
 
 #[test]
-fn anthropic_cache() {
+fn test_anthropic_cache() {
     let proto = AnthropicProtocol::new();
     let body = fixture_response(&anthropic_fixture_dir().join("anthropic-cache.json"));
     let resp = proto.parse_response(body).unwrap();
@@ -424,7 +424,7 @@ fn anthropic_cache() {
 }
 
 #[test]
-fn anthropic_error() {
+fn test_anthropic_error() {
     let proto = AnthropicProtocol::new();
     let fixture =
         load_protocol_fixture(&anthropic_fixture_dir().join("anthropic-error.json")).unwrap();
@@ -448,7 +448,7 @@ fn anthropic_error() {
 
 /// Verify all non-streaming OpenAI fixtures are consumed by contract tests.
 #[test]
-fn openai_non_streaming_coverage() {
+fn test_openai_non_streaming_coverage() {
     let entries = super::fixture_loader::load_protocol_fixtures_dir(&openai_fixture_dir()).unwrap();
     let non_streaming: Vec<_> = entries
         .iter()
@@ -468,7 +468,7 @@ fn openai_non_streaming_coverage() {
 
 /// Verify all non-streaming Anthropic fixtures are consumed by contract tests.
 #[test]
-fn anthropic_non_streaming_coverage() {
+fn test_anthropic_non_streaming_coverage() {
     let entries =
         super::fixture_loader::load_protocol_fixtures_dir(&anthropic_fixture_dir()).unwrap();
     let non_streaming: Vec<_> = entries
