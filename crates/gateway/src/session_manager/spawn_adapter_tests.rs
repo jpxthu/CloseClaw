@@ -10,6 +10,7 @@ use std::sync::Arc;
 use crate::session_manager::spawn_adapter::GatewayPermissionChecker;
 use crate::session_manager::{ChildSessionInfo, ChildSessionStatus, SpawnMode};
 use crate::{GatewayConfig, Message, SessionManager};
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::{
     BootstrapMode, ModelSpec, PermissionChecker, SpawnError, SpawnPermissionError,
 };
@@ -61,6 +62,18 @@ fn make_session_manager_with_storage() -> (Arc<SessionManager>, Arc<MemoryStorag
 fn make_config_manager() -> ConfigManager {
     let tmp = tempfile::tempdir().expect("tempdir");
     ConfigManager::new(tmp.path().to_path_buf()).expect("ConfigManager::new should succeed")
+}
+
+/// Shared fixture for permission-file tests: a TempDir root with a `config`
+/// subdirectory (created through the sanctioned `ensure_dir` helper) handed
+/// to `ConfigManager`. Returns the TempDir so the temp tree stays alive for
+/// the test's duration.
+fn make_config_manager_with_tmpdir() -> (Arc<ConfigManager>, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().expect("parent tempdir");
+    let config_dir = tmp.path().join("config");
+    ensure_dir(&config_dir).expect("ensure config dir");
+    let cm = Arc::new(ConfigManager::new(config_dir).expect("ConfigManager::new should succeed"));
+    (cm, tmp)
 }
 
 fn make_permission_engine() -> PermissionEngine {
@@ -136,7 +149,7 @@ fn make_controller(
 fn write_permission_file(cm: &ConfigManager, agent_id: &str, permissions: &AgentPermissions) {
     let agents_root = cm.config_dir.parent().unwrap_or(&cm.config_dir);
     let dir = agents_root.join("agents").join(agent_id);
-    std::fs::create_dir_all(&dir).expect("create agents dir");
+    ensure_dir(&dir).expect("create agents dir");
     let path = dir.join("permissions.json");
     let json = serde_json::to_string_pretty(permissions).expect("serialize permissions");
     std::fs::write(&path, json).expect("write permissions.json");
@@ -370,14 +383,7 @@ async fn test_permission_checker_no_permissions_configured() {
 #[tokio::test]
 async fn test_permission_checker_partial_overlap_ok() {
     let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
-    let (cm_raw, _tmpdir) = {
-        let parent = tempfile::tempdir().expect("parent tempdir");
-        let config_dir = parent.path().join("config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
-        let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
-        (cm, parent)
-    };
-    let cm = Arc::new(cm_raw);
+    let (cm, _tmpdir) = make_config_manager_with_tmpdir();
     let sm = make_session_manager();
     let checker = GatewayPermissionChecker::new(sm.clone(), cm.clone(), pe.clone());
 
@@ -410,14 +416,7 @@ async fn test_permission_checker_partial_overlap_ok() {
 #[tokio::test]
 async fn test_permission_checker_parent_denies_all() {
     let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
-    let (cm_raw, _tmpdir) = {
-        let parent = tempfile::tempdir().expect("parent tempdir");
-        let config_dir = parent.path().join("config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
-        let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
-        (cm, parent)
-    };
-    let cm = Arc::new(cm_raw);
+    let (cm, _tmpdir) = make_config_manager_with_tmpdir();
     let sm = make_session_manager();
     let checker = GatewayPermissionChecker::new(sm.clone(), cm.clone(), pe.clone());
 
@@ -493,14 +492,7 @@ async fn test_adapter_integration_validate_then_permission_no_restrictions() {
 #[tokio::test]
 async fn test_adapter_integration_validate_then_permission_denied() {
     let pe = Arc::new(tokio::sync::RwLock::new(make_permission_engine()));
-    let (cm_raw, _tmpdir) = {
-        let parent = tempfile::tempdir().expect("parent tempdir");
-        let config_dir = parent.path().join("config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
-        let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
-        (cm, parent)
-    };
-    let cm = Arc::new(cm_raw);
+    let (cm, _tmpdir) = make_config_manager_with_tmpdir();
     let sm = make_session_manager();
     let controller = make_controller(&cm, &sm, &pe);
 

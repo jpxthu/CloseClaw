@@ -8,6 +8,7 @@ use super::engine_eval::PermissionEngine;
 use super::engine_types::{Effect, PermissionRequest, PermissionRequestBody, PermissionResponse};
 use crate::actions::ActionBuilder;
 use crate::rules::{RuleBuilder, RuleSetBuilder};
+use closeclaw_common::test_helpers::ensure_dir;
 use std::fs;
 use tempfile::TempDir;
 
@@ -19,7 +20,7 @@ use tempfile::TempDir;
 /// `{tmp}/agents/{agent_id}/permissions.json`.
 fn write_agent_rules(tmp: &TempDir, agent_id: &str, rules_json: &str) {
     let agent_dir = tmp.path().join("agents").join(agent_id);
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     let full_json = format!(
         r#"{{
             "rules": {},
@@ -448,7 +449,7 @@ fn test_corrupted_json_falls_back_to_global() {
     // Agent file exists but is invalid JSON → treated as no agent rules.
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("bad-json-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     fs::write(agent_dir.join("permissions.json"), "{not valid json!!!").unwrap();
 
     let ruleset = global_rules_with_allow("bad-json-agent");
@@ -467,7 +468,7 @@ fn test_corrupted_json_no_panic() {
     // Corrupted file must not cause a panic.
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("panic-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     fs::write(
         agent_dir.join("permissions.json"),
         r#"{"rules": "not_an_array", "broken": true}"#,

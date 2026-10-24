@@ -204,7 +204,6 @@ mod write_wizard_config_tests {
         providers: std::collections::HashMap<String, ProviderConfig>,
     ) {
         let models_path = tmp.path().join("models.json");
-        std::fs::create_dir_all(tmp.path()).unwrap();
         let initial = ModelsConfigData {
             mode: "merge".to_string(),
             providers,
@@ -602,13 +601,14 @@ mod write_wizard_config_tests {
 #[cfg(test)]
 mod ensure_master_agent_tests {
     use super::*;
+    use closeclaw_common::test_helpers::ensure_dir;
     use tempfile::TempDir;
 
     fn isolated_dirs(tmp: &TempDir) -> (std::path::PathBuf, std::path::PathBuf) {
         let config_dir = tmp.path().join("config");
         let agents_dir = tmp.path().join("agents");
-        std::fs::create_dir_all(&config_dir).unwrap();
-        std::fs::create_dir_all(&agents_dir).unwrap();
+        ensure_dir(&config_dir).unwrap();
+        ensure_dir(&agents_dir).unwrap();
         (config_dir, agents_dir)
     }
 
@@ -717,7 +717,7 @@ mod ensure_master_agent_tests {
         let (config_dir, agents_dir) = isolated_dirs(&tmp);
 
         // Pre-create master config.json (already exists)
-        std::fs::create_dir_all(agents_dir.join("master")).unwrap();
+        ensure_dir(&agents_dir.join("master")).unwrap();
         let existing_config = AgentConfig {
             id: "master".to_string(),
             ..Default::default()
@@ -934,7 +934,6 @@ mod write_wizard_config_api_key_clearing_tests {
             mode: "merge".to_string(),
             providers,
         };
-        std::fs::create_dir_all(tmp.path()).unwrap();
         std::fs::write(
             tmp.path().join("models.json"),
             serde_json::to_string_pretty(&initial).unwrap(),
