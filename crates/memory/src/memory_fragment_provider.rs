@@ -136,6 +136,7 @@ impl PromptFragmentProvider for MemoryFragmentProvider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::create_subdir;
     use closeclaw_common::BootstrapMode;
     use std::fs;
 
@@ -265,8 +266,7 @@ mod tests {
     #[tokio::test]
     async fn test_generate_with_custom_relative_path() {
         let tmp = tempfile::tempdir().unwrap();
-        let custom_dir = tmp.path().join("memory");
-        fs::create_dir_all(&custom_dir).unwrap();
+        let custom_dir = create_subdir(tmp.path(), "memory");
         fs::write(custom_dir.join("MEMORY.md"), "Custom path content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
@@ -297,8 +297,7 @@ mod tests {
     #[tokio::test]
     async fn test_cache_key_with_custom_path() {
         let tmp = tempfile::tempdir().unwrap();
-        let custom_dir = tmp.path().join("memory");
-        fs::create_dir_all(&custom_dir).unwrap();
+        let custom_dir = create_subdir(tmp.path(), "memory");
         fs::write(custom_dir.join("MEMORY.md"), "content").unwrap();
         let provider = MemoryFragmentProvider::with_path("memory/MEMORY.md");
         let ctx = FragmentContext {
