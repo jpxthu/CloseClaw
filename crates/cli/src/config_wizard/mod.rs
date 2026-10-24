@@ -31,8 +31,20 @@ use closeclaw_config::{
 use closeclaw_llm::model_info::ModelInfo;
 
 #[cfg(test)]
+mod compute_default_selection_tests;
+#[cfg(test)]
 mod default_agent_id_same_source_tests;
+#[cfg(test)]
+mod discovery_source_suffix_tests;
+#[cfg(test)]
+mod parse_model_selection_tests;
+#[cfg(test)]
+mod provider_config_protocol_tests;
+#[cfg(test)]
+mod provider_info_tests;
 #[cfg(test)]
 mod reexport_tests;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod wizard_context_tests;
