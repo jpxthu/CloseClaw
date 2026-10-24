@@ -7,7 +7,7 @@
 use crate::config_reload::reload::{extract_agent_id_from_permissions_path, DaemonReloadCallback};
 use crate::test_helpers::make_config_manager;
 use closeclaw_agent::registry::AgentRegistry;
-use closeclaw_common::test_helpers::ensure_dir;
+use closeclaw_common::test_helpers::{advance_mtime, ensure_dir};
 use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_config::ReloadCallback;
 use std::path::{Path, PathBuf};
@@ -160,13 +160,8 @@ fn test_daemon_callback_permissions_changed() {
     std::fs::write(&perms_path, "not valid json{{").unwrap();
 
     // Advance mtime by 10 seconds to guarantee cache invalidation even on
-    // filesystems with coarse timestamp granularity (std API, no new dep).
-    let f = std::fs::File::options()
-        .write(true)
-        .open(&perms_path)
-        .unwrap();
-    let new_mtime = f.metadata().unwrap().modified().unwrap() + std::time::Duration::from_secs(10);
-    f.set_modified(new_mtime).unwrap();
+    // filesystems with coarse timestamp granularity.
+    advance_mtime(&perms_path, 10).unwrap();
 
     callback.on_permissions_changed(&perms_path, &cm);
 
