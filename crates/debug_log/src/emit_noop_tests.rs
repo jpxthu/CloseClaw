@@ -54,19 +54,28 @@ fn emit_params(ctx: DebugLogContext<'_>) -> EmitEventParams<'_> {
 }
 
 /// Count non-blank JSONL event lines across all `*.jsonl` files in `dir`.
+///
+/// Any fs read failure (`read_dir` / `next_entry` / `read_to_string`)
+/// panics: the directory is created by `DebugLog::new`, so a read error
+/// is an abnormal state and must not be silently treated as "zero
+/// output" (which would make the absence assertions vacuously pass).
 async fn count_events(dir: &Path) -> usize {
     let mut count = 0;
-    let Ok(mut entries) = tokio::fs::read_dir(dir).await else {
-        return count;
-    };
-    while let Ok(Some(entry)) = entries.next_entry().await {
+    let mut entries = tokio::fs::read_dir(dir)
+        .await
+        .expect("read_dir on the log dir failed; treating it as zero output is a vacuous pass");
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .expect("read_dir iteration failed; treating it as zero output is a vacuous pass")
+    {
         let path = entry.path();
         if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
             continue;
         }
-        let Ok(content) = tokio::fs::read_to_string(&path).await else {
-            continue;
-        };
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .expect("reading a *.jsonl event file failed; this is not zero output");
         count += content
             .lines()
             .filter(|line| !line.trim().is_empty())
