@@ -1,4 +1,5 @@
-//! Unit tests for the shared debug-log test helpers (feature `test-util`).
+//! Unit tests for the shared debug-log test helpers, mounted under the
+//! `any(test, feature = "test-util")`-gated `test_utils` module.
 
 use super::*;
 use crate::TraceContext;
@@ -201,4 +202,118 @@ async fn test_wait_for_event_type_returns_filtered_subset_only() {
     let hits = wait_for_event_type(tmp.path(), "type.hit").await;
     assert_eq!(hits.len(), 2, "only the requested event type is returned");
     assert!(hits.iter().all(|e| e.event_type == "type.hit"));
+}
+
+/// Error path: a missing log dir (fs read failure) must panic, not report
+/// zero — the helpers' strictness contract that keeps absence assertions
+/// from passing vacuously. The panic is observed via a spawned task's
+/// `JoinError` (daemon test_helpers_tests precedent).
+#[tokio::test]
+async fn test_count_events_panics_when_log_dir_missing() {
+    let tmp = TempDir::new().unwrap();
+    let missing = tmp.path().join("never-created");
+    let joined = tokio::spawn(async move { count_events(&missing).await }).await;
+    let join_err = joined.expect_err("count_events on a missing dir must panic");
+    assert!(
+        join_err.is_panic(),
+        "expected a panic JoinError, got: {join_err:?}"
+    );
+    let payload = join_err.into_panic();
+    let msg = payload
+        .downcast_ref::<String>()
+        .map(String::as_str)
+        .or_else(|| payload.downcast_ref::<&str>().copied())
+        .expect("panic payload should be a string");
+    assert!(
+        msg.contains("read_dir"),
+        "missing dir must fail at read_dir with the vacuous-pass diagnostic, got: {msg}"
+    );
+}
+
+/// Normal path: the count spans all `*.jsonl` files and is line-based —
+/// non-blank lines counted, blank lines skipped, non-`.jsonl` files
+/// ignored (strict counterpart of the lenient `read_events` semantics).
+#[tokio::test]
+async fn test_count_events_counts_non_blank_lines_across_jsonl_files() {
+    let tmp = TempDir::new().unwrap();
+    let a = make_event("t", "type.a", LogLevel::Info)
+        .to_jsonl()
+        .unwrap();
+    let b = make_event("t", "type.b", LogLevel::Info)
+        .to_jsonl()
+        .unwrap();
+    let c = make_event("t", "type.c", LogLevel::Info)
+        .to_jsonl()
+        .unwrap();
+    tokio::fs::write(tmp.path().join("debug-a.jsonl"), format!("{a}\n\n{b}\n"))
+        .await
+        .unwrap();
+    tokio::fs::write(tmp.path().join("debug-b.jsonl"), format!("{c}\n"))
+        .await
+        .unwrap();
+    tokio::fs::write(tmp.path().join("notes.txt"), "ignored\nignored\n")
+        .await
+        .unwrap();
+
+    let count = count_events(tmp.path()).await;
+    assert_eq!(
+        count, 3,
+        "non-blank lines across *.jsonl files only; blanks and other extensions excluded"
+    );
+}
+
+/// State transition: a count of zero must not stop the poll — the helper
+/// keeps polling until the delayed write lands, then returns on the
+/// first `count > 0` observation instead of waiting out the deadline.
+#[tokio::test]
+async fn test_poll_event_count_stops_as_soon_as_count_is_non_zero() {
+    let tmp = TempDir::new().unwrap();
+    let dir = tmp.path().to_path_buf();
+    let line = make_event("t-late", "type.late", LogLevel::Info)
+        .to_jsonl()
+        .unwrap();
+    tokio::spawn(async move {
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        tokio::fs::write(dir.join("late.jsonl"), format!("{line}\n"))
+            .await
+            .unwrap();
+    });
+
+    let deadline = Duration::from_secs(5);
+    let start = std::time::Instant::now();
+    let count = poll_event_count(tmp.path(), deadline).await;
+    let elapsed = start.elapsed();
+    assert_eq!(count, 1, "the delayed write must be counted");
+    assert!(
+        elapsed >= Duration::from_millis(100),
+        "zero-count polls must not stop before the write lands"
+    );
+    assert!(
+        elapsed < deadline,
+        "count > 0 must stop the poll before the deadline"
+    );
+}
+
+/// Timeout path: an empty dir exhausts the deadline and the helper
+/// returns the last observed count (zero) — the absence-assertion form.
+#[tokio::test]
+async fn test_poll_event_count_timeout_returns_zero() {
+    let tmp = TempDir::new().unwrap();
+
+    let deadline = Duration::from_millis(150);
+    let start = std::time::Instant::now();
+    let count = poll_event_count(tmp.path(), deadline).await;
+    let elapsed = start.elapsed();
+    assert_eq!(
+        count, 0,
+        "deadline exhaustion on an empty dir must report zero"
+    );
+    assert!(
+        elapsed >= deadline,
+        "zero-count polls must wait out the full deadline"
+    );
+    assert!(
+        elapsed < deadline + Duration::from_secs(1),
+        "the poll must not hang past the deadline (+ scheduling margin)"
+    );
 }
