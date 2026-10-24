@@ -115,17 +115,19 @@ impl ConversationSession {
         self.invoke_llm_with_target_inner(content, false).await
     }
 
-    /// Pre-appended-blocks variant of [`invoke_llm_with_target`](Self::invoke_llm_with_target).
+    /// Pre-appended variant of [`invoke_llm_with_target`](Self::invoke_llm_with_target).
     ///
-    /// For the gateway production path where the current user message
-    /// was already appended to history in structured blocks form
-    /// (embedded small-image messages). The blocks-form tail flattens
-    /// to `content=""` (Image blocks are excluded from the text
-    /// flatten), so string equality with the invoke content (the
-    /// gateway-flattened `[image: key] …\nbase64` text) is structurally
-    /// unreachable. The explicit declaration lets the build-side dedup
-    /// guard treat the blocks-form tail as the same logical message and
-    /// skip the duplicate push, keeping the sent list a tail-append
+    /// Declares that the current user message was already appended to
+    /// history before this invoke — in plain text form or in structured
+    /// blocks form (embedded small-image messages). The declaration
+    /// (`current_turn_pre_appended`) lets the build-side push dedup
+    /// guard recognize the already-appended message and skip the
+    /// duplicate push: plain-text tails match by string equality, while
+    /// blocks-form tails flatten to `content=""` (Image blocks are
+    /// excluded from the text flatten, so string equality with the
+    /// gateway-flattened `[image: key] …\nbase64` invoke content is
+    /// structurally unreachable) and are matched by the declaration
+    /// branch. Skipping the push keeps the sent list a tail-append
     /// extension of the previous round.
     pub async fn invoke_llm_with_target_pre_appended_blocks(
         &mut self,
@@ -140,7 +142,7 @@ impl ConversationSession {
     async fn invoke_llm_with_target_inner(
         &mut self,
         content: &str,
-        user_blocks_pre_appended: bool,
+        current_turn_pre_appended: bool,
     ) -> Result<(UnifiedResponse, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
@@ -154,7 +156,7 @@ impl ConversationSession {
         }
 
         let (caller, request) =
-            self.prepare_llm_turn_request(content, user_blocks_pre_appended, false)?;
+            self.prepare_llm_turn_request(content, current_turn_pre_appended, false)?;
 
         // ── Busy count: increment before LLM call, decrement after ──
         if let Some(sh) = self.get_shutdown_handle() {
@@ -179,7 +181,7 @@ impl ConversationSession {
     fn prepare_llm_turn_request(
         &mut self,
         content: &str,
-        user_blocks_pre_appended: bool,
+        current_turn_pre_appended: bool,
         is_streaming: bool,
     ) -> Result<(std::sync::Arc<dyn LlmCaller>, InternalRequest), LLMError> {
         let Some(caller) = self.llm_caller.clone() else {
@@ -190,7 +192,7 @@ impl ConversationSession {
 
         let listing = self.prepare_turn_skill_listing(content);
         let messages =
-            self.build_llm_messages_with_listing(content, listing, user_blocks_pre_appended);
+            self.build_llm_messages_with_listing(content, listing, current_turn_pre_appended);
 
         let request = self.build_llm_request(messages, is_streaming);
 
@@ -249,14 +251,14 @@ impl ConversationSession {
             .await
     }
 
-    /// Pre-appended-blocks variant of
+    /// Pre-appended variant of
     /// [`invoke_llm_streaming_with_target`](Self::invoke_llm_streaming_with_target).
     ///
     /// Same explicit declaration as
-    /// [`invoke_llm_with_target_pre_appended_blocks`][pre_appended_blocks], for the
-    /// gateway streaming dispatch path: the current user message was
-    /// already appended to history in structured blocks form, which
-    /// string equality cannot recognize as the message being invoked.
+    /// [`invoke_llm_with_target_pre_appended_blocks`][pre_appended_blocks], for
+    /// call paths where the current user message was already appended
+    /// to history before the invoke (plain text or structured blocks
+    /// form), which the build-side push dedup guard must be told about.
     ///
     /// [pre_appended_blocks]: Self::invoke_llm_with_target_pre_appended_blocks
     pub async fn invoke_llm_streaming_with_target_pre_appended_blocks(
@@ -273,7 +275,7 @@ impl ConversationSession {
     async fn invoke_llm_streaming_with_target_inner(
         &mut self,
         content: &str,
-        user_blocks_pre_appended: bool,
+        current_turn_pre_appended: bool,
     ) -> Result<(SessionStream, Option<CallTarget>), LLMError> {
         // ── Shutdown gate: reject LLM streaming calls when daemon is shutting down ──
         if let Some(sh) = self.get_shutdown_handle() {
@@ -287,7 +289,7 @@ impl ConversationSession {
         }
 
         let (caller, request) =
-            self.prepare_llm_turn_request(content, user_blocks_pre_appended, true)?;
+            self.prepare_llm_turn_request(content, current_turn_pre_appended, true)?;
 
         // ── Busy count: increment before stream, decrement on stream end ──
         if let Some(sh) = self.get_shutdown_handle() {

@@ -10,7 +10,7 @@
 //! unchanged.
 
 use crate::llm_session::cache_prefix::{build_prefix_snapshot, RequestPrefixSnapshot};
-use closeclaw_common::{InternalMessage, UnifiedUsage};
+use closeclaw_common::{ContentBlock, InternalMessage, UnifiedUsage};
 
 /// Provider cache TTL magnitude default (cache-adapter doc :27: 5 min).
 pub(super) const TTL_MS: u64 = 300_000;
@@ -38,6 +38,51 @@ pub(super) fn assistant_msg(content: &str) -> InternalMessage {
         role: "assistant".to_string(),
         content: content.to_string(),
         content_blocks: None,
+        tool_call_id: None,
+    }
+}
+
+/// Empty tool-role placeholder message: the converted shape of a
+/// tool-role transcript entry itself (`inject_tool_result` history
+/// conversion emits it before the promoted ToolResult message).
+pub(super) fn tool_placeholder() -> InternalMessage {
+    InternalMessage {
+        role: "tool".to_string(),
+        content: String::new(),
+        content_blocks: None,
+        tool_call_id: None,
+    }
+}
+
+/// Tool-role message carrying a promoted ToolResult block
+/// (`inject_tool_result` shape) with its `tool_call_id`.
+pub(super) fn tool_result_msg(id: &str, content: &str) -> InternalMessage {
+    InternalMessage {
+        role: "tool".to_string(),
+        content: content.to_string(),
+        content_blocks: None,
+        tool_call_id: Some(id.to_string()),
+    }
+}
+
+/// Workflow-role control message (`inject_workflow_message` shape).
+pub(super) fn workflow_msg(content: &str) -> InternalMessage {
+    InternalMessage {
+        role: "workflow".to_string(),
+        content: content.to_string(),
+        content_blocks: None,
+        tool_call_id: None,
+    }
+}
+
+/// User-role message with structured content blocks and empty
+/// flattened text (the image-round pre-append shape, where Image
+/// blocks are excluded from the text flatten).
+pub(super) fn user_blocks_msg(blocks: &[ContentBlock]) -> InternalMessage {
+    InternalMessage {
+        role: "user".to_string(),
+        content: String::new(),
+        content_blocks: Some(blocks.to_vec()),
         tool_call_id: None,
     }
 }

@@ -31,6 +31,8 @@ mod memory_injection_dedup_tests;
 mod message_push_dedup_tests;
 mod pending_state_tests;
 mod progress_removal_session_tests;
+mod push_dedup_full_chain_tests;
+mod push_dedup_injection_tests;
 mod reasoning_level_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
@@ -50,7 +52,8 @@ mod streaming_tests;
 mod system_appends_tests;
 mod test_helpers;
 use self::test_helpers::{
-    assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, user_msg, TTL_MS,
+    assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, tool_placeholder,
+    tool_result_msg, user_blocks_msg, user_msg, workflow_msg, TTL_MS,
 };
 mod thinking_clean_tests;
 mod tool_session_persist_tests;

@@ -351,12 +351,21 @@ impl SessionMessageHandler {
             .await;
         // Persist user message before auto-compact so threshold estimation
         // includes the current message (design-doc data-flow: write → truncate → estimate).
+        //
+        // Text pre-append declaration follows the append fact (mirrors
+        // `handle_message_with_gateway`): the session-side push dedup
+        // guard is told the current user message is already in history
+        // only when it was actually appended here. Declaring true
+        // without the append (conversation session missing) would make
+        // the guard skip the push and silently drop the message.
+        let mut current_turn_pre_appended = false;
         if let Some(cs) = self
             .session_manager
             .get_conversation_session(session_id)
             .await
         {
             cs.write().await.append_user_message(&content);
+            current_turn_pre_appended = true;
         }
         // Update last_user_activity_at and last_message_at for the user message.
         // Only user messages (not LLM responses, tool results, or system messages)
@@ -365,10 +374,15 @@ impl SessionMessageHandler {
             .update_checkpoint_user_activity(session_id)
             .await;
         self.check_and_run_auto_compact(session_id).await;
-        // Text pre-append: the session-side equality dedup guard covers
-        // this form, so no blocks pre-append declaration is needed.
-        self.dispatch_llm_call(session_id, content, meta, None, None, false)
-            .await
+        self.dispatch_llm_call(
+            session_id,
+            content,
+            meta,
+            None,
+            None,
+            current_turn_pre_appended,
+        )
+        .await
     }
 }
 // ── Compaction ──
