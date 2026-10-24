@@ -99,8 +99,7 @@ async fn test_config_validate_not_found() {
 #[tokio::test]
 async fn test_config_list_with_files() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("a.json"),
@@ -122,8 +121,7 @@ async fn test_config_list_with_files() {
 #[tokio::test]
 async fn test_config_list_empty_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
 
     let result = handle_config_with(ConfigAction::List, config_dir, false).await;
@@ -137,7 +135,7 @@ async fn test_config_list_empty_dir() {
 #[tokio::test]
 async fn test_config_list_no_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     // Ensure config dir does NOT exist
     assert!(!config_dir.exists());
 
@@ -308,8 +306,7 @@ fn make_rule(name: &str, agent: &str) -> Rule {
 #[tokio::test]
 async fn test_rule_list_with_rules() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![
         make_rule("rule-1", "agent-a"),
@@ -325,8 +322,7 @@ async fn test_rule_list_with_rules() {
 #[tokio::test]
 async fn test_rule_list_empty_rules() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![]);
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
@@ -343,8 +339,7 @@ async fn test_rule_list_empty_rules() {
 #[tokio::test]
 async fn test_rule_list_no_file() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     // No permissions.json created
 
@@ -362,10 +357,14 @@ async fn test_rule_list_no_file() {
 
 use std::sync::Arc;
 
+fn config_dir(tmp: &TempDir) -> PathBuf {
+    tmp.path().join(".closeclaw")
+}
+
 /// Create a temp config dir with the required sub-structure for AdminServer.
 fn setup_admin_config_dir() -> (TempDir, PathBuf) {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     let config_sub = config_dir.join("config");
     fs::create_dir_all(&config_sub).unwrap();
     // agents.json lives in the config subdirectory
@@ -651,7 +650,7 @@ async fn test_config_validate_json() {
 #[serial_test::serial]
 async fn test_config_list_json() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("a.json"),
@@ -693,7 +692,7 @@ async fn test_rule_check_json() {
 #[serial_test::serial]
 async fn test_rule_list_json() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![make_rule("rule-1", "agent-a")]);
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
