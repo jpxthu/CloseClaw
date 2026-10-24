@@ -15,10 +15,6 @@
 //! `clear_global_prompt_state`, is now an explicit no-op) and also
 //! serializes access to the process-wide `SHARED_CONFIG_DIR` tempdir
 //! shared by `make_test_mgr`.
-//!
-//! Note: test 17 (`test_yield_cyclic_warning_ratio_2_0_boundary`) still
-//! uses the real clock; it is slated for the same paused-clock treatment
-//! in a later batch.
 
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
@@ -154,7 +150,14 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
 /// When `notify_interval_ratio = 2.0`, the interval equals
 /// `warning_secs * 2.0`. After the initial warning, elapsed exceeds
 /// overall timeout so the loop breaks immediately — only one warning.
-#[tokio::test]
+///
+/// Runs on a paused tokio clock: the 3s hard timeout and the 2s
+/// cyclic-warning interval sleeps are virtual, so the full chain —
+/// the single warning at T=1 (the loop exits right after that
+/// injection, when elapsed reaches the hard timeout), hard timeout at
+/// T=3, drain completes — executes deterministically in milliseconds
+/// of wall time.
+#[tokio::test(start_paused = true)]
 #[serial]
 async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
     clear_global_prompt_state();
@@ -168,13 +171,48 @@ async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
     }
 
     // overall=3s, warning_secs=1s, ratio=2.0
-    // interval = max(1*2, 1) = 2s.
+    // interval = max(round(1*2.0), 1) = 2s.
     // Warning at T=1, elapsed=3 >= 3, loop breaks. One warning only.
     mgr.start_yield_timeout(&parent_id, "agent-x", 3, Some(1), Some(2.0))
         .await;
 
-    // Wait 4s: hard timeout at T=3 fires, drain picks up warn at T=1.
-    tokio::time::sleep(std::time::Duration::from_secs(4)).await;
+    // Under the paused clock this 2s virtual sleep stops the clock at
+    // T=2: the boundary warning (T=1) is already enqueued while the
+    // hard timeout (T=3) has not fired yet — a deterministic pause
+    // point for the positive count assertion below.
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+
+    // Positive assertion: exactly one entry — the T=1 boundary warning
+    // — was enqueued before the hard-timeout drain. (Count template:
+    // yield_timeout_tests "exactly one warning".)
+    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+    let entries = {
+        let mut cs_write = cs.write().await;
+        cs_write.drain_queue()
+    };
+    let warning_entries: Vec<_> = entries
+        .iter()
+        .filter(|e| {
+            matches!(
+                e,
+                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _)
+                    if text.contains("超时预警")
+            )
+        })
+        .collect();
+    assert_eq!(
+        warning_entries.len(),
+        1,
+        "ratio=2.0 boundary should enqueue exactly one warning before the \
+         hard timeout, got {}",
+        warning_entries.len()
+    );
+
+    // Advance through the hard timeout at T=3 (the 2s margin beyond
+    // T=3 guarantees the hard-timeout callback is fully polled): it
+    // fires and drains the queue for outbound routing — deterministic,
+    // ms-level wall-clock.
+    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
 
     assert_routed_outbound(&mgr, &parent_id, &["[超时] verify cyclic routed"]).await;
 }
