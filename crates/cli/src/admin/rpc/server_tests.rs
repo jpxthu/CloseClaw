@@ -58,6 +58,24 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
     Some(Arc::new(FakeSkillRegistry::new(&[])))
 }
 
+/// Shared `AdminContext` constructor for the fixtures below — assembles the
+/// parts they hold in common (`config/` subdir build, `ConfigManager::new`
+/// + `Arc` wrap, fresh `AgentRegistry`, empty fake skill registry, no
+/// restart channel) so the field wiring has a single source of truth.
+/// Fixture-specific duties (TempDir ownership, agents.json seeding,
+/// `load_agents`) stay with the callers.
+fn make_admin_context(config_dir: std::path::PathBuf) -> AdminContext {
+    let config_sub = config_dir.join("config");
+    let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
+    AdminContext {
+        agent_registry: Arc::new(AgentRegistry::new()),
+        skill_registry: empty_skill_registry(),
+        config_manager,
+        config_dir,
+        restart_tx: None,
+    }
+}
+
 /// The TempDir is returned alongside the context (not dropped here) so the
 /// config path stays valid for the whole test — STANDARDS §8 临时文件
 /// (TempDir 自动清理). Callers must hold the `_tmpdir` binding.
@@ -69,14 +87,7 @@ fn make_test_context() -> (AdminContext, tempfile::TempDir) {
     // agents.json lives in the config subdirectory
     // (ConfigManager.config_dir = config_sub)
     std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
-    let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-    let ctx = AdminContext {
-        agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: empty_skill_registry(),
-        config_manager,
-        config_dir,
-        restart_tx: None,
-    };
+    let ctx = make_admin_context(config_dir);
     (ctx, tmp)
 }
 
@@ -287,17 +298,10 @@ fn setup_agents(config_dir: &std::path::Path, ids: &[&str]) {
 /// Create a ConfigManager pointed at the given config_dir ("config" subdir)
 /// and call load_agents so it discovers the agent files on disk.
 fn make_context_with_agents(config_dir: &std::path::Path) -> AdminContext {
-    let config_sub = config_dir.join("config");
-    let config_manager = closeclaw_config::ConfigManager::new(config_sub.clone()).unwrap();
+    let ctx = make_admin_context(config_dir.to_path_buf());
     // Load agents from the filesystem so config_manager.agents() is populated.
-    config_manager.load_agents(None).unwrap();
-    AdminContext {
-        agent_registry: Arc::new(AgentRegistry::new()),
-        skill_registry: empty_skill_registry(),
-        config_manager: Arc::new(config_manager),
-        config_dir: config_dir.to_path_buf(),
-        restart_tx: None,
-    }
+    ctx.config_manager.load_agents(None).unwrap();
+    ctx
 }
 
 /// Normal path: registry has agents A and B → reload with only C → only C
