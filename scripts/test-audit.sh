@@ -7,6 +7,14 @@
 # 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
 # test-only 文件（目标文件名含 test_helpers / test_support 的 helper 本体除外）
 #
+# 扩围通道已知局限（best-effort 行级解析，不追全量 Rust 语法）：
+#   - cfg 属性跨行书写不识别（如 `#[cfg(all(
+#     test, ...))]` 拆行形态）
+#   - `#[path]` 属性位于 cfg(test) 之前的逆序形态不识别
+#   - 声明与 `{` 跨行分离（如 `mod tests` 换行 `{`）不进区域
+#   - raw string（r#"..."#）与块注释 /* */ 不剥离，其中花括号仍可能扰动区域
+#     边界（普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义）
+#
 # --runtime          用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT       只扫描文件路径中包含 PAT 的 .rs 文件（静态）
 #                    runtime 模式下同时传递给 nextest（如 --target permission）
@@ -74,6 +82,21 @@ if [[ $UPDATE_BASELINE -eq 1 && $RUNTIME -eq 1 ]]; then
   exit 2
 fi
 
+# ── 临时文件统一清理（EXIT 兜底，覆盖错误退出路径）────────
+TRACE_LOG=""
+EVENTS_FILE=""
+MTARGETS_FILE=""
+FILTERED_EVENTS_FILE=""
+cleanup_temp_files() {
+  local f
+  for f in "$TRACE_LOG" "$EVENTS_FILE" "$MTARGETS_FILE" "$FILTERED_EVENTS_FILE"; do
+    if [[ -n "$f" ]]; then
+      rm -f "$f"
+    fi
+  done
+}
+trap cleanup_temp_files EXIT
+
 VIOLATIONS=0
 
 # ══════════════════════════════════════════════════════════
@@ -86,7 +109,7 @@ if [[ $RUNTIME -eq 1 ]]; then
     exit 2
   fi
 
-  TRACE_LOG="$(mktemp)"
+  TRACE_LOG="$(mktemp "${TMPDIR:-/tmp}/test-audit-trace-XXXXXX")"
 
   # 构建 nextest 命令
   CARGO_ARGS=(nextest run --lib)
@@ -245,7 +268,9 @@ done
 # ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
 # 输出事件（TSV）：
 #   H\t相对路径\t行号\t行内容 = cfg(test) 门控区域内的行（花括号深度定位边界，
-#                             深度计数前剥离 // 行注释；逐文件复位状态，可分批）
+#                             深度计数前剥离 // 行注释与普通字符串字面量
+#                             （best-effort，含 \" \\ 转义；raw string / 块注释
+#                             为已知局限，见脚本头注释）；逐文件复位状态，可分批）
 #   M\t相对路径\tpath属性\tmod名 = cfg(test) 门控的 mod 挂载声明（path 属性可空）
 REGION_SCANNER_AWK="$(cat <<'AWK_PROGRAM'
 function trim_ws(x) {
@@ -253,8 +278,10 @@ function trim_ws(x) {
   gsub(/[[:space:]]+$/, "", x)
   return x
 }
+# 正则拆行为动态字符串拼接（等价改写，单行 ≤100 字符；\ 为 awk 续行符）
 function is_item_decl(s) {
-  return s ~ /^([[:space:]]*)?(pub([[:space:]]*\([a-z]+\))?([[:space:]]+))?(unsafe[[:space:]]+)?(mod|fn|impl)[[:space:]]/
+  return s ~ ("^([[:space:]]*)?(pub([[:space:]]*\\([a-z]+\\))?([[:space:]]+))?" \
+              "(unsafe[[:space:]]+)?(mod|fn|impl)[[:space:]]")
 }
 function is_mount_decl(s) {
   return is_item_decl(s) && s ~ /(^|[[:space:]])mod[[:space:]]+/ && s ~ /;[[:space:]]*$/
@@ -263,6 +290,36 @@ function pred_has_test(s) {
   if (s !~ /^#\[[[:space:]]*cfg[[:space:]]*\(/) return 0
   if (s ~ /not[[:space:]]*\([[:space:]]*(all|any)?[[:space:]]*\(?[[:space:]]*test/) return 0
   return s ~ /(^|[^a-zA-Z0-9_-])test([^a-zA-Z0-9_-]|$)/
+}
+# 尽力而为的字符串字面量剥离（供深度计数与 `{` 存在性判断使用）：
+# 含 \" 与 \\ 转义；行内未闭合视为延伸到行尾；消费段以空格占位避免词元粘连；
+# raw string / 块注释为已知局限（见脚本头注释），不在本函数处理范围
+function strip_strings(x,   out, i, n, ch) {
+  out = ""
+  i = 1
+  n = length(x)
+  while (i <= n) {
+    ch = substr(x, i, 1)
+    if (ch == "\"") {
+      out = out " "
+      i++
+      while (i <= n) {
+        ch = substr(x, i, 1)
+        if (ch == "\\") {
+          i += 2
+          continue
+        }
+        i++
+        if (ch == "\"") {
+          break
+        }
+      }
+    } else {
+      out = out ch
+      i++
+    }
+  }
+  return out
 }
 BEGIN {
   root_len = length(root)
@@ -285,8 +342,12 @@ FNR == 1 {
 
   in_region = (nb > 0 && depth > bases[nb]) ? 1 : 0
 
+  brace_code = strip_strings(raw)
+  has_ob = (brace_code ~ /{/) ? 1 : 0
+
   if (pending) {
-    if (s != "" && s !~ /^\/\//) {
+    # 行注释已在上方剥离，此处 s 不可能以 // 开头（原死条件已删）
+    if (s != "") {
       pending = 0
       if (s ~ /^#\[/) {
         if (s ~ /^#\[[[:space:]]*path[[:space:]]*=/) {
@@ -301,7 +362,7 @@ FNR == 1 {
           sub(/^.*(^|[[:space:]])mod[[:space:]]+/, "", name)
           sub(/;.*$/, "", name)
           printf "M\t%s\t%s\t%s\n", rel, mount_path, name
-        } else if (s ~ /[{]/) {
+        } else if (has_ob) {
           bases[++nb] = depth
         }
         mount_path = ""
@@ -311,7 +372,16 @@ FNR == 1 {
     }
   } else if (pred_has_test(s)) {
     rest = s
-    sub(/^#\[[^]]*\][[:space:]]*/, "", rest)
+    # 循环剥离前导 #[...] 属性组（单行多属性形态），沿途捕获 #[path] 值
+    while (rest ~ /^#[^]]*\][[:space:]]*/) {
+      if (rest ~ /^#\[[[:space:]]*path[[:space:]]*=/) {
+        p = rest
+        sub(/^#[^]]*=[[:space:]]*"/, "", p)
+        sub(/".*$/, "", p)
+        mount_path = p
+      }
+      sub(/^#[^]]*\][[:space:]]*/, "", rest)
+    }
     if (rest == "") {
       pending = 1
     } else if (is_item_decl(rest)) {
@@ -319,17 +389,20 @@ FNR == 1 {
         name = rest
         sub(/^.*(^|[[:space:]])mod[[:space:]]+/, "", name)
         sub(/;.*$/, "", name)
-        printf "M\t%s\t\t%s\n", rel, name
-      } else if (rest ~ /[{]/) {
+        printf "M\t%s\t%s\t%s\n", rel, mount_path, name
+      } else if (has_ob) {
         bases[++nb] = depth
       }
+      mount_path = ""
+    } else {
+      mount_path = ""
     }
   }
 
   if (in_region) printf "H\t%s\t%d\t%s\n", rel, FNR, $0
 
-  o = gsub(/{/, "{", raw)
-  c = gsub(/}/, "}", raw)
+  o = gsub(/{/, "{", brace_code)
+  c = gsub(/}/, "}", brace_code)
   depth += o - c
   while (nb > 0 && depth <= bases[nb]) nb--
 }
@@ -369,11 +442,23 @@ while IFS= read -r mline; do
   if [[ -n "$dattr" ]]; then
     target="$ddir/$dattr"
   else
-    if [[ -f "$ddir/$dname.rs" ]]; then
-      target="$ddir/$dname.rs"
-    elif [[ -f "$ddir/$dname/mod.rs" ]]; then
-      target="$ddir/$dname/mod.rs"
+    # 无 #[path] 时按 Rust 2018 mod 解析规则：mod.rs / lib.rs / main.rs 声明者
+    # → 兄弟位置候选；其余声明者（如 foo.rs）→ 子目录候选 $ddir/<stem>/<name>
+    declarer="$(basename "$drel")"
+    if [[ "$declarer" == mod.rs || "$declarer" == lib.rs || "$declarer" == main.rs ]]; then
+      mount_candidates=("$ddir/$dname.rs" "$ddir/$dname/mod.rs")
     else
+      stem="${declarer%.rs}"
+      mount_candidates=("$ddir/$stem/$dname.rs" "$ddir/$stem/$dname/mod.rs")
+    fi
+    target=""
+    for cand in "${mount_candidates[@]}"; do
+      if [[ -f "$cand" ]]; then
+        target="$cand"
+        break
+      fi
+    done
+    if [[ -z "$target" ]]; then
       continue
     fi
   fi
