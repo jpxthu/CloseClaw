@@ -10,7 +10,6 @@ use closeclaw_permission::{Rule, RuleSet};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tokio::signal::unix::SignalKind;
 
 // ---------------------------------------------------------------------------
 // config validate
@@ -99,8 +98,7 @@ async fn test_config_validate_not_found() {
 #[tokio::test]
 async fn test_config_list_with_files() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("a.json"),
@@ -122,8 +120,7 @@ async fn test_config_list_with_files() {
 #[tokio::test]
 async fn test_config_list_empty_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
 
     let result = handle_config_with(ConfigAction::List, config_dir, false).await;
@@ -137,7 +134,7 @@ async fn test_config_list_empty_dir() {
 #[tokio::test]
 async fn test_config_list_no_dir() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     // Ensure config dir does NOT exist
     assert!(!config_dir.exists());
 
@@ -308,8 +305,7 @@ fn make_rule(name: &str, agent: &str) -> Rule {
 #[tokio::test]
 async fn test_rule_list_with_rules() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![
         make_rule("rule-1", "agent-a"),
@@ -325,8 +321,7 @@ async fn test_rule_list_with_rules() {
 #[tokio::test]
 async fn test_rule_list_empty_rules() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![]);
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
@@ -343,8 +338,7 @@ async fn test_rule_list_empty_rules() {
 #[tokio::test]
 async fn test_rule_list_no_file() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
-
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     // No permissions.json created
 
@@ -362,10 +356,15 @@ async fn test_rule_list_no_file() {
 
 use std::sync::Arc;
 
+const CONFIG_DIR_NAME: &str = ".closeclaw";
+fn config_dir(tmp: &TempDir) -> PathBuf {
+    tmp.path().join(CONFIG_DIR_NAME)
+}
+
 /// Create a temp config dir with the required sub-structure for AdminServer.
 fn setup_admin_config_dir() -> (TempDir, PathBuf) {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     let config_sub = config_dir.join("config");
     fs::create_dir_all(&config_sub).unwrap();
     // agents.json lives in the config subdirectory
@@ -651,7 +650,7 @@ async fn test_config_validate_json() {
 #[serial_test::serial]
 async fn test_config_list_json() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     fs::write(
         config_dir.join("a.json"),
@@ -693,7 +692,7 @@ async fn test_rule_check_json() {
 #[serial_test::serial]
 async fn test_rule_list_json() {
     let tmp = TempDir::new().unwrap();
-    let config_dir = tmp.path().join(".closeclaw");
+    let config_dir = config_dir(&tmp);
     fs::create_dir_all(&config_dir).unwrap();
     let rule_set = make_permissions(vec![make_rule("rule-1", "agent-a")]);
     let json = serde_json::to_string_pretty(&rule_set).unwrap();
@@ -959,6 +958,7 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
 #[test]
 fn test_handle_stop_timeout_unit_coverage() {
     use closeclaw_platform::process::{send_signal, wait_for_exit};
+    use tokio::signal::unix::SignalKind;
     let mut child = std::process::Command::new("sh")
         .args(["-c", "trap '' TERM; sleep 60"])
         .stdin(std::process::Stdio::null())
@@ -968,7 +968,7 @@ fn test_handle_stop_timeout_unit_coverage() {
         .expect("failed to spawn immune child");
     let pid = child.id();
     send_signal(pid, SignalKind::terminate()).expect("send_signal should succeed");
-    let result = wait_for_exit(pid, std::time::Duration::from_millis(200));
+    let result = wait_for_exit(pid, std::time::Duration::from_millis(300));
     assert!(result.is_err(), "should timeout on immune process");
     let err_msg = result.unwrap_err().to_string();
     assert!(
