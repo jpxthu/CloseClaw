@@ -302,6 +302,10 @@ impl IMPlugin for FastSendPlugin {
 }
 
 /// Mock plugin whose `send()` sleeps for 3 seconds (exceeds 2s timeout).
+///
+/// The sleep is a `tokio::time::sleep`, so on the paused clock of
+/// [`test_send_simplified_with_timeout_timeout_path`] it is advanced
+/// virtually — no wall-clock cost.
 struct SlowSendPlugin;
 
 #[async_trait]
@@ -352,14 +356,21 @@ async fn test_send_simplified_with_timeout_normal_path() {
 }
 
 /// send_simplified_with_timeout returns Ok (drops message) when plugin.send()
-/// takes longer than 2 seconds — the timeout fires and the function must
-/// not block beyond ~2s.
-#[tokio::test]
+/// takes longer than 2 seconds — the 2s deadline fires first and the
+/// in-flight send is abandoned.
+///
+/// Runs on a paused tokio clock (`start_paused = true`): both the production
+/// `tokio::time::timeout(2s)` and the mock's 3s `tokio::time::sleep` register
+/// on the virtual clock, and tokio auto-advance jumps exactly to the next
+/// timer deadline. The elapsed assertion pins the call to the exact 2s
+/// virtual deadline — a completed send would read 3s, a mis-wired clock ~0 —
+/// while wall-clock cost collapses to milliseconds.
+#[tokio::test(start_paused = true)]
 async fn test_send_simplified_with_timeout_timeout_path() {
     let gw = test_gw();
     gw.register_plugin(Arc::new(SlowSendPlugin) as Arc<dyn IMPlugin>)
         .await;
-    let start = std::time::Instant::now();
+    let start = tokio::time::Instant::now();
     let result = send_simplified_with_timeout(&gw, "chat2", "mock", "slow-msg").await;
     let elapsed = start.elapsed();
     assert!(
@@ -367,14 +378,10 @@ async fn test_send_simplified_with_timeout_timeout_path() {
         "timeout path should return Ok, got {:?}",
         result
     );
-    assert!(
-        elapsed >= std::time::Duration::from_secs(2),
-        "timeout should fire around 2s, took {:?}",
-        elapsed
-    );
-    assert!(
-        elapsed < std::time::Duration::from_secs(4),
-        "function should return within ~4s ceiling, took {:?}",
+    assert_eq!(
+        elapsed,
+        std::time::Duration::from_secs(2),
+        "timeout must resolve at the exact 2s virtual deadline (send sleeps 3s), got {:?}",
         elapsed
     );
 }
