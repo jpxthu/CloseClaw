@@ -6,6 +6,22 @@ use std::sync::Mutex;
 use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 use crate::permission_types::RiskLevel;
 
+/// Shared TempDir-contract probe behind [`ensure_dir`] and
+/// [`remove_subdir`]: debug builds assert `path` resolves under
+/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
+/// mis-injected path fails fast in tests instead of writing/deleting
+/// elsewhere. `helper` names the caller and prefixes the panic message
+/// (`"{helper} contract violation: ..."`), keeping the
+/// `should_panic(expected = "ensure_dir"/"remove_subdir")` probes in
+/// `test_helpers_tests` matching on the same prefix.
+fn debug_assert_under_temp_dir(helper: &str, path: &std::path::Path) {
+    debug_assert!(
+        path.starts_with(std::env::temp_dir()),
+        "{helper} contract violation: {path:?} is not under std::env::temp_dir(); \
+         tests must operate inside a tempfile::TempDir root (STANDARDS §8)"
+    );
+}
+
 /// Create `dir` and any missing parents — the sanctioned way for tests to
 /// add sub-directories **under** a `tempfile::TempDir` root.
 ///
@@ -19,11 +35,7 @@ use crate::permission_types::RiskLevel;
 /// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
 /// mis-injected path fails fast in tests instead of writing elsewhere.
 pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
-    debug_assert!(
-        dir.starts_with(std::env::temp_dir()),
-        "ensure_dir contract violation: {dir:?} is not under std::env::temp_dir(); \
-         tests must operate inside a tempfile::TempDir root (STANDARDS §8)"
-    );
+    debug_assert_under_temp_dir("ensure_dir", dir);
     std::fs::create_dir_all(dir)
 }
 
@@ -48,11 +60,7 @@ pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
 /// TempDir contract. The local copy remains in place until its call sites
 /// migrate in a follow-up batch.
 pub fn remove_subdir(path: &std::path::Path) -> io::Result<()> {
-    debug_assert!(
-        path.starts_with(std::env::temp_dir()),
-        "remove_subdir contract violation: {path:?} is not under std::env::temp_dir(); \
-         tests must operate inside a tempfile::TempDir root (STANDARDS §8)"
-    );
+    debug_assert_under_temp_dir("remove_subdir", path);
     std::fs::remove_dir_all(path)
 }
 
