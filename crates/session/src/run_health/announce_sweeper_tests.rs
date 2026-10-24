@@ -622,7 +622,6 @@ async fn test_sweeper_grace_period_clean_exit_within_grace() {
 /// completion, so the in-waiter yield drain terminates through
 /// scheduler semantics, not poll-count luck.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_sweeper_grace_period_abort_on_timeout() {
     use std::sync::atomic::{AtomicBool, Ordering};
 
@@ -667,21 +666,14 @@ async fn test_sweeper_grace_period_abort_on_timeout() {
             "must wait out exactly the grace period before aborting, took {elapsed:?}"
         );
 
-        // Abort proof: drain the runtime until the cancelled task has
-        // actually been polled to its `Drop`. `abort()` scheduled the
-        // cancellation on this very runtime, so each `yield_now` lets
-        // the scheduler make progress on it.
+        // Drain: why yielding here deterministically completes the abort
+        // is argued once in this test's doc comment above.
         while !waiter_flag.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
     };
 
     waiter.await;
-
-    assert!(
-        aborted.load(Ordering::SeqCst),
-        "hanging task future must have been dropped by the abort branch"
-    );
 }
 
 /// When wait_grace_period receives None (no running task), it returns

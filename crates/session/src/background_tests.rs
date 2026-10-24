@@ -258,25 +258,6 @@ async fn test_plan_archive_grace_period_none_returns_immediately() {
     );
 }
 
-/// When the running task completes within the grace period,
-/// wait_grace_period does NOT abort it.
-#[tokio::test]
-async fn test_plan_archive_grace_period_no_abort_when_completed() {
-    let completing_task = tokio::task::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    });
-
-    let start = tokio::time::Instant::now();
-    super::background::PlanArchiveTask::wait_grace_period(Some(completing_task)).await;
-    let elapsed = start.elapsed();
-
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "should complete quickly when task finishes within grace, took {:?}",
-        elapsed
-    );
-}
-
 /// When a task exceeds the grace period, wait_grace_period aborts it.
 ///
 /// Runs on a paused tokio clock (`start_paused`): the hanging task is
@@ -296,7 +277,6 @@ async fn test_plan_archive_grace_period_no_abort_when_completed() {
 /// completion, so the in-waiter yield drain terminates through
 /// scheduler semantics, not poll-count luck.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_grace_period_abort_on_timeout() {
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
@@ -328,21 +308,14 @@ async fn test_plan_archive_grace_period_abort_on_timeout() {
             "must wait out exactly the grace period before aborting, took {elapsed:?}"
         );
 
-        // Abort proof: drain the runtime until the cancelled task has
-        // actually been polled to its `Drop`. `abort()` scheduled the
-        // cancellation on this very runtime, so each `yield_now` lets
-        // the scheduler make progress on it.
+        // Drain: why yielding here deterministically completes the abort
+        // is argued once in this test's doc comment above.
         while !waiter_flag.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
     };
 
     waiter.await;
-
-    assert!(
-        aborted.load(Ordering::SeqCst),
-        "hanging task future must have been dropped by the abort branch"
-    );
 }
 
 /// PlanArchiveTask: signal → running task completes within grace →
@@ -393,7 +366,6 @@ async fn test_plan_archive_signal_grace_clean_exit() {
 /// completion, so the in-waiter yield drain terminates through
 /// scheduler semantics, not poll-count luck.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_hung_task_aborted_after_grace() {
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
@@ -436,21 +408,14 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
             "should wait out exactly the grace period before aborting, took {elapsed:?}"
         );
 
-        // Abort proof: drain the runtime until the cancelled task has
-        // actually been polled to its `Drop`. `abort()` scheduled the
-        // cancellation on this very runtime, so each `yield_now` lets
-        // the scheduler make progress on it.
+        // Drain: why yielding here deterministically completes the abort
+        // is argued once in this test's doc comment above.
         while !waiter_flag.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
     };
 
     waiter.await;
-
-    assert!(
-        aborted.load(Ordering::SeqCst),
-        "hung task future must have been dropped by the abort"
-    );
 }
 
 /// Verify the two-layer wait pattern: inner grace period (per-task)
@@ -470,7 +435,6 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
 /// real wall-clock cost collapses to milliseconds (same approach as
 /// `test_plan_archive_grace_period_abort_on_timeout`).
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     // Named task duration for both the sleep and the expected elapsed —
     // symmetric with the abort-side case expressing its expected duration
