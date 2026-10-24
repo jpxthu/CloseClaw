@@ -1,6 +1,7 @@
-//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract,
-//! `remove_subdir`'s recursive-teardown TempDir contract, `create_subdir`'s
-//! nested-path creation and TempDir contract, and the shared
+//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and
+//! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
+//! TempDir contract, `create_subdir`'s nested-path creation, TempDir
+//! contract and base-is-a-file error path, and the shared
 //! `MemAuditLogger`
 //! audit mock behaviour (filter, time-descending
 //! query, unparseable-timestamp ordering, window/matches consistency,
@@ -55,6 +56,25 @@ fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
 fn test_ensure_dir_panics_for_path_outside_tempdir() {
     let outside = outside_tempdir_probe("closeclaw_ensure_dir_outside_probe");
     ensure_dir(&outside).expect("ensure_dir: directory creation outside temp dir must fail");
+}
+
+/// 错误路径：目标路径的父组件是普通文件时目录创建返回 Err，
+/// `ensure_dir` 以 `io::Result` 原样透传（`NotADirectory`）而不 panic，
+/// 错误处理权留给调用者；目标目录不得被创建。
+#[test]
+fn test_ensure_dir_returns_error_when_parent_is_a_regular_file() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, "x").expect("write blocker file");
+    let dir = blocker.join("child");
+
+    let err = ensure_dir(&dir).expect_err("父路径为普通文件时创建目录必须失败");
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::NotADirectory,
+        "错误种类必须是 NotADirectory，实际：{err:?}"
+    );
+    assert!(!dir.exists(), "失败的创建不得留下目标目录：{dir:?}");
 }
 
 /// 正常路径：`remove_subdir` 递归删除 TempDir 下含文件的目录树，
@@ -123,6 +143,19 @@ fn test_create_subdir_existing_dir_is_idempotent() {
 fn test_create_subdir_panics_for_base_outside_tempdir() {
     let outside = outside_tempdir_probe("closeclaw_create_subdir_outside_probe");
     create_subdir(&outside, "rel");
+}
+
+/// 错误路径：base 是普通文件时（TempDir 之下，TempDir 契约本身放行）
+/// 目录创建必然失败（ENOTDIR），unwrap 型契约让失败以 panic 浮出，
+/// 错误不得被静默吞掉；panic 消息含错误种类 `NotADirectory`，证明
+/// 走的是 unwrap-on-Err 而非 TempDir 契约 panic。
+#[test]
+#[should_panic(expected = "NotADirectory")]
+fn test_create_subdir_panics_when_base_is_a_regular_file() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, "x").expect("write blocker file");
+    create_subdir(&blocker, "child");
 }
 
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集
