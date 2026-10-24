@@ -10,7 +10,6 @@ use closeclaw_permission::{Rule, RuleSet};
 use std::fs;
 use std::path::PathBuf;
 use tempfile::TempDir;
-use tokio::signal::unix::SignalKind;
 
 // ---------------------------------------------------------------------------
 // config validate
@@ -958,6 +957,7 @@ async fn test_handle_stop_full_chain_signal_and_timeout() {
 #[test]
 fn test_handle_stop_timeout_unit_coverage() {
     use closeclaw_platform::process::{send_signal, wait_for_exit};
+    use tokio::signal::unix::SignalKind;
     let mut child = std::process::Command::new("sh")
         .args(["-c", "trap '' TERM; sleep 60"])
         .stdin(std::process::Stdio::null())
@@ -967,7 +967,7 @@ fn test_handle_stop_timeout_unit_coverage() {
         .expect("failed to spawn immune child");
     let pid = child.id();
     send_signal(pid, SignalKind::terminate()).expect("send_signal should succeed");
-    let result = wait_for_exit(pid, std::time::Duration::from_millis(200));
+    let result = wait_for_exit(pid, std::time::Duration::from_millis(300));
     assert!(result.is_err(), "should timeout on immune process");
     let err_msg = result.unwrap_err().to_string();
     assert!(
