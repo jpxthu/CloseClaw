@@ -47,39 +47,39 @@ mod tests {
     use super::*;
 
     #[test]
-    fn positive_match_rs_glob() {
+    fn test_positive_match_rs_glob() {
         let matcher = PathMatcher::new(&["**/*.rs".into()]).unwrap();
         assert!(matcher.matches(Path::new("src/main.rs")));
     }
 
     #[test]
-    fn positive_match_cargo_toml_glob() {
+    fn test_positive_match_cargo_toml_glob() {
         let matcher = PathMatcher::new(&["**/Cargo.toml".into()]).unwrap();
         assert!(matcher.matches(Path::new("Cargo.toml")));
     }
 
     #[test]
-    fn negative_match_rs_glob_against_ts() {
+    fn test_negative_match_rs_glob_against_ts() {
         let matcher = PathMatcher::new(&["**/*.rs".into()]).unwrap();
         assert!(!matcher.matches(Path::new("src/main.ts")));
     }
 
     #[test]
-    fn empty_patterns_returns_false() {
+    fn test_empty_patterns_returns_false() {
         let matcher = PathMatcher::new(&[]).unwrap();
         assert!(!matcher.matches(Path::new("src/main.rs")));
         assert!(!matcher.matches(Path::new("any/path.txt")));
     }
 
     #[test]
-    fn invalid_pattern_returns_error() {
+    fn test_invalid_pattern_returns_error() {
         // Unmatched '[' is invalid glob syntax
         let result = PathMatcher::new(&["[invalid".into()]);
         assert!(result.is_err());
     }
 
     #[test]
-    fn multi_pattern_match() {
+    fn test_multi_pattern_match() {
         let matcher = PathMatcher::new(&["**/*.rs".into(), "**/*.toml".into()]).unwrap();
         // Matches via first pattern
         assert!(matcher.matches(Path::new("src/main.rs")));
@@ -90,7 +90,7 @@ mod tests {
     }
 
     #[test]
-    fn single_pattern_multiple_paths() {
+    fn test_single_pattern_multiple_paths() {
         let matcher = PathMatcher::new(&["docs/**/*.md".into()]).unwrap();
         assert!(matcher.matches(Path::new("docs/README.md")));
         assert!(matcher.matches(Path::new("docs/developer/style.md")));

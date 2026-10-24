@@ -23,7 +23,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn none_debug_log_is_noop() {
+    fn test_none_debug_log_is_noop() {
         use closeclaw_debug_log::{emit_event, DebugLogContext, EmitEventParams, LogLevel};
         let ctx = DebugLogContext::new(None, "trace-123", None);
         emit_event(EmitEventParams {
@@ -37,7 +37,7 @@ mod tests {
     }
 
     #[test]
-    fn debug_log_context_new_fields() {
+    fn test_debug_log_context_new_fields() {
         use closeclaw_debug_log::DebugLogContext;
         let ctx = DebugLogContext::new(None, "tid", Some("skey"));
         assert_eq!(ctx.trace_id, "tid");
@@ -46,7 +46,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_id_is_unique() {
+    fn test_generate_trace_id_is_unique() {
         let id1 = generate_trace_id();
         let id2 = generate_trace_id();
         assert_ne!(id1, id2);
@@ -55,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn generate_trace_id_has_expected_format() {
+    fn test_generate_trace_id_has_expected_format() {
         let id = generate_trace_id();
         let parts: Vec<&str> = id.split('-').collect();
         assert_eq!(parts[0], "tasks");

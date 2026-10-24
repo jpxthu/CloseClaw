@@ -75,7 +75,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn display_roundtrip() {
+    fn test_display_roundtrip() {
         let types = [AgentType::Explore, AgentType::Plan, AgentType::Executor];
         for agent_type in types {
             let s = agent_type.to_string();
@@ -85,7 +85,7 @@ mod tests {
     }
 
     #[test]
-    fn from_str_case_insensitive() {
+    fn test_from_str_case_insensitive() {
         assert_eq!("EXPLORE".parse::<AgentType>().unwrap(), AgentType::Explore);
         assert_eq!("Plan".parse::<AgentType>().unwrap(), AgentType::Plan);
         assert_eq!(
@@ -95,7 +95,7 @@ mod tests {
     }
 
     #[test]
-    fn from_str_invalid() {
+    fn test_from_str_invalid() {
         let err = "invalid".parse::<AgentType>().unwrap_err();
         match err {
             AgentTypeError::UnknownType(s) => assert_eq!(s, "invalid"),
