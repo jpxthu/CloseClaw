@@ -189,7 +189,8 @@ mod tests {
 
     #[test]
     fn test_client_new() {
-        let sock = std::env::temp_dir().join("closeclaw-test.sock");
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("client-new.sock");
         let client = ChatRpcClient::new(&sock);
         assert_eq!(client.socket_path, sock);
         assert_eq!(client.timeout_ms, CHAT_TIMEOUT_MS);
@@ -197,7 +198,8 @@ mod tests {
 
     #[test]
     fn test_client_with_timeout() {
-        let sock = std::env::temp_dir().join("closeclaw-test.sock");
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("client-timeout.sock");
         let client = ChatRpcClient::with_timeout(&sock, 2000);
         assert_eq!(client.socket_path, sock);
         assert_eq!(client.timeout_ms, 2000);
@@ -211,7 +213,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_connect_to_nonexistent_socket() {
-        let sock = std::env::temp_dir().join("nonexistent-chat-test.sock");
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("nonexistent-chat-test.sock");
         let client = ChatRpcClient::with_timeout(&sock, 100);
         let result = client.quit().await;
         assert!(result.is_err());
@@ -219,7 +222,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_client_ping_to_nonexistent_socket() {
-        let sock = std::env::temp_dir().join("nonexistent-chat-test.sock");
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("nonexistent-chat-test.sock");
         let client = ChatRpcClient::with_timeout(&sock, 100);
         assert!(!client.ping().await);
     }
