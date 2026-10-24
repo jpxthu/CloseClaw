@@ -58,9 +58,8 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
     Some(Arc::new(FakeSkillRegistry::new(&[])))
 }
 
-/// Single definition of the `config/` subdirectory convention: everything a
-/// `config_dir` root hosts (agents.json, ConfigManager state) lives under
-/// this subdir.
+/// Single definition of the `config/` subdirectory convention: `agents.json`
+/// and the ConfigManager state live under this subdir.
 fn config_subdir(config_dir: &std::path::Path) -> std::path::PathBuf {
     config_dir.join("config")
 }
