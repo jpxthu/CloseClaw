@@ -10,6 +10,7 @@
 
 use super::config::handle_config;
 use crate::args::ConfigAction;
+use closeclaw_common::test_helpers::ensure_dir;
 use std::fs;
 use tempfile::TempDir;
 
@@ -605,7 +606,7 @@ async fn test_config_list_nonexistent_dir_no_panic() {
 async fn test_config_list_empty_dir() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_dir).unwrap();
+    ensure_dir(&config_dir).unwrap();
 
     let result = handle_config_with(ConfigAction::List, tmp.path().to_path_buf(), false).await;
     assert!(
@@ -620,7 +621,7 @@ async fn test_config_list_empty_dir() {
 async fn test_config_list_with_files() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_dir).unwrap();
+    ensure_dir(&config_dir).unwrap();
     std::fs::write(config_dir.join("models.json"), r#"{"version":"1.0"}"#).unwrap();
     std::fs::write(config_dir.join("gateway.json"), r#"{"port":8080}"#).unwrap();
     // Non-JSON file should be ignored
@@ -647,7 +648,7 @@ async fn test_config_list_json_mode_empty() {
 async fn test_config_list_json_mode_with_files() {
     let tmp = TempDir::new().unwrap();
     let config_dir = tmp.path().join("config");
-    std::fs::create_dir_all(&config_dir).unwrap();
+    ensure_dir(&config_dir).unwrap();
     std::fs::write(
         config_dir.join("models.json"),
         r#"{"version":"2.0","providers":{}}"#,

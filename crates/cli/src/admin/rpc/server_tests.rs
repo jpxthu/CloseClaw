@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::ResolvedAgentConfig;
 use closeclaw_common::{ModelSpec, SkillRegistryQuery};
 use closeclaw_config::agents::AgentConfig;
@@ -60,7 +61,7 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
 fn make_test_context() -> AdminContext {
     let config_dir = tempfile::tempdir().unwrap().keep();
     let config_sub = config_dir.join("config");
-    std::fs::create_dir_all(&config_sub).unwrap();
+    ensure_dir(&config_sub).unwrap();
     // agents.json lives in the config subdirectory
     // (ConfigManager.config_dir = config_sub)
     std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
@@ -213,8 +214,8 @@ async fn test_dispatch_ping() {
 fn setup_agents(config_dir: &std::path::Path, ids: &[&str]) {
     let config_sub = config_dir.join("config");
     let agents_dir = config_dir.join("agents");
-    std::fs::create_dir_all(&config_sub).unwrap();
-    std::fs::create_dir_all(&agents_dir).unwrap();
+    ensure_dir(&config_sub).unwrap();
+    ensure_dir(&agents_dir).unwrap();
 
     // Write agents.json
     let agent_ids: Vec<String> = ids.iter().map(|s| s.to_string()).collect();
@@ -228,7 +229,7 @@ fn setup_agents(config_dir: &std::path::Path, ids: &[&str]) {
     // Write each agent's config.json
     for id in ids {
         let agent_dir = agents_dir.join(id);
-        std::fs::create_dir_all(&agent_dir).unwrap();
+        ensure_dir(&agent_dir).unwrap();
         let config = AgentConfig {
             id: id.to_string(),
             ..AgentConfig::default()
