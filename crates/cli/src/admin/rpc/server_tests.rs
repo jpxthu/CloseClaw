@@ -58,26 +58,31 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
     Some(Arc::new(FakeSkillRegistry::new(&[])))
 }
 
-fn make_test_context() -> AdminContext {
-    let config_dir = tempfile::tempdir().unwrap().keep();
+/// The TempDir is returned alongside the context (not dropped here) so the
+/// config path stays valid for the whole test — STANDARDS §8 临时文件
+/// (TempDir 自动清理). Callers must hold the `_tmpdir` binding.
+fn make_test_context() -> (AdminContext, tempfile::TempDir) {
+    let tmp = tempfile::tempdir().unwrap();
+    let config_dir = tmp.path().to_path_buf();
     let config_sub = config_dir.join("config");
     ensure_dir(&config_sub).unwrap();
     // agents.json lives in the config subdirectory
     // (ConfigManager.config_dir = config_sub)
     std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
-    AdminContext {
+    let ctx = AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
         skill_registry: empty_skill_registry(),
         config_manager,
         config_dir,
         restart_tx: None,
-    }
+    };
+    (ctx, tmp)
 }
 
 #[test]
 fn test_dispatch_agent_list_empty() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_list(&ctx);
     match resp {
         AdminResponse::AgentListResult { agents } => assert!(agents.is_empty()),
@@ -87,7 +92,7 @@ fn test_dispatch_agent_list_empty() {
 
 #[test]
 fn test_dispatch_agent_info_not_found() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_info("nonexistent", &ctx);
     match resp {
         AdminResponse::Error { message } => {
@@ -99,7 +104,7 @@ fn test_dispatch_agent_info_not_found() {
 
 #[tokio::test]
 async fn test_dispatch_skill_list_empty() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_skill_list(&ctx).await;
     match resp {
         AdminResponse::SkillListResult { skills } => assert!(skills.is_empty()),
@@ -112,7 +117,7 @@ async fn test_dispatch_skill_list_empty() {
 /// `None` for every entry (the skill manifest exposes no version).
 #[tokio::test]
 async fn test_dispatch_skill_list_maps_names_in_order() {
-    let mut ctx = make_test_context();
+    let (mut ctx, _tmpdir) = make_test_context();
     ctx.skill_registry = Some(Arc::new(FakeSkillRegistry::new(&[
         "alpha-skill",
         "beta-skill",
@@ -141,7 +146,7 @@ async fn test_dispatch_skill_list_maps_names_in_order() {
 /// list, no panic. Distinct from the "injected but empty" case above.
 #[tokio::test]
 async fn test_dispatch_skill_list_uninjected_returns_empty() {
-    let mut ctx = make_test_context();
+    let (mut ctx, _tmpdir) = make_test_context();
     ctx.skill_registry = None;
 
     let resp = dispatch_skill_list(&ctx).await;
@@ -157,7 +162,7 @@ async fn test_dispatch_skill_list_uninjected_returns_empty() {
 
 #[tokio::test]
 async fn test_dispatch_agent_create_empty_name() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_create("", Some("gpt-4".into()), &ctx).await;
     match resp {
         AdminResponse::Error { message } => {
@@ -169,7 +174,7 @@ async fn test_dispatch_agent_create_empty_name() {
 
 #[tokio::test]
 async fn test_dispatch_agent_create_success() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_create("test-agent", Some("gpt-4".into()), &ctx).await;
     assert!(matches!(resp, AdminResponse::Ok));
     // Verify agent was created
@@ -178,7 +183,7 @@ async fn test_dispatch_agent_create_success() {
 
 #[tokio::test]
 async fn test_dispatch_agent_create_duplicate() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_create("dup-agent", None, &ctx).await;
     assert!(matches!(resp, AdminResponse::Ok));
     // Try creating same agent again
@@ -193,7 +198,7 @@ async fn test_dispatch_agent_create_duplicate() {
 
 #[tokio::test]
 async fn test_dispatch_ping() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch(AdminRequest::Ping, &ctx).await;
     assert!(matches!(resp, AdminResponse::Pong));
 }
@@ -427,7 +432,7 @@ fn populate_registry(ctx: &AdminContext, configs: Vec<ResolvedAgentConfig>) {
 /// Normal path: fully configured agent -> all 12 fields present and correct.
 #[test]
 fn test_dispatch_agent_info_full_fields() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     populate_registry(&ctx, vec![make_full_config()]);
 
     let resp = dispatch_agent_info("full-agent", &ctx);
@@ -460,7 +465,7 @@ fn test_dispatch_agent_info_full_fields() {
 /// Default values: all-default config -> fields use defaults.
 #[test]
 fn test_dispatch_agent_info_default_values() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     populate_registry(&ctx, vec![make_default_config()]);
 
     let resp = dispatch_agent_info("default-agent", &ctx);
@@ -491,7 +496,7 @@ fn test_dispatch_agent_info_default_values() {
 /// Error path: nonexistent id -> Error message contains the id.
 #[test]
 fn test_dispatch_agent_info_error_contains_id() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let resp = dispatch_agent_info("missing-agent", &ctx);
     match resp {
         AdminResponse::Error { message } => {
@@ -509,7 +514,7 @@ fn test_dispatch_agent_info_error_contains_id() {
 /// Query by name (not id) should not match - verifies id semantics.
 #[test]
 fn test_dispatch_agent_info_name_not_queried() {
-    let ctx = make_test_context();
+    let (ctx, _tmpdir) = make_test_context();
     let cfg = AgentConfig {
         id: "actual-id".to_string(),
         name: Some("Display Name".to_string()),
