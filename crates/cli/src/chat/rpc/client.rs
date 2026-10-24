@@ -451,4 +451,57 @@ mod tests {
         let done = stream.next().await.unwrap();
         assert!(done.is_none());
     }
+
+    // ── Mock helper semantic guards ─────────────────────────────────────
+
+    #[tokio::test]
+    async fn test_mock_server_none_disconnects_client() {
+        let handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync> =
+            Arc::new(|_| None);
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_mock_server(handler).await;
+        let client = ChatRpcClient::with_timeout(&sock, 5000);
+
+        let mut stream = client.send_message("agent", "hi").await.unwrap();
+        // Handler returned `None`: the server must close the connection
+        // without writing a response, so the client observes EOF (stream
+        // end) instead of hanging or receiving a frame.
+        let eof = tokio::time::timeout(Duration::from_secs(1), stream.next())
+            .await
+            .expect("server should close the connection after `None`")
+            .unwrap();
+        assert!(eof.is_none(), "expected EOF after `None`, got {:?}", eof);
+    }
+
+    #[tokio::test]
+    async fn test_mock_server_keeps_connection_for_multiple_requests() {
+        let handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync> =
+            Arc::new(|req| match req {
+                ChatRequest::ChatMessage { .. } => Some(ChatResponse::ContentChunk {
+                    content: "first".to_string(),
+                }),
+                ChatRequest::Ping => Some(ChatResponse::Pong),
+                _ => Some(ChatResponse::Error {
+                    message: "unexpected".to_string(),
+                }),
+            });
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_mock_server(handler).await;
+        let client = ChatRpcClient::with_timeout(&sock, 5000);
+
+        let mut stream = client.send_message("agent", "hi").await.unwrap();
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(
+            first,
+            ChatResponse::ContentChunk {
+                content: "first".to_string(),
+            }
+        );
+
+        // Second request on the same connection: a `Some` response must keep
+        // the connection open, so this roundtrip still reaches the handler.
+        stream.send(&ChatRequest::Ping).await.unwrap();
+        let second = stream.next().await.unwrap().unwrap();
+        assert_eq!(second, ChatResponse::Pong);
+    }
 }
