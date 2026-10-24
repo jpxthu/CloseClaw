@@ -135,6 +135,7 @@ pub fn tool_plan_file_access() -> Arc<dyn tools_plan_file::PlanFileAccess> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::ensure_dir;
     use closeclaw_tools::plan_file_access::PlanFileAccess;
 
     // ── Enum mapping (正常路径) ────────────────────────────────────────
@@ -246,7 +247,7 @@ mod tests {
         }
 
         // Empty plans directory → NotFound carrying the queried name.
-        std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+        ensure_dir(&tmp.path().join("plans")).unwrap();
         match store.resolve_plan_by_name(tmp.path(), "nonexistent") {
             Err(PlanResolveError::NotFound { name }) => assert_eq!(name, "nonexistent"),
             other => panic!("expected NotFound, got {other:?}"),
@@ -271,7 +272,7 @@ mod tests {
     fn test_touch_list_read_roundtrip_preserves_summary_fields() {
         let tmp = tempfile::TempDir::new().unwrap();
         let plans = tmp.path().join("plans");
-        std::fs::create_dir_all(&plans).unwrap();
+        ensure_dir(&plans).unwrap();
         std::fs::write(
             plans.join("alpha.md"),
             concat!(
@@ -367,7 +368,7 @@ mod tests {
         }
 
         let plans = tmp.path().join("plans");
-        std::fs::create_dir_all(&plans).unwrap();
+        ensure_dir(&plans).unwrap();
         std::fs::write(plans.join("alpha.md"), "# Alpha\n\n- [ ] step1\n").unwrap();
         let resolved = access
             .resolve_plan_by_name(tmp.path(), "alpha")

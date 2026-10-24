@@ -41,6 +41,7 @@ impl AgentPermissionProvider for AgentPermissionsAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::ensure_dir;
     use closeclaw_permission::{
         Effect, PermissionEngine, PermissionRequest, PermissionRequestBody, PermissionResponse,
     };
@@ -113,7 +114,7 @@ mod tests {
     /// every dimension allowed except `file_write`.
     fn write_parent_permissions(config_dir: &std::path::Path) {
         let parent_dir = config_dir.join("agents").join("parent");
-        std::fs::create_dir_all(&parent_dir).unwrap();
+        ensure_dir(&parent_dir).unwrap();
         std::fs::write(
             parent_dir.join("permissions.json"),
             serde_json::json!({

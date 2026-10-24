@@ -133,6 +133,7 @@ fn load_media_config(config_dir: &str) -> MediaConfigData {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use closeclaw_common::test_helpers::ensure_dir;
     use std::fs;
     use tempfile::TempDir;
 
@@ -140,7 +141,7 @@ mod tests {
     fn setup_config_dir(accounts_json: Option<&str>) -> TempDir {
         let dir = TempDir::new().unwrap();
         let config = dir.path().join("config");
-        fs::create_dir_all(&config).unwrap();
+        ensure_dir(&config).unwrap();
         if let Some(content) = accounts_json {
             fs::write(config.join("accounts.json"), content).unwrap();
         }
@@ -248,7 +249,7 @@ mod tests {
     fn test_feishu_profile_loaded_from_credentials_dir() {
         let dir = setup_config_dir(None);
         let credentials = dir.path().join("config").join("credentials");
-        fs::create_dir_all(&credentials).unwrap();
+        ensure_dir(&credentials).unwrap();
         fs::write(
             credentials.join("feishu.json"),
             r#"{"provider":"feishu","profile":"my_feishu_profile"}"#,
