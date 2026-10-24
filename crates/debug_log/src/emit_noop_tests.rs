@@ -6,17 +6,18 @@
 //! no-op semantics to "zero output": with a real `DebugLog` writing to a
 //! `TempDir`, an early return must leave the JSONL event files empty.
 //!
-//! Event reading is implemented unconditionally (no `test-util` feature)
-//! so the standard acceptance command
+//! Event reading/polling helpers come from `crate::test_utils` (gated
+//! `any(test, feature = "test-util")`, reachable under `cfg(test)`
+//! without the feature) so the standard acceptance command
 //! `cargo nextest run -p closeclaw-debug-log` covers them.
 
-use std::path::Path;
 use std::time::Duration;
 
 use tempfile::TempDir;
 
 use super::{emit_event, DebugLogContext, EmitEventParams};
-use crate::{DebugLog, DebugLogConfig, LogLevel};
+use crate::test_utils::{make_debug_log_at_level, poll_event_count};
+use crate::LogLevel;
 
 /// Deadline for the zero-output absence polls (repo precedent: the
 /// gateway `None`-identity zero-emission assertion uses 500ms).
@@ -24,23 +25,6 @@ const ABSENCE_POLL_DEADLINE: Duration = Duration::from_millis(500);
 /// Deadline for the positive-path control assertion (failure path only —
 /// the write lands in milliseconds, so the happy path exits early).
 const POSITIVE_POLL_DEADLINE: Duration = Duration::from_secs(5);
-/// Poll interval for all polling in this file.
-const POLL_INTERVAL: Duration = Duration::from_millis(20);
-
-fn make_config(dir: &TempDir) -> DebugLogConfig {
-    DebugLogConfig {
-        min_level: LogLevel::Debug,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![],
-    }
-}
-
-async fn make_debug_log(dir: &TempDir) -> DebugLog {
-    DebugLog::new(make_config(dir))
-        .await
-        .expect("DebugLog::new failed")
-}
 
 fn emit_params(ctx: DebugLogContext<'_>) -> EmitEventParams<'_> {
     EmitEventParams {
@@ -53,51 +37,6 @@ fn emit_params(ctx: DebugLogContext<'_>) -> EmitEventParams<'_> {
     }
 }
 
-/// Count non-blank JSONL event lines across all `*.jsonl` files in `dir`.
-///
-/// Any fs read failure (`read_dir` / `next_entry` / `read_to_string`)
-/// panics: the directory is created by `DebugLog::new`, so a read error
-/// is an abnormal state and must not be silently treated as "zero
-/// output" (which would make the absence assertions vacuously pass).
-async fn count_events(dir: &Path) -> usize {
-    let mut count = 0;
-    let mut entries = tokio::fs::read_dir(dir)
-        .await
-        .expect("read_dir on the log dir failed; treating it as zero output is a vacuous pass");
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .expect("read_dir iteration failed; treating it as zero output is a vacuous pass")
-    {
-        let path = entry.path();
-        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
-            continue;
-        }
-        let content = tokio::fs::read_to_string(&path)
-            .await
-            .expect("reading a *.jsonl event file failed; this is not zero output");
-        count += content
-            .lines()
-            .filter(|line| !line.trim().is_empty())
-            .count();
-    }
-    count
-}
-
-/// Poll the event count until it is non-zero or `timeout` expires, then
-/// return the last observed count. Used both for absence assertions
-/// (deadline exhausted at zero) and the positive control (non-zero).
-async fn poll_event_count(dir: &Path, timeout: Duration) -> usize {
-    let deadline = tokio::time::Instant::now() + timeout;
-    loop {
-        let count = count_events(dir).await;
-        if count > 0 || tokio::time::Instant::now() >= deadline {
-            return count;
-        }
-        tokio::time::sleep(POLL_INTERVAL).await;
-    }
-}
-
 /// Empty trace_id must early-return before the write stage: with a real
 /// `DebugLog` wired into the context, no JSONL file or event may appear
 /// within the absence-poll window (an erroneously spawned write would
@@ -105,7 +44,7 @@ async fn poll_event_count(dir: &Path, timeout: Duration) -> usize {
 #[tokio::test]
 async fn test_empty_trace_id_with_real_debug_log_writes_zero_events() {
     let tmp = TempDir::new().expect("TempDir::new failed");
-    let debug_log = make_debug_log(&tmp).await;
+    let debug_log = make_debug_log_at_level(&tmp, LogLevel::Debug).await;
     let ctx = DebugLogContext::new(Some(&debug_log), "", None);
     emit_event(emit_params(ctx));
 
@@ -122,7 +61,7 @@ async fn test_empty_trace_id_with_real_debug_log_writes_zero_events() {
 #[tokio::test]
 async fn test_none_debug_log_with_real_write_path_writes_zero_events() {
     let tmp = TempDir::new().expect("TempDir::new failed");
-    let _real_debug_log = make_debug_log(&tmp).await;
+    let _real_debug_log = make_debug_log_at_level(&tmp, LogLevel::Debug).await;
     let ctx = DebugLogContext::new(None, "trace-none", None);
     emit_event(emit_params(ctx));
 
@@ -139,7 +78,7 @@ async fn test_none_debug_log_with_real_write_path_writes_zero_events() {
 #[tokio::test]
 async fn test_non_empty_trace_id_emits_and_writes_one_event() {
     let tmp = TempDir::new().expect("TempDir::new failed");
-    let debug_log = make_debug_log(&tmp).await;
+    let debug_log = make_debug_log_at_level(&tmp, LogLevel::Debug).await;
     let ctx = DebugLogContext::new(Some(&debug_log), "trace-live", None);
     emit_event(emit_params(ctx));
 
