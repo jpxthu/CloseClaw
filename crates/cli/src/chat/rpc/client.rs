@@ -240,20 +240,24 @@ mod tests {
         assert!(matches!(resp, ChatResponse::Pong));
     }
 
-    /// Helper: spin up a mock chat RPC server.
+    /// Shared frame-server skeleton behind both mock helpers.
     ///
-    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
-    /// the socket path stays valid for the whole test. Callers must hold the
-    /// `_tmpdir` binding. The server calls `handler` for each received
-    /// request and sends back the returned response. `shutdown` is triggered
-    /// when the handler returns `None`.
-    async fn spawn_mock_server(
-        handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync + 'static>,
+    /// Binds a Unix socket in a fresh `TempDir` and serves it in the
+    /// background: accept loop → one task per connection → per connection,
+    /// read length-prefixed JSON request frames, dispatch to `handler`, and
+    /// write back every returned response frame. The unified response policy
+    /// is `(responses, done)`: write all frames, then `done == true` closes
+    /// the connection (dropping the writer signals EOF to the client),
+    /// `false` keeps it open for further requests. Any write error aborts
+    /// the connection — the protocol stream is unrecoverable past that
+    /// point. `UnixListener::bind` completes before this returns, so the
+    /// socket path is immediately connectable.
+    fn spawn_mock_frame_server(
+        handler: Arc<dyn Fn(ChatRequest) -> (Vec<ChatResponse>, bool) + Send + Sync + 'static>,
     ) -> (PathBuf, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let sock = dir.path().join("test-chat.sock");
         let listener = UnixListener::bind(&sock).unwrap();
-        let handler = Arc::clone(&handler);
 
         tokio::spawn(async move {
             loop {
@@ -268,9 +272,8 @@ mod tests {
 
                     loop {
                         let mut hdr = [0u8; 4];
-                        match reader.read_exact(&mut hdr).await {
-                            Ok(_) => {}
-                            Err(_) => break,
+                        if reader.read_exact(&mut hdr).await.is_err() {
+                            break;
                         }
                         let body_len = u32::from_be_bytes(hdr) as usize;
                         let mut body = vec![0u8; body_len];
@@ -283,24 +286,49 @@ mod tests {
                             Err(_) => break,
                         };
 
-                        match handler(request) {
-                            Some(response) => {
-                                let json = serde_json::to_vec(&response).unwrap();
-                                let len = (json.len() as u32).to_be_bytes();
-                                let _ = writer.write_all(&len).await;
-                                let _ = writer.write_all(&json).await;
-                                let _ = writer.flush().await;
+                        let (responses, done) = handler(request);
+                        for resp in responses {
+                            let json = serde_json::to_vec(&resp).unwrap();
+                            let len = (json.len() as u32).to_be_bytes();
+                            if writer.write_all(&len).await.is_err() {
+                                return;
                             }
-                            None => break,
+                            if writer.write_all(&json).await.is_err() {
+                                return;
+                            }
+                            if writer.flush().await.is_err() {
+                                return;
+                            }
+                        }
+                        if done {
+                            break;
                         }
                     }
+                    // Dropping writer closes the socket, signaling EOF to the client.
                 });
             }
         });
 
-        // Give the listener a moment to bind.
-        tokio::time::sleep(Duration::from_millis(10)).await;
         (sock, dir)
+    }
+
+    /// Helper: spin up a mock chat RPC server.
+    ///
+    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
+    /// the socket path stays valid for the whole test. Callers must hold the
+    /// `_tmpdir` binding. The server calls `handler` for each received
+    /// request and sends back the returned response. `shutdown` is triggered
+    /// when the handler returns `None`.
+    async fn spawn_mock_server(
+        handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync + 'static>,
+    ) -> (PathBuf, tempfile::TempDir) {
+        // `Some(r)` maps to one frame + keep-alive; `None` maps to closing
+        // the connection without writing a response.
+        let handler = Arc::new(move |req: ChatRequest| match handler(req) {
+            Some(response) => (vec![response], false),
+            None => (Vec::new(), true),
+        });
+        spawn_mock_frame_server(handler)
     }
 
     #[tokio::test]
@@ -346,66 +374,9 @@ mod tests {
     async fn spawn_streaming_mock_server(
         handler: Arc<dyn Fn(ChatRequest) -> (Vec<ChatResponse>, bool) + Send + Sync + 'static>,
     ) -> (PathBuf, tempfile::TempDir) {
-        let dir = tempfile::tempdir().unwrap();
-        let sock = dir.path().join("test-chat.sock");
-        let listener = UnixListener::bind(&sock).unwrap();
-        let handler = Arc::clone(&handler);
-
-        tokio::spawn(async move {
-            loop {
-                let (stream, _) = match listener.accept().await {
-                    Ok(v) => v,
-                    Err(_) => break,
-                };
-                let handler = Arc::clone(&handler);
-                tokio::spawn(async move {
-                    let (reader, mut writer) = stream.into_split();
-                    let mut reader = BufReader::new(reader);
-
-                    loop {
-                        // Read request frame.
-                        let mut hdr = [0u8; 4];
-                        match reader.read_exact(&mut hdr).await {
-                            Ok(_) => {}
-                            Err(_) => break,
-                        }
-                        let body_len = u32::from_be_bytes(hdr) as usize;
-                        let mut body = vec![0u8; body_len];
-                        if reader.read_exact(&mut body).await.is_err() {
-                            break;
-                        }
-
-                        let request: ChatRequest = match serde_json::from_slice(&body) {
-                            Ok(r) => r,
-                            Err(_) => break,
-                        };
-
-                        let (responses, done) = handler(request);
-                        for resp in responses {
-                            let json = serde_json::to_vec(&resp).unwrap();
-                            let len = (json.len() as u32).to_be_bytes();
-                            if writer.write_all(&len).await.is_err() {
-                                return;
-                            }
-                            if writer.write_all(&json).await.is_err() {
-                                return;
-                            }
-                            if writer.flush().await.is_err() {
-                                return;
-                            }
-                        }
-                        if done {
-                            break;
-                        }
-                    }
-                    // Dropping writer closes the socket, signaling EOF to the client.
-                });
-            }
-        });
-
-        // Give the listener a moment to bind.
-        tokio::time::sleep(Duration::from_millis(10)).await;
-        (sock, dir)
+        // The streaming policy already matches the skeleton's unified shape;
+        // pass it through unchanged.
+        spawn_mock_frame_server(handler)
     }
 
     #[tokio::test]
