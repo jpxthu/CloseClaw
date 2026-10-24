@@ -252,17 +252,8 @@ fn test_force_restart_executing_returns_false() {
 // 与 config / §9 断言风格（确定性）. Callers must hold the TempDir binding.
 fn make_test_config_manager() -> (Arc<closeclaw_config::ConfigManager>, tempfile::TempDir) {
     let d = tempfile::tempdir().unwrap();
-    for (name, content) in &[
-        ("models.json", r#"{"models":[]}"#),
-        ("channels.json", r#"{"channels":{}}"#),
-        ("gateway.json", r#"{"port":8080}"#),
-        ("plugins.json", r#"{"plugins":[]}"#),
-        ("system.json", r#"{"version":"1"}"#),
-        ("accounts.json", r#"{"accounts":[]}"#),
-    ] {
-        std::fs::write(d.path().join(name), content).unwrap();
-    }
-    let cm = Arc::new(closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap());
+    crate::test_helpers::write_mandatory_configs(d.path()).expect("mandatory configs");
+    let cm = Arc::new(crate::test_helpers::load_config_manager(d.path()));
     (cm, d)
 }
 
