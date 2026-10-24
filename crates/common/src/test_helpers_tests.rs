@@ -31,20 +31,29 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
     assert!(subdir.is_dir(), "subdir should exist: {subdir:?}");
 }
 
-// The panic path under test comes from `debug_assert!` in `ensure_dir`,
-// which is compiled out in release builds — this counter-example is only
-// meaningful for the debug profile, so it is compiled (and run) solely
-// when `debug_assertions` is on.
+// The panic paths under test come from `debug_assert!` in `ensure_dir` /
+// `remove_subdir`, which is compiled out in release builds — these
+// counter-examples are only meaningful for the debug profile, so they are
+// compiled (and run) solely when `debug_assertions` is on. The probe path
+// is a lexical sibling of `std::env::temp_dir()` (its parent + `tail`),
+// hence necessarily outside the TempDir contract; a degenerate parentless
+// `temp_dir()` has no such sibling and fails loudly via `expect` instead
+// of falling back to a hardcoded ambient path whose contract would depend
+// on the filesystem layout.
+#[cfg(debug_assertions)]
+fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
+    std::env::temp_dir()
+        .parent()
+        .expect("outside-tempdir probe requires a parented temp_dir root")
+        .join(tail)
+}
+
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "ensure_dir")]
 fn test_ensure_dir_panics_for_path_outside_tempdir() {
-    let outside = std::env::temp_dir()
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| std::path::PathBuf::from("/proc"));
-    ensure_dir(&outside.join("closeclaw_ensure_dir_outside_probe"))
-        .expect("ensure_dir: directory creation outside temp dir must fail");
+    let outside = outside_tempdir_probe("closeclaw_ensure_dir_outside_probe");
+    ensure_dir(&outside).expect("ensure_dir: directory creation outside temp dir must fail");
 }
 
 /// 正常路径：`remove_subdir` 递归删除 TempDir 下含文件的目录树，
@@ -62,7 +71,8 @@ fn test_remove_subdir_deletes_subtree_under_tempdir() {
 }
 
 /// 幂等边界由调用方决定（目录可能本就不存在）：`remove_subdir` 对缺失
-/// 目录返回错误而非 panic，错误处理权留给调用者（同 config 本地 helper 契约）。
+/// 目录返回错误而非 panic，错误处理权留给调用者（与 config 本地 helper
+/// 同签名同语义；共享版额外 debug-assert TempDir 契约）。
 #[test]
 fn test_remove_subdir_missing_dir_returns_error() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
@@ -71,20 +81,12 @@ fn test_remove_subdir_missing_dir_returns_error() {
     assert!(result.is_err(), "缺失目录应返回错误而非 panic");
 }
 
-// The panic path under test comes from `debug_assert!` in `remove_subdir`,
-// which is compiled out in release builds — this counter-example is only
-// meaningful for the debug profile, so it is compiled (and run) solely
-// when `debug_assertions` is on.
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "remove_subdir")]
 fn test_remove_subdir_panics_for_path_outside_tempdir() {
-    let outside = std::env::temp_dir()
-        .parent()
-        .map(std::path::Path::to_path_buf)
-        .unwrap_or_else(|| std::path::PathBuf::from("/proc"));
-    remove_subdir(&outside.join("closeclaw_remove_subdir_outside_probe"))
-        .expect("remove_subdir: deletion outside temp dir must fail");
+    let outside = outside_tempdir_probe("closeclaw_remove_subdir_outside_probe");
+    remove_subdir(&outside).expect("remove_subdir: deletion outside temp dir must fail");
 }
 
 /// 正常路径：`create_subdir` 在 TempDir 基目录下创建嵌套相对路径，

@@ -42,8 +42,10 @@ pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
 /// mis-injected path fails fast in tests instead of deleting elsewhere.
 ///
 /// Cross-crate shared test helper — consumers use it through the
-/// `closeclaw_common::test_helpers::` path. Mirrors the config crate's
-/// local `remove_subdir`, which remains in place until its call sites
+/// `closeclaw_common::test_helpers::` path. Same signature and semantics
+/// as the config crate's local `remove_subdir` (which has no
+/// `debug_assert!`); the shared version additionally debug-asserts the
+/// TempDir contract. The local copy remains in place until its call sites
 /// migrate in a follow-up batch.
 pub fn remove_subdir(path: &std::path::Path) -> io::Result<()> {
     debug_assert!(
