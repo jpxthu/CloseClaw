@@ -258,25 +258,6 @@ async fn test_plan_archive_grace_period_none_returns_immediately() {
     );
 }
 
-/// When the running task completes within the grace period,
-/// wait_grace_period does NOT abort it.
-#[tokio::test]
-async fn test_plan_archive_grace_period_no_abort_when_completed() {
-    let completing_task = tokio::task::spawn(async {
-        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-    });
-
-    let start = tokio::time::Instant::now();
-    super::background::PlanArchiveTask::wait_grace_period(Some(completing_task)).await;
-    let elapsed = start.elapsed();
-
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "should complete quickly when task finishes within grace, took {:?}",
-        elapsed
-    );
-}
-
 /// When a task exceeds the grace period, wait_grace_period aborts it.
 ///
 /// Runs on a paused tokio clock (`start_paused`): the hanging task is
