@@ -1,16 +1,17 @@
 use super::background::PlanArchiveTask;
+use closeclaw_common::test_helpers::ensure_dir;
 use std::fs;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 fn create_workspaces_root(dir: &Path) {
-    fs::create_dir_all(dir.join("workspaces/agent1/user1/plans")).unwrap();
+    ensure_dir(&dir.join("workspaces/agent1/user1/plans")).unwrap();
 }
 
 fn create_plan_file(dir: &Path, agent: &str, user: &str, name: &str, status: &str) {
     let plans_dir = dir.join("workspaces").join(agent).join(user).join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     let path = plans_dir.join(name);
     let step_marker = match status {
         "draft" => "- [ ] Pending",
@@ -111,7 +112,7 @@ async fn test_run_once_skips_draft_plans() {
 async fn test_run_once_handles_multiple_agents_and_users() {
     let dir = tempfile::TempDir::new().unwrap();
     create_workspaces_root(dir.path());
-    fs::create_dir_all(dir.path().join("workspaces/agent2/user2/plans")).unwrap();
+    ensure_dir(&dir.path().join("workspaces/agent2/user2/plans")).unwrap();
 
     // agent1/user1: old completed → should archive
     create_plan_file(dir.path(), "agent1", "user1", "plan1.md", "completed");
