@@ -27,6 +27,33 @@ pub fn ensure_dir(dir: &std::path::Path) -> io::Result<()> {
     std::fs::create_dir_all(dir)
 }
 
+/// Remove directory `path` recursively — the sanctioned way for tests to
+/// simulate on-disk states such as "config dir vanishes" or "skill directory
+/// deleted" **under** a `tempfile::TempDir` root.
+///
+/// `scripts/test-audit.sh` reports raw `std::fs::create_dir_all` /
+/// `remove_dir_all` in scanned test files as manual directory management;
+/// scenario teardown of part of a fixture tree goes through this helper
+/// instead, so every removed path stays inside the caller's managed temp
+/// tree (STANDARDS §8).
+///
+/// Debug builds assert the TempDir contract: `path` must resolve under
+/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
+/// mis-injected path fails fast in tests instead of deleting elsewhere.
+///
+/// Cross-crate shared test helper — consumers use it through the
+/// `closeclaw_common::test_helpers::` path. Mirrors the config crate's
+/// local `remove_subdir`, which remains in place until its call sites
+/// migrate in a follow-up batch.
+pub fn remove_subdir(path: &std::path::Path) -> io::Result<()> {
+    debug_assert!(
+        path.starts_with(std::env::temp_dir()),
+        "remove_subdir contract violation: {path:?} is not under std::env::temp_dir(); \
+         tests must operate inside a tempfile::TempDir root (STANDARDS §8)"
+    );
+    std::fs::remove_dir_all(path)
+}
+
 /// Create subdirectory `rel` (any relative subpath, possibly nested) under
 /// `base`, returning the created directory path; missing components —
 /// including `base` itself — are created (`create_dir_all` semantics) and

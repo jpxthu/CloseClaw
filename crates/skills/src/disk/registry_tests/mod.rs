@@ -1,6 +1,7 @@
 use super::super::types::{ScanConfig, SkillContext, SkillEffort, SkillManifest, SkillSource};
 use super::DiskSkill;
 use super::DiskSkillRegistry;
+use closeclaw_common::test_helpers::{ensure_dir, remove_subdir};
 use std::path::{Path, PathBuf};
 mod agent_skills_query;
 mod listing_entries;
@@ -477,7 +478,7 @@ fn rescan_registry(dir: &std::path::Path) -> DiskSkillRegistry {
 }
 fn create_skill_file(dir: &std::path::Path, name: &str, desc: &str) {
     let d = dir.join(name);
-    std::fs::create_dir_all(&d).unwrap();
+    ensure_dir(&d).unwrap();
     std::fs::write(
         d.join("SKILL.md"),
         format!("---\ndescription: {}\n---\n# {}\n", desc, name),
@@ -510,7 +511,7 @@ fn test_rescan_removes_deleted_skill() {
     assert_eq!(reg.len(), 2);
     assert!(reg.contains("keep"));
     assert!(reg.contains("remove"));
-    std::fs::remove_dir_all(dir.join("remove")).unwrap();
+    remove_subdir(&dir.join("remove")).unwrap();
     reg.rescan();
     assert_eq!(reg.len(), 1);
     assert!(reg.contains("keep"));
@@ -949,7 +950,7 @@ fn test_fingerprint_changes_with_removed_skill() {
     let fp1 = reg.fingerprint();
 
     // Remove a skill
-    std::fs::remove_dir_all(dir.join("skill-b")).unwrap();
+    remove_subdir(&dir.join("skill-b")).unwrap();
     reg.rescan();
     let fp2 = reg.fingerprint();
 
