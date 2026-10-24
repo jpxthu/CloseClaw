@@ -242,12 +242,11 @@ mod tests {
 
     /// Helper: spin up a mock chat RPC server.
     ///
-    /// Returns `(socket path, TempDir)` — the TempDir is returned alongside
-    /// the socket path (not dropped here) so the path stays valid for the
-    /// whole test — STANDARDS §8 临时文件 (TempDir 自动清理). Callers must
-    /// hold the `_tmpdir` binding. The server calls `handler` for each
-    /// received request and sends back the returned response. `shutdown` is
-    /// triggered when the handler returns `None`.
+    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
+    /// the socket path stays valid for the whole test. Callers must hold the
+    /// `_tmpdir` binding. The server calls `handler` for each received
+    /// request and sends back the returned response. `shutdown` is triggered
+    /// when the handler returns `None`.
     async fn spawn_mock_server(
         handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync + 'static>,
     ) -> (PathBuf, tempfile::TempDir) {
@@ -338,10 +337,9 @@ mod tests {
 
     /// Helper: spin up a mock server that sends multiple frames per request.
     ///
-    /// Returns `(socket path, TempDir)` — the TempDir is returned alongside
-    /// the socket path (not dropped here) so the path stays valid for the
-    /// whole test — STANDARDS §8 临时文件 (TempDir 自动清理). Callers must
-    /// hold the `_tmpdir` binding. `handler` receives a request and returns
+    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
+    /// the socket path stays valid for the whole test. Callers must hold the
+    /// `_tmpdir` binding. `handler` receives a request and returns
     /// `(Vec<ChatResponse>, bool)` where the bool indicates whether the
     /// connection should be closed after sending all responses (true =
     /// close, false = keep reading).
