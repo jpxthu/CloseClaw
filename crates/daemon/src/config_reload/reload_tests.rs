@@ -7,6 +7,7 @@
 use crate::config_reload::reload::{extract_agent_id_from_permissions_path, DaemonReloadCallback};
 use crate::test_helpers::{make_config_manager, write_mandatory_configs};
 use closeclaw_agent::registry::AgentRegistry;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_config::agents::AgentPermissionProvider;
 use closeclaw_config::manager::ConfigManager;
 use closeclaw_config::ReloadCallback;
@@ -26,7 +27,7 @@ fn make_agent_registry() -> Arc<AgentRegistry> {
 /// Create `<root>/agents/<id>/` containing a `config.json`.
 fn make_agent_dir(root: &Path, id: &str, name: &str) -> PathBuf {
     let dir = root.join("agents").join(id);
-    std::fs::create_dir_all(&dir).expect("create agent dir");
+    ensure_dir(&dir).expect("create agent dir");
     let json = format!(r#"{{"id":"{id}","name":"{name}"}}"#);
     std::fs::write(dir.join("config.json"), json).expect("write agent config");
     dir
@@ -40,7 +41,7 @@ fn make_agent_dir(root: &Path, id: &str, name: &str) -> PathBuf {
 fn test_extract_agent_id_from_permissions_path() {
     let d = TempDir::new().unwrap();
     let agents_dir = d.path().join("agents").join("gamma");
-    std::fs::create_dir_all(&agents_dir).unwrap();
+    ensure_dir(&agents_dir).unwrap();
     std::fs::write(agents_dir.join("config.json"), r#"{"id":"gamma"}"#).unwrap();
     let perm_path = agents_dir.join("permissions.json");
     assert_eq!(
@@ -53,7 +54,7 @@ fn test_extract_agent_id_from_permissions_path() {
 fn test_extract_agent_id_no_config_json() {
     let d = TempDir::new().unwrap();
     let agents_dir = d.path().join("agents").join("ghost");
-    std::fs::create_dir_all(&agents_dir).unwrap();
+    ensure_dir(&agents_dir).unwrap();
     let perm_path = agents_dir.join("permissions.json");
     assert_eq!(extract_agent_id_from_permissions_path(&perm_path), None);
 }
@@ -176,7 +177,7 @@ fn test_daemon_callback_permissions_changed() {
 fn test_daemon_callback_session_reloaded() {
     let d = TempDir::new().unwrap();
     let config_dir = config_dir_under(d.path());
-    std::fs::create_dir_all(&config_dir).unwrap();
+    ensure_dir(&config_dir).unwrap();
     write_mandatory_configs(&config_dir).unwrap();
     let session_path = config_dir.join("session.json");
     std::fs::write(

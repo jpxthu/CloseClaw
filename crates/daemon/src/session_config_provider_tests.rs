@@ -13,6 +13,7 @@
 
 use std::sync::Arc;
 
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::AgentRole;
 use closeclaw_config::session::{
     JsonSessionConfigProvider, PerAgentSessionConfig, SessionConfigProvider,
@@ -111,7 +112,7 @@ fn make_config_manager(dir: &std::path::Path, session_json: Option<&str>) -> Arc
     // the mandatory skeleton write does not touch it.
     if let Some(json) = session_json {
         let config_dir = dir.join("config");
-        std::fs::create_dir_all(&config_dir).expect("create config dir");
+        ensure_dir(&config_dir).expect("create config dir");
         std::fs::write(config_dir.join("session.json"), json).expect("write session.json");
     }
     crate::test_helpers::make_config_manager(dir)
