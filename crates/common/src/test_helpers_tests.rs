@@ -1,6 +1,7 @@
 //! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract,
 //! `remove_subdir`'s recursive-teardown TempDir contract, `create_subdir`'s
-//! nested-path creation, and the shared `MemAuditLogger`
+//! nested-path creation and TempDir contract, and the shared
+//! `MemAuditLogger`
 //! audit mock behaviour (filter, time-descending
 //! query, unparseable-timestamp ordering, window/matches consistency,
 //! snapshot isolation, empty/zero-match boundaries, concurrency).
@@ -32,14 +33,14 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
 }
 
 // The panic paths under test come from `debug_assert!` in `ensure_dir` /
-// `remove_subdir`, which is compiled out in release builds — these
-// counter-examples are only meaningful for the debug profile, so they are
-// compiled (and run) solely when `debug_assertions` is on. The probe path
-// is a lexical sibling of `std::env::temp_dir()` (its parent + `tail`),
-// hence necessarily outside the TempDir contract; a degenerate parentless
-// `temp_dir()` has no such sibling and fails loudly via `expect` instead
-// of falling back to a hardcoded ambient path whose contract would depend
-// on the filesystem layout.
+// `remove_subdir` / `create_subdir`, which is compiled out in release
+// builds — these counter-examples are only meaningful for the debug
+// profile, so they are compiled (and run) solely when `debug_assertions`
+// is on. The probe path is a lexical sibling of `std::env::temp_dir()`
+// (its parent + `tail`), hence necessarily outside the TempDir contract; a
+// degenerate parentless `temp_dir()` has no such sibling and fails loudly
+// via `expect` instead of falling back to a hardcoded ambient path whose
+// contract would depend on the filesystem layout.
 #[cfg(debug_assertions)]
 fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
     std::env::temp_dir()
@@ -111,6 +112,17 @@ fn test_create_subdir_existing_dir_is_idempotent() {
     let second = create_subdir(tmp.path(), "a/b/c");
     assert_eq!(first, second, "重复调用必须返回相同路径");
     assert!(second.is_dir(), "目录应保持存在：{second:?}");
+}
+
+/// TempDir 契约：debug 构建下 base 落在 `std::env::temp_dir()` 之外时
+/// 在任何文件系统写入前快速失败（panic 前缀与 helper 名一致），
+/// 与 `ensure_dir` / `remove_subdir` 的契约口径对齐。
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "create_subdir")]
+fn test_create_subdir_panics_for_base_outside_tempdir() {
+    let outside = outside_tempdir_probe("closeclaw_create_subdir_outside_probe");
+    create_subdir(&outside, "rel");
 }
 
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集

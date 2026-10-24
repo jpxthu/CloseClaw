@@ -6,14 +6,14 @@ use std::sync::Mutex;
 use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 use crate::permission_types::RiskLevel;
 
-/// Shared TempDir-contract probe behind [`ensure_dir`] and
-/// [`remove_subdir`]: debug builds assert `path` resolves under
-/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
-/// mis-injected path fails fast in tests instead of writing/deleting
-/// elsewhere. `helper` names the caller and prefixes the panic message
-/// (`"{helper} contract violation: ..."`), keeping the
-/// `should_panic(expected = "ensure_dir"/"remove_subdir")` probes in
-/// `test_helpers_tests` matching on the same prefix.
+/// Shared TempDir-contract probe behind [`ensure_dir`],
+/// [`remove_subdir`] and [`create_subdir`]: debug builds assert `path`
+/// resolves under `std::env::temp_dir()` (where `tempfile::TempDir` roots
+/// live), so a mis-injected path fails fast in tests instead of
+/// writing/deleting elsewhere. `helper` names the caller and prefixes the
+/// panic message (`"{helper} contract violation: ..."`), keeping the
+/// `should_panic(expected = "ensure_dir"/"remove_subdir"/"create_subdir")`
+/// probes in `test_helpers_tests` matching on the same prefix.
 fn debug_assert_under_temp_dir(helper: &str, path: &std::path::Path) {
     debug_assert!(
         path.starts_with(std::env::temp_dir()),
@@ -66,11 +66,16 @@ pub fn remove_subdir(path: &std::path::Path) -> io::Result<()> {
 /// failures panic via `unwrap` (test-helper contract: callers stay inside
 /// their managed temp tree).
 ///
+/// Debug builds assert the TempDir contract: `base` must resolve under
+/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
+/// mis-injected path fails fast in tests instead of writing elsewhere.
+///
 /// Cross-crate shared test helper — consumers use it through the
 /// `closeclaw_common::test_helpers::` path. Deduplicates the verbatim
 /// per-crate copies (config / session / feishu `create_subdir`), which
 /// remain in place until their call sites migrate in a follow-up batch.
 pub fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
+    debug_assert_under_temp_dir("create_subdir", base);
     let sub = base.join(rel);
     std::fs::create_dir_all(&sub).unwrap();
     sub
