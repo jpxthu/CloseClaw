@@ -58,6 +58,13 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
     Some(Arc::new(FakeSkillRegistry::new(&[])))
 }
 
+/// Single definition of the `config/` subdirectory convention: everything a
+/// `config_dir` root hosts (agents.json, ConfigManager state) lives under
+/// this subdir.
+fn config_subdir(config_dir: &std::path::Path) -> std::path::PathBuf {
+    config_dir.join("config")
+}
+
 /// Shared `AdminContext` constructor for the fixtures below — assembles the
 /// parts they hold in common (`config/` subdir build, `ConfigManager::new`
 /// + `Arc` wrap, fresh `AgentRegistry`, empty fake skill registry, no
@@ -65,7 +72,7 @@ fn empty_skill_registry() -> Option<Arc<dyn SkillRegistryQuery>> {
 /// Fixture-specific duties (TempDir ownership, agents.json seeding,
 /// `load_agents`) stay with the callers.
 fn make_admin_context(config_dir: std::path::PathBuf) -> AdminContext {
-    let config_sub = config_dir.join("config");
+    let config_sub = config_subdir(&config_dir);
     let config_manager = Arc::new(closeclaw_config::ConfigManager::new(config_sub).unwrap());
     AdminContext {
         agent_registry: Arc::new(AgentRegistry::new()),
@@ -82,10 +89,8 @@ fn make_admin_context(config_dir: std::path::PathBuf) -> AdminContext {
 fn make_test_context() -> (AdminContext, tempfile::TempDir) {
     let tmp = tempfile::tempdir().unwrap();
     let config_dir = tmp.path().to_path_buf();
-    let config_sub = config_dir.join("config");
+    let config_sub = config_subdir(&config_dir);
     ensure_dir(&config_sub).unwrap();
-    // agents.json lives in the config subdirectory
-    // (ConfigManager.config_dir = config_sub)
     std::fs::write(config_sub.join("agents.json"), r#"{"agents": []}"#).unwrap();
     let ctx = make_admin_context(config_dir);
     (ctx, tmp)
@@ -265,7 +270,7 @@ async fn test_dispatch_ping() {
 ///       ├── <id1>/config.json
 ///       └── <id2>/config.json
 fn setup_agents(config_dir: &std::path::Path, ids: &[&str]) {
-    let config_sub = config_dir.join("config");
+    let config_sub = config_subdir(config_dir);
     let agents_dir = config_dir.join("agents");
     ensure_dir(&config_sub).unwrap();
     ensure_dir(&agents_dir).unwrap();
