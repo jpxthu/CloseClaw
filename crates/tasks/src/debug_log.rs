@@ -22,28 +22,7 @@ pub fn generate_trace_id() -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn test_none_debug_log_is_noop() {
-        use closeclaw_debug_log::{emit_event, DebugLogContext, EmitEventParams, LogLevel};
-        let ctx = DebugLogContext::new(None, "trace-123", None);
-        emit_event(EmitEventParams {
-            ctx,
-            level: LogLevel::Info,
-            source_module: "tasks",
-            event_type: "test.event",
-            payload: serde_json::json!({}),
-            parent: None,
-        });
-    }
-
-    #[test]
-    fn test_debug_log_context_new_fields() {
-        use closeclaw_debug_log::DebugLogContext;
-        let ctx = DebugLogContext::new(None, "tid", Some("skey"));
-        assert_eq!(ctx.trace_id, "tid");
-        assert_eq!(ctx.session_key, Some("skey"));
-        assert!(ctx.debug_log.is_none());
-    }
+    closeclaw_debug_log::debug_log_core_tests!("tasks");
 
     #[test]
     fn test_generate_trace_id_is_unique() {

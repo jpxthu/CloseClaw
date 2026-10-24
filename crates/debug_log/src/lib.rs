@@ -12,6 +12,7 @@ mod level;
 mod level_filter;
 mod redaction;
 mod retention;
+mod test_macros;
 mod trace_context;
 mod writer;
 
