@@ -3,7 +3,6 @@ use closeclaw_llm::model_info::ModelInfo;
 use closeclaw_llm::ReasoningLevels;
 use std::collections::HashSet;
 
-#[cfg(test)]
 fn test_model(id: &str) -> ModelInfo {
     ModelInfo {
         id: id.to_string(),
