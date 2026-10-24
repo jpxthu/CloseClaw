@@ -7,13 +7,14 @@ use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLog
 use crate::permission_types::RiskLevel;
 
 /// Shared TempDir-contract probe behind [`ensure_dir`],
-/// [`remove_subdir`] and [`create_subdir`]: debug builds assert `path`
-/// resolves under `std::env::temp_dir()` (where `tempfile::TempDir` roots
-/// live), so a mis-injected path fails fast in tests instead of
-/// writing/deleting elsewhere. `helper` names the caller and prefixes the
-/// panic message (`"{helper} contract violation: ..."`), keeping the
-/// `should_panic(expected = "ensure_dir"/"remove_subdir"/"create_subdir")`
-/// probes in `test_helpers_tests` matching on the same prefix.
+/// [`remove_subdir`], [`create_subdir`] and [`advance_mtime`]: debug
+/// builds assert `path` resolves under `std::env::temp_dir()` (where
+/// `tempfile::TempDir` roots live), so a mis-injected path fails fast in
+/// tests instead of writing/deleting elsewhere. `helper` names the caller
+/// and prefixes the panic message (`"{helper} contract violation: ..."`),
+/// keeping the `should_panic(expected =
+/// "ensure_dir"/"remove_subdir"/"create_subdir"/"advance_mtime")` probes
+/// in `test_helpers_tests` matching on the same prefix.
 fn debug_assert_under_temp_dir(helper: &str, path: &std::path::Path) {
     debug_assert!(
         path.starts_with(std::env::temp_dir()),
@@ -91,11 +92,17 @@ pub fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
 /// (not wall-clock now) also keeps the result monotone under clock
 /// rollbacks.
 ///
-/// Cross-crate shared test helper — consumers use it through the
+/// Debug builds assert the TempDir contract: `path` must resolve under
+/// `std::env::temp_dir()` (where `tempfile::TempDir` roots live), so a
+/// mis-injected path fails fast in tests instead of rewriting metadata
+/// elsewhere.
+///
+/// Cross-crate shared helper — consumers use it through the
 /// `closeclaw_common::test_helpers::` path. Deduplicates the daemon
 /// (`File::set_modified`) and config (`filetime::set_file_mtime`) copies
 /// of this idiom.
 pub fn advance_mtime(path: &std::path::Path, secs: u64) -> io::Result<()> {
+    debug_assert_under_temp_dir("advance_mtime", path);
     let f = std::fs::File::options().write(true).open(path)?;
     let new_mtime = f.metadata()?.modified()? + std::time::Duration::from_secs(secs);
     f.set_modified(new_mtime)

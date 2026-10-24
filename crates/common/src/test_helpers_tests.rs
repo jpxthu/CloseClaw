@@ -2,8 +2,8 @@
 //! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
 //! TempDir contract, `create_subdir`'s nested-path creation, TempDir
 //! contract and base-is-a-file error path, `advance_mtime`'s
-//! mtime-advance / zero-advance / missing-path / repeated-advance
-//! behaviour, and
+//! mtime-advance / zero-advance / missing-path / repeated-advance /
+//! outside-TempDir-contract behaviour, and
 //! the shared `MemAuditLogger` audit mock behaviour (filter,
 //! time-descending query, unparseable-timestamp ordering,
 //! window/matches consistency, snapshot isolation, empty/zero-match
@@ -227,10 +227,24 @@ fn test_advance_mtime_missing_path_returns_error() {
     assert!(result.is_err(), "路径不存在必须返回 Err 而非 panic");
 }
 
+/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时在
+/// 任何 mtime 改写前快速失败（panic 前缀与 helper 名一致），与
+/// `ensure_dir` / `remove_subdir` / `create_subdir` 的契约口径对齐。
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "advance_mtime")]
+fn test_advance_mtime_panics_for_path_outside_tempdir() {
+    let outside = outside_tempdir_probe("closeclaw_advance_mtime_outside_probe");
+    advance_mtime(&outside, 10).expect("advance_mtime: mtime advance outside temp dir must fail");
+}
+
 /// 边界：同一文件连续两次推进 +10s，第二次以第一次推进后的 mtime 为
-/// 基准再 +10s，最终 mtime 相比初始值累计 ≥ +20s。
+/// 基准再 +10s，最终 mtime 相比初始值累计 ≥ +20s − ε（ε = 1s，容忍
+/// 文件系统时间戳粒度截断，与单次推进测试的断言口径对齐）。
 #[test]
 fn test_advance_mtime_twice_accumulates_twenty_seconds() {
+    const EPSILON: Duration = Duration::from_secs(1);
+
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let file = tmp.path().join("cache.json");
     std::fs::write(&file, "v1").expect("write file");
@@ -249,9 +263,12 @@ fn test_advance_mtime_twice_accumulates_twenty_seconds() {
     let gained = after
         .duration_since(before)
         .expect("mtime must stay monotone across advances");
+    let floor = Duration::from_secs(20)
+        .checked_sub(EPSILON)
+        .expect("duration arithmetic must not overflow");
     assert!(
-        gained >= Duration::from_secs(20),
-        "两次 +10s 推进必须累计 ≥ +20s：before={before:?} after={after:?} gained={gained:?}"
+        gained >= floor,
+        "两次 +10s 推进必须累计 ≥ +20s − ε：before={before:?} after={after:?} gained={gained:?}"
     );
 }
 
