@@ -81,6 +81,26 @@ pub fn create_subdir(base: &std::path::Path, rel: &str) -> std::path::PathBuf {
     sub
 }
 
+/// Advance `path`'s mtime by `secs` seconds — the sanctioned way for tests
+/// to guarantee deterministic cache invalidation after rewriting a file
+/// (e.g. an invalid write a lazy loader must re-read): opens the file in
+/// write mode and sets its modification time to **the file's current mtime
+/// plus `secs`**, so staleness checks comparing against a previously
+/// recorded mtime always see the file as newer even on filesystems with
+/// coarse timestamp granularity. Basing the offset on the file's own mtime
+/// (not wall-clock now) also keeps the result monotone under clock
+/// rollbacks.
+///
+/// Cross-crate shared test helper — consumers use it through the
+/// `closeclaw_common::test_helpers::` path. Deduplicates the daemon
+/// (`File::set_modified`) and config (`filetime::set_file_mtime`) copies
+/// of this idiom.
+pub fn advance_mtime(path: &std::path::Path, secs: u64) -> io::Result<()> {
+    let f = std::fs::File::options().write(true).open(path)?;
+    let new_mtime = f.metadata()?.modified()? + std::time::Duration::from_secs(secs);
+    f.set_modified(new_mtime)
+}
+
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus a valid placeholder models.json.
