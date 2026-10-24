@@ -21,14 +21,14 @@ use tempfile::TempDir;
 // =========================================================================
 
 #[tokio::test]
-async fn http_url_returns_none() {
+async fn test_http_url_returns_none() {
     let (_tmp, store) = make_test_media_store_with_tmp();
     let result = prepare_outbound_local_media("http://example.com/img.png", None, &store).await;
     assert!(result.is_none(), "HTTP URL should return None");
 }
 
 #[tokio::test]
-async fn https_url_returns_none() {
+async fn test_https_url_returns_none() {
     let (_tmp, store) = make_test_media_store_with_tmp();
     let result = prepare_outbound_local_media("https://example.com/img.png", None, &store).await;
     assert!(result.is_none(), "HTTPS URL should return None");
@@ -39,7 +39,7 @@ async fn https_url_returns_none() {
 // =========================================================================
 
 #[tokio::test]
-async fn absolute_path_within_workspace_resolves() {
+async fn test_absolute_path_within_workspace_resolves() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     ensure_dir(&ws).unwrap();
@@ -60,7 +60,7 @@ async fn absolute_path_within_workspace_resolves() {
 }
 
 #[tokio::test]
-async fn absolute_path_within_media_store_resolves() {
+async fn test_absolute_path_within_media_store_resolves() {
     let tmp = TempDir::new().unwrap();
     let media_dir = tmp.path().join("media");
     ensure_dir(&media_dir).unwrap();
@@ -80,7 +80,7 @@ async fn absolute_path_within_media_store_resolves() {
 }
 
 #[tokio::test]
-async fn absolute_path_outside_rejected() {
+async fn test_absolute_path_outside_rejected() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let outside = tmp.path().join("outside");
@@ -99,7 +99,7 @@ async fn absolute_path_outside_rejected() {
 }
 
 #[tokio::test]
-async fn nonexistent_file_returns_none() {
+async fn test_nonexistent_file_returns_none() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     ensure_dir(&ws).unwrap();
@@ -116,7 +116,7 @@ async fn nonexistent_file_returns_none() {
 // =========================================================================
 
 #[tokio::test]
-async fn relative_path_resolved_against_workspace() {
+async fn test_relative_path_resolved_against_workspace() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     ensure_dir(&ws).unwrap();
@@ -135,7 +135,7 @@ async fn relative_path_resolved_against_workspace() {
 }
 
 #[tokio::test]
-async fn relative_path_subdirectory_resolves() {
+async fn test_relative_path_subdirectory_resolves() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     ensure_dir(&ws.join("subdir")).unwrap();
@@ -153,7 +153,7 @@ async fn relative_path_subdirectory_resolves() {
 }
 
 #[tokio::test]
-async fn relative_path_no_workspace_fails() {
+async fn test_relative_path_no_workspace_fails() {
     let (_store_tmp, store) = make_test_media_store_with_tmp();
 
     // Relative path without workspace_dir — the function returns None
@@ -166,7 +166,7 @@ async fn relative_path_no_workspace_fails() {
 }
 
 #[tokio::test]
-async fn relative_path_outside_workspace_rejected() {
+async fn test_relative_path_outside_workspace_rejected() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let outside = tmp.path().join("outside");

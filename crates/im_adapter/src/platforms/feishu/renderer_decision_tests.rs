@@ -61,7 +61,7 @@ fn dispatch_no_dsl(blocks: &[ContentBlock]) -> serde_json::Value {
 /// Plain text → should_use_card returns false when has_dsl=false
 /// (the value render() actually passes).
 #[test]
-fn plain_text_render_path_produces_text_message() {
+fn test_plain_text_render_path_produces_text_message() {
     // render() calls should_use_card(text, false) — DSL flag is false
     assert!(!should_use_card("hello world", false));
 }
@@ -69,7 +69,7 @@ fn plain_text_render_path_produces_text_message() {
 /// should_use_card_for_blocks with plain text and has_dsl=false → false
 /// (the value render() actually passes).
 #[test]
-fn plain_text_blocks_render_path_no_card() {
+fn test_plain_text_blocks_render_path_no_card() {
     let blocks = vec![ContentBlock::Text("hello world".into())];
     // render() calls should_use_card_for_blocks(blocks, false)
     assert!(!should_use_card_for_blocks(&blocks, false));
@@ -78,7 +78,7 @@ fn plain_text_blocks_render_path_no_card() {
 /// Plain text + DSL: dispatch_blocks with None dsl_result produces
 /// no action elements.
 #[test]
-fn plain_text_with_dsl_dispatch_no_action() {
+fn test_plain_text_with_dsl_dispatch_no_action() {
     let blocks = vec![ContentBlock::Text("hello world".into())];
     let json = dispatch_no_dsl(&blocks);
     assert!(!has_action_elements(&json));
@@ -91,7 +91,7 @@ fn plain_text_with_dsl_dispatch_no_action() {
 /// Formatted text (multiline/heading) → card (dispatch with None dsl),
 /// card JSON has no action elements.
 #[test]
-fn formatted_text_with_dsl_produces_card_no_action() {
+fn test_formatted_text_with_dsl_produces_card_no_action() {
     let blocks = vec![ContentBlock::Text("# Title\n\nBody text".into())];
     // should_use_card_for_blocks returns true for formatted text
     assert!(should_use_card_for_blocks(&blocks, false));
@@ -115,7 +115,7 @@ fn formatted_text_with_dsl_produces_card_no_action() {
 
 /// Multiline text → card, no action elements (dispatch with None dsl).
 #[test]
-fn multiline_text_no_action() {
+fn test_multiline_text_no_action() {
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     let json = dispatch_no_dsl(&blocks);
     assert!(!has_action_elements(&json));
@@ -123,7 +123,7 @@ fn multiline_text_no_action() {
 
 /// Bold text → card, no action elements (dispatch with None dsl).
 #[test]
-fn bold_text_no_action() {
+fn test_bold_text_no_action() {
     let blocks = vec![ContentBlock::Text("**bold text**".into())];
     let json = dispatch_no_dsl(&blocks);
     assert!(!has_action_elements(&json));
@@ -135,7 +135,7 @@ fn bold_text_no_action() {
 
 /// Plain text without DSL → text message (regression).
 #[test]
-fn no_dsl_plain_text_produces_text_message() {
+fn test_no_dsl_plain_text_produces_text_message() {
     assert!(!should_use_card("hello", false));
     let blocks = vec![ContentBlock::Text("hello".into())];
     assert!(!should_use_card_for_blocks(&blocks, false));
@@ -143,7 +143,7 @@ fn no_dsl_plain_text_produces_text_message() {
 
 /// Multiline text without DSL → card (regression).
 #[test]
-fn no_dsl_multiline_produces_card() {
+fn test_no_dsl_multiline_produces_card() {
     assert!(should_use_card("line1\nline2", false));
     let blocks = vec![ContentBlock::Text("line1\nline2".into())];
     assert!(should_use_card_for_blocks(&blocks, false));
@@ -151,7 +151,7 @@ fn no_dsl_multiline_produces_card() {
 
 /// Bold text without DSL → card (regression).
 #[test]
-fn no_dsl_bold_produces_card() {
+fn test_no_dsl_bold_produces_card() {
     assert!(should_use_card("**bold**", false));
     let blocks = vec![ContentBlock::Text("**bold**".into())];
     assert!(should_use_card_for_blocks(&blocks, false));
@@ -159,7 +159,7 @@ fn no_dsl_bold_produces_card() {
 
 /// Empty text → no card (regression).
 #[test]
-fn no_dsl_empty_text_no_card() {
+fn test_no_dsl_empty_text_no_card() {
     assert!(!should_use_card("", false));
     let blocks = vec![ContentBlock::Text("".into())];
     assert!(!should_use_card_for_blocks(&blocks, false));
@@ -167,13 +167,13 @@ fn no_dsl_empty_text_no_card() {
 
 /// Heading text without DSL → card (regression).
 #[test]
-fn no_dsl_heading_produces_card() {
+fn test_no_dsl_heading_produces_card() {
     assert!(should_use_card("# Title", false));
 }
 
 /// Dispatch without DSL produces markdown elements, no action.
 #[test]
-fn no_dsl_dispatch_produces_markdown_no_action() {
+fn test_no_dsl_dispatch_produces_markdown_no_action() {
     let blocks = vec![ContentBlock::Text("# Title\n\nBody".into())];
     let json = dispatch_no_dsl(&blocks);
     let has_markdown = json
@@ -191,7 +191,7 @@ fn no_dsl_dispatch_produces_markdown_no_action() {
 
 /// Single bold line → card with markdown, no action.
 #[test]
-fn single_bold_line_card_no_action() {
+fn test_single_bold_line_card_no_action() {
     let blocks = vec![ContentBlock::Text("**bold**".into())];
     let json = dispatch_no_dsl(&blocks);
     assert!(should_use_card_for_blocks(&blocks, false));
@@ -204,7 +204,7 @@ fn single_bold_line_card_no_action() {
 
 /// Thinking + Text → card (dispatch with None dsl), no action elements.
 #[test]
-fn thinking_text_combo_no_action() {
+fn test_thinking_text_combo_no_action() {
     let blocks = vec![
         ContentBlock::Thinking {
             thinking: "reasoning...".into(),
@@ -229,7 +229,7 @@ fn thinking_text_combo_no_action() {
 
 /// ToolUse + Text → card (dispatch with None dsl), no action elements.
 #[test]
-fn tooluse_text_combo_no_action() {
+fn test_tooluse_text_combo_no_action() {
     let blocks = vec![
         ContentBlock::ToolUse {
             id: "call_1".into(),
@@ -255,7 +255,7 @@ fn tooluse_text_combo_no_action() {
 
 /// Image + Text → card (dispatch with None dsl), no action elements.
 #[test]
-fn image_text_combo_no_action() {
+fn test_image_text_combo_no_action() {
     let blocks = vec![
         ContentBlock::Image {
             name: "photo.png".into(),
@@ -280,7 +280,7 @@ fn image_text_combo_no_action() {
 
 /// Audio + Text → card (dispatch with None dsl), no action elements.
 #[test]
-fn audio_text_combo_no_action() {
+fn test_audio_text_combo_no_action() {
     let blocks = vec![
         ContentBlock::Audio {
             name: "voice.mp3".into(),
@@ -304,7 +304,7 @@ fn audio_text_combo_no_action() {
 
 /// File + Text → card (dispatch with None dsl), no action elements.
 #[test]
-fn file_text_combo_no_action() {
+fn test_file_text_combo_no_action() {
     let blocks = vec![
         ContentBlock::File {
             name: "doc.pdf".into(),
@@ -328,7 +328,7 @@ fn file_text_combo_no_action() {
 
 /// All block types combined → card (dispatch with None dsl), no action elements.
 #[test]
-fn all_block_types_combo_no_action() {
+fn test_all_block_types_combo_no_action() {
     let blocks = vec![
         ContentBlock::Thinking {
             thinking: "thinking...".into(),
@@ -360,7 +360,7 @@ fn all_block_types_combo_no_action() {
 /// DslParseResult with empty instructions → dispatch_blocks with Some
 /// still produces no action elements (empty instructions = no actions).
 #[test]
-fn empty_dsl_instructions_produces_card_no_action() {
+fn test_empty_dsl_instructions_produces_card_no_action() {
     let dsl = DslParseResult {
         instructions: vec![],
     };
@@ -376,7 +376,7 @@ fn empty_dsl_instructions_produces_card_no_action() {
 /// DslParseResult with empty instructions + plain text → dispatch produces
 /// no action elements.
 #[test]
-fn empty_dsl_instructions_plain_text_no_action() {
+fn test_empty_dsl_instructions_plain_text_no_action() {
     let dsl = DslParseResult {
         instructions: vec![],
     };
@@ -392,7 +392,7 @@ fn empty_dsl_instructions_plain_text_no_action() {
 /// DslParseResult with no instructions: build_card still produces
 /// a valid card JSON without action elements.
 #[test]
-fn empty_dsl_build_card_json_no_action() {
+fn test_empty_dsl_build_card_json_no_action() {
     let dsl = DslParseResult {
         instructions: vec![],
     };

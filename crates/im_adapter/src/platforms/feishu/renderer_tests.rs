@@ -5,7 +5,7 @@ use super::renderer::*;
 use super::{assert_button, assert_select_menu, assert_single_action, make_selector_inst};
 
 #[test]
-fn thinking_block_with_content_produces_collapsible_panel() {
+fn test_thinking_block_with_content_produces_collapsible_panel() {
     let el = render_thinking_block("Let me reason...");
     match &el {
         CardElement::CollapsiblePanel { header, elements } => {
@@ -24,7 +24,7 @@ fn thinking_block_with_content_produces_collapsible_panel() {
 }
 
 #[test]
-fn thinking_block_empty_content_produces_collapsible_panel_with_placeholder() {
+fn test_thinking_block_empty_content_produces_collapsible_panel_with_placeholder() {
     let el = render_thinking_block("");
     match &el {
         CardElement::CollapsiblePanel { header, elements } => {
@@ -42,7 +42,7 @@ fn thinking_block_empty_content_produces_collapsible_panel_with_placeholder() {
 }
 
 #[test]
-fn dispatch_blocks_with_thinking_includes_collapsible_panel() {
+fn test_dispatch_blocks_with_thinking_includes_collapsible_panel() {
     let blocks = vec![
         ContentBlock::Thinking {
             thinking: "reasoning here".into(),
@@ -58,7 +58,7 @@ fn dispatch_blocks_with_thinking_includes_collapsible_panel() {
 }
 
 #[test]
-fn thinking_block_serializes_with_collapsible_panel_tag() {
+fn test_thinking_block_serializes_with_collapsible_panel_tag() {
     let el = render_thinking_block("some thought");
     let json = serde_json::to_value(&el).unwrap();
     assert_eq!(json["tag"], "collapsible_panel");
@@ -73,74 +73,74 @@ fn thinking_block_serializes_with_collapsible_panel_tag() {
 // ================================================================
 
 #[test]
-fn should_use_card_unordered_list_dash() {
+fn test_should_use_card_unordered_list_dash() {
     assert!(should_use_card("- buy milk", false));
 }
 
 #[test]
-fn should_use_card_unordered_list_star() {
+fn test_should_use_card_unordered_list_star() {
     assert!(should_use_card("* item", false));
 }
 
 #[test]
-fn should_use_card_ordered_list() {
+fn test_should_use_card_ordered_list() {
     assert!(should_use_card("1. first item", false));
     assert!(should_use_card("12. twelfth item", false));
 }
 
 #[test]
-fn should_use_card_blockquote() {
+fn test_should_use_card_blockquote() {
     assert!(should_use_card("> hello", false));
 }
 
 #[test]
-fn should_use_card_plain_text_returns_false() {
+fn test_should_use_card_plain_text_returns_false() {
     assert!(!should_use_card("hello world", false));
 }
 
 #[test]
-fn should_use_card_bold_marker_returns_true() {
+fn test_should_use_card_bold_marker_returns_true() {
     assert!(should_use_card("**bold**", false));
 }
 
 #[test]
-fn should_use_card_italic_marker_returns_true() {
+fn test_should_use_card_italic_marker_returns_true() {
     assert!(should_use_card("_italic_", false));
 }
 
 #[test]
-fn should_use_card_code_marker_returns_true() {
+fn test_should_use_card_code_marker_returns_true() {
     assert!(should_use_card("`code`", false));
 }
 
 #[test]
-fn should_use_card_link_marker_returns_true() {
+fn test_should_use_card_link_marker_returns_true() {
     assert!(should_use_card("[link](https://example.com)", false));
 }
 
 #[test]
-fn should_use_card_multiline_returns_true() {
+fn test_should_use_card_multiline_returns_true() {
     assert!(should_use_card("line1\nline2", false));
 }
 
 #[test]
-fn should_use_card_with_dsl_returns_true() {
+fn test_should_use_card_with_dsl_returns_true() {
     assert!(should_use_card("hello", true));
 }
 
 #[test]
-fn should_use_card_empty_returns_false() {
+fn test_should_use_card_empty_returns_false() {
     assert!(!should_use_card("", false));
 }
 
 #[test]
-fn has_list_or_quote_leading_whitespace() {
+fn test_has_list_or_quote_leading_whitespace() {
     assert!(should_use_card("  - indented item", false));
     assert!(should_use_card("  > indented quote", false));
 }
 
 #[test]
-fn should_use_card_strikethrough_underline_divider() {
+fn test_should_use_card_strikethrough_underline_divider() {
     // strikethrough triggers card
     assert!(should_use_card("~~struck~~", false));
     // underline triggers card
@@ -162,7 +162,7 @@ fn should_use_card_strikethrough_underline_divider() {
 // ================================================================
 
 #[test]
-fn dispatch_blocks_image_url_nonempty_produces_native_element() {
+fn test_dispatch_blocks_image_url_nonempty_produces_native_element() {
     let blocks = vec![ContentBlock::Image {
         name: "photo.png".into(),
         url: "https://example.com/img.png".into(),
@@ -179,7 +179,7 @@ fn dispatch_blocks_image_url_nonempty_produces_native_element() {
 }
 
 #[test]
-fn dispatch_blocks_audio_url_nonempty_produces_native_element() {
+fn test_dispatch_blocks_audio_url_nonempty_produces_native_element() {
     let blocks = vec![ContentBlock::Audio {
         name: "voice.mp3".into(),
         url: "https://example.com/audio.mp3".into(),
@@ -195,7 +195,7 @@ fn dispatch_blocks_audio_url_nonempty_produces_native_element() {
 }
 
 #[test]
-fn dispatch_blocks_file_url_nonempty_produces_native_element() {
+fn test_dispatch_blocks_file_url_nonempty_produces_native_element() {
     let blocks = vec![ContentBlock::File {
         name: "doc.pdf".into(),
         url: "https://example.com/doc.pdf".into(),
@@ -211,7 +211,7 @@ fn dispatch_blocks_file_url_nonempty_produces_native_element() {
 }
 
 #[test]
-fn dispatch_blocks_image_url_empty_falls_back_to_text() {
+fn test_dispatch_blocks_image_url_empty_falls_back_to_text() {
     let blocks = vec![ContentBlock::Image {
         name: "photo.png".into(),
         url: String::new(),
@@ -225,7 +225,7 @@ fn dispatch_blocks_image_url_empty_falls_back_to_text() {
 }
 
 #[test]
-fn dispatch_blocks_audio_url_empty_falls_back_to_text() {
+fn test_dispatch_blocks_audio_url_empty_falls_back_to_text() {
     let blocks = vec![ContentBlock::Audio {
         name: "voice.mp3".into(),
         url: String::new(),
@@ -238,7 +238,7 @@ fn dispatch_blocks_audio_url_empty_falls_back_to_text() {
 }
 
 #[test]
-fn dispatch_blocks_file_url_empty_falls_back_to_text() {
+fn test_dispatch_blocks_file_url_empty_falls_back_to_text() {
     let blocks = vec![ContentBlock::File {
         name: "doc.pdf".into(),
         url: String::new(),
@@ -255,7 +255,7 @@ fn dispatch_blocks_file_url_empty_falls_back_to_text() {
 // ================================================================
 
 #[test]
-fn card_element_image_serializes_correctly() {
+fn test_card_element_image_serializes_correctly() {
     let el = CardElement::Image {
         img_key: "img_v2_abc".into(),
         alt: CardText {
@@ -271,7 +271,7 @@ fn card_element_image_serializes_correctly() {
 }
 
 #[test]
-fn card_element_audio_serializes_correctly() {
+fn test_card_element_audio_serializes_correctly() {
     let el = CardElement::Audio {
         file_token: "file_token_123".into(),
     };
@@ -281,7 +281,7 @@ fn card_element_audio_serializes_correctly() {
 }
 
 #[test]
-fn card_element_file_serializes_correctly() {
+fn test_card_element_file_serializes_correctly() {
     let el = CardElement::File {
         file_token: "file_token_456".into(),
     };
@@ -295,7 +295,7 @@ fn card_element_file_serializes_correctly() {
 // ================================================================
 
 #[test]
-fn render_selectors_allow_true_produces_select_menu() {
+fn test_render_selectors_allow_true_produces_select_menu() {
     let inst = make_selector_inst("Pick", "A,B,C", "pick_action");
     let els = render_selectors(&[inst], true);
     let actions = assert_single_action(&els);
@@ -309,7 +309,7 @@ fn render_selectors_allow_true_produces_select_menu() {
 }
 
 #[test]
-fn render_selectors_allow_false_produces_buttons() {
+fn test_render_selectors_allow_false_produces_buttons() {
     let inst = make_selector_inst("Pick", "A,B,C", "pick_action");
     let els = render_selectors(&[inst], false);
     let actions = assert_single_action(&els);
@@ -320,7 +320,7 @@ fn render_selectors_allow_false_produces_buttons() {
 }
 
 #[test]
-fn render_selectors_allow_false_empty_label_uses_option_text() {
+fn test_render_selectors_allow_false_empty_label_uses_option_text() {
     let inst = make_selector_inst("", "X,Y", "do_it");
     let els = render_selectors(&[inst], false);
     let actions = assert_single_action(&els);
@@ -330,7 +330,7 @@ fn render_selectors_allow_false_empty_label_uses_option_text() {
 }
 
 #[test]
-fn render_selectors_no_selectors_returns_empty() {
+fn test_render_selectors_no_selectors_returns_empty() {
     let btn = DslInstruction {
         instruction_type: "button".into(),
         params: std::collections::HashMap::from([("label".into(), "Click".into())]),
@@ -339,7 +339,7 @@ fn render_selectors_no_selectors_returns_empty() {
 }
 
 #[test]
-fn render_selectors_empty_options_returns_empty_action() {
+fn test_render_selectors_empty_options_returns_empty_action() {
     let inst = make_selector_inst("Pick", "", "act");
     let els = render_selectors(&[inst], true);
     let actions = assert_single_action(&els);
@@ -348,7 +348,7 @@ fn render_selectors_empty_options_returns_empty_action() {
 }
 
 #[test]
-fn render_selectors_allow_false_single_option_primary() {
+fn test_render_selectors_allow_false_single_option_primary() {
     let inst = make_selector_inst("Only", "Solo", "only_act");
     let els = render_selectors(&[inst], false);
     let actions = assert_single_action(&els);
@@ -357,7 +357,7 @@ fn render_selectors_allow_false_single_option_primary() {
 }
 
 #[test]
-fn dispatch_blocks_no_selectors_unchanged_with_param() {
+fn test_dispatch_blocks_no_selectors_unchanged_with_param() {
     let blocks = vec![ContentBlock::Text("Hello".into())];
     let (_, elements) = dispatch_blocks(&blocks, None, false);
     assert!(elements
@@ -366,7 +366,7 @@ fn dispatch_blocks_no_selectors_unchanged_with_param() {
 }
 
 #[test]
-fn dispatch_blocks_selector_allow_false_downgrades() {
+fn test_dispatch_blocks_selector_allow_false_downgrades() {
     let inst = make_selector_inst("Pick", "A,B", "sel_act");
     let dsl = DslParseResult {
         instructions: vec![inst],
