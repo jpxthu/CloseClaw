@@ -527,7 +527,7 @@ async fn test_empty_session_key_routing_fields_complete_returns_handle() {
 #[serial]
 #[tokio::test(flavor = "current_thread")]
 async fn test_empty_session_key_emits_warn_log() {
-    let (_result, logs) = capture_logs_async(
+    let (_, logs) = capture_logs_async(
         || async {
             let (gw, _plugin) = make_gw("mock").await;
             let msg = make_message("agent-1", "test");
