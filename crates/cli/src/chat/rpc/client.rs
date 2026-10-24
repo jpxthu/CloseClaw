@@ -233,21 +233,25 @@ mod tests {
                     message: "unexpected".to_string(),
                 }),
             });
-        let sock = spawn_mock_server(handler).await;
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_mock_server(handler).await;
         let client = ChatRpcClient::with_timeout(&sock, 5000);
         let resp = client.ping_detailed().await.unwrap();
         assert!(matches!(resp, ChatResponse::Pong));
     }
 
-    /// Helper: spin up a mock chat RPC server and return the socket path.
+    /// Helper: spin up a mock chat RPC server.
     ///
-    /// The server calls `handler` for each received request and sends back
-    /// the returned response. `shutdown` is triggered when the handler
-    /// returns `None`.
+    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
+    /// the socket path stays valid for the whole test. Callers must hold the
+    /// `_tmpdir` binding. The server calls `handler` for each received
+    /// request and sends back the returned response. `shutdown` is triggered
+    /// when the handler returns `None`.
     async fn spawn_mock_server(
         handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync + 'static>,
-    ) -> PathBuf {
-        let sock = tempfile::tempdir().unwrap().keep().join("test-chat.sock");
+    ) -> (PathBuf, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("test-chat.sock");
         let listener = UnixListener::bind(&sock).unwrap();
         let handler = Arc::clone(&handler);
 
@@ -296,7 +300,7 @@ mod tests {
 
         // Give the listener a moment to bind.
         tokio::time::sleep(Duration::from_millis(10)).await;
-        sock
+        (sock, dir)
     }
 
     #[tokio::test]
@@ -308,7 +312,8 @@ mod tests {
                     message: "unexpected".to_string(),
                 }),
             });
-        let sock = spawn_mock_server(handler).await;
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_mock_server(handler).await;
         let client = ChatRpcClient::with_timeout(&sock, 5000);
         let resp = client.quit().await.unwrap();
         assert!(matches!(resp, ChatResponse::Done));
@@ -323,7 +328,8 @@ mod tests {
                     message: "unexpected".to_string(),
                 }),
             });
-        let sock = spawn_mock_server(handler).await;
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_mock_server(handler).await;
         let client = ChatRpcClient::with_timeout(&sock, 5000);
         let resp = client.stop_session("agent-1").await.unwrap();
         assert!(matches!(resp, ChatResponse::Done));
@@ -331,13 +337,17 @@ mod tests {
 
     /// Helper: spin up a mock server that sends multiple frames per request.
     ///
-    /// `handler` receives a request and returns `(Vec<ChatResponse>, bool)`
-    /// where the bool indicates whether the connection should be closed
-    /// after sending all responses (true = close, false = keep reading).
+    /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
+    /// the socket path stays valid for the whole test. Callers must hold the
+    /// `_tmpdir` binding. `handler` receives a request and returns
+    /// `(Vec<ChatResponse>, bool)` where the bool indicates whether the
+    /// connection should be closed after sending all responses (true =
+    /// close, false = keep reading).
     async fn spawn_streaming_mock_server(
         handler: Arc<dyn Fn(ChatRequest) -> (Vec<ChatResponse>, bool) + Send + Sync + 'static>,
-    ) -> PathBuf {
-        let sock = tempfile::tempdir().unwrap().keep().join("test-chat.sock");
+    ) -> (PathBuf, tempfile::TempDir) {
+        let dir = tempfile::tempdir().unwrap();
+        let sock = dir.path().join("test-chat.sock");
         let listener = UnixListener::bind(&sock).unwrap();
         let handler = Arc::clone(&handler);
 
@@ -395,7 +405,7 @@ mod tests {
 
         // Give the listener a moment to bind.
         tokio::time::sleep(Duration::from_millis(10)).await;
-        sock
+        (sock, dir)
     }
 
     #[tokio::test]
@@ -410,7 +420,8 @@ mod tests {
                 ),
                 _ => (vec![ChatResponse::Done], true),
             });
-        let sock = spawn_streaming_mock_server(handler).await;
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_streaming_mock_server(handler).await;
         let client = ChatRpcClient::with_timeout(&sock, 5000);
 
         let mut stream = client.send_message("test-agent", "hi").await.unwrap();
@@ -444,7 +455,8 @@ mod tests {
                 ),
                 _ => (vec![ChatResponse::Done], true),
             });
-        let sock = spawn_streaming_mock_server(handler).await;
+        // `_tmpdir` held to end of test so the socket path stays valid.
+        let (sock, _tmpdir) = spawn_streaming_mock_server(handler).await;
         let client = ChatRpcClient::with_timeout(&sock, 5000);
 
         let mut stream = client.send_message("a", "b").await.unwrap();
