@@ -11,6 +11,7 @@ use crate::engine::engine_types::{
 };
 use crate::test_support::tmp_str;
 use crate::whitelist::{append_deny_rule, append_rule, append_whitelist_rule, build_deny_rule};
+use closeclaw_common::test_helpers::ensure_dir;
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
@@ -183,7 +184,7 @@ fn test_append_deny_rule_new_file() {
 fn test_append_deny_rule_preserves_existing() {
     let dir = tempfile::tempdir().unwrap();
     let agent_dir = dir.path().join("agents").join("a1");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
 
     let existing = RuleSet {
         rules: vec![make_allow_rule("old-allow")],
@@ -222,7 +223,7 @@ fn test_append_deny_rule_creates_parent_dirs() {
 fn test_append_deny_rule_corrupt_file_falls_back() {
     let dir = tempfile::tempdir().unwrap();
     let agent_dir = dir.path().join("agents").join("a1");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     std::fs::write(agent_dir.join("permissions.json"), "NOT VALID JSON {{{").unwrap();
 
     append_deny_rule(dir.path(), "a1", make_deny_rule("after-corrupt")).unwrap();
@@ -238,7 +239,7 @@ fn test_append_deny_rule_corrupt_file_falls_back() {
 fn test_append_rule_mixed_allow_and_deny() {
     let dir = tempfile::tempdir().unwrap();
     let agent_dir = dir.path().join("agents").join("a1");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
 
     // Start with empty ruleset
     append_rule(dir.path(), "a1", make_allow_rule("allow-1")).unwrap();
@@ -260,7 +261,7 @@ fn test_append_rule_mixed_allow_and_deny() {
 fn test_append_whitelist_rule_delegates_to_append_rule() {
     let dir = tempfile::tempdir().unwrap();
     let agent_dir = dir.path().join("agents").join("a1");
-    std::fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
 
     append_whitelist_rule(dir.path(), "a1", make_allow_rule("wl-1")).unwrap();
     append_deny_rule(dir.path(), "a1", make_deny_rule("deny-1")).unwrap();
