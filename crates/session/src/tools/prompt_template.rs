@@ -321,7 +321,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn from_str_parses_all_template_values() {
+    fn test_from_str_parses_all_template_values() {
         assert_eq!(
             PromptTemplate::from_str("explore"),
             Ok(PromptTemplate::Explore)

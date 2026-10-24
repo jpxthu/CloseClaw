@@ -35,7 +35,7 @@ fn healthy_output() -> HealthCheckOutput {
 // ─── BackoffCounter ─────────────────────────────────────────
 
 #[test]
-fn backoff_counter_initial_state() {
+fn test_backoff_counter_initial_state() {
     let bc = BackoffCounter::new(policy(3, 100, 2.0));
     assert_eq!(bc.attempt_count(), 0);
     assert!(!bc.is_exhausted());
@@ -43,7 +43,7 @@ fn backoff_counter_initial_state() {
 }
 
 #[test]
-fn backoff_counter_increment() {
+fn test_backoff_counter_increment() {
     let mut bc = BackoffCounter::new(policy(3, 100, 2.0));
     bc.increment();
     assert_eq!(bc.attempt_count(), 1);
@@ -51,7 +51,7 @@ fn backoff_counter_increment() {
 }
 
 #[test]
-fn backoff_counter_delay_calculation() {
+fn test_backoff_counter_delay_calculation() {
     let mut bc = BackoffCounter::new(policy(5, 100, 2.0));
     // attempt 0: 100 * 2^0 = 100
     assert_eq!(bc.next_delay(), Some(100));
@@ -64,7 +64,7 @@ fn backoff_counter_delay_calculation() {
 }
 
 #[test]
-fn backoff_counter_is_exhausted() {
+fn test_backoff_counter_is_exhausted() {
     let mut bc = BackoffCounter::new(policy(3, 100, 2.0));
     bc.increment();
     bc.increment();
@@ -74,7 +74,7 @@ fn backoff_counter_is_exhausted() {
 }
 
 #[test]
-fn backoff_counter_exhausted_returns_none_delay() {
+fn test_backoff_counter_exhausted_returns_none_delay() {
     let mut bc = BackoffCounter::new(policy(2, 100, 2.0));
     bc.increment();
     bc.increment();
@@ -83,7 +83,7 @@ fn backoff_counter_exhausted_returns_none_delay() {
 }
 
 #[test]
-fn backoff_counter_reset() {
+fn test_backoff_counter_reset() {
     let mut bc = BackoffCounter::new(policy(3, 100, 2.0));
     bc.increment();
     bc.increment();
@@ -97,14 +97,14 @@ fn backoff_counter_reset() {
 // ─── UnhealthyHandler ───────────────────────────────────────
 
 #[test]
-fn handler_healthy_returns_none() {
+fn test_handler_healthy_returns_none() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
     let action = handler.handle(&healthy_output());
     assert!(action.is_none());
 }
 
 #[test]
-fn handler_retryable_retries_with_delay() {
+fn test_handler_retryable_retries_with_delay() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
     let action = handler
         .handle(&output_with_category(FailureCategory::Retryable))
@@ -119,7 +119,7 @@ fn handler_retryable_retries_with_delay() {
 }
 
 #[test]
-fn handler_retryable_exhausted_notifies_user() {
+fn test_handler_retryable_exhausted_notifies_user() {
     let mut handler = UnhealthyHandler::new(policy(2, 100, 2.0));
     handler.handle(&output_with_category(FailureCategory::Retryable));
     handler.handle(&output_with_category(FailureCategory::Retryable));
@@ -130,7 +130,7 @@ fn handler_retryable_exhausted_notifies_user() {
 }
 
 #[test]
-fn handler_invalid_response_retries_with_instruction() {
+fn test_handler_invalid_response_retries_with_instruction() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
     let action = handler
         .handle(&output_with_category(FailureCategory::InvalidResponse))
@@ -148,7 +148,7 @@ fn handler_invalid_response_retries_with_instruction() {
 }
 
 #[test]
-fn handler_invalid_response_exhausted_notifies_user() {
+fn test_handler_invalid_response_exhausted_notifies_user() {
     let mut handler = UnhealthyHandler::new(policy(2, 100, 2.0));
     handler.handle(&output_with_category(FailureCategory::InvalidResponse));
     handler.handle(&output_with_category(FailureCategory::InvalidResponse));
@@ -159,7 +159,7 @@ fn handler_invalid_response_exhausted_notifies_user() {
 }
 
 #[test]
-fn handler_unrecoverable_immediately_notifies_user() {
+fn test_handler_unrecoverable_immediately_notifies_user() {
     let mut handler = UnhealthyHandler::new(policy(5, 100, 2.0));
     let action = handler
         .handle(&output_with_category(FailureCategory::Unrecoverable))
@@ -168,7 +168,7 @@ fn handler_unrecoverable_immediately_notifies_user() {
 }
 
 #[test]
-fn handler_side_effect_notifies_user_for_verification() {
+fn test_handler_side_effect_notifies_user_for_verification() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
     let action = handler
         .handle(&output_with_category(FailureCategory::SideEffectOccurred))
@@ -183,7 +183,7 @@ fn handler_side_effect_notifies_user_for_verification() {
 }
 
 #[test]
-fn handler_retryable_exhaustion_escalates_to_unrecoverable() {
+fn test_handler_retryable_exhaustion_escalates_to_unrecoverable() {
     // After exhausting retries, next retryable call yields NotifyUser
     let mut handler = UnhealthyHandler::new(policy(1, 100, 2.0));
     // First call: count becomes 1 = max, so exhausted → NotifyUser
@@ -194,7 +194,7 @@ fn handler_retryable_exhaustion_escalates_to_unrecoverable() {
 }
 
 #[test]
-fn handler_consecutive_retries_independent_backoff_counters() {
+fn test_handler_consecutive_retries_independent_backoff_counters() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
 
     // Exhaust retry backoff
@@ -218,7 +218,7 @@ fn handler_consecutive_retries_independent_backoff_counters() {
 }
 
 #[test]
-fn handler_reset_restores_both_counters() {
+fn test_handler_reset_restores_both_counters() {
     let mut handler = UnhealthyHandler::new(policy(2, 100, 2.0));
 
     // Exhaust retry backoff
@@ -244,7 +244,7 @@ fn handler_reset_restores_both_counters() {
 // ─── State transition: healthy → unhealthy → retry → healthy ──
 
 #[test]
-fn full_cycle_healthy_unhealthy_retry_healthy() {
+fn test_full_cycle_healthy_unhealthy_retry_healthy() {
     let mut handler = UnhealthyHandler::new(policy(3, 100, 2.0));
 
     // Step 1: Healthy → None
