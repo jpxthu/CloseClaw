@@ -5,11 +5,10 @@
 //! agent directories under `<root>/agents/`, both inside the TempDir.
 
 use crate::config_reload::reload::{extract_agent_id_from_permissions_path, DaemonReloadCallback};
-use crate::test_helpers::{make_config_manager, write_mandatory_configs};
+use crate::test_helpers::make_config_manager;
 use closeclaw_agent::registry::AgentRegistry;
 use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_config::agents::AgentPermissionProvider;
-use closeclaw_config::manager::ConfigManager;
 use closeclaw_config::ReloadCallback;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -160,6 +159,15 @@ fn test_daemon_callback_permissions_changed() {
     // Write invalid JSON
     std::fs::write(&perms_path, "not valid json{{").unwrap();
 
+    // Advance mtime by 10 seconds to guarantee cache invalidation even on
+    // filesystems with coarse timestamp granularity (std API, no new dep).
+    let f = std::fs::File::options()
+        .write(true)
+        .open(&perms_path)
+        .unwrap();
+    let new_mtime = f.metadata().unwrap().modified().unwrap() + std::time::Duration::from_secs(10);
+    f.set_modified(new_mtime).unwrap();
+
     callback.on_permissions_changed(&perms_path, &cm);
 
     let after = cm.agent_permissions();
@@ -178,15 +186,15 @@ fn test_daemon_callback_session_reloaded() {
     let d = TempDir::new().unwrap();
     let config_dir = config_dir_under(d.path());
     ensure_dir(&config_dir).unwrap();
-    write_mandatory_configs(&config_dir).unwrap();
     let session_path = config_dir.join("session.json");
     std::fs::write(
         &session_path,
         r#"{"defaults":{},"agents":{},"sweeperIntervalSeconds":600}"#,
     )
     .unwrap();
-    let cm = Arc::new(ConfigManager::new(config_dir).unwrap());
-    cm.load().unwrap();
+    // session.json must exist before the shared helper's `load`; its
+    // mandatory skeleton write does not touch session.json.
+    let cm = make_config_manager(d.path());
     let ar = make_agent_registry();
     let callback = DaemonReloadCallback::new_for_test(ar);
 
