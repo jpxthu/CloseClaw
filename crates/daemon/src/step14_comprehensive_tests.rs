@@ -415,8 +415,12 @@ fn test_admin_context_no_gateway_field() {
     assert!(ctx.restart_tx.is_none());
 }
 
-/// Gateway restart state machine: Pending → Executing → Idle.
-/// Full lifecycle transition test.
+/// Smoke-check of the gateway restart state machine surface: a fresh
+/// `RestartHandle` starts in `Idle`, the `Idle` guard branch mirrors
+/// what `request_gateway_restart` keys on, and the `RestartState`
+/// variants match and render as expected. The actual Idle → Pending →
+/// Executing transitions are driven by the daemon run loop + watchdog
+/// and are not exercised here.
 #[test]
 fn test_gateway_restart_full_lifecycle() {
     use crate::gateway_restart::{RestartHandle, RestartState};
@@ -424,20 +428,22 @@ fn test_gateway_restart_full_lifecycle() {
     let handle = RestartHandle::new();
     assert_eq!(handle.state(), RestartState::Idle);
 
-    // Idle → Pending: use the public request_gateway_restart API
+    // Idle → Pending guard: this mirrors the matches! check inside
+    // request_gateway_restart — this test does not drive the
+    // production transition itself.
     let should_spawn = {
         let current = handle.state();
         matches!(current, RestartState::Idle)
     };
     assert!(should_spawn, "Idle → Pending should signal spawn");
 
-    // Pending → Executing (restart starts)
-    // Use subscribe to verify the state change
+    // subscribe() backs transition observers (watchdog); only API
+    // reachability is exercised here, no state change is awaited.
     let _rx = handle.subscribe();
-    // Force state to Pending via the handle's internal state
-    // (RestartHandle is used in production via Daemon methods)
-    // For this test, we verify the state machine transitions work
-    // by testing the RestartState enum directly
+
+    // The remaining variants are checked structurally: construct each
+    // variant directly and verify matching + Display. No transition
+    // between states is driven.
     let pending = RestartState::Pending {
         changes: vec!["gateway.json".into()],
     };

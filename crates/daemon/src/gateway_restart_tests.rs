@@ -306,14 +306,12 @@ fn test_on_config_file_changed_no_signal_without_tx() {
 
 // ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────
 
-/// ChatContext holds a Gateway Arc that a restart rebuilds, and the
-/// rebuild must yield a fresh instance rather than a reused one. The
-/// compile-time field check of ChatContext's struct literal lives in the
-/// `test_helpers` factory; this test smoke-checks the factory by
-/// asserting two calls produce distinct Gateway Arcs (no shared/cached
-/// instance).
+/// Smoke-check of the `test_helpers` `make_dispatch_context` factory:
+/// two calls must produce distinct Gateway Arcs (no shared/cached
+/// instance). The compile-time field check of ChatContext's struct
+/// literal lives in the factory itself.
 #[test]
-fn test_chat_context_holds_gateway_reference() {
+fn test_make_dispatch_context_yields_fresh_gateway_arc() {
     use crate::test_helpers::make_dispatch_context;
     use closeclaw_gateway::types::GatewayConfig;
 
