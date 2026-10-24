@@ -155,3 +155,7 @@ mod tests {
         });
     }
 }
+
+#[cfg(test)]
+#[path = "emit_noop_tests.rs"]
+mod emit_noop_tests;
