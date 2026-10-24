@@ -10,6 +10,11 @@
 //! the full timing chain is genuinely executed while wall-clock cost
 //! collapses to milliseconds.
 //!
+//! Intermediate-state assertions use `advance_and_settle`: the paused
+//! clock is moved stepwise to each expected firing moment, so warning
+//! counts can be pinned to exact virtual times instead of only being
+//! observable in the post-drain aggregate.
+//!
 //! `#[serial]` is unrelated to the virtual clock: it survives from the
 //! era of the real global section cache (its clearing helper,
 //! `clear_global_prompt_state`, is now an explicit no-op) and also
@@ -69,17 +74,66 @@ async fn assert_routed_outbound(mgr: &SessionManager, parent_id: &str, texts: &[
     assert_eq!(drained.system_notifications.len(), texts.len());
 }
 
+/// Move the paused clock forward by `d`, letting freshly spawned tasks
+/// register their timers before the jump and the handlers woken by the
+/// jump run to completion after it.
+///
+/// Two tokio details make both phases necessary:
+/// - A `tokio::spawn`ed task registers its first `sleep` only when the
+///   runtime first polls it — which may not have happened by the time
+///   the spawning call returns. The pre-jump yields ensure every
+///   pending spawn has parked on its timer, so `advance` actually
+///   passes its deadline.
+/// - `tokio::time::advance` fires every timer whose deadline the jump
+///   passes but does not itself poll the tasks those timers wake. The
+///   warning / hard-timeout handlers contain no timers of their own —
+///   every internal `.await` is an uncontended tokio lock that resolves
+///   on the first poll — so the post-jump yields deterministically run
+///   each woken task to its next parking point (or exit). Should a
+///   handler ever fail to settle within the bound, the count assertions
+///   below fail loudly instead of hanging.
+async fn advance_and_settle(d: std::time::Duration) {
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+    tokio::time::advance(d).await;
+    for _ in 0..16 {
+        tokio::task::yield_now().await;
+    }
+}
+
+/// Drain the parent's notification queue and return the texts of the
+/// timeout-warning entries only (count template: yield_timeout_tests
+/// "exactly one warning").
+async fn drain_warnings(mgr: &SessionManager, parent_id: &str) -> Vec<String> {
+    let cs = mgr.get_conversation_session(parent_id).await.unwrap();
+    let entries = {
+        let mut cs_write = cs.write().await;
+        cs_write.drain_queue()
+    };
+    let mut warnings = Vec::new();
+    for e in entries {
+        if let closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _) = e {
+            if text.contains("超时预警") {
+                warnings.push(text);
+            }
+        }
+    }
+    warnings
+}
+
 // ── 16. ratio = 0.1 boundary (minimum) — interval clamped to 1s ──────────
 
 /// When `notify_interval_ratio = 0.1`, the interval is
 /// `warning_secs * 0.1`, which may be < 1s. The implementation clamps
 /// to `max(interval, 1)` so warnings still fire at a 1-second cadence.
 ///
-/// Runs on a paused tokio clock: the 4s hard timeout and the
-/// 1s-cadence cyclic warning sleeps are virtual, so the full chain —
-/// first warning at T=2, one more at T=3 (two in total), hard timeout
-/// at T=4, drain completes — executes deterministically in
-/// milliseconds of wall time.
+/// Runs on a paused tokio clock with stepwise `advance`: the clock is
+/// moved to each expected firing moment (T=2, T=3, T=4) and the queue
+/// is drained at every checkpoint, so each warning is pinned to its
+/// exact virtual time — one at T=2 and one more at T=3 (two in total) —
+/// before the hard timeout at T=4 drains for outbound routing. The
+/// whole chain executes deterministically in milliseconds of wall time.
 #[tokio::test(start_paused = true)]
 #[serial]
 async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
@@ -123,14 +177,41 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
     mgr.start_yield_timeout(&parent_id, "agent-x", 4, Some(2), Some(0.1))
         .await;
 
-    // Under the paused clock this 5s virtual sleep auto-advances
-    // through the pending timers in order (warnings at T=2/3, hard
-    // timeout at T=4) and returns only after the hard timeout fired
-    // and drained — deterministic, ms-level wall-clock.
-    // The last warning is enqueued at T=3, before the T=4 drain, so
-    // the queue is deterministically empty afterwards; the transcript
-    // scan below acts as the routing check.
-    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+    // Stepwise checkpoints pin each warning to its exact virtual
+    // moment. T=2: exactly the first warning fires.
+    advance_and_settle(std::time::Duration::from_secs(2)).await;
+    let first = drain_warnings(&mgr, &parent_id).await;
+    assert_eq!(
+        first.len(),
+        1,
+        "exactly one warning should fire at T=2, got {}",
+        first.len()
+    );
+    assert!(
+        first[0].contains("已运行 2 秒"),
+        "T=2 warning should report elapsed 2s, got: {}",
+        first[0]
+    );
+
+    // T=3: exactly one more warning fires; the loop then breaks
+    // (elapsed=4 >= 4), so no further warnings exist.
+    advance_and_settle(std::time::Duration::from_secs(1)).await;
+    let second = drain_warnings(&mgr, &parent_id).await;
+    assert_eq!(
+        second.len(),
+        1,
+        "exactly one more warning should fire at T=3, got {}",
+        second.len()
+    );
+    assert!(
+        second[0].contains("已运行 3 秒"),
+        "T=3 warning should report elapsed 3s, got: {}",
+        second[0]
+    );
+
+    // T=4: the hard timeout fires and drains for outbound routing —
+    // deterministic, ms-level wall-clock.
+    advance_and_settle(std::time::Duration::from_secs(1)).await;
 
     assert_routed_outbound(
         &mgr,
@@ -221,15 +302,13 @@ async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
 
 /// Verify that the cyclic warning loop terminates before the hard
 /// timeout — no warning is sent after `elapsed >= overall_timeout_secs`.
-/// After hard timeout fires and drains, the queue contains only
-/// warnings that were enqueued before the drain ran.
+/// The stepwise checkpoints assert this property directly: exactly one
+/// warning at T=3, the queue still empty just before the hard timeout
+/// at T=5 (nothing fired in between), then the timeout drain.
 ///
-/// Runs on a paused tokio clock: the 5s hard timeout and the
-/// 2s-interval cyclic warning sleeps are virtual, so the full chain —
-/// the single warning at T=3 (the loop exits right after that
-/// injection, when elapsed reaches the hard timeout), hard timeout at
-/// T=5, drain completes — executes deterministically in milliseconds
-/// of wall time.
+/// Runs on a paused tokio clock with stepwise `advance`: the clock is
+/// moved to T=3, to just before the hard timeout at T=5, then past it —
+/// all deterministically in milliseconds of wall time.
 #[tokio::test(start_paused = true)]
 #[serial]
 async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
@@ -274,13 +353,38 @@ async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
     mgr.start_yield_timeout(&parent_id, "agent-x", 5, Some(3), Some(0.5))
         .await;
 
-    // Under the paused clock this 7s virtual sleep auto-advances
-    // through the pending timers in order (warning at T=3, hard
-    // timeout at T=5) and returns only after the hard timeout fired
-    // and drained — deterministic, ms-level wall-clock. The 2s margin
-    // beyond T=5 guarantees the hard-timeout callback (the only timer
-    // left by then) is fully polled before the assertions below.
-    tokio::time::sleep(std::time::Duration::from_secs(7)).await;
+    // T=3: exactly one warning fires, then the loop breaks.
+    advance_and_settle(std::time::Duration::from_secs(3)).await;
+    let warnings = drain_warnings(&mgr, &parent_id).await;
+    assert_eq!(
+        warnings.len(),
+        1,
+        "exactly one warning should fire at T=3, got {}",
+        warnings.len()
+    );
+    assert!(
+        warnings[0].contains("已运行 3 秒"),
+        "T=3 warning should report elapsed 3s, got: {}",
+        warnings[0]
+    );
+
+    // T=3 → just before the hard timeout (T=5): the queue must stay
+    // empty — the warning loop has stopped and nothing may fire until
+    // the hard timeout itself. This turns "stop before hard timeout"
+    // from a code-reading inference into a direct assertion.
+    advance_and_settle(std::time::Duration::from_millis(1999)).await;
+    {
+        let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
+        assert!(
+            cs.read().await.is_queue_empty(),
+            "no warning may appear between the last cyclic warning (T=3) \
+             and the hard timeout (T=5)"
+        );
+    }
+
+    // T=5: the hard timeout fires and drains for outbound routing —
+    // deterministic, ms-level wall-clock.
+    advance_and_settle(std::time::Duration::from_millis(1)).await;
 
     assert_routed_outbound(&mgr, &parent_id, &["[超时] verify cyclic stop routed"]).await;
 }
