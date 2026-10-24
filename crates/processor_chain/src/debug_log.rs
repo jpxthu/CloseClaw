@@ -22,39 +22,11 @@ pub fn emit_processor_chain_event(params: ProcessorChainEmitEventParams<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use closeclaw_debug_log::LogLevel;
 
-    #[test]
-    fn test_empty_trace_id_is_noop() {
-        let ctx = ProcessorChainDebugLogContext::new(None, "", None);
-        emit_processor_chain_event(ProcessorChainEmitEventParams {
-            ctx,
-            level: LogLevel::Info,
-            source_module: "processor_chain",
-            event_type: "test.event",
-            payload: serde_json::json!({}),
-            parent: None,
-        });
-    }
-
-    #[test]
-    fn test_none_debug_log_is_noop() {
-        let ctx = ProcessorChainDebugLogContext::new(None, "trace-123", None);
-        emit_processor_chain_event(ProcessorChainEmitEventParams {
-            ctx,
-            level: LogLevel::Info,
-            source_module: "processor_chain",
-            event_type: "test.event",
-            payload: serde_json::json!({}),
-            parent: None,
-        });
-    }
-
-    #[test]
-    fn test_debug_log_context_new_fields() {
-        let ctx = ProcessorChainDebugLogContext::new(None, "tid", Some("skey"));
-        assert_eq!(ctx.trace_id, "tid");
-        assert_eq!(ctx.session_key, Some("skey"));
-        assert!(ctx.debug_log.is_none());
-    }
+    closeclaw_debug_log::debug_log_wrapper_tests!(
+        emit_processor_chain_event,
+        ProcessorChainDebugLogContext,
+        ProcessorChainEmitEventParams,
+        "processor_chain"
+    );
 }
