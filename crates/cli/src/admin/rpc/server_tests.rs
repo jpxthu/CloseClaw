@@ -80,6 +80,43 @@ fn make_test_context() -> (AdminContext, tempfile::TempDir) {
     (ctx, tmp)
 }
 
+/// Guard: the TempDir returned by `make_test_context` owns the fixture tree —
+/// `config_dir` lives inside it while held, and dropping it removes the whole
+/// tree (guards against a regression to the abandoned-cleanup fixture style,
+/// STANDARDS §8).
+#[test]
+fn test_make_test_context_tempdir_auto_cleanup() {
+    let (ctx, tmpdir) = make_test_context();
+    let config_dir = ctx.config_dir.clone();
+
+    // Normal path: config_dir exists, sits inside the returned TempDir tree,
+    // and agents.json has been written under it.
+    assert!(
+        config_dir.exists(),
+        "config_dir must exist while the TempDir is held: {}",
+        config_dir.display()
+    );
+    assert!(
+        config_dir.starts_with(tmpdir.path()),
+        "config_dir {:?} must live inside the TempDir tree {:?}",
+        config_dir,
+        tmpdir.path()
+    );
+    assert!(
+        config_dir.join("config").join("agents.json").exists(),
+        "agents.json must be written under config_dir/config: {}",
+        config_dir.join("config").join("agents.json").display()
+    );
+
+    // State transition: explicit drop → TempDir auto-cleanup removes the tree.
+    drop(tmpdir);
+    assert!(
+        !config_dir.exists(),
+        "config_dir must be gone after TempDir drop (auto-cleanup, not keep()): {}",
+        config_dir.display()
+    );
+}
+
 #[test]
 fn test_dispatch_agent_list_empty() {
     let (ctx, _tmpdir) = make_test_context();
