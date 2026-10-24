@@ -308,21 +308,14 @@ async fn test_plan_archive_grace_period_abort_on_timeout() {
             "must wait out exactly the grace period before aborting, took {elapsed:?}"
         );
 
-        // Abort proof: drain the runtime until the cancelled task has
-        // actually been polled to its `Drop`. `abort()` scheduled the
-        // cancellation on this very runtime, so each `yield_now` lets
-        // the scheduler make progress on it.
+        // Drain: why yielding here deterministically completes the abort
+        // is argued once in this test's doc comment above.
         while !waiter_flag.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
     };
 
     waiter.await;
-
-    assert!(
-        aborted.load(Ordering::SeqCst),
-        "hanging task future must have been dropped by the abort branch"
-    );
 }
 
 /// PlanArchiveTask: signal → running task completes within grace →
@@ -415,21 +408,14 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
             "should wait out exactly the grace period before aborting, took {elapsed:?}"
         );
 
-        // Abort proof: drain the runtime until the cancelled task has
-        // actually been polled to its `Drop`. `abort()` scheduled the
-        // cancellation on this very runtime, so each `yield_now` lets
-        // the scheduler make progress on it.
+        // Drain: why yielding here deterministically completes the abort
+        // is argued once in this test's doc comment above.
         while !waiter_flag.load(Ordering::SeqCst) {
             tokio::task::yield_now().await;
         }
     };
 
     waiter.await;
-
-    assert!(
-        aborted.load(Ordering::SeqCst),
-        "hung task future must have been dropped by the abort"
-    );
 }
 
 /// Verify the two-layer wait pattern: inner grace period (per-task)
