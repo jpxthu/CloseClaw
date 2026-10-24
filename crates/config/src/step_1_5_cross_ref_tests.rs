@@ -90,7 +90,7 @@ fn test_cross_ref_runs_after_configs_loaded() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory(tmp.path());
     let creds_dir = tmp.path().join("credentials");
-    fs::create_dir_all(&creds_dir).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
     fs::write(
         creds_dir.join("openai.json"),
         serde_json::json!({"provider": "openai", "apiKey": "sk-test"}).to_string(),
