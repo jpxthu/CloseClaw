@@ -2,6 +2,7 @@
 
 use super::*;
 use crate::plan_file_access::test_support::RecordingPlanFileAccess;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::{PromptGenerationContext, WorkdirContext};
 use tempfile::TempDir;
 
@@ -397,7 +398,7 @@ async fn test_write_overwrite_file() {
 }
 
 /// WriteTool creates missing parent directories for plain (non-plans)
-/// paths (`write_file`'s `create_dir_all` branch — nested new dirs).
+/// paths (`write_file`'s parent-dir bootstrap branch — nested new dirs).
 #[tokio::test]
 async fn test_write_creates_missing_parent_dirs_for_plain_path() {
     let tmp = TempDir::new().unwrap();
@@ -495,7 +496,7 @@ async fn test_read_relative_path_resolves_against_workdir() {
     let marker = tmp.path().join("bootstrap_marker.txt");
     std::fs::write(&marker, "WORKDIR_BASE_OK").expect("write marker");
     let workdir = tmp.path().join("workspaces/master/u1");
-    std::fs::create_dir_all(&workdir).expect("create workdir");
+    ensure_dir(&workdir).expect("create workdir");
 
     let mut ctx = make_ctx("master");
     ctx.workdir = Some(closeclaw_common::tool_trait::build_workdir_context(
@@ -729,7 +730,7 @@ async fn test_write_non_plan_path_skips_port_uses_readback() {
 #[tokio::test]
 async fn test_edit_plan_relative_path_normalized_through_port() {
     let tmp = TempDir::new().unwrap();
-    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    ensure_dir(&tmp.path().join("plans")).unwrap();
     std::fs::write(tmp.path().join("plans/x.md"), "hello world").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
     let fake = RecordingPlanFileAccess::new();
@@ -775,7 +776,7 @@ async fn test_edit_plan_relative_path_normalized_through_port() {
 #[tokio::test]
 async fn test_edit_plan_absolute_path_passthrough() {
     let tmp = TempDir::new().unwrap();
-    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    ensure_dir(&tmp.path().join("plans")).unwrap();
     let abs = tmp.path().join("plans/abs.md");
     std::fs::write(&abs, "alpha beta").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
@@ -804,7 +805,7 @@ async fn test_edit_plan_absolute_path_passthrough() {
 #[tokio::test]
 async fn test_edit_plan_path_without_port_fails_fast() {
     let tmp = TempDir::new().unwrap();
-    std::fs::create_dir_all(tmp.path().join("plans")).unwrap();
+    ensure_dir(&tmp.path().join("plans")).unwrap();
     let plan = tmp.path().join("plans/x.md");
     std::fs::write(&plan, "hello world").unwrap();
     let ctx = make_ctx_with_workdir(tmp.path());
