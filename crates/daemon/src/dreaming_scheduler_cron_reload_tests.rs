@@ -20,7 +20,7 @@ use tokio::time::Instant;
 
 use crate::test_helpers::{
     make_config_change_scheduler, make_config_change_scheduler_with_config,
-    make_disabled_pipeline_and_miner, make_test_config_manager, notify_section_reload,
+    make_disabled_pipeline_and_miner, make_unloaded_config_manager, notify_section_reload,
     run_scheduler_briefly, seed_memory_section_cache_with_schedule, wait_until, MockConfig,
 };
 use closeclaw_config::ConfigSection;
@@ -39,7 +39,7 @@ use closeclaw_config::ConfigSection;
 #[tokio::test]
 async fn test_cron_config_reload_switches_schedule_and_recomputes_next_fire() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache_with_schedule(&config_manager, Some("* * * * *"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-reload.db"),
@@ -77,7 +77,7 @@ async fn test_cron_config_reload_switches_schedule_and_recomputes_next_fire() {
 #[tokio::test]
 async fn test_cron_loop_applies_memory_reload() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache_with_schedule(&config_manager, Some("* * * * *"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-loop-reload.db"),
@@ -112,7 +112,7 @@ async fn test_cron_loop_applies_memory_reload() {
 #[tokio::test]
 async fn test_cron_config_reload_invalid_schedule_falls_back_to_fixed_interval() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-fallback.db"),
         &tmp.path().join("MEMORY-cron-fallback.md"),
@@ -158,7 +158,7 @@ async fn test_cron_config_reload_invalid_schedule_falls_back_to_fixed_interval()
 #[tokio::test]
 async fn test_cron_loop_ignores_non_memory_reload() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache_with_schedule(&config_manager, Some("* * * * *"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-ignore.db"),
@@ -232,7 +232,7 @@ async fn await_n_fires(
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_cron_loop_fires_keep_reloaded_schedule() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache_with_schedule(&config_manager, Some("* * * * *"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-fire-persist.db"),
@@ -280,7 +280,7 @@ async fn test_cron_loop_fires_keep_reloaded_schedule() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_cron_loop_invalid_reload_fallback_persists_across_fires() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache_with_schedule(&config_manager, Some("not-a-cron"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-cron-fallback-persist.db"),

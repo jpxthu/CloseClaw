@@ -732,9 +732,15 @@ impl SessionConfigProvider for MockConfig {
     }
 }
 
-/// Helper to create a ConfigManager backed by a temp directory.
-pub fn make_test_config_manager(dir: &std::path::Path) -> Arc<ConfigManager> {
-    Arc::new(ConfigManager::new(dir.to_path_buf()).expect("failed to create test ConfigManager"))
+/// ConfigManager over the given config directory, **without** skeleton
+/// write or `load()` — the returned manager is unloaded and callers drive
+/// the load/watch path themselves. Contrast [`make_config_manager`]: it
+/// takes the TempDir root (config dir = `<root>/config`), writes the
+/// mandatory skeleton, and calls `load()` before returning.
+pub fn make_unloaded_config_manager(config_dir: &std::path::Path) -> Arc<ConfigManager> {
+    Arc::new(
+        ConfigManager::new(config_dir.to_path_buf()).expect("failed to create test ConfigManager"),
+    )
 }
 
 // ── Config-change test helpers (setup / scenario / assert) ────────────

@@ -8,7 +8,7 @@ use tokio::time::Instant;
 
 use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::{
-    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_test_config_manager,
+    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_unloaded_config_manager,
     notify_section_reload, run_scheduler_briefly, seed_memory_section_cache, wait_until,
     MockConfig, TestStorage,
 };
@@ -285,7 +285,7 @@ async fn run_once_and_get_status(
 async fn test_config_change_memory_section_updates_components() {
     // Setup: disabled pipeline/miner, Memory section cache with dreaming on.
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache(&config_manager);
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-reload.db"),
@@ -327,12 +327,15 @@ async fn test_config_change_memory_section_updates_components() {
     );
 }
 
-/// Non-Memory section events do not trigger pipeline/miner config updates.
+/// Non-Memory section events do not trigger pipeline/miner config updates,
+/// while the scheduler loop keeps consuming config events (a follow-up
+/// Memory reload flips the miner on — rules out the "event never consumed"
+/// false-pass of the Pending assertion alone, #3150 item 3).
 #[tokio::test]
 async fn test_config_change_non_memory_ignored() {
     // Setup: disabled pipeline/miner, no Memory section cache involved.
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-ignore.db"),
         &tmp.path().join("MEMORY-ignore.md"),
@@ -352,7 +355,8 @@ async fn test_config_change_non_memory_ignored() {
     // path there is no consumption signal to poll. The scheduler's config
     // receiver subscribed at construction, so the event is already buffered;
     // the 200ms only needs to cover the spawned loop reaching its first
-    // select poll, where the buffered event is drained.
+    // select poll, where the buffered event is drained. Loop liveness is
+    // NOT asserted by this window — the Memory phase below proves it.
     run_scheduler_briefly(
         scheduler,
         async { tokio::time::sleep(Duration::from_millis(200)).await },
@@ -370,6 +374,34 @@ async fn test_config_change_non_memory_ignored() {
         DreamingStatus::Pending,
         "non-Memory event should not enable pipeline"
     );
+
+    // Hardening (#3150 item 3): the Pending assertion above cannot
+    // distinguish "the Gateway event was consumed and ignored" from "the
+    // event was never consumed" — a loop that never drains config events
+    // would false-pass it. Prove the loop does consume events: seed the
+    // Memory section cache (dreaming/mining enabled) and broadcast a
+    // Memory reload, whose consumption flips the miner on. The first loop
+    // is already shut down (run_scheduler_briefly consumes it), so wire a
+    // fresh one over the same pipeline/miner/config — the same wiring as
+    // test_config_change_memory_section_updates_components. The fresh
+    // scheduler must be constructed BEFORE the seed/notify below (it
+    // subscribes at construction); the seed itself also broadcasts a
+    // Memory reload via update_section_cache, so either consumption is a
+    // valid liveness signal.
+    let scheduler =
+        make_config_change_scheduler(pipeline.clone(), miner.clone(), config_manager.clone());
+    seed_memory_section_cache(&config_manager);
+    notify_section_reload(
+        &config_manager,
+        closeclaw_config::ConfigSection::Memory,
+        "memory.json",
+    );
+    run_scheduler_briefly(
+        scheduler,
+        wait_until("miner enabled after memory event", || miner.is_enabled()),
+        "Memory event proves the loop consumes config events",
+    )
+    .await;
 }
 
 // ── Step 1.3: Channel safety + immediate hook trigger tests ────────
@@ -428,7 +460,7 @@ async fn test_immediate_hook_triggers_mining() {
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
 
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -678,7 +710,7 @@ async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -774,7 +806,7 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
         Arc::clone(&test_storage) as Arc<dyn PersistenceService>;
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -841,7 +873,7 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
 #[tokio::test]
 async fn test_config_broadcast_lagged_loop_survives_and_applies_reload() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache(&config_manager);
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-lagged.db"),
