@@ -262,7 +262,7 @@ const SESSION: &str = "session-1";
 /// Write a single-step workflow SKILL.md with the given version and goal.
 fn write_workflow_file(dir: &std::path::Path, name: &str, version: &str, goal: &str) {
     let wf_dir = dir.join("workflows").join(name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&wf_dir).unwrap();
     let yaml = format!(
         concat!(
             "id: test-wf\n",

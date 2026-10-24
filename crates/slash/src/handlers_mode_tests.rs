@@ -566,7 +566,7 @@ async fn test_execute_handler_no_plan_state() {
     // Create a plans dir with a plan file so name resolution works
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    std::fs::create_dir_all(&plans_dir).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
     std::fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
     sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
 
@@ -598,7 +598,7 @@ async fn test_execute_handler_plan_confirmed() {
 
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    fs::create_dir_all(&plans_dir).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
     let plan_file = plans_dir.join("test-plan.md");
     fs::write(
         &plan_file,
