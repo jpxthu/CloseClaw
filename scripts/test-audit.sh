@@ -2,6 +2,7 @@
 #
 # test-audit.sh — 静态扫描 + 运行时监控测试合规
 # 用法: scripts/test-audit.sh [--runtime] [--target <pattern>] [--update-baseline]
+#                            [--self-test]
 #
 # 静态扫描范围：独立测试文件全文件（*_tests.rs / tests.rs / tests 目录），
 # 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
@@ -22,6 +23,12 @@
 #                    （scripts/test-audit-baseline.txt）；运行时违规不入 baseline；
 #                    与 --target、--runtime 互斥（baseline 必须来自全量扫描，
 #                    且不得吞掉 runtime 违规报告）
+# --self-test        扫描器自测：对 mktemp 内嵌最小 fixture 树运行与正常模式
+#                    完全相同的扫描实现，断言命中/不命中规格矩阵（内联区域
+#                    命中 / 生产区不命中 / not(test) 不命中 / helper 命名排除 /
+#                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离 /
+#                    原谓词文件无双计）；离线、不读仓库与 baseline；
+#                    与 --runtime/--target/--update-baseline 互斥
 
 set -euo pipefail
 
@@ -36,6 +43,7 @@ done
 RUNTIME=0
 TARGET_FILTER=""
 UPDATE_BASELINE=0
+SELF_TEST=0
 
 # ── 参数解析 ──────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
@@ -56,13 +64,18 @@ while [[ $# -gt 0 ]]; do
       UPDATE_BASELINE=1
       shift
       ;;
+    --self-test)
+      SELF_TEST=1
+      shift
+      ;;
     -h|--help)
-      echo "用法: $0 [--runtime] [--target <pattern>] [--update-baseline]"
+      echo "用法: $0 [--runtime] [--target <pattern>] [--update-baseline] [--self-test]"
       echo ""
       echo "选项:"
       echo "  --runtime           用 strace 包住 cargo nextest run --lib，抓运行时违规"
       echo "  --target PAT        过滤扫描/测试范围"
       echo "  --update-baseline   以当前静态扫描结果全量重写 baseline 文件（与 --target、--runtime 互斥）"
+      echo "  --self-test         内嵌最小 fixture 自测扫描器，断言命中/不命中规格矩阵（离线）"
       exit 0
       ;;
     *)
@@ -71,6 +84,13 @@ while [[ $# -gt 0 ]]; do
       ;;
   esac
 done
+
+if [[ $SELF_TEST -eq 1 ]]; then
+  if [[ $RUNTIME -eq 1 || -n "$TARGET_FILTER" || $UPDATE_BASELINE -eq 1 ]]; then
+    echo "错误: --self-test 与 --runtime/--target/--update-baseline 互斥" >&2
+    exit 2
+  fi
+fi
 
 if [[ $UPDATE_BASELINE -eq 1 && -n "$TARGET_FILTER" ]]; then
   echo "错误: --update-baseline 与 --target 互斥（baseline 必须来自全量扫描）" >&2
@@ -87,6 +107,7 @@ TRACE_LOG=""
 EVENTS_FILE=""
 MTARGETS_FILE=""
 FILTERED_EVENTS_FILE=""
+FIXTURE_DIR=""
 cleanup_temp_files() {
   local f
   for f in "$TRACE_LOG" "$EVENTS_FILE" "$MTARGETS_FILE" "$FILTERED_EVENTS_FILE"; do
@@ -94,6 +115,9 @@ cleanup_temp_files() {
       rm -f "$f"
     fi
   done
+  if [[ -n "$FIXTURE_DIR" ]]; then
+    rm -rf "$FIXTURE_DIR"
+  fi
 }
 trap cleanup_temp_files EXIT
 
@@ -216,41 +240,11 @@ if [[ "$TEMP_ROOT" != /tmp* ]]; then
   MODES+=(F)
 fi
 
-# ── 扫描目录集合 ──────────────────────────────────────────
-# 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
-# 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描（见下）
-SCAN_DIRS=("$PROJECT_ROOT/src" "$PROJECT_ROOT/tests")
-for dir in "$PROJECT_ROOT"/crates/*/src; do
-  if [[ -d "$dir" ]]; then
-    SCAN_DIRS+=("$dir")
-  fi
-done
-
-# ── 执行扫描（收集条目，输出延后到 baseline 比对）─────────
-# 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
-FIND_ARGS=("${SCAN_DIRS[@]}" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
-if [[ -n "$TARGET_FILTER" ]]; then
-  FIND_ARGS+=(-path "*${TARGET_FILTER}*")
-fi
-
-# 文件清单只执行一次 find（规则循环不变量），逐规则复用
-mapfile -t RS_FILES < <(find "${FIND_ARGS[@]}" 2>/dev/null)
-
-ENTRIES=()
-for i in "${!LABELS[@]}"; do
-  label="${LABELS[$i]}"
-  pattern="${PATTERNS[$i]}"
-  mode="${MODES[$i]}"
-
-  # grep 扫描；条目键 = 相对路径:行号: 规则label（与 baseline 条目一致）
-  for file in "${RS_FILES[@]}"; do
-    rel_path="${file#"$PROJECT_ROOT"/}"
-    while IFS= read -r match; do
-      line="${match%%:*}"
-      ENTRIES+=("${rel_path}:${line}: ${label}")
-    done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
-  done
-done
+# ── 静态扫描执行 ──────────────────────────────────────────
+# 扫描实现整体函数化（collect_static_entries <扫描根目录>，结果写入全局
+# ENTRIES）：正常模式对 $PROJECT_ROOT 调用；--self-test 对 mktemp 内嵌
+# fixture 树调用同一实现，保证「测的就是真实扫描逻辑」（函数定义在
+# REGION_SCANNER_AWK 之后，调用点在 run_self_test / 正常模式处）
 
 # ══════════════════════════════════════════════════════════
 # 扩围通道：cfg(test) 门控区域（内联）+ cfg(test) 挂载 test-only 文件
@@ -409,122 +403,398 @@ FNR == 1 {
 AWK_PROGRAM
 )"
 
-# ── 扩围文件集合：原 find 谓词的精确补集 ─────────────────
-ALL_FIND_ARGS=("${SCAN_DIRS[@]}" -type f -name '*.rs' \
-  ! \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
-if [[ -n "$TARGET_FILTER" ]]; then
-  ALL_FIND_ARGS+=(-path "*${TARGET_FILTER}*")
-fi
+collect_static_entries() {
+  local scan_root="$1"
+  ENTRIES=()
 
-EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
-MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
-FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
-
-# 单次扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；
-# find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 RS_FILES 一致）
-mapfile -t EXPANSION_FILES < <(find "${ALL_FIND_ARGS[@]}" 2>/dev/null)
-if [[ ${#EXPANSION_FILES[@]} -gt 0 ]]; then
-  printf '%s\n' "${EXPANSION_FILES[@]}" \
-    | xargs -r -d '\n' awk -v root="$PROJECT_ROOT" "$REGION_SCANNER_AWK" > "$EVENTS_FILE"
-else
-  : > "$EVENTS_FILE"
-fi
-
-# ── 挂载目标解析与过滤 ────────────────────────────────────
-declare -A MOUNT_TARGET_SEEN=()
-while IFS= read -r mline; do
-  if [[ -z "$mline" ]]; then continue; fi
-  drel="${mline%%$'\t'*}"
-  rest="${mline#*$'\t'}"
-  dattr="${rest%%$'\t'*}"
-  dname="${rest##*$'\t'}"
-  ddir="$(dirname "$PROJECT_ROOT/$drel")"
-  if [[ -n "$dattr" ]]; then
-    target="$ddir/$dattr"
-  else
-    # 无 #[path] 时按 Rust 2018 mod 解析规则：mod.rs / lib.rs / main.rs 声明者
-    # → 兄弟位置候选；其余声明者（如 foo.rs）→ 子目录候选 $ddir/<stem>/<name>
-    declarer="$(basename "$drel")"
-    if [[ "$declarer" == mod.rs || "$declarer" == lib.rs || "$declarer" == main.rs ]]; then
-      mount_candidates=("$ddir/$dname.rs" "$ddir/$dname/mod.rs")
-    else
-      stem="${declarer%.rs}"
-      mount_candidates=("$ddir/$stem/$dname.rs" "$ddir/$stem/$dname/mod.rs")
+  # ── 扫描目录集合 ────────────────────────────────────────
+  # 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
+  # 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描（见下）
+  local scan_dirs=("$scan_root/src" "$scan_root/tests")
+  local sdir
+  for sdir in "$scan_root"/crates/*/src; do
+    if [[ -d "$sdir" ]]; then
+      scan_dirs+=("$sdir")
     fi
-    target=""
-    for cand in "${mount_candidates[@]}"; do
-      if [[ -f "$cand" ]]; then
-        target="$cand"
-        break
-      fi
+  done
+
+  # ── 原通道：独立测试文件全文件扫 ────────────────────────
+  # 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
+  local find_args=("${scan_dirs[@]}" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+  if [[ -n "$TARGET_FILTER" ]]; then
+    find_args+=(-path "*${TARGET_FILTER}*")
+  fi
+
+  # 文件清单只执行一次 find（规则循环不变量），逐规则复用
+  local rs_files=()
+  mapfile -t rs_files < <(find "${find_args[@]}" 2>/dev/null)
+
+  local i label pattern mode file rel_path match line
+  for i in "${!LABELS[@]}"; do
+    label="${LABELS[$i]}"
+    pattern="${PATTERNS[$i]}"
+    mode="${MODES[$i]}"
+
+    # grep 扫描；条目键 = 相对路径:行号: 规则label（与 baseline 条目一致）
+    for file in "${rs_files[@]}"; do
+      rel_path="${file#"$scan_root"/}"
+      while IFS= read -r match; do
+        line="${match%%:*}"
+        ENTRIES+=("${rel_path}:${line}: ${label}")
+      done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
     done
-    if [[ -z "$target" ]]; then
-      continue
+  done
+
+  # ── 扩围文件集合：原 find 谓词的精确补集 ────────────────
+  local all_find_args=("${scan_dirs[@]}" -type f -name '*.rs' \
+    ! \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+  if [[ -n "$TARGET_FILTER" ]]; then
+    all_find_args+=(-path "*${TARGET_FILTER}*")
+  fi
+
+  EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
+  MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
+  FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
+
+  # 单次扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；
+  # find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）
+  local expansion_files=()
+  mapfile -t expansion_files < <(find "${all_find_args[@]}" 2>/dev/null)
+  if [[ ${#expansion_files[@]} -gt 0 ]]; then
+    printf '%s\n' "${expansion_files[@]}" \
+      | xargs -r -d '\n' awk -v root="$scan_root" "$REGION_SCANNER_AWK" > "$EVENTS_FILE"
+  else
+    : > "$EVENTS_FILE"
+  fi
+
+  # ── 挂载目标解析与过滤 ──────────────────────────────────
+  local -A mount_target_seen=()
+  local mline drel rest dattr dname ddir target declarer stem cand rel_target base
+  local -a mount_candidates=()
+  while IFS= read -r mline; do
+    if [[ -z "$mline" ]]; then continue; fi
+    drel="${mline%%$'\t'*}"
+    rest="${mline#*$'\t'}"
+    dattr="${rest%%$'\t'*}"
+    dname="${rest##*$'\t'}"
+    ddir="$(dirname "$scan_root/$drel")"
+    if [[ -n "$dattr" ]]; then
+      target="$ddir/$dattr"
+    else
+      # 无 #[path] 时按 Rust 2018 mod 解析规则：mod.rs / lib.rs / main.rs 声明者
+      # → 兄弟位置候选；其余声明者（如 foo.rs）→ 子目录候选 $ddir/<stem>/<name>
+      declarer="$(basename "$drel")"
+      if [[ "$declarer" == mod.rs || "$declarer" == lib.rs || "$declarer" == main.rs ]]; then
+        mount_candidates=("$ddir/$dname.rs" "$ddir/$dname/mod.rs")
+      else
+        stem="${declarer%.rs}"
+        mount_candidates=("$ddir/$stem/$dname.rs" "$ddir/$stem/$dname/mod.rs")
+      fi
+      target=""
+      for cand in "${mount_candidates[@]}"; do
+        if [[ -f "$cand" ]]; then
+          target="$cand"
+          break
+        fi
+      done
+      if [[ -z "$target" ]]; then
+        continue
+      fi
     fi
+    if [[ ! -f "$target" ]]; then continue; fi
+    target="$(realpath -m "$target")"
+    if [[ "$target" != "$scan_root/"* ]]; then continue; fi
+    rel_target="${target#"$scan_root"/}"
+    # 原通道已覆盖（全文件扫）→ 剔除防双计
+    base="$(basename "$rel_target")"
+    if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
+    if [[ "$rel_target" == */tests/* ]]; then continue; fi
+    # helper 收敛点本体不纳入
+    if [[ "$base" == *test_helpers* || "$base" == *test_support* ]]; then continue; fi
+    # --target 过滤语义与主通道一致
+    if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi
+    # 异常自指防护
+    if [[ "$rel_target" == "$drel" ]]; then continue; fi
+    if [[ -z "${mount_target_seen[$rel_target]:-}" ]]; then
+      mount_target_seen["$rel_target"]=1
+      printf '%s\n' "$rel_target" >> "$MTARGETS_FILE"
+    fi
+  done < <(awk -F'\t' '$1 == "M" { print $2 "\t" $3 "\t" $4 }' "$EVENTS_FILE")
+  if [[ -s "$MTARGETS_FILE" ]]; then
+    LC_ALL=C sort -o "$MTARGETS_FILE" "$MTARGETS_FILE"
   fi
-  if [[ ! -f "$target" ]]; then continue; fi
-  target="$(realpath -m "$target")"
-  if [[ "$target" != "$PROJECT_ROOT/"* ]]; then continue; fi
-  rel_target="${target#"$PROJECT_ROOT"/}"
-  # 原通道已覆盖（全文件扫）→ 剔除防双计
-  base="$(basename "$rel_target")"
-  if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
-  if [[ "$rel_target" == */tests/* ]]; then continue; fi
-  # helper 收敛点本体不纳入
-  if [[ "$base" == *test_helpers* || "$base" == *test_support* ]]; then continue; fi
-  # --target 过滤语义与主通道一致
-  if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi
-  # 异常自指防护
-  if [[ "$rel_target" == "$drel" ]]; then continue; fi
-  if [[ -z "${MOUNT_TARGET_SEEN[$rel_target]:-}" ]]; then
-    MOUNT_TARGET_SEEN["$rel_target"]=1
-    printf '%s\n' "$rel_target" >> "$MTARGETS_FILE"
+
+  # ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
+  if [[ -s "$MTARGETS_FILE" ]]; then
+    awk 'NR == FNR { excl[$0] = 1; next } $1 == "H" && !($2 in excl)' \
+      "$MTARGETS_FILE" "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
+  else
+    awk -F'\t' '$1 == "H"' "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
   fi
-done < <(awk -F'\t' '$1 == "M" { print $2 "\t" $3 "\t" $4 }' "$EVENTS_FILE")
-if [[ -s "$MTARGETS_FILE" ]]; then
-  LC_ALL=C sort -o "$MTARGETS_FILE" "$MTARGETS_FILE"
+
+  # ── 扩围通道条目收集（复用同一规则数组，含 TEMP_ROOT 补充规则）──
+  for i in "${!LABELS[@]}"; do
+    label="${LABELS[$i]}"
+    pattern="${PATTERNS[$i]}"
+    mode="${MODES[$i]}"
+
+    # A. 内联通道：cfg(test) 区域内行逐条匹配（内容列 = 第 4 字段起原文，
+    #    与 grep 全行匹配语义一致；E=动态 ERE / F=index 字面量）
+    while IFS= read -r entry; do
+      if [[ -n "$entry" ]]; then
+        ENTRIES+=("$entry")
+      fi
+    done < <(
+      awk -F'\t' -v mode="$mode" -v pat="$pattern" -v label="$label" '
+        $1 == "H" {
+          content = $0
+          sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", content)
+          hit = (mode == "F") ? (index(content, pat) > 0) : (content ~ pat)
+          if (hit) printf "%s:%s: %s\n", $2, $3, label
+        }' "$FILTERED_EVENTS_FILE"
+    )
+
+    # B. 挂载通道：目标文件全文件 grep（与原通道同一 grep 语义）
+    while IFS= read -r mfile; do
+      while IFS= read -r match; do
+        line="${match%%:*}"
+        ENTRIES+=("${mfile}:${line}: ${label}")
+      done < <(grep -n"$mode" -- "$pattern" "$scan_root/$mfile" 2>/dev/null || true)
+    done < "$MTARGETS_FILE"
+  done
+
+  rm -f "$EVENTS_FILE" "$MTARGETS_FILE" "$FILTERED_EVENTS_FILE"
+  EVENTS_FILE=""
+  MTARGETS_FILE=""
+  FILTERED_EVENTS_FILE=""
+}
+
+# ══════════════════════════════════════════════════════════
+# --self-test：内嵌最小 fixture 自测（mktemp 骨架，离线，不读仓库与 baseline）
+# ══════════════════════════════════════════════════════════
+# 对 fixture 树调用与正常模式完全相同的 collect_static_entries 实现，
+# 断言命中/不命中规格矩阵（每条断言独立报告，任一失败 → 整体 exit 1）：
+#   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
+#   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
+#   3. #[cfg(not(test))] 区域不命中
+#   4. 挂载目标 helper 命名（*test_helpers*）排除
+#   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态
+#   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
+#      （区域闭合后的生产代码不因字面量失衡误命中）
+#   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
+#   8. 全量命中集与期望精确一致（无任何额外命中）
+ST_FAILS=0
+
+# 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
+# `路径:行号: 规则` → `路径: 规则`；无行号段形态原样透传
+strip_key() {
+  local entry="$1"
+  if [[ "$entry" =~ ^(.+):[0-9]+:\ (.+)$ ]]; then
+    printf '%s: %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
+  else
+    printf '%s\n' "$entry"
+  fi
+}
+
+st_line_of() {
+  # fixture 内 sentinel 所在行号（1 起）；sentinel 必须唯一存在（fixture 可控）
+  grep -m1 -n "$1" "$2" | cut -d: -f1
+}
+
+st_assert_eq() {
+  local desc="$1" expected="$2" actual="$3"
+  if [[ "$expected" == "$actual" ]]; then
+    echo "[self-test] ok: $desc"
+  else
+    echo "[self-test] FAIL: $desc" >&2
+    echo "[self-test]   期望: [$expected]" >&2
+    echo "[self-test]   实际: [$actual]" >&2
+    ST_FAILS=$((ST_FAILS + 1))
+  fi
+}
+
+st_count_entry() {
+  # 统计 ENTRIES 中与 $1 完全相等的条目数
+  local want="$1" n=0 entry
+  for entry in "${ENTRIES[@]}"; do
+    if [[ "$entry" == "$want" ]]; then
+      n=$((n + 1))
+    fi
+  done
+  printf '%s' "$n"
+}
+
+st_count_key() {
+  # 统计 ENTRIES 中 strip_key 归一后等于 $1 的条目数（跨行号计数）
+  local want="$1" n=0 entry
+  for entry in "${ENTRIES[@]}"; do
+    if [[ "$(strip_key "$entry")" == "$want" ]]; then
+      n=$((n + 1))
+    fi
+  done
+  printf '%s' "$n"
+}
+
+run_self_test() {
+  echo "[self-test] 构建 fixture（mktemp）..." >&2
+  local fx
+  fx="$(mktemp -d "${TMPDIR:-/tmp}/test-audit-selftest-XXXXXX")"
+  FIXTURE_DIR="$fx"
+  mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper"
+
+  cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
+// 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除形态
+#[cfg(test)]
+#[path = "with_path_target.rs"]
+mod with_path;
+
+#[cfg(test)]
+#[path = "demo_test_helpers.rs"]
+mod helpers;
+
+pub fn prod_entry() {
+    std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/inline_ok.rs" <<'EOF'
+pub fn prod_top() {
+    std::fs::create_dir_all("prod-top"); // PROD-TOP-NOT-HIT
+}
+
+#[cfg(test)]
+mod tests {
+    const BRACES: &str = "{{{ ";
+    const ESCAPED: &str = "a\"}b";
+    fn hit_fn() {
+        std::fs::create_dir_all("hit-1"); // INLINE-HIT
+    }
+}
+
+pub fn prod_after() {
+    std::fs::create_dir_all("prod-after"); // PROD-AFTER-NOT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/not_test.rs" <<'EOF'
+#[cfg(not(test))]
+mod platform {
+    fn no_hit() {
+        std::fs::remove_dir_all("never"); // NOT-TEST-NOT-HIT
+    }
+}
+EOF
+
+  cat > "$fx/crates/demo/src/foo_tests.rs" <<'EOF'
+#[cfg(test)]
+mod inner {
+    fn t() {
+        std::fs::create_dir_all("orig"); // ORIG-ONCE
+    }
+}
+EOF
+
+  cat > "$fx/crates/demo/src/with_path_target.rs" <<'EOF'
+fn mounted_hit() {
+    std::fs::create_dir_all("wp"); // MOUNT-PATH-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/demo_test_helpers.rs" <<'EOF'
+fn helper_hit() {
+    std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/wrapper.rs" <<'EOF'
+// 非 mod.rs 声明者形态：单行多属性（循环剥离前导 #[...] 组）+ mod 挂载
+#[cfg(test)] mod mounted;
+EOF
+
+  cat > "$fx/crates/demo/src/wrapper/mounted.rs" <<'EOF'
+fn wrapper_hit() {
+    std::fs::create_dir_all("wm"); // WRAPPER-MOUNT-HIT
+}
+EOF
+
+  # 用与正常模式完全相同的实现扫描 fixture
+  collect_static_entries "$fx"
+
+  local rel="crates/demo/src"
+  # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
+  local l_inline l_after l_top l_entry l_orig l_wp l_wm
+  l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
+  l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
+  l_top="$(st_line_of 'PROD-TOP-NOT-HIT' "$fx/$rel/inline_ok.rs")"
+  l_entry="$(st_line_of 'PROD-ENTRY-NOT-HIT' "$fx/$rel/mod.rs")"
+  l_orig="$(st_line_of 'ORIG-ONCE' "$fx/$rel/foo_tests.rs")"
+  l_wp="$(st_line_of 'MOUNT-PATH-HIT' "$fx/$rel/with_path_target.rs")"
+  l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
+
+  local n
+  # 1. 内联 cfg(test) 区域命中
+  n="$(st_count_entry "${rel}/inline_ok.rs:${l_inline}: 手动目录管理")"
+  st_assert_eq "1 内联 cfg(test) 区域命中（inline_ok.rs:${l_inline}）" "1" "$n"
+
+  # 2. 生产区不命中（inline_ok.rs 全文件恰 1 条 = 仅内联命中；mod.rs 0 条）
+  n="$(st_count_key "${rel}/inline_ok.rs: 手动目录管理")"
+  st_assert_eq "2a 生产区不命中（inline_ok.rs 仅 1 条内联命中）" "1" "$n"
+  n="$(st_count_entry "${rel}/inline_ok.rs:${l_top}: 手动目录管理")"
+  st_assert_eq "2b 生产区不命中（区域前 prod_top:${l_top}）" "0" "$n"
+  n="$(st_count_entry "${rel}/mod.rs:${l_entry}: 手动目录管理")"
+  st_assert_eq "2c 生产区不命中（mod.rs prod_entry:${l_entry}）" "0" "$n"
+
+  # 3. not(test) 不命中
+  n="$(st_count_entry "${rel}/not_test.rs: 手动目录管理")"
+  st_assert_eq "3 not(test) 区域不命中" "0" "$n"
+
+  # 4. 挂载目标 helper 命名排除
+  n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
+  st_assert_eq "4 挂载目标 helper 命名排除（*test_helpers*）" "0" "$n"
+
+  # 5. 挂载解析（#[path] 与非 mod.rs 声明者两种形态）
+  n="$(st_count_entry "${rel}/with_path_target.rs:${l_wp}: 手动目录管理")"
+  st_assert_eq "5a 挂载解析命中（#[path] 形态 with_path_target.rs:${l_wp}）" "1" "$n"
+  n="$(st_count_entry "${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")"
+  st_assert_eq "5b 挂载解析命中（非 mod.rs 声明者 wrapper/mounted.rs:${l_wm}）" "1" "$n"
+
+  # 6. 字面量剥离（区域闭合后生产行不因字面量失衡误命中）
+  n="$(st_count_entry "${rel}/inline_ok.rs:${l_after}: 手动目录管理")"
+  st_assert_eq "6 字面量剥离（区域后 prod_after:${l_after} 不误命中）" "0" "$n"
+
+  # 7. 原 find 谓词文件无双计
+  n="$(st_count_entry "${rel}/foo_tests.rs:${l_orig}: 手动目录管理")"
+  st_assert_eq "7 原 find 谓词文件无双计（foo_tests.rs:${l_orig} 恰 1 条）" "1" "$n"
+
+  # 8. 全量命中集与期望精确一致（无任何额外命中）
+  local -a expected=()
+  expected+=("${rel}/foo_tests.rs:${l_orig}: 手动目录管理")
+  expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
+  expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
+  expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
+  local expected_sorted actual_sorted=""
+  expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
+  if [[ ${#ENTRIES[@]} -gt 0 ]]; then
+    actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
+  fi
+  st_assert_eq "8 全量命中集与期望精确一致（共 4 条，无额外命中）" \
+    "$expected_sorted" "$actual_sorted"
+
+  rm -rf "$fx"
+  FIXTURE_DIR=""
+  if [[ $ST_FAILS -gt 0 ]]; then
+    echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
+    exit 1
+  fi
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 8 组）"
+  exit 0
+}
+
+if [[ $SELF_TEST -eq 1 ]]; then
+  run_self_test
 fi
 
-# ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
-if [[ -s "$MTARGETS_FILE" ]]; then
-  awk 'NR == FNR { excl[$0] = 1; next } $1 == "H" && !($2 in excl)' \
-    "$MTARGETS_FILE" "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
-else
-  awk -F'\t' '$1 == "H"' "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
-fi
-
-# ── 扩围通道条目收集（复用同一规则数组，含 TEMP_ROOT 补充规则）──
-for i in "${!LABELS[@]}"; do
-  label="${LABELS[$i]}"
-  pattern="${PATTERNS[$i]}"
-  mode="${MODES[$i]}"
-
-  # A. 内联通道：cfg(test) 区域内行逐条匹配（内容列 = 第 4 字段起原文，
-  #    与 grep 全行匹配语义一致；E=动态 ERE / F=index 字面量）
-  while IFS= read -r entry; do
-    if [[ -n "$entry" ]]; then
-      ENTRIES+=("$entry")
-    fi
-  done < <(
-    awk -F'\t' -v mode="$mode" -v pat="$pattern" -v label="$label" '
-      $1 == "H" {
-        content = $0
-        sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", content)
-        hit = (mode == "F") ? (index(content, pat) > 0) : (content ~ pat)
-        if (hit) printf "%s:%s: %s\n", $2, $3, label
-      }' "$FILTERED_EVENTS_FILE"
-  )
-
-  # B. 挂载通道：目标文件全文件 grep（与原通道同一 grep 语义）
-  while IFS= read -r mfile; do
-    while IFS= read -r match; do
-      line="${match%%:*}"
-      ENTRIES+=("${mfile}:${line}: ${label}")
-    done < <(grep -n"$mode" -- "$pattern" "$PROJECT_ROOT/$mfile" 2>/dev/null || true)
-  done < "$MTARGETS_FILE"
-done
-
-rm -f "$EVENTS_FILE" "$MTARGETS_FILE" "$FILTERED_EVENTS_FILE"
+collect_static_entries "$PROJECT_ROOT"
 
 # 排序但保留重复条目（C locale 字节序，保证与 baseline 比对及重写结果确定性）：
 # 同一行可同时命中 '"/tmp 与 "$TEMP_ROOT 补充规则（同 label「硬编码路径」），产生重复条目；
@@ -561,14 +831,7 @@ fi
 # 多条目并存不塌缩——实际计数 − baseline 计数 = 新增差额（FAIL），baseline
 # 计数 − 实际计数 = 已消除差额（提示）；每键报告一条代表条目（保留行号定位）。
 
-strip_key() {
-  local entry="$1"
-  if [[ "$entry" =~ ^(.+):[0-9]+:\ (.+)$ ]]; then
-    printf '%s: %s\n' "${BASH_REMATCH[1]}" "${BASH_REMATCH[2]}"
-  else
-    printf '%s\n' "$entry"
-  fi
-}
+# 比对键去行号归一化 strip_key 定义见 --self-test 段前（两处共用）
 
 BASELINE=()
 if [[ -f "$BASELINE_FILE" ]]; then

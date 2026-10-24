@@ -54,8 +54,9 @@ usage() {
   --deps      依赖检查（cargo-deny check + cargo-machete + syn 双大版本白名单检查）
   --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖/rust-version 声明 + 单测套件）
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
+  --audit-selftest test-audit 扫描器自测（scripts/test-audit.sh --self-test，内嵌 fixture 断言命中/不命中规格矩阵）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
-  --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv（不含 --heavy）
+  --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv --audit-selftest（不含 --heavy）
   --help, -h  打印本用法
 
 说明:
@@ -422,6 +423,23 @@ do_dep_guard() (
     return 0
 )
 
+# ---------- --audit-selftest：test-audit 扫描器自测 ----------
+do_audit_selftest() (
+    set -u
+    local script
+    script="$(dirname "${BASH_SOURCE[0]}")/test-audit.sh"
+    local rc=0
+    # --self-test 内嵌最小 fixture 断言命中/不命中规格矩阵，离线、不读仓库与
+    # baseline；任一断言失败 → 非零退出码（明细见上方输出）
+    bash "$script" --self-test || rc=$?
+    if [[ $rc -ne 0 ]]; then
+        echo "[FAIL] test-audit --self-test 存在失败断言（退出码 $rc），明细见上方"
+        return "$rc"
+    fi
+    echo "[ok] test-audit --self-test 全部断言通过"
+    return 0
+)
+
 # ---------- --msrv：MSRV 下限检查（与 CI msrv job 同口径） ----------
 do_msrv() (
     set -u
@@ -487,6 +505,7 @@ do_heavy() (
 
 # ---------- 参数解析 ----------
 RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_DEP_GUARD=0 RUN_MSRV=0 RUN_HEAVY=0
+RUN_AUDIT_SELFTEST=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --slow)       RUN_SLOW=1 ;;
@@ -496,15 +515,16 @@ while [[ $# -gt 0 ]]; do
         --deps)       RUN_DEPS=1 ;;
         --dep-guard)  RUN_DEP_GUARD=1 ;;
         --msrv)       RUN_MSRV=1 ;;
+        --audit-selftest) RUN_AUDIT_SELFTEST=1 ;;
         --heavy)      RUN_HEAVY=1 ;;
-        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1 ;;
+        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1; RUN_AUDIT_SELFTEST=1 ;;
         --help|-h)    usage; exit 0 ;;
         *)            echo "未知选项: $1"; echo ""; usage; exit 1 ;;
     esac
     shift
 done
 
-if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_MSRV + RUN_HEAVY)) -eq 0 ]]; then
+if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_MSRV + RUN_AUDIT_SELFTEST + RUN_HEAVY)) -eq 0 ]]; then
     usage
     exit 1
 fi
@@ -521,6 +541,7 @@ if [[ $RUN_COVERAGE -eq 1 ]]; then run_section "--coverage 覆盖率" do_coverag
 if [[ $RUN_DEPS -eq 1 ]]; then     run_section "--deps 依赖检查" do_deps; fi
 if [[ $RUN_DEP_GUARD -eq 1 ]]; then run_section "--dep-guard 依赖治理守卫" do_dep_guard; fi
 if [[ $RUN_MSRV -eq 1 ]]; then     run_section "--msrv MSRV 检查" do_msrv; fi
+if [[ $RUN_AUDIT_SELFTEST -eq 1 ]]; then run_section "--audit-selftest test-audit 扫描器自测" do_audit_selftest; fi
 if [[ $RUN_HEAVY -eq 1 ]]; then    run_section "--heavy 重型检查（miri/TSAN）" do_heavy; fi
 
 # ---------- 汇总表 ----------
