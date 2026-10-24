@@ -356,8 +356,9 @@ async fn test_rule_list_no_file() {
 
 use std::sync::Arc;
 
+const CONFIG_DIR_NAME: &str = ".closeclaw";
 fn config_dir(tmp: &TempDir) -> PathBuf {
-    tmp.path().join(".closeclaw")
+    tmp.path().join(CONFIG_DIR_NAME)
 }
 
 /// Create a temp config dir with the required sub-structure for AdminServer.
