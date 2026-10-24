@@ -31,32 +31,32 @@ mod parse_model_selection_tests {
         assert_eq!(result, vec![0, 2, 4]);
     }
     #[test]
-    fn test_range() {
+    fn test_parse_range_expands_closed_interval() {
         let result = parse_model_selection("2-5", 10).unwrap();
         assert_eq!(result, vec![1, 2, 3, 4]);
     }
     #[test]
-    fn test_mixed() {
+    fn test_parse_mixed_ranges_and_single_values() {
         let result = parse_model_selection("1-3,5,7", 10).unwrap();
         assert_eq!(result, vec![0, 1, 2, 4, 6]);
     }
     #[test]
-    fn test_all() {
+    fn test_parse_all_keyword_selects_every_model() {
         let result = parse_model_selection("all", 5).unwrap();
         assert_eq!(result, vec![0, 1, 2, 3, 4]);
     }
     #[test]
-    fn test_all_case_insensitive() {
+    fn test_parse_all_keyword_case_insensitive() {
         let result = parse_model_selection("ALL", 3).unwrap();
         assert_eq!(result, vec![0, 1, 2]);
     }
     #[test]
-    fn test_deduplicates() {
+    fn test_parse_deduplicates_repeated_tokens() {
         let result = parse_model_selection("1 1 1", 5).unwrap();
         assert_eq!(result, vec![0]);
     }
     #[test]
-    fn test_sorted() {
+    fn test_parse_sorts_out_of_order_input() {
         let result = parse_model_selection("5 3 1", 10).unwrap();
         assert_eq!(result, vec![0, 2, 4]);
     }
@@ -801,7 +801,7 @@ mod provider_info_tests {
     }
 
     #[test]
-    fn test_all_providers_have_description() {
+    fn test_providers_table_all_entries_have_description() {
         for provider in PROVIDERS {
             assert!(
                 !provider.description.is_empty(),
