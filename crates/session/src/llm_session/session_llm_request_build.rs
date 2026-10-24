@@ -44,20 +44,21 @@ impl ConversationSession {
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
     ///
-    /// `user_blocks_pre_appended` is the caller's declaration that the
-    /// current user message was already pre-appended to history in
-    /// structured blocks form (gateway production path); see
-    /// [`push_current_turn_user_message`](Self::push_current_turn_user_message) for the dedup-guard
-    /// semantics.
+    /// `current_turn_pre_appended` is the caller's declaration that the
+    /// current user message was already pre-appended to history before
+    /// the invoke — in plain text form or in structured blocks form;
+    /// see
+    /// [`push_current_turn_user_message`](Self::push_current_turn_user_message)
+    /// for the dedup-guard semantics.
     pub(crate) fn build_llm_messages_with_listing(
         &self,
         content: &str,
         skill_listing: Option<String>,
-        user_blocks_pre_appended: bool,
+        current_turn_pre_appended: bool,
     ) -> Vec<InternalMessage> {
         let cleaned = Self::clean_thinking_content(&self.messages);
         let mut messages = Self::convert_history_to_internal(&cleaned);
-        Self::push_current_turn_user_message(&mut messages, content, user_blocks_pre_appended);
+        Self::push_current_turn_user_message(&mut messages, content, current_turn_pre_appended);
         self.attach_skill_listing(&mut messages, skill_listing);
         self.apply_pending_memory_injection(&mut messages);
         messages
@@ -78,12 +79,13 @@ impl ConversationSession {
     /// every round. The guard skips the push when the history tail is
     /// a user message that equals the invoke content on role +
     /// content, or — when the caller declared
-    /// `user_blocks_pre_appended` — when the tail carries content
+    /// `current_turn_pre_appended` — when the tail carries content
     /// blocks **with empty flattened text**. The declaration is the
     /// caller's explicit statement that the current user message was
-    /// already appended to history in structured blocks form (gateway
-    /// production path for embedded small-image messages); the
-    /// declaration branch then matches the image-round pre-append
+    /// already appended to history before the invoke (plain text form
+    /// or structured blocks form; gateway production path for both,
+    /// including embedded small-image messages); the declaration branch
+    /// then matches the image-round pre-append
     /// shape, where Image blocks are excluded from the text flatten
     /// so `content` is `""` (`content.is_empty()`). A blocks tail
     /// with non-empty text does **not** match the declaration (the
@@ -103,12 +105,12 @@ impl ConversationSession {
     fn push_current_turn_user_message(
         messages: &mut Vec<InternalMessage>,
         content: &str,
-        user_blocks_pre_appended: bool,
+        current_turn_pre_appended: bool,
     ) {
         let duplicates_history_tail = messages.last().is_some_and(|tail| {
             tail.role == "user"
                 && (tail.content == content
-                    || (user_blocks_pre_appended
+                    || (current_turn_pre_appended
                         && tail.content.is_empty()
                         && tail.content_blocks.is_some()))
         });

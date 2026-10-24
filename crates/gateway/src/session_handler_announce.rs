@@ -511,6 +511,10 @@ impl SessionMessageHandler {
             .await;
         let result: Result<StreamResult, LLMError> = {
             if let Some(cs) = session_manager.get_conversation_session(&session_id).await {
+                // Health-check Retry never pre-appends the invoked
+                // content to history (empty invoke content; only an
+                // optional system-message injection above), so the
+                // declaration stays false.
                 super::session_handler_dispatch::invoke_llm_with_call_target(&cs, "", false).await
             } else {
                 Err(LLMError::InvalidRequest(
