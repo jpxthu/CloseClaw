@@ -1,11 +1,11 @@
 //! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and
 //! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
 //! TempDir contract, `create_subdir`'s nested-path creation, TempDir
-//! contract and base-is-a-file error path, and the shared
-//! `MemAuditLogger`
-//! audit mock behaviour (filter, time-descending
-//! query, unparseable-timestamp ordering, window/matches consistency,
-//! snapshot isolation, empty/zero-match boundaries, concurrency).
+//! contract and base-is-a-file error path, and
+//! the shared `MemAuditLogger` audit mock behaviour (filter,
+//! time-descending query, unparseable-timestamp ordering,
+//! window/matches consistency, snapshot isolation, empty/zero-match
+//! boundaries, concurrency).
 
 use std::sync::Arc;
 
@@ -92,8 +92,8 @@ fn test_remove_subdir_deletes_subtree_under_tempdir() {
 }
 
 /// 幂等边界由调用方决定（目录可能本就不存在）：`remove_subdir` 对缺失
-/// 目录返回错误而非 panic，错误处理权留给调用者（与 config 本地 helper
-/// 同签名同语义；共享版额外 debug-assert TempDir 契约）。
+/// 目录返回错误而非 panic，错误处理权留给调用者（共享版额外
+/// debug-assert TempDir 契约）。
 #[test]
 fn test_remove_subdir_missing_dir_returns_error() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
