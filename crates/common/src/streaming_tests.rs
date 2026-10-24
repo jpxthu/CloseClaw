@@ -33,7 +33,7 @@ fn block_end(index: usize, bt: ContentBlockType) -> StreamEvent {
 // --- LineBuffer ---
 
 #[test]
-fn line_buffer_pure_text_splits_on_punctuation() {
+fn test_line_buffer_pure_text_splits_on_punctuation() {
     let mut buf = LineBuffer::new();
     // English and Chinese sentence terminators, plus newlines.
     let out = buf.feed("Hello world. 你好世界!\nDone?");
@@ -41,7 +41,7 @@ fn line_buffer_pure_text_splits_on_punctuation() {
 }
 
 #[test]
-fn line_buffer_keeps_incomplete_across_feeds() {
+fn test_line_buffer_keeps_incomplete_across_feeds() {
     let mut buf = LineBuffer::new();
     assert!(buf.feed("Hello ").is_empty());
     let out = buf.feed("world.");
@@ -50,7 +50,7 @@ fn line_buffer_keeps_incomplete_across_feeds() {
 }
 
 #[test]
-fn line_buffer_code_block_only_splits_on_newline() {
+fn test_line_buffer_code_block_only_splits_on_newline() {
     let mut buf = LineBuffer::new();
     // Inside the fenced code block, "foo.bar" must NOT split on '.'.
     let out = buf.feed("```\nfoo.bar.baz\n```\n");
@@ -58,7 +58,7 @@ fn line_buffer_code_block_only_splits_on_newline() {
 }
 
 #[test]
-fn line_buffer_force_emits_at_threshold() {
+fn test_line_buffer_force_emits_at_threshold() {
     let mut buf = LineBuffer::with_threshold(10);
     let out = buf.feed("a]long string without any terminator");
     assert_eq!(out.len(), 1);
@@ -68,7 +68,7 @@ fn line_buffer_force_emits_at_threshold() {
 }
 
 #[test]
-fn line_buffer_flush_and_reset() {
+fn test_line_buffer_flush_and_reset() {
     let mut buf = LineBuffer::new();
     buf.feed("partial");
     assert_eq!(buf.flush(), Some("partial".to_string()));
@@ -81,7 +81,7 @@ fn line_buffer_flush_and_reset() {
 // --- DefaultStreamingRenderer ---
 
 #[test]
-fn renderer_pure_text_emits_complete_lines() {
+fn test_renderer_pure_text_emits_complete_lines() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Text));
     let out = r.handle_event(text_delta("Hello world."));
@@ -90,7 +90,7 @@ fn renderer_pure_text_emits_complete_lines() {
 }
 
 #[test]
-fn renderer_with_code_block_preserves_inner_periods() {
+fn test_renderer_with_code_block_preserves_inner_periods() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Text));
     let out = r.handle_event(text_delta("```\nfoo.bar.baz\n```\n"));
@@ -99,7 +99,7 @@ fn renderer_with_code_block_preserves_inner_periods() {
 }
 
 #[test]
-fn renderer_routes_dsl_line_to_text_messages() {
+fn test_renderer_routes_dsl_line_to_text_messages() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Text));
     let dsl = "::button[label:Yes;action:vote;value:1]";
@@ -108,7 +108,7 @@ fn renderer_routes_dsl_line_to_text_messages() {
 }
 
 #[test]
-fn renderer_force_emits_long_text_at_threshold() {
+fn test_renderer_force_emits_long_text_at_threshold() {
     let mut r = DefaultStreamingRenderer::new();
     // No terminator in 150-char string; all 150 chars must be emitted at once.
     let long_text = "a".repeat(150);
@@ -119,7 +119,7 @@ fn renderer_force_emits_long_text_at_threshold() {
 }
 
 #[test]
-fn renderer_block_end_thinking_emits_render_block() {
+fn test_renderer_block_end_thinking_emits_render_block() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Thinking));
     r.handle_event(StreamEvent::BlockDelta {
@@ -140,7 +140,7 @@ fn renderer_block_end_thinking_emits_render_block() {
 }
 
 #[test]
-fn renderer_block_end_tool_use_assembles_block() {
+fn test_renderer_block_end_tool_use_assembles_block() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::ToolUse));
     r.handle_event(StreamEvent::BlockDelta {
@@ -173,7 +173,7 @@ fn renderer_block_end_tool_use_assembles_block() {
 }
 
 #[test]
-fn renderer_text_block_end_and_flush_drain_buffer() {
+fn test_renderer_text_block_end_and_flush_drain_buffer() {
     let mut r = DefaultStreamingRenderer::new();
     r.handle_event(block_start(0, ContentBlockType::Text));
     // Feed partial (no terminator).
@@ -186,7 +186,7 @@ fn renderer_text_block_end_and_flush_drain_buffer() {
 }
 
 #[test]
-fn renderer_flush_resets_block_state() {
+fn test_renderer_flush_resets_block_state() {
     let mut r = DefaultStreamingRenderer::new();
     // Start a Thinking block and feed some data.
     r.handle_event(block_start(0, ContentBlockType::Thinking));
@@ -222,7 +222,7 @@ fn renderer_flush_resets_block_state() {
 }
 
 #[test]
-fn renderer_message_end_then_new_block() {
+fn test_renderer_message_end_then_new_block() {
     let mut r = DefaultStreamingRenderer::new();
     // Simulate a normal text exchange, then MessageEnd.
     r.handle_event(block_start(0, ContentBlockType::Text));
@@ -371,7 +371,7 @@ fn test_image_block_does_not_affect_line_buffer() {
 // ── Mutex<DefaultStreamingRenderer> integration ────────────────────────────
 
 #[test]
-fn mutex_renderer_delegates_handle_event() {
+fn test_mutex_renderer_delegates_handle_event() {
     let mut renderer = std::sync::Mutex::new(DefaultStreamingRenderer::new());
     renderer.handle_event(block_start(0, ContentBlockType::Text));
     let out = renderer.handle_event(text_delta("Hello world."));
@@ -380,7 +380,7 @@ fn mutex_renderer_delegates_handle_event() {
 }
 
 #[test]
-fn mutex_renderer_delegates_flush() {
+fn test_mutex_renderer_delegates_flush() {
     let mut renderer = std::sync::Mutex::new(DefaultStreamingRenderer::new());
     renderer.handle_event(block_start(0, ContentBlockType::Text));
     renderer.handle_event(text_delta("partial"));

@@ -54,7 +54,7 @@ impl closeclaw_common::MediaStoreAccess for FsStore {
 
 /// Image size exactly equal to threshold → inline (≤ threshold).
 #[tokio::test]
-async fn exact_threshold_image_produces_image_block() {
+async fn test_exact_threshold_image_produces_image_block() {
     let tmp = tempfile::tempdir().unwrap();
     let data = [0x89, 0x50, 0x4E, 0x47]; // 4 bytes
     std::fs::write(tmp.path().join("eq.png"), data).unwrap();
@@ -86,7 +86,7 @@ async fn exact_threshold_image_produces_image_block() {
 
 /// Image file missing on disk → fallback to text reference token.
 #[tokio::test]
-async fn missing_image_file_falls_back_to_text_block() {
+async fn test_missing_image_file_falls_back_to_text_block() {
     let tmp = tempfile::tempdir().unwrap();
     // No file written — simulates read failure.
     let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -113,18 +113,18 @@ async fn missing_image_file_falls_back_to_text_block() {
 // ── model_supports_images tests ────────────────────────────────────────
 
 #[test]
-fn model_supports_images_minimax_m3() {
+fn test_model_supports_images_minimax_m3() {
     assert!(model_supports_images("minimax/MiniMax-M3"));
 }
 
 #[test]
-fn model_supports_images_text_only() {
+fn test_model_supports_images_text_only() {
     // DeepSeek models are text-only
     assert!(!model_supports_images("deepseek/deepseek-v3-flash"));
 }
 
 #[test]
-fn model_supports_images_unknown_model_fail_open() {
+fn test_model_supports_images_unknown_model_fail_open() {
     // Model name without '/' → parse fails → fail-open (returns true)
     assert!(model_supports_images("no-slash-model"));
 }
@@ -132,7 +132,7 @@ fn model_supports_images_unknown_model_fail_open() {
 // ── Token format with empty path ───────────────────────────────────────
 
 #[tokio::test]
-async fn empty_path_produces_token_without_filename() {
+async fn test_empty_path_produces_token_without_filename() {
     let pm = make_processed(
         "",
         MessageType::Image,

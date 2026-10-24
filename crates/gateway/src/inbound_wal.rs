@@ -244,7 +244,7 @@ mod tests {
     }
 
     #[test]
-    fn open_creates_directory_and_file() {
+    fn test_open_creates_directory_and_file() {
         let dir = tempfile::tempdir().unwrap();
         let sub = dir.path().join("nested").join("wal");
         let wal = InboundWal::open(&sub).unwrap();
@@ -254,7 +254,7 @@ mod tests {
     }
 
     #[test]
-    fn append_and_load_roundtrip() {
+    fn test_append_and_load_roundtrip() {
         let (_dir, wal) = temp_wal();
         let e1 = sample_entry("tr-1");
         let e2 = sample_entry("tr-2");
@@ -267,7 +267,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_done_and_delete_removes_entry() {
+    fn test_mark_done_and_delete_removes_entry() {
         let (_dir, wal) = temp_wal();
         wal.append(&sample_entry("tr-1")).unwrap();
         wal.append(&sample_entry("tr-2")).unwrap();
@@ -278,7 +278,7 @@ mod tests {
     }
 
     #[test]
-    fn mark_done_and_delete_nonexistent_is_noop() {
+    fn test_mark_done_and_delete_nonexistent_is_noop() {
         let (_dir, wal) = temp_wal();
         wal.append(&sample_entry("tr-1")).unwrap();
         wal.mark_done_and_delete("no-such-id").unwrap();
@@ -287,14 +287,14 @@ mod tests {
     }
 
     #[test]
-    fn load_all_empty_file() {
+    fn test_load_all_empty_file() {
         let (_dir, wal) = temp_wal();
         let loaded = wal.load_all().unwrap();
         assert!(loaded.is_empty());
     }
 
     #[test]
-    fn load_all_skips_malformed_lines() {
+    fn test_load_all_skips_malformed_lines() {
         let (_dir, wal) = temp_wal();
         wal.append(&sample_entry("tr-1")).unwrap();
         // Append a raw bad line directly.
@@ -312,7 +312,7 @@ mod tests {
     }
 
     #[test]
-    fn payload_base64_roundtrip() {
+    fn test_payload_base64_roundtrip() {
         let payload = b"\xff\xfe binary \x00 data";
         let entry = InboundWalEntry::new("tr-bin".into(), "test".into(), payload, "peer".into());
         let decoded = entry.decoded_payload().unwrap();
@@ -320,7 +320,7 @@ mod tests {
     }
 
     #[test]
-    fn load_all_handles_missing_file() {
+    fn test_load_all_handles_missing_file() {
         let dir = tempfile::tempdir().unwrap();
         let wal = InboundWal::open(dir.path()).unwrap();
         // Remove the file to simulate a crash before first write.
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[test]
-    fn append_after_file_removed_recreates() {
+    fn test_append_after_file_removed_recreates() {
         let (_dir, wal) = temp_wal();
         wal.append(&sample_entry("tr-1")).unwrap();
         // Simulate unexpected deletion.
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn entry_status_serialization() {
+    fn test_entry_status_serialization() {
         let pending = InboundWalEntryStatus::Pending;
         let json = serde_json::to_string(&pending).unwrap();
         let back: InboundWalEntryStatus = serde_json::from_str(&json).unwrap();

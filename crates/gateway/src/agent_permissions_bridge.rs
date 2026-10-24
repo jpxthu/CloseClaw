@@ -91,7 +91,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_preserves_all_fields_including_limits() {
+    fn test_mapping_preserves_all_fields_including_limits() {
         let tmp_path = std::env::temp_dir().display().to_string();
         let config = ConfigAgentPermissions {
             agent_id: "agent-a".into(),
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn mapping_from_empty_config_yields_defaults() {
+    fn test_mapping_from_empty_config_yields_defaults() {
         let mapped = to_permission_agent_permissions(&ConfigAgentPermissions::default());
         assert_eq!(mapped, AgentPermissions::default());
     }
@@ -152,7 +152,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_get_maps_known_agent_and_returns_none_for_unknown() {
+    fn test_provider_get_maps_known_agent_and_returns_none_for_unknown() {
         let tmp = tempfile::TempDir::new().unwrap();
         write_permissions(tmp.path(), "agent-a");
         let adapter = ConfigAgentPermissionsProviderAdapter::new(Arc::new(

@@ -323,14 +323,14 @@ mod tests {
     }
 
     #[test]
-    fn media_refs_empty_produces_empty_json_array() {
+    fn test_media_refs_empty_produces_empty_json_array() {
         let normalized = make_normalized(|_| {});
         let meta = build_extra_metadata(&normalized);
         assert_eq!(meta.get("media_refs").unwrap(), "[]");
     }
 
     #[test]
-    fn media_refs_non_empty_serializes_correctly() {
+    fn test_media_refs_non_empty_serializes_correctly() {
         let normalized = make_normalized(|n| {
             n.media_refs = vec![MediaRef {
                 key: "ref_a".into(),
@@ -348,7 +348,7 @@ mod tests {
     }
 
     #[test]
-    fn thread_id_propagated_when_present() {
+    fn test_thread_id_propagated_when_present() {
         let normalized = make_normalized(|n| {
             n.thread_id = Some("t_123".into());
         });
@@ -357,14 +357,14 @@ mod tests {
     }
 
     #[test]
-    fn thread_id_absent_when_none() {
+    fn test_thread_id_absent_when_none() {
         let normalized = make_normalized(|_| {});
         let meta = build_extra_metadata(&normalized);
         assert!(!meta.contains_key("thread_id"));
     }
 
     #[test]
-    fn account_id_propagated_when_non_empty() {
+    fn test_account_id_propagated_when_non_empty() {
         let normalized = make_normalized(|n| {
             n.account_id = "acc_1".into();
         });
@@ -373,14 +373,14 @@ mod tests {
     }
 
     #[test]
-    fn account_id_absent_when_empty() {
+    fn test_account_id_absent_when_empty() {
         let normalized = make_normalized(|_| {});
         let meta = build_extra_metadata(&normalized);
         assert!(!meta.contains_key("account_id"));
     }
 
     #[test]
-    fn chat_name_propagated_when_non_empty() {
+    fn test_chat_name_propagated_when_non_empty() {
         let normalized = make_normalized(|n| {
             n.chat_name = "General".into();
         });
@@ -389,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn trace_id_propagated_when_non_empty() {
+    fn test_trace_id_propagated_when_non_empty() {
         let normalized = make_normalized(|n| {
             n.trace_id = "tr_abc".into();
         });
@@ -398,7 +398,7 @@ mod tests {
     }
 
     #[test]
-    fn all_fields_combined() {
+    fn test_all_fields_combined() {
         let normalized = make_normalized(|n| {
             n.thread_id = Some("t_1".into());
             n.reply_ref = Some("r_1".into());
@@ -428,7 +428,7 @@ mod tests {
     }
 
     #[test]
-    fn build_extra_metadata_no_unavailable_media() {
+    fn test_build_extra_metadata_no_unavailable_media() {
         // After Step 1.2: build_extra_metadata must NOT include unavailable_media
         // (chain dispatcher is responsible for injecting it).
         let normalized = make_normalized(|n| {
