@@ -100,7 +100,7 @@ impl SlashHandler for MockCmdHandler {
 
 /// Inherent `SlashDispatcher::dispatch` returns `Unknown` for `/pause`.
 #[tokio::test]
-async fn inherent_dispatch_pause_returns_unknown() {
+async fn test_inherent_dispatch_pause_returns_unknown() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -114,7 +114,7 @@ async fn inherent_dispatch_pause_returns_unknown() {
 
 /// Inherent `SlashDispatcher::dispatch` returns `Unknown` for `/pause` with args.
 #[tokio::test]
-async fn inherent_dispatch_pause_with_args_returns_unknown() {
+async fn test_inherent_dispatch_pause_with_args_returns_unknown() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -128,7 +128,7 @@ async fn inherent_dispatch_pause_with_args_returns_unknown() {
 
 /// Trait `SlashRouter::dispatch` returns `Some(Unknown)` for `/pause`.
 #[tokio::test]
-async fn trait_dispatch_pause_returns_some_unknown() {
+async fn test_trait_dispatch_pause_returns_some_unknown() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -143,7 +143,7 @@ async fn trait_dispatch_pause_returns_some_unknown() {
 /// Trait `SlashRouter::dispatch` returns `None` for non-slash content
 /// (not related to /pause, just confirming trait semantics remain intact).
 #[tokio::test]
-async fn trait_dispatch_non_slash_returns_none() {
+async fn test_trait_dispatch_non_slash_returns_none() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -156,7 +156,7 @@ async fn trait_dispatch_non_slash_returns_none() {
 
 /// Registry does not contain `pause` command.
 #[tokio::test]
-async fn registry_does_not_contain_pause() {
+async fn test_registry_does_not_contain_pause() {
     let registry = production_like_registry();
     assert!(
         registry.get("pause").is_none(),
@@ -170,7 +170,7 @@ async fn registry_does_not_contain_pause() {
 
 /// get_handler("pause") returns None.
 #[tokio::test]
-async fn get_handler_pause_returns_none() {
+async fn test_get_handler_pause_returns_none() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
 
@@ -182,7 +182,7 @@ async fn get_handler_pause_returns_none() {
 
 /// is_immediate("/pause") returns false.
 #[tokio::test]
-async fn is_immediate_pause_returns_false() {
+async fn test_is_immediate_pause_returns_false() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
 
@@ -194,7 +194,7 @@ async fn is_immediate_pause_returns_false() {
 
 /// All expected commands are still present in the registry.
 #[tokio::test]
-async fn registry_contains_all_expected_commands() {
+async fn test_registry_contains_all_expected_commands() {
     let registry = production_like_registry();
     let expected = ["execute", "mode", "plan", "auto", "help", "compact", "exec"];
     let commands = registry.all_commands();
@@ -211,7 +211,7 @@ async fn registry_contains_all_expected_commands() {
 
 /// `/execute` still dispatches correctly.
 #[tokio::test]
-async fn dispatch_execute_works() {
+async fn test_dispatch_execute_works() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -225,7 +225,7 @@ async fn dispatch_execute_works() {
 
 /// `/mode` still dispatches correctly.
 #[tokio::test]
-async fn dispatch_mode_works() {
+async fn test_dispatch_mode_works() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -239,7 +239,7 @@ async fn dispatch_mode_works() {
 
 /// `/plan` still dispatches correctly.
 #[tokio::test]
-async fn dispatch_plan_works() {
+async fn test_dispatch_plan_works() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();
@@ -253,7 +253,7 @@ async fn dispatch_plan_works() {
 
 /// `/auto` still dispatches correctly.
 #[tokio::test]
-async fn dispatch_auto_works() {
+async fn test_dispatch_auto_works() {
     let registry = production_like_registry();
     let dispatcher = SlashDispatcher::new(registry);
     let ctx = dummy_ctx();

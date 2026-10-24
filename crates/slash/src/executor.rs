@@ -153,7 +153,7 @@ mod tests {
     /// Smoke test: verify re-exported types are usable and that
     /// `SlashResult::Reply` can be dispatched through `SlashResultExecutor`.
     #[tokio::test]
-    async fn smoke_slash_result_executor_reexport() {
+    async fn test_smoke_slash_result_executor_reexport() {
         let (tx, mut rx) = tokio::sync::mpsc::channel::<ReplyAction>(4);
         let ctx = SideEffectContext {
             session_id: "smoke-test-session".into(),
