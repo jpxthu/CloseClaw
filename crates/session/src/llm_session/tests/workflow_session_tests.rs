@@ -1,6 +1,7 @@
 use crate::llm_session::ConversationSession;
 use crate::workflow_handler::WorkflowHandler;
 use crate::workflow_port::real_engine_port::test_port;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::ContentBlock;
 use closeclaw_workflow::definition::{Step, Workflow};
 use closeclaw_workflow::run::{GoalHint, PendingVerify, Phase, WorkflowRun};
@@ -31,10 +32,19 @@ fn typed_run(session: &ConversationSession) -> WorkflowRun {
     typed_run_value(session.workflow_handler().unwrap().run_state())
 }
 
+/// Shared SKILL.md writer: creates `dir/workflows/<workflow_name>/` through
+/// the sanctioned `ensure_dir` helper and writes a SKILL.md wrapping `yaml`
+/// in front-matter. The per-scenario `write_*_skill_md` helpers below only
+/// supply the YAML body.
+fn write_skill_md_with_yaml(dir: &std::path::Path, workflow_name: &str, yaml: &str) {
+    let wf_dir = dir.join("workflows").join(workflow_name);
+    ensure_dir(&wf_dir).unwrap();
+    let content = format!("---\n{yaml}\n---\n\nBody.\n");
+    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+}
+
 /// Write a single-step workflow SKILL.md with a default complete transition.
 fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
-    let wf_dir = dir.join("workflows").join(workflow_name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
     let yaml = concat!(
         "id: test-wf\n",
         "name: Test Workflow\n",
@@ -49,14 +59,11 @@ fn write_skill_md(dir: &std::path::Path, workflow_name: &str) {
         "    transitions:\n",
         "      - action: complete",
     );
-    let content = format!("---\n{yaml}\n---\n\nBody.\n");
-    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    write_skill_md_with_yaml(dir, workflow_name, yaml);
 }
 
 /// Write a two-step workflow SKILL.md with a default goto transition.
 fn write_two_step_skill_md(dir: &std::path::Path, workflow_name: &str) {
-    let wf_dir = dir.join("workflows").join(workflow_name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
     let yaml = concat!(
         "id: test-wf\n",
         "name: Test WF\n",
@@ -78,14 +85,11 @@ fn write_two_step_skill_md(dir: &std::path::Path, workflow_name: &str) {
         "    transitions:\n",
         "      - action: complete\n",
     );
-    let content = format!("---\n{yaml}\n---\n\nBody.\n");
-    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    write_skill_md_with_yaml(dir, workflow_name, yaml);
 }
 
 /// Write a single-step workflow SKILL.md with a default complete transition.
 fn write_complete_skill_md(dir: &std::path::Path, workflow_name: &str) {
-    let wf_dir = dir.join("workflows").join(workflow_name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
     let yaml = concat!(
         "id: test-wf\n",
         "name: Test WF\n",
@@ -99,14 +103,11 @@ fn write_complete_skill_md(dir: &std::path::Path, workflow_name: &str) {
         "    transitions:\n",
         "      - action: complete\n",
     );
-    let content = format!("---\n{yaml}\n---\n\nBody.\n");
-    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    write_skill_md_with_yaml(dir, workflow_name, yaml);
 }
 
 /// Write a single-step workflow SKILL.md with a default reexecute transition.
 fn write_reexecute_skill_md(dir: &std::path::Path, workflow_name: &str) {
-    let wf_dir = dir.join("workflows").join(workflow_name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
     let yaml = concat!(
         "id: test-wf\n",
         "name: Test WF\n",
@@ -121,8 +122,7 @@ fn write_reexecute_skill_md(dir: &std::path::Path, workflow_name: &str) {
         "      - action: reexecute\n",
         "        target_step: 0\n",
     );
-    let content = format!("---\n{yaml}\n---\n\nBody.\n");
-    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    write_skill_md_with_yaml(dir, workflow_name, yaml);
 }
 
 /// Create a session with a workflow run set to the given phase.
@@ -387,8 +387,6 @@ async fn test_complete_jump_triggers_cleanup() {
 /// Write a two-step workflow SKILL.md with jump question and goto transition.
 /// Step 0 has a jump question ("go_next"); when answered "yes" → goto step 1.
 fn write_two_step_with_jump_skill_md(dir: &std::path::Path, workflow_name: &str) {
-    let wf_dir = dir.join("workflows").join(workflow_name);
-    std::fs::create_dir_all(&wf_dir).unwrap();
     let yaml = concat!(
         "id: test-wf\n",
         "name: Test WF\n",
@@ -417,8 +415,7 @@ fn write_two_step_with_jump_skill_md(dir: &std::path::Path, workflow_name: &str)
         "    transitions:\n",
         "      - action: complete\n",
     );
-    let content = format!("---\n{yaml}\n---\n\nBody.\n");
-    std::fs::write(wf_dir.join("SKILL.md"), content).unwrap();
+    write_skill_md_with_yaml(dir, workflow_name, yaml);
 }
 
 /// Full chain: verify → jump → goto → new goal injection.
