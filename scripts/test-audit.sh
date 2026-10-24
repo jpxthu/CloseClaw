@@ -3,6 +3,10 @@
 # test-audit.sh — 静态扫描 + 运行时监控测试合规
 # 用法: scripts/test-audit.sh [--runtime] [--target <pattern>] [--update-baseline]
 #
+# 静态扫描范围：独立测试文件全文件（*_tests.rs / tests.rs / tests 目录），
+# 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
+# test-only 文件（目标文件名含 test_helpers / test_support 的 helper 本体除外）
+#
 # --runtime          用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT       只扫描文件路径中包含 PAT 的 .rs 文件（静态）
 #                    runtime 模式下同时传递给 nextest（如 --target permission）
@@ -190,8 +194,8 @@ if [[ "$TEMP_ROOT" != /tmp* ]]; then
 fi
 
 # ── 扫描目录集合 ──────────────────────────────────────────
-# 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计，
-# 扩围只扩展扫描根目录（find 模式不变）
+# 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
+# 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描（见下）
 SCAN_DIRS=("$PROJECT_ROOT/src" "$PROJECT_ROOT/tests")
 for dir in "$PROJECT_ROOT"/crates/*/src; do
   if [[ -d "$dir" ]]; then
@@ -224,6 +228,218 @@ for i in "${!LABELS[@]}"; do
     done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
   done
 done
+
+# ══════════════════════════════════════════════════════════
+# 扩围通道：cfg(test) 门控区域（内联）+ cfg(test) 挂载 test-only 文件
+# ══════════════════════════════════════════════════════════
+# 原通道只全文件扫独立测试文件（*_tests.rs / tests.rs / tests 目录），存在盲区：
+#   A. 生产文件内联 #[cfg(test)] 门控区域（mod/fn/impl 块，含 all(test,...)/
+#      any(test,...) 复合形态；排除 not(test) 与 feature = "test-*" 命名误配）
+#      内的规则命中
+#   B. #[cfg(test)] [#[path = "..."]] mod NAME; 挂载、命名特殊的 test-only 文件
+# 双计防护：两通道仅处理「原 find 谓词不匹配的 .rs 文件」（与原通道互补）；
+# 挂载目标再从内联通道剔除（挂载文件走全文件扫）。helper 收敛点本体不命中：
+# 内联通道下 helper 函数体位于 cfg(test) 区域外天然不命中；挂载通道下目标文件
+# 名含 test_helpers / test_support 的文件不纳入。
+
+# ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
+# 输出事件（TSV）：
+#   H\t相对路径\t行号\t行内容 = cfg(test) 门控区域内的行（花括号深度定位边界，
+#                             深度计数前剥离 // 行注释；逐文件复位状态，可分批）
+#   M\t相对路径\tpath属性\tmod名 = cfg(test) 门控的 mod 挂载声明（path 属性可空）
+REGION_SCANNER_AWK="$(cat <<'AWK_PROGRAM'
+function trim_ws(x) {
+  gsub(/^[[:space:]]+/, "", x)
+  gsub(/[[:space:]]+$/, "", x)
+  return x
+}
+function is_item_decl(s) {
+  return s ~ /^([[:space:]]*)?(pub([[:space:]]*\([a-z]+\))?([[:space:]]+))?(unsafe[[:space:]]+)?(mod|fn|impl)[[:space:]]/
+}
+function is_mount_decl(s) {
+  return is_item_decl(s) && s ~ /(^|[[:space:]])mod[[:space:]]+/ && s ~ /;[[:space:]]*$/
+}
+function pred_has_test(s) {
+  if (s !~ /^#\[[[:space:]]*cfg[[:space:]]*\(/) return 0
+  if (s ~ /not[[:space:]]*\([[:space:]]*(all|any)?[[:space:]]*\(?[[:space:]]*test/) return 0
+  return s ~ /(^|[^a-zA-Z0-9_-])test([^a-zA-Z0-9_-]|$)/
+}
+BEGIN {
+  root_len = length(root)
+  depth = 0
+  nb = 0
+  pending = 0
+  mount_path = ""
+}
+FNR == 1 {
+  depth = 0
+  nb = 0
+  pending = 0
+  mount_path = ""
+  rel = substr(FILENAME, root_len + 2)
+}
+{
+  raw = $0
+  sub(/\/\/.*/, "", raw)
+  s = trim_ws(raw)
+
+  in_region = (nb > 0 && depth > bases[nb]) ? 1 : 0
+
+  if (pending) {
+    if (s != "" && s !~ /^\/\//) {
+      pending = 0
+      if (s ~ /^#\[/) {
+        if (s ~ /^#\[[[:space:]]*path[[:space:]]*=/) {
+          mount_path = s
+          sub(/^#\[[[:space:]]*path[[:space:]]*=[[:space:]]*"/, "", mount_path)
+          sub(/"[[:space:]]*\].*$/, "", mount_path)
+        }
+        pending = 1
+      } else if (is_item_decl(s)) {
+        if (is_mount_decl(s)) {
+          name = s
+          sub(/^.*(^|[[:space:]])mod[[:space:]]+/, "", name)
+          sub(/;.*$/, "", name)
+          printf "M\t%s\t%s\t%s\n", rel, mount_path, name
+        } else if (s ~ /[{]/) {
+          bases[++nb] = depth
+        }
+        mount_path = ""
+      } else {
+        mount_path = ""
+      }
+    }
+  } else if (pred_has_test(s)) {
+    rest = s
+    sub(/^#\[[^]]*\][[:space:]]*/, "", rest)
+    if (rest == "") {
+      pending = 1
+    } else if (is_item_decl(rest)) {
+      if (is_mount_decl(rest)) {
+        name = rest
+        sub(/^.*(^|[[:space:]])mod[[:space:]]+/, "", name)
+        sub(/;.*$/, "", name)
+        printf "M\t%s\t\t%s\n", rel, name
+      } else if (rest ~ /[{]/) {
+        bases[++nb] = depth
+      }
+    }
+  }
+
+  if (in_region) printf "H\t%s\t%d\t%s\n", rel, FNR, $0
+
+  o = gsub(/{/, "{", raw)
+  c = gsub(/}/, "}", raw)
+  depth += o - c
+  while (nb > 0 && depth <= bases[nb]) nb--
+}
+AWK_PROGRAM
+)"
+
+# ── 扩围文件集合：原 find 谓词的精确补集 ─────────────────
+ALL_FIND_ARGS=("${SCAN_DIRS[@]}" -type f -name '*.rs' \
+  ! \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+if [[ -n "$TARGET_FILTER" ]]; then
+  ALL_FIND_ARGS+=(-path "*${TARGET_FILTER}*")
+fi
+
+EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
+MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
+FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
+
+# 单次扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；
+# find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 RS_FILES 一致）
+mapfile -t EXPANSION_FILES < <(find "${ALL_FIND_ARGS[@]}" 2>/dev/null)
+if [[ ${#EXPANSION_FILES[@]} -gt 0 ]]; then
+  printf '%s\n' "${EXPANSION_FILES[@]}" \
+    | xargs -r -d '\n' awk -v root="$PROJECT_ROOT" "$REGION_SCANNER_AWK" > "$EVENTS_FILE"
+else
+  : > "$EVENTS_FILE"
+fi
+
+# ── 挂载目标解析与过滤 ────────────────────────────────────
+declare -A MOUNT_TARGET_SEEN=()
+while IFS= read -r mline; do
+  if [[ -z "$mline" ]]; then continue; fi
+  drel="${mline%%$'\t'*}"
+  rest="${mline#*$'\t'}"
+  dattr="${rest%%$'\t'*}"
+  dname="${rest##*$'\t'}"
+  ddir="$(dirname "$PROJECT_ROOT/$drel")"
+  if [[ -n "$dattr" ]]; then
+    target="$ddir/$dattr"
+  else
+    if [[ -f "$ddir/$dname.rs" ]]; then
+      target="$ddir/$dname.rs"
+    elif [[ -f "$ddir/$dname/mod.rs" ]]; then
+      target="$ddir/$dname/mod.rs"
+    else
+      continue
+    fi
+  fi
+  if [[ ! -f "$target" ]]; then continue; fi
+  target="$(realpath -m "$target")"
+  if [[ "$target" != "$PROJECT_ROOT/"* ]]; then continue; fi
+  rel_target="${target#"$PROJECT_ROOT"/}"
+  # 原通道已覆盖（全文件扫）→ 剔除防双计
+  base="$(basename "$rel_target")"
+  if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
+  if [[ "$rel_target" == */tests/* ]]; then continue; fi
+  # helper 收敛点本体不纳入
+  if [[ "$base" == *test_helpers* || "$base" == *test_support* ]]; then continue; fi
+  # --target 过滤语义与主通道一致
+  if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi
+  # 异常自指防护
+  if [[ "$rel_target" == "$drel" ]]; then continue; fi
+  if [[ -z "${MOUNT_TARGET_SEEN[$rel_target]:-}" ]]; then
+    MOUNT_TARGET_SEEN["$rel_target"]=1
+    printf '%s\n' "$rel_target" >> "$MTARGETS_FILE"
+  fi
+done < <(awk -F'\t' '$1 == "M" { print $2 "\t" $3 "\t" $4 }' "$EVENTS_FILE")
+if [[ -s "$MTARGETS_FILE" ]]; then
+  LC_ALL=C sort -o "$MTARGETS_FILE" "$MTARGETS_FILE"
+fi
+
+# ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
+if [[ -s "$MTARGETS_FILE" ]]; then
+  awk 'NR == FNR { excl[$0] = 1; next } $1 == "H" && !($2 in excl)' \
+    "$MTARGETS_FILE" "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
+else
+  awk -F'\t' '$1 == "H"' "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
+fi
+
+# ── 扩围通道条目收集（复用同一规则数组，含 TEMP_ROOT 补充规则）──
+for i in "${!LABELS[@]}"; do
+  label="${LABELS[$i]}"
+  pattern="${PATTERNS[$i]}"
+  mode="${MODES[$i]}"
+
+  # A. 内联通道：cfg(test) 区域内行逐条匹配（内容列 = 第 4 字段起原文，
+  #    与 grep 全行匹配语义一致；E=动态 ERE / F=index 字面量）
+  while IFS= read -r entry; do
+    if [[ -n "$entry" ]]; then
+      ENTRIES+=("$entry")
+    fi
+  done < <(
+    awk -F'\t' -v mode="$mode" -v pat="$pattern" -v label="$label" '
+      $1 == "H" {
+        content = $0
+        sub(/^[^\t]*\t[^\t]*\t[^\t]*\t/, "", content)
+        hit = (mode == "F") ? (index(content, pat) > 0) : (content ~ pat)
+        if (hit) printf "%s:%s: %s\n", $2, $3, label
+      }' "$FILTERED_EVENTS_FILE"
+  )
+
+  # B. 挂载通道：目标文件全文件 grep（与原通道同一 grep 语义）
+  while IFS= read -r mfile; do
+    while IFS= read -r match; do
+      line="${match%%:*}"
+      ENTRIES+=("${mfile}:${line}: ${label}")
+    done < <(grep -n"$mode" -- "$pattern" "$PROJECT_ROOT/$mfile" 2>/dev/null || true)
+  done < "$MTARGETS_FILE"
+done
+
+rm -f "$EVENTS_FILE" "$MTARGETS_FILE" "$FILTERED_EVENTS_FILE"
 
 # 排序但保留重复条目（C locale 字节序，保证与 baseline 比对及重写结果确定性）：
 # 同一行可同时命中 '"/tmp 与 "$TEMP_ROOT 补充规则（同 label「硬编码路径」），产生重复条目；
