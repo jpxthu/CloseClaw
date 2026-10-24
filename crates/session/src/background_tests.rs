@@ -277,7 +277,6 @@ async fn test_plan_archive_grace_period_none_returns_immediately() {
 /// completion, so the in-waiter yield drain terminates through
 /// scheduler semantics, not poll-count luck.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_grace_period_abort_on_timeout() {
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
@@ -374,7 +373,6 @@ async fn test_plan_archive_signal_grace_clean_exit() {
 /// completion, so the in-waiter yield drain terminates through
 /// scheduler semantics, not poll-count luck.
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_hung_task_aborted_after_grace() {
     let aborted = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&aborted);
@@ -451,7 +449,6 @@ async fn test_plan_archive_hung_task_aborted_after_grace() {
 /// real wall-clock cost collapses to milliseconds (same approach as
 /// `test_plan_archive_grace_period_abort_on_timeout`).
 #[tokio::test(start_paused = true, flavor = "current_thread")]
-#[serial_test::serial]
 async fn test_plan_archive_inner_grace_independent_of_outer_timeout() {
     // Named task duration for both the sleep and the expected elapsed —
     // symmetric with the abort-side case expressing its expected duration
