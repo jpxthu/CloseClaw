@@ -66,7 +66,7 @@ fn config_subdir(config_dir: &std::path::Path) -> std::path::PathBuf {
 
 /// Shared `AdminContext` constructor for the fixtures below — assembles the
 /// parts they hold in common (`config/` subdir build, `ConfigManager::new`
-/// + `Arc` wrap, fresh `AgentRegistry`, empty fake skill registry, no
+/// plus `Arc` wrap, fresh `AgentRegistry`, empty fake skill registry, no
 /// restart channel) so the field wiring has a single source of truth.
 /// Fixture-specific duties (TempDir ownership, agents.json seeding,
 /// `load_agents`) stay with the callers.
