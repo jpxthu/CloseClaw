@@ -23,10 +23,55 @@
 use super::spawn::SpawnMode;
 use super::test_helpers::{setup_parent_with_conv, test_spawn_target_config};
 use super::tests::{clear_global_prompt_state, make_test_mgr};
+use super::SessionManager;
 use closeclaw_common::NotificationPriority;
 use closeclaw_session::llm_session::ChatSession;
 use serial_test::serial;
 use std::sync::Arc;
+
+/// Shared post-drain verification tail for the cyclic-warning tests.
+///
+/// Asserts, in order:
+/// 1. the notification queue is empty after the hard-timeout drain;
+/// 2. no timeout/warning notification appears in the transcript (they
+///    were routed outbound instead);
+/// 3. `drain_announces` routes system notifications: `texts` are pushed
+///    onto the parent session, drained, and the drained count must
+///    equal the pushed count.
+async fn assert_routed_outbound(mgr: &SessionManager, parent_id: &str, texts: &[&str]) {
+    let cs = mgr.get_conversation_session(parent_id).await.unwrap();
+
+    // Notifications should have been queued and drained (routed outbound).
+    // Queue should be empty after drain.
+    assert!(
+        cs.read().await.is_queue_empty(),
+        "queue should be empty after timeout drain"
+    );
+
+    // Should NOT be in transcript (routed outbound).
+    let messages = cs.read().await.messages().to_vec();
+    let in_transcript = messages.iter().any(|m| {
+        m.role == "system"
+            && m.content_blocks.iter().any(|b| {
+                matches!(b, closeclaw_llm::types::ContentBlock::Text(t)
+                    if t.contains("等待上限") || t.contains("超时预警"))
+            })
+    });
+    assert!(
+        !in_transcript,
+        "notifications should NOT be in transcript (routed outbound)"
+    );
+
+    // Verify drain_announces routes system notifications correctly.
+    {
+        let mut cs_write = cs.write().await;
+        for text in texts {
+            cs_write.push_system_notification((*text).into(), NotificationPriority::Next);
+        }
+    }
+    let drained = mgr.drain_announces(parent_id).await;
+    assert_eq!(drained.system_notifications.len(), texts.len());
+}
 
 // ── 16. ratio = 0.1 boundary (minimum) — interval clamped to 1s ──────────
 
@@ -91,43 +136,15 @@ async fn test_yield_cyclic_warning_ratio_0_1_boundary() {
     // scan below acts as the routing check.
     tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
-    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-
-    // Notifications should have been queued and drained (routed outbound).
-    // Queue should be empty after drain.
-    assert!(
-        cs.read().await.is_queue_empty(),
-        "queue should be empty after timeout drain"
-    );
-
-    // Should NOT be in transcript (routed outbound).
-    let messages = cs.read().await.messages().to_vec();
-    let in_transcript = messages.iter().any(|m| {
-        m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(b, closeclaw_llm::types::ContentBlock::Text(t)
-                    if t.contains("等待上限") || t.contains("超时预警"))
-            })
-    });
-    assert!(
-        !in_transcript,
-        "notifications should NOT be in transcript (routed outbound)"
-    );
-
-    // Verify drain_announces routes system notifications correctly.
-    {
-        let mut cs_write = cs.write().await;
-        cs_write.push_system_notification(
-            "[超时] verify routed outbound".into(),
-            NotificationPriority::Next,
-        );
-        cs_write.push_system_notification(
-            "[超时预警] verify warning routed".into(),
-            NotificationPriority::Next,
-        );
-    }
-    let drained = mgr.drain_announces(&parent_id).await;
-    assert_eq!(drained.system_notifications.len(), 2);
+    assert_routed_outbound(
+        &mgr,
+        &parent_id,
+        &[
+            "[超时] verify routed outbound",
+            "[超时预警] verify warning routed",
+        ],
+    )
+    .await;
 
     mgr.cancel_yield_timeout(&parent_id).await;
 }
@@ -159,38 +176,7 @@ async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
     // Wait 4s: hard timeout at T=3 fires, drain picks up warn at T=1.
     tokio::time::sleep(std::time::Duration::from_secs(4)).await;
 
-    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-
-    // Queue should be empty after drain consumed entries.
-    assert!(
-        cs.read().await.is_queue_empty(),
-        "queue should be empty after drain"
-    );
-
-    // Notifications should NOT be in transcript (routed outbound).
-    let messages = cs.read().await.messages().to_vec();
-    let in_transcript = messages.iter().any(|m| {
-        m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(b, closeclaw_llm::types::ContentBlock::Text(t)
-                    if t.contains("等待上限") || t.contains("超时预警"))
-            })
-    });
-    assert!(
-        !in_transcript,
-        "notifications should NOT be in transcript (routed outbound)"
-    );
-
-    // Verify drain_announces routes system notifications correctly.
-    {
-        let mut cs_write = cs.write().await;
-        cs_write.push_system_notification(
-            "[超时] verify cyclic routed".into(),
-            NotificationPriority::Next,
-        );
-    }
-    let drained = mgr.drain_announces(&parent_id).await;
-    assert_eq!(drained.system_notifications.len(), 1);
+    assert_routed_outbound(&mgr, &parent_id, &["[超时] verify cyclic routed"]).await;
 }
 
 // ── 18. Cyclic warnings stop before hard timeout fires ────────────────────
@@ -258,37 +244,5 @@ async fn test_yield_cyclic_warnings_stop_before_hard_timeout() {
     // left by then) is fully polled before the assertions below.
     tokio::time::sleep(std::time::Duration::from_secs(7)).await;
 
-    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-
-    // Notifications should have been queued and drained (routed outbound).
-    // Queue should be empty after drain.
-    assert!(
-        cs.read().await.is_queue_empty(),
-        "queue should be empty after drain"
-    );
-
-    // Should NOT be in transcript (routed outbound).
-    let messages = cs.read().await.messages().to_vec();
-    let in_transcript = messages.iter().any(|m| {
-        m.role == "system"
-            && m.content_blocks.iter().any(|b| {
-                matches!(b, closeclaw_llm::types::ContentBlock::Text(t)
-                    if t.contains("等待上限") || t.contains("超时预警"))
-            })
-    });
-    assert!(
-        !in_transcript,
-        "notifications should NOT be in transcript (routed outbound)"
-    );
-
-    // Verify drain_announces routes system notifications correctly.
-    {
-        let mut cs_write = cs.write().await;
-        cs_write.push_system_notification(
-            "[超时] verify cyclic stop routed".into(),
-            NotificationPriority::Next,
-        );
-    }
-    let drained = mgr.drain_announces(&parent_id).await;
-    assert_eq!(drained.system_notifications.len(), 1);
+    assert_routed_outbound(&mgr, &parent_id, &["[超时] verify cyclic stop routed"]).await;
 }
