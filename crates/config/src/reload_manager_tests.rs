@@ -3,6 +3,7 @@ use crate::reload_manager::{
     dispatch_change, filename_to_section, is_agents_path, is_credentials_path, is_permissions_path,
     ConfigReloadManager, ReloadCallback, DEFAULT_DEBOUNCE,
 };
+use closeclaw_common::test_helpers::ensure_dir;
 use notify::event::{DataChange, ModifyKind};
 use notify::{Event, EventKind};
 use std::path::Path;
@@ -234,7 +235,7 @@ fn test_dispatch_agents_json_invokes_callback() {
     let cb = Arc::new(MockCallback::new());
     let mgr = ConfigReloadManager::with_defaults(cm, cb.clone());
 
-    closeclaw_common::test_helpers::ensure_dir(&d.path().join("agents")).unwrap();
+    ensure_dir(&d.path().join("agents")).unwrap();
     std::fs::write(d.path().join("agents.json"), r#"{"agents":{}}"#).unwrap();
 
     let path = d.path().join("agents.json");
@@ -269,7 +270,7 @@ fn test_dispatch_unknown_file_is_noop() {
 #[test]
 fn test_watch_with_credentials_dir() {
     let d = TempDir::new().unwrap();
-    closeclaw_common::test_helpers::ensure_dir(&d.path().join("credentials")).unwrap();
+    ensure_dir(&d.path().join("credentials")).unwrap();
     let cm = make_config_manager(d.path());
     let cb = Arc::new(MockCallback::new());
     let mut mgr = ConfigReloadManager::with_defaults(cm, cb);
@@ -289,7 +290,7 @@ fn test_dispatch_credentials_file_change_reloads_section() {
     let mgr = ConfigReloadManager::with_defaults(cm, cb.clone());
 
     // Create credentials directory and file
-    closeclaw_common::test_helpers::ensure_dir(&d.path().join("credentials")).unwrap();
+    ensure_dir(&d.path().join("credentials")).unwrap();
     std::fs::write(
         d.path().join("credentials/openai.json"),
         r#"{"provider":"openai","apiKey":"sk-test"}"#,
@@ -319,7 +320,7 @@ fn test_dispatch_agents_dir_change_invokes_callback() {
     let mgr = ConfigReloadManager::with_defaults(cm, cb.clone());
 
     let agents_dir = d.path().join("agents");
-    closeclaw_common::test_helpers::ensure_dir(&agents_dir).unwrap();
+    ensure_dir(&agents_dir).unwrap();
     std::fs::write(agents_dir.join("test.json"), r#"{}"#).unwrap();
 
     let path = agents_dir.join("test.json");
@@ -340,7 +341,7 @@ fn test_dispatch_permissions_invokes_permissions_callback() {
 
     let root_dir = TempDir::new().unwrap();
     let agents_dir = root_dir.path().join("agents").join("delta");
-    closeclaw_common::test_helpers::ensure_dir(&agents_dir).unwrap();
+    ensure_dir(&agents_dir).unwrap();
 
     let perms_path = agents_dir.join("permissions.json");
     dispatch_change(&perms_path, &mgr);

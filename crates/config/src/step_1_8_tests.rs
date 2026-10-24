@@ -3,6 +3,7 @@
 //! Validates all behavior dimensions specified in the plan without
 //! modifying any business code.
 
+use closeclaw_common::test_helpers::ensure_dir;
 use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use tempfile::TempDir;
@@ -192,7 +193,7 @@ fn test_media_is_not_restart_class() {
 fn test_credential_file_permission_auto_correct() {
     let tmp = TempDir::new().unwrap();
     let creds_dir = tmp.path().join("credentials");
-    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
+    ensure_dir(&creds_dir).unwrap();
     let cred_file = creds_dir.join("openai.json");
     fs::write(&cred_file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
 
@@ -214,7 +215,7 @@ fn test_credential_file_permission_auto_correct() {
 fn test_credential_file_permission_already_correct() {
     let tmp = TempDir::new().unwrap();
     let creds_dir = tmp.path().join("credentials");
-    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
+    ensure_dir(&creds_dir).unwrap();
     let cred_file = creds_dir.join("openai.json");
     fs::write(&cred_file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
 
@@ -239,7 +240,7 @@ fn test_credential_file_permission_already_correct() {
 fn test_credential_file_permission_auto_correct_from_0o777() {
     let tmp = TempDir::new().unwrap();
     let creds_dir = tmp.path().join("credentials");
-    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
+    ensure_dir(&creds_dir).unwrap();
     let cred_file = creds_dir.join("openai.json");
     fs::write(&cred_file, r#"{"provider":"openai","apiKey":"sk-test"}"#).unwrap();
 
@@ -262,7 +263,7 @@ fn test_credential_file_permission_auto_correct_from_0o777() {
 fn test_credential_files_multiple_mixed_permissions() {
     let tmp = TempDir::new().unwrap();
     let creds_dir = tmp.path().join("credentials");
-    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
+    ensure_dir(&creds_dir).unwrap();
 
     // File 1: 0o644 (needs correction)
     let f1 = creds_dir.join("openai.json");

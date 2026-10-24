@@ -9,6 +9,7 @@ use crate::handlers_mode::{ExecuteHandler, ModeHandler, PlanModeHandler};
 use crate::plan_file_store::real_store::test_store;
 use crate::plan_file_store::PlanNameFormat;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -566,7 +567,7 @@ async fn test_execute_handler_no_plan_state() {
     // Create a plans dir with a plan file so name resolution works
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     std::fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
     sm.set_workdir(&sid, tmp.path().to_path_buf()).await;
 
@@ -598,7 +599,7 @@ async fn test_execute_handler_plan_confirmed() {
 
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     let plan_file = plans_dir.join("test-plan.md");
     fs::write(
         &plan_file,

@@ -8,6 +8,7 @@ use crate::handler::SlashHandler;
 use crate::handlers_mode::{parse_execute_args, ExecuteHandler};
 use crate::plan_file_store::real_store::test_store;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::SlashSessionQuery;
 use closeclaw_gateway::session_manager::SessionManager;
 
@@ -119,7 +120,7 @@ async fn test_execute_plan_mode_name_not_found() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     fs::write(plans_dir.join("existing-plan.md"), "# Plan\n").unwrap();
 
     let sm = make_session_manager_with_storage();
@@ -152,7 +153,7 @@ async fn test_execute_plan_mode_name_ambiguous() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     fs::write(plans_dir.join("auth-login.md"), "# Plan\n").unwrap();
     fs::write(plans_dir.join("auth-logout.md"), "# Plan\n").unwrap();
 
@@ -181,7 +182,7 @@ async fn test_execute_plan_mode_name_ambiguous() {
 async fn test_execute_non_plan_mode_name_not_found() {
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
 
     let sm = make_session_manager_with_storage();
     let sid = create_test_session(&sm).await;
@@ -236,7 +237,7 @@ async fn test_execute_whitespace_only_instruction_treated_as_none() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
 
     let sm = make_session_manager_with_storage();
@@ -270,7 +271,7 @@ async fn test_execute_name_with_md_suffix() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
 
     let sm = make_session_manager_with_storage();
@@ -302,7 +303,7 @@ async fn test_execute_multi_space_preserved_in_instruction() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     fs::write(plans_dir.join("my-plan.md"), "# Plan\n").unwrap();
 
     let sm = make_session_manager_with_storage();
@@ -369,7 +370,7 @@ async fn test_execute_plan_mode_with_name_resolves_plan() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     let plan_file = plans_dir.join("my-plan.md");
     fs::write(&plan_file, "# My Plan\n").unwrap();
     let sm = make_session_manager_with_storage();
@@ -419,7 +420,7 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
     use std::fs;
     let tmp = tempfile::tempdir().unwrap();
     let plans_dir = tmp.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans_dir).unwrap();
+    ensure_dir(&plans_dir).unwrap();
     let plan_file = plans_dir.join("my-plan.md");
     fs::write(&plan_file, "# My Plan\n").unwrap();
     let sm = make_session_manager_with_storage();
@@ -466,7 +467,7 @@ async fn test_execute_non_plan_mode_with_name_and_instruction() {
 /// Helper: create a plan file with a known old access timestamp marker.
 pub(crate) fn write_plan_with_old_timestamp(workdir: &std::path::Path, stem: &str) {
     let plans = workdir.join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans).unwrap();
+    ensure_dir(&plans).unwrap();
     std::fs::write(
         plans.join(format!("{stem}.md")),
         "# Old Plan\n<!-- accessed: 2020-01-01T00:00:00Z -->\n\n## Tasks\n\n- [ ] step1\n",

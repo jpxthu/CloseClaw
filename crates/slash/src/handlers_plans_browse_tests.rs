@@ -12,6 +12,7 @@ use crate::plan_file_store::real_store::test_store;
 use closeclaw_common::plan_state::PlanState;
 use closeclaw_common::session_lookup::PendingMessage;
 use closeclaw_common::slash_router::SlashResult;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::{SessionMode, SlashSessionQuery};
 
 // ── Mock ────────────────────────────────────────────────────────────────
@@ -145,7 +146,7 @@ fn make_handler_with_workdir(session_id: &str, workdir: PathBuf) -> PlanBrowseHa
 /// Create a plan file with content under `{workdir}/plans/{stem}.md`.
 fn write_plan(workdir: &std::path::Path, stem: &str, content: &str) {
     let plans = workdir.join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans).unwrap();
+    ensure_dir(&plans).unwrap();
     std::fs::write(plans.join(format!("{stem}.md")), content).unwrap();
 }
 
@@ -206,7 +207,7 @@ async fn test_list_plans_empty_workdir_no_plans_dir() {
 #[tokio::test]
 async fn test_list_plans_empty_workdir_plans_dir_exists() {
     let dir = tempfile::TempDir::new().unwrap();
-    closeclaw_common::test_helpers::ensure_dir(&dir.path().join("plans")).unwrap();
+    ensure_dir(&dir.path().join("plans")).unwrap();
     let h = make_handler_with_workdir("test_session", dir.path().to_path_buf());
     let ctx = dummy_ctx();
     match h.handle("", &ctx).await {
@@ -312,7 +313,7 @@ async fn test_list_plans_shows_completion_counts() {
 async fn test_list_plans_ignores_non_md_files() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans = dir.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans).unwrap();
+    ensure_dir(&plans).unwrap();
     std::fs::write(plans.join("notes.txt"), "not a plan").unwrap();
     write_plan(dir.path(), "real", "# Real Plan\n");
 
@@ -503,7 +504,7 @@ async fn test_list_plan_no_tasks_section() {
 async fn test_view_plan_file_not_readable() {
     let dir = tempfile::TempDir::new().unwrap();
     let plans = dir.path().join("plans");
-    closeclaw_common::test_helpers::ensure_dir(&plans).unwrap();
+    ensure_dir(&plans).unwrap();
     // Create a file, then make it unreadable
     let bad_path = plans.join("bad.md");
     std::fs::write(&bad_path, "content").unwrap();

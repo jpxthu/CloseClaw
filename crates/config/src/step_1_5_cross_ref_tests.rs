@@ -5,6 +5,7 @@
 //! all configs are loaded.
 
 use super::*;
+use closeclaw_common::test_helpers::ensure_dir;
 use std::fs;
 
 /// Helper: write the 5 mandatory config files into `dir`.
@@ -90,7 +91,7 @@ fn test_cross_ref_runs_after_configs_loaded() {
     let tmp = tempfile::tempdir().unwrap();
     write_mandatory(tmp.path());
     let creds_dir = tmp.path().join("credentials");
-    closeclaw_common::test_helpers::ensure_dir(&creds_dir).unwrap();
+    ensure_dir(&creds_dir).unwrap();
     fs::write(
         creds_dir.join("openai.json"),
         serde_json::json!({"provider": "openai", "apiKey": "sk-test"}).to_string(),

@@ -13,6 +13,7 @@
 //! `register()` never reaches the `ProcessManager` spawn (which would launch
 //! the real `lark-cli`).
 
+use closeclaw_common::test_helpers::ensure_dir;
 use std::future::Future;
 use std::time::Duration;
 
@@ -28,7 +29,7 @@ use crate::ports::GatewayHost;
 fn setup_enabled_config_dir() -> TempDir {
     let dir = TempDir::new().expect("tmp dir");
     let config = dir.path().join("config");
-    closeclaw_common::test_helpers::ensure_dir(&config).expect("config dir");
+    ensure_dir(&config).expect("config dir");
     std::fs::write(
         config.join("platforms.json"),
         r#"{"platforms":{"feishu":{"enabled":true}}}"#,

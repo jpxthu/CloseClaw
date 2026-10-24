@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
 use closeclaw_common::session_lookup::PendingMessage;
+use closeclaw_common::test_helpers::ensure_dir;
 use closeclaw_common::{PlanState, SessionMode, SlashSessionQuery, WorkflowControl};
 
 use crate::control::{OwnerPauseKind, WorkflowEngineControl, WorkflowSessionOps};
@@ -262,7 +263,7 @@ const SESSION: &str = "session-1";
 /// Write a single-step workflow SKILL.md with the given version and goal.
 fn write_workflow_file(dir: &std::path::Path, name: &str, version: &str, goal: &str) {
     let wf_dir = dir.join("workflows").join(name);
-    closeclaw_common::test_helpers::ensure_dir(&wf_dir).unwrap();
+    ensure_dir(&wf_dir).unwrap();
     let yaml = format!(
         concat!(
             "id: test-wf\n",
