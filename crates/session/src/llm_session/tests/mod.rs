@@ -52,7 +52,8 @@ mod streaming_tests;
 mod system_appends_tests;
 mod test_helpers;
 use self::test_helpers::{
-    assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, user_msg, TTL_MS,
+    assistant_msg, make_usage, make_usage_basic, now_ms, snapshot, tool_placeholder,
+    tool_result_msg, user_blocks_msg, user_msg, workflow_msg, TTL_MS,
 };
 mod thinking_clean_tests;
 mod tool_session_persist_tests;

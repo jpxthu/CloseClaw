@@ -78,6 +78,25 @@ pub struct SessionMessage {
     /// When the message was created.
     pub timestamp: DateTime<Utc>,
 }
+
+impl SessionMessage {
+    /// Whether `role` marks an injection-class message that may
+    /// legitimately sit between the pre-appended current-turn user
+    /// message and the history tail: tool results
+    /// (`inject_tool_result`, whose history conversion also emits an
+    /// empty placeholder `tool` message), workflow control messages
+    /// (`inject_workflow_message`), and system injections
+    /// (`inject_system_message`). `user` / `assistant` — and any
+    /// future role — are not injection roles.
+    ///
+    /// Single source of truth for injection-role classification in
+    /// the session module; the current-turn push dedup guard
+    /// (`push_current_turn_user_message`) consumes this to decide
+    /// where its rescan stops.
+    pub fn is_injection_role(role: &str) -> bool {
+        matches!(role, "tool" | "workflow" | "system")
+    }
+}
 /// Announce event pushed by a child session to its parent.
 ///
 /// Produced when a run-mode child completes; the parent injects

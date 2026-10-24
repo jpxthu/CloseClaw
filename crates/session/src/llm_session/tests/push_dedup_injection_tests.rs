@@ -23,11 +23,14 @@
 //! 5. The rescan stops at the first non-injection message: an
 //!    assistant message there (role mismatch) still pushes; a blocks
 //!    declaration form behind the cover still matches.
+//! 6. Corner: declared invoke on an empty history — the rescan finds
+//!    no non-injection message (find → None) and still pushes exactly
+//!    one user message.
 
 use crate::llm_session::ConversationSession;
 use closeclaw_common::{ContentBlock, InternalMessage};
 
-use super::{tmp_path, user_msg};
+use super::{tmp_path, tool_placeholder, tool_result_msg, user_blocks_msg, user_msg, workflow_msg};
 
 // ---------------------------------------------------------------------------
 
@@ -39,51 +42,11 @@ fn make_session() -> ConversationSession {
     )
 }
 
-/// The converted shape of an `inject_tool_result` transcript entry:
-/// the tool-role message itself becomes an empty placeholder tool
-/// message, and the ToolResult block is promoted to a second tool
-/// message carrying the `tool_call_id`.
-fn tool_placeholder() -> InternalMessage {
-    InternalMessage {
-        role: "tool".to_string(),
-        content: String::new(),
-        content_blocks: None,
-        tool_call_id: None,
-    }
-}
-
-fn tool_result_msg(id: &str, content: &str) -> InternalMessage {
-    InternalMessage {
-        role: "tool".to_string(),
-        content: content.to_string(),
-        content_blocks: None,
-        tool_call_id: Some(id.to_string()),
-    }
-}
-
-fn workflow_msg(content: &str) -> InternalMessage {
-    InternalMessage {
-        role: "workflow".to_string(),
-        content: content.to_string(),
-        content_blocks: None,
-        tool_call_id: None,
-    }
-}
-
 fn system_msg(content: &str) -> InternalMessage {
     InternalMessage {
         role: "system".to_string(),
         content: content.to_string(),
         content_blocks: None,
-        tool_call_id: None,
-    }
-}
-
-fn user_blocks_msg(blocks: &[ContentBlock]) -> InternalMessage {
-    InternalMessage {
-        role: "user".to_string(),
-        content: String::new(),
-        content_blocks: Some(blocks.to_vec()),
         tool_call_id: None,
     }
 }
@@ -271,5 +234,22 @@ fn blocks_declaration_under_injection_cover_skips_push() {
             tool_result_msg("call_1", "tool output"),
         ],
         "blocks declaration form matches behind the cover: no flattened duplicate"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// ⑤ Corner: empty history with the declaration
+// ---------------------------------------------------------------------------
+
+/// 空历史 corner case（声明 true）：回扫 `find` 无非注入消息可判（返回
+/// None）→ 照常 push，出站恰 1 条 user 消息，不 panic 也不静默丢弃。
+#[test]
+fn empty_history_with_declaration_pushes_single_user_message() {
+    let session = make_session();
+    let messages = session.build_llm_messages_with_listing("first message", None, true);
+    assert_eq!(
+        messages,
+        vec![user_msg("first message")],
+        "empty history with the declaration still pushes exactly one user message"
     );
 }

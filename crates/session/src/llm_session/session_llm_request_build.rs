@@ -126,7 +126,7 @@ impl ConversationSession {
             messages
                 .iter()
                 .rev()
-                .find(|msg| !is_injection_role(&msg.role))
+                .find(|msg| !SessionMessage::is_injection_role(&msg.role))
                 .is_some_and(|msg| Self::matches_current_turn_message(msg, content, true))
         } else {
             messages
@@ -163,17 +163,6 @@ impl ConversationSession {
                     && msg.content.is_empty()
                     && msg.content_blocks.is_some()))
     }
-}
-
-/// Whether `role` marks an injection-class message that may
-/// legitimately sit between the pre-appended current-turn user
-/// message and the history tail: tool results (`inject_tool_result`,
-/// whose history conversion also emits an empty placeholder `tool`
-/// message), workflow control messages (`inject_workflow_message`),
-/// and system injections (`inject_system_message`). `user` /
-/// `assistant` — and any future role — stop the rescan.
-fn is_injection_role(role: &str) -> bool {
-    matches!(role, "tool" | "workflow" | "system")
 }
 
 /// Skill-listing attachment and memory-injection application.
