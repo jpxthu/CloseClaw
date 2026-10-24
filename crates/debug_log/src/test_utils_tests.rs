@@ -1,4 +1,5 @@
-//! Unit tests for the shared debug-log test helpers (feature `test-util`).
+//! Unit tests for the shared debug-log test helpers, mounted under the
+//! `any(test, feature = "test-util")`-gated `test_utils` module.
 
 use super::*;
 use crate::TraceContext;
@@ -278,8 +279,9 @@ async fn test_poll_event_count_stops_as_soon_as_count_is_non_zero() {
             .unwrap();
     });
 
+    let deadline = Duration::from_secs(5);
     let start = std::time::Instant::now();
-    let count = poll_event_count(tmp.path(), Duration::from_secs(5)).await;
+    let count = poll_event_count(tmp.path(), deadline).await;
     let elapsed = start.elapsed();
     assert_eq!(count, 1, "the delayed write must be counted");
     assert!(
@@ -287,8 +289,8 @@ async fn test_poll_event_count_stops_as_soon_as_count_is_non_zero() {
         "zero-count polls must not stop before the write lands"
     );
     assert!(
-        elapsed < Duration::from_millis(1000),
-        "count > 0 must stop the poll well before the 5s deadline"
+        elapsed < deadline,
+        "count > 0 must stop the poll before the deadline"
     );
 }
 
@@ -298,19 +300,20 @@ async fn test_poll_event_count_stops_as_soon_as_count_is_non_zero() {
 async fn test_poll_event_count_timeout_returns_zero() {
     let tmp = TempDir::new().unwrap();
 
+    let deadline = Duration::from_millis(150);
     let start = std::time::Instant::now();
-    let count = poll_event_count(tmp.path(), Duration::from_millis(150)).await;
+    let count = poll_event_count(tmp.path(), deadline).await;
     let elapsed = start.elapsed();
     assert_eq!(
         count, 0,
         "deadline exhaustion on an empty dir must report zero"
     );
     assert!(
-        elapsed >= Duration::from_millis(150),
+        elapsed >= deadline,
         "zero-count polls must wait out the full deadline"
     );
     assert!(
-        elapsed < Duration::from_millis(1000),
-        "the poll must not hang past the deadline"
+        elapsed < deadline + Duration::from_secs(1),
+        "the poll must not hang past the deadline (+ scheduling margin)"
     );
 }

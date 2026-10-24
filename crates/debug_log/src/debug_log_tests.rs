@@ -1,5 +1,6 @@
 use super::*;
-use crate::{LogEvent, LogLevel, TraceContext};
+use crate::test_utils::make_config_at_level;
+use crate::{LogEvent, LogLevel, PatternMatch, RedactionPattern, TraceContext};
 use serde_json::json;
 use tempfile::TempDir;
 
@@ -8,12 +9,12 @@ use tempfile::TempDir;
 /// exercised by `test_redaction_applied`. The returned owned config
 /// supports in-place `min_level` mutation by individual tests.
 fn make_config(dir: &TempDir) -> DebugLogConfig {
-    crate::test_utils::make_config_at_level(
+    make_config_at_level(
         dir,
         LogLevel::Debug,
-        vec![crate::RedactionPattern {
+        vec![RedactionPattern {
             field: "secret".into(),
-            match_type: crate::PatternMatch::Exact,
+            match_type: PatternMatch::Exact,
             replacement: "[REDACTED]".into(),
         }],
     )

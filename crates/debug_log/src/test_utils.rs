@@ -88,7 +88,7 @@ pub async fn read_events(dir: &Path) -> Vec<LogEvent> {
 /// panics: the directory is created by `DebugLog::new`, so a read error
 /// is an abnormal state and must not be silently treated as "zero
 /// output" (which would make the absence assertions vacuously pass).
-#[allow(dead_code)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn count_events(dir: &Path) -> usize {
     let mut count = 0;
     let mut entries = tokio::fs::read_dir(dir)
@@ -117,7 +117,7 @@ pub(crate) async fn count_events(dir: &Path) -> usize {
 /// Poll the event count until it is non-zero or `timeout` expires, then
 /// return the last observed count. Used both for absence assertions
 /// (deadline exhausted at zero) and the positive control (non-zero).
-#[allow(dead_code)]
+#[cfg_attr(not(test), allow(dead_code))]
 pub(crate) async fn poll_event_count(dir: &Path, timeout: Duration) -> usize {
     let deadline = tokio::time::Instant::now() + timeout;
     loop {
