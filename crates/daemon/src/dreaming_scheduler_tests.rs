@@ -8,7 +8,7 @@ use tokio::time::Instant;
 
 use crate::dreaming_scheduler::DreamingScheduler;
 use crate::test_helpers::{
-    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_test_config_manager,
+    make_config_change_scheduler, make_disabled_pipeline_and_miner, make_unloaded_config_manager,
     notify_section_reload, run_scheduler_briefly, seed_memory_section_cache, wait_until,
     MockConfig, TestStorage,
 };
@@ -285,7 +285,7 @@ async fn run_once_and_get_status(
 async fn test_config_change_memory_section_updates_components() {
     // Setup: disabled pipeline/miner, Memory section cache with dreaming on.
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache(&config_manager);
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-reload.db"),
@@ -332,7 +332,7 @@ async fn test_config_change_memory_section_updates_components() {
 async fn test_config_change_non_memory_ignored() {
     // Setup: disabled pipeline/miner, no Memory section cache involved.
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-ignore.db"),
         &tmp.path().join("MEMORY-ignore.md"),
@@ -428,7 +428,7 @@ async fn test_immediate_hook_triggers_mining() {
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
 
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -678,7 +678,7 @@ async fn test_mining_notify_mines_configured_and_ignores_unconfigured() {
     let config: Arc<dyn SessionConfigProvider> =
         Arc::new(MockConfig::new(vec!["agent1".to_string()]));
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -774,7 +774,7 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
         Arc::clone(&test_storage) as Arc<dyn PersistenceService>;
     let config: Arc<dyn SessionConfigProvider> = Arc::new(MockConfig::empty());
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let pipeline = Arc::new(DreamingPipeline::new());
     let miner = Arc::new(MemoryMiner::new(
         closeclaw_memory::miner::MinerConfig {
@@ -841,7 +841,7 @@ async fn test_mining_notify_empty_agents_suppresses_mining() {
 #[tokio::test]
 async fn test_config_broadcast_lagged_loop_survives_and_applies_reload() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     seed_memory_section_cache(&config_manager);
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-lagged.db"),

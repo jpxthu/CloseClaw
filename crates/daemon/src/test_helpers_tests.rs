@@ -21,7 +21,7 @@ use crate::dreaming_scheduler::DreamingScheduler;
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
 use crate::test_helpers::{
     kill_self, make_config_change_scheduler, make_disabled_pipeline_and_miner,
-    make_test_config_manager, observe_heartbeat_until, run_scheduler_briefly, MockConfig,
+    make_unloaded_config_manager, observe_heartbeat_until, run_scheduler_briefly, MockConfig,
     TestShutdownSignal,
 };
 use async_trait::async_trait;
@@ -123,7 +123,7 @@ impl PersistenceService for HangingUnminedStorage {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_run_scheduler_briefly_returns_after_shutdown() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-helper-normal.db"),
         &tmp.path().join("MEMORY-helper-normal.md"),
@@ -143,7 +143,7 @@ async fn test_run_scheduler_briefly_returns_after_shutdown() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_run_scheduler_briefly_panics_with_what_context_on_timeout() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-helper-timeout.db"),
         &tmp.path().join("MEMORY-helper-timeout.md"),
@@ -208,7 +208,7 @@ async fn test_run_scheduler_briefly_panics_with_what_context_on_timeout() {
 #[tokio::test(start_paused = true, flavor = "current_thread")]
 async fn test_run_scheduler_briefly_returns_event_future_output() {
     let tmp = tempfile::tempdir().expect("temp dir");
-    let config_manager = make_test_config_manager(&tmp.path().join("config"));
+    let config_manager = make_unloaded_config_manager(&tmp.path().join("config"));
     let (pipeline, miner) = make_disabled_pipeline_and_miner(
         &tmp.path().join("memory-helper-return.db"),
         &tmp.path().join("MEMORY-helper-return.md"),
