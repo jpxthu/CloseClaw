@@ -120,7 +120,7 @@ fn history_user_text_count(session: &ConversationSession, text: &str) -> usize {
 /// invoke 不得再 push 副本——出站恰 1 份，且历史中该消息本身恰 1 份
 /// （排除「历史双 append」并存路径）。
 #[tokio::test]
-async fn tool_injection_cover_sends_single_copy_and_history_holds_one() {
+async fn test_tool_injection_cover_sends_single_copy_and_history_holds_one() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -155,7 +155,7 @@ async fn tool_injection_cover_sends_single_copy_and_history_holds_one() {
 /// workflow 注入覆盖变体（全链路）：`inject_workflow_message` 把尾部顶成
 /// workflow 消息，声明 invoke 回扫命中预 append 消息 → 出站恰 1 份。
 #[tokio::test]
-async fn workflow_injection_cover_sends_single_copy() {
+async fn test_workflow_injection_cover_sends_single_copy() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -190,7 +190,7 @@ async fn workflow_injection_cover_sends_single_copy() {
 /// 路径）历史尾部区域为 [user("q"), tool 注入] 时直接 invoke 同文本
 /// "q" → 照常 push，用户消息不被误删（跨轮安全）。
 #[tokio::test]
-async fn undeclared_invoke_behind_injection_keeps_push() {
+async fn test_undeclared_invoke_behind_injection_keeps_push() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -220,7 +220,7 @@ async fn undeclared_invoke_behind_injection_keeps_push() {
 /// （content=""），invoke 内容是网关展平文本；声明 invoke 回扫按声明
 /// 分支命中 blocks 消息 → 不 push 展平文本副本，出站恰 1 份。
 #[tokio::test]
-async fn blocks_pre_append_under_injection_cover_sends_single_copy() {
+async fn test_blocks_pre_append_under_injection_cover_sends_single_copy() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
