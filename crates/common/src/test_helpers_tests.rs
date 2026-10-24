@@ -1,17 +1,20 @@
 //! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and
 //! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
 //! TempDir contract, `create_subdir`'s nested-path creation, TempDir
-//! contract and base-is-a-file error path, and
+//! contract and base-is-a-file error path, `advance_mtime`'s
+//! mtime-advance / zero-advance / missing-path / repeated-advance /
+//! outside-TempDir-contract behaviour, and
 //! the shared `MemAuditLogger` audit mock behaviour (filter,
 //! time-descending query, unparseable-timestamp ordering,
 //! window/matches consistency, snapshot isolation, empty/zero-match
 //! boundaries, concurrency).
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use crate::audit_log::{AuditDisposition, AuditLogEntry, AuditLogFilter, AuditLogger};
 use crate::test_helpers::{
-    create_subdir, ensure_dir, remove_subdir, sample_audit_entry, MemAuditLogger,
+    advance_mtime, create_subdir, ensure_dir, remove_subdir, sample_audit_entry, MemAuditLogger,
 };
 
 /// query 结果中 agent_id 的出现顺序（排序断言的公共取样口径）。
@@ -156,6 +159,117 @@ fn test_create_subdir_panics_when_base_is_a_regular_file() {
     let blocker = tmp.path().join("blocker.txt");
     std::fs::write(&blocker, "x").expect("write blocker file");
     create_subdir(&blocker, "child");
+}
+
+/// 正常路径：写入文件后推进 10s，新 mtime 必须 ≥ 原 mtime + 10s − ε
+/// （ε = 1s，容忍文件系统时间戳粒度截断）且严格晚于原值，保证缓存失效
+/// 判定（比较文件 mtime 与先前记录值）必然把文件视为已更新。
+#[test]
+fn test_advance_mtime_advances_file_mtime_by_ten_seconds() {
+    const SECS: u64 = 10;
+    const EPSILON: Duration = Duration::from_secs(1);
+
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let file = tmp.path().join("cache.json");
+    std::fs::write(&file, "v1").expect("write file");
+
+    let before = std::fs::metadata(&file)
+        .expect("stat file before advance")
+        .modified()
+        .expect("mtime before advance");
+    advance_mtime(&file, SECS).expect("advance mtime by 10s");
+    let after = std::fs::metadata(&file)
+        .expect("stat file after advance")
+        .modified()
+        .expect("mtime after advance");
+
+    let floor = before
+        .checked_add(Duration::from_secs(SECS))
+        .and_then(|t| t.checked_sub(EPSILON))
+        .expect("mtime arithmetic must not overflow");
+    assert!(
+        after >= floor,
+        "推进后 mtime 必须 ≥ 原 mtime + {SECS}s − ε：before={before:?} after={after:?}"
+    );
+    assert!(after > before, "推进后 mtime 必须严格晚于原值");
+}
+
+/// 正常路径（零推进）：secs=0 时把 mtime 设为其当前值，读回应与推进前
+/// 完全相等——原值本就取自文件系统（已对齐到存储粒度），回写同一值
+/// 无粒度损失，mtime 不变。
+#[test]
+fn test_advance_mtime_zero_secs_keeps_mtime_unchanged() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let file = tmp.path().join("cache.json");
+    std::fs::write(&file, "v1").expect("write file");
+
+    let before = std::fs::metadata(&file)
+        .expect("stat file before advance")
+        .modified()
+        .expect("mtime before advance");
+    advance_mtime(&file, 0).expect("advance mtime by 0s");
+    let after = std::fs::metadata(&file)
+        .expect("stat file after advance")
+        .modified()
+        .expect("mtime after advance");
+
+    assert_eq!(after, before, "secs=0 时 mtime 必须保持不变");
+}
+
+/// 错误路径：路径不存在时打开文件失败，`advance_mtime` 以 `io::Result`
+/// 原样透传返回 Err（不 panic），错误处理权留给调用者。
+#[test]
+fn test_advance_mtime_missing_path_returns_error() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let missing = tmp.path().join("never-created.json");
+
+    let result = advance_mtime(&missing, 10);
+    assert!(result.is_err(), "路径不存在必须返回 Err 而非 panic");
+}
+
+/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时在
+/// 任何 mtime 改写前快速失败（panic 前缀与 helper 名一致），与
+/// `ensure_dir` / `remove_subdir` / `create_subdir` 的契约口径对齐。
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "advance_mtime")]
+fn test_advance_mtime_panics_for_path_outside_tempdir() {
+    let outside = outside_tempdir_probe("closeclaw_advance_mtime_outside_probe");
+    advance_mtime(&outside, 10).expect("advance_mtime: mtime advance outside temp dir must fail");
+}
+
+/// 边界：同一文件连续两次推进 +10s，第二次以第一次推进后的 mtime 为
+/// 基准再 +10s，最终 mtime 相比初始值累计 ≥ +20s − ε（ε = 1s，容忍
+/// 文件系统时间戳粒度截断，与单次推进测试的断言口径对齐）。
+#[test]
+fn test_advance_mtime_twice_accumulates_twenty_seconds() {
+    const EPSILON: Duration = Duration::from_secs(1);
+
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let file = tmp.path().join("cache.json");
+    std::fs::write(&file, "v1").expect("write file");
+
+    let before = std::fs::metadata(&file)
+        .expect("stat file before advances")
+        .modified()
+        .expect("mtime before advances");
+    advance_mtime(&file, 10).expect("first advance by 10s");
+    advance_mtime(&file, 10).expect("second advance by 10s");
+    let after = std::fs::metadata(&file)
+        .expect("stat file after advances")
+        .modified()
+        .expect("mtime after advances");
+
+    let gained = after
+        .duration_since(before)
+        .expect("mtime must stay monotone across advances");
+    let floor = Duration::from_secs(20)
+        .checked_sub(EPSILON)
+        .expect("duration arithmetic must not overflow");
+    assert!(
+        gained >= floor,
+        "两次 +10s 推进必须累计 ≥ +20s − ε：before={before:?} after={after:?} gained={gained:?}"
+    );
 }
 
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集

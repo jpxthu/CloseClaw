@@ -1,6 +1,5 @@
 use super::*;
-use closeclaw_common::test_helpers::ensure_dir;
-use filetime::FileTime;
+use closeclaw_common::test_helpers::{advance_mtime, ensure_dir};
 use std::collections::HashMap;
 use std::fs;
 use tempfile::TempDir;
@@ -91,9 +90,7 @@ fn test_cache_invalidation_on_file_replacement() {
     );
     fs::write(&path, serde_json::to_string(&perms2).unwrap()).unwrap();
     // Advance mtime by 10 seconds to guarantee cache invalidation.
-    let now = FileTime::now();
-    let new_mtime = FileTime::from_unix_time(now.unix_seconds() + 10, now.nanoseconds());
-    filetime::set_file_mtime(&path, new_mtime).unwrap();
+    advance_mtime(&path, 10).unwrap();
 
     let second = provider.get("mut-agent").unwrap();
     assert!(!second.is_allowed("file_read"));
@@ -225,13 +222,8 @@ fn test_project_level_cache_invalidation() {
 
     // Update project-level: file_read denied
     write_perms(&project_agents, "delta", false);
-    let now = FileTime::now();
-    let new_mtime = FileTime::from_unix_time(now.unix_seconds() + 10, now.nanoseconds());
-    filetime::set_file_mtime(
-        project_agents.join("delta").join("permissions.json"),
-        new_mtime,
-    )
-    .unwrap();
+    let path = project_agents.join("delta").join("permissions.json");
+    advance_mtime(&path, 10).unwrap();
 
     let second = provider.get("delta").unwrap();
     assert!(!second.is_allowed("file_read"));
