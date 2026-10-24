@@ -150,7 +150,7 @@ async fn test_rpc_terminal_plugin_concurrent_connections() {
 }
 
 /// Shutdown must clear agent routes together with the senders (pair
-/// cleanup via `clear_connections`, Step 1.23): a stale route after
+/// cleanup via `clear_connections`): a stale route after
 /// shutdown would resolve a task-local-less send and fail with the
 /// misleading "connection not found" branch instead of "no route".
 #[tokio::test]
@@ -171,7 +171,7 @@ async fn test_rpc_terminal_plugin_shutdown_clears_connections() {
         .await;
     assert!(result.is_err());
 
-    // Route map cleared with the senders — acceptance for Step 1.23.
+    // Route map cleared with the senders.
     assert!(
         plugin.agent_routes.read().await.is_empty(),
         "agent routes must be cleared on shutdown"
@@ -287,7 +287,7 @@ fn test_dispatch_ping_returns_pong() {
     assert!(json.contains("ping"));
 }
 
-// ── Step 1.10: supplementary tests ──────────────────────────────────────
+// ── supplementary tests ──────────────────────────────────────────────────
 
 /// sender_id must be the system UID, not agent_id.
 #[test]
@@ -494,7 +494,7 @@ async fn test_dispatch_ping_returns_pong_actual() {
     assert_eq!(responses[0], ChatResponse::Pong);
 }
 
-/// Step 1.15 — failure-side turn completion: the shared consumer must turn
+/// Failure-side turn completion: the shared consumer must turn
 /// the EMPTY payload emitted by the gateway's failed LLM turn
 /// (`session_handler_announce` error arm sends `("", [])`) into a
 /// `finish_turns()` call, so waiting chat connections finalize instead of
@@ -503,7 +503,7 @@ async fn test_dispatch_ping_returns_pong_actual() {
 /// `session_handler_announce_turn_completion_tests`.
 #[tokio::test]
 async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
-    // Waiting chat connection + shared consumer (Step 1.20 harness).
+    // Waiting chat connection + shared consumer (test_helpers harness).
     let mut h = crate::test_helpers::setup_turn_completion_consumer().await;
 
     // Exactly what the failure arm emits for a failed turn: empty payload.
@@ -526,7 +526,7 @@ async fn test_turn_completion_consumer_finalizes_failed_empty_payload_turn() {
         .expect("consumer task must exit when the output channel closes");
 }
 
-/// Step 1.20 — `unregister_sender` must also drop agent routes pointing
+/// `unregister_sender` must also drop agent routes pointing
 /// at that connection: a stale route would resolve task-local-less sends
 /// to a dead connection id ("connection not found") or keep routing to
 /// an agent whose chat connection is gone.
@@ -559,7 +559,7 @@ async fn test_unregister_sender_clears_agent_route() {
     );
 }
 
-/// Step 1.20 — latest registration wins for the same agent (the rule
+/// Latest registration wins for the same agent (the rule
 /// documented on `agent_routes`): a later connection supersedes the
 /// earlier route, and task-local-less sends land on the latest one only.
 #[tokio::test]
@@ -595,7 +595,7 @@ async fn test_agent_route_latest_registration_wins() {
     );
 }
 
-/// Step 1.21 — non-LlmStarted handler results take the drain branch:
+/// Non-LlmStarted handler results take the drain branch:
 /// synchronous output already queued on the connection channel is
 /// collected and the function returns without waiting for the channel
 /// to close (the guard deadline fails the test if the wait loop is
@@ -633,7 +633,7 @@ async fn test_collect_responses_non_llm_drains_queued_output() {
     drop(tx);
 }
 
-/// Step 1.23 — normal close path: an LlmStarted handler whose
+/// Normal close path: an LlmStarted handler whose
 /// connection channel closes (turn-completion consumer ran
 /// `finish_turns`, or the sender was dropped) returns promptly with the
 /// queued frames instead of waiting out the injected bound.
@@ -675,7 +675,7 @@ async fn test_collect_responses_llm_started_returns_on_channel_close() {
     );
 }
 
-/// Step 1.23 — panic path: a handler task that panics surfaces as a
+/// Panic path: a handler task that panics surfaces as a
 /// single `Error` frame ("internal error: …") instead of losing the
 /// turn; the connection channel itself is left untouched.
 #[tokio::test]
@@ -708,7 +708,7 @@ async fn test_collect_responses_handler_panic_yields_error_frame() {
     );
 }
 
-/// Step 1.21 — the LlmStarted wait honors the injected bound: a turn
+/// The LlmStarted wait honors the injected bound: a turn
 /// that never signals completion returns at the bound instead of
 /// hanging (production keeps the `TURN_COMPLETION_TIMEOUT_SECS` = 120s
 /// default via `collect_responses`), and the channel is left untouched.
@@ -737,7 +737,7 @@ async fn test_collect_responses_llm_started_times_out_at_injected_bound() {
     );
 }
 
-/// Step 1.24 — concurrent drain while awaiting the handler: a handler
+/// Concurrent drain while awaiting the handler: a handler
 /// that synchronously fills the channel (capacity 2) blocks on its
 /// third `send` until the collector receives, so the frames can only
 /// be collected if `collect_responses_with_timeout` drains
@@ -784,7 +784,7 @@ async fn test_collect_responses_drains_while_awaiting_handler() {
     );
 }
 
-// ── Step 1.4 (issue #3058): StopSession output-frame contract ──────────────
+// ── issue #3058: StopSession output-frame contract ──────────────────────────
 
 /// Indexes of non-empty content (reply) frames in a response sequence.
 fn reply_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
@@ -833,7 +833,7 @@ async fn make_stop_ready_context() -> ChatContext {
     context
 }
 
-/// Step 1.4 — lock the `ChatRequest::StopSession` output-frame contract of
+/// Lock the `ChatRequest::StopSession` output-frame contract of
 /// `dispatch_stop_session`: the agent route is registered, the `/stop` reply
 /// frames produced by the stop chain are drained, and they all arrive
 /// BEFORE the single terminal frame, which must be `Done` (stop success).
@@ -870,7 +870,12 @@ async fn test_dispatch_stop_session_replies_before_terminal() {
         ),
     )
     .await
-    .expect("dispatch must terminate instead of hanging until the suite-level timeout");
+    .expect(
+        "dispatch must terminate instead of hanging until the suite-level timeout — \
+         likely real cause: this 1s guard preempts the inner 2s self-healing \
+         `send_simplified_with_timeout` (`gateway::outbound_helpers`) that the \
+         rejection / restore / busy / permission-denied sends legitimately await",
+    );
 
     // ① at least one non-empty stop reply frame
     let replies = reply_frame_indexes(&responses);
