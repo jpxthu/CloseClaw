@@ -35,11 +35,13 @@ impl ConversationSession {
     /// 2. Memory injection (tool role) — positioned per
     ///    [`AfterCurrent`](super::InjectionPosition::AfterCurrent) or `BeforeNext`.
     /// 3. User message — dedup-guarded: skipped when the history already
-    ///    ends with the identical user message (the gateway pre-appends
-    ///    the current message to history before invoking; pushing again
-    ///    would send a duplicate copy that never enters history, breaking
-    ///    the tail-append message-list semantics the cache prefix check
-    ///    relies on).
+    ///    carries the identical user message at the evaluation point —
+    ///    the tail, or (with the pre-append declaration) the first
+    ///    non-injection message behind trailing injected messages (the
+    ///    gateway pre-appends the current message to history before
+    ///    invoking; pushing again would send a duplicate copy that never
+    ///    enters history, breaking the tail-append message-list
+    ///    semantics the cache prefix check relies on).
     ///
     /// `skill_listing` is the pre-computed listing content to inject.
     /// Pass `None` to skip skill listing injection.
@@ -68,53 +70,70 @@ impl ConversationSession {
 /// Current-turn user message assembly (dedup-guarded push).
 impl ConversationSession {
     /// Append the current-turn user message to `messages`, unless the
-    /// history already ends with it (dedup guard).
+    /// history already carries it at the evaluation point (dedup
+    /// guard).
     ///
     /// The gateway production path pre-appends the user message to
-    /// history (persistence/recovery semantics) before invoking, so
-    /// the converted history already ends with this exact message.
+    /// history (persistence/recovery semantics) before invoking.
     /// Pushing again would send a temporary duplicate copy that never
     /// enters history, so adjacent rounds stop being tail-append
     /// extensions and the cache prefix check reports PrefixMismatch
-    /// every round. The guard skips the push when the history tail is
-    /// a user message that equals the invoke content on role +
-    /// content, or — when the caller declared
-    /// `current_turn_pre_appended` — when the tail carries content
-    /// blocks **with empty flattened text**. The declaration is the
-    /// caller's explicit statement that the current user message was
-    /// already appended to history before the invoke (plain text form
-    /// or structured blocks form; gateway production path for both,
-    /// including embedded small-image messages); the declaration branch
-    /// then matches the image-round pre-append
-    /// shape, where Image blocks are excluded from the text flatten
-    /// so `content` is `""` (`content.is_empty()`). A blocks tail
-    /// with non-empty text does **not** match the declaration (the
-    /// flattened text could differ from the invoke content — e.g.
-    /// image + caption), so the push happens and the message is never
-    /// lost. Callers that did not pre-append (pending drain, tests)
-    /// still get the push.
+    /// every round.
     ///
-    /// Residual risk: a blocks tail with empty flattened text that is
-    /// *not* the declared message (e.g. compaction rewrote the history
-    /// between append and invoke into another image-only message) would
-    /// still be deduped and the invoke content dropped from the sent
-    /// list. When the tail does not match the declaration at all (not a
-    /// blocks-carrying user message, or its flattened text is
-    /// non-empty), the guard falls back to the string equality check and
-    /// the push still happens.
+    /// Without the declaration (`current_turn_pre_appended == false`;
+    /// pending drain, tests) the guard evaluates the history tail
+    /// only: a user-message tail equal to the invoke content is
+    /// skipped, everything else is pushed. No rescan happens, so a
+    /// same-text user message from an earlier round sitting behind
+    /// trailing injected messages never suppresses the push
+    /// (cross-round safety for the pending drain).
+    ///
+    /// With the declaration (`current_turn_pre_appended == true`) the
+    /// guard scans backwards past trailing injection-class messages
+    /// (roles `tool` — including the empty placeholder message the
+    /// history conversion emits for the tool-role transcript entry
+    /// itself — `workflow`, and `system`; the shapes produced by
+    /// `inject_tool_result` / `inject_workflow_message` /
+    /// `inject_system_message`). Such messages may legally sit
+    /// between the pre-appended message and the tail; under the
+    /// former tail-only check they blinded the guard and the message
+    /// was sent twice (issue #3072). The first non-injection message
+    /// is evaluated with
+    /// [`matches_current_turn_message`](Self::matches_current_turn_message):
+    /// role `user` with content equal to the invoke content, or —
+    /// declaration form — content blocks with empty flattened text
+    /// (image rounds). A blocks message with non-empty flattened
+    /// text does **not** match the declaration (the flattened text
+    /// could differ from the invoke content — e.g. image + caption),
+    /// so the push happens and the message is never lost. When the
+    /// scan finds no match (assistant message, mismatched user
+    /// message, scan past the start), the push happens too.
+    ///
+    /// Residual risk: a blocks message with empty flattened text that
+    /// is *not* the declared message (e.g. compaction rewrote the
+    /// history between append and invoke into another image-only
+    /// message) would still be deduped and the invoke content dropped
+    /// from the sent list — compaction rewrites the covered region
+    /// itself, so the injection rescan does not apply there. Every
+    /// non-matching shape still pushes via the string-equality
+    /// branch.
     fn push_current_turn_user_message(
         messages: &mut Vec<InternalMessage>,
         content: &str,
         current_turn_pre_appended: bool,
     ) {
-        let duplicates_history_tail = messages.last().is_some_and(|tail| {
-            tail.role == "user"
-                && (tail.content == content
-                    || (current_turn_pre_appended
-                        && tail.content.is_empty()
-                        && tail.content_blocks.is_some()))
-        });
-        if !duplicates_history_tail {
+        let duplicates_history = if current_turn_pre_appended {
+            messages
+                .iter()
+                .rev()
+                .find(|msg| !is_injection_role(&msg.role))
+                .is_some_and(|msg| Self::matches_current_turn_message(msg, content, true))
+        } else {
+            messages
+                .last()
+                .is_some_and(|msg| Self::matches_current_turn_message(msg, content, false))
+        };
+        if !duplicates_history {
             messages.push(InternalMessage {
                 role: "user".to_string(),
                 content: content.to_string(),
@@ -123,6 +142,38 @@ impl ConversationSession {
             });
         }
     }
+
+    /// Whether `msg` carries the current-turn message: role `user`
+    /// with content equal to the invoke content, or — only when the
+    /// caller declared the pre-append — content blocks with empty
+    /// flattened text (the image-round pre-append shape, where Image
+    /// blocks are excluded from the text flatten so `content` is
+    /// `""`). A non-empty flattened text never matches the
+    /// declaration branch: it could differ from the invoke content
+    /// (e.g. image + caption), and skipping the push would lose the
+    /// message.
+    fn matches_current_turn_message(
+        msg: &InternalMessage,
+        content: &str,
+        current_turn_pre_appended: bool,
+    ) -> bool {
+        msg.role == "user"
+            && (msg.content == content
+                || (current_turn_pre_appended
+                    && msg.content.is_empty()
+                    && msg.content_blocks.is_some()))
+    }
+}
+
+/// Whether `role` marks an injection-class message that may
+/// legitimately sit between the pre-appended current-turn user
+/// message and the history tail: tool results (`inject_tool_result`,
+/// whose history conversion also emits an empty placeholder `tool`
+/// message), workflow control messages (`inject_workflow_message`),
+/// and system injections (`inject_system_message`). `user` /
+/// `assistant` — and any future role — stop the rescan.
+fn is_injection_role(role: &str) -> bool {
+    matches!(role, "tool" | "workflow" | "system")
 }
 
 /// Skill-listing attachment and memory-injection application.

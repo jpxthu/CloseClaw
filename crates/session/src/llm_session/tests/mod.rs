@@ -31,6 +31,7 @@ mod memory_injection_dedup_tests;
 mod message_push_dedup_tests;
 mod pending_state_tests;
 mod progress_removal_session_tests;
+mod push_dedup_injection_tests;
 mod reasoning_level_tests;
 mod rebuild_system_prompt_tests;
 mod recent_tool_calls_tests;
