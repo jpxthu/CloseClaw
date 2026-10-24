@@ -25,39 +25,7 @@
 #[macro_export]
 macro_rules! debug_log_wrapper_tests {
     ($emit_fn:ident, $ctx_ty:ident, $params_ty:ident, $source_module:literal) => {
-        #[test]
-        fn test_empty_trace_id_is_noop() {
-            let ctx = $ctx_ty::new(None, "", None);
-            $emit_fn($params_ty {
-                ctx,
-                level: $crate::LogLevel::Info,
-                source_module: $source_module,
-                event_type: "test.event",
-                payload: serde_json::json!({}),
-                parent: None,
-            });
-        }
-
-        #[test]
-        fn test_none_debug_log_is_noop() {
-            let ctx = $ctx_ty::new(None, "trace-123", None);
-            $emit_fn($params_ty {
-                ctx,
-                level: $crate::LogLevel::Info,
-                source_module: $source_module,
-                event_type: "test.event",
-                payload: serde_json::json!({}),
-                parent: None,
-            });
-        }
-
-        #[test]
-        fn test_debug_log_context_new_fields() {
-            let ctx = $ctx_ty::new(None, "tid", Some("skey"));
-            assert_eq!(ctx.trace_id, "tid");
-            assert_eq!(ctx.session_key, Some("skey"));
-            assert!(ctx.debug_log.is_none());
-        }
+        $crate::debug_log_shared_tests!(all; $emit_fn, $ctx_ty, $params_ty, $source_module);
     };
 }
 
@@ -70,10 +38,55 @@ macro_rules! debug_log_wrapper_tests {
 #[macro_export]
 macro_rules! debug_log_core_tests {
     ($source_module:literal) => {
+        $crate::debug_log_shared_tests!(
+            shared;
+            $crate::emit_event,
+            $crate::DebugLogContext,
+            $crate::EmitEventParams,
+            $source_module
+        );
+    };
+}
+
+/// Delegation target holding every wrapper-layer test body exactly
+/// once, so the public variants share verbatim-equivalent assertions.
+///
+/// Internal implementation detail; not part of the public API.
+#[doc(hidden)]
+#[macro_export]
+macro_rules! debug_log_shared_tests {
+    // Full wrapper-layer expansion: the two tests shared with the core
+    // variant plus the wrapper-only empty-trace-id test.
+    (all; $emit_fn:path, $ctx_ty:path, $params_ty:path, $source_module:literal) => {
+        $crate::debug_log_shared_tests!(shared; $emit_fn, $ctx_ty, $params_ty, $source_module);
+
+        #[test]
+        fn test_empty_trace_id_is_noop() {
+            // Hygienic alias: `:path` fragments are opaque and cannot
+            // head a struct literal, so bind the params type to a plain
+            // ident (`Params` stays macro-internal, no user collision).
+            use $params_ty as Params;
+            let ctx = <$ctx_ty>::new(None, "", None);
+            $emit_fn(Params {
+                ctx,
+                level: $crate::LogLevel::Info,
+                source_module: $source_module,
+                event_type: "test.event",
+                payload: serde_json::json!({}),
+                parent: None,
+            });
+        }
+    };
+    // Tests shared by both public variants, written exactly once.
+    (shared; $emit_fn:path, $ctx_ty:path, $params_ty:path, $source_module:literal) => {
         #[test]
         fn test_none_debug_log_is_noop() {
-            let ctx = $crate::DebugLogContext::new(None, "trace-123", None);
-            $crate::emit_event($crate::EmitEventParams {
+            // Hygienic alias: `:path` fragments are opaque and cannot
+            // head a struct literal, so bind the params type to a plain
+            // ident (`Params` stays macro-internal, no user collision).
+            use $params_ty as Params;
+            let ctx = <$ctx_ty>::new(None, "trace-123", None);
+            $emit_fn(Params {
                 ctx,
                 level: $crate::LogLevel::Info,
                 source_module: $source_module,
@@ -85,7 +98,7 @@ macro_rules! debug_log_core_tests {
 
         #[test]
         fn test_debug_log_context_new_fields() {
-            let ctx = $crate::DebugLogContext::new(None, "tid", Some("skey"));
+            let ctx = <$ctx_ty>::new(None, "tid", Some("skey"));
             assert_eq!(ctx.trace_id, "tid");
             assert_eq!(ctx.session_key, Some("skey"));
             assert!(ctx.debug_log.is_none());
