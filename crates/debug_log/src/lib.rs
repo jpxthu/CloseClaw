@@ -16,7 +16,7 @@ mod test_macros;
 mod trace_context;
 mod writer;
 
-#[cfg(feature = "test-util")]
+#[cfg(any(test, feature = "test-util"))]
 pub mod test_utils;
 
 pub use config::{DebugLogConfig, DebugLogConfigError};

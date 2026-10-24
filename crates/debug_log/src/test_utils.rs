@@ -1,9 +1,11 @@
 //! Shared debug-log test helpers for the workspace.
 //!
-//! Feature-gated behind `test-util` so the helpers never enter the
-//! default build or the published API surface. Consumers wire it via a
-//! dev-dependency:
-//! `closeclaw-debug-log = { path = ..., features = ["test-util"] }`.
+//! Gated behind `any(test, feature = "test-util")`: external consumers
+//! wire it via a dev-dependency with the `test-util` feature
+//! (`closeclaw-debug-log = { path = ..., features = ["test-util"] }`),
+//! while in-crate tests reach it under `cfg(test)` without the feature
+//! (a crate cannot enable its own feature). It never enters the default
+//! build or the published API surface.
 
 use std::path::Path;
 use std::time::Duration;
@@ -64,6 +66,53 @@ pub async fn read_events(dir: &Path) -> Vec<LogEvent> {
         }
     }
     events
+}
+
+/// Count non-blank JSONL event lines across all `*.jsonl` files in `dir`.
+///
+/// Any fs read failure (`read_dir` / `next_entry` / `read_to_string`)
+/// panics: the directory is created by `DebugLog::new`, so a read error
+/// is an abnormal state and must not be silently treated as "zero
+/// output" (which would make the absence assertions vacuously pass).
+#[allow(dead_code)]
+pub(crate) async fn count_events(dir: &Path) -> usize {
+    let mut count = 0;
+    let mut entries = tokio::fs::read_dir(dir)
+        .await
+        .expect("read_dir on the log dir failed; treating it as zero output is a vacuous pass");
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .expect("read_dir iteration failed; treating it as zero output is a vacuous pass")
+    {
+        let path = entry.path();
+        if path.extension().and_then(|ext| ext.to_str()) != Some("jsonl") {
+            continue;
+        }
+        let content = tokio::fs::read_to_string(&path)
+            .await
+            .expect("reading a *.jsonl event file failed; this is not zero output");
+        count += content
+            .lines()
+            .filter(|line| !line.trim().is_empty())
+            .count();
+    }
+    count
+}
+
+/// Poll the event count until it is non-zero or `timeout` expires, then
+/// return the last observed count. Used both for absence assertions
+/// (deadline exhausted at zero) and the positive control (non-zero).
+#[allow(dead_code)]
+pub(crate) async fn poll_event_count(dir: &Path, timeout: Duration) -> usize {
+    let deadline = tokio::time::Instant::now() + timeout;
+    loop {
+        let count = count_events(dir).await;
+        if count > 0 || tokio::time::Instant::now() >= deadline {
+            return count;
+        }
+        tokio::time::sleep(POLL_INTERVAL).await;
+    }
 }
 
 /// Poll [`read_events`] until `predicate` passes, up to `timeout`.
