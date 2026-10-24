@@ -1,4 +1,5 @@
 use super::*;
+use closeclaw_common::test_helpers::ensure_dir;
 use filetime::FileTime;
 use std::collections::HashMap;
 use std::fs;
@@ -24,7 +25,7 @@ fn make_perms(agent_id: &str) -> AgentPermissions {
 fn test_get_returns_permissions_when_file_exists() {
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("test-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     let perms = make_perms("test-agent");
     let json = serde_json::to_string(&perms).unwrap();
     fs::write(agent_dir.join("permissions.json"), json).unwrap();
@@ -48,7 +49,7 @@ fn test_get_returns_none_when_file_missing() {
 fn test_cache_hit_on_unchanged_mtime() {
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("cached-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     let perms = make_perms("cached-agent");
     let json = serde_json::to_string(&perms).unwrap();
     fs::write(agent_dir.join("permissions.json"), &json).unwrap();
@@ -68,7 +69,7 @@ fn test_cache_hit_on_unchanged_mtime() {
 fn test_cache_invalidation_on_file_replacement() {
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("mut-agent");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     let path = agent_dir.join("permissions.json");
 
     let perms1 = make_perms("mut-agent");
@@ -102,7 +103,7 @@ fn test_cache_invalidation_on_file_replacement() {
 fn test_json_parse_error_returns_none() {
     let tmp = TempDir::new().unwrap();
     let agent_dir = tmp.path().join("agents").join("bad-json");
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     fs::write(agent_dir.join("permissions.json"), "not valid json {{{").unwrap();
 
     let provider = LazyAgentPermissions::new(tmp.path().to_path_buf());
@@ -116,7 +117,7 @@ fn test_json_parse_error_returns_none() {
 /// Helper: create a permissions file with a specific `file_read` state.
 fn write_perms(dir: &std::path::Path, agent_id: &str, allowed: bool) {
     let agent_dir = dir.join(agent_id);
-    fs::create_dir_all(&agent_dir).unwrap();
+    ensure_dir(&agent_dir).unwrap();
     let mut permissions = HashMap::new();
     permissions.insert(
         "file_read".to_string(),

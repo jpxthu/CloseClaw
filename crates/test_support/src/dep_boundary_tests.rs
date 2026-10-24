@@ -19,6 +19,7 @@ use crate::dep_boundary::{
     manifest_dependencies, regular_dependencies, workspace_deps_snapshot,
     workspace_internal_violations, DepBoundarySpec, DependencySection, WorkspaceDepsSnapshot,
 };
+use crate::test_helpers::ensure_dir;
 
 #[test]
 fn test_allowed_workspace_deps_pass_the_boundary() {
@@ -580,7 +581,7 @@ fn nested_workspace_spec(
     std::fs::write(dir.path().join("Cargo.toml"), root_manifest)
         .expect("write the synthetic workspace manifest");
     let member_dir = dir.path().join("crates").join("member");
-    std::fs::create_dir_all(&member_dir).expect("create the synthetic member dir");
+    ensure_dir(&member_dir).expect("create the synthetic member dir");
     let manifest_path = member_dir.join("Cargo.toml");
     std::fs::write(
         &manifest_path,
@@ -651,14 +652,14 @@ fn test_snapshot_walks_past_intermediate_manifest_without_workspace_table() {
     )
     .expect("write the synthetic workspace manifest");
     let intermediate_dir = dir.path().join("packages");
-    std::fs::create_dir_all(&intermediate_dir).expect("create the intermediate dir");
+    ensure_dir(&intermediate_dir).expect("create the intermediate dir");
     std::fs::write(
         intermediate_dir.join("Cargo.toml"),
         "[package]\nname = \"intermediate\"\n",
     )
     .expect("write the intermediate manifest without a [workspace] table");
     let member_dir = intermediate_dir.join("member");
-    std::fs::create_dir_all(&member_dir).expect("create the member dir");
+    ensure_dir(&member_dir).expect("create the member dir");
     let manifest_path = member_dir.join("Cargo.toml");
     std::fs::write(
         &manifest_path,

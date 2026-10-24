@@ -1,6 +1,7 @@
 //! Tests for DreamingPipeline memory_md_path configuration.
 
 use crate::dreaming::DreamingPipeline;
+use closeclaw_common::test_helpers::ensure_dir;
 use tempfile::TempDir;
 
 /// Default memory_md_path should be "memory/MEMORY.md".
@@ -13,7 +14,7 @@ fn test_dreaming_pipeline_default_memory_md_path() {
     let tmp = TempDir::new().unwrap();
     let md_path = tmp.path().join("memory/MEMORY.md");
     // Create parent dir so write_memory_md doesn't fail.
-    std::fs::create_dir_all(md_path.parent().unwrap()).unwrap();
+    ensure_dir(md_path.parent().unwrap()).unwrap();
     // Re-create pipeline pointing to our temp path to verify the setter works.
     let pipeline = DreamingPipeline::new().with_memory_md_path(md_path.to_str().unwrap());
     pipeline
