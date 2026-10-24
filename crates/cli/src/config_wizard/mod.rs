@@ -37,6 +37,8 @@ mod default_agent_id_same_source_tests;
 #[cfg(test)]
 mod discovery_source_suffix_tests;
 #[cfg(test)]
+mod ensure_master_agent_tests;
+#[cfg(test)]
 mod parse_model_selection_tests;
 #[cfg(test)]
 mod provider_config_protocol_tests;
@@ -45,6 +47,8 @@ mod provider_info_tests;
 #[cfg(test)]
 mod reexport_tests;
 #[cfg(test)]
-mod tests;
-#[cfg(test)]
 mod wizard_context_tests;
+#[cfg(test)]
+mod write_wizard_config_api_key_clearing_tests;
+#[cfg(test)]
+mod write_wizard_config_tests;

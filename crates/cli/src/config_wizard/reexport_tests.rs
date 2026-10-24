@@ -8,7 +8,8 @@
 use std::path::Path;
 
 /// Symbols used by external callers and test glob imports
-/// (admin/config.rs:182-218, admin/config_tests.rs:898-904, tests.rs glob).
+/// (admin/config.rs:182-218, admin/config_tests.rs:898-904, and the
+/// config_wizard child `*_tests.rs` modules' `use super::*` globs).
 #[test]
 fn test_config_wizard_reexports_compile() {
     // admin/config.rs: `run_wizard` (async; path resolution proves the
@@ -24,7 +25,8 @@ fn test_config_wizard_reexports_compile() {
     ) -> anyhow::Result<()> = crate::config_wizard::write_wizard_config_to;
     let _wizard_output: fn() -> crate::config_wizard::WizardOutput = || unreachable!();
 
-    // Test glob deps (tests.rs `use super::*;` / `use super::{...}`).
+    // Test glob deps (config_wizard child `*_tests.rs` `use super::*;` /
+    // `use super::{...}`).
     let _parse_model_selection: fn(&str, usize) -> anyhow::Result<Vec<usize>> =
         crate::config_wizard::parse_model_selection;
     let _compute_default_selection: fn(
