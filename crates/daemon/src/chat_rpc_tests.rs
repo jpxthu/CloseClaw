@@ -1,5 +1,5 @@
 use super::*;
-use crate::test_helpers::{make_dispatch_context, TEST_MAX_MESSAGE_SIZE};
+use crate::test_helpers::make_dispatch_context;
 use closeclaw_common::im_plugin::RenderedOutput;
 use closeclaw_gateway::types::GatewayConfig;
 use serde_json::json;
@@ -814,11 +814,8 @@ fn terminal_frame_indexes(responses: &[ChatResponse]) -> Vec<usize> {
 /// `SlashResult::Stop` → "已停止当前任务" reply → outbound → plugin send →
 /// agent-route fallback → this connection's channel).
 async fn make_stop_ready_context() -> ChatContext {
-    // max_message_size must be non-zero: with a 0-byte limit the non-empty
-    // "/stop" text exceeds the cap and is rejected in `validate_inbound`.
     let config = GatewayConfig {
         name: "stop-test".to_owned(),
-        max_message_size: TEST_MAX_MESSAGE_SIZE,
         ..Default::default()
     };
     let context = make_dispatch_context(config);
