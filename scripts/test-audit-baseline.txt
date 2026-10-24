@@ -2,24 +2,8 @@
 # 键格式: 相对路径:行号: 规则label（与脚本违规输出一致）
 # 语义: 命中条目豁免；清单外新增违规 fail；已消除条目提示可收窄
 # 重写: bash scripts/test-audit.sh --update-baseline
-crates/cli/src/admin/config_tests.rs:608: 手动目录管理
-crates/cli/src/admin/config_tests.rs:623: 手动目录管理
-crates/cli/src/admin/config_tests.rs:650: 手动目录管理
-crates/cli/src/admin/rpc/server_tests.rs:216: 手动目录管理
-crates/cli/src/admin/rpc/server_tests.rs:217: 手动目录管理
-crates/cli/src/admin/rpc/server_tests.rs:231: 手动目录管理
-crates/cli/src/admin/rpc/server_tests.rs:63: 手动目录管理
 crates/cli/src/admin/run_tests.rs:28: 手动目录管理
-crates/cli/src/config_wizard/tests.rs:207: 手动目录管理
-crates/cli/src/config_wizard/tests.rs:610: 手动目录管理
-crates/cli/src/config_wizard/tests.rs:611: 手动目录管理
-crates/cli/src/config_wizard/tests.rs:720: 手动目录管理
-crates/cli/src/config_wizard/tests.rs:937: 手动目录管理
 crates/gateway/src/agent_permissions_bridge.rs:139: 手动目录管理
-crates/gateway/src/session_manager/spawn_adapter_tests.rs:139: 手动目录管理
-crates/gateway/src/session_manager/spawn_adapter_tests.rs:376: 手动目录管理
-crates/gateway/src/session_manager/spawn_adapter_tests.rs:416: 手动目录管理
-crates/gateway/src/session_manager/spawn_adapter_tests.rs:499: 手动目录管理
 crates/gateway/src/session_manager/spawn_controller_permission_tests.rs:38: 手动目录管理
 crates/gateway/src/session_manager/spawn_controller_permission_tests.rs:66: 手动目录管理
 crates/gateway/src/session_manager/spawn_tests.rs:503: 手动目录管理
@@ -31,26 +15,11 @@ crates/im_adapter/src/media_store.rs:677: 网络socket(review)
 crates/im_adapter/src/media_store.rs:713: 网络socket(review)
 crates/permission/src/engine/engine_agent_rules.rs:255: 手动目录管理
 crates/permission/src/engine/engine_agent_rules.rs:302: 手动目录管理
-crates/permission/src/engine/engine_agent_rules_tests.rs:22: 手动目录管理
-crates/permission/src/engine/engine_agent_rules_tests.rs:451: 手动目录管理
-crates/permission/src/engine/engine_agent_rules_tests.rs:470: 手动目录管理
 crates/permission/src/sandbox/tests.rs:222: 手动目录管理
 crates/permission/src/sandbox/tests.rs:244: 手动目录管理
-crates/permission/src/tests/whitelist_deny_test.rs:186: 手动目录管理
-crates/permission/src/tests/whitelist_deny_test.rs:225: 手动目录管理
-crates/permission/src/tests/whitelist_deny_test.rs:241: 手动目录管理
-crates/permission/src/tests/whitelist_deny_test.rs:263: 手动目录管理
 crates/permission/src/tests/whitelist_test.rs:292: 手动目录管理
 crates/permission/src/tests/whitelist_test.rs:313: 手动目录管理
 crates/platform/src/config.rs:61: 手动目录管理
-crates/session/src/background_tests.rs:114: 手动目录管理
-crates/session/src/background_tests.rs:13: 手动目录管理
-crates/session/src/background_tests.rs:8: 手动目录管理
-crates/session/src/llm_session/tests/workflow_session_tests.rs:109: 手动目录管理
-crates/session/src/llm_session/tests/workflow_session_tests.rs:37: 手动目录管理
-crates/session/src/llm_session/tests/workflow_session_tests.rs:391: 手动目录管理
-crates/session/src/llm_session/tests/workflow_session_tests.rs:59: 手动目录管理
-crates/session/src/llm_session/tests/workflow_session_tests.rs:88: 手动目录管理
 crates/session/src/llm_session/workflow_lifecycle.rs:291: 手动目录管理
 crates/session/src/recovery_tests.rs:912: 手动目录管理
 crates/session/src/recovery_workflow_tests.rs:348: 手动目录管理
@@ -60,14 +29,6 @@ crates/session/src/storage/sqlite/consistency_check_tests.rs:55: 手动目录管
 crates/session/src/workflow_state_tests.rs:63: 手动目录管理
 crates/skills/src/disk/init.rs:50: 手动目录管理
 crates/skills/src/disk/loader.rs:134: 手动目录管理
-crates/skills/src/disk/registry_tests/mod.rs:480: 手动目录管理
-crates/skills/src/disk/registry_tests/mod.rs:513: 手动目录管理
-crates/skills/src/disk/registry_tests/mod.rs:952: 手动目录管理
-crates/tools/src/builtin/file_ops_tests.rs:400: 手动目录管理
-crates/tools/src/builtin/file_ops_tests.rs:498: 手动目录管理
-crates/tools/src/builtin/file_ops_tests.rs:732: 手动目录管理
-crates/tools/src/builtin/file_ops_tests.rs:778: 手动目录管理
-crates/tools/src/builtin/file_ops_tests.rs:807: 手动目录管理
 crates/tools/src/builtin/mode_execution_trigger_tests.rs:105: 手动目录管理
 crates/tools/src/builtin/mode_execution_trigger_tests.rs:620: 手动目录管理
 crates/tools/src/media_ref.rs:208: 手动目录管理
