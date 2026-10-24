@@ -52,7 +52,7 @@ fn prev_state<'a>(
 // ── prefix_matches: extension semantics ──────────────────────────
 
 #[test]
-fn prefix_matches_on_tail_append_only() {
+fn test_prefix_matches_on_tail_append_only() {
     let base = [msg("user", "hi"), msg("assistant", "hello")];
     let prev = snapshot("sys", &base);
     let extended: Vec<_> = base
@@ -65,7 +65,7 @@ fn prefix_matches_on_tail_append_only() {
 }
 
 #[test]
-fn prefix_matches_when_identical_equal_length() {
+fn test_prefix_matches_when_identical_equal_length() {
     let msgs = [msg("user", "hi"), msg("assistant", "hello")];
     let prev = snapshot("sys", &msgs);
     let cur = snapshot("sys", &msgs);
@@ -73,7 +73,7 @@ fn prefix_matches_when_identical_equal_length() {
 }
 
 #[test]
-fn prefix_mismatches_on_system_change() {
+fn test_prefix_mismatches_on_system_change() {
     let msgs = [msg("user", "hi")];
     let prev = snapshot("old system", &msgs);
     let cur = snapshot("new system", &msgs);
@@ -81,7 +81,7 @@ fn prefix_mismatches_on_system_change() {
 }
 
 #[test]
-fn prefix_mismatches_on_dynamic_system_change() {
+fn test_prefix_mismatches_on_dynamic_system_change() {
     let msgs = [msg("user", "hi")];
     let prev = build_prefix_snapshot(Some("sys"), Some("dynamic v1"), None, &msgs);
     let cur = build_prefix_snapshot(Some("sys"), Some("dynamic v2"), None, &msgs);
@@ -89,7 +89,7 @@ fn prefix_mismatches_on_dynamic_system_change() {
 }
 
 #[test]
-fn prefix_matches_when_only_dynamic_system_same() {
+fn test_prefix_matches_when_only_dynamic_system_same() {
     let msgs = [msg("user", "hi")];
     let prev = build_prefix_snapshot(Some("sys"), Some("dynamic"), None, &msgs);
     let cur = build_prefix_snapshot(Some("sys"), Some("dynamic"), None, &msgs);
@@ -97,7 +97,7 @@ fn prefix_matches_when_only_dynamic_system_same() {
 }
 
 #[test]
-fn prefix_mismatches_on_middle_message_rewrite() {
+fn test_prefix_mismatches_on_middle_message_rewrite() {
     let prev_msgs = [msg("user", "q1"), msg("assistant", "a1"), msg("user", "q2")];
     let prev = snapshot("sys", &prev_msgs);
     let mut cur_msgs = prev_msgs.to_vec();
@@ -108,14 +108,14 @@ fn prefix_mismatches_on_middle_message_rewrite() {
 }
 
 #[test]
-fn prefix_mismatches_on_same_length_different_content() {
+fn test_prefix_mismatches_on_same_length_different_content() {
     let prev = snapshot("sys", &[msg("user", "q1"), msg("assistant", "a1")]);
     let cur = snapshot("sys", &[msg("user", "q1"), msg("assistant", "different")]);
     assert!(!prefix_matches(&prev, &cur));
 }
 
 #[test]
-fn prefix_mismatches_when_current_shorter_than_previous() {
+fn test_prefix_mismatches_when_current_shorter_than_previous() {
     let prev = snapshot("sys", &[msg("user", "q1"), msg("assistant", "a1")]);
     let cur = snapshot("sys", &[msg("user", "q1")]);
     assert!(!prefix_matches(&prev, &cur));
@@ -124,7 +124,7 @@ fn prefix_mismatches_when_current_shorter_than_previous() {
 // ── prefix_matches: tools representation ─────────────────────────
 
 #[test]
-fn prefix_mismatches_on_tools_change() {
+fn test_prefix_mismatches_on_tools_change() {
     let msgs = [msg("user", "hi")];
     let prev = build_prefix_snapshot(Some("sys"), None, Some(&[tool("search")]), &msgs);
     let cur = build_prefix_snapshot(Some("sys"), None, Some(&[tool("fetch")]), &msgs);
@@ -132,7 +132,7 @@ fn prefix_mismatches_on_tools_change() {
 }
 
 #[test]
-fn prefix_matches_with_unchanged_tools() {
+fn test_prefix_matches_with_unchanged_tools() {
     let msgs = [msg("user", "hi")];
     let prev = build_prefix_snapshot(Some("sys"), None, Some(&[tool("search")]), &msgs);
     let cur = build_prefix_snapshot(Some("sys"), None, Some(&[tool("search")]), &msgs);
@@ -140,7 +140,7 @@ fn prefix_matches_with_unchanged_tools() {
 }
 
 #[test]
-fn prefix_matches_when_only_cache_marking_flag_differs() {
+fn test_prefix_matches_when_only_cache_marking_flag_differs() {
     // The per-round cache marking flag is not definition content.
     let msgs = [msg("user", "hi")];
     let mut unmarked = tool("search");
@@ -151,7 +151,7 @@ fn prefix_matches_when_only_cache_marking_flag_differs() {
 }
 
 #[test]
-fn prefix_matches_between_no_tools_and_empty_tools() {
+fn test_prefix_matches_between_no_tools_and_empty_tools() {
     let msgs = [msg("user", "hi")];
     let prev = build_prefix_snapshot(Some("sys"), None, None, &msgs);
     let cur = build_prefix_snapshot(Some("sys"), None, Some(&[]), &msgs);
@@ -161,7 +161,7 @@ fn prefix_matches_between_no_tools_and_empty_tools() {
 // ── cache_check_eligibility: exemptions ──────────────────────────
 
 #[test]
-fn first_round_without_snapshot_is_exempt_as_new_baseline() {
+fn test_first_round_without_snapshot_is_exempt_as_new_baseline() {
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(None, Some("provider/model"), Some(1_000));
     assert_eq!(
@@ -171,7 +171,7 @@ fn first_round_without_snapshot_is_exempt_as_new_baseline() {
 }
 
 #[test]
-fn prefix_mismatch_is_exempt() {
+fn test_prefix_mismatch_is_exempt() {
     let msgs = [msg("user", "hi")];
     let prev = snapshot("sys", &msgs);
     let cur = snapshot("changed sys", &msgs);
@@ -183,7 +183,7 @@ fn prefix_mismatch_is_exempt() {
 }
 
 #[test]
-fn model_switch_is_exempt() {
+fn test_model_switch_is_exempt() {
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), Some("provider/old-model"), Some(1_000));
     assert_eq!(
@@ -193,7 +193,7 @@ fn model_switch_is_exempt() {
 }
 
 #[test]
-fn interval_exceeding_ttl_is_exempt_as_natural_expiry() {
+fn test_interval_exceeding_ttl_is_exempt_as_natural_expiry() {
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), Some("provider/model"), Some(1_000));
     assert_eq!(
@@ -209,7 +209,7 @@ fn interval_exceeding_ttl_is_exempt_as_natural_expiry() {
 }
 
 #[test]
-fn unknown_previous_timestamp_is_exempt_as_expired() {
+fn test_unknown_previous_timestamp_is_exempt_as_expired() {
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), Some("provider/model"), None);
     assert_eq!(
@@ -221,7 +221,7 @@ fn unknown_previous_timestamp_is_exempt_as_expired() {
 // ── cache_check_eligibility: participation & boundaries ──────────
 
 #[test]
-fn appended_round_with_same_model_within_ttl_participates() {
+fn test_appended_round_with_same_model_within_ttl_participates() {
     let base = [msg("user", "hi")];
     let prev = snapshot("sys", &base);
     let extended: Vec<_> = base
@@ -238,7 +238,7 @@ fn appended_round_with_same_model_within_ttl_participates() {
 }
 
 #[test]
-fn interval_exactly_ttl_still_participates() {
+fn test_interval_exactly_ttl_still_participates() {
     // 超过有效期才豁免：等于 TTL 未超过，参与校验。
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), Some("provider/model"), Some(1_000));
@@ -249,7 +249,7 @@ fn interval_exactly_ttl_still_participates() {
 }
 
 #[test]
-fn model_identifier_absent_on_both_sides_participates() {
+fn test_model_identifier_absent_on_both_sides_participates() {
     // fake/stub 路径无实际标识，双方按会话配置口径退化后均为 None。
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), None, Some(1_000));
@@ -260,7 +260,7 @@ fn model_identifier_absent_on_both_sides_participates() {
 }
 
 #[test]
-fn model_present_vs_absent_is_treated_as_switch() {
+fn test_model_present_vs_absent_is_treated_as_switch() {
     let cur = snapshot("sys", &[msg("user", "hi")]);
     let state = prev_state(Some(&cur), Some("provider/model"), Some(1_000));
     assert_eq!(
@@ -270,7 +270,7 @@ fn model_present_vs_absent_is_treated_as_switch() {
 }
 
 #[test]
-fn prefix_mismatch_wins_over_model_switch_and_ttl() {
+fn test_prefix_mismatch_wins_over_model_switch_and_ttl() {
     // 多项豁免同时成立时按固定顺序取首个原因（prefix 优先）。
     let msgs = [msg("user", "hi")];
     let prev = snapshot("sys", &msgs);
@@ -285,7 +285,7 @@ fn prefix_mismatch_wins_over_model_switch_and_ttl() {
 // ── build_prefix_snapshot ────────────────────────────────────────
 
 #[test]
-fn snapshot_joins_static_and_dynamic_system_sections() {
+fn test_snapshot_joins_static_and_dynamic_system_sections() {
     let msgs = [msg("user", "hi")];
     let joined = build_prefix_snapshot(Some("static part"), Some("dynamic part"), None, &msgs);
     let manual = snapshot("static part\ndynamic part", &msgs);
@@ -293,7 +293,7 @@ fn snapshot_joins_static_and_dynamic_system_sections() {
 }
 
 #[test]
-fn snapshot_without_system_hashes_empty_system() {
+fn test_snapshot_without_system_hashes_empty_system() {
     let msgs = [msg("user", "hi")];
     let no_system = build_prefix_snapshot(None, None, None, &msgs);
     let empty_system = snapshot("", &msgs);
@@ -301,7 +301,7 @@ fn snapshot_without_system_hashes_empty_system() {
 }
 
 #[test]
-fn snapshot_hash_differs_for_different_message_content() {
+fn test_snapshot_hash_differs_for_different_message_content() {
     let prev = snapshot("sys", &[msg("user", "q1")]);
     let cur = snapshot("sys", &[msg("user", "q2")]);
     assert_ne!(prev.message_hashes, cur.message_hashes);

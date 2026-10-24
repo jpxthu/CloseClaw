@@ -380,19 +380,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn text_message_returns_original_content() {
+    async fn test_text_message_returns_original_content() {
         let pm = make_processed("hello world", MessageType::Text, vec![]);
         assert_eq!(build_context_content(&pm, None, 0).await, "hello world");
     }
 
     #[tokio::test]
-    async fn text_message_empty_content() {
+    async fn test_text_message_empty_content() {
         let pm = make_processed("", MessageType::Text, vec![]);
         assert_eq!(build_context_content(&pm, None, 0).await, "");
     }
 
     #[tokio::test]
-    async fn image_message_with_refs() {
+    async fn test_image_message_with_refs() {
         let pm = make_processed(
             "",
             MessageType::Image,
@@ -411,7 +411,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn file_message_with_refs() {
+    async fn test_file_message_with_refs() {
         let pm = make_processed(
             "",
             MessageType::File,
@@ -430,7 +430,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn audio_message_with_refs() {
+    async fn test_audio_message_with_refs() {
         let pm = make_processed(
             "",
             MessageType::Audio,
@@ -449,13 +449,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn image_message_without_refs_returns_empty() {
+    async fn test_image_message_without_refs_returns_empty() {
         let pm = make_processed("", MessageType::Image, vec![]);
         assert_eq!(build_context_content(&pm, None, 0).await, "");
     }
 
     #[tokio::test]
-    async fn post_with_text_and_media_refs() {
+    async fn test_post_with_text_and_media_refs() {
         let pm = make_processed(
             "check this image",
             MessageType::Post,
@@ -474,7 +474,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_with_media_only_no_text() {
+    async fn test_post_with_media_only_no_text() {
         let pm = make_processed(
             "",
             MessageType::Post,
@@ -493,13 +493,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn post_with_no_media_returns_text() {
+    async fn test_post_with_no_media_returns_text() {
         let pm = make_processed("just text", MessageType::Post, vec![]);
         assert_eq!(build_context_content(&pm, None, 0).await, "just text");
     }
 
     #[tokio::test]
-    async fn multiple_media_refs() {
+    async fn test_multiple_media_refs() {
         let pm = make_processed(
             "",
             MessageType::Post,
@@ -527,7 +527,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn reference_token_does_not_contain_local_path() {
+    async fn test_reference_token_does_not_contain_local_path() {
         let pm = make_processed(
             "",
             MessageType::Image,
@@ -557,7 +557,7 @@ mod tests {
 
     /// Small image (≤ threshold) → ContentBlock::Image with data URI.
     #[tokio::test]
-    async fn blocks_small_image_produces_image_block() {
+    async fn test_blocks_small_image_produces_image_block() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -588,7 +588,7 @@ mod tests {
 
     /// Large image (> threshold) → ContentBlock::Text reference token.
     #[tokio::test]
-    async fn blocks_large_image_produces_text_block() {
+    async fn test_blocks_large_image_produces_text_block() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("large.png"), [0u8; 2048]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -613,7 +613,7 @@ mod tests {
 
     /// File type → always ContentBlock::Text reference token.
     #[tokio::test]
-    async fn blocks_file_type_produces_text_block() {
+    async fn test_blocks_file_type_produces_text_block() {
         let pm = make_processed(
             "",
             MessageType::File,
@@ -632,7 +632,7 @@ mod tests {
 
     /// Text message → ContentBlock::Text.
     #[tokio::test]
-    async fn blocks_text_message_produces_text_block() {
+    async fn test_blocks_text_message_produces_text_block() {
         let pm = make_processed("hello world", MessageType::Text, vec![]);
         let blocks = build_context_content_blocks(&pm, None, 0).await;
         assert_eq!(blocks.len(), 1);
@@ -641,7 +641,7 @@ mod tests {
 
     /// Mixed: text + small image + file → multiple blocks.
     #[tokio::test]
-    async fn blocks_mixed_content_produces_multiple_blocks() {
+    async fn test_blocks_mixed_content_produces_multiple_blocks() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("pic.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -684,7 +684,7 @@ mod tests {
 
     /// No media store → fallback to text reference tokens.
     #[tokio::test]
-    async fn blocks_no_store_falls_back_to_text() {
+    async fn test_blocks_no_store_falls_back_to_text() {
         let pm = make_processed(
             "",
             MessageType::Image,
@@ -706,7 +706,7 @@ mod tests {
 
     /// Empty path → token without filename annotation.
     #[tokio::test]
-    async fn blocks_empty_path_produces_token_without_filename() {
+    async fn test_blocks_empty_path_produces_token_without_filename() {
         let pm = make_processed(
             "",
             MessageType::Image,
@@ -746,7 +746,7 @@ mod tests {
 
     /// Small image (≤ threshold) → base64 inline data appears in context.
     #[tokio::test]
-    async fn small_image_below_threshold_inlines_base64() {
+    async fn test_small_image_below_threshold_inlines_base64() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -775,7 +775,7 @@ mod tests {
 
     /// Large image (> threshold) → reference token only, no base64.
     #[tokio::test]
-    async fn large_image_above_threshold_keeps_reference() {
+    async fn test_large_image_above_threshold_keeps_reference() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("large.png"), [0u8; 2048]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -797,7 +797,7 @@ mod tests {
 
     /// File type → always reference token, never inline.
     #[tokio::test]
-    async fn file_type_always_uses_reference_token() {
+    async fn test_file_type_always_uses_reference_token() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("doc.pdf"), [0u8; 100]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -819,7 +819,7 @@ mod tests {
 
     /// Audio type → always reference token, never inline.
     #[tokio::test]
-    async fn audio_type_always_uses_reference_token() {
+    async fn test_audio_type_always_uses_reference_token() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("voice.ogg"), [0u8; 50]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -841,7 +841,7 @@ mod tests {
 
     /// No media store → reference token only (graceful fallback).
     #[tokio::test]
-    async fn no_media_store_falls_back_to_reference_token() {
+    async fn test_no_media_store_falls_back_to_reference_token() {
         let pm = make_processed(
             "",
             MessageType::Image,
@@ -859,7 +859,7 @@ mod tests {
 
     /// File not found on disk → reference token (graceful fallback).
     #[tokio::test]
-    async fn missing_file_falls_back_to_reference_token() {
+    async fn test_missing_file_falls_back_to_reference_token() {
         let tmp = tempfile::tempdir().unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
 
@@ -880,7 +880,7 @@ mod tests {
 
     /// Post with text + small image → text + inline base64.
     #[tokio::test]
-    async fn post_text_and_small_image_inlines_base64() {
+    async fn test_post_text_and_small_image_inlines_base64() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("photo.jpg"), [0xFF, 0xD8, 0xFF, 0xE0]).unwrap();
         let store = Arc::new(FsStore(tmp.path().to_path_buf()));
@@ -903,7 +903,7 @@ mod tests {
 
     /// Mixed refs: small image + large file → inline image + reference file.
     #[tokio::test]
-    async fn mixed_refs_inline_small_image_keep_file_reference() {
+    async fn test_mixed_refs_inline_small_image_keep_file_reference() {
         let tmp = tempfile::tempdir().unwrap();
         std::fs::write(tmp.path().join("small.png"), [0x89, 0x50, 0x4E, 0x47]).unwrap();
         std::fs::write(tmp.path().join("big.pdf"), [0u8; 5000]).unwrap();
@@ -944,7 +944,7 @@ mod tests {
     // ── extract_filename unit tests ──────────────────────────────────
 
     #[test]
-    fn extract_filename_with_extension() {
+    fn test_extract_filename_with_extension() {
         assert_eq!(extract_filename("small.png"), Some("small.png"));
         assert_eq!(extract_filename("doc.pdf"), Some("doc.pdf"));
         let dir = std::env::temp_dir();
@@ -955,7 +955,7 @@ mod tests {
     }
 
     #[test]
-    fn extract_filename_without_extension() {
+    fn test_extract_filename_without_extension() {
         let dir = std::env::temp_dir();
         assert_eq!(
             extract_filename(&dir.join("img").to_string_lossy()),
@@ -968,12 +968,12 @@ mod tests {
     }
 
     #[test]
-    fn extract_filename_empty_path() {
+    fn test_extract_filename_empty_path() {
         assert_eq!(extract_filename(""), None);
     }
 
     #[test]
-    fn extract_filename_deep_path() {
+    fn test_extract_filename_deep_path() {
         assert_eq!(
             extract_filename("inbound/img_abc_photo.png"),
             Some("img_abc_photo.png")

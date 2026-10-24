@@ -18,14 +18,14 @@ fn edit(old: &str, new: &str) -> EditOp {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn single_exact_match_and_replace() {
+fn test_single_exact_match_and_replace() {
     let (result, count) = match_and_apply("hello world", &[edit("world", "rust")], false).unwrap();
     assert_eq!(result, "hello rust");
     assert_eq!(count, 1);
 }
 
 #[test]
-fn multiple_edits_reverse_order() {
+fn test_multiple_edits_reverse_order() {
     // Two adjacent edits: "aa" → "bb" and "cc" → "dd".
     // Non-incremental matching ensures both match the original content.
     let (result, count) =
@@ -35,14 +35,14 @@ fn multiple_edits_reverse_order() {
 }
 
 #[test]
-fn replace_all_multiple_matches() {
+fn test_replace_all_multiple_matches() {
     let (result, count) = match_and_apply("aaa aaa aaa", &[edit("aaa", "bbb")], true).unwrap();
     assert_eq!(result, "bbb bbb bbb");
     assert_eq!(count, 1);
 }
 
 #[test]
-fn old_text_equals_new_text() {
+fn test_old_text_equals_new_text() {
     let (result, count) =
         match_and_apply("unchanged", &[edit("unchanged", "unchanged")], false).unwrap();
     assert_eq!(result, "unchanged");
@@ -50,7 +50,7 @@ fn old_text_equals_new_text() {
 }
 
 #[test]
-fn multiline_old_text() {
+fn test_multiline_old_text() {
     let content = "line1\nline2\nline3";
     let (result, count) =
         match_and_apply(content, &[edit("line2\nline3", "new2\nnew3")], false).unwrap();
@@ -59,7 +59,7 @@ fn multiline_old_text() {
 }
 
 #[test]
-fn empty_old_text_is_noop() {
+fn test_empty_old_text_is_noop() {
     // Empty old_text is a no-op (parameter validation catches this at the
     // EditTool level, but match_and_apply skips it gracefully).
     let (result, count) = match_and_apply("hello", &[edit("", "x")], false).unwrap();
@@ -68,7 +68,7 @@ fn empty_old_text_is_noop() {
 }
 
 #[test]
-fn single_character_file() {
+fn test_single_character_file() {
     let (result, count) = match_and_apply("a", &[edit("a", "b")], false).unwrap();
     assert_eq!(result, "b");
     assert_eq!(count, 1);
@@ -79,19 +79,19 @@ fn single_character_file() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn not_found_error() {
+fn test_not_found_error() {
     let err = match_and_apply("hello", &[edit("xyz", "abc")], false).unwrap_err();
     assert_eq!(err, EditError::NotFound);
 }
 
 #[test]
-fn ambiguous_error() {
+fn test_ambiguous_error() {
     let err = match_and_apply("ab ab", &[edit("ab", "cd")], false).unwrap_err();
     assert_eq!(err, EditError::Ambiguous(2));
 }
 
 #[test]
-fn overlapping_edits_error() {
+fn test_overlapping_edits_error() {
     let err =
         match_and_apply("abcdef", &[edit("abcd", "X"), edit("cdef", "Y")], false).unwrap_err();
     assert_eq!(err, EditError::Overlapping);
@@ -102,7 +102,7 @@ fn overlapping_edits_error() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_curly_quotes_to_straight() {
+fn test_fuzzy_curly_quotes_to_straight() {
     let content = "He said \u{201c}hello\u{201d} to me";
     let (result, _count) = match_and_apply(
         content,
@@ -118,7 +118,7 @@ fn fuzzy_curly_quotes_to_straight() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_trailing_whitespace() {
+fn test_fuzzy_trailing_whitespace() {
     let content = "hello world   \nfoo bar   \n";
     let (result, _count) =
         match_and_apply(content, &[edit("hello world\nfoo bar\n", "X\nY\n")], false).unwrap();
@@ -130,7 +130,7 @@ fn fuzzy_trailing_whitespace() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_nfc_normalization() {
+fn test_fuzzy_nfc_normalization() {
     // é can be encoded as a single code point (U+00E9) or as e + combining
     // accent (U+0065 U+0301). Both NFC-normalize to the same thing.
     let content = "caf\u{0065}\u{0301}"; // e + combining accent
@@ -144,7 +144,7 @@ fn fuzzy_nfc_normalization() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_combined_quotes_and_whitespace() {
+fn test_fuzzy_combined_quotes_and_whitespace() {
     let content = "She said \u{201c}hi there\u{201d}  \nbye   \n";
     let (result, _count) = match_and_apply(
         content,
@@ -160,7 +160,7 @@ fn fuzzy_combined_quotes_and_whitespace() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_does_not_override_exact() {
+fn test_fuzzy_does_not_override_exact() {
     // Exact match should still work when present.
     let content = "hello world";
     let (result, _count) =
@@ -174,7 +174,7 @@ fn fuzzy_does_not_override_exact() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_not_found_error() {
+fn test_fuzzy_not_found_error() {
     let err =
         match_and_apply("no match here", &[edit("completely different", "x")], false).unwrap_err();
     assert_eq!(err, EditError::NotFound);
@@ -185,7 +185,7 @@ fn fuzzy_not_found_error() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn multiple_fuzzy_edits() {
+fn test_multiple_fuzzy_edits() {
     let content = "line \u{201c}one\u{201d}\nline \u{201c}two\u{201d}";
     let (result, count) = match_and_apply(
         content,
@@ -205,7 +205,7 @@ fn multiple_fuzzy_edits() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_byte_range_correctness_with_unicode() {
+fn test_fuzzy_byte_range_correctness_with_unicode() {
     // Content with multi-byte UTF-8 characters before the fuzzy match target.
     // "日本語" takes 9 bytes. Then the target has curly quotes.
     let content = "日本語 says \u{201c}hello\u{201d} end";
@@ -223,7 +223,7 @@ fn fuzzy_byte_range_correctness_with_unicode() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn fuzzy_nfd_normalization() {
+fn test_fuzzy_nfd_normalization() {
     // Content is already NFD (e + combining accent).
     let content = "caf\u{0065}\u{0301}"; // NFD form
     let old = "cafe\u{0301}"; // also NFD but different encoding
@@ -237,7 +237,7 @@ fn fuzzy_nfd_normalization() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn empty_edits_returns_original() {
+fn test_empty_edits_returns_original() {
     let (result, count) = match_and_apply("unchanged", &[], false).unwrap();
     assert_eq!(result, "unchanged");
     assert_eq!(count, 0);

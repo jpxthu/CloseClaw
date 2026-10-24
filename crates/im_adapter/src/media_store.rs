@@ -401,32 +401,32 @@ mod tests {
     // -- sanitize_filename tests --
 
     #[test]
-    fn sanitize_removes_path_separators() {
+    fn test_sanitize_removes_path_separators() {
         assert_eq!(sanitize_filename("foo/bar.png"), "foobar.png");
         assert_eq!(sanitize_filename("foo\\bar.png"), "foobar.png");
     }
 
     #[test]
-    fn sanitize_removes_control_chars() {
+    fn test_sanitize_removes_control_chars() {
         assert_eq!(sanitize_filename("hello\x00world.png"), "helloworld.png");
         assert_eq!(sanitize_filename("a\nb\r.png"), "ab.png");
     }
 
     #[test]
-    fn sanitize_empty_becomes_media() {
+    fn test_sanitize_empty_becomes_media() {
         assert_eq!(sanitize_filename(""), "media");
         assert_eq!(sanitize_filename("   "), "media");
         assert_eq!(sanitize_filename("/\\\x00"), "media");
     }
 
     #[test]
-    fn sanitize_preserves_extension() {
+    fn test_sanitize_preserves_extension() {
         assert_eq!(sanitize_filename("photo.jpg"), "photo.jpg");
         assert_eq!(sanitize_filename("archive.tar.gz"), "archive.tar.gz");
     }
 
     #[test]
-    fn sanitize_long_name() {
+    fn test_sanitize_long_name() {
         let long = "a".repeat(500);
         let result = sanitize_filename(&format!("{long}.png"));
         assert!(result.ends_with(".png"));
@@ -436,7 +436,7 @@ mod tests {
     // -- new() tests --
 
     #[test]
-    fn new_creates_inbound_and_outbound() {
+    fn test_new_creates_inbound_and_outbound() {
         let (tmp, store) = make_store();
         assert!(store.inbound_dir().exists());
         assert!(store.outbound_dir().exists());
@@ -446,7 +446,7 @@ mod tests {
     // -- resolve_ref tests --
 
     #[test]
-    fn resolve_ref_returns_path_when_file_exists() {
+    fn test_resolve_ref_returns_path_when_file_exists() {
         let (_tmp, store) = make_store();
         let file_path = store.inbound_dir().join("test.txt");
         fs::write(&file_path, "content").unwrap();
@@ -464,7 +464,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_errors_on_empty_path() {
+    fn test_resolve_ref_errors_on_empty_path() {
         let (_tmp, store) = make_store();
         let media_ref = MediaRef {
             key: "k".into(),
@@ -480,7 +480,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_errors_when_file_missing() {
+    fn test_resolve_ref_errors_when_file_missing() {
         let (_tmp, store) = make_store();
         let media_ref = MediaRef {
             key: "k".into(),
@@ -496,7 +496,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_by_key_in_inbound() {
+    fn test_resolve_ref_by_key_in_inbound() {
         let (_tmp, store) = make_store();
         let file_path = store.inbound_dir().join("img_abc123.png");
         fs::write(&file_path, "image data").unwrap();
@@ -514,7 +514,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_by_key_in_outbound() {
+    fn test_resolve_ref_by_key_in_outbound() {
         let (_tmp, store) = make_store();
         let file_path = store.outbound_dir().join("file_xyz.pdf");
         fs::write(&file_path, "pdf data").unwrap();
@@ -532,7 +532,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_ref_by_key_not_found() {
+    fn test_resolve_ref_by_key_not_found() {
         let (_tmp, store) = make_store();
         // No files at all.
         let media_ref = MediaRef {
@@ -551,14 +551,14 @@ mod tests {
     // -- cleanup tests --
 
     #[test]
-    fn cleanup_expired_disabled_when_zero() {
+    fn test_cleanup_expired_disabled_when_zero() {
         let (_tmp, store) = make_store();
         let removed = store.cleanup_expired(0).unwrap();
         assert_eq!(removed, 0);
     }
 
     #[test]
-    fn cleanup_removes_old_files() {
+    fn test_cleanup_removes_old_files() {
         let (_tmp, store) = make_store();
         let file_path = store.inbound_dir().join("old.txt");
         fs::write(&file_path, "old content").unwrap();
@@ -579,7 +579,7 @@ mod tests {
     }
 
     #[test]
-    fn cleanup_keeps_recent_files() {
+    fn test_cleanup_keeps_recent_files() {
         let (_tmp, store) = make_store();
         let file_path = store.inbound_dir().join("recent.txt");
         fs::write(&file_path, "recent content").unwrap();
@@ -592,14 +592,14 @@ mod tests {
     // -- unique_filename tests --
 
     #[test]
-    fn unique_filename_no_conflict() {
+    fn test_unique_filename_no_conflict() {
         let dir = tempfile::tempdir().unwrap();
         let name = unique_filename(dir.path(), "photo", "png");
         assert_eq!(name, "photo.png");
     }
 
     #[test]
-    fn unique_filename_with_conflict() {
+    fn test_unique_filename_with_conflict() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join("photo.png"), "").unwrap();
         let name = unique_filename(dir.path(), "photo", "png");
@@ -611,14 +611,14 @@ mod tests {
     // -- expand_tilde tests --
 
     #[test]
-    fn expand_tilde_with_home() {
+    fn test_expand_tilde_with_home() {
         let home = dirs::home_dir().expect("home dir");
         assert_eq!(expand_tilde("~/foo"), home.join("foo"));
         assert_eq!(expand_tilde("~"), home);
     }
 
     #[test]
-    fn expand_tilde_no_home_prefix() {
+    fn test_expand_tilde_no_home_prefix() {
         assert_eq!(
             expand_tilde("/absolute/path"),
             PathBuf::from("/absolute/path")
@@ -632,7 +632,7 @@ mod tests {
     // -- download_and_persist tests --
 
     #[tokio::test]
-    async fn download_and_persist_succeeds() {
+    async fn test_download_and_persist_succeeds() {
         use axum::{routing::get, Router};
 
         let body = "hello world"; // 11 bytes
@@ -665,7 +665,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_and_persist_large_body_succeeds() {
+    async fn test_download_and_persist_large_body_succeeds() {
         use axum::{routing::get, Router};
 
         // No size pre-checks — any body size is accepted.
@@ -702,7 +702,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn download_and_persist_http_failure_returns_download_failed() {
+    async fn test_download_and_persist_http_failure_returns_download_failed() {
         use axum::{routing::get, Router};
 
         // Mock server returns 403 Forbidden (platform rejects download).

@@ -636,7 +636,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn inbound_request_fields() {
+    fn test_inbound_request_fields() {
         let req = InboundRequest {
             platform: "feishu".into(),
             raw_payload: b"{\"event\":{}}".to_vec(),
@@ -651,7 +651,7 @@ mod tests {
     }
 
     #[test]
-    fn inbound_queue_handle_try_send_ok() {
+    fn test_inbound_queue_handle_try_send_ok() {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(2);
         let handle = InboundQueueHandle::new(tx);
         let queued = QueuedInbound {
@@ -667,7 +667,7 @@ mod tests {
     }
 
     #[test]
-    fn inbound_queue_handle_try_send_full() {
+    fn test_inbound_queue_handle_try_send_full() {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(1);
         let handle = InboundQueueHandle::new(tx);
         let queued1 = QueuedInbound {
@@ -695,7 +695,7 @@ mod tests {
     }
 
     #[test]
-    fn inbound_queue_handle_capacity() {
+    fn test_inbound_queue_handle_capacity() {
         let (tx, _rx) = mpsc::channel::<QueuedInbound>(32);
         let handle = InboundQueueHandle::new(tx);
         assert_eq!(handle.capacity(), 32);
@@ -706,7 +706,7 @@ mod tests {
     /// Fills the channel to capacity, then enqueues one more message.
     /// try_send should return Err immediately because the channel is full.
     #[test]
-    fn enqueue_does_not_block_without_consumer() {
+    fn test_enqueue_does_not_block_without_consumer() {
         let (tx, rx) = mpsc::channel::<QueuedInbound>(1);
         let handle = InboundQueueHandle::new(tx);
 

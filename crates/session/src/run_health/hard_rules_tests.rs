@@ -21,7 +21,7 @@ fn input_base() -> HealthCheckInput {
 // ─── TimeoutRule ────────────────────────────────────────────
 
 #[tokio::test]
-async fn timeout_rule_no_trigger_when_within_threshold() {
+async fn test_timeout_rule_no_trigger_when_within_threshold() {
     let rule = TimeoutRule {
         threshold_ms: 10_000,
     };
@@ -31,7 +31,7 @@ async fn timeout_rule_no_trigger_when_within_threshold() {
 }
 
 #[tokio::test]
-async fn timeout_rule_triggers_when_exceeded() {
+async fn test_timeout_rule_triggers_when_exceeded() {
     let rule = TimeoutRule {
         threshold_ms: 10_000,
     };
@@ -48,7 +48,7 @@ async fn timeout_rule_triggers_when_exceeded() {
 }
 
 #[tokio::test]
-async fn timeout_rule_boundary_exact_threshold_not_triggered() {
+async fn test_timeout_rule_boundary_exact_threshold_not_triggered() {
     let rule = TimeoutRule {
         threshold_ms: 10_000,
     };
@@ -58,7 +58,7 @@ async fn timeout_rule_boundary_exact_threshold_not_triggered() {
 }
 
 #[tokio::test]
-async fn timeout_rule_boundary_one_over_threshold_triggered() {
+async fn test_timeout_rule_boundary_one_over_threshold_triggered() {
     let rule = TimeoutRule {
         threshold_ms: 10_000,
     };
@@ -76,7 +76,7 @@ async fn timeout_rule_boundary_one_over_threshold_triggered() {
 // ─── EmptyResponseRule ──────────────────────────────────────
 
 #[tokio::test]
-async fn empty_rule_no_trigger_when_has_text() {
+async fn test_empty_rule_no_trigger_when_has_text() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = true;
@@ -84,7 +84,7 @@ async fn empty_rule_no_trigger_when_has_text() {
 }
 
 #[tokio::test]
-async fn empty_rule_no_trigger_when_has_tool_calls() {
+async fn test_empty_rule_no_trigger_when_has_tool_calls() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = false;
@@ -93,7 +93,7 @@ async fn empty_rule_no_trigger_when_has_tool_calls() {
 }
 
 #[tokio::test]
-async fn empty_rule_triggers_when_no_content() {
+async fn test_empty_rule_triggers_when_no_content() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = false;
@@ -106,7 +106,7 @@ async fn empty_rule_triggers_when_no_content() {
 }
 
 #[tokio::test]
-async fn empty_rule_only_thinking_triggers() {
+async fn test_empty_rule_only_thinking_triggers() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = false;
@@ -119,7 +119,7 @@ async fn empty_rule_only_thinking_triggers() {
 }
 
 #[tokio::test]
-async fn empty_response_rule_text_with_thinking() {
+async fn test_empty_response_rule_text_with_thinking() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = true;
@@ -129,7 +129,7 @@ async fn empty_response_rule_text_with_thinking() {
 }
 
 #[tokio::test]
-async fn empty_response_rule_tool_calls_with_thinking() {
+async fn test_empty_response_rule_tool_calls_with_thinking() {
     let rule = EmptyResponseRule;
     let mut input = input_base();
     input.has_text = false;
@@ -141,7 +141,7 @@ async fn empty_response_rule_tool_calls_with_thinking() {
 // ─── StructuralAnomalyRule ──────────────────────────────────
 
 #[tokio::test]
-async fn structural_rule_no_trigger_when_valid() {
+async fn test_structural_rule_no_trigger_when_valid() {
     let rule = StructuralAnomalyRule;
     let mut input = input_base();
     input.is_structurally_valid = true;
@@ -149,7 +149,7 @@ async fn structural_rule_no_trigger_when_valid() {
 }
 
 #[tokio::test]
-async fn structural_rule_triggers_when_invalid_with_detail() {
+async fn test_structural_rule_triggers_when_invalid_with_detail() {
     let rule = StructuralAnomalyRule;
     let mut input = input_base();
     input.is_structurally_valid = false;
@@ -163,7 +163,7 @@ async fn structural_rule_triggers_when_invalid_with_detail() {
 }
 
 #[tokio::test]
-async fn structural_rule_triggers_when_invalid_no_detail() {
+async fn test_structural_rule_triggers_when_invalid_no_detail() {
     let rule = StructuralAnomalyRule;
     let mut input = input_base();
     input.is_structurally_valid = false;
@@ -179,7 +179,7 @@ async fn structural_rule_triggers_when_invalid_no_detail() {
 // ─── SideEffectOccurredRule ─────────────────────────────────
 
 #[tokio::test]
-async fn side_effect_rule_triggers_when_tool_executed_and_interrupted() {
+async fn test_side_effect_rule_triggers_when_tool_executed_and_interrupted() {
     let rule = SideEffectOccurredRule;
     let mut input = input_base();
     input.side_effect_occurred = true;
@@ -192,7 +192,7 @@ async fn side_effect_rule_triggers_when_tool_executed_and_interrupted() {
 }
 
 #[tokio::test]
-async fn side_effect_rule_no_trigger_when_response_normal() {
+async fn test_side_effect_rule_no_trigger_when_response_normal() {
     let rule = SideEffectOccurredRule;
     let mut input = input_base();
     input.side_effect_occurred = true;
@@ -202,7 +202,7 @@ async fn side_effect_rule_no_trigger_when_response_normal() {
 }
 
 #[tokio::test]
-async fn side_effect_rule_no_trigger_when_no_side_effects() {
+async fn test_side_effect_rule_no_trigger_when_no_side_effects() {
     let rule = SideEffectOccurredRule;
     let mut input = input_base();
     input.side_effect_occurred = false;
@@ -214,7 +214,7 @@ async fn side_effect_rule_no_trigger_when_no_side_effects() {
 }
 
 #[tokio::test]
-async fn side_effect_rule_no_trigger_when_tool_calls_present() {
+async fn test_side_effect_rule_no_trigger_when_tool_calls_present() {
     let rule = SideEffectOccurredRule;
     let mut input = input_base();
     input.side_effect_occurred = true;
@@ -226,7 +226,7 @@ async fn side_effect_rule_no_trigger_when_tool_calls_present() {
 // ─── SideEffectOccurredRule in engine ──────────────────────
 
 #[tokio::test]
-async fn engine_side_effect_violation_category() {
+async fn test_engine_side_effect_violation_category() {
     let engine = HardRuleEngine::new(vec![Box::new(SideEffectOccurredRule)]);
     let mut input = input_base();
     input.side_effect_occurred = true;
@@ -247,7 +247,7 @@ async fn engine_side_effect_violation_category() {
 // ─── RetryExhaustedRule ─────────────────────────────────────
 
 #[tokio::test]
-async fn retry_rule_no_trigger_when_under_limit() {
+async fn test_retry_rule_no_trigger_when_under_limit() {
     let rule = RetryExhaustedRule { max_retries: 5 };
     let mut input = input_base();
     input.retry_count = 3;
@@ -255,7 +255,7 @@ async fn retry_rule_no_trigger_when_under_limit() {
 }
 
 #[tokio::test]
-async fn retry_rule_triggers_when_at_limit() {
+async fn test_retry_rule_triggers_when_at_limit() {
     let rule = RetryExhaustedRule { max_retries: 5 };
     let mut input = input_base();
     input.retry_count = 5;
@@ -269,7 +269,7 @@ async fn retry_rule_triggers_when_at_limit() {
 }
 
 #[tokio::test]
-async fn retry_rule_triggers_when_over_limit() {
+async fn test_retry_rule_triggers_when_over_limit() {
     let rule = RetryExhaustedRule { max_retries: 5 };
     let mut input = input_base();
     input.retry_count = 7;
@@ -285,7 +285,7 @@ async fn retry_rule_triggers_when_over_limit() {
 // ─── HardRuleEngine ─────────────────────────────────────────
 
 #[tokio::test]
-async fn engine_no_violations_returns_healthy() {
+async fn test_engine_no_violations_returns_healthy() {
     let engine = HardRuleEngine::new(vec![
         Box::new(TimeoutRule {
             threshold_ms: 10_000,
@@ -302,7 +302,7 @@ async fn engine_no_violations_returns_healthy() {
 }
 
 #[tokio::test]
-async fn engine_captures_multiple_violations() {
+async fn test_engine_captures_multiple_violations() {
     let engine = HardRuleEngine::new(vec![
         Box::new(TimeoutRule {
             threshold_ms: 1_000,
@@ -325,7 +325,7 @@ async fn engine_captures_multiple_violations() {
 }
 
 #[tokio::test]
-async fn engine_first_violation_drives_category() {
+async fn test_engine_first_violation_drives_category() {
     // TimeoutRule first → category should be Retryable
     let engine = HardRuleEngine::new(vec![
         Box::new(TimeoutRule {
@@ -343,7 +343,7 @@ async fn engine_first_violation_drives_category() {
 }
 
 #[tokio::test]
-async fn engine_rule_order_does_not_affect_violation_set() {
+async fn test_engine_rule_order_does_not_affect_violation_set() {
     // Two engines with reversed rule order should produce the same
     // violation set (order within vec may differ, so compare as sets).
     let input = {

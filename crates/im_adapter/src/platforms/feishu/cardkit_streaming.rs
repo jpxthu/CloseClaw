@@ -225,7 +225,7 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn pending_text_direct_accumulation() {
+    fn test_pending_text_direct_accumulation() {
         let mut r = make_renderer();
         push_text(&mut r, "Hello ");
         push_text(&mut r, "world!");
@@ -233,34 +233,34 @@ mod tests {
     }
 
     #[test]
-    fn pending_text_preserves_all_content() {
+    fn test_pending_text_preserves_all_content() {
         let mut r = make_renderer();
         push_text(&mut r, "Hello world! ");
         assert_eq!(r.state.pending_text, "Hello world! ");
     }
 
     #[test]
-    fn pending_text_with_newline() {
+    fn test_pending_text_with_newline() {
         let mut r = make_renderer();
         push_text(&mut r, "line1\nline2");
         assert_eq!(r.state.pending_text, "line1\nline2");
     }
 
     #[test]
-    fn pending_text_without_terminator_preserved() {
+    fn test_pending_text_without_terminator_preserved() {
         let mut r = make_renderer();
         push_text(&mut r, "no terminator here");
         assert_eq!(r.state.pending_text, "no terminator here");
     }
 
     #[test]
-    fn pending_text_empty_initially() {
+    fn test_pending_text_empty_initially() {
         let r = make_renderer();
         assert!(r.pending_text().is_empty());
     }
 
     #[test]
-    fn pending_text_cleared_by_reset() {
+    fn test_pending_text_cleared_by_reset() {
         let mut r = make_renderer();
         push_text(&mut r, "some content。");
         assert!(!r.state.pending_text.is_empty());
@@ -273,7 +273,7 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn state_default_values() {
+    fn test_state_default_values() {
         let state = FeishuStreamingState::default();
         assert!(state.card_id.is_none());
         assert_eq!(state.sequence, 0);
@@ -283,7 +283,7 @@ mod tests {
     }
 
     #[test]
-    fn state_reset_clears_all() {
+    fn test_state_reset_clears_all() {
         let mut state = FeishuStreamingState {
             card_id: Some("card_123".to_string()),
             sequence: 5,
@@ -304,31 +304,31 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn should_update_now_true_when_no_last_update() {
+    fn test_should_update_now_true_when_no_last_update() {
         let r = make_renderer();
         assert!(r.should_update_now());
     }
 
     #[test]
-    fn should_update_now_respects_interval() {
+    fn test_should_update_now_respects_interval() {
         let mut r = make_renderer();
         r.state.last_update = Some(Instant::now());
         assert!(!r.should_update_now());
     }
 
     #[test]
-    fn streaming_element_id_is_correct() {
+    fn test_streaming_element_id_is_correct() {
         assert_eq!(STREAMING_ELEMENT_ID, "streaming_content");
     }
 
     #[test]
-    fn sequence_starts_at_zero() {
+    fn test_sequence_starts_at_zero() {
         let state = FeishuStreamingState::default();
         assert_eq!(state.sequence, 0);
     }
 
     #[test]
-    fn sequence_increments_on_update() {
+    fn test_sequence_increments_on_update() {
         let mut state = FeishuStreamingState::default();
         state.sequence += 1;
         assert_eq!(state.sequence, 1);
@@ -337,7 +337,7 @@ mod tests {
     }
 
     #[test]
-    fn card_id_set_during_streaming() {
+    fn test_card_id_set_during_streaming() {
         let mut state = FeishuStreamingState::default();
         assert!(state.card_id.is_none());
         state.card_id = Some("card_abc123".to_string());
@@ -345,7 +345,7 @@ mod tests {
     }
 
     #[test]
-    fn streaming_active_flag_toggled() {
+    fn test_streaming_active_flag_toggled() {
         let mut state = FeishuStreamingState::default();
         assert!(!state.is_active);
         state.is_active = true;
@@ -359,7 +359,7 @@ mod tests {
     // =========================================================================
 
     #[test]
-    fn reset_during_active_streaming_clears_state() {
+    fn test_reset_during_active_streaming_clears_state() {
         let mut r = make_renderer();
         push_text(&mut r, "partial content。");
         r.state.card_id = Some("active_card".to_string());

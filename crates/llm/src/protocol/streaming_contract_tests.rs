@@ -82,7 +82,7 @@ async fn collect_events(stream: &mut OutgoingEventStream) -> Vec<StreamEvent> {
 ///   → BlockDelta(Text, " friend") → BlockDelta(Text, ".")
 ///   → BlockEnd(Text) → MessageEnd(stop)
 #[tokio::test]
-async fn openai_streaming_text_contract() {
+async fn test_openai_streaming_text_contract() {
     let raw = load_streaming_fixture(&openai_fixture_dir().join("streaming.txt")).unwrap();
     let meta = load_streaming_meta(&openai_fixture_dir().join("streaming-meta.json")).unwrap();
 
@@ -162,7 +162,7 @@ async fn openai_streaming_text_contract() {
 /// Assembled input_json_delta chunks should produce the same JSON as
 /// the non-streaming `tool-use.json` fixture: `{"location":"Tokyo"}`.
 #[tokio::test]
-async fn openai_streaming_tool_use_contract() {
+async fn test_openai_streaming_tool_use_contract() {
     let raw = load_streaming_fixture(&openai_fixture_dir().join("tool-use-streaming.txt")).unwrap();
     let meta =
         load_streaming_meta(&openai_fixture_dir().join("tool-use-streaming-meta.json")).unwrap();
@@ -269,7 +269,7 @@ async fn openai_streaming_tool_use_contract() {
 /// `message_delta` gives output tokens + stop_reason.
 /// `ping` events must be skipped.
 #[tokio::test]
-async fn anthropic_streaming_text_contract() {
+async fn test_anthropic_streaming_text_contract() {
     let raw =
         load_streaming_fixture(&anthropic_fixture_dir().join("anthropic-streaming.txt")).unwrap();
     let meta = load_streaming_meta(&anthropic_fixture_dir().join("anthropic-streaming-meta.json"))
@@ -351,7 +351,7 @@ async fn anthropic_streaming_text_contract() {
 /// Assembled input_json_delta chunks should produce:
 /// `{"location": "San Francisco"}` (matching non-streaming fixture).
 #[tokio::test]
-async fn anthropic_streaming_tool_use_contract() {
+async fn test_anthropic_streaming_tool_use_contract() {
     let raw =
         load_streaming_fixture(&anthropic_fixture_dir().join("anthropic-tool-use-streaming.txt"))
             .unwrap();
@@ -468,7 +468,7 @@ async fn anthropic_streaming_tool_use_contract() {
 /// Verify all streaming `.txt` fixtures across both protocols are
 /// consumed by streaming contract tests (4 total).
 #[test]
-fn streaming_coverage_matrix() {
+fn test_streaming_coverage_matrix() {
     let openai_dir = openai_fixture_dir();
     let anthropic_dir = anthropic_fixture_dir();
 

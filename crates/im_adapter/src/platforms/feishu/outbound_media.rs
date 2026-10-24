@@ -296,7 +296,7 @@ mod tests {
     use tempfile::TempDir;
 
     #[tokio::test]
-    async fn validate_path_within_workspace() {
+    async fn test_validate_path_within_workspace() {
         let tmp = TempDir::new().unwrap();
         let ws = create_subdir(tmp.path(), "workspace");
         let media = create_subdir(tmp.path(), "media");
@@ -307,7 +307,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_path_within_media_store() {
+    async fn test_validate_path_within_media_store() {
         let tmp = TempDir::new().unwrap();
         let ws = create_subdir(tmp.path(), "workspace");
         let media = create_subdir(tmp.path(), "media");
@@ -318,7 +318,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_path_outside_rejected() {
+    async fn test_validate_path_outside_rejected() {
         let tmp = TempDir::new().unwrap();
         let ws = create_subdir(tmp.path(), "workspace");
         let media = create_subdir(tmp.path(), "media");
@@ -330,7 +330,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn validate_path_no_workspace_only_media() {
+    async fn test_validate_path_no_workspace_only_media() {
         let tmp = TempDir::new().unwrap();
         let media = create_subdir(tmp.path(), "media");
         let file = media.join("test.txt");
@@ -340,7 +340,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn copy_to_outbound_creates_file() {
+    async fn test_copy_to_outbound_creates_file() {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("source.png");
         fs::write(&source, "image data").unwrap();
@@ -357,7 +357,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn copy_to_outbound_unique_name_on_conflict() {
+    async fn test_copy_to_outbound_unique_name_on_conflict() {
         let tmp = TempDir::new().unwrap();
         let source = tmp.path().join("test.png");
         fs::write(&source, "data1").unwrap();
@@ -376,22 +376,22 @@ mod tests {
     }
 
     #[test]
-    fn detect_file_type_opus() {
+    fn test_detect_file_type_opus() {
         assert_eq!(detect_file_type(Path::new("audio.opus")), "opus");
     }
 
     #[test]
-    fn detect_file_type_mp4() {
+    fn test_detect_file_type_mp4() {
         assert_eq!(detect_file_type(Path::new("video.mp4")), "mp4");
     }
 
     #[test]
-    fn detect_file_type_pdf() {
+    fn test_detect_file_type_pdf() {
         assert_eq!(detect_file_type(Path::new("doc.pdf")), "pdf");
     }
 
     #[test]
-    fn detect_file_type_unknown() {
+    fn test_detect_file_type_unknown() {
         assert_eq!(detect_file_type(Path::new("data.xyz")), "stream");
     }
 }

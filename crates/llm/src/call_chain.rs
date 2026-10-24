@@ -146,12 +146,8 @@ pub async fn build_fallback_client(registry: &Arc<LLMRegistry>) -> Arc<UnifiedFa
     Arc::new(UnifiedFallbackClient::new(entries, cooldown))
 }
 
-// Naming (STANDARDS §3): newly added test cases must carry the `test_`
-// prefix. Exempt in this module (review decision): the pre-existing
-// cases that predate the rule (`assemble_*`, `build_chain_entries_*`,
-// `build_fallback_client_*`) plus this branch's 4 `build_*` additions
-// (`build_vendor_provider_*` ×3, `build_chain_entry_carries_provider_and_model_ids`),
-// kept in the module's existing style rather than renamed mid-branch.
+// Naming (STANDARDS §3): all test cases in this module carry the `test_`
+// prefix as required (legacy exemptions removed by issue #3904 renaming).
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -175,7 +171,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_unknown_provider_uses_openai_and_default_interpreter() {
+    fn test_assemble_unknown_provider_uses_openai_and_default_interpreter() {
         let (protocol, interpreter, _plugin) = assemble_llm_components("unknown");
         assert_eq!(protocol.protocol_id().as_str(), "openai");
         // DefaultInterpreter should be registered — resolve returns it
@@ -189,7 +185,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_minimax_uses_anthropic_protocol() {
+    fn test_assemble_minimax_uses_anthropic_protocol() {
         let (protocol, interpreter, plugin) = assemble_llm_components("minimax");
         assert_eq!(protocol.protocol_id().as_str(), "anthropic");
         let resolved = interpreter.resolve("minimax", "minimax/some-model");
@@ -202,7 +198,7 @@ mod tests {
     }
 
     #[test]
-    fn assemble_anthropic_uses_anthropic_protocol() {
+    fn test_assemble_anthropic_uses_anthropic_protocol() {
         let (protocol, interpreter, plugin) = assemble_llm_components("anthropic");
         assert_eq!(protocol.protocol_id().as_str(), "anthropic");
         assert!(!plugin.is_empty(), "anthropic should have plugins");
@@ -215,19 +211,19 @@ mod tests {
     }
 
     #[test]
-    fn assemble_deepseek_uses_anthropic_protocol() {
+    fn test_assemble_deepseek_uses_anthropic_protocol() {
         let (protocol, _, _) = assemble_llm_components("deepseek");
         assert_eq!(protocol.protocol_id().as_str(), "anthropic");
     }
 
     #[test]
-    fn assemble_glm_uses_openai_protocol() {
+    fn test_assemble_glm_uses_openai_protocol() {
         let (protocol, _, _) = assemble_llm_components("glm");
         assert_eq!(protocol.protocol_id().as_str(), "openai");
     }
 
     #[test]
-    fn assemble_mimo_uses_openai_protocol() {
+    fn test_assemble_mimo_uses_openai_protocol() {
         let (protocol, _, _) = assemble_llm_components("mimo");
         assert_eq!(protocol.protocol_id().as_str(), "openai");
     }
@@ -235,7 +231,7 @@ mod tests {
     /// Every vendor implemented by this crate constructs with the custom
     /// base_url reflected in `Provider::base_url`.
     #[test]
-    fn build_vendor_provider_all_vendors_use_configured_base_url() {
+    fn test_build_vendor_provider_all_vendors_use_configured_base_url() {
         for id in VENDOR_IDS {
             let url = format!("http://127.0.0.1:9/{id}");
             let provider = build_vendor_provider(id, "key", Some(&url)).expect(id);
@@ -247,7 +243,7 @@ mod tests {
     /// endpoint (each vendor's `new` delegates to its base-url constructor
     /// with the same default, so both paths agree).
     #[test]
-    fn build_vendor_provider_default_base_url_when_absent_or_empty() {
+    fn test_build_vendor_provider_default_base_url_when_absent_or_empty() {
         for id in VENDOR_IDS {
             let default_url = build_vendor_provider(id, "key", None).expect(id);
             let empty_url = build_vendor_provider(id, "key", Some("")).expect(id);
@@ -262,28 +258,28 @@ mod tests {
     /// Provider ids without a vendor implementation return `None` so the
     /// caller can report the skip (no silent fallthrough to a wrong vendor).
     #[test]
-    fn build_vendor_provider_unknown_id_returns_none() {
+    fn test_build_vendor_provider_unknown_id_returns_none() {
         assert!(build_vendor_provider("acme", "key", Some("http://127.0.0.1:9")).is_none());
     }
 
     /// The single assembly point carries the caller's ids through
     /// unchanged (the daemon passes the real models.json model id).
     #[test]
-    fn build_chain_entry_carries_provider_and_model_ids() {
+    fn test_build_chain_entry_carries_provider_and_model_ids() {
         let entry = build_chain_entry(stub_provider(), "openai", "gpt-4o-basic");
         assert_eq!(entry.provider_id, "openai");
         assert_eq!(entry.model_id, "gpt-4o-basic");
     }
 
     #[tokio::test]
-    async fn build_chain_entries_empty_registry_returns_empty() {
+    async fn test_build_chain_entries_empty_registry_returns_empty() {
         let registry = Arc::new(LLMRegistry::new());
         let entries = build_chain_entries(&registry).await;
         assert!(entries.is_empty());
     }
 
     #[tokio::test]
-    async fn build_chain_entries_one_provider_returns_one_entry() {
+    async fn test_build_chain_entries_one_provider_returns_one_entry() {
         let registry = Arc::new(LLMRegistry::new());
         registry.register("stub".to_string(), stub_provider()).await;
         let entries = build_chain_entries(&registry).await;
@@ -293,7 +289,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_chain_entries_multiple_providers() {
+    async fn test_build_chain_entries_multiple_providers() {
         let registry = Arc::new(LLMRegistry::new());
         registry.register("a".to_string(), stub_provider()).await;
         registry.register("b".to_string(), stub_provider()).await;
@@ -303,7 +299,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn build_fallback_client_empty_registry_returns_usable_client() {
+    async fn test_build_fallback_client_empty_registry_returns_usable_client() {
         let registry = Arc::new(LLMRegistry::new());
         let client = build_fallback_client(&registry).await;
         // Chain should be empty but cooldown exists — calling chat on

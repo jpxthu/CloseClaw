@@ -240,7 +240,7 @@ mod tests {
     /// the `commands()` projection), and no other command routable — i.e.
     /// the set invariant survives the composition-root move.
     #[tokio::test]
-    async fn chat_slash_router_registers_exactly_compact_stop_verbose() {
+    async fn test_chat_slash_router_registers_exactly_compact_stop_verbose() {
         let router = build_chat_slash_router(Arc::new(FakeSessionQuery));
 
         for cmd in ["compact", "stop", "verbose"] {
@@ -270,7 +270,7 @@ mod tests {
     /// does not — matching the pre-migration `cli::chat` assembly, where the
     /// handler registered under a command name decides this flag.
     #[tokio::test]
-    async fn chat_slash_router_is_immediate_matches_original_assembly() {
+    async fn test_chat_slash_router_is_immediate_matches_original_assembly() {
         let router = build_chat_slash_router(Arc::new(FakeSessionQuery));
 
         assert!(

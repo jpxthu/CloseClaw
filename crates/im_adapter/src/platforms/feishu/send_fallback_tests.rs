@@ -73,7 +73,7 @@ fn interactive_output(markdown_content: &str) -> RenderedOutput {
 // =====================================================================
 
 #[test]
-fn extract_card_plain_text_extracts_markdown() {
+fn test_extract_card_plain_text_extracts_markdown() {
     let payload = serde_json::json!({
         "card": {
             "elements": [
@@ -85,7 +85,7 @@ fn extract_card_plain_text_extracts_markdown() {
 }
 
 #[test]
-fn extract_card_plain_text_extracts_plain_text() {
+fn test_extract_card_plain_text_extracts_plain_text() {
     let payload = serde_json::json!({
         "card": {
             "elements": [
@@ -97,7 +97,7 @@ fn extract_card_plain_text_extracts_plain_text() {
 }
 
 #[test]
-fn extract_card_plain_text_joins_multiple_elements() {
+fn test_extract_card_plain_text_joins_multiple_elements() {
     let payload = serde_json::json!({
         "card": {
             "elements": [
@@ -111,7 +111,7 @@ fn extract_card_plain_text_joins_multiple_elements() {
 }
 
 #[test]
-fn extract_card_plain_text_extracts_button_text() {
+fn test_extract_card_plain_text_extracts_button_text() {
     let payload = serde_json::json!({
         "card": {
             "elements": [
@@ -128,13 +128,13 @@ fn extract_card_plain_text_extracts_button_text() {
 }
 
 #[test]
-fn extract_card_plain_text_empty_payload() {
+fn test_extract_card_plain_text_empty_payload() {
     let payload = serde_json::json!({});
     assert_eq!(extract_card_plain_text(&payload), "");
 }
 
 #[test]
-fn extract_card_plain_text_no_elements() {
+fn test_extract_card_plain_text_no_elements() {
     let payload = serde_json::json!({"card": {}});
     assert_eq!(extract_card_plain_text(&payload), "");
 }
@@ -146,7 +146,7 @@ fn extract_card_plain_text_no_elements() {
 /// text send: mock CLI fails → warn + return Ok(()) per design doc.
 #[serial]
 #[tokio::test]
-async fn text_send_failure_returns_ok() {
+async fn test_text_send_failure_returns_ok() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
@@ -158,7 +158,7 @@ async fn text_send_failure_returns_ok() {
 /// interactive send: mock CLI fails with capability error → text fallback succeeds.
 #[serial]
 #[tokio::test]
-async fn interactive_send_failure_falls_back_to_text_success() {
+async fn test_interactive_send_failure_falls_back_to_text_success() {
     let tmp = TempDir::new().unwrap();
     // First call (interactive) fails with capability error, second call (text) succeeds
     let cli = create_fail_then_succeed_cli(&tmp, 1);
@@ -174,7 +174,7 @@ async fn interactive_send_failure_falls_back_to_text_success() {
 /// interactive send: mock CLI fails → text fallback also fails → Ok(())
 #[serial]
 #[tokio::test]
-async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
+async fn test_interactive_send_failure_text_fallback_also_fails_returns_ok() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
@@ -188,7 +188,7 @@ async fn interactive_send_failure_text_fallback_also_fails_returns_ok() {
 
 /// unknown msg_type → Err(UnsupportedOperation)
 #[tokio::test]
-async fn unknown_msg_type_returns_err() {
+async fn test_unknown_msg_type_returns_err() {
     let tmp = TempDir::new().unwrap();
     let cli = create_mock_cli(&tmp, r#"{"code":0,"msg":"ok"}"#);
     let plugin = make_plugin(&cli);
@@ -207,7 +207,7 @@ async fn unknown_msg_type_returns_err() {
 /// Card with no extractable text → empty plain_text → return Ok(())
 #[serial]
 #[tokio::test]
-async fn interactive_empty_text_fallback_returns_ok() {
+async fn test_interactive_empty_text_fallback_returns_ok() {
     let tmp = TempDir::new().unwrap();
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
     let plugin = make_plugin(&cli);
@@ -245,7 +245,7 @@ fn card_payload_with_markdown(text: &str) -> String {
 
 #[serial]
 #[tokio::test]
-async fn send_card_capability_error_fallback_to_text_succeeds() {
+async fn test_send_card_capability_error_fallback_to_text_succeeds() {
     let tmp = TempDir::new().unwrap();
     let cli = create_fail_then_succeed_cli(&tmp, 1);
     let adapter = make_adapter(&cli);
@@ -260,7 +260,7 @@ async fn send_card_capability_error_fallback_to_text_succeeds() {
 
 #[serial]
 #[tokio::test]
-async fn send_card_capability_error_fallback_text_also_fails() {
+async fn test_send_card_capability_error_fallback_text_also_fails() {
     let tmp = TempDir::new().unwrap();
     // Both card and text fallback fail with capability error
     let cli = create_failing_mock_cli(&tmp, "failing_cli.sh", CAPABILITY_ERROR_JSON, true, 1);
@@ -275,7 +275,7 @@ async fn send_card_capability_error_fallback_text_also_fails() {
 
 #[serial]
 #[tokio::test]
-async fn send_card_non_capability_error_returns_err() {
+async fn test_send_card_non_capability_error_returns_err() {
     let tmp = TempDir::new().unwrap();
     let cli = create_mock_cli(&tmp, r#"{"code":99999,"msg":"unknown error"}"#);
     let adapter = make_adapter(&cli);
@@ -289,7 +289,7 @@ async fn send_card_non_capability_error_returns_err() {
 
 #[serial]
 #[tokio::test]
-async fn send_card_success_no_fallback() {
+async fn test_send_card_success_no_fallback() {
     let tmp = TempDir::new().unwrap();
     let cli = create_mock_cli(&tmp, r#"{"code":0,"msg":"ok"}"#);
     let adapter = make_adapter(&cli);

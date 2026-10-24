@@ -15,7 +15,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn notification_constants_have_expected_values() {
+    fn test_notification_constants_have_expected_values() {
         assert_eq!(QUEUE_NOTIFICATION_TEXT, "⏳ 正在排队...");
         assert_eq!(RESTORE_NOTIFICATION_DEFAULT_TEXT, "正在恢复会话...");
     }

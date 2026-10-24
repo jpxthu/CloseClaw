@@ -156,7 +156,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_runs_after_interval() {
+    async fn test_cleanup_runs_after_interval() {
         let (cleanup_fn, count) = counting_cleanup();
         let retention = fixed_retention(7);
 
@@ -174,7 +174,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn retention_zero_skips_cleanup() {
+    async fn test_retention_zero_skips_cleanup() {
         let (cleanup_fn, count) = counting_cleanup();
         let retention = fixed_retention(0);
 
@@ -192,7 +192,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn shutdown_stops_cleanup() {
+    async fn test_shutdown_stops_cleanup() {
         let (cleanup_fn, count) = counting_cleanup();
         let retention = fixed_retention(7);
 
@@ -216,7 +216,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn cleanup_error_does_not_panic() {
+    async fn test_cleanup_error_does_not_panic() {
         let cleanup_fn: CleanupFn = Arc::new(|_| Err("simulated error".into()));
         let retention = fixed_retention(7);
 
@@ -229,7 +229,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn hot_reload_retention_change() {
+    async fn test_hot_reload_retention_change() {
         let count = Arc::new(AtomicU64::new(0));
         let c = count.clone();
         let cleanup_fn: CleanupFn = Arc::new(move |_| {

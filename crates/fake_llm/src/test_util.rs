@@ -168,7 +168,7 @@ mod tests {
     use crate::types::ProtocolKind;
 
     #[test]
-    fn text_block_sets_text_type_and_content_only() {
+    fn test_text_block_sets_text_type_and_content_only() {
         let block = text_block("hello");
         assert_eq!(block.block_type, "text");
         assert_eq!(block.content.as_deref(), Some("hello"));
@@ -179,7 +179,7 @@ mod tests {
     }
 
     #[test]
-    fn default_usage_uses_fixed_tokens_and_no_cache_fields() {
+    fn test_default_usage_uses_fixed_tokens_and_no_cache_fields() {
         let usage = default_usage();
         assert_eq!(usage.prompt_tokens, Some(10));
         assert_eq!(usage.completion_tokens, Some(20));
@@ -190,7 +190,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_with_maps_four_parameters_and_keeps_fixed_fields() {
+    fn test_usage_with_maps_four_parameters_and_keeps_fixed_fields() {
         let usage = usage_with(Some(1), Some(2), Some(3), Some(4));
         assert_eq!(usage.prompt_tokens, Some(1));
         assert_eq!(usage.completion_tokens, Some(2));
@@ -201,7 +201,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_with_passes_none_through_without_filling_fields() {
+    fn test_usage_with_passes_none_through_without_filling_fields() {
         let usage = usage_with(None, None, None, None);
         assert_eq!(usage.prompt_tokens, None);
         assert_eq!(usage.completion_tokens, None);
@@ -212,7 +212,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_response_matches_usage_with_some_none() {
+    fn test_usage_response_matches_usage_with_some_none() {
         let usage = usage_response(7, 9);
         let expected = usage_with(Some(7), Some(9), None, None);
         assert_eq!(usage.prompt_tokens, expected.prompt_tokens);
@@ -224,7 +224,7 @@ mod tests {
     }
 
     #[test]
-    fn text_turn_produces_text_shape_with_no_delay_or_error() {
+    fn test_text_turn_produces_text_shape_with_no_delay_or_error() {
         let turn = text_turn("hello");
         let shapes = turn.response.to_shapes();
         assert_eq!(shapes.len(), 1);
@@ -243,7 +243,7 @@ mod tests {
     }
 
     #[test]
-    fn usage_turn_produces_usage_shape_with_fixed_tokens() {
+    fn test_usage_turn_produces_usage_shape_with_fixed_tokens() {
         let turn = usage_turn();
         let shapes = turn.response.to_shapes();
         match &shapes[0] {
@@ -257,7 +257,7 @@ mod tests {
     }
 
     #[test]
-    fn unknown_turn_produces_unknown_shape() {
+    fn test_unknown_turn_produces_unknown_shape() {
         let turn = unknown_turn();
         let shapes = turn.response.to_shapes();
         assert!(matches!(shapes[0], ResponseShape::Unknown));
@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn reasoning_turn_places_content_reasoning_and_intensity() {
+    fn test_reasoning_turn_places_content_reasoning_and_intensity() {
         let turn = reasoning_turn("answer", "thinking", ReasoningIntensity::High);
         let shapes = turn.response.to_shapes();
         match &shapes[0] {
@@ -281,7 +281,7 @@ mod tests {
     }
 
     #[test]
-    fn features_defaults_to_openai_non_streaming_single_user_message() {
+    fn test_features_defaults_to_openai_non_streaming_single_user_message() {
         let f = features("gpt-4", "hello");
         assert_eq!(f.model, "gpt-4");
         assert!(!f.stream);
@@ -295,7 +295,7 @@ mod tests {
     }
 
     #[test]
-    fn features_with_protocol_applies_protocol_to_single_user_message() {
+    fn test_features_with_protocol_applies_protocol_to_single_user_message() {
         let f = features_with_protocol("claude-3", "hi", ProtocolKind::Anthropic);
         assert_eq!(f.protocol, ProtocolKind::Anthropic);
         assert_eq!(f.messages.len(), 1);
@@ -304,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn features_multi_preserves_message_order_and_content() {
+    fn test_features_multi_preserves_message_order_and_content() {
         let f = features_multi(
             "m",
             vec![("user", "q1"), ("assistant", "a1"), ("user", "q2")],
@@ -318,7 +318,7 @@ mod tests {
     }
 
     #[test]
-    fn features_full_supports_empty_messages_with_protocol() {
+    fn test_features_full_supports_empty_messages_with_protocol() {
         let f = features_full("gpt-4o", vec![], vec![], ProtocolKind::Anthropic);
         assert_eq!(f.model, "gpt-4o");
         assert!(!f.stream);
@@ -328,7 +328,7 @@ mod tests {
     }
 
     #[test]
-    fn features_full_combines_multi_messages_tools_and_protocol() {
+    fn test_features_full_combines_multi_messages_tools_and_protocol() {
         let f = features_full(
             "claude-3",
             vec![("user", "q"), ("assistant", "a")],
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn features_with_tools_places_tools_in_given_order() {
+    fn test_features_with_tools_places_tools_in_given_order() {
         let f = features_with_tools("gpt-4o", vec!["q"], vec!["web_search", "calc"]);
         assert_eq!(f.messages.len(), 1);
         assert_eq!(f.messages[0].role, "user");
@@ -358,7 +358,7 @@ mod tests {
     }
 
     #[test]
-    fn features_with_tools_empty_tools_matches_features_shape() {
+    fn test_features_with_tools_empty_tools_matches_features_shape() {
         let f = features_with_tools("gpt-4", vec!["hi"], vec![]);
         let expected = features("gpt-4", "hi");
         assert_eq!(f.messages.len(), expected.messages.len());

@@ -265,7 +265,7 @@ mod tests {
     }
 
     #[test]
-    fn load_existing_agent_rules() {
+    fn test_load_existing_agent_rules() {
         let tmp = TempDir::new().unwrap();
         let rules_json = concat!(
             r#"[{"name":"allow_read","subject":{"agent":"test-agent"},"effect":"allow","actions":"#,
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn missing_file_returns_global_only() {
+    fn test_missing_file_returns_global_only() {
         let tmp = TempDir::new().unwrap();
         let global = empty_global_rules();
         let mut store = AgentRuleStore::new(tmp.path().to_path_buf());
@@ -296,7 +296,7 @@ mod tests {
     }
 
     #[test]
-    fn invalid_json_returns_global_only() {
+    fn test_invalid_json_returns_global_only() {
         let tmp = TempDir::new().unwrap();
         let agent_dir = tmp.path().join("agents").join("bad-agent");
         fs::create_dir_all(&agent_dir).unwrap();
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn invalidate_forces_reload() {
+    fn test_invalidate_forces_reload() {
         let tmp = TempDir::new().unwrap();
         let rules_v1 = concat!(
             r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions""#,
@@ -338,7 +338,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_agents_isolated() {
+    fn test_multiple_agents_isolated() {
         let tmp = TempDir::new().unwrap();
         setup_agent_file(
             tmp.path(),
@@ -367,7 +367,7 @@ mod tests {
     }
 
     #[test]
-    fn indices_match_rules() {
+    fn test_indices_match_rules() {
         let tmp = TempDir::new().unwrap();
         let rules_json = r#"[
             {"name":"r1","subject":{"agent":"ag1"},"effect":"allow","actions":[
@@ -391,7 +391,7 @@ mod tests {
     }
 
     #[test]
-    fn global_version_change_invalidates_all_entries() {
+    fn test_global_version_change_invalidates_all_entries() {
         let tmp = TempDir::new().unwrap();
         let rules_v1 = concat!(
             r#"[{"name":"rule_v1","subject":{"agent":"a"},"effect":"allow","actions""#,
@@ -417,7 +417,7 @@ mod tests {
     }
 
     #[test]
-    fn global_version_change_clears_all_entries() {
+    fn test_global_version_change_clears_all_entries() {
         let tmp = TempDir::new().unwrap();
         // Set up two agents
         setup_agent_file(
@@ -463,7 +463,7 @@ mod tests {
     }
 
     #[test]
-    fn merged_includes_global_rules() {
+    fn test_merged_includes_global_rules() {
         let tmp = TempDir::new().unwrap();
         setup_agent_file(
             tmp.path(),
@@ -504,7 +504,7 @@ mod tests {
     }
 
     #[test]
-    fn put_restores_cache_entry() {
+    fn test_put_restores_cache_entry() {
         let tmp = TempDir::new().unwrap();
         setup_agent_file(
             tmp.path(),

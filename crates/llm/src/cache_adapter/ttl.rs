@@ -40,7 +40,7 @@ mod tests {
     /// cache-adapter.md "Anthropic 适配" + docs/design/llm/providers/
     /// minimax.md "缓存机制") report 5 minutes.
     #[test]
-    fn provider_cache_ttl_ms_recorded_providers() {
+    fn test_provider_cache_ttl_ms_recorded_providers() {
         assert_eq!(provider_cache_ttl_ms("anthropic"), 300_000);
         assert_eq!(provider_cache_ttl_ms("minimax"), 300_000);
     }
@@ -49,7 +49,7 @@ mod tests {
     /// (docs/design/session/llm-session-enhancements.md "不参与校验的
     /// 情形": 未单独收录有效期的供应商按通用默认有效期处理).
     #[test]
-    fn provider_cache_ttl_ms_unrecorded_providers_default() {
+    fn test_provider_cache_ttl_ms_unrecorded_providers_default() {
         for provider_id in [
             "openai",
             "deepseek",
@@ -71,7 +71,7 @@ mod tests {
     /// 5-minute magnitude — recorded entries exist to document the
     /// source, not to deviate from the default.
     #[test]
-    fn provider_cache_ttl_ms_default_matches_recorded_magnitude() {
+    fn test_provider_cache_ttl_ms_default_matches_recorded_magnitude() {
         assert_eq!(DEFAULT_PROVIDER_CACHE_TTL_MS, 300_000);
         assert_eq!(
             provider_cache_ttl_ms("anthropic"),

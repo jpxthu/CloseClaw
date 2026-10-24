@@ -88,7 +88,7 @@ impl LlmCaller for EchoCaller {
 
 /// 首轮/参考值缺失 → 新基线不校验，但快照推进。
 #[test]
-fn first_round_is_new_baseline_exempt_but_advances() {
+fn test_first_round_is_new_baseline_exempt_but_advances() {
     let mut session = make_session();
     let info = run_round(
         &mut session,
@@ -111,7 +111,7 @@ fn first_round_is_new_baseline_exempt_but_advances() {
 
 /// 前缀一致（仅尾部追加）且偏差在容忍内 → 参与校验但不报异常。
 #[test]
-fn append_extension_within_tolerance_no_anomaly() {
+fn test_append_extension_within_tolerance_no_anomaly() {
     let mut session = make_session();
     let first = run_round(
         &mut session,
@@ -138,7 +138,7 @@ fn append_extension_within_tolerance_no_anomaly() {
 
 /// 前缀一致（仅尾部追加）且偏差超限 → 报异常。
 #[test]
-fn append_extension_beyond_tolerance_reports_anomaly() {
+fn test_append_extension_beyond_tolerance_reports_anomaly() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -165,7 +165,7 @@ fn append_extension_beyond_tolerance_reports_anomaly() {
 
 /// 参考值缺失（合成为 0）→ 数值比较自身豁免（doc :81）。
 #[test]
-fn zero_reference_value_not_checked() {
+fn test_zero_reference_value_not_checked() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -195,7 +195,7 @@ fn zero_reference_value_not_checked() {
 
 /// System Prompt 变化 → 前缀不一致豁免；豁免轮推进快照，下一轮恢复校验。
 #[test]
-fn system_change_exempt_then_next_round_recheck() {
+fn test_system_change_exempt_then_next_round_recheck() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -241,7 +241,7 @@ fn system_change_exempt_then_next_round_recheck() {
 
 /// 消息中部改写（同长度不同内容）→ 前缀不一致豁免。
 #[test]
-fn mid_history_rewrite_exempt() {
+fn test_mid_history_rewrite_exempt() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -270,7 +270,7 @@ fn mid_history_rewrite_exempt() {
 
 /// 模型切换 → 豁免且快照推进；下一轮与切换后这轮比较。
 #[test]
-fn model_switch_exempt_and_next_round_compares_to_switched_round() {
+fn test_model_switch_exempt_and_next_round_compares_to_switched_round() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -310,7 +310,7 @@ fn model_switch_exempt_and_next_round_compares_to_switched_round() {
 
 /// 间隔超 TTL → 豁免（即使整轮未命中也不报）。
 #[test]
-fn interval_beyond_ttl_exempt() {
+fn test_interval_beyond_ttl_exempt() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -338,7 +338,7 @@ fn interval_beyond_ttl_exempt() {
 
 /// 间隔恰好等于 TTL（未超过）→ 参与：整轮未命中被判定为异常。
 #[test]
-fn interval_exactly_ttl_participates() {
+fn test_interval_exactly_ttl_participates() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -369,7 +369,7 @@ fn interval_exactly_ttl_participates() {
 
 /// 推进仅发生在统一推进点：invoke 仅暂存不推进；check 消费暂存槽并推进。
 #[tokio::test]
-async fn invoke_stages_without_advancing_check_advances() {
+async fn test_invoke_stages_without_advancing_check_advances() {
     let mut session = make_session().with_system_prompt("static system");
     session.set_llm_caller(Arc::new(EchoCaller));
 
@@ -401,7 +401,7 @@ async fn invoke_stages_without_advancing_check_advances() {
 
 /// 压缩调用不经会话调用路径（无暂存）→ 不推进快照。
 #[test]
-fn compaction_style_round_without_staging_does_not_advance() {
+fn test_compaction_style_round_without_staging_does_not_advance() {
     let mut session = make_session();
     run_round(
         &mut session,
@@ -429,7 +429,7 @@ fn compaction_style_round_without_staging_does_not_advance() {
 
 /// 新会话无任何快照状态（运行时态不跨会话泄漏）。
 #[test]
-fn fresh_session_has_no_snapshot_state() {
+fn test_fresh_session_has_no_snapshot_state() {
     let mut session = make_session();
     assert!(session.cache_prefix_prev_snapshot().is_none());
     assert!(session

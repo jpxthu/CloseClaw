@@ -130,7 +130,7 @@ fn test_hook_config_default_enabled() {
 // --- intersect: normal path ---
 
 #[test]
-fn intersect_both_allow_preserves() {
+fn test_intersect_both_allow_preserves() {
     let child = make_perms("child", &["exec", "file_read"]);
     let parent = make_perms("parent", &["exec", "file_read"]);
     let result = child.intersect(&parent);
@@ -139,7 +139,7 @@ fn intersect_both_allow_preserves() {
 }
 
 #[test]
-fn intersect_limits_commands_set_intersection() {
+fn test_intersect_limits_commands_set_intersection() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
@@ -173,7 +173,7 @@ fn intersect_limits_commands_set_intersection() {
 }
 
 #[test]
-fn intersect_limits_paths_set_intersection() {
+fn test_intersect_limits_paths_set_intersection() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
@@ -210,7 +210,7 @@ fn intersect_limits_paths_set_intersection() {
 }
 
 #[test]
-fn intersect_limits_timeout_min() {
+fn test_intersect_limits_timeout_min() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
@@ -246,7 +246,7 @@ fn intersect_limits_timeout_min() {
 // --- intersect: error path ---
 
 #[test]
-fn intersect_child_deny_overrides() {
+fn test_intersect_child_deny_overrides() {
     let child = make_perms("child", &["file_read"]); // exec denied
     let parent = make_perms("parent", &["exec", "file_read"]);
     let result = child.intersect(&parent);
@@ -255,7 +255,7 @@ fn intersect_child_deny_overrides() {
 }
 
 #[test]
-fn intersect_parent_deny_overrides() {
+fn test_intersect_parent_deny_overrides() {
     let child = make_perms("child", &["exec", "file_read"]);
     let parent = make_perms("parent", &["exec"]); // file_read denied
     let result = child.intersect(&parent);
@@ -264,7 +264,7 @@ fn intersect_parent_deny_overrides() {
 }
 
 #[test]
-fn intersect_absent_dimension_is_deny() {
+fn test_intersect_absent_dimension_is_deny() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::new(),
@@ -276,7 +276,7 @@ fn intersect_absent_dimension_is_deny() {
 }
 
 #[test]
-fn intersect_deny_gets_default_limits() {
+fn test_intersect_deny_gets_default_limits() {
     let child = make_perms("child", &[]); // all denied
     let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
@@ -289,7 +289,7 @@ fn intersect_deny_gets_default_limits() {
 // --- intersect: boundary values ---
 
 #[test]
-fn intersect_limits_timeout_none_vs_none() {
+fn test_intersect_limits_timeout_none_vs_none() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
@@ -323,7 +323,7 @@ fn intersect_limits_timeout_none_vs_none() {
 }
 
 #[test]
-fn intersect_limits_timeout_none_vs_some() {
+fn test_intersect_limits_timeout_none_vs_some() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(
@@ -357,20 +357,20 @@ fn intersect_limits_timeout_none_vs_some() {
 }
 
 #[test]
-fn intersect_vec_none_none_returns_empty() {
+fn test_intersect_vec_none_none_returns_empty() {
     let result = intersect_vec::<String>(None, None);
     assert!(result.is_empty());
 }
 
 #[test]
-fn intersect_vec_some_none_returns_some() {
+fn test_intersect_vec_some_none_returns_some() {
     let a = vec!["x".to_string(), "y".to_string()];
     let result = intersect_vec(Some(&a), None);
     assert_eq!(result, vec!["x", "y"]);
 }
 
 #[test]
-fn intersect_vec_none_some_returns_some() {
+fn test_intersect_vec_none_some_returns_some() {
     let b = vec!["x".to_string(), "z".to_string()];
     let result = intersect_vec(None, Some(&b));
     assert_eq!(result, vec!["x", "z"]);
@@ -379,7 +379,7 @@ fn intersect_vec_none_some_returns_some() {
 // --- state transition: is_fully_denied ---
 
 #[test]
-fn is_fully_denied_all_absent() {
+fn test_is_fully_denied_all_absent() {
     let perms = AgentPermissions {
         agent_id: "a".to_string(),
         permissions: HashMap::new(),
@@ -389,13 +389,13 @@ fn is_fully_denied_all_absent() {
 }
 
 #[test]
-fn is_fully_denied_all_explicit_deny() {
+fn test_is_fully_denied_all_explicit_deny() {
     let perms = make_perms("a", &[]);
     assert!(perms.is_fully_denied());
 }
 
 #[test]
-fn is_fully_denied_one_allow() {
+fn test_is_fully_denied_one_allow() {
     let perms = make_perms("a", &["exec"]);
     assert!(!perms.is_fully_denied());
 }
@@ -403,7 +403,7 @@ fn is_fully_denied_one_allow() {
 // --- intersect: result identity ---
 
 #[test]
-fn intersect_result_has_correct_ids() {
+fn test_intersect_result_has_correct_ids() {
     let child = make_perms("child", &["exec"]);
     let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
@@ -414,7 +414,7 @@ fn intersect_result_has_correct_ids() {
 // --- intersect: all eight dimensions ---
 
 #[test]
-fn intersect_all_eight_dimensions_checked() {
+fn test_intersect_all_eight_dimensions_checked() {
     let child = make_perms("child", &["exec"]);
     let parent = make_perms("parent", &["exec"]);
     let result = child.intersect(&parent);
@@ -439,7 +439,7 @@ fn intersect_all_eight_dimensions_checked() {
 // --- intersect: message dimension ---
 
 #[test]
-fn intersect_parent_deny_child_allow_message_is_deny() {
+fn test_intersect_parent_deny_child_allow_message_is_deny() {
     let child = make_perms("child", &["exec", "file_read", "message"]);
     let parent = make_perms("parent", &["exec", "file_read"]); // message absent = deny
     let result = child.intersect(&parent);
@@ -447,7 +447,7 @@ fn intersect_parent_deny_child_allow_message_is_deny() {
 }
 
 #[test]
-fn intersect_both_allow_message_is_allow() {
+fn test_intersect_both_allow_message_is_allow() {
     let child = make_perms("child", &["exec", "message"]);
     let parent = make_perms("parent", &["exec", "message"]);
     let result = child.intersect(&parent);
@@ -455,7 +455,7 @@ fn intersect_both_allow_message_is_allow() {
 }
 
 #[test]
-fn intersect_child_allow_parent_absent_message_is_deny() {
+fn test_intersect_child_allow_parent_absent_message_is_deny() {
     let child = make_perms("child", &["exec", "message"]);
     // parent has no message dimension → absent treated as deny
     let parent = AgentPermissions {
@@ -476,14 +476,14 @@ fn intersect_child_allow_parent_absent_message_is_deny() {
 // --- is_fully_denied: message dimension ---
 
 #[test]
-fn is_fully_denied_seven_deny_message_allow_is_false() {
+fn test_is_fully_denied_seven_deny_message_allow_is_false() {
     // All 7 non-message dimensions deny, message allow → not fully denied
     let perms = make_perms("a", &["message"]);
     assert!(!perms.is_fully_denied());
 }
 
 #[test]
-fn is_fully_denied_all_eight_deny_is_true() {
+fn test_is_fully_denied_all_eight_deny_is_true() {
     let perms = make_perms("a", &[]);
     assert!(perms.is_fully_denied());
 }
@@ -491,7 +491,7 @@ fn is_fully_denied_all_eight_deny_is_true() {
 // --- intersect: message dimension limits ---
 
 #[test]
-fn intersect_message_limits_commands_set_intersection() {
+fn test_intersect_message_limits_commands_set_intersection() {
     let child = AgentPermissions {
         agent_id: "child".to_string(),
         permissions: HashMap::from([(

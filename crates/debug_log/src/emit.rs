@@ -94,7 +94,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn empty_trace_id_is_noop() {
+    fn test_empty_trace_id_is_noop() {
         let ctx = DebugLogContext::new(None, "", None);
         emit_event(EmitEventParams {
             ctx,
@@ -107,7 +107,7 @@ mod tests {
     }
 
     #[test]
-    fn none_debug_log_is_noop() {
+    fn test_none_debug_log_is_noop() {
         let ctx = DebugLogContext::new(None, "trace-123", None);
         emit_event(EmitEventParams {
             ctx,
@@ -120,7 +120,7 @@ mod tests {
     }
 
     #[test]
-    fn context_new_fields() {
+    fn test_context_new_fields() {
         let ctx = DebugLogContext::new(None, "tid", Some("skey"));
         assert_eq!(ctx.trace_id, "tid");
         assert_eq!(ctx.session_key, Some("skey"));
@@ -128,7 +128,7 @@ mod tests {
     }
 
     #[test]
-    fn emit_with_parent_uses_child_span() {
+    fn test_emit_with_parent_uses_child_span() {
         let parent = TraceContext::new_root("trace-parent".to_string());
         let ctx = DebugLogContext::new(None, "trace-parent", None);
         // Should not panic; parent is Some so child() is called.
@@ -143,7 +143,7 @@ mod tests {
     }
 
     #[test]
-    fn emit_with_session_key() {
+    fn test_emit_with_session_key() {
         let ctx = DebugLogContext::new(None, "trace-456", Some("session-789"));
         emit_event(EmitEventParams {
             ctx,

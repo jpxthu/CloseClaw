@@ -277,7 +277,7 @@ fn create_test_images() -> tempfile::TempDir {
 /// based on file extension. This is a unit test of the detection
 /// logic only — no actual upload occurs.
 #[test]
-fn upload_image_mime_detection_by_extension() {
+fn test_upload_image_mime_detection_by_extension() {
     let tmp = create_test_images();
     let detect = |ext: &str| -> &'static str {
         match ext.to_lowercase().as_str() {

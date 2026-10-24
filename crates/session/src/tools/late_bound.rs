@@ -250,7 +250,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uninitialised_returns_error() {
+    async fn test_uninitialised_returns_error() {
         let proxy = LateBoundSessionManagerOps::new();
         assert!(!proxy.is_ready());
 
@@ -289,7 +289,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uninitialised_option_methods_return_none() {
+    async fn test_uninitialised_option_methods_return_none() {
         let proxy = LateBoundSessionManagerOps::new();
 
         assert!(proxy.validate_child_ownership("p", "c").await.is_none());
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn uninitialised_result_methods_return_error() {
+    async fn test_uninitialised_result_methods_return_error() {
         let proxy = LateBoundSessionManagerOps::new();
 
         assert!(proxy.steer_child("c", "t").await.is_err());
@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_then_delegate() {
+    async fn test_set_then_delegate() {
         let proxy = Arc::new(LateBoundSessionManagerOps::new());
         let mock = Arc::new(MockSessionManagerOps);
 
@@ -339,7 +339,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn set_then_option_methods_delegate() {
+    async fn test_set_then_option_methods_delegate() {
         let proxy = Arc::new(LateBoundSessionManagerOps::new());
         let mock = Arc::new(MockSessionManagerOps);
         proxy.set(mock).ok().unwrap();
@@ -349,7 +349,7 @@ mod tests {
     }
 
     #[test]
-    fn set_twice_fails() {
+    fn test_set_twice_fails() {
         let proxy = LateBoundSessionManagerOps::new();
         let mock1 = Arc::new(MockSessionManagerOps);
         let mock2 = Arc::new(MockSessionManagerOps);

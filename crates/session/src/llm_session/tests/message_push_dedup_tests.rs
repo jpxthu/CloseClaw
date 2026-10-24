@@ -95,7 +95,7 @@ impl LlmCaller for RecordingCaller {
 /// 生产路径两轮对话（预 append + invoke 全链路）：第二轮快照判定为参与
 /// （Eligible），整轮未命中时数值校验可触发。
 #[tokio::test]
-async fn production_path_two_rounds_round2_eligible_and_numeric_check_fires() {
+async fn test_production_path_two_rounds_round2_eligible_and_numeric_check_fires() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -154,7 +154,7 @@ async fn production_path_two_rounds_round2_eligible_and_numeric_check_fires() {
 
 /// 空 history：消息照常 push。
 #[test]
-fn build_pushes_into_empty_history() {
+fn test_build_pushes_into_empty_history() {
     let session = make_session();
     let messages = session.build_llm_messages_with_listing("hello", None, false);
     assert_eq!(messages, vec![user_msg("hello")]);
@@ -162,7 +162,7 @@ fn build_pushes_into_empty_history() {
 
 /// history 尾部为 assistant：消息照常 push（未预 append 调用方）。
 #[test]
-fn build_pushes_when_tail_is_assistant() {
+fn test_build_pushes_when_tail_is_assistant() {
     let mut session = make_session();
     session.append_response(canned_response("prior response"));
     let messages = session.build_llm_messages_with_listing("new question", None, false);
@@ -174,7 +174,7 @@ fn build_pushes_when_tail_is_assistant() {
 
 /// history 尾部 user 内容不同：消息照常 push。
 #[test]
-fn build_pushes_when_tail_content_differs() {
+fn test_build_pushes_when_tail_content_differs() {
     let mut session = make_session();
     session.append_user_message("earlier question");
     let messages = session.build_llm_messages_with_listing("different question", None, false);
@@ -186,7 +186,7 @@ fn build_pushes_when_tail_content_differs() {
 
 /// history 尾部 role 不同（内容碰巧相同）：消息照常 push。
 #[test]
-fn build_pushes_when_tail_role_differs() {
+fn test_build_pushes_when_tail_role_differs() {
     let mut session = make_session();
     session.append_transcript("assistant", vec![ContentBlock::Text("same text".into())]);
     let messages = session.build_llm_messages_with_listing("same text", None, false);
@@ -198,7 +198,7 @@ fn build_pushes_when_tail_role_differs() {
 
 /// 守卫生效边界：history 尾部与待 push 消息全等（角色+内容）→ 跳过 push。
 #[test]
-fn build_skips_push_when_tail_fully_equal() {
+fn test_build_skips_push_when_tail_fully_equal() {
     let mut session = make_session();
     session.append_user_message("same text");
     let messages = session.build_llm_messages_with_listing("same text", None, false);
@@ -215,7 +215,7 @@ fn build_skips_push_when_tail_fully_equal() {
 
 /// 两轮发送相同文本：每轮各保留一条预 append 消息，仅去掉冗余 push 副本。
 #[tokio::test]
-async fn consecutive_identical_texts_across_rounds_not_deleted() {
+async fn test_consecutive_identical_texts_across_rounds_not_deleted() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -276,7 +276,7 @@ fn user_blocks_msg(blocks: &[ContentBlock]) -> InternalMessage {
 /// 全等结构性不命中；调用方以 pre-appended-blocks 变体显式声明「待发内容
 /// 已在历史尾部」，守卫按同一逻辑消息跳过 push。
 #[tokio::test]
-async fn image_round_blocks_pre_append_sends_no_duplicate_copy() {
+async fn test_image_round_blocks_pre_append_sends_no_duplicate_copy() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -305,7 +305,7 @@ async fn image_round_blocks_pre_append_sends_no_duplicate_copy() {
 /// 图轮的下一轮（纯文本追加）恢复尾部追加判定 Eligible：走预 append +
 /// invoke 全链路，第二轮快照判定为参与，数值校验可触发。
 #[tokio::test]
-async fn round_after_image_turn_is_tail_append_eligible() {
+async fn test_round_after_image_turn_is_tail_append_eligible() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());
@@ -352,7 +352,7 @@ async fn round_after_image_turn_is_tail_append_eligible() {
 /// 未预 append 调用方（pending drain 等，无显式声明）在 blocks 尾部仍照常
 /// push——声明缺省时守卫不得误删待发消息。
 #[test]
-fn build_pushes_when_tail_is_blocks_without_declaration() {
+fn test_build_pushes_when_tail_is_blocks_without_declaration() {
     let mut session = make_session();
     session.append_user_content_blocks(inline_image_blocks());
     let messages =
@@ -371,7 +371,7 @@ fn build_pushes_when_tail_is_blocks_without_declaration() {
 /// 即使有显式声明也照常 push——声明分支只认「空展平文本」的 blocks 尾部，
 /// 防 decl 声明误删带文字的 blocks 消息（其文本可能与 invoke 内容不同）。
 #[test]
-fn pre_appended_declaration_pushes_when_blocks_tail_has_text() {
+fn test_pre_appended_declaration_pushes_when_blocks_tail_has_text() {
     let mut session = make_session();
     session.append_user_content_blocks(vec![
         ContentBlock::Image {
@@ -404,7 +404,7 @@ fn pre_appended_declaration_pushes_when_blocks_tail_has_text() {
 /// 声明与尾部事实不符（尾部非 blocks 形态，如压缩在 append 与 invoke 之间
 /// 重写历史）→ 退回全等守卫，照常 push，待发消息不丢失。
 #[tokio::test]
-async fn pre_appended_declaration_falls_back_when_tail_not_blocks() {
+async fn test_pre_appended_declaration_falls_back_when_tail_not_blocks() {
     let mut session = make_session();
     let caller = RecordingCaller::new(canned_response("ok"));
     session.set_llm_caller(caller.clone());

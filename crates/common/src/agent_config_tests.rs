@@ -263,6 +263,6 @@ fn assert_authoritative_field_set(
 }
 
 #[test]
-fn resolved_product_carries_no_source_marker() {
+fn test_resolved_product_carries_no_source_marker() {
     assert_authoritative_field_set(resolved_fixture());
 }

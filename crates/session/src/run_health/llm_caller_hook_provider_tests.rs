@@ -74,7 +74,7 @@ fn make_failing_caller() -> Arc<dyn LlmCaller> {
 // ── Tests ───────────────────────────────────────────────────────────────────
 
 #[tokio::test]
-async fn review_returns_true_for_affirmative_yes() {
+async fn test_review_returns_true_for_affirmative_yes() {
     let caller = make_mock_caller("YES");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -82,7 +82,7 @@ async fn review_returns_true_for_affirmative_yes() {
 }
 
 #[tokio::test]
-async fn review_returns_true_for_affirmative_chinese() {
+async fn test_review_returns_true_for_affirmative_chinese() {
     let caller = make_mock_caller("是");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -90,7 +90,7 @@ async fn review_returns_true_for_affirmative_chinese() {
 }
 
 #[tokio::test]
-async fn review_returns_false_for_negative_no() {
+async fn test_review_returns_false_for_negative_no() {
     let caller = make_mock_caller("NO");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -98,7 +98,7 @@ async fn review_returns_false_for_negative_no() {
 }
 
 #[tokio::test]
-async fn review_returns_false_for_negative_chinese() {
+async fn test_review_returns_false_for_negative_chinese() {
     let caller = make_mock_caller("否");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -106,7 +106,7 @@ async fn review_returns_false_for_negative_chinese() {
 }
 
 #[tokio::test]
-async fn review_returns_false_for_negative_false() {
+async fn test_review_returns_false_for_negative_false() {
     let caller = make_mock_caller("false");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -114,7 +114,7 @@ async fn review_returns_false_for_negative_false() {
 }
 
 #[tokio::test]
-async fn review_returns_false_on_llm_failure() {
+async fn test_review_returns_false_on_llm_failure() {
     let caller = make_failing_caller();
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;
@@ -123,7 +123,7 @@ async fn review_returns_false_on_llm_failure() {
 }
 
 #[tokio::test]
-async fn review_constructs_prompt_with_context() {
+async fn test_review_constructs_prompt_with_context() {
     // Verify that the provider concatenates prompt and context.
     // The mock always returns "no" regardless of input, so we
     // just verify it doesn't panic and returns the expected shape.
@@ -136,7 +136,7 @@ async fn review_constructs_prompt_with_context() {
 }
 
 #[tokio::test]
-async fn review_handles_empty_response_text() {
+async fn test_review_handles_empty_response_text() {
     let caller = make_mock_caller("");
     let provider = LlmCallerHookProvider::new(caller);
     let result = provider.review("test prompt", "test context").await;

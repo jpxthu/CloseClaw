@@ -113,7 +113,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn no_code_blocks() {
+    fn test_no_code_blocks() {
         let segs = parse_content_segments("hello\nworld\n---\nfoo");
         assert_eq!(
             segs,
@@ -127,7 +127,7 @@ mod tests {
     }
 
     #[test]
-    fn single_code_block_with_language() {
+    fn test_single_code_block_with_language() {
         let input = "before\n```rust\nfn main() {}\n```\nafter";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -144,7 +144,7 @@ mod tests {
     }
 
     #[test]
-    fn single_code_block_without_language() {
+    fn test_single_code_block_without_language() {
         let input = "```\nhello\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -157,7 +157,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_code_blocks() {
+    fn test_multiple_code_blocks() {
         let input = "```a\ncode1\n```\ntext\n```b\ncode2\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -177,7 +177,7 @@ mod tests {
     }
 
     #[test]
-    fn unclosed_code_block_falls_back_to_markdown() {
+    fn test_unclosed_code_block_falls_back_to_markdown() {
         let input = "```rust\nfn main() {}\nno close";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn code_block_with_blank_lines_inside() {
+    fn test_code_block_with_blank_lines_inside() {
         let input = "```\nline1\n\nline3\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -204,7 +204,7 @@ mod tests {
     }
 
     #[test]
-    fn nested_backticks_inside_code_block() {
+    fn test_nested_backticks_inside_code_block() {
         // ``` inside a code block acts as a closing fence.
         // So the first ``` opens, the second ``` closes (empty code block),
         // "inner" is markdown, the third ``` opens, the fourth ``` closes (empty code block).
@@ -227,7 +227,7 @@ mod tests {
     }
 
     #[test]
-    fn empty_code_block() {
+    fn test_empty_code_block() {
         let input = "```\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn only_code_block() {
+    fn test_only_code_block() {
         let input = "```python\nprint('hi')\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -255,13 +255,13 @@ mod tests {
     // ---- Additional edge-case tests (Step 1.3) ----
 
     #[test]
-    fn empty_string_input() {
+    fn test_empty_string_input() {
         let segs = parse_content_segments("");
         assert!(segs.is_empty());
     }
 
     #[test]
-    fn blank_line_outside_code_block_preserved() {
+    fn test_blank_line_outside_code_block_preserved() {
         let input = "line1\n\nline2";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -275,7 +275,7 @@ mod tests {
     }
 
     #[test]
-    fn multiple_hr_sequential() {
+    fn test_multiple_hr_sequential() {
         let input = "---\n---\n---";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -285,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn trailing_space_in_language_tag() {
+    fn test_trailing_space_in_language_tag() {
         let input = "```rust \nfn main() {}\n```";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -298,7 +298,7 @@ mod tests {
     }
 
     #[test]
-    fn four_backtick_fence_opens_with_language() {
+    fn test_four_backtick_fence_opens_with_language() {
         // Known design behavior (not a bug): the parser only strips the leading
         // 3 backticks from the opening fence; the 4th backtick is retained as
         // part of the language field, producing language="`rust".
@@ -314,7 +314,7 @@ mod tests {
     }
 
     #[test]
-    fn mixed_segments_long_content() {
+    fn test_mixed_segments_long_content() {
         let input = "# Title\n\nSome introductory text.\n\n```python\ndef hello():\n    print(\"world\")\n\n    return 42\n```\n\n---\n\nMore text after the rule.\n\n```\nraw\ncode\n```\n\nFinal paragraph.";
         let segs = parse_content_segments(input);
         assert_eq!(
@@ -344,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    fn backtick_fence_with_extra_backticks_inside_code_block() {
+    fn test_backtick_fence_with_extra_backticks_inside_code_block() {
         // A line of only backticks (>=3) inside a code block closes it
         // per "全反引号行即关闭围栏" rule. The remaining ``` after line2
         // is an unclosed fence that falls back to Markdown("```").
@@ -366,7 +366,7 @@ mod tests {
     // ---- Step 1.6 gap tests ----
 
     #[test]
-    fn unclosed_fence_without_language_falls_back_verbatim() {
+    fn test_unclosed_fence_without_language_falls_back_verbatim() {
         // Exercises the empty-language arm of the unclosed-fence fallback:
         // the bare ``` opener and every collected line (including a blank
         // one) are preserved as Markdown, in order.
@@ -384,7 +384,7 @@ mod tests {
     }
 
     #[test]
-    fn fence_info_string_with_space_does_not_open_code_block() {
+    fn test_fence_info_string_with_space_does_not_open_code_block() {
         // Only a fence line whose info string is contiguous with the backticks
         // opens a code block; "``` rust" (space after the fence) stays plain
         // markdown, so the following lines remain outside any code block.
@@ -401,7 +401,7 @@ mod tests {
     }
 
     #[test]
-    fn hr_detection_trims_trailing_whitespace_only() {
+    fn test_hr_detection_trims_trailing_whitespace_only() {
         // "---" followed by trailing whitespace is still a horizontal rule
         // (trailing whitespace is trimmed before the exact match), while
         // leading whitespace keeps the line as regular markdown.

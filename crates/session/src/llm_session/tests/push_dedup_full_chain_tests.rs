@@ -21,7 +21,7 @@
 //! 4. Blocks-form pre-append (image round) under injection cover: no
 //!    flattened duplicate is sent.
 //!
-//! The existing `consecutive_identical_texts_across_rounds_not_deleted`
+//! The existing `test_consecutive_identical_texts_across_rounds_not_deleted`
 //! and friends in `message_push_dedup_tests` remain the cross-round
 //! regression suite and keep passing unchanged.
 

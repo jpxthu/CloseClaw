@@ -198,7 +198,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn fixture_root_exists() {
+    fn test_fixture_root_exists() {
         let root = fixture_root();
         assert!(
             root.is_dir(),
@@ -208,7 +208,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_fixture_dir_exists() {
+    fn test_openai_fixture_dir_exists() {
         let dir = openai_fixture_dir();
         assert!(
             dir.is_dir(),
@@ -218,7 +218,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_fixture_dir_exists() {
+    fn test_anthropic_fixture_dir_exists() {
         let dir = anthropic_fixture_dir();
         assert!(
             dir.is_dir(),
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_load_all_protocol_fixtures() {
+    fn test_openai_load_all_protocol_fixtures() {
         let entries = load_protocol_fixtures_dir(&openai_fixture_dir()).unwrap();
         // JSON files: simple, reasoning, tool-use, cache, error-auth,
         // error-rate-limit, error-server, streaming-meta,
@@ -240,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_load_all_protocol_fixtures() {
+    fn test_anthropic_load_all_protocol_fixtures() {
         let entries = load_protocol_fixtures_dir(&anthropic_fixture_dir()).unwrap();
         // JSON files: anthropic-simple, anthropic-thinking, anthropic-tool-use,
         // anthropic-cache, anthropic-error, anthropic-streaming-meta,
@@ -252,7 +252,7 @@ mod tests {
     }
 
     #[test]
-    fn openai_load_all_streaming_fixtures() {
+    fn test_openai_load_all_streaming_fixtures() {
         let files = load_streaming_fixtures_dir(&openai_fixture_dir()).unwrap();
         // 2 txt files: streaming.txt, tool-use-streaming.txt
         assert_eq!(files.len(), 2, "expected 2 OpenAI streaming txt files");
@@ -266,7 +266,7 @@ mod tests {
     }
 
     #[test]
-    fn anthropic_load_all_streaming_fixtures() {
+    fn test_anthropic_load_all_streaming_fixtures() {
         let files = load_streaming_fixtures_dir(&anthropic_fixture_dir()).unwrap();
         assert_eq!(files.len(), 2, "expected 2 Anthropic streaming txt files");
         for (name, content) in &files {
@@ -279,19 +279,19 @@ mod tests {
     }
 
     #[test]
-    fn openai_load_all_streaming_metas() {
+    fn test_openai_load_all_streaming_metas() {
         let metas = load_streaming_metas_dir(&openai_fixture_dir()).unwrap();
         assert_eq!(metas.len(), 2, "expected 2 OpenAI streaming meta files");
     }
 
     #[test]
-    fn anthropic_load_all_streaming_metas() {
+    fn test_anthropic_load_all_streaming_metas() {
         let metas = load_streaming_metas_dir(&anthropic_fixture_dir()).unwrap();
         assert_eq!(metas.len(), 2, "expected 2 Anthropic streaming meta files");
     }
 
     #[test]
-    fn load_protocol_fixture_simple_openai() {
+    fn test_load_protocol_fixture_simple_openai() {
         let path = openai_fixture_dir().join("simple.json");
         let fixture = load_protocol_fixture(&path).unwrap();
         assert_eq!(fixture.protocol, "openai");
@@ -301,7 +301,7 @@ mod tests {
     }
 
     #[test]
-    fn load_protocol_fixture_simple_anthropic() {
+    fn test_load_protocol_fixture_simple_anthropic() {
         let path = anthropic_fixture_dir().join("anthropic-simple.json");
         let fixture = load_protocol_fixture(&path).unwrap();
         assert_eq!(fixture.protocol, "anthropic");
@@ -311,7 +311,7 @@ mod tests {
     }
 
     #[test]
-    fn load_streaming_fixture_txt() {
+    fn test_load_streaming_fixture_txt() {
         let path = openai_fixture_dir().join("streaming.txt");
         let content = load_streaming_fixture(&path).unwrap();
         assert!(
@@ -321,7 +321,7 @@ mod tests {
     }
 
     #[test]
-    fn load_protocol_fixture_error_includes_path() {
+    fn test_load_protocol_fixture_error_includes_path() {
         let result = load_protocol_fixture(Path::new("/nonexistent/file.json"));
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());
@@ -333,7 +333,7 @@ mod tests {
     }
 
     #[test]
-    fn load_streaming_fixture_error_includes_path() {
+    fn test_load_streaming_fixture_error_includes_path() {
         let result = load_streaming_fixture(Path::new("/nonexistent/file.txt"));
         assert!(result.is_err());
         let err_msg = format!("{}", result.unwrap_err());

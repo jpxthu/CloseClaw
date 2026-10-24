@@ -201,7 +201,7 @@ async fn setup() -> (crate::Gateway, Arc<SessionManager>, String) {
 /// the Thinking block that was fully generated (BlockEnd received) before
 /// the error occurred.
 #[tokio::test]
-async fn streaming_error_preserves_thinking_block() {
+async fn test_streaming_error_preserves_thinking_block() {
     let (gw, _sm, sid) = setup().await;
     let plugin: Arc<dyn IMPlugin> = Arc::new(NoopPlugin::new("mock"));
     let events = vec![
@@ -265,7 +265,7 @@ async fn streaming_error_preserves_thinking_block() {
 /// Verifies that when an error occurs immediately (before any content),
 /// `partial_content` is empty.
 #[tokio::test]
-async fn streaming_error_empty_when_no_blocks() {
+async fn test_streaming_error_empty_when_no_blocks() {
     let (gw, _sm, sid) = setup().await;
     let plugin: Arc<dyn IMPlugin> = Arc::new(NoopPlugin::new("mock"));
     let events = vec![Ok::<_, String>(StreamEvent::Error {
@@ -296,7 +296,7 @@ async fn streaming_error_empty_when_no_blocks() {
 /// Verifies that `partial_content` contains all previously accumulated
 /// blocks in order.
 #[tokio::test]
-async fn streaming_error_preserves_multiple_blocks() {
+async fn test_streaming_error_preserves_multiple_blocks() {
     let (gw, _sm, sid) = setup().await;
     let plugin: Arc<dyn IMPlugin> = Arc::new(NoopPlugin::new("mock"));
     let events = vec![
