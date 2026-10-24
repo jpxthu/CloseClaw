@@ -74,6 +74,9 @@ async fn assert_routed_outbound(mgr: &SessionManager, parent_id: &str, texts: &[
     assert_eq!(drained.system_notifications.len(), texts.len());
 }
 
+/// Yield count before/after each `advance` jump in `advance_and_settle`.
+const SETTLE_YIELDS: usize = 16;
+
 /// Move the paused clock forward by `d`, letting freshly spawned tasks
 /// register their timers before the jump and the handlers woken by the
 /// jump run to completion after it.
@@ -93,11 +96,11 @@ async fn assert_routed_outbound(mgr: &SessionManager, parent_id: &str, texts: &[
 ///   handler ever fail to settle within the bound, the count assertions
 ///   below fail loudly instead of hanging.
 async fn advance_and_settle(d: std::time::Duration) {
-    for _ in 0..16 {
+    for _ in 0..SETTLE_YIELDS {
         tokio::task::yield_now().await;
     }
     tokio::time::advance(d).await;
-    for _ in 0..16 {
+    for _ in 0..SETTLE_YIELDS {
         tokio::task::yield_now().await;
     }
 }
@@ -257,43 +260,26 @@ async fn test_yield_cyclic_warning_ratio_2_0_boundary() {
     mgr.start_yield_timeout(&parent_id, "agent-x", 3, Some(1), Some(2.0))
         .await;
 
-    // Under the paused clock this 2s virtual sleep stops the clock at
-    // T=2: the boundary warning (T=1) is already enqueued while the
-    // hard timeout (T=3) has not fired yet — a deterministic pause
-    // point for the positive count assertion below.
-    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
+    // Advance to T=2: the boundary warning (T=1) is already enqueued
+    // while the hard timeout (T=3) has not fired yet — a deterministic
+    // pause point for the positive count assertion below.
+    advance_and_settle(std::time::Duration::from_secs(2)).await;
 
     // Positive assertion: exactly one entry — the T=1 boundary warning
     // — was enqueued before the hard-timeout drain. (Count template:
     // yield_timeout_tests "exactly one warning".)
-    let cs = mgr.get_conversation_session(&parent_id).await.unwrap();
-    let entries = {
-        let mut cs_write = cs.write().await;
-        cs_write.drain_queue()
-    };
-    let warning_entries: Vec<_> = entries
-        .iter()
-        .filter(|e| {
-            matches!(
-                e,
-                closeclaw_session::llm_session::QueueEntry::SystemNotification(text, _, _)
-                    if text.contains("超时预警")
-            )
-        })
-        .collect();
+    let warnings = drain_warnings(&mgr, &parent_id).await;
     assert_eq!(
-        warning_entries.len(),
+        warnings.len(),
         1,
         "ratio=2.0 boundary should enqueue exactly one warning before the \
          hard timeout, got {}",
-        warning_entries.len()
+        warnings.len()
     );
 
-    // Advance through the hard timeout at T=3 (the 2s margin beyond
-    // T=3 guarantees the hard-timeout callback is fully polled): it
-    // fires and drains the queue for outbound routing — deterministic,
-    // ms-level wall-clock.
-    tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+    // Advance through the hard timeout at T=3: it fires and drains the
+    // queue for outbound routing — deterministic, ms-level wall-clock.
+    advance_and_settle(std::time::Duration::from_secs(3)).await;
 
     assert_routed_outbound(&mgr, &parent_id, &["[超时] verify cyclic routed"]).await;
 }
