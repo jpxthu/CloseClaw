@@ -352,6 +352,20 @@ fn test_create_subdir_creates_dir_and_returns_path() {
     );
 }
 
+/// Error path: when `base` is a regular file (under a TempDir, so the
+/// path itself is legitimate) directory creation under it must fail
+/// (ENOTDIR) and the unwrap-style helper surfaces the failure as a panic
+/// instead of swallowing it; the panic message carries the `NotADirectory`
+/// error kind, proving the unwrap-on-Err path was taken.
+#[test]
+#[should_panic(expected = "NotADirectory")]
+fn test_create_subdir_panics_when_base_is_a_regular_file() {
+    let tmp = TempDir::new().unwrap();
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, "x").unwrap();
+    create_subdir(&blocker, "child");
+}
+
 // ===========================================================================
 // Shared capability-error payload
 // ===========================================================================

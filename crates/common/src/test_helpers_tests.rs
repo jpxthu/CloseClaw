@@ -1,9 +1,11 @@
-//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract,
-//! `remove_subdir`'s recursive-teardown TempDir contract, `create_subdir`'s
-//! nested-path creation, and the shared `MemAuditLogger`
-//! audit mock behaviour (filter, time-descending
-//! query, unparseable-timestamp ordering, window/matches consistency,
-//! snapshot isolation, empty/zero-match boundaries, concurrency).
+//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and
+//! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
+//! TempDir contract, `create_subdir`'s nested-path creation, TempDir
+//! contract and base-is-a-file error path, and
+//! the shared `MemAuditLogger` audit mock behaviour (filter,
+//! time-descending query, unparseable-timestamp ordering,
+//! window/matches consistency, snapshot isolation, empty/zero-match
+//! boundaries, concurrency).
 
 use std::sync::Arc;
 
@@ -32,14 +34,14 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
 }
 
 // The panic paths under test come from `debug_assert!` in `ensure_dir` /
-// `remove_subdir`, which is compiled out in release builds — these
-// counter-examples are only meaningful for the debug profile, so they are
-// compiled (and run) solely when `debug_assertions` is on. The probe path
-// is a lexical sibling of `std::env::temp_dir()` (its parent + `tail`),
-// hence necessarily outside the TempDir contract; a degenerate parentless
-// `temp_dir()` has no such sibling and fails loudly via `expect` instead
-// of falling back to a hardcoded ambient path whose contract would depend
-// on the filesystem layout.
+// `remove_subdir` / `create_subdir`, which is compiled out in release
+// builds — these counter-examples are only meaningful for the debug
+// profile, so they are compiled (and run) solely when `debug_assertions`
+// is on. The probe path is a lexical sibling of `std::env::temp_dir()`
+// (its parent + `tail`), hence necessarily outside the TempDir contract; a
+// degenerate parentless `temp_dir()` has no such sibling and fails loudly
+// via `expect` instead of falling back to a hardcoded ambient path whose
+// contract would depend on the filesystem layout.
 #[cfg(debug_assertions)]
 fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
     std::env::temp_dir()
@@ -54,6 +56,25 @@ fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
 fn test_ensure_dir_panics_for_path_outside_tempdir() {
     let outside = outside_tempdir_probe("closeclaw_ensure_dir_outside_probe");
     ensure_dir(&outside).expect("ensure_dir: directory creation outside temp dir must fail");
+}
+
+/// 错误路径：目标路径的父组件是普通文件时目录创建返回 Err，
+/// `ensure_dir` 以 `io::Result` 原样透传（`NotADirectory`）而不 panic，
+/// 错误处理权留给调用者；目标目录不得被创建。
+#[test]
+fn test_ensure_dir_returns_error_when_parent_is_a_regular_file() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, "x").expect("write blocker file");
+    let dir = blocker.join("child");
+
+    let err = ensure_dir(&dir).expect_err("父路径为普通文件时创建目录必须失败");
+    assert_eq!(
+        err.kind(),
+        std::io::ErrorKind::NotADirectory,
+        "错误种类必须是 NotADirectory，实际：{err:?}"
+    );
+    assert!(!dir.exists(), "失败的创建不得留下目标目录：{dir:?}");
 }
 
 /// 正常路径：`remove_subdir` 递归删除 TempDir 下含文件的目录树，
@@ -71,8 +92,8 @@ fn test_remove_subdir_deletes_subtree_under_tempdir() {
 }
 
 /// 幂等边界由调用方决定（目录可能本就不存在）：`remove_subdir` 对缺失
-/// 目录返回错误而非 panic，错误处理权留给调用者（与 config 本地 helper
-/// 同签名同语义；共享版额外 debug-assert TempDir 契约）。
+/// 目录返回错误而非 panic，错误处理权留给调用者（共享版额外
+/// debug-assert TempDir 契约）。
 #[test]
 fn test_remove_subdir_missing_dir_returns_error() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
@@ -111,6 +132,30 @@ fn test_create_subdir_existing_dir_is_idempotent() {
     let second = create_subdir(tmp.path(), "a/b/c");
     assert_eq!(first, second, "重复调用必须返回相同路径");
     assert!(second.is_dir(), "目录应保持存在：{second:?}");
+}
+
+/// TempDir 契约：debug 构建下 base 落在 `std::env::temp_dir()` 之外时
+/// 在任何文件系统写入前快速失败（panic 前缀与 helper 名一致），
+/// 与 `ensure_dir` / `remove_subdir` 的契约口径对齐。
+#[test]
+#[cfg(debug_assertions)]
+#[should_panic(expected = "create_subdir")]
+fn test_create_subdir_panics_for_base_outside_tempdir() {
+    let outside = outside_tempdir_probe("closeclaw_create_subdir_outside_probe");
+    create_subdir(&outside, "rel");
+}
+
+/// 错误路径：base 是普通文件时（TempDir 之下，TempDir 契约本身放行）
+/// 目录创建必然失败（ENOTDIR），unwrap 型契约让失败以 panic 浮出，
+/// 错误不得被静默吞掉；panic 消息含错误种类 `NotADirectory`，证明
+/// 走的是 unwrap-on-Err 而非 TempDir 契约 panic。
+#[test]
+#[should_panic(expected = "NotADirectory")]
+fn test_create_subdir_panics_when_base_is_a_regular_file() {
+    let tmp = tempfile::TempDir::new().expect("temp dir");
+    let blocker = tmp.path().join("blocker.txt");
+    std::fs::write(&blocker, "x").expect("write blocker file");
+    create_subdir(&blocker, "child");
 }
 
 /// 正常路径：log 多条后 `query_entries` 经 `AuditLogFilter` 命中正确子集

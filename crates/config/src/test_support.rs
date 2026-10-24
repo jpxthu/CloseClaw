@@ -21,13 +21,3 @@ pub(crate) fn ensure_dir(path: &std::path::Path) -> std::path::PathBuf {
     std::fs::create_dir_all(path).unwrap();
     path.to_path_buf()
 }
-
-/// Remove directory `path` recursively.
-///
-/// Scenario-simulation helper only: reproduces on-disk states such as
-/// "backup dir absent", "config dir vanishes" or "backup dir replaced by
-/// a file" that the production failure paths react to. Callers decide
-/// error handling — typically `.ok()` since the directory may not exist.
-pub(crate) fn remove_subdir(path: &std::path::Path) -> std::io::Result<()> {
-    std::fs::remove_dir_all(path)
-}
