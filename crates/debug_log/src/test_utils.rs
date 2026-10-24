@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
-use crate::{DebugLog, DebugLogConfig, LogEvent, LogLevel};
+use crate::{DebugLog, DebugLogConfig, LogEvent, LogLevel, RedactionPattern};
 
 /// Deadline for the convenience polling helpers — the widest of the
 /// unified deadline families (avoids false timeouts on slow machines).
@@ -30,13 +30,27 @@ pub async fn make_debug_log(temp_dir: &TempDir) -> DebugLog {
 /// Create a [`DebugLog`] writing to a temp directory at a custom
 /// minimum level (for consumers needing a non-Trace baseline).
 pub async fn make_debug_log_at_level(temp_dir: &TempDir, min_level: LogLevel) -> DebugLog {
-    let config = DebugLogConfig {
+    let config = make_config_at_level(temp_dir, min_level, vec![]);
+    DebugLog::new(config).await.expect("DebugLog::new failed")
+}
+
+/// Build a [`DebugLogConfig`] pointing at `temp_dir` with a custom
+/// minimum level and redaction patterns (Trace-baseline retention: 7
+/// days). Config-level building block for in-crate tests that need a
+/// non-baseline config (e.g. redaction behavior tests layering their
+/// own patterns on top); feature consumers use the ready-made
+/// [`make_debug_log`] / [`make_debug_log_at_level`].
+pub(crate) fn make_config_at_level(
+    temp_dir: &TempDir,
+    min_level: LogLevel,
+    redaction_patterns: Vec<RedactionPattern>,
+) -> DebugLogConfig {
+    DebugLogConfig {
         min_level,
         log_dir: temp_dir.path().to_path_buf(),
         retention_days: 7,
-        redaction_patterns: vec![],
-    };
-    DebugLog::new(config).await.expect("DebugLog::new failed")
+        redaction_patterns,
+    }
 }
 
 /// Read all [`LogEvent`] entries from the JSONL files in `dir` (async I/O).

@@ -3,17 +3,20 @@ use crate::{LogEvent, LogLevel, TraceContext};
 use serde_json::json;
 use tempfile::TempDir;
 
+/// Shared-baseline config (via `crate::test_utils`) parameterized with
+/// this file's test dimension: the `secret` exact-match redaction rule
+/// exercised by `test_redaction_applied`. The returned owned config
+/// supports in-place `min_level` mutation by individual tests.
 fn make_config(dir: &TempDir) -> DebugLogConfig {
-    DebugLogConfig {
-        min_level: LogLevel::Debug,
-        log_dir: dir.path().to_path_buf(),
-        retention_days: 7,
-        redaction_patterns: vec![crate::RedactionPattern {
+    crate::test_utils::make_config_at_level(
+        dir,
+        LogLevel::Debug,
+        vec![crate::RedactionPattern {
             field: "secret".into(),
             match_type: crate::PatternMatch::Exact,
             replacement: "[REDACTED]".into(),
         }],
-    }
+    )
 }
 
 fn make_event(
