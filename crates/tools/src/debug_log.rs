@@ -26,7 +26,7 @@ mod tests {
     use closeclaw_debug_log::LogLevel;
 
     #[test]
-    fn empty_trace_id_is_noop() {
+    fn test_empty_trace_id_is_noop() {
         let ctx = ToolsDebugLogContext::new(None, "", None);
         emit_tool_event(ToolsEmitEventParams {
             ctx,
@@ -39,7 +39,7 @@ mod tests {
     }
 
     #[test]
-    fn none_debug_log_is_noop() {
+    fn test_none_debug_log_is_noop() {
         let ctx = ToolsDebugLogContext::new(None, "trace-123", None);
         emit_tool_event(ToolsEmitEventParams {
             ctx,
@@ -52,7 +52,7 @@ mod tests {
     }
 
     #[test]
-    fn debug_log_context_new_fields() {
+    fn test_debug_log_context_new_fields() {
         let ctx = ToolsDebugLogContext::new(None, "tid", Some("skey"));
         assert_eq!(ctx.trace_id, "tid");
         assert_eq!(ctx.session_key, Some("skey"));

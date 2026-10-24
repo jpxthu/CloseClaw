@@ -191,7 +191,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_no_refs_passthrough() {
+    fn test_resolve_no_refs_passthrough() {
         let tmp = TempDir::new().unwrap();
         let store = FsStore::new(tmp.path().to_path_buf());
         let args = serde_json::json!({"path": "/some/file.txt"});
@@ -200,7 +200,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_string_with_ref() {
+    fn test_resolve_string_with_ref() {
         let tmp = TempDir::new().unwrap();
         let mut store = FsStore::new(tmp.path().to_path_buf());
         store.add_ref("img_001", "inbound/img.png");
@@ -219,7 +219,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_missing_ref_errors() {
+    fn test_resolve_missing_ref_errors() {
         let tmp = TempDir::new().unwrap();
         let store = FsStore::new(tmp.path().to_path_buf());
         let args = serde_json::json!({"path": "[image: nonexistent]"});
@@ -228,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_multiple_refs() {
+    fn test_resolve_multiple_refs() {
         let tmp = TempDir::new().unwrap();
         let mut store = FsStore::new(tmp.path().to_path_buf());
         store.add_ref("a", "a.png");
@@ -247,7 +247,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_nested_objects() {
+    fn test_resolve_nested_objects() {
         let tmp = TempDir::new().unwrap();
         let mut store = FsStore::new(tmp.path().to_path_buf());
         store.add_ref("k", "file.txt");
@@ -264,7 +264,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_array_elements() {
+    fn test_resolve_array_elements() {
         let tmp = TempDir::new().unwrap();
         let mut store = FsStore::new(tmp.path().to_path_buf());
         store.add_ref("x", "x.png");
@@ -280,7 +280,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_no_store_errors() {
+    fn test_resolve_no_store_errors() {
         // A store that always returns NoPath.
         struct NoStore;
         impl closeclaw_common::MediaStoreAccess for NoStore {
@@ -299,7 +299,7 @@ mod tests {
     }
 
     #[test]
-    fn resolve_non_string_values_unchanged() {
+    fn test_resolve_non_string_values_unchanged() {
         let tmp = TempDir::new().unwrap();
         let store = FsStore::new(tmp.path().to_path_buf());
         let args = serde_json::json!({

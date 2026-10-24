@@ -34,7 +34,7 @@ const SAMPLES: &[&str] = &[
 ];
 
 #[test]
-fn plans_path_predicates_agree_on_all_samples() {
+fn test_plans_path_predicates_agree_on_all_samples() {
     for sample in SAMPLES {
         assert_eq!(
             is_plan_file_path(sample),

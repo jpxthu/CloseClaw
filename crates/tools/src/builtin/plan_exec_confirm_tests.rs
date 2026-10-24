@@ -109,7 +109,7 @@ fn insert_plan_state(mock: &MockSessionLookup, session_id: &str, path: &str) {
 }
 
 #[tokio::test]
-async fn submit_generates_id_and_stores_entry() {
+async fn test_submit_generates_id_and_stores_entry() {
     let (_mock, sm) = make_mock();
     let notify_count = Arc::new(AtomicUsize::new(0));
     let nc = Arc::clone(&notify_count);
@@ -126,7 +126,7 @@ async fn submit_generates_id_and_stores_entry() {
 }
 
 #[tokio::test]
-async fn confirm_unknown_id_returns_false() {
+async fn test_confirm_unknown_id_returns_false() {
     let (_mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -135,7 +135,7 @@ async fn confirm_unknown_id_returns_false() {
 }
 
 #[tokio::test]
-async fn cancel_unknown_id_returns_false() {
+async fn test_cancel_unknown_id_returns_false() {
     let (_mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -144,7 +144,7 @@ async fn cancel_unknown_id_returns_false() {
 }
 
 #[tokio::test]
-async fn clear_removes_all_pending() {
+async fn test_clear_removes_all_pending() {
     let (_mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -162,7 +162,7 @@ async fn clear_removes_all_pending() {
 }
 
 #[tokio::test]
-async fn confirm_same_session_transitions_to_auto() {
+async fn test_confirm_same_session_transitions_to_auto() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -190,7 +190,7 @@ async fn confirm_same_session_transitions_to_auto() {
 }
 
 #[tokio::test]
-async fn confirm_same_session_with_additional_instruction() {
+async fn test_confirm_same_session_with_additional_instruction() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -225,7 +225,7 @@ async fn confirm_same_session_with_additional_instruction() {
 }
 
 #[tokio::test]
-async fn confirm_new_session_fallback_to_same_session() {
+async fn test_confirm_new_session_fallback_to_same_session() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -256,7 +256,7 @@ async fn confirm_new_session_fallback_to_same_session() {
 }
 
 #[tokio::test]
-async fn cancel_removes_entry_and_pushes_message() {
+async fn test_cancel_removes_entry_and_pushes_message() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -282,7 +282,7 @@ async fn cancel_removes_entry_and_pushes_message() {
 }
 
 #[tokio::test]
-async fn confirm_idempotent_second_confirm_returns_false() {
+async fn test_confirm_idempotent_second_confirm_returns_false() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -298,7 +298,7 @@ async fn confirm_idempotent_second_confirm_returns_false() {
 }
 
 #[tokio::test]
-async fn additional_instruction_whitespace_ignored() {
+async fn test_additional_instruction_whitespace_ignored() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -333,7 +333,7 @@ async fn additional_instruction_whitespace_ignored() {
 // ── Missing dimension: submit stores correct metadata ─────────────
 
 #[tokio::test]
-async fn submit_stores_correct_metadata_in_pending_map() {
+async fn test_submit_stores_correct_metadata_in_pending_map() {
     let (_mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -357,7 +357,7 @@ async fn submit_stores_correct_metadata_in_pending_map() {
 }
 
 #[tokio::test]
-async fn submit_notifies_with_correct_payload() {
+async fn test_submit_notifies_with_correct_payload() {
     let (_mock, sm) = make_mock();
     let captured: Arc<std::sync::Mutex<Vec<PlanExecNotification>>> =
         Arc::new(std::sync::Mutex::new(Vec::new()));
@@ -384,7 +384,7 @@ async fn submit_notifies_with_correct_payload() {
 // ── Missing dimension: new-session path with callback ─────────────
 
 #[tokio::test]
-async fn confirm_new_session_with_callback_creates_child() {
+async fn test_confirm_new_session_with_callback_creates_child() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -443,7 +443,7 @@ async fn confirm_new_session_with_callback_creates_child() {
 // ── Missing dimension: new-session path, step_selection None ──────
 
 #[tokio::test]
-async fn confirm_new_session_with_callback_no_step_selection() {
+async fn test_confirm_new_session_with_callback_no_step_selection() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -495,7 +495,7 @@ async fn confirm_new_session_with_callback_no_step_selection() {
 // ── Step 1.6: concurrent confirm same id only once ─────────────
 
 #[tokio::test]
-async fn concurrent_confirm_same_id_only_once() {
+async fn test_concurrent_confirm_same_id_only_once() {
     let (_mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -524,7 +524,7 @@ async fn concurrent_confirm_same_id_only_once() {
 // (execution.md L120: session 标记 Auto Mode，切换不立即生效)
 
 #[tokio::test]
-async fn confirm_plan_mode_sets_pending_auto_not_immediate() {
+async fn test_confirm_plan_mode_sets_pending_auto_not_immediate() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());
@@ -576,7 +576,7 @@ async fn confirm_plan_mode_sets_pending_auto_not_immediate() {
 // same-session sets pending_modes (lazy).
 
 #[tokio::test]
-async fn confirm_new_session_sets_immediate_auto() {
+async fn test_confirm_new_session_sets_immediate_auto() {
     let (mock, sm) = make_mock();
     let on_notify: Arc<dyn Fn(PlanExecNotification) + Send + Sync> = Arc::new(|_| {});
     let mut flow = PlanExecConfirmFlow::new(sm, on_notify, tokio::runtime::Handle::current());

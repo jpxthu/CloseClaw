@@ -40,7 +40,7 @@ fn restore_writable(path: &std::path::Path) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn is_recovered_returns_true_when_content_matches() {
+fn test_is_recovered_returns_true_when_content_matches() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("match.txt");
     std::fs::write(&path, "expected content").unwrap();
@@ -48,7 +48,7 @@ fn is_recovered_returns_true_when_content_matches() {
 }
 
 #[test]
-fn is_recovered_returns_false_when_content_mismatches() {
+fn test_is_recovered_returns_false_when_content_mismatches() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("mismatch.txt");
     std::fs::write(&path, "actual content").unwrap();
@@ -56,7 +56,7 @@ fn is_recovered_returns_false_when_content_mismatches() {
 }
 
 #[test]
-fn is_recovered_returns_false_for_missing_file() {
+fn test_is_recovered_returns_false_for_missing_file() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("does_not_exist.txt");
     assert!(!readback::is_recovered(&path, "anything"));
@@ -70,7 +70,7 @@ fn is_recovered_returns_false_for_missing_file() {
 /// file already contains the expected content, `write_with_readback` should
 /// return Ok — treating the write as successful.
 #[test]
-fn write_with_readback_recovers_when_content_matches() {
+fn test_write_with_readback_recovers_when_content_matches() {
     if is_root() {
         eprintln!("SKIP: root ignores permission bits");
         return;
@@ -97,7 +97,7 @@ fn write_with_readback_recovers_when_content_matches() {
 /// When `std::fs::write` fails and the file content does not match the
 /// expected content, the original error must be propagated.
 #[test]
-fn write_with_readback_does_not_recover_when_content_mismatches() {
+fn test_write_with_readback_does_not_recover_when_content_mismatches() {
     if is_root() {
         eprintln!("SKIP: root ignores permission bits");
         return;
@@ -135,7 +135,7 @@ fn write_with_readback_does_not_recover_when_content_mismatches() {
 /// When `std::fs::write` succeeds, readback is never invoked and Ok is
 /// returned directly.
 #[test]
-fn write_with_readback_ok_when_write_succeeds() {
+fn test_write_with_readback_ok_when_write_succeeds() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("normal.txt");
 
@@ -153,7 +153,7 @@ fn write_with_readback_ok_when_write_succeeds() {
 /// WriteTool writing to a read-only file that already contains expected
 /// content should succeed via readback recovery.
 #[tokio::test]
-async fn write_tool_recovers_on_readonly_file_with_matching_content() {
+async fn test_write_tool_recovers_on_readonly_file_with_matching_content() {
     use crate::builtin::file_ops::tests::make_ctx;
     use crate::builtin::file_ops::WriteTool;
 
@@ -193,7 +193,7 @@ async fn write_tool_recovers_on_readonly_file_with_matching_content() {
 /// The readback recovery mechanism is validated by `write_with_readback`
 /// unit tests; this verifies the full EditTool pipeline works end-to-end.
 #[tokio::test]
-async fn edit_tool_succeeds_through_readback_path() {
+async fn test_edit_tool_succeeds_through_readback_path() {
     use crate::builtin::file_ops::tests::make_ctx;
     use crate::builtin::file_ops::EditTool;
 
