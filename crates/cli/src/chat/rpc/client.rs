@@ -317,8 +317,8 @@ mod tests {
     /// Returns `(socket path, TempDir)` — the TempDir is not dropped here so
     /// the socket path stays valid for the whole test. Callers must hold the
     /// `_tmpdir` binding. The server calls `handler` for each received
-    /// request and sends back the returned response. `shutdown` is triggered
-    /// when the handler returns `None`.
+    /// request and sends back the returned response. Returning `None` closes
+    /// the connection (the client sees EOF).
     async fn spawn_mock_server(
         handler: Arc<dyn Fn(ChatRequest) -> Option<ChatResponse> + Send + Sync + 'static>,
     ) -> (PathBuf, tempfile::TempDir) {
@@ -326,7 +326,7 @@ mod tests {
         // the connection without writing a response.
         let handler = Arc::new(move |req: ChatRequest| match handler(req) {
             Some(response) => (vec![response], false),
-            None => (Vec::new(), true),
+            None => (vec![], true),
         });
         spawn_mock_frame_server(handler)
     }
