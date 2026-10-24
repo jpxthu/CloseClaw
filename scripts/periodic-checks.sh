@@ -56,7 +56,8 @@ usage() {
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --audit-selftest test-audit 扫描器自测（scripts/test-audit.sh --self-test，内嵌 fixture 断言命中/不命中规格矩阵）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
-  --all       = --slow --flaky --doctest --coverage --deps --dep-guard --msrv --audit-selftest（不含 --heavy）
+  --all       = --slow --flaky --doctest --coverage --deps --dep-guard
+                --msrv --audit-selftest（不含 --heavy）
   --help, -h  打印本用法
 
 说明:
@@ -517,14 +518,19 @@ while [[ $# -gt 0 ]]; do
         --msrv)       RUN_MSRV=1 ;;
         --audit-selftest) RUN_AUDIT_SELFTEST=1 ;;
         --heavy)      RUN_HEAVY=1 ;;
-        --all)        RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1; RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1; RUN_AUDIT_SELFTEST=1 ;;
+        --all)
+            RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1
+            RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1; RUN_AUDIT_SELFTEST=1
+            ;;
         --help|-h)    usage; exit 0 ;;
         *)            echo "未知选项: $1"; echo ""; usage; exit 1 ;;
     esac
     shift
 done
 
-if [[ $((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS + RUN_DEP_GUARD + RUN_MSRV + RUN_AUDIT_SELFTEST + RUN_HEAVY)) -eq 0 ]]; then
+SELECTED=$((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS \
+    + RUN_DEP_GUARD + RUN_MSRV + RUN_AUDIT_SELFTEST + RUN_HEAVY))
+if [[ $SELECTED -eq 0 ]]; then
     usage
     exit 1
 fi
@@ -541,7 +547,9 @@ if [[ $RUN_COVERAGE -eq 1 ]]; then run_section "--coverage 覆盖率" do_coverag
 if [[ $RUN_DEPS -eq 1 ]]; then     run_section "--deps 依赖检查" do_deps; fi
 if [[ $RUN_DEP_GUARD -eq 1 ]]; then run_section "--dep-guard 依赖治理守卫" do_dep_guard; fi
 if [[ $RUN_MSRV -eq 1 ]]; then     run_section "--msrv MSRV 检查" do_msrv; fi
-if [[ $RUN_AUDIT_SELFTEST -eq 1 ]]; then run_section "--audit-selftest test-audit 扫描器自测" do_audit_selftest; fi
+if [[ $RUN_AUDIT_SELFTEST -eq 1 ]]; then
+    run_section "--audit-selftest test-audit 扫描器自测" do_audit_selftest
+fi
 if [[ $RUN_HEAVY -eq 1 ]]; then    run_section "--heavy 重型检查（miri/TSAN）" do_heavy; fi
 
 # ---------- 汇总表 ----------

@@ -420,7 +420,8 @@ collect_static_entries() {
 
   # ── 原通道：独立测试文件全文件扫 ────────────────────────
   # 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
-  local find_args=("${scan_dirs[@]}" -type f \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
+  local find_args=("${scan_dirs[@]}" -type f \(
+    -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     find_args+=(-path "*${TARGET_FILTER}*")
   fi
@@ -578,7 +579,8 @@ collect_static_entries() {
 #   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
 #   3. #[cfg(not(test))] 区域不命中
 #   4. 挂载目标 helper 命名（*test_helpers*）排除
-#   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态
+#   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态 +
+#      单行多属性 + #[path] 组合形态
 #   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
 #      （区域闭合后的生产代码不因字面量失衡误命中）
 #   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
@@ -643,7 +645,8 @@ run_self_test() {
   mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper"
 
   cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
-// 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除形态
+// 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
+// 单行多属性 + #[path] 组合形态
 #[cfg(test)]
 #[path = "with_path_target.rs"]
 mod with_path;
@@ -651,6 +654,8 @@ mod with_path;
 #[cfg(test)]
 #[path = "demo_test_helpers.rs"]
 mod helpers;
+
+#[cfg(test)] #[path = "combo_target.rs"] mod combo;
 
 pub fn prod_entry() {
     std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
@@ -700,6 +705,12 @@ fn mounted_hit() {
 }
 EOF
 
+  cat > "$fx/crates/demo/src/combo_target.rs" <<'EOF'
+fn combo_hit() {
+    std::fs::create_dir_all("combo"); // COMBO-MOUNT-HIT
+}
+EOF
+
   cat > "$fx/crates/demo/src/demo_test_helpers.rs" <<'EOF'
 fn helper_hit() {
     std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
@@ -722,7 +733,7 @@ EOF
 
   local rel="crates/demo/src"
   # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
-  local l_inline l_after l_top l_entry l_orig l_wp l_wm
+  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo
   l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
   l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
   l_top="$(st_line_of 'PROD-TOP-NOT-HIT' "$fx/$rel/inline_ok.rs")"
@@ -730,6 +741,7 @@ EOF
   l_orig="$(st_line_of 'ORIG-ONCE' "$fx/$rel/foo_tests.rs")"
   l_wp="$(st_line_of 'MOUNT-PATH-HIT' "$fx/$rel/with_path_target.rs")"
   l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
+  l_combo="$(st_line_of 'COMBO-MOUNT-HIT' "$fx/$rel/combo_target.rs")"
 
   local n
   # 1. 内联 cfg(test) 区域命中
@@ -752,11 +764,13 @@ EOF
   n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
   st_assert_eq "4 挂载目标 helper 命名排除（*test_helpers*）" "0" "$n"
 
-  # 5. 挂载解析（#[path] 与非 mod.rs 声明者两种形态）
+  # 5. 挂载解析（#[path]、非 mod.rs 声明者、单行多属性 + #[path] 组合三种形态）
   n="$(st_count_entry "${rel}/with_path_target.rs:${l_wp}: 手动目录管理")"
   st_assert_eq "5a 挂载解析命中（#[path] 形态 with_path_target.rs:${l_wp}）" "1" "$n"
   n="$(st_count_entry "${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")"
   st_assert_eq "5b 挂载解析命中（非 mod.rs 声明者 wrapper/mounted.rs:${l_wm}）" "1" "$n"
+  n="$(st_count_entry "${rel}/combo_target.rs:${l_combo}: 手动目录管理")"
+  st_assert_eq "5c 挂载解析命中（单行多属性 + #[path] 组合 combo_target.rs:${l_combo}）" "1" "$n"
 
   # 6. 字面量剥离（区域闭合后生产行不因字面量失衡误命中）
   n="$(st_count_entry "${rel}/inline_ok.rs:${l_after}: 手动目录管理")"
@@ -772,12 +786,13 @@ EOF
   expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
   expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
   expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
+  expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
   local expected_sorted actual_sorted=""
   expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 4 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 5 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 
   rm -rf "$fx"
