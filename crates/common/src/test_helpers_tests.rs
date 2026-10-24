@@ -41,7 +41,7 @@ fn test_ensure_dir_panics_for_path_outside_tempdir() {
         .map(std::path::Path::to_path_buf)
         .unwrap_or_else(|| std::path::PathBuf::from("/proc"));
     ensure_dir(&outside.join("closeclaw_ensure_dir_outside_probe"))
-        .expect("ensure_dir: create_dir_all outside temp dir must fail");
+        .expect("ensure_dir: directory creation outside temp dir must fail");
 }
 
 /// 正常路径：`create_subdir` 在 TempDir 基目录下创建嵌套相对路径，

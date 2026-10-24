@@ -41,7 +41,7 @@ async fn https_url_returns_none() {
 async fn absolute_path_within_workspace_resolves() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
-    std::fs::create_dir_all(&ws).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws).unwrap();
     std::fs::write(ws.join("photo.png"), "data").unwrap();
 
     let (_store_tmp, store) = make_test_media_store_with_tmp();
@@ -62,7 +62,7 @@ async fn absolute_path_within_workspace_resolves() {
 async fn absolute_path_within_media_store_resolves() {
     let tmp = TempDir::new().unwrap();
     let media_dir = tmp.path().join("media");
-    std::fs::create_dir_all(&media_dir).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&media_dir).unwrap();
     std::fs::write(media_dir.join("doc.pdf"), "pdf data").unwrap();
 
     let store = Arc::new(MediaStore::new(media_dir.to_str().unwrap()).unwrap());
@@ -83,8 +83,8 @@ async fn absolute_path_outside_rejected() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let outside = tmp.path().join("outside");
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::create_dir_all(&outside).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&outside).unwrap();
     std::fs::write(outside.join("secret.txt"), "secret").unwrap();
 
     let (_store_tmp, store) = make_test_media_store_with_tmp();
@@ -101,7 +101,7 @@ async fn absolute_path_outside_rejected() {
 async fn nonexistent_file_returns_none() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
-    std::fs::create_dir_all(&ws).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws).unwrap();
 
     let (_store_tmp, store) = make_test_media_store_with_tmp();
     let path = ws.join("nonexistent.png");
@@ -118,7 +118,7 @@ async fn nonexistent_file_returns_none() {
 async fn relative_path_resolved_against_workspace() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
-    std::fs::create_dir_all(&ws).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws).unwrap();
     std::fs::write(ws.join("file.png"), "image data").unwrap();
 
     let (_store_tmp, store) = make_test_media_store_with_tmp();
@@ -137,7 +137,7 @@ async fn relative_path_resolved_against_workspace() {
 async fn relative_path_subdirectory_resolves() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
-    std::fs::create_dir_all(ws.join("subdir")).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws.join("subdir")).unwrap();
     std::fs::write(ws.join("subdir").join("nested.pdf"), "data").unwrap();
 
     let (_store_tmp, store) = make_test_media_store_with_tmp();
@@ -169,8 +169,8 @@ async fn relative_path_outside_workspace_rejected() {
     let tmp = TempDir::new().unwrap();
     let ws = tmp.path().join("workspace");
     let outside = tmp.path().join("outside");
-    std::fs::create_dir_all(&ws).unwrap();
-    std::fs::create_dir_all(&outside).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&ws).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&outside).unwrap();
     // Create a file outside workspace that the relative path would resolve to.
     std::fs::write(outside.join("escape.txt"), "bad").unwrap();
 

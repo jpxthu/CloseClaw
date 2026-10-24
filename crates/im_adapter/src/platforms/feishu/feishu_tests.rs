@@ -18,7 +18,7 @@ use tempfile::TempDir;
 fn setup_config_dir(platforms_json: Option<&str>) -> TempDir {
     let dir = TempDir::new().unwrap();
     let config = dir.path().join("config");
-    fs::create_dir_all(&config).unwrap();
+    closeclaw_common::test_helpers::ensure_dir(&config).unwrap();
     if let Some(content) = platforms_json {
         fs::write(config.join("platforms.json"), content).unwrap();
     }

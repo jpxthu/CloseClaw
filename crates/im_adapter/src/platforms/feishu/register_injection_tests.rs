@@ -28,7 +28,7 @@ use crate::ports::GatewayHost;
 fn setup_enabled_config_dir() -> TempDir {
     let dir = TempDir::new().expect("tmp dir");
     let config = dir.path().join("config");
-    std::fs::create_dir_all(&config).expect("config dir");
+    closeclaw_common::test_helpers::ensure_dir(&config).expect("config dir");
     std::fs::write(
         config.join("platforms.json"),
         r#"{"platforms":{"feishu":{"enabled":true}}}"#,
