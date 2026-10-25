@@ -1,61 +1,102 @@
 use super::spawn_sleep_child;
 use crate::process::{stop_daemon, wait_for_exit, write_pid_file, StopOutcome};
+use std::os::unix::net::UnixListener;
+use std::time::Duration;
 use tempfile::TempDir;
+
+/// Upper bound for the child readiness handshake. The child is a full
+/// libtest harness (not a tiny helper binary), so its startup cost is much
+/// higher and the bound stays >=5s like the old poll budget; the handshake
+/// itself is deterministic, the timeout only bounds a broken child run.
+const CHILD_READY_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Helper: spawn a detached sleep process reparented to init.
 ///
 /// Re-enters this test binary via `current_exe` with an env-gated child
 /// branch (`test_spawn_detached_sleep_pid_child`): the child process
-/// spawns sleep, records its PID in the pidfile, then exits without
-/// waiting, so the sleep process is reparented to init. When killed,
-/// init reaps it — no zombie. Returns the PID of the actual sleep process.
+/// spawns sleep, records its PID in the pidfile, signals readiness over a
+/// Unix socket, then exits without waiting, so the sleep process is
+/// reparented to init. When killed, init reaps it — no zombie. Returns the
+/// PID of the actual sleep process.
 fn spawn_detached_sleep_pid() -> u32 {
     let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
     let pid_path = pid_file.path().to_path_buf();
+    // Readiness-handshake socket: the child connects right after the
+    // pidfile write completes, so an accepted connection proves the
+    // pidfile content is complete — no polling, no sleep-timed race.
+    // The socket file lives in a TempDir (STANDARDS §8) and is removed
+    // with it.
+    let ready_dir = TempDir::new().expect("temp dir for ready socket");
+    let ready_socket = ready_dir.path().join("pid-ready.sock");
+    let listener = UnixListener::bind(&ready_socket)
+        .unwrap_or_else(|e| panic!("failed to bind ready socket {ready_socket:?}: {e}"));
     let test_binary = std::env::current_exe().expect("current exe");
     let mut child = std::process::Command::new(&test_binary)
         .env("DETACHED_SLEEP_PIDFILE", &pid_path)
+        .env("DETACHED_SLEEP_READY_SOCKET", &ready_socket)
         .arg("--exact")
         .arg("process_tests::stop_daemon::test_spawn_detached_sleep_pid_child")
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .spawn()
         .unwrap_or_else(|e| panic!("failed to spawn {}: {e}", test_binary.display()));
-    // Wait for the PID file to be written by the grandchild. The child is a
-    // full libtest harness (not a tiny helper binary), so its startup cost is
-    // much higher — allow >=5s before giving up, or slow environments would
-    // leave a flaky window.
-    for _ in 0..250 {
-        if let Ok(content) = std::fs::read_to_string(&pid_path) {
-            if let Ok(pid) = content.trim().parse::<u32>() {
-                // The child binary exits right after writing the pidfile;
-                // reaping it also guarantees the sleep process has been
-                // reparented to init before stop_daemon signals it.
-                child.wait().expect("failed to wait on child binary");
-                return pid;
-            }
+    // Watcher thread: the blocking accept runs off-thread so the wait can
+    // be bounded by recv_timeout (run_helper_tests.rs watcher pattern)
+    // instead of a sleep poll loop.
+    let (tx, rx) = std::sync::mpsc::channel();
+    std::thread::spawn(move || {
+        let accepted = listener.accept().map(|_| ()).map_err(|e| e.to_string());
+        let _ = tx.send(accepted);
+    });
+    match rx.recv_timeout(CHILD_READY_TIMEOUT) {
+        Ok(Ok(())) => {}
+        Ok(Err(e)) => {
+            child.kill().ok();
+            child.wait().ok();
+            panic!("ready socket accept failed: {e}");
         }
-        std::thread::sleep(std::time::Duration::from_millis(20));
+        Err(_) => {
+            child.kill().ok();
+            child.wait().ok();
+            panic!(
+                "child did not report pidfile readiness within {CHILD_READY_TIMEOUT:?} \
+                 (pidfile {pid_path:?}, socket {ready_socket:?})"
+            );
+        }
     }
-    child.kill().ok();
-    child.wait().ok();
-    panic!("detached sleep PID not found in {pid_path:?}");
+    // Handshake received: the pidfile is fully written. The child binary
+    // exits right after connecting; reaping it also guarantees the sleep
+    // process has been reparented to init before stop_daemon signals it.
+    child.wait().expect("failed to wait on child binary");
+    let content = std::fs::read_to_string(&pid_path).expect("pidfile should exist after handshake");
+    content
+        .trim()
+        .parse::<u32>()
+        .unwrap_or_else(|e| panic!("invalid PID in {pid_path:?} after handshake: {e}"))
 }
 
 /// Subprocess child: spawns sleep, writes its PID to the pidfile given
-/// via `DETACHED_SLEEP_PIDFILE`, then exits without waiting so the sleep
-/// process is reparented to init (detach semantics — init reaps it).
+/// via `DETACHED_SLEEP_PIDFILE`, then signals readiness by connecting to
+/// the parent's Unix socket (`DETACHED_SLEEP_READY_SOCKET`) and exits
+/// without waiting so the sleep process is reparented to init (detach
+/// semantics — init reaps it). The connect-after-write ordering is what
+/// makes the parent's handshake deterministic.
 #[test]
 fn test_spawn_detached_sleep_pid_child() {
-    let pid_path = match std::env::var("DETACHED_SLEEP_PIDFILE") {
-        Ok(path) => path,
-        Err(_) => {
+    let (pid_path, ready_socket) = match (
+        std::env::var("DETACHED_SLEEP_PIDFILE"),
+        std::env::var("DETACHED_SLEEP_READY_SOCKET"),
+    ) {
+        (Ok(pid_path), Ok(ready_socket)) => (pid_path, ready_socket),
+        _ => {
             eprintln!("skipped: run via parent test subprocess");
             return;
         }
     };
     let child = spawn_sleep_child();
-    std::fs::write(pid_path, child.id().to_string()).expect("failed to write pid file");
+    std::fs::write(&pid_path, child.id().to_string()).expect("failed to write pid file");
+    std::os::unix::net::UnixStream::connect(&ready_socket)
+        .expect("failed to signal pidfile readiness to parent");
     // Detach: the handle is dropped without waiting; when this child
     // process exits, the sleep process is reparented to init.
     drop(child);
