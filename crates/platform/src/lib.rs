@@ -28,7 +28,7 @@ pub use terminal::{
 mod config_tests;
 #[cfg(test)]
 mod fs_tests;
-#[cfg(test)]
+#[cfg(all(test, unix))]
 mod process_tests;
 #[cfg(test)]
 mod temp_dir_tests;
