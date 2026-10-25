@@ -38,6 +38,8 @@ pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
 #[cfg(test)]
+mod registry_error_tolerance_tests;
+#[cfg(test)]
 mod registry_tests;
 pub mod session_router;
 #[cfg(test)]
