@@ -1,13 +1,10 @@
-//! Unit tests for `test_helpers` — `ensure_dir`'s TempDir contract and
-//! parent-is-a-file error path, `remove_subdir`'s recursive-teardown
-//! TempDir contract, `create_subdir`'s nested-path creation, TempDir
-//! contract and base-is-a-file error path, `advance_mtime`'s
-//! mtime-advance / zero-advance / missing-path / repeated-advance /
-//! outside-TempDir-contract behaviour, and
-//! the shared `MemAuditLogger` audit mock behaviour (filter,
-//! time-descending query, unparseable-timestamp ordering,
-//! window/matches consistency, snapshot isolation, empty/zero-match
-//! boundaries, concurrency).
+//! `test_helpers` 的单元测试——覆盖 `ensure_dir` 的 TempDir 契约与
+//! 父路径为普通文件的错误路径、`remove_subdir` 的递归摘除 TempDir
+//! 契约、`create_subdir` 的嵌套路径创建、TempDir 契约与 base 为普通
+//! 文件的错误路径、`advance_mtime` 的 mtime 推进 / 零推进 / 路径缺失 /
+//! 重复推进 / TempDir 契约外行为，以及共享的 `MemAuditLogger` 审计
+//! mock 行为（过滤、时间降序查询、不可解析时间戳排序、时间窗与
+//! matches 一致性、快照隔离、空与零命中边界、并发）。
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -22,12 +19,14 @@ fn agent_order(entries: &[AuditLogEntry]) -> Vec<&str> {
     entries.iter().map(|e| e.agent_id.as_str()).collect()
 }
 
-/// Thin wrapper logging one approved sample entry — the field
-/// construction point stays unique in `sample_audit_entry`.
+/// 薄封装：写入一条 Approved 样例条目——字段构造点保持在
+/// `sample_audit_entry` 唯一。
 fn log_approved(logger: &MemAuditLogger, agent: &str, ts: &str) {
     logger.log(&sample_audit_entry(agent, ts, AuditDisposition::Approved));
 }
 
+/// 正常路径：`ensure_dir` 在 TempDir 下创建嵌套相对路径，递归补齐
+/// 缺失的父级目录，创建后目标路径真实存在。
 #[test]
 fn test_ensure_dir_creates_subdir_under_tempdir() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
@@ -36,15 +35,14 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
     assert!(subdir.is_dir(), "subdir should exist: {subdir:?}");
 }
 
-// The panic paths under test come from `debug_assert!` in `ensure_dir` /
-// `remove_subdir` / `create_subdir`, which is compiled out in release
-// builds — these counter-examples are only meaningful for the debug
-// profile, so they are compiled (and run) solely when `debug_assertions`
-// is on. The probe path is a lexical sibling of `std::env::temp_dir()`
-// (its parent + `tail`), hence necessarily outside the TempDir contract; a
-// degenerate parentless `temp_dir()` has no such sibling and fails loudly
-// via `expect` instead of falling back to a hardcoded ambient path whose
-// contract would depend on the filesystem layout.
+// 被测的 panic 路径来自 `ensure_dir` / `remove_subdir` /
+// `create_subdir` 内的 `debug_assert!`，该断言在 release 构建下被编译
+// 剔除——这些反例只对 debug profile 有意义，因此仅在开启
+// `debug_assertions` 时编译（并运行）。探测路径取 `std::env::temp_dir()`
+// 的词法兄弟路径（其 parent + `tail`），必然落在 TempDir 契约之外；
+// 退化场景（无父目录的 `temp_dir()`）不存在这样的兄弟路径，会直接经
+// `expect` 失败报错，而不是回退到硬编码的环境路径——那样的契约将
+// 依赖文件系统布局。
 #[cfg(debug_assertions)]
 fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
     std::env::temp_dir()
@@ -53,6 +51,9 @@ fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
         .join(tail)
 }
 
+/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时
+/// 在任何文件系统写入前快速失败（panic 前缀与 helper 名一致），与
+/// `create_subdir` / `advance_mtime` 的契约口径对齐。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "ensure_dir")]
@@ -105,6 +106,9 @@ fn test_remove_subdir_missing_dir_returns_error() {
     assert!(result.is_err(), "缺失目录应返回错误而非 panic");
 }
 
+/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时
+/// 在任何删除操作前快速失败（panic 前缀与 helper 名一致），与
+/// `ensure_dir` / `create_subdir` 的契约口径对齐。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "remove_subdir")]
@@ -387,9 +391,9 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
     assert_eq!(
         agents,
         vec![
-            "a-z00-03z",    // 03:00Z
+            "a-z00-03z",    // 03:00Z（原文 03:00+00:00）
             "a-plus8-02z",  // 02:00Z（10:00+08:00）
-            "a-z-01z",      // 01:00Z
+            "a-z-01z",      // 01:00Z（原文即 Z 形态）
             "a-plus8-00z",  // 00:00Z（08:00+08:00）
             "a-z-prev-day", // 前一日 23:00Z
         ],
