@@ -208,6 +208,32 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
     mock
 }
 
+/// Time a `stop_all_sessions` call and assert it completes quickly.
+///
+/// Assertion semantics: measures wall-clock time around
+/// `stop_all_sessions`, asserts `elapsed < 2s` (the fast-completion
+/// contract — escalation interrupts the graceful wait / forceful mode
+/// skips it entirely), and returns the `StopResult` so callers can
+/// run their own post-assertions (succeeded/total/timed_out).
+/// `what` names the scenario and is embedded in the failure message
+/// so a slow-completion failure still pinpoints the case.
+async fn stop_and_assert_fast(
+    mgr: &SessionManager,
+    mode: ShutdownMode,
+    timeout: std::time::Duration,
+    what: &str,
+) -> super::stop::StopResult {
+    let start = tokio::time::Instant::now();
+    let result = mgr.stop_all_sessions(mode, timeout, None).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "{what}, took {:?}",
+        elapsed
+    );
+    result
+}
+
 // ── Step 1.2: graceful stop scenarios ────────────────────────────────────
 
 /// Session ends with ToolUse in the last assistant message →
@@ -377,22 +403,14 @@ async fn test_forceful_stop_unchanged() {
     set_llm_state(&mgr, child_id, LlmState::Receiving).await;
     set_tool_state(&mgr, child_id, "tool_f", ToolExecState::RunningForeground).await;
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Forceful,
-            std::time::Duration::from_secs(30),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Forceful,
+        std::time::Duration::from_secs(30),
+        "forceful mode should complete quickly",
+    )
+    .await;
     assert!(result.succeeded >= 2);
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "forceful mode should complete quickly, took {:?}",
-        elapsed
-    );
 }
 
 // ── Step 1.1: escalation propagation tests ─────────────────────────────
@@ -529,20 +547,13 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -584,20 +595,13 @@ async fn test_graceful_escalation_interrupts_tool_info() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -653,20 +657,13 @@ async fn test_graceful_escalation_interrupts_streaming() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let r = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let r = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     // Session force-stopped due to escalation
     assert!(r.total() >= 1);
     assert!(
@@ -709,20 +706,13 @@ async fn test_graceful_escalation_interrupts_tool_running() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let r = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let r = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(r.total() >= 1);
     assert!(
         r.succeeded >= 1,
