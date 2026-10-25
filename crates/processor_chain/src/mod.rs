@@ -42,6 +42,8 @@ mod registry_tests;
 pub mod session_router;
 #[cfg(test)]
 mod streaming_incremental_tests;
+#[cfg(test)]
+mod test_support;
 pub mod verbosity_filter;
 #[cfg(test)]
 mod verbosity_filter_tests;
