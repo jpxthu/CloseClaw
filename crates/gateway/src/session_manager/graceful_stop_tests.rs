@@ -205,8 +205,8 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
     // Build a single shared handle and fan it out (cloned Arc) to the
     // manager and every conversation session — the same shape as the
     // production entry points (resolve/spawn/channel/...), where one
-    // `Arc<ShutdownHandle>` is installed on both sides. The session-side
-    // `graceful_stop` polls only its own handle.
+    // `Arc<ShutdownHandle>` is installed on both sides. See
+    // "Escalation observation contract" in the doc above.
     let handle = Arc::new(crate::shutdown_handle::ShutdownHandle::new(
         mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>
     ));
