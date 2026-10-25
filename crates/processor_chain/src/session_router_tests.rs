@@ -1,6 +1,14 @@
 use super::*;
 use closeclaw_common::im_plugin::NormalizedMessage;
 
+/// Fixed past message timestamp (2020-01-01T00:00:00Z in ms) used to prove
+/// that `msg.timestamp` does not leak into the computed session_key.
+const FIXED_PAST_TS_MS: i64 = 1_577_836_800_000;
+
+/// Base timestamp (ms) shared by the deterministic-key, timestamp,
+/// routing-sensitivity, and fixed-vector tests below.
+const BASE_TS_MS: i64 = 1_700_000_000_123;
+
 fn make_router() -> SessionRouter {
     SessionRouter::new()
 }
@@ -36,30 +44,22 @@ async fn test_terminal_session_key_computed() {
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
     // Key format: {timestamp_ms}-{sha256_hex}
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash_part = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
 /// Build a `MessageContext` for session_key checks. `msg.timestamp` is a
 /// fixed past value that must NOT influence the computed `session_key`.
-fn det_ctx(sender: &str) -> MessageContext {
+fn fixed_ts_ctx(sender: &str) -> MessageContext {
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: sender.to_string(),
         peer_id: "oc_xyz".to_string(),
         content: "hi".to_string(),
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -85,22 +85,27 @@ fn split_key(key: &str) -> (i64, &str) {
     (ts, hash)
 }
 
-#[tokio::test]
-async fn test_deterministic_key() {
+#[test]
+fn test_deterministic_key() {
     // Determinism: identical routing fields + identical timestamp_ms -> same key.
-    let ts: i64 = 1_700_000_000_123;
+    let ts: i64 = BASE_TS_MS;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key2 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
-    let key3 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     assert!(!key1.is_empty(), "session_key must not be empty");
     assert_eq!(key1, key2, "same inputs must produce identical session_key");
-    assert_eq!(key2, key3, "same inputs must stay stable across calls");
-    let (ts1, hash1) = split_key(&key1);
+    let (ts1, _) = split_key(&key1);
     assert_eq!(ts1, ts, "key prefix must equal timestamp_ms: {key1}");
+}
 
+#[test]
+fn test_timestamp_participation() {
     // Time participation: timestamp_ms changes prefix and hash (anti-collision).
+    let ts: i64 = BASE_TS_MS;
+    let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key_later = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts + 1);
+    let (ts1, hash1) = split_key(&key1);
     let (ts_later, hash_later) = split_key(&key_later);
+    assert_eq!(ts1, ts, "prefix must track its timestamp_ms: {key1}");
     assert_eq!(
         ts_later,
         ts + 1,
@@ -110,25 +115,80 @@ async fn test_deterministic_key() {
         hash_later, hash1,
         "timestamp_ms must participate in hash input"
     );
+}
 
-    // Routing sensitivity: same timestamp, different sender -> different hash.
-    let key_other = SessionRouter::compute_key("ou_other", "oc_xyz", "feishu", None, ts);
-    let (_, hash_other) = split_key(&key_other);
-    assert_ne!(hash_other, hash1, "routing fields must participate in hash");
+#[test]
+fn test_routing_sensitivity() {
+    // Routing sensitivity: any differing routing field -> different hash.
+    let ts: i64 = BASE_TS_MS;
+    let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    let (_, hash) = split_key(&key);
 
+    let key_sender = SessionRouter::compute_key("ou_other", "oc_xyz", "feishu", None, ts);
+    let (_, hash_sender) = split_key(&key_sender);
+    assert_ne!(hash_sender, hash, "sender change must change the hash");
+
+    let key_peer = SessionRouter::compute_key("ou_abc", "oc_other", "feishu", None, ts);
+    let (_, hash_peer) = split_key(&key_peer);
+    assert_ne!(hash_peer, hash, "peer change must change the hash");
+
+    let key_channel = SessionRouter::compute_key("ou_abc", "oc_xyz", "discord", None, ts);
+    let (_, hash_channel) = split_key(&key_channel);
+    assert_ne!(hash_channel, hash, "channel change must change the hash");
+}
+
+#[tokio::test]
+async fn test_process_key_matches_formula() {
     // process() output satisfies the design formula end to end.
     let router = make_router();
-    let out = router.process(&det_ctx("ou_abc")).await.unwrap().unwrap();
+    let out = router
+        .process(&fixed_ts_ctx("ou_abc"))
+        .await
+        .unwrap()
+        .unwrap();
     let key = out
         .metadata
         .get("session_key")
         .expect("session_key must be set")
-        .to_string();
-    let (key_ts, _) = split_key(&key);
+        .as_str();
+    let (key_ts, _) = split_key(key);
+    assert_ne!(
+        key_ts, FIXED_PAST_TS_MS,
+        "msg.timestamp must not leak into session_key prefix: {key}"
+    );
     let expect = closeclaw_common::session_key::compute_session_key(
         "feishu", "ou_abc", "oc_xyz", None, key_ts,
     );
     assert_eq!(key, expect, "process() key must match design formula");
+}
+
+/// Fixed-vector guard: the hex values below are precomputed with an
+/// independent tool (python3 hashlib), NOT derived from compute_session_key,
+/// so any change to the formula itself (separator, field order, "default"
+/// literal, hash algorithm) breaks these assertions. Recompute commands
+/// (each is one shell command spanning two lines; their timestamp component
+/// 1700000000123 is `BASE_TS_MS`):
+///   python3 -c "import hashlib; print(hashlib.sha256(
+///       b'feishu:ou_abc:oc_xyz:default:1700000000123').hexdigest())"
+///   python3 -c "import hashlib; print(hashlib.sha256(
+///       b'feishu:ou_abc:oc_xyz:tenant_x:1700000000123').hexdigest())"
+#[test]
+fn test_session_key_fixed_vector() {
+    let ts: i64 = BASE_TS_MS;
+
+    // account_id: None -> literal "default" participates in hash input
+    let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    assert_eq!(
+        key, "1700000000123-f255c84b77b426f609f9a8fad1a10daba28047ada6c606734103351e05d2ddc1",
+        "session_key must match the independently precomputed vector (default)"
+    );
+
+    // account_id: Some -> account literal participates in hash input
+    let key_some = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", Some("tenant_x"), ts);
+    assert_eq!(
+        key_some, "1700000000123-e104f2e55d3037c1e893589ea706a4828261fa96e19f90d67779862b11476677",
+        "session_key must match the independently precomputed vector (tenant_x)"
+    );
 }
 
 #[tokio::test]
@@ -223,7 +283,7 @@ async fn test_system_time_used_for_session_key() {
         peer_id: "oc_xyz".to_string(),
         content: "msg1".to_string(),
         // Message timestamp is in the past — should NOT be used
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -234,29 +294,13 @@ async fn test_system_time_used_for_session_key() {
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
-    let key = router
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out = router.process(&ctx).await.unwrap().unwrap();
+    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
@@ -271,7 +315,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
         peer_id: "dm_1".to_string(),
         content: "test".to_string(),
         // Past message timestamp — should NOT appear in session_key
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -282,29 +326,13 @@ async fn test_per_account_channel_peer_uses_system_time() {
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
-    let key = router
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out = router.process(&ctx).await.unwrap().unwrap();
+    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
