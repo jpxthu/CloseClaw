@@ -13,8 +13,9 @@ use std::sync::Arc;
 
 use closeclaw_common::processor::ContentBlock;
 
+use super::context::metadata_str;
 use super::dsl_parser::DslParser;
-use super::registry::{metadata_str, ProcessorRegistry};
+use super::registry::ProcessorRegistry;
 use super::verbosity_filter::VerbosityFilter;
 use super::ProcessedMessage;
 

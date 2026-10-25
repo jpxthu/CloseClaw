@@ -9,10 +9,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 
-use crate::processor_chain::context::MessageContext;
+use crate::processor_chain::context::{metadata_str, MessageContext};
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
-use crate::processor_chain::registry::{metadata_str, ProcessorRegistry};
+use crate::processor_chain::registry::ProcessorRegistry;
 use crate::ProcessedMessage;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::ProcessorChain;

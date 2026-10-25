@@ -5,8 +5,9 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 
+use crate::processor_chain::context::metadata_str;
 use crate::processor_chain::processor::ProcessPhase;
-use crate::processor_chain::registry::{metadata_str, ProcessorRegistry};
+use crate::processor_chain::registry::ProcessorRegistry;
 use crate::ProcessedMessage;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::processor::ContentBlock;

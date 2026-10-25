@@ -1,5 +1,5 @@
 use super::*;
-use crate::processor_chain::registry::metadata_str;
+use crate::processor_chain::context::metadata_str;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use std::sync::{Arc, Mutex};
 use tracing::field::Field;

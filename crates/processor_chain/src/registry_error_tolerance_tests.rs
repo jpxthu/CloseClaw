@@ -8,8 +8,9 @@ use std::sync::Arc;
 
 use tracing_test::traced_test;
 
+use crate::processor_chain::context::metadata_str;
 use crate::processor_chain::processor::ProcessPhase;
-use crate::processor_chain::registry::{metadata_str, ProcessorRegistry};
+use crate::processor_chain::registry::ProcessorRegistry;
 use crate::ProcessedMessage;
 use closeclaw_common::processor::ContentBlock;
 

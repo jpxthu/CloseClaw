@@ -11,11 +11,10 @@ use std::collections::HashMap;
 use async_trait::async_trait;
 use tokio::fs;
 
-use super::context::MessageContext;
+use super::context::{metadata_str, MessageContext};
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::raw_log_processor::RawLogConfig;
-use super::registry::metadata_str;
 use super::ProcessedMessage;
 
 /// Processor that writes outbound messages to a JSON log file.

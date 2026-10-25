@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use super::context::{inject_chain_dispatcher_keys, MessageContext};
+use super::context::{inject_chain_dispatcher_keys, metadata_str, MessageContext};
 use super::dsl_parser::DslParser;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
@@ -16,18 +16,6 @@ use closeclaw_debug_log::DebugLog;
 use crate::debug_log::{
     emit_processor_chain_event, ProcessorChainDebugLogContext, ProcessorChainEmitEventParams,
 };
-
-/// Extracts `key` from `metadata` as a borrowed string slice.
-///
-/// Shared metadata-extraction helper for this crate, replacing the inline
-/// `metadata.get(key).map(|s| s.as_str())` boilerplate; consumers include
-/// the `outbound_raw_log.rs` production site and the test assertion sites.
-pub(crate) fn metadata_str<'a>(
-    metadata: &'a HashMap<String, String>,
-    key: &str,
-) -> Option<&'a str> {
-    metadata.get(key).map(|s| s.as_str())
-}
 
 /// Registry holding inbound and outbound processor chains.
 ///
