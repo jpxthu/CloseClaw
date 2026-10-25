@@ -23,7 +23,7 @@
 | [message_flow](message_flow.md) | 完整消息流：入站（IM → Agent）与出站（Agent → IM）产品链路概述 | ✅
 | [permission](permission.md) | 身份型访问控制、审批工作流、子 Session 权限继承 | ✅
 | [platform](platform.md) | 跨平台进程与路径管理、终端自适应、系统差异隔离 | ✅
-| [processor_chain](processor_chain.md) | 入站出站消息统一处理、DSL 交互指令、审计日志 | ✅
+| [processor_chain](processor_chain.md) | 入站出站消息统一处理、展示等级过滤、调试日志 | ✅
 | [session](session.md) | 对话持久化与恢复、压缩、子 Session 委托、消息排队 | ✅
 | [skills](skills.md) | 技能即插即用、目录层级、条件激活、多 Agent 隔离 | ✅
 | [slash](slash.md) | 斜杠指令体系：Session 管理、状态查询等 | ✅
