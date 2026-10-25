@@ -15,8 +15,11 @@
 #     test, ...))]` 拆行形态）
 #   - `#[path]` 属性位于 cfg(test) 之前的逆序形态不识别
 #   - 声明与 `{` 跨行分离（如 `mod tests` 换行 `{`）不进区域
-#   - raw string（r#"..."#）与块注释 /* */ 不剥离，其中花括号仍可能扰动区域
-#     边界（普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义）
+#   - 块注释 /* */ 不剥离，其中花括号仍可能扰动区域边界
+#   - 字节 raw string（br#"…"#）不识别为 raw string 起点（退化为普通字符串
+#     行级剥离，跨行仍可能扰动边界）
+# （普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义；raw string
+# r#"…"#（r 前缀 + 任意井号数）已跨行剥离，花括号不扰动区域边界）
 #
 # --runtime          用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT       只扫描文件路径中包含 PAT 的 .rs 文件（静态）
@@ -29,8 +32,8 @@
 #                    完全相同的扫描实现，断言命中/不命中规格矩阵（内联区域
 #                    命中 / 生产区不命中 / not(test) 不命中 / helper 豁免
 #                    （平铺命名 + 目录化子模块 + 文件内内联区域）/
-#                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离 /
-#                    原谓词文件无双计）；离线、不读仓库与 baseline；
+#                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离
+#                    （普通 + 多行 raw string）/ 原谓词文件无双计）；离线、不读仓库与 baseline；
 #                    与 --runtime/--target/--update-baseline 互斥
 
 set -euo pipefail
@@ -267,8 +270,9 @@ fi
 # ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
 # 输出事件（TSV）：
 #   H\t相对路径\t行号\t行内容 = cfg(test) 门控区域内的行（花括号深度定位边界，
-#                             深度计数前剥离 // 行注释与普通字符串字面量
-#                             （best-effort，含 \" \\ 转义；raw string / 块注释
+#                             深度计数前剥离 // 行注释、普通字符串字面量
+#                             （best-effort，含 \" \\ 转义）与 raw string
+#                             （r#"…"# 含任意井号数，跨行状态机；块注释
 #                             为已知局限，见脚本头注释）；逐文件复位状态，可分批）
 #   M\t相对路径\tpath属性\tmod名 = cfg(test) 门控的 mod 挂载声明（path 属性可空）
 REGION_SCANNER_AWK="$(cat <<'AWK_PROGRAM'
@@ -290,14 +294,43 @@ function pred_has_test(s) {
   if (s ~ /not[[:space:]]*\([[:space:]]*(all|any)?[[:space:]]*\(?[[:space:]]*test/) return 0
   return s ~ /(^|[^a-zA-Z0-9_-])test([^a-zA-Z0-9_-]|$)/
 }
-# 尽力而为的字符串字面量剥离（供深度计数与 `{` 存在性判断使用）：
-# 含 \" 与 \\ 转义；行内未闭合视为延伸到行尾；消费段以空格占位避免词元粘连；
-# raw string / 块注释为已知局限（见脚本头注释），不在本函数处理范围
-function strip_strings(x,   out, i, n, ch) {
+# 字符串字面量剥离（供深度计数与 `{` 存在性判断使用）：
+# 普通字符串含 \" 与 \\ 转义，行内未闭合视为延伸到行尾；raw string（`r` 前缀
+# + ≥0 个 #，如 r#"…"# / r##"…"##）经 rs_open/rs_hash 全局状态跨行剥离：
+# 开启后本行及后续行至匹配井号数的 `"#` 闭合前的所有字符（含花括号）不进入
+# 输出，不参与深度计数（状态逐文件复位）；消费段以空格占位避免词元粘连；
+# 块注释 /* */ 为已知局限（见脚本头注释），不在本函数处理范围
+function strip_strings(x,   out, i, n, ch, j, m, ok) {
   out = ""
   i = 1
   n = length(x)
   while (i <= n) {
+    if (rs_open) {
+      # raw string 内：仅识别闭合 `"#…#`（井号数 = 开启时 rs_hash）
+      j = i
+      while (j <= n && substr(x, j, 1) != "\"") j++
+      if (j > n) {
+        out = out " "
+        i = n + 1
+        continue
+      }
+      ok = 1
+      m = 0
+      while (m < rs_hash) {
+        if (substr(x, j + 1 + m, 1) != "#") {
+          ok = 0
+          break
+        }
+        m++
+      }
+      if (ok) {
+        i = j + 1 + rs_hash
+        rs_open = 0
+      } else {
+        i = j + 1
+      }
+      continue
+    }
     ch = substr(x, i, 1)
     if (ch == "\"") {
       out = out " "
@@ -313,6 +346,19 @@ function strip_strings(x,   out, i, n, ch) {
           break
         }
       }
+    } else if (ch == "r" && (i == 1 || substr(x, i - 1, 1) !~ /[A-Za-z0-9_]/)) {
+      # raw string 起始：r + ≥0 个 # + "（r#type 等 raw 标识符无引号，不误配）
+      j = i + 1
+      while (substr(x, j, 1) == "#") j++
+      if (substr(x, j, 1) == "\"") {
+        rs_open = 1
+        rs_hash = j - i - 1
+        out = out " "
+        i = j + 1
+      } else {
+        out = out ch
+        i++
+      }
     } else {
       out = out ch
       i++
@@ -326,12 +372,16 @@ BEGIN {
   nb = 0
   pending = 0
   mount_path = ""
+  rs_open = 0
+  rs_hash = 0
 }
 FNR == 1 {
   depth = 0
   nb = 0
   pending = 0
   mount_path = ""
+  rs_open = 0
+  rs_hash = 0
   rel = substr(FILENAME, root_len + 2)
 }
 {
@@ -632,6 +682,8 @@ collect_static_entries() {
 #   8. 全量命中集与期望精确一致（无任何额外命中）
 #   9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
 #  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
+#  11. 多行 raw string 剥离：区域内 r#"…"#（内含不平衡花括号）不截断区域，
+#      其后命中不丢；raw 内容花括号不扰动深度（区域闭合后生产行不误命中）
 ST_FAILS=0
 
 # 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
@@ -722,8 +774,15 @@ pub fn prod_top() {
 mod tests {
     const BRACES: &str = "{{{ ";
     const ESCAPED: &str = "a\"}b";
+    const RAW: &str = r#"
+raw line one }}} } {
+raw line two } "quoted }}" still raw
+"#;
     fn hit_fn() {
         std::fs::create_dir_all("hit-1"); // INLINE-HIT
+    }
+    fn raw_region_hit() {
+        std::fs::create_dir_all("hit-raw"); // RAW-REGION-HIT
     }
 }
 
@@ -812,8 +871,9 @@ EOF
 
   local rel="crates/demo/src"
   # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
-  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo
+  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo l_raw
   l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
+  l_raw="$(st_line_of 'RAW-REGION-HIT' "$fx/$rel/inline_ok.rs")"
   l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
   l_top="$(st_line_of 'PROD-TOP-NOT-HIT' "$fx/$rel/inline_ok.rs")"
   l_entry="$(st_line_of 'PROD-ENTRY-NOT-HIT' "$fx/$rel/mod.rs")"
@@ -827,9 +887,9 @@ EOF
   n="$(st_count_entry "${rel}/inline_ok.rs:${l_inline}: 手动目录管理")"
   st_assert_eq "1 内联 cfg(test) 区域命中（inline_ok.rs:${l_inline}）" "1" "$n"
 
-  # 2. 生产区不命中（inline_ok.rs 全文件恰 1 条 = 仅内联命中；mod.rs 0 条）
+  # 2. 生产区不命中（inline_ok.rs 全文件恰 2 条 = 仅内联命中；mod.rs 0 条）
   n="$(st_count_key "${rel}/inline_ok.rs: 手动目录管理")"
-  st_assert_eq "2a 生产区不命中（inline_ok.rs 仅 1 条内联命中）" "1" "$n"
+  st_assert_eq "2a 生产区不命中（inline_ok.rs 仅 2 条内联命中）" "2" "$n"
   n="$(st_count_entry "${rel}/inline_ok.rs:${l_top}: 手动目录管理")"
   st_assert_eq "2b 生产区不命中（区域前 prod_top:${l_top}）" "0" "$n"
   n="$(st_count_entry "${rel}/mod.rs:${l_entry}: 手动目录管理")"
@@ -863,6 +923,7 @@ EOF
   local -a expected=()
   expected+=("${rel}/foo_tests.rs:${l_orig}: 手动目录管理")
   expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
+  expected+=("${rel}/inline_ok.rs:${l_raw}: 手动目录管理")
   expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
   expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
   expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
@@ -871,7 +932,7 @@ EOF
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 5 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 6 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 
   # 9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
@@ -884,13 +945,18 @@ EOF
   n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
   st_assert_eq "10 helper 文件内联 cfg(test) 区域不命中（demo_test_helpers.rs）" "0" "$n"
 
+  # 11. 多行 raw string 剥离（区域内 r#"…"# 不截断区域，其后命中不丢；
+  #     raw 内容花括号不扰动深度——区域闭合后 prod_after 不误命中由 6/8 守护）
+  n="$(st_count_entry "${rel}/inline_ok.rs:${l_raw}: 手动目录管理")"
+  st_assert_eq "11 raw string 后命中不丢（区域不提前弹栈 inline_ok.rs:${l_raw}）" "1" "$n"
+
   rm -rf "$fx"
   FIXTURE_DIR=""
   if [[ $ST_FAILS -gt 0 ]]; then
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 10 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 11 组）"
   exit 0
 }
 
