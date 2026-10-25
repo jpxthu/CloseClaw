@@ -19,7 +19,9 @@
 #   - 字节 raw string（br#"…"#）不识别为 raw string 起点（退化为普通字符串
 #     行级剥离，跨行仍可能扰动边界）
 # （普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义；raw string
-# r#"…"#（r 前缀 + 任意井号数）已跨行剥离，花括号不扰动区域边界）
+# r#"…"#（r 前缀 + 任意井号数）已跨行剥离，花括号不扰动区域边界；
+# // 行注释剥离为字符串感知——仅字符串外识别为注释，raw string /
+# 普通字符串体内 //（如 URL https://）不截断行内容与闭合定界符）
 #
 # --runtime          用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT       只扫描文件路径中包含 PAT 的 .rs 文件（静态）
@@ -33,7 +35,8 @@
 #                    命中 / 生产区不命中 / not(test) 不命中 / helper 豁免
 #                    （平铺命名 + 目录化子模块 + 文件内内联区域）/
 #                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离
-#                    （普通 + 多行 raw string）/ 原谓词文件无双计）；离线、不读仓库与 baseline；
+#                    （普通 + 多行 raw string + raw 体内 // + 0 井多行）/
+#                    原谓词文件无双计）；离线、不读仓库与 baseline；
 #                    与 --runtime/--target/--update-baseline 互斥
 
 set -euo pipefail
@@ -270,10 +273,12 @@ fi
 # ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
 # 输出事件（TSV）：
 #   H\t相对路径\t行号\t行内容 = cfg(test) 门控区域内的行（花括号深度定位边界，
-#                             深度计数前剥离 // 行注释、普通字符串字面量
-#                             （best-effort，含 \" \\ 转义）与 raw string
-#                             （r#"…"# 含任意井号数，跨行状态机；块注释
-#                             为已知局限，见脚本头注释）；逐文件复位状态，可分批）
+#                             深度计数前经字符串感知状态机剥离 // 行注释
+#                             （仅字符串外识别，字符串体内 // 不视为注释）、
+#                             普通字符串字面量（best-effort，含 \" \\ 转义）
+#                             与 raw string（r#"…"# 含任意井号数，跨行状态机；
+#                             块注释为已知局限，见脚本头注释）；逐文件复位
+#                             状态，可分批）
 #   M\t相对路径\tpath属性\tmod名 = cfg(test) 门控的 mod 挂载声明（path 属性可空）
 REGION_SCANNER_AWK="$(cat <<'AWK_PROGRAM'
 function trim_ws(x) {
@@ -294,23 +299,32 @@ function pred_has_test(s) {
   if (s ~ /not[[:space:]]*\([[:space:]]*(all|any)?[[:space:]]*\(?[[:space:]]*test/) return 0
   return s ~ /(^|[^a-zA-Z0-9_-])test([^a-zA-Z0-9_-]|$)/
 }
-# 字符串字面量剥离（供深度计数与 `{` 存在性判断使用）：
+# 字符串感知的行注释剥离 + 字面量剥离（单次状态机扫描，双输出）：
+# 返回值 = code（字符串与注释均以空格占位，供深度计数与 `{` 存在性判断）；
+# 全局 code_plain = 仅注释剥离、字符串原样保留（供声明解析 s 使用——#[path]
+# 值解析依赖引号原样，见主循环）。// 行注释仅在字符串外识别（两输出同截断）：
+# raw string 体内 //（如 URL https://）与普通字符串体内 // 均不截断行内容
+# 与闭合定界符（修复：注释剥离并入字符串状态机，不再先于其无条件执行）。
 # 普通字符串含 \" 与 \\ 转义，行内未闭合视为延伸到行尾；raw string（`r` 前缀
-# + ≥0 个 #，如 r#"…"# / r##"…"##）经 rs_open/rs_hash 全局状态跨行剥离：
-# 开启后本行及后续行至匹配井号数的 `"#` 闭合前的所有字符（含花括号）不进入
-# 输出，不参与深度计数（状态逐文件复位）；消费段以空格占位避免词元粘连；
-# 块注释 /* */ 为已知局限（见脚本头注释），不在本函数处理范围
-function strip_strings(x,   out, i, n, ch, j, m, ok) {
+# + ≥0 个 #，如 r"…" / r#"…"# / r##"…"##）经 rs_open/rs_hash 全局状态跨行
+# 剥离：开启后本行及后续行至匹配井号数的闭合定界符前的所有字符（含 // 与
+# 花括号）不进入 code 输出、不参与深度计数（状态逐文件复位）；消费段以空格
+# 占位避免词元粘连；块注释 /* */ 为已知局限（见脚本头注释），不在本函数
+# 处理范围
+function strip_strings(x,   out, plain, i, n, ch, j, m, ok) {
   out = ""
+  plain = ""
   i = 1
   n = length(x)
   while (i <= n) {
     if (rs_open) {
-      # raw string 内：仅识别闭合 `"#…#`（井号数 = 开启时 rs_hash）
+      # raw string 内：仅识别闭合 `"#…#`（井号数 = 开启时 rs_hash），
+      # 体内 // 与花括号均为内容（code 占位、plain 原样保留）
       j = i
       while (j <= n && substr(x, j, 1) != "\"") j++
       if (j > n) {
         out = out " "
+        plain = plain substr(x, i)
         i = n + 1
         continue
       }
@@ -324,16 +338,21 @@ function strip_strings(x,   out, i, n, ch, j, m, ok) {
         m++
       }
       if (ok) {
+        out = out " "
+        plain = plain substr(x, i, j + rs_hash - i + 1)
         i = j + 1 + rs_hash
         rs_open = 0
       } else {
+        plain = plain substr(x, i, j - i + 1)
         i = j + 1
       }
       continue
     }
     ch = substr(x, i, 1)
     if (ch == "\"") {
+      # 普通字符串：code 占位、plain 原样（体内 // 不识别为注释）
       out = out " "
+      j = i
       i++
       while (i <= n) {
         ch = substr(x, i, 1)
@@ -346,6 +365,12 @@ function strip_strings(x,   out, i, n, ch, j, m, ok) {
           break
         }
       }
+      plain = plain substr(x, j, i - j)
+    } else if (ch == "/" && substr(x, i + 1, 1) == "/") {
+      # 字符串外行注释：两输出同截断至行尾
+      out = out " "
+      plain = plain " "
+      i = n + 1
     } else if (ch == "r" && (i == 1 || substr(x, i - 1, 1) !~ /[A-Za-z0-9_]/)) {
       # raw string 起始：r + ≥0 个 # + "（r#type 等 raw 标识符无引号，不误配）
       j = i + 1
@@ -354,16 +379,20 @@ function strip_strings(x,   out, i, n, ch, j, m, ok) {
         rs_open = 1
         rs_hash = j - i - 1
         out = out " "
+        plain = plain substr(x, i, j - i + 1)
         i = j + 1
       } else {
         out = out ch
+        plain = plain ch
         i++
       }
     } else {
       out = out ch
+      plain = plain ch
       i++
     }
   }
+  code_plain = plain
   return out
 }
 BEGIN {
@@ -386,16 +415,17 @@ FNR == 1 {
 }
 {
   raw = $0
-  sub(/\/\/.*/, "", raw)
-  s = trim_ws(raw)
+  # 注释剥离并入 strip_strings 状态机（字符串感知，见函数注释）：返回值供
+  # 深度计数、code_plain 供声明解析；须先于 s 计算执行
+  brace_code = strip_strings(raw)
+  s = trim_ws(code_plain)
 
   in_region = (nb > 0 && depth > bases[nb]) ? 1 : 0
 
-  brace_code = strip_strings(raw)
   has_ob = (brace_code ~ /{/) ? 1 : 0
 
   if (pending) {
-    # 行注释已在上方剥离，此处 s 不可能以 // 开头（原死条件已删）
+    # 行注释已在字符串感知剥离中截断，此处 s 不可能以 // 开头（原死条件已删）
     if (s != "") {
       pending = 0
       if (s ~ /^#\[/) {
@@ -689,6 +719,11 @@ collect_static_entries() {
 #      test_support 不命中且不作为挂载目标、平铺 *test_support* basename 豁免
 #  13. 多井号 raw string r##"…"##：井号数匹配闭合（内容中 "# 不提前闭合），
 #      区域不截断、其后命中不丢，区域闭合后生产不误命中
+#  14. raw string 体内 //（// 剥离字符串感知回归）：单行闭合同行形态
+#      （如 r#"see https://x"#）与跨行闭合定界符同行形态 rs_open 均不悬挂
+#      ——区域内命中不丢、区域后生产不误命中
+#  15. 0 井 raw string r"…" 多行形态：rs_hash=0 独立分支闭合正确——区域
+#      不截断、其后命中不丢、区域闭合后生产不误命中
 ST_FAILS=0
 
 # 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
@@ -911,12 +946,57 @@ pub fn prod_after() {
 }
 EOF
 
+  cat > "$fx/crates/demo/src/raw_slash.rs" <<'EOF'
+pub fn prod_top() {
+    std::fs::create_dir_all("prod-slash-top"); // PROD-SLASH-TOP-NOT-HIT
+}
+
+#[cfg(test)]
+mod tests {
+    const URL: &str = r#"see https://x"#;
+    fn hit_one() {
+        std::fs::create_dir_all("hit-slash-inline"); // SLASH-INLINE-HIT
+    }
+    const DOC: &str = r#"
+raw doc line }}} {
+tail // "#;
+    fn hit_two() {
+        std::fs::create_dir_all("hit-slash-ml"); // SLASH-ML-HIT
+    }
+}
+
+pub fn prod_after() {
+    std::fs::create_dir_all("prod-slash-after"); // PROD-SLASH-AFTER-NOT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/raw_zero.rs" <<'EOF'
+pub fn prod_top() {
+    std::fs::create_dir_all("prod-r0-top"); // PROD-R0-TOP-NOT-HIT
+}
+
+#[cfg(test)]
+mod tests {
+    const R0: &str = r"
+zero-hash raw }}} {
+";
+    fn hit_fn() {
+        std::fs::create_dir_all("hit-r0"); // R0-HIT
+    }
+}
+
+pub fn prod_after() {
+    std::fs::create_dir_all("prod-r0-after"); // PROD-R0-AFTER-NOT-HIT
+}
+EOF
+
   # 用与正常模式完全相同的实现扫描 fixture
   collect_static_entries "$fx"
 
   local rel="crates/demo/src"
   # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
   local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo l_raw l_hashraw
+  local l_slash1 l_slash2 l_r0
   l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
   l_raw="$(st_line_of 'RAW-REGION-HIT' "$fx/$rel/inline_ok.rs")"
   l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
@@ -927,6 +1007,9 @@ EOF
   l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
   l_combo="$(st_line_of 'COMBO-MOUNT-HIT' "$fx/$rel/combo_target.rs")"
   l_hashraw="$(st_line_of 'HASH-RAW-HIT' "$fx/$rel/raw_hash.rs")"
+  l_slash1="$(st_line_of 'SLASH-INLINE-HIT' "$fx/$rel/raw_slash.rs")"
+  l_slash2="$(st_line_of 'SLASH-ML-HIT' "$fx/$rel/raw_slash.rs")"
+  l_r0="$(st_line_of 'R0-HIT' "$fx/$rel/raw_zero.rs")"
 
   local n
   # 1. 内联 cfg(test) 区域命中
@@ -971,6 +1054,9 @@ EOF
   expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
   expected+=("${rel}/inline_ok.rs:${l_raw}: 手动目录管理")
   expected+=("${rel}/raw_hash.rs:${l_hashraw}: 手动目录管理")
+  expected+=("${rel}/raw_slash.rs:${l_slash1}: 手动目录管理")
+  expected+=("${rel}/raw_slash.rs:${l_slash2}: 手动目录管理")
+  expected+=("${rel}/raw_zero.rs:${l_r0}: 手动目录管理")
   expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
   expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
   expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
@@ -979,7 +1065,7 @@ EOF
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 7 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 10 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 
   # 9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中且不作为挂载目标
@@ -1010,13 +1096,30 @@ EOF
   n="$(st_count_key "${rel}/raw_hash.rs: 手动目录管理")"
   st_assert_eq "13b 多井号 raw string 区域闭合后生产不误命中（raw_hash.rs 仅 1 条）" "1" "$n"
 
+  # 14. raw string 体内 //（// 剥离字符串感知回归）：单行闭合同行形态
+  #     （r#"see https://x"#）与跨行闭合定界符同行形态 rs_open 均不悬挂；
+  #     区域边界正确（区域后生产不误命中）由 14c 守护
+  n="$(st_count_entry "${rel}/raw_slash.rs:${l_slash1}: 手动目录管理")"
+  st_assert_eq "14 raw 体内 // 单行同行闭合命中不丢（raw_slash.rs:${l_slash1}）" "1" "$n"
+  n="$(st_count_entry "${rel}/raw_slash.rs:${l_slash2}: 手动目录管理")"
+  st_assert_eq "14b raw 跨行体 // 闭合同行命中不丢（raw_slash.rs:${l_slash2}）" "1" "$n"
+  n="$(st_count_key "${rel}/raw_slash.rs: 手动目录管理")"
+  st_assert_eq "14c raw 体内 // 区域边界正确（raw_slash.rs 恰 2 条，区域后生产不误命中）" "2" "$n"
+
+  # 15. 0 井 raw string r"…" 多行形态（rs_hash=0 独立分支回归）：闭合正确
+  #     区域不截断、其后命中不丢，区域闭合后生产不误命中
+  n="$(st_count_entry "${rel}/raw_zero.rs:${l_r0}: 手动目录管理")"
+  st_assert_eq "15 0 井 raw string 多行后命中不丢（raw_zero.rs:${l_r0}）" "1" "$n"
+  n="$(st_count_key "${rel}/raw_zero.rs: 手动目录管理")"
+  st_assert_eq "15b 0 井 raw string 区域闭合后生产不误命中（raw_zero.rs 仅 1 条）" "1" "$n"
+
   rm -rf "$fx"
   FIXTURE_DIR=""
   if [[ $ST_FAILS -gt 0 ]]; then
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 13 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 15 组）"
   exit 0
 }
 
