@@ -51,7 +51,7 @@ fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
         .join(tail)
 }
 
-/// TempDir 契约（`ensure_dir`）：debug 探测机制见上方 `outside_tempdir_probe` 块注释。
+/// TempDir 契约（`ensure_dir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "ensure_dir")]
@@ -104,7 +104,7 @@ fn test_remove_subdir_missing_dir_returns_error() {
     assert!(result.is_err(), "缺失目录应返回错误而非 panic");
 }
 
-/// TempDir 契约（`remove_subdir`）：debug 探测机制见上方 `outside_tempdir_probe` 块注释。
+/// TempDir 契约（`remove_subdir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "remove_subdir")]
@@ -137,7 +137,7 @@ fn test_create_subdir_existing_dir_is_idempotent() {
     assert!(second.is_dir(), "目录应保持存在：{second:?}");
 }
 
-/// TempDir 契约（`create_subdir`）：debug 探测机制见上方 `outside_tempdir_probe` 块注释。
+/// TempDir 契约（`create_subdir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "create_subdir")]
@@ -225,7 +225,7 @@ fn test_advance_mtime_missing_path_returns_error() {
     assert!(result.is_err(), "路径不存在必须返回 Err 而非 panic");
 }
 
-/// TempDir 契约（`advance_mtime`）：debug 探测机制见上方 `outside_tempdir_probe` 块注释。
+/// TempDir 契约（`advance_mtime`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "advance_mtime")]
