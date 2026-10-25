@@ -243,6 +243,37 @@ async fn stop_and_assert_fast(
     result
 }
 
+/// Schedule a graceful→forceful escalation on the mock after `delay`.
+///
+/// Takes ownership of the mock (the escalation interrupt tests have no
+/// other use for it once installed) and spawns the delayed
+/// `escalate_to_forceful` on a background task. The returned future
+/// completes immediately — the stop call starts right away, exactly as
+/// with an inline `tokio::spawn` in the test body.
+async fn escalate_after(mock: Arc<MockEscalationSignal>, delay: std::time::Duration) {
+    tokio::spawn(async move {
+        tokio::time::sleep(delay).await;
+        mock.escalate_to_forceful();
+    });
+}
+
+/// Post-stop assertions shared by the escalation interrupt tests: the
+/// stop covered at least one session, at least one session was
+/// force-stopped successfully, and no session hit the drain-backstop
+/// timeout (escalation must interrupt before the graceful wait's
+/// timeout backstop fires).
+fn assert_force_stopped(r: &super::stop::StopResult) {
+    assert!(r.total() >= 1);
+    assert!(
+        r.succeeded >= 1,
+        "escalation should force-stop the session successfully"
+    );
+    assert_eq!(
+        r.timed_out, 0,
+        "escalation must interrupt before the drain backstop"
+    );
+}
+
 // ── Step 1.2: graceful stop scenarios ────────────────────────────────────
 
 /// Session ends with ToolUse in the last assistant message →
@@ -542,11 +573,11 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
     setup_child_with_conv(&mgr, parent_id, child_id).await;
     set_llm_state(&mgr, child_id, LlmState::Receiving).await;
 
-    let mock = install_mock_handle(&mgr, false).await;
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        mock.escalate_to_forceful();
-    });
+    escalate_after(
+        install_mock_handle(&mgr, false).await,
+        std::time::Duration::from_millis(100),
+    )
+    .await;
 
     let result = stop_and_assert_fast(
         &mgr,
@@ -555,15 +586,7 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    assert!(result.total() >= 1);
-    assert!(
-        result.succeeded >= 1,
-        "escalation should force-stop the session successfully"
-    );
-    assert_eq!(
-        result.timed_out, 0,
-        "escalation must interrupt before the drain backstop"
-    );
+    assert_force_stopped(&result);
 }
 
 /// Escalation fires 100ms in; interrupts graceful wait and force-stops a running-tool session.
@@ -582,11 +605,11 @@ async fn test_graceful_escalation_interrupts_tool_info() {
     )
     .await;
 
-    let mock = install_mock_handle(&mgr, false).await;
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
-        mock.escalate_to_forceful();
-    });
+    escalate_after(
+        install_mock_handle(&mgr, false).await,
+        std::time::Duration::from_millis(100),
+    )
+    .await;
 
     let result = stop_and_assert_fast(
         &mgr,
@@ -595,15 +618,7 @@ async fn test_graceful_escalation_interrupts_tool_info() {
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    assert!(result.total() >= 1);
-    assert!(
-        result.succeeded >= 1,
-        "escalation should force-stop the session successfully"
-    );
-    assert_eq!(
-        result.timed_out, 0,
-        "escalation must interrupt before the drain backstop"
-    );
+    assert_force_stopped(&result);
 }
 
 /// Idle session stops immediately.
@@ -633,14 +648,11 @@ async fn test_graceful_escalation_interrupts_streaming() {
     setup_child_with_conv(&mgr, parent_id, child_id).await;
     set_llm_state(&mgr, child_id, LlmState::Receiving).await;
 
-    // Install mock starting as graceful
-    let mock = install_mock_handle(&mgr, false).await;
-
-    // Spawn escalation after 150ms
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        mock.escalate_to_forceful();
-    });
+    escalate_after(
+        install_mock_handle(&mgr, false).await,
+        std::time::Duration::from_millis(150),
+    )
+    .await;
 
     let r = stop_and_assert_fast(
         &mgr,
@@ -649,16 +661,7 @@ async fn test_graceful_escalation_interrupts_streaming() {
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    // Session force-stopped due to escalation
-    assert!(r.total() >= 1);
-    assert!(
-        r.succeeded >= 1,
-        "escalation should force-stop the session successfully"
-    );
-    assert_eq!(
-        r.timed_out, 0,
-        "escalation must interrupt before the drain backstop"
-    );
+    assert_force_stopped(&r);
 }
 
 /// Escalation fires 150ms in; interrupts graceful wait and force-stops a running-tool session.
@@ -677,11 +680,11 @@ async fn test_graceful_escalation_interrupts_tool_running() {
     )
     .await;
 
-    let mock = install_mock_handle(&mgr, false).await;
-    tokio::spawn(async move {
-        tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-        mock.escalate_to_forceful();
-    });
+    escalate_after(
+        install_mock_handle(&mgr, false).await,
+        std::time::Duration::from_millis(150),
+    )
+    .await;
 
     let r = stop_and_assert_fast(
         &mgr,
@@ -690,15 +693,7 @@ async fn test_graceful_escalation_interrupts_tool_running() {
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    assert!(r.total() >= 1);
-    assert!(
-        r.succeeded >= 1,
-        "escalation should force-stop the session successfully"
-    );
-    assert_eq!(
-        r.timed_out, 0,
-        "escalation must interrupt before the drain backstop"
-    );
+    assert_force_stopped(&r);
 }
 
 // ── Regression guard: handle propagation ────────────────────────────────
