@@ -15,6 +15,7 @@ use super::context::MessageContext;
 use super::error::ProcessError;
 use super::processor::{MessageProcessor, ProcessPhase};
 use super::raw_log_processor::RawLogConfig;
+use super::registry::metadata_str;
 use super::ProcessedMessage;
 
 /// Processor that writes outbound messages to a JSON log file.
@@ -50,11 +51,7 @@ impl OutboundRawLogProcessor {
     async fn write_log(&self, snapshot: &OutboundSnapshot) -> std::io::Result<()> {
         let dir = self.config.require_dir()?;
         let timestamp_millis = chrono::Utc::now().timestamp_millis();
-        let platform = snapshot
-            .metadata
-            .get("channel")
-            .map(|s| s.as_str())
-            .unwrap_or("unknown");
+        let platform = metadata_str(&snapshot.metadata, "channel").unwrap_or("unknown");
         let message_id = snapshot
             .metadata
             .get("message_id")

@@ -99,6 +99,7 @@ impl MessageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::processor_chain::registry::metadata_str;
     use closeclaw_common::im_plugin::MessageType;
 
     #[test]
@@ -121,13 +122,13 @@ mod tests {
         assert!(!ctx.skip);
         // Design doc: chain dispatcher copies message_type into metadata
         assert_eq!(
-            ctx.metadata.get("message_type").map(|s| s.as_str()),
+            metadata_str(&ctx.metadata, "message_type"),
             Some("\"text\""),
             "message_type should be copied into metadata by from_normalized"
         );
         // unavailable_media defaults to empty array
         assert_eq!(
-            ctx.metadata.get("unavailable_media").map(|s| s.as_str()),
+            metadata_str(&ctx.metadata, "unavailable_media"),
             Some("[]"),
             "unavailable_media should be copied into metadata"
         );

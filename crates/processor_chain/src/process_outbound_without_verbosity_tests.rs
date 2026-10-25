@@ -12,7 +12,7 @@ use async_trait::async_trait;
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
-use crate::processor_chain::registry::ProcessorRegistry;
+use crate::processor_chain::registry::{metadata_str, ProcessorRegistry};
 use crate::ProcessedMessage;
 use closeclaw_common::processor::ContentBlock;
 use closeclaw_common::ProcessorChain;
@@ -167,10 +167,7 @@ async fn test_preserves_metadata_from_non_excluded() {
         .unwrap();
 
     assert_eq!(result.text_content(), Some("dsl_parser"));
-    assert_eq!(
-        result.metadata.get("dsl_key").map(|s| s.as_str()),
-        Some("dsl_val")
-    );
+    assert_eq!(metadata_str(&result.metadata, "dsl_key"), Some("dsl_val"));
     assert!(
         !result.metadata.contains_key("skip_me"),
         "VerbosityFilter metadata should not appear"

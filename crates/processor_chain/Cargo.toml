@@ -35,6 +35,7 @@ regex.workspace = true
 chrono.workspace = true
 
 [dev-dependencies]
+closeclaw-debug-log = { path = "../debug_log", features = ["test-util"] }
 closeclaw-im-adapter = { path = "../im_adapter" }
 closeclaw-test-support = { path = "../test_support" }
 tempfile.workspace = true

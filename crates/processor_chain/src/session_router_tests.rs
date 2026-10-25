@@ -1,5 +1,9 @@
 use super::*;
+use crate::processor_chain::registry::metadata_str;
 use closeclaw_common::im_plugin::NormalizedMessage;
+use std::sync::{Arc, Mutex};
+use tracing::field::Field;
+use tracing::Subscriber;
 
 /// Fixed past message timestamp (2020-01-01T00:00:00Z in ms) used to prove
 /// that `msg.timestamp` does not leak into the computed session_key.
@@ -90,7 +94,7 @@ fn assert_key_ts_in_window(key: &str, before_ms: i64, after_ms: i64) {
 
 /// Extract `metadata.session_key` as `&str`; `None` when the key is absent.
 fn session_key_of(msg: &ProcessedMessage) -> Option<&str> {
-    msg.metadata.get("session_key").map(|s| s.as_str())
+    metadata_str(&msg.metadata, "session_key")
 }
 
 #[test]
@@ -476,10 +480,6 @@ async fn test_account_id_read_from_raw_message() {
 // warn log verification tests
 // -----------------------------------------------------------------------
 
-use std::sync::{Arc, Mutex};
-use tracing::field::Field;
-use tracing::Subscriber;
-
 struct WarnCapture {
     events: Arc<Mutex<Vec<String>>>,
 }
@@ -671,11 +671,7 @@ async fn test_message_type_injected_into_metadata() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let mt = result
-        .metadata
-        .get("message_type")
-        .map(|s| s.as_str())
-        .unwrap();
+    let mt = metadata_str(&result.metadata, "message_type").unwrap();
     // serde_json serializes MessageType::Text as the quoted string "text"
     assert_eq!(
         mt, "\"text\"",
@@ -703,11 +699,7 @@ async fn test_message_type_image_injected() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let mt = result
-        .metadata
-        .get("message_type")
-        .map(|s| s.as_str())
-        .unwrap();
+    let mt = metadata_str(&result.metadata, "message_type").unwrap();
     assert_eq!(
         mt, "\"image\"",
         "message_type metadata should be serialized MessageType::Image"
@@ -734,11 +726,7 @@ async fn test_message_type_file_injected() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let mt = result
-        .metadata
-        .get("message_type")
-        .map(|s| s.as_str())
-        .unwrap();
+    let mt = metadata_str(&result.metadata, "message_type").unwrap();
     assert_eq!(
         mt, "\"file\"",
         "message_type metadata should be serialized MessageType::File"
@@ -765,11 +753,7 @@ async fn test_message_type_audio_injected() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let mt = result
-        .metadata
-        .get("message_type")
-        .map(|s| s.as_str())
-        .unwrap();
+    let mt = metadata_str(&result.metadata, "message_type").unwrap();
     assert_eq!(
         mt, "\"audio\"",
         "message_type metadata should be serialized MessageType::Audio"
@@ -796,11 +780,7 @@ async fn test_message_type_post_injected() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let mt = result
-        .metadata
-        .get("message_type")
-        .map(|s| s.as_str())
-        .unwrap();
+    let mt = metadata_str(&result.metadata, "message_type").unwrap();
     assert_eq!(
         mt, "\"post\"",
         "message_type metadata should be serialized MessageType::Post"

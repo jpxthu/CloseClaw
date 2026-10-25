@@ -14,7 +14,7 @@ use std::sync::Arc;
 use closeclaw_common::processor::ContentBlock;
 
 use super::dsl_parser::DslParser;
-use super::registry::ProcessorRegistry;
+use super::registry::{metadata_str, ProcessorRegistry};
 use super::verbosity_filter::VerbosityFilter;
 use super::ProcessedMessage;
 
@@ -493,7 +493,7 @@ async fn test_default_impl_delegates_to_full_chain() {
     let result = chain.process_outbound_incremental(msg).await.unwrap();
 
     assert_eq!(
-        result.metadata.get("full_chain").map(|s| s.as_str()),
+        metadata_str(&result.metadata, "full_chain"),
         Some("yes"),
         "default impl must delegate to process_outbound"
     );
