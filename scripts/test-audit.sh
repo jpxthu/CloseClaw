@@ -31,14 +31,10 @@
 #                    （scripts/test-audit-baseline.txt）；运行时违规不入 baseline；
 #                    与 --target、--runtime 互斥（baseline 必须来自全量扫描，
 #                    且不得吞掉 runtime 违规报告）
-# --self-test        扫描器自测：对 mktemp 内嵌最小 fixture 树运行与正常模式
-#                    完全相同的扫描实现，断言命中/不命中规格矩阵（内联区域
-#                    命中 / 生产区不命中 / not(test) 不命中 / helper 豁免
-#                    （平铺命名 + 目录化子模块 + 文件内内联区域 +
-#                    scan_root 首段）/
-#                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离
-#                    （普通 + 多行 raw string + raw 体内 // + 0 井多行）/
-#                    原谓词文件无双计）；离线、不读仓库与 baseline；
+# --self-test        扫描器自测：转调 scripts/test-audit-self-test.sh——
+#                    fixture 构建/断言/规格矩阵在该脚本，其以库模式 source
+#                    本脚本复用同一扫描实现，对 mktemp 内嵌最小 fixture 树
+#                    断言命中/不命中规格矩阵；离线、不读仓库与 baseline；
 #                    与 --runtime/--target/--update-baseline 互斥
 
 set -euo pipefail
@@ -253,9 +249,9 @@ fi
 
 # ── 静态扫描执行 ──────────────────────────────────────────
 # 扫描实现整体函数化（collect_static_entries <扫描根目录>，结果写入全局
-# ENTRIES）：正常模式对 $PROJECT_ROOT 调用；--self-test 对 mktemp 内嵌
-# fixture 树调用同一实现，保证「测的就是真实扫描逻辑」（函数定义在
-# REGION_SCANNER_AWK 之后，调用点在 run_self_test / 正常模式处）
+# ENTRIES）：正常模式对 $PROJECT_ROOT 调用；--self-test（转调
+# scripts/test-audit-self-test.sh）对 mktemp 内嵌 fixture 树调用同一实现，
+# 保证「测的就是真实扫描逻辑」（函数定义在 REGION_SCANNER_AWK 之后）
 
 # ══════════════════════════════════════════════════════════
 # 扩围通道：cfg(test) 门控区域（内联）+ cfg(test) 挂载 test-only 文件
@@ -703,41 +699,10 @@ collect_static_entries() {
   FILTERED_EVENTS_FILE=""
 }
 
-# ══════════════════════════════════════════════════════════
-# --self-test：内嵌最小 fixture 自测（mktemp 骨架，离线，不读仓库与 baseline）
-# ══════════════════════════════════════════════════════════
-# 对 fixture 树调用与正常模式完全相同的 collect_static_entries 实现，
-# 断言命中/不命中规格矩阵（每条断言独立报告，任一失败 → 整体 exit 1）：
-#   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
-#   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
-#   3. #[cfg(not(test))] 区域不命中
-#   4. 平铺 helper 豁免（basename 含 test_helpers / test_support 词干）
-#   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态 +
-#      单行多属性 + #[path] 组合形态
-#   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
-#      （区域闭合后的生产代码不因字面量失衡误命中）
-#   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
-#   8. 全量命中集与期望精确一致（无任何额外命中）
-#   9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中
-#      且不作为挂载目标（含子模块裸调用 + 内联区域）
-#  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
-#  11. 多行 raw string 剥离：区域内 r#"…"#（内含不平衡花括号）不截断区域，
-#      其后命中不丢；raw 内容花括号不扰动深度（区域闭合后生产行不误命中）
-#  12. test_support 同义词干豁免（basename ∪ 路径段另一分支）：目录化
-#      test_support 不命中且不作为挂载目标、平铺 *test_support* basename 豁免
-#  13. 多井号 raw string r##"…"##：井号数匹配闭合（内容中 "# 不提前闭合），
-#      区域不截断、其后命中不丢，区域闭合后生产不误命中
-#  14. raw string 体内 //（// 剥离字符串感知回归）：单行闭合同行形态
-#      （如 r#"see https://x"#）与跨行闭合定界符同行形态 rs_open 均不悬挂
-#      ——区域内命中不丢、区域后生产不误命中
-#  15. 0 井 raw string r"…" 多行形态：rs_hash=0 独立分支闭合正确——区域
-#      不截断、其后命中不丢、区域闭合后生产不误命中
-#  16. 豁免首段形态（相对 scan_root 一级 test_helpers/，挂载通道 #[path]
-#      相对上跳可达）：不作为挂载目标、不命中（路径段豁免含首段）
-ST_FAILS=0
-
-# 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
-# `路径:行号: 规则` → `路径: 规则`；无行号段形态原样透传
+# ── 比对键去行号归一化（baseline 三态比对 / self-test 断言两处共用）──
+# 与 test-naming-guard 同一归一化：`路径:行号: 规则` → `路径: 规则`；
+# 无行号段形态原样透传。定义位于库段（lib 模式 return 之前），self-test
+# 脚本（scripts/test-audit-self-test.sh）source 本脚本后直接复用
 strip_key() {
   local entry="$1"
   if [[ "$entry" =~ ^(.+):[0-9]+:\ (.+)$ ]]; then
@@ -747,418 +712,25 @@ strip_key() {
   fi
 }
 
-st_line_of() {
-  # fixture 内 sentinel 所在行号（1 起）；sentinel 必须唯一存在（fixture 可控）
-  grep -m1 -n "$1" "$2" | cut -d: -f1
-}
+# ── 库模式出口 ────────────────────────────────────────────
+# scripts/test-audit-self-test.sh 以 TEST_AUDIT_LIB_MODE=1 source 本脚本，
+# 复用同一扫描实现（REGION_SCANNER_AWK / is_helper_exempt /
+# collect_static_entries / strip_key 等），仅定义不执行；此出口必须位于
+# 全部定义与常量组装（含 TEMP_ROOT 补充规则）之后、执行段之前
+if [[ "${TEST_AUDIT_LIB_MODE:-0}" == "1" ]]; then
+  return 0
+fi
 
-st_assert_eq() {
-  local desc="$1" expected="$2" actual="$3"
-  if [[ "$expected" == "$actual" ]]; then
-    echo "[self-test] ok: $desc"
-  else
-    echo "[self-test] FAIL: $desc" >&2
-    echo "[self-test]   期望: [$expected]" >&2
-    echo "[self-test]   实际: [$actual]" >&2
-    ST_FAILS=$((ST_FAILS + 1))
-  fi
-}
-
-st_count_entry() {
-  # 统计 ENTRIES 中与 $1 完全相等的条目数
-  local want="$1" n=0 entry
-  for entry in "${ENTRIES[@]}"; do
-    if [[ "$entry" == "$want" ]]; then
-      n=$((n + 1))
-    fi
-  done
-  printf '%s' "$n"
-}
-
-st_count_key() {
-  # 统计 ENTRIES 中 strip_key 归一后等于 $1 的条目数（跨行号计数）
-  local want="$1" n=0 entry
-  for entry in "${ENTRIES[@]}"; do
-    if [[ "$(strip_key "$entry")" == "$want" ]]; then
-      n=$((n + 1))
-    fi
-  done
-  printf '%s' "$n"
-}
-
-run_self_test() {
-  echo "[self-test] 构建 fixture（mktemp）..." >&2
-  local fx
-  fx="$(mktemp -d "${TMPDIR:-/tmp}/test-audit-selftest-XXXXXX")"
-  FIXTURE_DIR="$fx"
-  mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper" \
-    "$fx/crates/demo/src/test_helpers" "$fx/crates/demo/src/test_support" \
-    "$fx/test_helpers"
-
-  cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
-// 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
-// 单行多属性 + #[path] 组合形态 + 目录化 helper（路径段豁免）+
-// #[path] 相对上跳至 scan_root 首段 helper（首段豁免）
-#[cfg(test)]
-#[path = "with_path_target.rs"]
-mod with_path;
-
-#[cfg(test)]
-#[path = "demo_test_helpers.rs"]
-mod helpers;
-
-#[cfg(test)] #[path = "combo_target.rs"] mod combo;
-
-#[cfg(test)]
-mod test_helpers;
-
-#[cfg(test)]
-mod test_support;
-
-#[cfg(test)]
-#[path = "../../../test_helpers/root_helper.rs"]
-mod root_helpers;
-
-pub fn prod_entry() {
-    std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/inline_ok.rs" <<'EOF'
-pub fn prod_top() {
-    std::fs::create_dir_all("prod-top"); // PROD-TOP-NOT-HIT
-}
-
-#[cfg(test)]
-mod tests {
-    const BRACES: &str = "{{{ ";
-    const ESCAPED: &str = "a\"}b";
-    const RAW: &str = r#"
-raw line one }}} } {
-raw line two } "quoted }}" still raw
-"#;
-    fn hit_fn() {
-        std::fs::create_dir_all("hit-1"); // INLINE-HIT
-    }
-    fn raw_region_hit() {
-        std::fs::create_dir_all("hit-raw"); // RAW-REGION-HIT
-    }
-}
-
-pub fn prod_after() {
-    std::fs::create_dir_all("prod-after"); // PROD-AFTER-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/not_test.rs" <<'EOF'
-#[cfg(not(test))]
-mod platform {
-    fn no_hit() {
-        std::fs::remove_dir_all("never"); // NOT-TEST-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/foo_tests.rs" <<'EOF'
-#[cfg(test)]
-mod inner {
-    fn t() {
-        std::fs::create_dir_all("orig"); // ORIG-ONCE
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/with_path_target.rs" <<'EOF'
-fn mounted_hit() {
-    std::fs::create_dir_all("wp"); // MOUNT-PATH-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/combo_target.rs" <<'EOF'
-fn combo_hit() {
-    std::fs::create_dir_all("combo"); // COMBO-MOUNT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/demo_test_helpers.rs" <<'EOF'
-fn helper_hit() {
-    std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
-}
-
-#[cfg(test)]
-mod internal_tests {
-    fn inline_helper_hit() {
-        std::fs::create_dir_all("helper-inline"); // HELPER-INLINE-REGION-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/test_helpers/mod.rs" <<'EOF'
-pub mod config;
-
-fn mod_helper_hit() {
-    std::fs::create_dir_all("dir-helper-mod"); // DIR-HELPER-MOD-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/test_helpers/config.rs" <<'EOF'
-fn dir_helper_hit() {
-    std::fs::create_dir_all("dir-helper"); // DIR-HELPER-EXCLUDED-NOT-HIT
-}
-
-#[cfg(test)]
-mod config_tests {
-    fn inline_dir_helper_hit() {
-        std::fs::create_dir_all("dir-helper-inline"); // DIR-HELPER-INLINE-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/test_support/mod.rs" <<'EOF'
-fn support_hit() {
-    std::fs::create_dir_all("dir-support-mod"); // DIR-SUPPORT-MOD-NOT-HIT
-}
-
-#[cfg(test)]
-mod support_tests {
-    fn inline_support_hit() {
-        std::fs::create_dir_all("dir-support-inline"); // DIR-SUPPORT-INLINE-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/demo_test_support.rs" <<'EOF'
-fn flat_support_hit() {
-    std::fs::create_dir_all("flat-support"); // FLAT-SUPPORT-NOT-HIT
-}
-EOF
-
-  cat > "$fx/test_helpers/root_helper.rs" <<'EOF'
-fn root_helper_hit() {
-    std::fs::create_dir_all("root-helper"); // ROOT-HELPER-NOT-HIT
-}
-
-#[cfg(test)]
-mod root_helper_tests {
-    fn inline_root_helper_hit() {
-        std::fs::create_dir_all("root-helper-inline"); // ROOT-HELPER-INLINE-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/wrapper.rs" <<'EOF'
-// 非 mod.rs 声明者形态：单行多属性（循环剥离前导 #[...] 组）+ mod 挂载
-#[cfg(test)] mod mounted;
-EOF
-
-  cat > "$fx/crates/demo/src/wrapper/mounted.rs" <<'EOF'
-fn wrapper_hit() {
-    std::fs::create_dir_all("wm"); // WRAPPER-MOUNT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/raw_hash.rs" <<'EOF'
-#[cfg(test)]
-mod tests {
-    const RAW2: &str = r##"
-raw2 line one }}} { {
-raw2 line two "# not close }}
-still raw2 {
-"##;
-    fn hit_fn() {
-        std::fs::create_dir_all("hit-hash-raw"); // HASH-RAW-HIT
-    }
-}
-
-pub fn prod_after() {
-    std::fs::create_dir_all("prod-hash-after"); // PROD-HASH-AFTER-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/raw_slash.rs" <<'EOF'
-pub fn prod_top() {
-    std::fs::create_dir_all("prod-slash-top"); // PROD-SLASH-TOP-NOT-HIT
-}
-
-#[cfg(test)]
-mod tests {
-    const URL: &str = r#"see https://x"#;
-    fn hit_one() {
-        std::fs::create_dir_all("hit-slash-inline"); // SLASH-INLINE-HIT
-    }
-    const DOC: &str = r#"
-raw doc line }}} {
-tail // "#;
-    fn hit_two() {
-        std::fs::create_dir_all("hit-slash-ml"); // SLASH-ML-HIT
-    }
-}
-
-pub fn prod_after() {
-    std::fs::create_dir_all("prod-slash-after"); // PROD-SLASH-AFTER-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/raw_zero.rs" <<'EOF'
-pub fn prod_top() {
-    std::fs::create_dir_all("prod-r0-top"); // PROD-R0-TOP-NOT-HIT
-}
-
-#[cfg(test)]
-mod tests {
-    const R0: &str = r"
-zero-hash raw }}} {
-";
-    fn hit_fn() {
-        std::fs::create_dir_all("hit-r0"); // R0-HIT
-    }
-}
-
-pub fn prod_after() {
-    std::fs::create_dir_all("prod-r0-after"); // PROD-R0-AFTER-NOT-HIT
-}
-EOF
-
-  # 用与正常模式完全相同的实现扫描 fixture
-  collect_static_entries "$fx"
-
-  local rel="crates/demo/src"
-  # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
-  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo l_raw l_hashraw
-  local l_slash1 l_slash2 l_r0
-  l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
-  l_raw="$(st_line_of 'RAW-REGION-HIT' "$fx/$rel/inline_ok.rs")"
-  l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
-  l_top="$(st_line_of 'PROD-TOP-NOT-HIT' "$fx/$rel/inline_ok.rs")"
-  l_entry="$(st_line_of 'PROD-ENTRY-NOT-HIT' "$fx/$rel/mod.rs")"
-  l_orig="$(st_line_of 'ORIG-ONCE' "$fx/$rel/foo_tests.rs")"
-  l_wp="$(st_line_of 'MOUNT-PATH-HIT' "$fx/$rel/with_path_target.rs")"
-  l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
-  l_combo="$(st_line_of 'COMBO-MOUNT-HIT' "$fx/$rel/combo_target.rs")"
-  l_hashraw="$(st_line_of 'HASH-RAW-HIT' "$fx/$rel/raw_hash.rs")"
-  l_slash1="$(st_line_of 'SLASH-INLINE-HIT' "$fx/$rel/raw_slash.rs")"
-  l_slash2="$(st_line_of 'SLASH-ML-HIT' "$fx/$rel/raw_slash.rs")"
-  l_r0="$(st_line_of 'R0-HIT' "$fx/$rel/raw_zero.rs")"
-
-  local n
-  # 1. 内联 cfg(test) 区域命中
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_inline}: 手动目录管理")"
-  st_assert_eq "1 内联 cfg(test) 区域命中（inline_ok.rs:${l_inline}）" "1" "$n"
-
-  # 2. 生产区不命中（inline_ok.rs 全文件恰 2 条 = 仅内联命中；mod.rs 0 条）
-  n="$(st_count_key "${rel}/inline_ok.rs: 手动目录管理")"
-  st_assert_eq "2a 生产区不命中（inline_ok.rs 仅 2 条内联命中）" "2" "$n"
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_top}: 手动目录管理")"
-  st_assert_eq "2b 生产区不命中（区域前 prod_top:${l_top}）" "0" "$n"
-  n="$(st_count_entry "${rel}/mod.rs:${l_entry}: 手动目录管理")"
-  st_assert_eq "2c 生产区不命中（mod.rs prod_entry:${l_entry}）" "0" "$n"
-
-  # 3. not(test) 不命中
-  n="$(st_count_entry "${rel}/not_test.rs: 手动目录管理")"
-  st_assert_eq "3 not(test) 区域不命中" "0" "$n"
-
-  # 4. 平铺 helper 豁免（basename 含 test_helpers 词干）
-  n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
-  st_assert_eq "4 平铺 helper 豁免（demo_test_helpers.rs 裸调用不命中）" "0" "$n"
-
-  # 5. 挂载解析（#[path]、非 mod.rs 声明者、单行多属性 + #[path] 组合三种形态）
-  n="$(st_count_entry "${rel}/with_path_target.rs:${l_wp}: 手动目录管理")"
-  st_assert_eq "5a 挂载解析命中（#[path] 形态 with_path_target.rs:${l_wp}）" "1" "$n"
-  n="$(st_count_entry "${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")"
-  st_assert_eq "5b 挂载解析命中（非 mod.rs 声明者 wrapper/mounted.rs:${l_wm}）" "1" "$n"
-  n="$(st_count_entry "${rel}/combo_target.rs:${l_combo}: 手动目录管理")"
-  st_assert_eq "5c 挂载解析命中（单行多属性 + #[path] 组合 combo_target.rs:${l_combo}）" "1" "$n"
-
-  # 6. 字面量剥离（区域闭合后生产行不因字面量失衡误命中）
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_after}: 手动目录管理")"
-  st_assert_eq "6 字面量剥离（区域后 prod_after:${l_after} 不误命中）" "0" "$n"
-
-  # 7. 原 find 谓词文件无双计
-  n="$(st_count_entry "${rel}/foo_tests.rs:${l_orig}: 手动目录管理")"
-  st_assert_eq "7 原 find 谓词文件无双计（foo_tests.rs:${l_orig} 恰 1 条）" "1" "$n"
-
-  # 8. 全量命中集与期望精确一致（无任何额外命中）
-  local -a expected=()
-  expected+=("${rel}/foo_tests.rs:${l_orig}: 手动目录管理")
-  expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
-  expected+=("${rel}/inline_ok.rs:${l_raw}: 手动目录管理")
-  expected+=("${rel}/raw_hash.rs:${l_hashraw}: 手动目录管理")
-  expected+=("${rel}/raw_slash.rs:${l_slash1}: 手动目录管理")
-  expected+=("${rel}/raw_slash.rs:${l_slash2}: 手动目录管理")
-  expected+=("${rel}/raw_zero.rs:${l_r0}: 手动目录管理")
-  expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
-  expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
-  expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
-  local expected_sorted actual_sorted=""
-  expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
-  if [[ ${#ENTRIES[@]} -gt 0 ]]; then
-    actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
-  fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 10 条，无额外命中）" \
-    "$expected_sorted" "$actual_sorted"
-
-  # 9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中且不作为挂载目标
-  n="$(st_count_key "${rel}/test_helpers/config.rs: 手动目录管理")"
-  st_assert_eq "9a 目录化 helper 子模块不命中（test_helpers/config.rs 裸调用）" "0" "$n"
-  n="$(st_count_key "${rel}/test_helpers/mod.rs: 手动目录管理")"
-  st_assert_eq "9b 目录化 helper 不作为挂载目标（test_helpers/mod.rs 不入全文件扫）" "0" "$n"
-  n="$(st_count_key "${rel}/test_support/mod.rs: 手动目录管理")"
-  st_assert_eq "9c 目录化 test_support 不命中且不作为挂载目标（test_support/mod.rs）" "0" "$n"
-
-  # 10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
-  n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
-  st_assert_eq "10 helper 文件内联 cfg(test) 区域不命中（demo_test_helpers.rs）" "0" "$n"
-
-  # 11. 多行 raw string 剥离（区域内 r#"…"# 不截断区域，其后命中不丢；
-  #     raw 内容花括号不扰动深度——区域闭合后 prod_after 不误命中由 6/8 守护）
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_raw}: 手动目录管理")"
-  st_assert_eq "11 raw string 后命中不丢（区域不提前弹栈 inline_ok.rs:${l_raw}）" "1" "$n"
-
-  # 12. test_support 同义词干豁免（basename ∪ 路径段并集的另一分支）
-  n="$(st_count_key "${rel}/demo_test_support.rs: 手动目录管理")"
-  st_assert_eq "12 平铺 test_support 词干豁免（demo_test_support.rs 裸调用不命中）" "0" "$n"
-
-  # 13. 多井号 raw string r##"…"##（内容中 "# 不提前闭合；区域闭合后
-  #     prod-hash-after 不误命中由 8 守护）
-  n="$(st_count_entry "${rel}/raw_hash.rs:${l_hashraw}: 手动目录管理")"
-  st_assert_eq "13 多井号 raw string 后命中不丢（区域不截断 raw_hash.rs:${l_hashraw}）" "1" "$n"
-  n="$(st_count_key "${rel}/raw_hash.rs: 手动目录管理")"
-  st_assert_eq "13b 多井号 raw string 区域闭合后生产不误命中（raw_hash.rs 仅 1 条）" "1" "$n"
-
-  # 14. raw string 体内 //（// 剥离字符串感知回归）：单行闭合同行形态
-  #     （r#"see https://x"#）与跨行闭合定界符同行形态 rs_open 均不悬挂；
-  #     区域边界正确（区域后生产不误命中）由 14c 守护
-  n="$(st_count_entry "${rel}/raw_slash.rs:${l_slash1}: 手动目录管理")"
-  st_assert_eq "14 raw 体内 // 单行同行闭合命中不丢（raw_slash.rs:${l_slash1}）" "1" "$n"
-  n="$(st_count_entry "${rel}/raw_slash.rs:${l_slash2}: 手动目录管理")"
-  st_assert_eq "14b raw 跨行体 // 闭合同行命中不丢（raw_slash.rs:${l_slash2}）" "1" "$n"
-  n="$(st_count_key "${rel}/raw_slash.rs: 手动目录管理")"
-  st_assert_eq "14c raw 体内 // 区域边界正确（raw_slash.rs 恰 2 条，区域后生产不误命中）" "2" "$n"
-
-  # 15. 0 井 raw string r"…" 多行形态（rs_hash=0 独立分支回归）：闭合正确
-  #     区域不截断、其后命中不丢，区域闭合后生产不误命中
-  n="$(st_count_entry "${rel}/raw_zero.rs:${l_r0}: 手动目录管理")"
-  st_assert_eq "15 0 井 raw string 多行后命中不丢（raw_zero.rs:${l_r0}）" "1" "$n"
-  n="$(st_count_key "${rel}/raw_zero.rs: 手动目录管理")"
-  st_assert_eq "15b 0 井 raw string 区域闭合后生产不误命中（raw_zero.rs 仅 1 条）" "1" "$n"
-
-  # 16. 豁免首段形态（相对 scan_root 一级 test_helpers/，挂载通道 #[path]
-  #     相对上跳可达）：不作为挂载目标、不命中（路径段豁免含首段）
-  n="$(st_count_key "test_helpers/root_helper.rs: 手动目录管理")"
-  st_assert_eq "16 豁免首段形态不作为挂载目标且不命中（test_helpers/root_helper.rs）" "0" "$n"
-
-  rm -rf "$fx"
-  FIXTURE_DIR=""
-  if [[ $ST_FAILS -gt 0 ]]; then
-    echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
-    exit 1
-  fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 16 组）"
-  exit 0
-}
-
+# ── --self-test 转调独立自测脚本（对外入口/退出码约定不变）──
+# fixture 构建/断言/规格矩阵拆分至 scripts/test-audit-self-test.sh（本文件
+# 曾因内嵌 self-test 超 CONTRIBUTING 文件行数上限 1000 与 run_self_test 超
+# 函数体 100 行限制）；该脚本库模式 source 本脚本后对 mktemp fixture 树
+# 调用 collect_static_entries。对外入口 bash scripts/test-audit.sh
+# --self-test 不变（.githooks/pre-commit 与 scripts/periodic-checks.sh
+# --audit-selftest 调用方无感），退出码约定不变（断言失败 → 1）；互斥
+# 校验已在参数解析段完成
 if [[ $SELF_TEST -eq 1 ]]; then
-  run_self_test
+  exec bash "$PROJECT_ROOT/scripts/test-audit-self-test.sh"
 fi
 
 collect_static_entries "$PROJECT_ROOT"
@@ -1198,7 +770,8 @@ fi
 # 多条目并存不塌缩——实际计数 − baseline 计数 = 新增差额（FAIL），baseline
 # 计数 − 实际计数 = 已消除差额（提示）；每键报告一条代表条目（保留行号定位）。
 
-# 比对键去行号归一化 strip_key 定义见 --self-test 段前（两处共用）
+# 比对键去行号归一化 strip_key 定义见库段（collect_static_entries 之后，
+# 与 self-test 断言共用）
 
 BASELINE=()
 if [[ -f "$BASELINE_FILE" ]]; then
