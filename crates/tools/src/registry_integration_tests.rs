@@ -105,10 +105,7 @@ async fn test_generation_increments_on_register() {
         name: "A".into(),
         group: "g".into(),
         summary_text: "a".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -118,10 +115,7 @@ async fn test_generation_increments_on_register() {
         name: "B".into(),
         group: "g".into(),
         summary_text: "b".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -136,10 +130,7 @@ async fn test_generation_no_increment_on_duplicate() {
         name: "A".into(),
         group: "g".into(),
         summary_text: "a".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -150,10 +141,7 @@ async fn test_generation_no_increment_on_duplicate() {
             name: "A".into(),
             group: "g".into(),
             summary_text: "a2".into(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -173,10 +161,7 @@ async fn test_generation_no_increment_after_freeze() {
         name: "A".into(),
         group: "g".into(),
         summary_text: "a".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -188,10 +173,7 @@ async fn test_generation_no_increment_after_freeze() {
             name: "B".into(),
             group: "g".into(),
             summary_text: "b".into(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -213,10 +195,7 @@ async fn test_generation_increments_on_register_any() {
         name: "X".into(),
         group: "g".into(),
         summary_text: "x".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     reg.register_any(Box::new(tool_box), "test-registrar")
@@ -233,10 +212,7 @@ async fn test_generation_no_increment_on_register_any_conflict() {
         name: "X".into(),
         group: "g".into(),
         summary_text: "x".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -246,10 +222,7 @@ async fn test_generation_no_increment_on_register_any_conflict() {
         name: "X".into(),
         group: "g".into(),
         summary_text: "x2".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     let err = reg
@@ -275,10 +248,7 @@ async fn test_generation_no_increment_on_register_any_after_freeze() {
         name: "A".into(),
         group: "g".into(),
         summary_text: "a".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -289,10 +259,7 @@ async fn test_generation_no_increment_on_register_any_after_freeze() {
         name: "B".into(),
         group: "g".into(),
         summary_text: "b".into(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let tool_box = closeclaw_common::tool_registry::ToolBox(tool);
     let err = reg

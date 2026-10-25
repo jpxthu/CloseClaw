@@ -243,10 +243,8 @@ async fn test_build_index_raw_expensive_tool() {
         name: "Bash".to_string(),
         group: "exec".to_string(),
         summary_text: "Execute bash".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -254,10 +252,8 @@ async fn test_build_index_raw_expensive_tool() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -290,9 +286,8 @@ async fn test_build_index_raw_deferred_expensive_tool() {
         group: "search".to_string(),
         summary_text: "Search web".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -320,10 +315,9 @@ async fn test_build_index_raw_combination_marks() {
         name: "ReadOnlyExpensive".to_string(),
         group: "g1".to_string(),
         summary_text: "read only expensive".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -331,10 +325,9 @@ async fn test_build_index_raw_combination_marks() {
         name: "DestructiveExpensive".to_string(),
         group: "g2".to_string(),
         summary_text: "destructive expensive".to_string(),
-        is_deferred: false,
-        is_read_only: false,
         is_destructive: true,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -368,10 +361,8 @@ async fn test_build_tools_section_expensive_mark() {
         name: "Bash".to_string(),
         group: "exec".to_string(),
         summary_text: "Execute bash".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -380,9 +371,8 @@ async fn test_build_tools_section_expensive_mark() {
         group: "search".to_string(),
         summary_text: "Search web".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -390,10 +380,8 @@ async fn test_build_tools_section_expensive_mark() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

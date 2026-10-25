@@ -19,10 +19,7 @@ async fn test_normal_mode_sessions_spawn_visible() {
         name: "sessions_spawn".to_string(),
         group: "sessions".to_string(),
         summary_text: "Spawn session".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -53,10 +50,7 @@ async fn test_disallowed_tools_excludes_sessions_spawn() {
         name: "sessions_spawn".to_string(),
         group: "sessions".to_string(),
         summary_text: "Spawn session".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -88,10 +82,7 @@ async fn test_whitelist_excludes_sessions_spawn() {
         name: "sessions_spawn".to_string(),
         group: "sessions".to_string(),
         summary_text: "Spawn session".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -99,10 +90,8 @@ async fn test_whitelist_excludes_sessions_spawn() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

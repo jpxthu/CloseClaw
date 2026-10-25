@@ -23,10 +23,7 @@ async fn test_register_and_get_detail() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file contents".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -49,10 +46,7 @@ async fn test_register_duplicate() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -62,10 +56,7 @@ async fn test_register_duplicate() {
             name: "Read".to_string(),
             group: "file_ops".to_string(),
             summary_text: "Read again".to_string(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         })
         .await
         .unwrap_err();
@@ -79,10 +70,7 @@ async fn test_list_descriptors() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read files".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -91,9 +79,7 @@ async fn test_list_descriptors() {
         group: "file_ops".to_string(),
         summary_text: "Write files".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -115,10 +101,7 @@ async fn test_list_by_group() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "R".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -126,10 +109,7 @@ async fn test_list_by_group() {
         name: "ToolSearch".to_string(),
         group: "meta".to_string(),
         summary_text: "T".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -155,10 +135,7 @@ async fn test_tool_info_from_tool() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read files".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -182,10 +159,7 @@ async fn test_build_tools_section() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read files".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -193,10 +167,7 @@ async fn test_build_tools_section() {
         name: "ToolSearch".to_string(),
         group: "meta".to_string(),
         summary_text: "Search tools".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -225,10 +196,7 @@ async fn test_build_tools_section_with_detail() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read files".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -238,9 +206,7 @@ async fn test_build_tools_section_with_detail() {
         group: "file_ops".to_string(),
         summary_text: "Write files".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -274,9 +240,7 @@ async fn test_build_tools_section_deferred_group() {
         group: "background".to_string(),
         summary_text: "Slow async operation".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -285,9 +249,7 @@ async fn test_build_tools_section_deferred_group() {
         group: "background".to_string(),
         summary_text: "Clean up temp files".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -322,10 +284,8 @@ async fn test_build_tools_section_danger_marks() {
         name: "Viewer".to_string(),
         group: "review".to_string(),
         summary_text: "View contents".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -334,10 +294,8 @@ async fn test_build_tools_section_danger_marks() {
         name: "Deleter".to_string(),
         group: "review".to_string(),
         summary_text: "Delete files".to_string(),
-        is_deferred: false,
-        is_read_only: false,
         is_destructive: true,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -346,10 +304,7 @@ async fn test_build_tools_section_danger_marks() {
         name: "Lister".to_string(),
         group: "review".to_string(),
         summary_text: "List everything".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -360,8 +315,7 @@ async fn test_build_tools_section_danger_marks() {
         summary_text: "Deferred read".to_string(),
         is_deferred: true,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -371,9 +325,8 @@ async fn test_build_tools_section_danger_marks() {
         group: "lazy".to_string(),
         summary_text: "Deferred delete".to_string(),
         is_deferred: true,
-        is_read_only: false,
         is_destructive: true,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -410,10 +363,8 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         name: "Query".to_string(),
         group: "data".to_string(),
         summary_text: "Query data".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -423,9 +374,8 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         group: "data".to_string(),
         summary_text: "Purge old data".to_string(),
         is_deferred: true,
-        is_read_only: false,
         is_destructive: true,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -434,10 +384,7 @@ async fn test_build_tools_section_eager_and_deferred_group() {
         name: "Compute".to_string(),
         group: "math".to_string(),
         summary_text: "Compute stuff".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -483,10 +430,7 @@ async fn test_build_tools_section_no_orphan_header() {
         name: "A".to_string(),
         group: "g".to_string(),
         summary_text: "tool A".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -572,10 +516,8 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -586,10 +528,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         name: "Write".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Write file".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -597,10 +536,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         name: "Edit".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Edit file".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -610,10 +546,7 @@ async fn test_plan_mode_shows_write_and_edit_tools() {
         name: "CommandExec".to_string(),
         group: "exec".to_string(),
         summary_text: "Execute command".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -647,10 +580,7 @@ async fn test_normal_mode_and_no_session_mode_do_not_filter() {
         name: "Write".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Write file".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -693,10 +623,7 @@ async fn test_plan_mode_keeps_mode_execution_trigger() {
         name: "ModeExecutionTrigger".to_string(),
         group: "mode".to_string(),
         summary_text: "trigger execution from plan mode".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -714,10 +641,7 @@ fn test_plan_mode_tool_visible_mode_execution_trigger() {
         name: "ModeExecutionTrigger".to_string(),
         group: "mode".to_string(),
         summary_text: "trigger execution".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     };
     let tool: Arc<dyn Tool> = Arc::new(tool);
     assert!(plan_mode_tool_visible(&tool));
@@ -733,10 +657,7 @@ fn test_plan_mode_tool_not_visible_plan_approval() {
         name: "plan_approval".to_string(),
         group: "plan".to_string(),
         summary_text: "approve plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     };
     let tool: Arc<dyn Tool> = Arc::new(tool);
     assert!(!plan_mode_tool_visible(&tool));
@@ -751,10 +672,7 @@ async fn test_plan_mode_hides_plan_approval_tool() {
         name: "plan_approval".to_string(),
         group: "plan".to_string(),
         summary_text: "approve plan".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

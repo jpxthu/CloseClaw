@@ -145,10 +145,8 @@ async fn test_danger_marks_full_pipeline() {
         name: "EagerViewer".to_string(),
         group: "view".to_string(),
         summary_text: "view".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -157,9 +155,8 @@ async fn test_danger_marks_full_pipeline() {
         group: "erase".to_string(),
         summary_text: "erase".to_string(),
         is_deferred: true,
-        is_read_only: false,
         is_destructive: true,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -185,10 +182,9 @@ async fn test_danger_marks_with_expensive() {
         name: "ReadOnlyExpensive".to_string(),
         group: "g1".to_string(),
         summary_text: "roe".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -197,9 +193,9 @@ async fn test_danger_marks_with_expensive() {
         group: "g2".to_string(),
         summary_text: "de".to_string(),
         is_deferred: true,
-        is_read_only: false,
         is_destructive: true,
         is_expensive: true,
+        ..Default::default()
     })
     .await
     .unwrap();

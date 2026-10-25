@@ -7,6 +7,7 @@
 
 use crate::{PromptGenerationContext, Tool, ToolFlags};
 
+#[derive(Default)]
 pub(crate) struct DummyTool {
     pub(crate) name: String,
     pub(crate) group: String,
@@ -55,5 +56,27 @@ pub(crate) fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         session_mode: None,
         agent_role: None,
         agent_type: None,
+    }
+}
+
+#[cfg(test)]
+mod default_contract_tests {
+    //! Pins the `DummyTool::default()` contract that 90 struct-update call
+    //! sites rely on: `..Default::default()` must be equivalent to the
+    //! previously explicit `false` flags and empty `summary_text`. If a field
+    //! default ever drifts, those call sites would silently change semantics.
+
+    use super::*;
+
+    #[test]
+    fn test_dummy_tool_default_field_values() {
+        let tool = DummyTool::default();
+        assert!(tool.name.is_empty());
+        assert!(tool.group.is_empty());
+        assert!(tool.summary_text.is_empty());
+        assert!(!tool.is_deferred);
+        assert!(!tool.is_read_only);
+        assert!(!tool.is_destructive);
+        assert!(!tool.is_expensive);
     }
 }
