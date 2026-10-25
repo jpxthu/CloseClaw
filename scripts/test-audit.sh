@@ -701,7 +701,7 @@ collect_static_entries() {
 
   # ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
   if [[ -s "$MTARGETS_FILE" ]]; then
-    awk 'NR == FNR { excl[$0] = 1; next } $1 == "H" && !($2 in excl)' \
+    awk -F'\t' 'NR == FNR { excl[$0] = 1; next } $1 == "H" && !($2 in excl)' \
       "$MTARGETS_FILE" "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
   else
     awk -F'\t' '$1 == "H"' "$EVENTS_FILE" > "$FILTERED_EVENTS_FILE"
