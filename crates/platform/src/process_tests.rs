@@ -820,8 +820,9 @@ fn test_kill_self_sigterm_real_delivery() {
         output.status.signal(),
         Some(libc::SIGTERM),
         "kill_self(Sigterm) must terminate the un-subscribed process with \
-         real SIGTERM, got: {:?}",
-        output.status
+         real SIGTERM, got: {:?}, child stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
@@ -857,8 +858,9 @@ fn test_kill_self_sigint_real_delivery() {
         output.status.signal(),
         Some(libc::SIGINT),
         "kill_self(Sigint) must terminate the un-subscribed process with \
-         real SIGINT, got: {:?}",
-        output.status
+         real SIGINT, got: {:?}, child stderr: {}",
+        output.status,
+        String::from_utf8_lossy(&output.stderr)
     );
 }
 
