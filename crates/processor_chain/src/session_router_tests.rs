@@ -53,7 +53,7 @@ async fn test_terminal_session_key_computed() {
 
 /// Build a `MessageContext` for session_key checks. `msg.timestamp` is a
 /// fixed past value that must NOT influence the computed `session_key`.
-fn det_ctx(sender: &str) -> MessageContext {
+fn fixed_ts_ctx(sender: &str) -> MessageContext {
     let msg = NormalizedMessage {
         platform: "feishu".to_string(),
         sender_id: sender.to_string(),
@@ -91,16 +91,21 @@ async fn test_deterministic_key() {
     let ts: i64 = 1_700_000_000_123;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key2 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
-    let key3 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     assert!(!key1.is_empty(), "session_key must not be empty");
     assert_eq!(key1, key2, "same inputs must produce identical session_key");
-    assert_eq!(key2, key3, "same inputs must stay stable across calls");
-    let (ts1, hash1) = split_key(&key1);
+    let (ts1, _) = split_key(&key1);
     assert_eq!(ts1, ts, "key prefix must equal timestamp_ms: {key1}");
+}
 
+#[tokio::test]
+async fn test_timestamp_participation() {
     // Time participation: timestamp_ms changes prefix and hash (anti-collision).
+    let ts: i64 = 1_700_000_000_123;
+    let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key_later = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts + 1);
+    let (ts1, hash1) = split_key(&key1);
     let (ts_later, hash_later) = split_key(&key_later);
+    assert_eq!(ts1, ts, "prefix must track its timestamp_ms: {key1}");
     assert_eq!(
         ts_later,
         ts + 1,
@@ -110,21 +115,47 @@ async fn test_deterministic_key() {
         hash_later, hash1,
         "timestamp_ms must participate in hash input"
     );
+}
 
-    // Routing sensitivity: same timestamp, different sender -> different hash.
-    let key_other = SessionRouter::compute_key("ou_other", "oc_xyz", "feishu", None, ts);
-    let (_, hash_other) = split_key(&key_other);
-    assert_ne!(hash_other, hash1, "routing fields must participate in hash");
+#[tokio::test]
+async fn test_routing_sensitivity() {
+    // Routing sensitivity: any differing routing field -> different hash.
+    let ts: i64 = 1_700_000_000_123;
+    let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    let (_, hash) = split_key(&key);
 
+    let key_sender = SessionRouter::compute_key("ou_other", "oc_xyz", "feishu", None, ts);
+    let (_, hash_sender) = split_key(&key_sender);
+    assert_ne!(hash_sender, hash, "sender change must change the hash");
+
+    let key_peer = SessionRouter::compute_key("ou_abc", "oc_other", "feishu", None, ts);
+    let (_, hash_peer) = split_key(&key_peer);
+    assert_ne!(hash_peer, hash, "peer change must change the hash");
+
+    let key_channel = SessionRouter::compute_key("ou_abc", "oc_xyz", "discord", None, ts);
+    let (_, hash_channel) = split_key(&key_channel);
+    assert_ne!(hash_channel, hash, "channel change must change the hash");
+}
+
+#[tokio::test]
+async fn test_process_key_matches_formula() {
     // process() output satisfies the design formula end to end.
     let router = make_router();
-    let out = router.process(&det_ctx("ou_abc")).await.unwrap().unwrap();
+    let out = router
+        .process(&fixed_ts_ctx("ou_abc"))
+        .await
+        .unwrap()
+        .unwrap();
     let key = out
         .metadata
         .get("session_key")
         .expect("session_key must be set")
-        .to_string();
-    let (key_ts, _) = split_key(&key);
+        .as_str();
+    let (key_ts, _) = split_key(key);
+    assert_ne!(
+        key_ts, 1_577_836_800_000,
+        "msg.timestamp must not leak into session_key prefix: {key}"
+    );
     let expect = closeclaw_common::session_key::compute_session_key(
         "feishu", "ou_abc", "oc_xyz", None, key_ts,
     );
