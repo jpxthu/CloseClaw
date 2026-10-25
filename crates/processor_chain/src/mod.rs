@@ -40,6 +40,8 @@ pub mod registry;
 #[cfg(test)]
 mod registry_error_tolerance_tests;
 #[cfg(test)]
+mod registry_events_tests;
+#[cfg(test)]
 mod registry_fallback_tests;
 #[cfg(test)]
 mod registry_tests;
