@@ -342,6 +342,40 @@ async fn test_agent_workspace() {
 /// Marker content written to `{workspace}/bootstrap_marker.txt`.
 const WORKSPACE_MARKER: &str = "WORKSPACE_CWD_VERIFIED";
 
+/// Shared dual-subject allow-pair expansion for both permission-rule
+/// fixtures in this file: each `(action JSON, rule-name slug)` entry
+/// yields two allow rules — `agent_<slug>` (agent-only subject
+/// `{"agent": "master"}`) and `user_and_agent_<slug>` (match-mode
+/// `user_and_agent` subject with glob/exact fields) — each with
+/// `effect: allow`, `priority: 0` and the single action.
+fn dual_subject_allow_rules(actions: &[(serde_json::Value, &str)]) -> serde_json::Value {
+    let user_and_agent = serde_json::json!({
+        "match_mode": "user_and_agent",
+        "fields": {
+            "user_id": "*",
+            "agent": "master",
+            "user_match": "glob",
+            "agent_match": "exact",
+        },
+    });
+    let mut rules = Vec::new();
+    for (action, slug) in actions {
+        rules.push(serde_json::json!({
+            "name": format!("agent_{slug}"),
+            "subject": { "agent": "master" },
+            "effect": "allow", "priority": 0,
+            "actions": [action],
+        }));
+        rules.push(serde_json::json!({
+            "name": format!("user_and_agent_{slug}"),
+            "subject": user_and_agent.clone(),
+            "effect": "allow", "priority": 0,
+            "actions": [action],
+        }));
+    }
+    serde_json::json!({ "rules": rules })
+}
+
 /// Permission-rule JSON ([`RuleSet`] shape: `{"rules": [...]}`,
 /// `crates/permission/src/engine/engine_types.rs`) for
 /// [`test_agent_workspace`]: Agent-only + User∩Agent allow pair for each
@@ -384,43 +418,10 @@ fn workspace_permission_rules() -> serde_json::Value {
         "operation": "read",
         "paths": ["**/bootstrap_marker.txt"],
     });
-    let user_and_agent = serde_json::json!({
-        "match_mode": "user_and_agent",
-        "fields": {
-            "user_id": "*",
-            "agent": "master",
-            "user_match": "glob",
-            "agent_match": "exact",
-        },
-    });
-    serde_json::json!({
-        "rules": [
-            {
-                "name": "agent_allow_file_ops_read",
-                "subject": { "agent": "master" },
-                "effect": "allow", "priority": 0,
-                "actions": [tool_call_rule],
-            },
-            {
-                "name": "user_and_agent_allow_file_ops_read",
-                "subject": user_and_agent.clone(),
-                "effect": "allow", "priority": 0,
-                "actions": [tool_call_rule],
-            },
-            {
-                "name": "agent_allow_file_read_marker",
-                "subject": { "agent": "master" },
-                "effect": "allow", "priority": 0,
-                "actions": [file_read_rule],
-            },
-            {
-                "name": "user_and_agent_allow_file_read_marker",
-                "subject": user_and_agent,
-                "effect": "allow", "priority": 0,
-                "actions": [file_read_rule],
-            },
-        ],
-    })
+    dual_subject_allow_rules(&[
+        (tool_call_rule, "allow_file_ops_read"),
+        (file_read_rule, "allow_file_read_marker"),
+    ])
 }
 
 /// True when any frame carries the Read tool result containing
@@ -521,37 +522,12 @@ fn tool_allow_deny_permission_rules() -> serde_json::Value {
         "type": "command",
         "command": "echo",
     });
-    let user_and_agent = serde_json::json!({
-        "match_mode": "user_and_agent",
-        "fields": {
-            "user_id": "*",
-            "agent": "master",
-            "user_match": "glob",
-            "agent_match": "exact",
-        },
-    });
-    let actions = [
+    dual_subject_allow_rules(&[
         (tool_call_read, "allow_file_ops_read"),
         (file_read, "allow_file_read_tool_probe"),
         (tool_call_bash, "allow_bash_tool_call"),
         (command_echo, "allow_command_echo"),
-    ];
-    let mut rules = Vec::new();
-    for (action, slug) in actions {
-        rules.push(serde_json::json!({
-            "name": format!("agent_{slug}"),
-            "subject": { "agent": "master" },
-            "effect": "allow", "priority": 0,
-            "actions": [action.clone()],
-        }));
-        rules.push(serde_json::json!({
-            "name": format!("user_and_agent_{slug}"),
-            "subject": user_and_agent.clone(),
-            "effect": "allow", "priority": 0,
-            "actions": [action],
-        }));
-    }
-    serde_json::json!({ "rules": rules })
+    ])
 }
 
 /// True when any chat frame's `content` text carries `needle`.
