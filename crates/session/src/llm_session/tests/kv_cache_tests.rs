@@ -9,7 +9,7 @@
 
 use super::{capture_logs, make_usage, now_ms, user_msg, TTL_MS};
 use crate::llm_session::ConversationSession;
-use closeclaw_common::{CacheAnomalyInfo, InternalMessage, UnifiedUsage};
+use closeclaw_common::{InternalMessage, UnifiedUsage};
 use tempfile::TempDir;
 
 /// Design-fixed tolerance (llm-session-enhancements.md:75), non-configurable.
@@ -18,6 +18,16 @@ const TOLERANCE: u32 = 1024;
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/// Fresh `ConversationSession` under its own `TempDir` root; returns the
+/// root alongside the session so it outlives every use of the session
+/// (and drops after it).
+fn make_test_session(name: &str) -> (TempDir, ConversationSession) {
+    let test_root = TempDir::new().unwrap();
+    let session =
+        ConversationSession::new(name.into(), "glm-5".into(), test_root.path().to_path_buf());
+    (test_root, session)
+}
 
 /// Snapshot material for round `n`: a constant system prompt plus a
 /// tail-appending message list, mirroring consecutive production turns.
@@ -36,28 +46,23 @@ fn simulate_round(session: &mut ConversationSession, round: usize, usage: &Unifi
     session.accumulate_usage(usage, None);
 }
 
-/// Build the cache anomaly scenario (issue #3112 场景分层, fixed-1024
-/// semantics): a fresh `ConversationSession` under a `TempDir`, two stable
-/// rounds with a full cache hit matching the prompt tokens, then a round
-/// where the cache read drops to 0 — deviation 100 000 exceeds the fixed
-/// tolerance and triggers the check. The dropped round is accumulated
-/// afterwards, mirroring check → accumulate.
+/// Build the cache anomaly scenario fixture up to the anomaly round
+/// (fixed-1024 semantics): two stable rounds with a full cache hit
+/// matching the prompt tokens, then stage the anomaly round's prefix
+/// snapshot — a round where the cache read drops to 0, deviation
+/// 100 000 exceeds the fixed tolerance and triggers the check.
 ///
-/// Zero environment capture, so it is a plain fn rather than inlined in
-/// the `capture_logs` closure (issue #3112 建议目标).
+/// Emits nothing (round 1 is exempt, round 2's deviation is 0, staging
+/// never logs), so it runs outside the `capture_logs` scope; the
+/// anomaly round's check — the emission interval — is the caller's
+/// capture closure.
 ///
-/// Returns the anomaly round's detection result (`Some(CacheAnomalyInfo)`).
-fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
-    let test_root = TempDir::new().unwrap();
-    let mut session = ConversationSession::new(
-        "test-cache-anomaly".into(),
-        "glm-5".into(),
-        test_root.path().to_path_buf(),
-    );
-
+/// Returns the anomaly round's usage for the caller's check →
+/// accumulate flow.
+fn stage_anomaly_round(session: &mut ConversationSession) -> UnifiedUsage {
     // Round 1: first round — no reference value, exempt from checking.
     let stable = make_usage(100_000, 200, Some(100_200), Some(100_000), None);
-    simulate_round(&mut session, 1, &stable);
+    simulate_round(session, 1, &stable);
 
     // Round 2: stable full hit — deviation 0, within tolerance.
     let anomaly_free = {
@@ -71,14 +76,11 @@ fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
     session.accumulate_usage(&stable, None);
 
     // Round 3: cache drops to 0 (whole-round miss) — deviation 100 000
-    // exceeds the fixed 1024 tolerance.
+    // exceeds the fixed 1024 tolerance. Stage only; the check is the
+    // caller's emission interval.
     let dropped = make_usage(100_000, 200, Some(100_200), Some(0), None);
     session.stage_cache_prefix_snapshot(Some("system"), None, None, &round_messages(3));
-    let anomaly = session.check_cache_anomaly_and_advance(&dropped, None, now_ms(), TTL_MS);
-
-    // Accumulate the dropped round's usage
-    session.accumulate_usage(&dropped, None);
-    anomaly
+    dropped
 }
 
 // ---------------------------------------------------------------------------
@@ -101,12 +103,7 @@ fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
 #[tokio::test]
 async fn test_cache_hit_accumulation() {
     let n_rounds = 6;
-    let test_root = TempDir::new().unwrap();
-    let mut session = ConversationSession::new(
-        "test-cache-accum".into(),
-        "glm-5".into(),
-        test_root.path().to_path_buf(),
-    );
+    let (_test_root, mut session) = make_test_session("test-cache-accum");
 
     // Simulate N rounds of LLM usage accumulation.
     // In production, the session handler runs check → accumulate after
@@ -147,11 +144,26 @@ async fn test_cache_hit_accumulation() {
 ///
 /// Uses `#[serial]` plus the shared `capture_logs` helper (thread-local
 /// `set_default`) to capture log output on this thread. Pinning `WARN`
-/// makes the capture deterministic regardless of `RUST_LOG`.
+/// makes the capture deterministic regardless of `RUST_LOG`. The fixture
+/// (session + stable rounds + anomaly-round staging) runs outside the
+/// capture scope; the closure wraps only the emission interval — the
+/// anomaly round's check, whose deviation triggers `log_cache_anomaly`
+/// in `llm_stats.rs`.
 #[serial_test::serial]
 #[tokio::test]
 async fn test_cache_anomaly_detection() {
-    let (anomaly, log_output) = capture_logs(run_cache_anomaly_scenario, tracing::Level::WARN);
+    let (_test_root, mut session) = make_test_session("test-cache-anomaly");
+    let dropped = stage_anomaly_round(&mut session);
+
+    // Capture narrowed to the emission interval: the anomaly round's
+    // check (deviation 100 000 > 1024 beyond the fixed tolerance).
+    let (anomaly, log_output) = capture_logs(
+        || session.check_cache_anomaly_and_advance(&dropped, None, now_ms(), TTL_MS),
+        tracing::Level::WARN,
+    );
+
+    // Accumulate the dropped round's usage (check → accumulate).
+    session.accumulate_usage(&dropped, None);
 
     // Assert: detect returns Some with correct anomaly info
     let info = anomaly.expect("expected cache anomaly to be detected");
@@ -160,10 +172,12 @@ async fn test_cache_anomaly_detection() {
     assert_eq!(info.deviation_tokens, 100_000);
     assert_eq!(info.tolerance_tokens, TOLERANCE);
 
-    // Assert: tracing::warn! was emitted with cache anomaly details
+    // Assert: tracing::warn! was emitted with the cache anomaly details
     assert!(
-        log_output.contains("Cache anomaly"),
-        "expected warn log to contain 'Cache anomaly', got:\n{log_output}"
+        log_output.contains(
+            "Cache anomaly: cache hit deviates from previous prompt tokens beyond tolerance"
+        ),
+        "expected warn log to contain the cache anomaly message, got:\n{log_output}"
     );
     assert!(
         log_output.contains("deviation_tokens=100000"),
@@ -181,12 +195,7 @@ async fn test_cache_anomaly_detection() {
 /// Assert `cache_hit_rate()` = `total_cache_read_tokens / total_prompt_tokens`.
 #[tokio::test]
 async fn test_cache_hit_rate_calculation() {
-    let test_root = TempDir::new().unwrap();
-    let mut session = ConversationSession::new(
-        "test-cache-rate".into(),
-        "glm-5".into(),
-        test_root.path().to_path_buf(),
-    );
+    let (_test_root, mut session) = make_test_session("test-cache-rate");
 
     // 5 rounds: each with prompt=1000, cache_read=300
     // (deviation 700 within tolerance — no anomaly expected).
