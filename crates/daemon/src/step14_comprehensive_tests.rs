@@ -422,7 +422,7 @@ fn test_admin_context_no_gateway_field() {
 /// Executing transitions are driven by the daemon run loop + watchdog
 /// and are not exercised here.
 #[test]
-fn test_gateway_restart_full_lifecycle() {
+fn test_gateway_restart_state_machine_surface() {
     use crate::gateway_restart::{RestartHandle, RestartState};
 
     let handle = RestartHandle::new();

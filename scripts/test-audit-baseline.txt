@@ -3,9 +3,6 @@
 # 语义: 命中条目豁免；清单外新增违规 fail；已消除条目提示可收窄
 # 重写: bash scripts/test-audit.sh --update-baseline
 crates/cli/src/admin/run_tests.rs:28: 手动目录管理
-crates/daemon/src/test_helpers/mod.rs:122: 手动目录管理
-crates/daemon/src/test_helpers/mod.rs:265: 手动目录管理
-crates/daemon/src/test_helpers/mod.rs:79: 手动目录管理
 crates/gateway/src/agent_permissions_bridge.rs:139: 手动目录管理
 crates/gateway/src/session_manager/spawn_controller_permission_tests.rs:38: 手动目录管理
 crates/gateway/src/session_manager/spawn_controller_permission_tests.rs:66: 手动目录管理

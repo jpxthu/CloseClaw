@@ -16,7 +16,7 @@ use crate::chat_rpc::RpcTerminalPlugin;
 // ── Turn-completion consumer test harness ─────────────────────────────────
 
 /// Shared setup result for turn-completion consumer tests
-/// (`chat_rpc_tests` + `gateway_restart_tests`, Step 1.20 dedup): one
+/// (`chat_rpc_tests` + `gateway_restart_tests`): one
 /// waiting chat connection registered on a fresh plugin (conn 1 + agent
 /// route `"master"`) and the `SessionMessageHandler` output channel
 /// wired into the shared consumer

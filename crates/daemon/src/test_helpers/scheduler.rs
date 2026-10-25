@@ -210,8 +210,8 @@ pub fn seed_memory_section_cache_with_schedule(
 /// construction (`DreamingScheduler::new` → `subscribe_config_changes`),
 /// so the event is guaranteed buffered in the receiver — no settle sleep
 /// is needed. Consumers observe the effect deterministically via
-/// [`wait_until`] (plan Step 1.5: the previous fixed 50ms sleep was
-/// redundant and removed).
+/// [`wait_until`] (the previous fixed 50ms sleep was redundant and
+/// removed).
 pub fn notify_section_reload(config_manager: &ConfigManager, section: ConfigSection, path: &str) {
     config_manager.notify_change(closeclaw_config::ConfigChangeEvent::Reloaded {
         section,

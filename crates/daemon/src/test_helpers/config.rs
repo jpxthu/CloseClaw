@@ -52,7 +52,7 @@ pub fn load_config_manager(dir: &std::path::Path) -> ConfigManager {
 ///
 /// The config subdir lives under `root`, matching the production layout
 /// where agent directories resolve to `config_dir.parent()/agents`.
-/// The new + load sequence matches [`load_config_manager`]; the dir
+/// The new + load sequence delegates to [`load_config_manager`]; the dir
 /// creation and skeleton write make it usable directly on a fresh
 /// TempDir root. Mandatory files only — write extra files (e.g.
 /// `session.json`) before calling this helper if `load` must see them.
@@ -74,22 +74,20 @@ pub fn make_config_manager(root: &std::path::Path) -> Arc<ConfigManager> {
     let config_dir = root.join("config");
     std::fs::create_dir_all(&config_dir).expect("create config dir");
     write_mandatory_configs(&config_dir).expect("mandatory configs");
-    let cm = ConfigManager::new(config_dir).expect("ConfigManager::new");
-    cm.load().expect("ConfigManager::load");
-    Arc::new(cm)
+    Arc::new(load_config_manager(&config_dir))
 }
 
 /// Write the config skeleton into `dir`: the 5 mandatory files
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) plus the optional models.json.
 ///
-/// Delegates to the common single implementation (Step 1.20) — call
-/// sites in this crate keep using this name.
+/// Delegates to the common single implementation — call sites in this
+/// crate keep using this name.
 pub fn write_mandatory_configs(dir: &std::path::Path) -> io::Result<()> {
     closeclaw_common::test_helpers::write_mandatory_configs(dir)
 }
 
-/// Four-step LLM registry fixture (Step 1.22 dedup): mandatory config
+/// Four-step LLM registry fixture: mandatory config
 /// skeleton → models.json `providers` → convention-directory
 /// credentials → `ConfigManager::load`.
 ///
