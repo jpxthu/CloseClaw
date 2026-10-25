@@ -393,7 +393,7 @@ fn test_mem_audit_logger_query_sorts_mixed_timezone_forms_by_instant() {
         vec![
             "a-z00-03z",    // 03:00Z（原文 03:00+00:00）
             "a-plus8-02z",  // 02:00Z（10:00+08:00）
-            "a-z-01z",      // 01:00Z（原文即 Z 形态）
+            "a-z-01z",      // 01:00Z（原文 01:00:00Z）
             "a-plus8-00z",  // 00:00Z（08:00+08:00）
             "a-z-prev-day", // 前一日 23:00Z
         ],
