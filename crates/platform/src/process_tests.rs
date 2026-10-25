@@ -3,7 +3,6 @@ use crate::process::{
     send_signal, spawn_daemon, stop_daemon, subscribe_shutdown_signals, wait_for_exit,
     write_pid_file, SpawnOptions, StopOutcome,
 };
-#[cfg(unix)]
 use std::os::unix::process::ExitStatusExt;
 use tempfile::TempDir;
 use tokio::signal::unix::SignalKind;
@@ -115,7 +114,6 @@ fn test_check_stale_pid_enoent_on_remove_tolerated() {
 ///
 /// We test this by using a path where the parent directory is read-only,
 /// causing remove_file to fail with a non-ENOENT error (EACCES).
-#[cfg(unix)]
 #[test]
 fn test_check_stale_pid_non_enoent_error_propagates() {
     use std::os::unix::fs::PermissionsExt;
@@ -261,7 +259,6 @@ fn spawn_sleep_child() -> std::process::Child {
 /// spawns sleep, records its PID in the pidfile, then exits without
 /// waiting, so the sleep process is reparented to init. When killed,
 /// init reaps it — no zombie. Returns the PID of the actual sleep process.
-#[cfg(unix)]
 fn spawn_detached_sleep_pid() -> u32 {
     let pid_file = tempfile::NamedTempFile::new().expect("tempfile");
     let pid_path = pid_file.path().to_path_buf();
@@ -298,7 +295,6 @@ fn spawn_detached_sleep_pid() -> u32 {
 /// Subprocess child: spawns sleep, writes its PID to the pidfile given
 /// via `DETACHED_SLEEP_PIDFILE`, then exits without waiting so the sleep
 /// process is reparented to init (detach semantics — init reaps it).
-#[cfg(unix)]
 #[test]
 fn test_spawn_detached_sleep_pid_child() {
     let pid_path = match std::env::var("DETACHED_SLEEP_PIDFILE") {
@@ -314,8 +310,6 @@ fn test_spawn_detached_sleep_pid_child() {
     // process exits, the sleep process is reparented to init.
     drop(child);
 }
-
-#[cfg(unix)]
 #[test]
 fn test_send_signal_sigterm() {
     let mut child = spawn_sleep_child();
@@ -331,8 +325,6 @@ fn test_send_signal_sigterm() {
         "child should be killed by SIGTERM: {status}"
     );
 }
-
-#[cfg(unix)]
 #[test]
 fn test_send_signal_sigint() {
     let mut child = spawn_sleep_child();
@@ -502,7 +494,6 @@ fn test_wait_for_exit_nonexistent_pid() {
 // ── stop_daemon tests ──────────────────────────────────────────────
 
 /// Normal path: alive process is stopped and PID file is cleaned up.
-#[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal() {
     let tmp = TempDir::new().unwrap();
@@ -519,7 +510,6 @@ fn test_stop_daemon_normal() {
 ///
 /// The process is stopped (SIGSTOP) so it cannot respond to SIGTERM.
 /// is_process_alive still reports it as alive, so the timeout fires.
-#[cfg(unix)]
 #[test]
 fn test_stop_daemon_timeout() {
     let tmp = TempDir::new().unwrap();
@@ -806,7 +796,6 @@ async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
 /// Parent: spawns the child subprocess and asserts it died from SIGTERM —
 /// `kill_self(TestSelfSignal::Sigterm)` must deliver the real SIGTERM to
 /// the process itself, not merely claim success.
-#[cfg(unix)]
 #[test]
 fn test_kill_self_sigterm_real_delivery() {
     let test_binary = std::env::current_exe().expect("current exe");
@@ -844,7 +833,6 @@ fn test_kill_self_sigterm_real_delivery_child() {
 /// Parent: spawns the child subprocess and asserts it died from SIGINT —
 /// `kill_self(TestSelfSignal::Sigint)` must deliver the real SIGINT to
 /// the process itself, not merely claim success.
-#[cfg(unix)]
 #[test]
 fn test_kill_self_sigint_real_delivery() {
     let test_binary = std::env::current_exe().expect("current exe");
@@ -906,7 +894,6 @@ fn test_stop_daemon_exit_race() {
 
 /// Normal stop path regression: polling-based wait_for_exit works.
 /// An alive child is signaled, wait returns Ok, PID file is cleaned.
-#[cfg(unix)]
 #[test]
 fn test_stop_daemon_normal_polling_wait() {
     let tmp = TempDir::new().unwrap();
