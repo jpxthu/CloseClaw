@@ -77,8 +77,8 @@ fn session_with_provider(listing: &str) -> ConversationSession {
 ///   a tracing::info! with event="skill_listing_injection"
 /// - The event contains entry_count and first_entry fields
 #[serial_test::serial]
-#[tokio::test]
-async fn test_skill_listing_injection_emits_event() {
+#[test]
+fn test_skill_listing_injection_emits_event() {
     let session = session_with_provider("- **skill-a**: desc-a\n- **skill-b**: desc-b");
 
     // `build_llm_messages_with_listing` is a private method on
@@ -106,8 +106,8 @@ async fn test_skill_listing_injection_emits_event() {
 
 /// Empty skill listing does NOT emit the `skill_listing_injection` event.
 #[serial_test::serial]
-#[tokio::test]
-async fn test_empty_listing_no_event() {
+#[test]
+fn test_empty_listing_no_event() {
     let session = session_with_provider("");
 
     let listing = Some(String::new());
@@ -124,8 +124,8 @@ async fn test_empty_listing_no_event() {
 
 /// None skill listing does NOT emit the `skill_listing_injection` event.
 #[serial_test::serial]
-#[tokio::test]
-async fn test_none_listing_no_event() {
+#[test]
+fn test_none_listing_no_event() {
     let session = session_with_provider("some listing content");
 
     let (_messages, output) = capture_logs(
@@ -141,8 +141,8 @@ async fn test_none_listing_no_event() {
 
 /// Single-entry listing emits event with entry_count=1.
 #[serial_test::serial]
-#[tokio::test]
-async fn test_single_entry_listing_event_fields() {
+#[test]
+fn test_single_entry_listing_event_fields() {
     let session = session_with_provider("- **solo-skill**: only one");
 
     let listing = Some("- **solo-skill**: only one".to_string());
@@ -168,8 +168,8 @@ async fn test_single_entry_listing_event_fields() {
 
 /// Listing with blank lines: only non-empty lines counted.
 #[serial_test::serial]
-#[tokio::test]
-async fn test_listing_with_blank_lines_count() {
+#[test]
+fn test_listing_with_blank_lines_count() {
     let session = session_with_provider("a\n\nb");
 
     let listing = Some("a\n\nb".to_string());

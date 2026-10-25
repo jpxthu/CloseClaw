@@ -150,8 +150,8 @@ async fn test_cache_hit_accumulation() {
 /// anomaly round's check, whose deviation triggers `log_cache_anomaly`
 /// in `llm_stats.rs`.
 #[serial_test::serial]
-#[tokio::test]
-async fn test_cache_anomaly_detection() {
+#[test]
+fn test_cache_anomaly_detection() {
     let (_test_root, mut session) = make_test_session("test-cache-anomaly");
     let dropped = stage_anomaly_round(&mut session);
 
