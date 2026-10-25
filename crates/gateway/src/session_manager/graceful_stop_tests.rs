@@ -262,14 +262,14 @@ async fn escalate_after(mock: Arc<MockEscalationSignal>, delay: std::time::Durat
 /// force-stopped successfully, and no session hit the drain-backstop
 /// timeout (escalation must interrupt before the graceful wait's
 /// timeout backstop fires).
-fn assert_force_stopped(r: &super::stop::StopResult) {
-    assert!(r.total() >= 1);
+fn assert_force_stopped(result: &super::stop::StopResult) {
+    assert!(result.total() >= 1);
     assert!(
-        r.succeeded >= 1,
+        result.succeeded >= 1,
         "escalation should force-stop the session successfully"
     );
     assert_eq!(
-        r.timed_out, 0,
+        result.timed_out, 0,
         "escalation must interrupt before the drain backstop"
     );
 }
