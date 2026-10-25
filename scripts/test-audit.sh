@@ -6,15 +6,24 @@
 #
 # 静态扫描范围：独立测试文件全文件（*_tests.rs / tests.rs / tests 目录），
 # 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
-# test-only 文件（目标文件名含 test_helpers / test_support 的 helper 本体除外）
+# test-only 文件。helper 收敛点本体（平铺 helper 文件 + 目录化 helper 子模块）
+# 经三通道一致的豁免判据排除：文件名含 test_helpers / test_support 词干，
+# 或路径含 test_helpers / test_support 路径段（含相对 scan_root 的首段）；
+# basename 以 _tests.rs 结尾的真实测试文件永不豁免（豁免语义 = helper 本体
+# 不扫，非 helper 的测试不扫，见 is_helper_exempt）
 #
 # 扩围通道已知局限（best-effort 行级解析，不追全量 Rust 语法）：
 #   - cfg 属性跨行书写不识别（如 `#[cfg(all(
 #     test, ...))]` 拆行形态）
 #   - `#[path]` 属性位于 cfg(test) 之前的逆序形态不识别
 #   - 声明与 `{` 跨行分离（如 `mod tests` 换行 `{`）不进区域
-#   - raw string（r#"..."#）与块注释 /* */ 不剥离，其中花括号仍可能扰动区域
-#     边界（普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义）
+#   - 块注释 /* */ 不剥离，其中花括号仍可能扰动区域边界
+#   - 字节 raw string（br#"…"#）不识别为 raw string 起点（退化为普通字符串
+#     行级剥离，跨行仍可能扰动边界）
+# （普通字符串字面量在深度计数前剥离，含 \" 与 \\ 转义；raw string
+# r#"…"#（r 前缀 + 任意井号数）已跨行剥离，花括号不扰动区域边界；
+# // 行注释剥离为字符串感知——仅字符串外识别为注释，raw string /
+# 普通字符串体内 //（如 URL https://）不截断行内容与闭合定界符）
 #
 # --runtime          用 strace 包住 cargo nextest run --lib，抓运行时文件写入和网络 syscall
 # --target PAT       只扫描文件路径中包含 PAT 的 .rs 文件（静态）
@@ -23,11 +32,10 @@
 #                    （scripts/test-audit-baseline.txt）；运行时违规不入 baseline；
 #                    与 --target、--runtime 互斥（baseline 必须来自全量扫描，
 #                    且不得吞掉 runtime 违规报告）
-# --self-test        扫描器自测：对 mktemp 内嵌最小 fixture 树运行与正常模式
-#                    完全相同的扫描实现，断言命中/不命中规格矩阵（内联区域
-#                    命中 / 生产区不命中 / not(test) 不命中 / helper 命名排除 /
-#                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离 /
-#                    原谓词文件无双计）；离线、不读仓库与 baseline；
+# --self-test        扫描器自测：转调 scripts/test-audit-self-test.sh——
+#                    fixture 构建/断言/规格矩阵在该脚本，其以库模式 source
+#                    本脚本复用同一扫描实现，对 mktemp 内嵌最小 fixture 树
+#                    断言命中/不命中规格矩阵；离线、不读仓库与 baseline；
 #                    与 --runtime/--target/--update-baseline 互斥
 
 set -euo pipefail
@@ -75,7 +83,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --runtime           用 strace 包住 cargo nextest run --lib，抓运行时违规"
       echo "  --target PAT        过滤扫描/测试范围"
       echo "  --update-baseline   以当前静态扫描结果全量重写 baseline 文件（与 --target、--runtime 互斥）"
-      echo "  --self-test         内嵌最小 fixture 自测扫描器，断言命中/不命中规格矩阵（离线）"
+      echo "  --self-test         扫描器自测：转调 test-audit-self-test.sh（库模式复用同一扫描实现），断言命中/不命中规格矩阵（离线）"
       exit 0
       ;;
     *)
@@ -241,10 +249,11 @@ if [[ "$TEMP_ROOT" != /tmp* ]]; then
 fi
 
 # ── 静态扫描执行 ──────────────────────────────────────────
-# 扫描实现整体函数化（collect_static_entries <扫描根目录>，结果写入全局
-# ENTRIES）：正常模式对 $PROJECT_ROOT 调用；--self-test 对 mktemp 内嵌
-# fixture 树调用同一实现，保证「测的就是真实扫描逻辑」（函数定义在
-# REGION_SCANNER_AWK 之后，调用点在 run_self_test / 正常模式处）
+# 扫描实现整体函数化（collect_static_entries <扫描根目录> 编排，结果写入全局
+# ENTRIES，内部按「原通道静态扫描 / 补集通道区域扫描 / 挂载目标解析」三段
+# 边界抽独立函数）：正常模式对 $PROJECT_ROOT 调用；--self-test（转调
+# scripts/test-audit-self-test.sh）对 mktemp 内嵌 fixture 树调用同一实现，
+# 保证「测的就是真实扫描逻辑」（函数定义在 REGION_SCANNER_AWK 之后）
 
 # ══════════════════════════════════════════════════════════
 # 扩围通道：cfg(test) 门控区域（内联）+ cfg(test) 挂载 test-only 文件
@@ -254,17 +263,23 @@ fi
 #      any(test,...) 复合形态；排除 not(test) 与 feature = "test-*" 命名误配）
 #      内的规则命中
 #   B. #[cfg(test)] [#[path = "..."]] mod NAME; 挂载、命名特殊的 test-only 文件
-# 双计防护：两通道仅处理「原 find 谓词不匹配的 .rs 文件」（与原通道互补）；
-# 挂载目标再从内联通道剔除（挂载文件走全文件扫）。helper 收敛点本体不命中：
-# 内联通道下 helper 函数体位于 cfg(test) 区域外天然不命中；挂载通道下目标文件
-# 名含 test_helpers / test_support 的文件不纳入。
+# 双计防护：两通道仅处理「原 find 谓词不匹配且非 helper 豁免的 .rs 文件」
+# （与原通道互补，豁免口径一致）；挂载目标再从内联通道剔除（挂载文件走全
+# 文件扫）。helper 收敛点本体不进扫描视野：原通道文件收集、补集通道文件
+# 收集、挂载目标解析三处统一引用 is_helper_exempt（basename ∪ 路径段并集
+# − *_tests.rs 真实测试文件，见函数注释），「helper 本体（平铺 + 目录化
+# 子模块，含文件内内联 cfg(test) 区域）不扫」为机制保证，非「helper 文件
+# 恰好无 cfg(test) 区域」的侥幸等价。
 
 # ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
 # 输出事件（TSV）：
 #   H\t相对路径\t行号\t行内容 = cfg(test) 门控区域内的行（花括号深度定位边界，
-#                             深度计数前剥离 // 行注释与普通字符串字面量
-#                             （best-effort，含 \" \\ 转义；raw string / 块注释
-#                             为已知局限，见脚本头注释）；逐文件复位状态，可分批）
+#                             深度计数前经字符串感知状态机剥离 // 行注释
+#                             （仅字符串外识别，字符串体内 // 不视为注释）、
+#                             普通字符串字面量（best-effort，含 \" \\ 转义）
+#                             与 raw string（r#"…"# 含任意井号数，跨行状态机；
+#                             块注释为已知局限，见脚本头注释）；逐文件复位
+#                             状态，可分批）
 #   M\t相对路径\tpath属性\tmod名 = cfg(test) 门控的 mod 挂载声明（path 属性可空）
 REGION_SCANNER_AWK="$(cat <<'AWK_PROGRAM'
 function trim_ws(x) {
@@ -285,17 +300,60 @@ function pred_has_test(s) {
   if (s ~ /not[[:space:]]*\([[:space:]]*(all|any)?[[:space:]]*\(?[[:space:]]*test/) return 0
   return s ~ /(^|[^a-zA-Z0-9_-])test([^a-zA-Z0-9_-]|$)/
 }
-# 尽力而为的字符串字面量剥离（供深度计数与 `{` 存在性判断使用）：
-# 含 \" 与 \\ 转义；行内未闭合视为延伸到行尾；消费段以空格占位避免词元粘连；
-# raw string / 块注释为已知局限（见脚本头注释），不在本函数处理范围
-function strip_strings(x,   out, i, n, ch) {
+# 字符串感知的行注释剥离 + 字面量剥离（单次状态机扫描，双输出）：
+# 返回值 = code（字符串与注释均以空格占位，供深度计数与 `{` 存在性判断）；
+# 全局 code_plain = 仅注释剥离、字符串原样保留（供声明解析 s 使用——#[path]
+# 值解析依赖引号原样，见主循环）。// 行注释仅在字符串外识别（两输出同截断）：
+# raw string 体内 //（如 URL https://）与普通字符串体内 // 均不截断行内容
+# 与闭合定界符（修复：注释剥离并入字符串状态机，不再先于其无条件执行）。
+# 普通字符串含 \" 与 \\ 转义，行内未闭合视为延伸到行尾；raw string（`r` 前缀
+# + ≥0 个 #，如 r"…" / r#"…"# / r##"…"##）经 rs_open/rs_hash 全局状态跨行
+# 剥离：开启后本行及后续行至匹配井号数的闭合定界符前的所有字符（含 // 与
+# 花括号）不进入 code 输出、不参与深度计数（状态逐文件复位）；消费段以空格
+# 占位避免词元粘连；块注释 /* */ 为已知局限（见脚本头注释），不在本函数
+# 处理范围
+function strip_strings(x,   out, plain, i, n, ch, j, m, ok) {
   out = ""
+  plain = ""
   i = 1
   n = length(x)
   while (i <= n) {
+    if (rs_open) {
+      # raw string 内：仅识别闭合 `"#…#`（井号数 = 开启时 rs_hash），
+      # 体内 // 与花括号均为内容（code 占位、plain 原样保留）
+      j = i
+      while (j <= n && substr(x, j, 1) != "\"") j++
+      if (j > n) {
+        out = out " "
+        plain = plain substr(x, i)
+        i = n + 1
+        continue
+      }
+      ok = 1
+      m = 0
+      while (m < rs_hash) {
+        if (substr(x, j + 1 + m, 1) != "#") {
+          ok = 0
+          break
+        }
+        m++
+      }
+      if (ok) {
+        out = out " "
+        plain = plain substr(x, i, j + rs_hash - i + 1)
+        i = j + 1 + rs_hash
+        rs_open = 0
+      } else {
+        plain = plain substr(x, i, j - i + 1)
+        i = j + 1
+      }
+      continue
+    }
     ch = substr(x, i, 1)
     if (ch == "\"") {
+      # 普通字符串：code 占位、plain 原样（体内 // 不识别为注释）
       out = out " "
+      j = i
       i++
       while (i <= n) {
         ch = substr(x, i, 1)
@@ -308,11 +366,34 @@ function strip_strings(x,   out, i, n, ch) {
           break
         }
       }
+      plain = plain substr(x, j, i - j)
+    } else if (ch == "/" && substr(x, i + 1, 1) == "/") {
+      # 字符串外行注释：两输出同截断至行尾
+      out = out " "
+      plain = plain " "
+      i = n + 1
+    } else if (ch == "r" && (i == 1 || substr(x, i - 1, 1) !~ /[A-Za-z0-9_]/)) {
+      # raw string 起始：r + ≥0 个 # + "（r#type 等 raw 标识符无引号，不误配）
+      j = i + 1
+      while (substr(x, j, 1) == "#") j++
+      if (substr(x, j, 1) == "\"") {
+        rs_open = 1
+        rs_hash = j - i - 1
+        out = out " "
+        plain = plain substr(x, i, j - i + 1)
+        i = j + 1
+      } else {
+        out = out ch
+        plain = plain ch
+        i++
+      }
     } else {
       out = out ch
+      plain = plain ch
       i++
     }
   }
+  code_plain = plain
   return out
 }
 BEGIN {
@@ -321,26 +402,31 @@ BEGIN {
   nb = 0
   pending = 0
   mount_path = ""
+  rs_open = 0
+  rs_hash = 0
 }
 FNR == 1 {
   depth = 0
   nb = 0
   pending = 0
   mount_path = ""
+  rs_open = 0
+  rs_hash = 0
   rel = substr(FILENAME, root_len + 2)
 }
 {
   raw = $0
-  sub(/\/\/.*/, "", raw)
-  s = trim_ws(raw)
+  # 注释剥离并入 strip_strings 状态机（字符串感知，见函数注释）：返回值供
+  # 深度计数、code_plain 供声明解析；须先于 s 计算执行
+  brace_code = strip_strings(raw)
+  s = trim_ws(code_plain)
 
   in_region = (nb > 0 && depth > bases[nb]) ? 1 : 0
 
-  brace_code = strip_strings(raw)
   has_ob = (brace_code ~ /{/) ? 1 : 0
 
   if (pending) {
-    # 行注释已在上方剥离，此处 s 不可能以 // 开头（原死条件已删）
+    # 行注释已在字符串感知剥离中截断，此处 s 不可能以 // 开头（原死条件已删）
     if (s != "") {
       pending = 0
       if (s ~ /^#\[/) {
@@ -403,32 +489,73 @@ FNR == 1 {
 AWK_PROGRAM
 )"
 
-collect_static_entries() {
-  local scan_root="$1"
-  ENTRIES=()
+# ── helper 豁免判据（一处定义，三通道引用）────────────────
+# basename ∪ 路径段并集 − 真实测试文件（入参为相对 scan_root 的路径）：
+#   - 短路排除：basename 以 _tests.rs 结尾 → 永不豁免（无论词干/路径段命中）
+#     ——豁免语义 = helper 本体不扫，非「helper 的测试不扫」；词干/路径段
+#     命中形态的真实测试文件（如 crates/daemon/src/test_helpers_tests.rs、
+#     crates/test_support/src/log_capture_tests.rs）恢复扫描视野
+#   - 文件名含 test_helpers / test_support 词干 → 平铺 helper 本体
+#     （如 crates/common/src/test_helpers.rs，路径无段且为 cfg(test) 挂载目标）
+#   - 路径含 test_helpers / test_support 路径段（任意位置，含相对 scan_root
+#     首段）→ 目录化 helper 子模块（如 crates/daemon/src/test_helpers/*.rs）
+#     与 test_support 整目录；首段形态经挂载通道 #[path] 相对上跳可达
+#     （如 #[path = "../../../test_helpers/x.rs"] → <scan_root>/test_helpers/x.rs）
+# 原通道文件收集、补集通道文件收集、挂载目标解析三处统一引用，
+# 使「helper 收敛点本体不进扫描视野」成为机制保证而非侥幸等价
+is_helper_exempt() {
+  local rel="$1" base
+  base="${rel##*/}"
+  # 真实测试文件（*_tests.rs 后缀）永不豁免：优先于词干/路径段命中判定
+  case "$base" in
+    *_tests.rs) return 1 ;;
+  esac
+  case "$base" in
+    *test_helpers* | *test_support*) return 0 ;;
+  esac
+  case "$rel" in
+    test_helpers/* | test_support/* | */test_helpers/* | */test_support/*) return 0 ;;
+  esac
+  return 1
+}
 
-  # ── 扫描目录集合 ────────────────────────────────────────
-  # 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
-  # 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描（见下）
-  local scan_dirs=("$scan_root/src" "$scan_root/tests")
-  local sdir
-  for sdir in "$scan_root"/crates/*/src; do
-    if [[ -d "$sdir" ]]; then
-      scan_dirs+=("$sdir")
+# ── 通道文件清单 helper 豁免过滤（原通道/补集通道共用样板）──
+# 原地过滤调用方数组（$1 = 数组名，nameref 回填；$2 = scan_root）：
+# 剔除 is_helper_exempt 命中文件（路径转相对 scan_root 后判定），保留其余原次序
+filter_helper_exempt() {
+  local -n files_ref="$1"
+  local scan_root="$2"
+  local -a kept=()
+  local file
+  for file in "${files_ref[@]}"; do
+    if is_helper_exempt "${file#"$scan_root"/}"; then
+      continue
     fi
+    kept+=("$file")
   done
+  files_ref=("${kept[@]}")
+}
 
-  # ── 原通道：独立测试文件全文件扫 ────────────────────────
-  # 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
+# ── 原通道：独立测试文件全文件扫 ──────────────────────────
+# $1 = scan_root，$2… = 扫描目录集合；构建 find 命令参数（仅依赖 TARGET_FILTER，
+# 循环不变量，构建一次）；文件清单只执行一次 find（规则循环不变量），逐规则
+# 复用；helper 豁免在本通道同样生效（三通道同一判据，见 is_helper_exempt；
+# *_tests.rs 真实测试文件不豁免——词干/路径段命中形态亦入本通道扫描）。
+# 命中追加写入全局 ENTRIES
+collect_original_channel_entries() {
+  local scan_root="$1"
+  shift
+  local scan_dirs=("$@")
+
   local find_args=("${scan_dirs[@]}" -type f \(
     -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     find_args+=(-path "*${TARGET_FILTER}*")
   fi
 
-  # 文件清单只执行一次 find（规则循环不变量），逐规则复用
   local rs_files=()
   mapfile -t rs_files < <(find "${find_args[@]}" 2>/dev/null)
+  filter_helper_exempt rs_files "$scan_root"
 
   local i label pattern mode file rel_path match line
   for i in "${!LABELS[@]}"; do
@@ -445,30 +572,43 @@ collect_static_entries() {
       done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
     done
   done
+}
 
-  # ── 扩围文件集合：原 find 谓词的精确补集 ────────────────
+# ── 补集通道：扩围文件集合区域扫描 ────────────────────────
+# 原通道 find 谓词的精确补集文件集 → helper 豁免过滤 → 单次 REGION_SCANNER_AWK
+# 扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；find
+# 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）。
+# 事件 TSV 写入全局 EVENTS_FILE（临时文件生命周期由编排函数管理）
+scan_expansion_region_events() {
+  local scan_root="$1"
+  shift
+  local scan_dirs=("$@")
+
   local all_find_args=("${scan_dirs[@]}" -type f -name '*.rs' \
     ! \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     all_find_args+=(-path "*${TARGET_FILTER}*")
   fi
 
-  EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
-  MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
-  FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
-
-  # 单次扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；
-  # find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）
   local expansion_files=()
   mapfile -t expansion_files < <(find "${all_find_args[@]}" 2>/dev/null)
+  # helper 豁免（路径段级）：目录化 helper 子模块与 helper 本体不经内联/
+  # 挂载通道进扫描视野——否则「helper 不扫」仍依赖其恰好无 cfg(test) 区域
+  filter_helper_exempt expansion_files "$scan_root"
   if [[ ${#expansion_files[@]} -gt 0 ]]; then
     printf '%s\n' "${expansion_files[@]}" \
       | xargs -r -d '\n' awk -v root="$scan_root" "$REGION_SCANNER_AWK" > "$EVENTS_FILE"
   else
     : > "$EVENTS_FILE"
   fi
+}
 
-  # ── 挂载目标解析与过滤 ──────────────────────────────────
+# ── 挂载目标解析与过滤 ────────────────────────────────────
+# 读取全局 EVENTS_FILE 的 M 事件（cfg(test) 挂载声明），按 Rust 2018 mod 解析
+# 规则定位目标文件；双计防护、helper 豁免、--target 过滤与异常自指防护后去重
+# 写入全局 MTARGETS_FILE（C locale 排序保证确定性）。$1 = scan_root
+resolve_mount_targets() {
+  local scan_root="$1"
   local -A mount_target_seen=()
   local mline drel rest dattr dname ddir target declarer stem cand rel_target base
   local -a mount_candidates=()
@@ -510,8 +650,10 @@ collect_static_entries() {
     base="$(basename "$rel_target")"
     if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
     if [[ "$rel_target" == */tests/* ]]; then continue; fi
-    # helper 收敛点本体不纳入
-    if [[ "$base" == *test_helpers* || "$base" == *test_support* ]]; then continue; fi
+    # helper 收敛点本体不纳入（basename ∪ 路径段并集 − 真实测试文件，判据见
+    # is_helper_exempt；*_tests.rs 目标已在上方双计防护步剔除，$rel_target 含
+    # 目录段，目录化 helper 本体在此按路径段豁免）
+    if is_helper_exempt "$rel_target"; then continue; fi
     # --target 过滤语义与主通道一致
     if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi
     # 异常自指防护
@@ -524,6 +666,38 @@ collect_static_entries() {
   if [[ -s "$MTARGETS_FILE" ]]; then
     LC_ALL=C sort -o "$MTARGETS_FILE" "$MTARGETS_FILE"
   fi
+}
+
+# ── 静态扫描编排（三段边界抽独立函数，本函数仅目录集构建 / 临时文件生命周期 /
+# 条目汇集，行为与拆分前一致）──────────────────────────────
+collect_static_entries() {
+  local scan_root="$1"
+  ENTRIES=()
+
+  # ── 扫描目录集合 ────────────────────────────────────────
+  # 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
+  # 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描
+  # （见 scan_expansion_region_events）
+  local scan_dirs=("$scan_root/src" "$scan_root/tests")
+  local sdir
+  for sdir in "$scan_root"/crates/*/src; do
+    if [[ -d "$sdir" ]]; then
+      scan_dirs+=("$sdir")
+    fi
+  done
+
+  # ── 原通道：独立测试文件全文件扫 ──
+  collect_original_channel_entries "$scan_root" "${scan_dirs[@]}"
+
+  EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
+  MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
+  FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
+
+  # ── 补集通道：内联区域 + 挂载声明事件扫描 ──
+  scan_expansion_region_events "$scan_root" "${scan_dirs[@]}"
+
+  # ── 挂载目标解析 ──
+  resolve_mount_targets "$scan_root"
 
   # ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
   if [[ -s "$MTARGETS_FILE" ]]; then
@@ -534,6 +708,7 @@ collect_static_entries() {
   fi
 
   # ── 扩围通道条目收集（复用同一规则数组，含 TEMP_ROOT 补充规则）──
+  local i label pattern mode entry mfile match line
   for i in "${!LABELS[@]}"; do
     label="${LABELS[$i]}"
     pattern="${PATTERNS[$i]}"
@@ -570,25 +745,10 @@ collect_static_entries() {
   FILTERED_EVENTS_FILE=""
 }
 
-# ══════════════════════════════════════════════════════════
-# --self-test：内嵌最小 fixture 自测（mktemp 骨架，离线，不读仓库与 baseline）
-# ══════════════════════════════════════════════════════════
-# 对 fixture 树调用与正常模式完全相同的 collect_static_entries 实现，
-# 断言命中/不命中规格矩阵（每条断言独立报告，任一失败 → 整体 exit 1）：
-#   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
-#   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
-#   3. #[cfg(not(test))] 区域不命中
-#   4. 挂载目标 helper 命名（*test_helpers*）排除
-#   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态 +
-#      单行多属性 + #[path] 组合形态
-#   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
-#      （区域闭合后的生产代码不因字面量失衡误命中）
-#   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
-#   8. 全量命中集与期望精确一致（无任何额外命中）
-ST_FAILS=0
-
-# 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
-# `路径:行号: 规则` → `路径: 规则`；无行号段形态原样透传
+# ── 比对键去行号归一化（baseline 三态比对 / self-test 断言两处共用）──
+# 与 test-naming-guard 同一归一化：`路径:行号: 规则` → `路径: 规则`；
+# 无行号段形态原样透传。定义位于库段（lib 模式 return 之前），self-test
+# 脚本（scripts/test-audit-self-test.sh）source 本脚本后直接复用
 strip_key() {
   local entry="$1"
   if [[ "$entry" =~ ^(.+):[0-9]+:\ (.+)$ ]]; then
@@ -598,215 +758,25 @@ strip_key() {
   fi
 }
 
-st_line_of() {
-  # fixture 内 sentinel 所在行号（1 起）；sentinel 必须唯一存在（fixture 可控）
-  grep -m1 -n "$1" "$2" | cut -d: -f1
-}
+# ── 库模式出口 ────────────────────────────────────────────
+# scripts/test-audit-self-test.sh 以 TEST_AUDIT_LIB_MODE=1 source 本脚本，
+# 复用同一扫描实现（REGION_SCANNER_AWK / is_helper_exempt /
+# collect_static_entries / strip_key 等），仅定义不执行；此出口必须位于
+# 全部定义与常量组装（含 TEMP_ROOT 补充规则）之后、执行段之前
+if [[ "${TEST_AUDIT_LIB_MODE:-0}" == "1" ]]; then
+  return 0
+fi
 
-st_assert_eq() {
-  local desc="$1" expected="$2" actual="$3"
-  if [[ "$expected" == "$actual" ]]; then
-    echo "[self-test] ok: $desc"
-  else
-    echo "[self-test] FAIL: $desc" >&2
-    echo "[self-test]   期望: [$expected]" >&2
-    echo "[self-test]   实际: [$actual]" >&2
-    ST_FAILS=$((ST_FAILS + 1))
-  fi
-}
-
-st_count_entry() {
-  # 统计 ENTRIES 中与 $1 完全相等的条目数
-  local want="$1" n=0 entry
-  for entry in "${ENTRIES[@]}"; do
-    if [[ "$entry" == "$want" ]]; then
-      n=$((n + 1))
-    fi
-  done
-  printf '%s' "$n"
-}
-
-st_count_key() {
-  # 统计 ENTRIES 中 strip_key 归一后等于 $1 的条目数（跨行号计数）
-  local want="$1" n=0 entry
-  for entry in "${ENTRIES[@]}"; do
-    if [[ "$(strip_key "$entry")" == "$want" ]]; then
-      n=$((n + 1))
-    fi
-  done
-  printf '%s' "$n"
-}
-
-run_self_test() {
-  echo "[self-test] 构建 fixture（mktemp）..." >&2
-  local fx
-  fx="$(mktemp -d "${TMPDIR:-/tmp}/test-audit-selftest-XXXXXX")"
-  FIXTURE_DIR="$fx"
-  mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper"
-
-  cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
-// 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
-// 单行多属性 + #[path] 组合形态
-#[cfg(test)]
-#[path = "with_path_target.rs"]
-mod with_path;
-
-#[cfg(test)]
-#[path = "demo_test_helpers.rs"]
-mod helpers;
-
-#[cfg(test)] #[path = "combo_target.rs"] mod combo;
-
-pub fn prod_entry() {
-    std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/inline_ok.rs" <<'EOF'
-pub fn prod_top() {
-    std::fs::create_dir_all("prod-top"); // PROD-TOP-NOT-HIT
-}
-
-#[cfg(test)]
-mod tests {
-    const BRACES: &str = "{{{ ";
-    const ESCAPED: &str = "a\"}b";
-    fn hit_fn() {
-        std::fs::create_dir_all("hit-1"); // INLINE-HIT
-    }
-}
-
-pub fn prod_after() {
-    std::fs::create_dir_all("prod-after"); // PROD-AFTER-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/not_test.rs" <<'EOF'
-#[cfg(not(test))]
-mod platform {
-    fn no_hit() {
-        std::fs::remove_dir_all("never"); // NOT-TEST-NOT-HIT
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/foo_tests.rs" <<'EOF'
-#[cfg(test)]
-mod inner {
-    fn t() {
-        std::fs::create_dir_all("orig"); // ORIG-ONCE
-    }
-}
-EOF
-
-  cat > "$fx/crates/demo/src/with_path_target.rs" <<'EOF'
-fn mounted_hit() {
-    std::fs::create_dir_all("wp"); // MOUNT-PATH-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/combo_target.rs" <<'EOF'
-fn combo_hit() {
-    std::fs::create_dir_all("combo"); // COMBO-MOUNT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/demo_test_helpers.rs" <<'EOF'
-fn helper_hit() {
-    std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
-}
-EOF
-
-  cat > "$fx/crates/demo/src/wrapper.rs" <<'EOF'
-// 非 mod.rs 声明者形态：单行多属性（循环剥离前导 #[...] 组）+ mod 挂载
-#[cfg(test)] mod mounted;
-EOF
-
-  cat > "$fx/crates/demo/src/wrapper/mounted.rs" <<'EOF'
-fn wrapper_hit() {
-    std::fs::create_dir_all("wm"); // WRAPPER-MOUNT-HIT
-}
-EOF
-
-  # 用与正常模式完全相同的实现扫描 fixture
-  collect_static_entries "$fx"
-
-  local rel="crates/demo/src"
-  # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
-  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo
-  l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
-  l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
-  l_top="$(st_line_of 'PROD-TOP-NOT-HIT' "$fx/$rel/inline_ok.rs")"
-  l_entry="$(st_line_of 'PROD-ENTRY-NOT-HIT' "$fx/$rel/mod.rs")"
-  l_orig="$(st_line_of 'ORIG-ONCE' "$fx/$rel/foo_tests.rs")"
-  l_wp="$(st_line_of 'MOUNT-PATH-HIT' "$fx/$rel/with_path_target.rs")"
-  l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
-  l_combo="$(st_line_of 'COMBO-MOUNT-HIT' "$fx/$rel/combo_target.rs")"
-
-  local n
-  # 1. 内联 cfg(test) 区域命中
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_inline}: 手动目录管理")"
-  st_assert_eq "1 内联 cfg(test) 区域命中（inline_ok.rs:${l_inline}）" "1" "$n"
-
-  # 2. 生产区不命中（inline_ok.rs 全文件恰 1 条 = 仅内联命中；mod.rs 0 条）
-  n="$(st_count_key "${rel}/inline_ok.rs: 手动目录管理")"
-  st_assert_eq "2a 生产区不命中（inline_ok.rs 仅 1 条内联命中）" "1" "$n"
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_top}: 手动目录管理")"
-  st_assert_eq "2b 生产区不命中（区域前 prod_top:${l_top}）" "0" "$n"
-  n="$(st_count_entry "${rel}/mod.rs:${l_entry}: 手动目录管理")"
-  st_assert_eq "2c 生产区不命中（mod.rs prod_entry:${l_entry}）" "0" "$n"
-
-  # 3. not(test) 不命中
-  n="$(st_count_entry "${rel}/not_test.rs: 手动目录管理")"
-  st_assert_eq "3 not(test) 区域不命中" "0" "$n"
-
-  # 4. 挂载目标 helper 命名排除
-  n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
-  st_assert_eq "4 挂载目标 helper 命名排除（*test_helpers*）" "0" "$n"
-
-  # 5. 挂载解析（#[path]、非 mod.rs 声明者、单行多属性 + #[path] 组合三种形态）
-  n="$(st_count_entry "${rel}/with_path_target.rs:${l_wp}: 手动目录管理")"
-  st_assert_eq "5a 挂载解析命中（#[path] 形态 with_path_target.rs:${l_wp}）" "1" "$n"
-  n="$(st_count_entry "${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")"
-  st_assert_eq "5b 挂载解析命中（非 mod.rs 声明者 wrapper/mounted.rs:${l_wm}）" "1" "$n"
-  n="$(st_count_entry "${rel}/combo_target.rs:${l_combo}: 手动目录管理")"
-  st_assert_eq "5c 挂载解析命中（单行多属性 + #[path] 组合 combo_target.rs:${l_combo}）" "1" "$n"
-
-  # 6. 字面量剥离（区域闭合后生产行不因字面量失衡误命中）
-  n="$(st_count_entry "${rel}/inline_ok.rs:${l_after}: 手动目录管理")"
-  st_assert_eq "6 字面量剥离（区域后 prod_after:${l_after} 不误命中）" "0" "$n"
-
-  # 7. 原 find 谓词文件无双计
-  n="$(st_count_entry "${rel}/foo_tests.rs:${l_orig}: 手动目录管理")"
-  st_assert_eq "7 原 find 谓词文件无双计（foo_tests.rs:${l_orig} 恰 1 条）" "1" "$n"
-
-  # 8. 全量命中集与期望精确一致（无任何额外命中）
-  local -a expected=()
-  expected+=("${rel}/foo_tests.rs:${l_orig}: 手动目录管理")
-  expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
-  expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
-  expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
-  expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
-  local expected_sorted actual_sorted=""
-  expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
-  if [[ ${#ENTRIES[@]} -gt 0 ]]; then
-    actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
-  fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 5 条，无额外命中）" \
-    "$expected_sorted" "$actual_sorted"
-
-  rm -rf "$fx"
-  FIXTURE_DIR=""
-  if [[ $ST_FAILS -gt 0 ]]; then
-    echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
-    exit 1
-  fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 8 组）"
-  exit 0
-}
-
+# ── --self-test 转调独立自测脚本（对外入口/退出码约定不变）──
+# fixture 构建/断言/规格矩阵拆分至 scripts/test-audit-self-test.sh（本文件
+# 曾因内嵌 self-test 超 CONTRIBUTING 文件行数上限 1000 与 run_self_test 超
+# 函数体 100 行限制）；该脚本库模式 source 本脚本后对 mktemp fixture 树
+# 调用 collect_static_entries。对外入口 bash scripts/test-audit.sh
+# --self-test 不变（.githooks/pre-commit 与 scripts/periodic-checks.sh
+# --audit-selftest 调用方无感），退出码约定不变（断言失败 → 1）；互斥
+# 校验已在参数解析段完成
 if [[ $SELF_TEST -eq 1 ]]; then
-  run_self_test
+  exec bash "$PROJECT_ROOT/scripts/test-audit-self-test.sh"
 fi
 
 collect_static_entries "$PROJECT_ROOT"
@@ -846,7 +816,8 @@ fi
 # 多条目并存不塌缩——实际计数 − baseline 计数 = 新增差额（FAIL），baseline
 # 计数 − 实际计数 = 已消除差额（提示）；每键报告一条代表条目（保留行号定位）。
 
-# 比对键去行号归一化 strip_key 定义见 --self-test 段前（两处共用）
+# 比对键去行号归一化 strip_key 定义见库段（collect_static_entries 之后，
+# 与 self-test 断言共用）
 
 BASELINE=()
 if [[ -f "$BASELINE_FILE" ]]; then
