@@ -11,7 +11,7 @@ use tracing_test::traced_test;
 use crate::processor_chain::context::MessageContext;
 use crate::processor_chain::error::ProcessError;
 use crate::processor_chain::processor::{MessageProcessor, ProcessPhase};
-use crate::processor_chain::registry::ProcessorRegistry;
+use crate::processor_chain::registry::{metadata_str, ProcessorRegistry};
 use crate::ProcessedMessage;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use closeclaw_common::processor::ContentBlock;
@@ -342,8 +342,8 @@ async fn test_inbound_error_preserves_successful_metadata() {
 
     // p1's metadata is preserved, p_fail failed (no metadata), p3's metadata added
     assert_eq!(result.text_content(), Some("p3"));
-    assert_eq!(result.metadata.get("k1").map(|s| s.as_str()), Some("v1"));
-    assert_eq!(result.metadata.get("k3").map(|s| s.as_str()), Some("v3"));
+    assert_eq!(metadata_str(&result.metadata, "k1"), Some("v1"));
+    assert_eq!(metadata_str(&result.metadata, "k3"), Some("v3"));
 }
 
 #[tokio::test]
@@ -472,14 +472,8 @@ async fn test_metadata_merged_across_chain() {
         .unwrap();
 
     assert_eq!(result.text_content(), Some("p3"));
-    assert_eq!(
-        result.metadata.get("key2").map(|s| s.as_str()),
-        Some("value2")
-    );
-    assert_eq!(
-        result.metadata.get("key3").map(|s| s.as_str()),
-        Some("value3")
-    );
+    assert_eq!(metadata_str(&result.metadata, "key2"), Some("value2"));
+    assert_eq!(metadata_str(&result.metadata, "key3"), Some("value3"));
 }
 
 // ── NormalizedMessage → ProcessorChain end-to-end inbound ────────────────────
@@ -688,8 +682,8 @@ async fn test_outbound_error_preserves_successful_metadata() {
         .unwrap();
 
     assert_eq!(result.text_content(), Some("o3"));
-    assert_eq!(result.metadata.get("k1").map(|s| s.as_str()), Some("v1"));
-    assert_eq!(result.metadata.get("k3").map(|s| s.as_str()), Some("v3"));
+    assert_eq!(metadata_str(&result.metadata, "k1"), Some("v1"));
+    assert_eq!(metadata_str(&result.metadata, "k3"), Some("v3"));
 }
 
 // ── log level verification for fail-open handler ─────────────────────────────
