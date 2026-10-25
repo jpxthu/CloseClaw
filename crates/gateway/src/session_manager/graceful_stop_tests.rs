@@ -654,14 +654,14 @@ async fn test_graceful_escalation_interrupts_streaming() {
     )
     .await;
 
-    let r = stop_and_assert_fast(
+    let result = stop_and_assert_fast(
         &mgr,
         ShutdownMode::Graceful,
         std::time::Duration::from_secs(5),
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    assert_force_stopped(&r);
+    assert_force_stopped(&result);
 }
 
 /// Escalation fires 150ms in; interrupts graceful wait and force-stops a running-tool session.
@@ -686,14 +686,14 @@ async fn test_graceful_escalation_interrupts_tool_running() {
     )
     .await;
 
-    let r = stop_and_assert_fast(
+    let result = stop_and_assert_fast(
         &mgr,
         ShutdownMode::Graceful,
         std::time::Duration::from_secs(5),
         "escalation should interrupt the graceful wait quickly",
     )
     .await;
-    assert_force_stopped(&r);
+    assert_force_stopped(&result);
 }
 
 // ── Regression guard: handle propagation ────────────────────────────────
