@@ -146,13 +146,7 @@ fn test_stop_daemon_timeout() {
     let tmp = TempDir::new().unwrap();
     let path = tmp.path().join("daemon.pid");
     // Spawn sleep, then SIGSTOP it so it cannot exit.
-    let mut child = std::process::Command::new("sleep")
-        .arg("60")
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-        .expect("failed to spawn sleep child");
+    let mut child = spawn_sleep_child();
     let pid = child.id();
     write_pid_file(&path, pid).unwrap();
     // Freeze the process so it cannot respond to SIGTERM.

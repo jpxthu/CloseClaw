@@ -3,7 +3,7 @@
 //! Env mutation is prohibited by STANDARDS.md §7, so env-dependent
 //! behavior is tested by re-exec'ing this test binary as a gated helper
 //! child with the target env injected (precedent:
-//! crates/platform/src/process_tests.rs). The helper child wait is bounded
+//! crates/platform/src/process_tests/). The helper child wait is bounded
 //! with a kill fallback (issue #3165). Split out of `run_tests.rs` to keep
 //! that file under the 1000-line red line.
 
@@ -43,7 +43,7 @@ const TEST_HANG_INJECTION_TIMEOUT: Duration = Duration::from_secs(2);
 const HELPER_CHILD_HANG: &str = "PREPARE_RUN_HELPER_HANG";
 
 /// Poll interval of the helper-child watcher thread (bounded polling +
-/// kill fallback precedent: crates/platform/src/process_tests.rs).
+/// kill fallback precedent: crates/platform/src/process_tests/).
 const HELPER_CHILD_POLL_INTERVAL: Duration = Duration::from_millis(20);
 
 /// `--exact` filter selecting only the helper sub-test inside the child.
