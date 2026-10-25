@@ -3,6 +3,8 @@
 // Declared from `mod.rs` as `#[cfg(test)] mod support;` so the mount
 // resolution of `scripts/test-audit.sh` keeps covering this file.
 
+use crate::process::{subscribe_shutdown_signals, ShutdownSignalSubscription};
+
 /// Helper: spawn a long-running child process and return it.
 pub(crate) fn spawn_sleep_child() -> std::process::Child {
     std::process::Command::new("sleep")
@@ -23,7 +25,7 @@ pub(crate) fn spawn_sleep_child() -> std::process::Child {
 /// Test-only type carrying the SIGTERM/SIGINT-only invariant of
 /// [`kill_self`] in code instead of a caller convention: every variant
 /// is one of the two graceful shutdown signals handled by
-/// [`subscribe_shutdown_signals`].
+/// `crate::process::subscribe_shutdown_signals`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TestSelfSignal {
     /// SIGTERM — graceful shutdown trigger.
@@ -34,10 +36,18 @@ pub(crate) enum TestSelfSignal {
 
 impl TestSelfSignal {
     /// The libc signal number this variant delivers.
-    fn as_libc_signal(self) -> libc::c_int {
+    pub(crate) fn as_libc_signal(self) -> libc::c_int {
         match self {
             TestSelfSignal::Sigterm => libc::SIGTERM,
             TestSelfSignal::Sigint => libc::SIGINT,
+        }
+    }
+
+    /// The OS name of this signal (e.g. "SIGTERM"), for diagnostics.
+    pub(crate) fn name(self) -> &'static str {
+        match self {
+            TestSelfSignal::Sigterm => "SIGTERM",
+            TestSelfSignal::Sigint => "SIGINT",
         }
     }
 }
@@ -64,4 +74,19 @@ pub(crate) fn kill_self(sig: TestSelfSignal) {
         "kill self failed: {}",
         std::io::Error::last_os_error()
     );
+}
+
+/// Whether this process was spawned as a signal-test child subprocess:
+/// parent tests set `SIGNAL_TEST_CHILD=1` for their children, so child
+/// test bodies skip themselves when the variable is absent.
+pub(crate) fn is_signal_test_child() -> bool {
+    std::env::var("SIGNAL_TEST_CHILD").is_ok()
+}
+
+/// Open the shutdown-signal subscription for a child test body, panicking
+/// with the shared message on failure.
+pub(crate) async fn open_child_subscription() -> ShutdownSignalSubscription {
+    subscribe_shutdown_signals()
+        .await
+        .expect("subscribe_shutdown_signals should succeed")
 }

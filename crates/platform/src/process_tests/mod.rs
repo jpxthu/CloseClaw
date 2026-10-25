@@ -21,4 +21,6 @@ mod stop_daemon;
 #[cfg(test)]
 mod support;
 
-pub(crate) use support::{kill_self, spawn_sleep_child, TestSelfSignal};
+pub(crate) use support::{
+    is_signal_test_child, kill_self, open_child_subscription, spawn_sleep_child, TestSelfSignal,
+};
