@@ -5,6 +5,10 @@ use closeclaw_common::im_plugin::NormalizedMessage;
 /// that `msg.timestamp` does not leak into the computed session_key.
 const FIXED_PAST_TS_MS: i64 = 1_577_836_800_000;
 
+/// Base timestamp (ms) shared by the deterministic-key, timestamp,
+/// routing-sensitivity, and fixed-vector tests below.
+const BASE_TS_MS: i64 = 1_700_000_000_123;
+
 fn make_router() -> SessionRouter {
     SessionRouter::new()
 }
@@ -84,7 +88,7 @@ fn split_key(key: &str) -> (i64, &str) {
 #[test]
 fn test_deterministic_key() {
     // Determinism: identical routing fields + identical timestamp_ms -> same key.
-    let ts: i64 = 1_700_000_000_123;
+    let ts: i64 = BASE_TS_MS;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key2 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     assert!(!key1.is_empty(), "session_key must not be empty");
@@ -96,7 +100,7 @@ fn test_deterministic_key() {
 #[test]
 fn test_timestamp_participation() {
     // Time participation: timestamp_ms changes prefix and hash (anti-collision).
-    let ts: i64 = 1_700_000_000_123;
+    let ts: i64 = BASE_TS_MS;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let key_later = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts + 1);
     let (ts1, hash1) = split_key(&key1);
@@ -116,7 +120,7 @@ fn test_timestamp_participation() {
 #[test]
 fn test_routing_sensitivity() {
     // Routing sensitivity: any differing routing field -> different hash.
-    let ts: i64 = 1_700_000_000_123;
+    let ts: i64 = BASE_TS_MS;
     let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
     let (_, hash) = split_key(&key);
 
@@ -162,14 +166,15 @@ async fn test_process_key_matches_formula() {
 /// independent tool (python3 hashlib), NOT derived from compute_session_key,
 /// so any change to the formula itself (separator, field order, "default"
 /// literal, hash algorithm) breaks these assertions. Recompute commands
-/// (each is one shell command spanning two lines):
+/// (each is one shell command spanning two lines; their timestamp component
+/// 1700000000123 is `BASE_TS_MS`):
 ///   python3 -c "import hashlib; print(hashlib.sha256(
 ///       b'feishu:ou_abc:oc_xyz:default:1700000000123').hexdigest())"
 ///   python3 -c "import hashlib; print(hashlib.sha256(
 ///       b'feishu:ou_abc:oc_xyz:tenant_x:1700000000123').hexdigest())"
 #[test]
 fn test_session_key_fixed_vector() {
-    let ts: i64 = 1_700_000_000_123;
+    let ts: i64 = BASE_TS_MS;
 
     // account_id: None -> literal "default" participates in hash input
     let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
