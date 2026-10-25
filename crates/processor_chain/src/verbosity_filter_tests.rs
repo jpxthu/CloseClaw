@@ -1,5 +1,6 @@
 //! Unit tests for [`VerbosityFilter`].
 
+use super::context::MessageContext;
 use super::processor::MessageProcessor;
 use super::verbosity_filter::VerbosityFilter;
 use closeclaw_common::processor::ContentBlock;
@@ -459,4 +460,55 @@ fn test_streaming_batch_consistency_block_count() {
             level
         );
     }
+}
+
+// -----------------------------------------------------------------------
+// VerbosityFilter trait impl process() tests: empty / non-empty
+// content_blocks fallback
+// -----------------------------------------------------------------------
+
+/// VerbosityFilter with empty content_blocks: wraps ctx.content as Text block.
+#[tokio::test]
+async fn test_verbosity_filter_empty_blocks_wraps_content() {
+    let filter = VerbosityFilter;
+    let ctx = MessageContext {
+        content: "fallback content".to_string(),
+        content_blocks: vec![],
+        metadata: HashMap::new(),
+        raw_message_log: vec![],
+        skip: false,
+    };
+    let result = filter.process(&ctx).await.unwrap().unwrap();
+
+    assert_eq!(result.content_blocks.len(), 1);
+    assert!(
+        matches!(&result.content_blocks[0], ContentBlock::Text(s) if s == "fallback content"),
+        "empty blocks should wrap content as Text"
+    );
+}
+
+/// VerbosityFilter with non-empty content_blocks: filters normally.
+#[tokio::test]
+async fn test_verbosity_filter_nonempty_blocks_filters_normally() {
+    let filter = VerbosityFilter;
+    let ctx = MessageContext {
+        content: "should not appear".to_string(),
+        content_blocks: vec![
+            ContentBlock::Text("visible".to_string()),
+            ContentBlock::Thinking {
+                thinking: "hidden".to_string(),
+                signature: None,
+            },
+        ],
+        metadata: HashMap::new(),
+        raw_message_log: vec![],
+        skip: false,
+    };
+    let result = filter.process(&ctx).await.unwrap().unwrap();
+
+    // Full default: Thinking not filtered
+    assert_eq!(result.content_blocks.len(), 2);
+    assert_eq!(result.text_content(), Some("visible"));
+    #[rustfmt::skip]
+    assert!(result.content_blocks.iter().any(|b| matches!(b, ContentBlock::Thinking { .. })));
 }
