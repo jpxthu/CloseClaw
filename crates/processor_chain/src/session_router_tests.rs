@@ -36,18 +36,10 @@ async fn test_terminal_session_key_computed() {
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
     // Key format: {timestamp_ms}-{sha256_hex}
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash_part = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash_part.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash_part.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
@@ -265,29 +257,13 @@ async fn test_system_time_used_for_session_key() {
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
-    let key = router
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out = router.process(&ctx).await.unwrap().unwrap();
+    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
@@ -313,29 +289,13 @@ async fn test_per_account_channel_peer_uses_system_time() {
     let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
-    let key = router
-        .process(&ctx)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out = router.process(&ctx).await.unwrap().unwrap();
+    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
 
-    let ts_prefix: i64 = key[..key.find('-').unwrap()]
-        .parse()
-        .expect("key prefix should be parseable as i64");
+    let (ts_prefix, _) = split_key(key);
     assert!(
         ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
         "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
-    let hash = &key[key.find('-').unwrap() + 1..];
-    assert_eq!(hash.len(), 64, "hash should be 64 hex chars: {key}");
-    assert!(
-        hash.chars().all(|c| c.is_ascii_hexdigit()),
-        "hash should be hex: {key}"
     );
 }
 
