@@ -8,8 +8,9 @@
 # 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
 # test-only 文件。helper 收敛点本体（平铺 helper 文件 + 目录化 helper 子模块）
 # 经三通道一致的豁免判据排除：文件名含 test_helpers / test_support 词干，
-# 或路径含 test_helpers / test_support 路径段（含相对 scan_root 的首段，
-# 见 is_helper_exempt）
+# 或路径含 test_helpers / test_support 路径段（含相对 scan_root 的首段）；
+# basename 以 _tests.rs 结尾的真实测试文件永不豁免（豁免语义 = helper 本体
+# 不扫，非 helper 的测试不扫，见 is_helper_exempt）
 #
 # 扩围通道已知局限（best-effort 行级解析，不追全量 Rust 语法）：
 #   - cfg 属性跨行书写不识别（如 `#[cfg(all(
@@ -488,7 +489,11 @@ AWK_PROGRAM
 )"
 
 # ── helper 豁免判据（一处定义，三通道引用）────────────────
-# basename ∪ 路径段并集（入参为相对 scan_root 的路径）：
+# basename ∪ 路径段并集 − 真实测试文件（入参为相对 scan_root 的路径）：
+#   - 短路排除：basename 以 _tests.rs 结尾 → 永不豁免（无论词干/路径段命中）
+#     ——豁免语义 = helper 本体不扫，非「helper 的测试不扫」；词干/路径段
+#     命中形态的真实测试文件（如 crates/daemon/src/test_helpers_tests.rs、
+#     crates/test_support/src/log_capture_tests.rs）恢复扫描视野
 #   - 文件名含 test_helpers / test_support 词干 → 平铺 helper 本体
 #     （如 crates/common/src/test_helpers.rs，路径无段且为 cfg(test) 挂载目标）
 #   - 路径含 test_helpers / test_support 路径段（任意位置，含相对 scan_root
@@ -500,6 +505,10 @@ AWK_PROGRAM
 is_helper_exempt() {
   local rel="$1" base
   base="${rel##*/}"
+  # 真实测试文件（*_tests.rs 后缀）永不豁免：优先于词干/路径段命中判定
+  case "$base" in
+    *_tests.rs) return 1 ;;
+  esac
   case "$base" in
     *test_helpers* | *test_support*) return 0 ;;
   esac
@@ -529,8 +538,9 @@ filter_helper_exempt() {
 # ── 原通道：独立测试文件全文件扫 ──────────────────────────
 # $1 = scan_root，$2… = 扫描目录集合；构建 find 命令参数（仅依赖 TARGET_FILTER，
 # 循环不变量，构建一次）；文件清单只执行一次 find（规则循环不变量），逐规则
-# 复用；helper 豁免在本通道同样生效（原通道可命中的 *_tests.rs 形态 helper
-# 测试文件按同一判据剔除，避免两通道豁免口径不一致）。命中追加写入全局 ENTRIES
+# 复用；helper 豁免在本通道同样生效（三通道同一判据，见 is_helper_exempt；
+# *_tests.rs 真实测试文件不豁免——词干/路径段命中形态亦入本通道扫描）。
+# 命中追加写入全局 ENTRIES
 collect_original_channel_entries() {
   local scan_root="$1"
   shift
@@ -639,8 +649,9 @@ resolve_mount_targets() {
     base="$(basename "$rel_target")"
     if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
     if [[ "$rel_target" == */tests/* ]]; then continue; fi
-    # helper 收敛点本体不纳入（basename ∪ 路径段并集，判据见 is_helper_exempt；
-    # $rel_target 含目录段，目录化 helper 本体在此按路径段豁免）
+    # helper 收敛点本体不纳入（basename ∪ 路径段并集 − 真实测试文件，判据见
+    # is_helper_exempt；*_tests.rs 目标已在上方双计防护步剔除，$rel_target 含
+    # 目录段，目录化 helper 本体在此按路径段豁免）
     if is_helper_exempt "$rel_target"; then continue; fi
     # --target 过滤语义与主通道一致
     if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi

@@ -10,11 +10,12 @@
 # 「测的就是真实扫描逻辑」；断言命中/不命中规格矩阵（每条断言独立报告，
 # 任一失败 → 整体 exit 1）；离线、不读仓库与 baseline。
 #
-# 规格矩阵（16 组）：
+# 规格矩阵（17 组）：
 #   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
 #   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
 #   3. #[cfg(not(test))] 区域不命中
-#   4. 平铺 helper 豁免（basename 含 test_helpers / test_support 词干）
+#   4. 平铺 helper 豁免（basename 含 test_helpers / test_support 词干；
+#      fixture 仅含裸调用无内联区域，失败可归因挂载通道）
 #   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态 +
 #      单行多属性 + #[path] 组合形态
 #   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
@@ -23,7 +24,8 @@
 #   8. 全量命中集与期望精确一致（无任何额外命中）
 #   9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中
 #      且不作为挂载目标（含子模块裸调用 + 内联区域）
-#  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
+#  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归；fixture
+#      仅含内联区域无裸调用，失败可归因内联区域通道，与 4 判别力分离）
 #  11. 多行 raw string 剥离：区域内 r#"…"#（内含不平衡花括号）不截断区域，
 #      其后命中不丢；raw 内容花括号不扰动深度（区域闭合后生产行不误命中）
 #  12. test_support 同义词干豁免（basename ∪ 路径段另一分支）：目录化
@@ -37,6 +39,9 @@
 #      不截断、其后命中不丢、区域闭合后生产不误命中
 #  16. 豁免首段形态（相对 scan_root 一级 test_helpers/，挂载通道 #[path]
 #      相对上跳可达）：不作为挂载目标、不命中（路径段豁免含首段）
+#  17. 判据收窄回归：*_tests.rs 后缀真实测试文件永不豁免（无论词干/路径段
+#      命中）——词干命中形态 test_helpers_tests.rs 与路径段命中形态
+#      test_helpers/config_tests.rs 恢复扫描，区域内裸违规正常命中
 #
 # 文件拆分说明：test-audit.sh 曾因内嵌 self-test 超 CONTRIBUTING 文件行数
 # 上限 1000，run_self_test 单函数超函数体 100 行限制；拆至本文件并将
@@ -274,14 +279,19 @@ EOF
 
 # helper 本体族：平铺命名（basename 词干）+ 目录化子模块（路径段）+
 # test_support 同义词干 + scan_root 首段目录；含内联 cfg(test) 区域形态
-# （机制保证回归：helper 文件内内联区域也不命中）
+# （机制保证回归：helper 文件内内联区域也不命中，fixture 仅含内联区域
+# 无裸调用，失败可归因内联区域通道）；*_tests.rs 真实测试文件（词干/
+# 路径段命中形态）永不豁免（判据收窄回归）
 st_fixture_helpers() {
   local fx="$1"
   cat > "$fx/crates/demo/src/demo_test_helpers.rs" <<'EOF'
 fn helper_hit() {
     std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
 }
+EOF
 
+  # 规格 10 专用：仅含内联 cfg(test) 区域、无裸调用（与规格 4 判别力分离）
+  cat > "$fx/crates/demo/src/demo_test_helpers_inline.rs" <<'EOF'
 #[cfg(test)]
 mod internal_tests {
     fn inline_helper_hit() {
@@ -342,6 +352,26 @@ mod root_helper_tests {
     }
 }
 EOF
+
+  # 规格 17：*_tests.rs 后缀 + 词干命中形态（原通道扫描，裸违规命中）
+  cat > "$fx/crates/demo/src/test_helpers_tests.rs" <<'EOF'
+#[cfg(test)]
+mod stem_tests {
+    fn stem_tests_hit() {
+        std::fs::create_dir_all("stem-tests"); // STEM-TESTS-HIT
+    }
+}
+EOF
+
+  # 规格 17：*_tests.rs 后缀 + 路径段命中形态（原通道扫描，裸违规命中）
+  cat > "$fx/crates/demo/src/test_helpers/config_tests.rs" <<'EOF'
+#[cfg(test)]
+mod config_file_tests {
+    fn seg_tests_hit() {
+        std::fs::create_dir_all("seg-tests"); // SEG-TESTS-HIT
+    }
+}
+EOF
 }
 
 st_build_fixtures() {
@@ -373,6 +403,8 @@ st_resolve_expected_lines() {
   ST_L_SLASH1="$(st_line_of 'SLASH-INLINE-HIT' "$fx/$rel/raw_slash.rs")"
   ST_L_SLASH2="$(st_line_of 'SLASH-ML-HIT' "$fx/$rel/raw_slash.rs")"
   ST_L_R0="$(st_line_of 'R0-HIT' "$fx/$rel/raw_zero.rs")"
+  ST_L_STEM_TESTS="$(st_line_of 'STEM-TESTS-HIT' "$fx/$rel/test_helpers_tests.rs")"
+  ST_L_SEG_TESTS="$(st_line_of 'SEG-TESTS-HIT' "$fx/$rel/test_helpers/config_tests.rs")"
 }
 
 # ── 断言段（规格矩阵分组，各组独立报告，失败计数入 ST_FAILS）──
@@ -399,7 +431,8 @@ st_assert_core_specs() {
   st_assert_eq "3 not(test) 区域不命中" "0" "$n"
 
   # 4. 平铺 helper 豁免（basename 含 test_helpers 词干；同 3 用 st_count_key，
-  #    豁免失效时真实 FAIL）
+  #    豁免失效时真实 FAIL；fixture 仅含裸调用无内联区域——该文件是 #[path]
+  #    挂载目标，失败可归因挂载通道）
   n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
   st_assert_eq "4 平铺 helper 豁免（demo_test_helpers.rs 裸调用不命中）" "0" "$n"
 
@@ -431,12 +464,14 @@ st_assert_core_specs() {
   expected+=("${rel}/with_path_target.rs:${ST_L_WP}: 手动目录管理")
   expected+=("${rel}/wrapper/mounted.rs:${ST_L_WM}: 手动目录管理")
   expected+=("${rel}/combo_target.rs:${ST_L_COMBO}: 手动目录管理")
+  expected+=("${rel}/test_helpers_tests.rs:${ST_L_STEM_TESTS}: 手动目录管理")
+  expected+=("${rel}/test_helpers/config_tests.rs:${ST_L_SEG_TESTS}: 手动目录管理")
   local expected_sorted actual_sorted=""
   expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 10 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 12 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 }
 
@@ -452,9 +487,10 @@ st_assert_exemption_raw_specs() {
   n="$(st_count_key "${rel}/test_support/mod.rs: 手动目录管理")"
   st_assert_eq "9c 目录化 test_support 不命中且不作为挂载目标（test_support/mod.rs）" "0" "$n"
 
-  # 10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
-  n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
-  st_assert_eq "10 helper 文件内联 cfg(test) 区域不命中（demo_test_helpers.rs）" "0" "$n"
+  # 10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归；fixture
+  #     仅含内联区域无裸调用，失败可归因内联区域通道，与 4 判别力分离）
+  n="$(st_count_key "${rel}/demo_test_helpers_inline.rs: 手动目录管理")"
+  st_assert_eq "10 helper 文件内联 cfg(test) 区域不命中（demo_test_helpers_inline.rs）" "0" "$n"
 
   # 11. 多行 raw string 剥离（区域内 r#"…"# 不截断区域，其后命中不丢；
   #     raw 内容花括号不扰动深度——区域闭合后 prod_after 不误命中由 6/8 守护）
@@ -493,6 +529,15 @@ st_assert_exemption_raw_specs() {
   #     相对上跳可达）：不作为挂载目标、不命中（路径段豁免含首段）
   n="$(st_count_key "test_helpers/root_helper.rs: 手动目录管理")"
   st_assert_eq "16 豁免首段形态不作为挂载目标且不命中（test_helpers/root_helper.rs）" "0" "$n"
+
+  # 17. 判据收窄回归：*_tests.rs 后缀真实测试文件永不豁免（无论词干/路径段
+  #     命中）——恢复扫描视野（原通道），区域内裸违规正常命中
+  n="$(st_count_entry "${rel}/test_helpers_tests.rs:${ST_L_STEM_TESTS}: 手动目录管理")"
+  st_assert_eq "17a 词干命中形态 *_tests.rs 不豁免（test_helpers_tests.rs:${ST_L_STEM_TESTS} 命中）" "1" "$n"
+  n="$(st_count_entry "${rel}/test_helpers/config_tests.rs:${ST_L_SEG_TESTS}: 手动目录管理")"
+  st_assert_eq "17b 路径段命中形态 *_tests.rs 不豁免（test_helpers/config_tests.rs:${ST_L_SEG_TESTS} 命中）" "1" "$n"
+  n="$(st_count_key "${rel}/test_helpers_tests.rs: 手动目录管理")"
+  st_assert_eq "17c 词干命中形态 *_tests.rs 恰 1 条（原通道无双计）" "1" "$n"
 }
 
 # ── 编排 ─────────────────────────────────────────────────
@@ -516,7 +561,7 @@ run_self_test() {
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 16 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 17 组）"
   exit 0
 }
 
