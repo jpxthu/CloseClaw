@@ -365,9 +365,9 @@ async fn test_different_account_ids_produce_different_session_keys() {
     let ctx_b = make_ctx(msg_b);
 
     let out_a = router.process(&ctx_a).await.unwrap().unwrap();
-    let key_a = session_key_of(&out_a).unwrap().to_string();
+    let key_a = session_key_of(&out_a).unwrap();
     let out_b = router.process(&ctx_b).await.unwrap().unwrap();
-    let key_b = session_key_of(&out_b).unwrap().to_string();
+    let key_b = session_key_of(&out_b).unwrap();
 
     assert_ne!(
         key_a, key_b,
@@ -418,9 +418,9 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
     let ctx_some = make_ctx(msg_some);
 
     let out_none = router.process(&ctx_none).await.unwrap().unwrap();
-    let key_none = session_key_of(&out_none).unwrap().to_string();
+    let key_none = session_key_of(&out_none).unwrap();
     let out_some = router.process(&ctx_some).await.unwrap().unwrap();
-    let key_some = session_key_of(&out_some).unwrap().to_string();
+    let key_some = session_key_of(&out_some).unwrap();
 
     assert_ne!(
         key_none, key_some,
