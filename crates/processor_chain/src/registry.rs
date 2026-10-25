@@ -17,6 +17,17 @@ use crate::debug_log::{
     emit_processor_chain_event, ProcessorChainDebugLogContext, ProcessorChainEmitEventParams,
 };
 
+/// Extracts `key` from `metadata` as a borrowed string slice.
+///
+/// Shared replacement for the inline `metadata.get(key).map(|s| s.as_str())`
+/// boilerplate at debug-event emission sites in this module and their tests.
+pub(crate) fn metadata_str<'a>(
+    metadata: &'a HashMap<String, String>,
+    key: &str,
+) -> Option<&'a str> {
+    metadata.get(key).map(|s| s.as_str())
+}
+
 /// Registry holding inbound and outbound processor chains.
 ///
 /// Processors are registered via [`register`](ProcessorRegistry::register) and
@@ -181,7 +192,7 @@ impl ProcessorRegistry {
         }
 
         // Emit chain.routing event (中间状态) — routing result after all processors.
-        let session_key = ctx.metadata.get("session_key").map(|s| s.as_str());
+        let session_key = metadata_str(&ctx.metadata, "session_key");
         self.emit_event(
             closeclaw_debug_log::LogLevel::Debug,
             "chain.routing",
@@ -247,7 +258,7 @@ impl ProcessorRegistry {
         }
 
         // Emit chain.outbound start event (关键事件).
-        let session_key = llm_output.metadata.get("session_key").map(|s| s.as_str());
+        let session_key = metadata_str(&llm_output.metadata, "session_key");
         self.emit_event(
             closeclaw_debug_log::LogLevel::Info,
             "chain.outbound",
