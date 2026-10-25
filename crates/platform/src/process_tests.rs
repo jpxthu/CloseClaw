@@ -605,9 +605,57 @@ fn test_stop_daemon_invalid_pid_content() {
 
 // ── subscribe_shutdown_signals / next_signal tests ─────────────────
 
-/// Signal tests use subprocess isolation to prevent cross-contamination.
-/// Parent tests spawn the child in a subprocess; child tests are gated
-/// by `SIGNAL_TEST_CHILD=1` to avoid running in the parent process.
+// Signal tests use subprocess isolation to prevent cross-contamination.
+// Parent tests spawn the child in a subprocess; child tests are gated
+// by `SIGNAL_TEST_CHILD=1` to avoid running in the parent process.
+
+/// Graceful-shutdown signals a test may deliver to its own process.
+///
+/// Test-only type carrying the SIGTERM/SIGINT-only invariant of
+/// [`kill_self`] in code instead of a caller convention: every variant
+/// is one of the two graceful shutdown signals handled by
+/// [`subscribe_shutdown_signals`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TestSelfSignal {
+    /// SIGTERM — graceful shutdown trigger.
+    Sigterm,
+    /// SIGINT — graceful shutdown trigger.
+    Sigint,
+}
+
+impl TestSelfSignal {
+    /// The libc signal number this variant delivers.
+    fn as_libc_signal(self) -> libc::c_int {
+        match self {
+            TestSelfSignal::Sigterm => libc::SIGTERM,
+            TestSelfSignal::Sigint => libc::SIGINT,
+        }
+    }
+}
+
+/// Send shutdown signal `sig` to the current process itself.
+///
+/// Single point wrapping the libc kill call for this file's self-signal
+/// tests — the signal is chosen through [`TestSelfSignal`], so the type,
+/// not caller convention, limits delivery to the SIGTERM/SIGINT pair.
+fn kill_self(sig: TestSelfSignal) {
+    // SAFETY: the target pid is `std::process::id()`, i.e. this process
+    // itself, so the signal is delivered only to the calling process and
+    // never to another one; `sig` is a `TestSelfSignal`, whose only
+    // variants are the SIGTERM/SIGINT shutdown signals, so the delivered
+    // signal's effect on this process is exactly what the surrounding
+    // test exercises.
+    //
+    // The return value is checked so a failed kill surfaces the OS error
+    // immediately instead of letting the test hang on the un-sent signal.
+    let ret = unsafe { libc::kill(std::process::id() as libc::pid_t, sig.as_libc_signal()) };
+    assert_eq!(
+        ret,
+        0,
+        "kill self failed: {}",
+        std::io::Error::last_os_error()
+    );
+}
 
 #[test]
 fn test_subscribe_shutdown_signals_sigterm() {
@@ -651,13 +699,9 @@ async fn test_subscribe_shutdown_signals_sigterm_child() {
     let mut sub = subscribe_shutdown_signals()
         .await
         .expect("subscribe_shutdown_signals should succeed");
-    let my_pid = std::process::id();
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        // SAFETY: kill with SIGTERM is a standard POSIX operation.
-        unsafe {
-            libc::kill(my_pid as i32, libc::SIGTERM);
-        }
+        kill_self(TestSelfSignal::Sigterm);
     });
     let kind = sub
         .next_signal()
@@ -676,13 +720,9 @@ async fn test_subscribe_shutdown_signals_sigint_child() {
     let mut sub = subscribe_shutdown_signals()
         .await
         .expect("subscribe_shutdown_signals should succeed");
-    let my_pid = std::process::id();
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        // SAFETY: kill with SIGINT is a standard POSIX operation.
-        unsafe {
-            libc::kill(my_pid as i32, libc::SIGINT);
-        }
+        kill_self(TestSelfSignal::Sigint);
     });
     let kind = sub
         .next_signal()
@@ -722,15 +762,11 @@ async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
     let mut sub = subscribe_shutdown_signals()
         .await
         .expect("subscribe_shutdown_signals should succeed");
-    let my_pid = std::process::id();
 
     // First signal: SIGTERM.
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        // SAFETY: kill with SIGTERM is a standard POSIX operation.
-        unsafe {
-            libc::kill(my_pid as i32, libc::SIGTERM);
-        }
+        kill_self(TestSelfSignal::Sigterm);
     });
     let first = sub
         .next_signal()
@@ -743,12 +779,9 @@ async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
     );
 
     // Second signal: SIGINT.
-    std::thread::spawn(move || {
+    std::thread::spawn(|| {
         std::thread::sleep(std::time::Duration::from_millis(50));
-        // SAFETY: kill with SIGINT is a standard POSIX operation.
-        unsafe {
-            libc::kill(my_pid as i32, libc::SIGINT);
-        }
+        kill_self(TestSelfSignal::Sigint);
     });
     let second = sub
         .next_signal()
