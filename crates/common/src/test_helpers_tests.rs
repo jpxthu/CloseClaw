@@ -32,7 +32,7 @@ fn test_ensure_dir_creates_subdir_under_tempdir() {
     let tmp = tempfile::TempDir::new().expect("temp dir");
     let subdir = tmp.path().join("nested/deeper");
     ensure_dir(&subdir).expect("create nested subdir under TempDir");
-    assert!(subdir.is_dir(), "subdir should exist: {subdir:?}");
+    assert!(subdir.is_dir(), "创建后子目录应真实存在：{subdir:?}");
 }
 
 // 被测的 panic 路径来自 `ensure_dir` / `remove_subdir` /
