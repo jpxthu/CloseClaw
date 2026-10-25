@@ -58,3 +58,25 @@ pub(crate) fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
         agent_type: None,
     }
 }
+
+#[cfg(test)]
+mod default_contract_tests {
+    //! Pins the `DummyTool::default()` contract that ~90 struct-update call
+    //! sites rely on: `..Default::default()` must be equivalent to the
+    //! previously explicit `false` flags and empty `summary_text`. If a field
+    //! default ever drifts, those call sites would silently change semantics.
+
+    use super::*;
+
+    #[test]
+    fn test_dummy_tool_default_field_values() {
+        let tool = DummyTool::default();
+        assert_eq!(tool.name, "");
+        assert_eq!(tool.group, "");
+        assert_eq!(tool.summary_text, "");
+        assert!(!tool.is_deferred);
+        assert!(!tool.is_read_only);
+        assert!(!tool.is_destructive);
+        assert!(!tool.is_expensive);
+    }
+}
