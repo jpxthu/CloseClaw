@@ -1,6 +1,8 @@
 //! ToolsSection truncation tests (Step 1.3).
 
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
+use crate::ToolFlags;
 
 /// Helper to create a ToolInfo for truncation tests.
 fn trunc_tool_info(name: &str, group: &str, is_deferred: bool) -> ToolInfo {

@@ -2,6 +2,7 @@
 //! on `ToolRegistryQuery`.
 
 use super::*;
+use crate::registry_test_support::DummyTool;
 use closeclaw_common::tool_registry::ToolRegistryQuery;
 
 /// Helper: create a registry and register a set of dummy tools.

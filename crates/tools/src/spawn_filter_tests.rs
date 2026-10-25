@@ -7,6 +7,7 @@
 //! - No budget-related references leak into tool prompts
 
 use super::*;
+use crate::registry_test_support::DummyTool;
 
 /// sessions_spawn should be visible in Normal mode (not just Plan mode).
 /// This verifies the spawn whitelist regression: after removing effective_spawn_budget,

@@ -6,6 +6,7 @@
 //! - ToolSearch exact mode: secondary detail includes `(expensive)` annotation.
 
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 
 /// Helper: create a ToolInfo directly for format_tool_line testing.
 fn make_tool_info(

@@ -5,6 +5,7 @@
 //! to keep that file under the 1 000-line limit.
 
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 use crate::skill_access::real_access::{RealBuiltinSkillAccess, RealDiskSkillAccess};
 use closeclaw_common::tool_registry::ToolRegistry as _;
 use closeclaw_common::ToolRegistryQuery;

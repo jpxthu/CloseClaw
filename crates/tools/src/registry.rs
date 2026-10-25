@@ -869,3 +869,55 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
 #[cfg(test)]
 #[path = "registry_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "danger_mark_regression_tests.rs"]
+mod danger_mark_regression_tests;
+
+#[cfg(test)]
+#[path = "expensive_mark_tests.rs"]
+mod expensive_mark_tests;
+
+#[cfg(test)]
+#[path = "secondary_expensive_tests.rs"]
+mod secondary_expensive_tests;
+
+#[cfg(test)]
+#[path = "sorting_tests.rs"]
+mod sorting_tests;
+
+#[cfg(test)]
+#[path = "agent_tools_gate_tests.rs"]
+mod agent_tools_gate_tests;
+
+#[cfg(test)]
+#[path = "group_atomicity_tests.rs"]
+mod group_atomicity_tests;
+
+#[cfg(test)]
+#[path = "keyword_tests.rs"]
+mod keyword_tests;
+
+#[cfg(test)]
+#[path = "register_before_freeze_tests.rs"]
+mod register_before_freeze_tests;
+
+#[cfg(test)]
+#[path = "registrar_behavior_tests.rs"]
+mod registrar_behavior_tests;
+
+#[cfg(test)]
+#[path = "registry_integration_tests.rs"]
+mod registry_integration_tests;
+
+#[cfg(test)]
+#[path = "spawn_filter_tests.rs"]
+mod spawn_filter_tests;
+
+#[cfg(test)]
+#[path = "tool_registry_query_tests.rs"]
+mod tool_registry_query_tests;
+
+#[cfg(test)]
+#[path = "truncation_tests.rs"]
+mod truncation_tests;

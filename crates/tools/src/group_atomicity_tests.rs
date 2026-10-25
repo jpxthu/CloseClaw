@@ -4,6 +4,7 @@
 //! outputs completely or is discarded entirely.
 
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 
 /// Helper to build a `ToolInfo` for group atomicity tests.
 fn atomic_tool_info(name: &str, group: &str, is_deferred: bool) -> ToolInfo {

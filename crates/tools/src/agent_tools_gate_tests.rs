@@ -1,7 +1,7 @@
 //! Execution-time agent tools-config gate tests for `ToolRegistryImpl`.
 //!
-//! Compiled via `mod agent_tools_gate_tests;` inside `registry_tests.rs`
-//! (itself attached to `registry.rs` through `#[path]`). Covers three layers:
+//! Compiled via `#[cfg(test)] #[path]` attachment at the top level of
+//! `registry.rs`. Covers three layers:
 //!
 //! 1. `judge_agent_tool_allowed` — pure `AgentToolsConfigQuery` contract
 //!    semantics applied at the tools (consumer) side.
