@@ -89,6 +89,15 @@ fn run_cache_anomaly_scenario() -> Option<CacheAnomalyInfo> {
 ///
 /// N rounds (N≥5) each return increasing `cache_read_tokens`.
 /// Assert `RunningStats.total_cache_read_tokens` equals the sum of all rounds.
+///
+/// `#[serial]` (issue #3109): round 2's rising cache read deviates from
+/// the previous round's prompt tokens beyond tolerance, triggering the
+/// `warn!` callsite in `llm_stats.rs` (`log_cache_anomaly`); the
+/// tracing callsite-interest cache is process-global and concurrent
+/// registration can drop events (#3102). `test_cache_hit_rate_calculation`
+/// stays unannotated — its deviation stays within tolerance, so it does
+/// not reach that callsite.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_cache_hit_accumulation() {
     let n_rounds = 6;

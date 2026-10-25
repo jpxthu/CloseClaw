@@ -21,6 +21,16 @@ use super::{make_usage_basic, tmp_path};
 use crate::llm_session::ConversationSession;
 use closeclaw_common::processor::{ContentBlock, UnifiedResponse};
 
+// Every test in this module carries `#[serial_test::serial]` (issue
+// #3109). The tests drive `invoke_llm`, which reaches the `info!`
+// callsite in `session_llm_request_build.rs` (skill listing injection);
+// the tracing callsite-interest cache is process-global, and concurrent
+// registration on the same callsite can drop events — observed to
+// empty the log-capture buffer of `capture_logs` consumers in this
+// tree (issue #3102). A few tests (no provider / empty listing) never
+// emit, but module-wide serialisation removes the race at negligible
+// cost (<1s) and keeps the guard robust as tests evolve.
+
 // ---------------------------------------------------------------------------
 // Mock SkillListingProvider with conditional skill support
 // ---------------------------------------------------------------------------
@@ -161,6 +171,7 @@ fn skill_listing_messages(req: &InternalRequest) -> Vec<&str> {
 // Tests
 // ═══════════════════════════════════════════════════════════════════════════
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_first_turn_injects_full_listing() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -183,6 +194,7 @@ async fn test_first_turn_injects_full_listing() {
     assert!(tools[0].contains("skill_b"));
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_no_change_no_injection() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -209,6 +221,7 @@ async fn test_no_change_no_injection() {
     );
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_new_skill_injected_incrementally() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -235,6 +248,7 @@ async fn test_new_skill_injected_incrementally() {
     assert!(!tools[0].contains("skill_a"));
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_conditional_skill_excluded_from_initial() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -259,6 +273,7 @@ async fn test_conditional_skill_excluded_from_initial() {
     assert!(tools[0].contains("skill_a"));
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_conditional_activation_next_turn() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -308,6 +323,7 @@ async fn test_conditional_activation_next_turn() {
     assert!(tools3[0].contains("⚡"));
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_no_reactivation_of_already_activated() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -350,6 +366,7 @@ async fn test_no_reactivation_of_already_activated() {
     );
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_no_provider_no_listing() {
     let mut session = ConversationSession::new("s7".into(), "m".into(), tmp_path());
@@ -362,6 +379,7 @@ async fn test_no_provider_no_listing() {
     assert_eq!(skill_listing_messages(&req).len(), 0);
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_empty_listing_no_injection() {
     let provider = Arc::new(MockConditionalProvider::new("", ""));
@@ -377,6 +395,7 @@ async fn test_empty_listing_no_injection() {
     assert_eq!(skill_listing_messages(&req).len(), 0);
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_selective_conditional_activation() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -435,6 +454,7 @@ async fn test_selective_conditional_activation() {
     assert_eq!(tools4.len(), 0, "no new activation → no injection");
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_removed_skill_disappears() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -479,6 +499,7 @@ async fn test_removed_skill_disappears() {
 /// in the same turn, the diff should capture both sources of change:
 /// the base listing update (file change) and the newly activated
 /// conditional skill.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_file_change_and_conditional_activation_same_turn() {
     let provider = Arc::new(MockConditionalProvider::new(
@@ -564,6 +585,7 @@ async fn test_file_change_and_conditional_activation_same_turn() {
 /// When the daemon removes a skill from the listing, and a
 /// conditional skill was previously activated, the diff should
 /// reflect the removal of both the base skill and the conditional.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_file_change_removes_base_skill_with_conditional_active() {
     let provider = Arc::new(MockConditionalProvider::new(

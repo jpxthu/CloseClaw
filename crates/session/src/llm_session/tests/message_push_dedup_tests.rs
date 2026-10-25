@@ -94,6 +94,13 @@ impl LlmCaller for RecordingCaller {
 
 /// 生产路径两轮对话（预 append + invoke 全链路）：第二轮快照判定为参与
 /// （Eligible），整轮未命中时数值校验可触发。
+///
+/// `#[serial]`（issue #3109）：第二轮偏差 100_000 > 1024，触发
+/// `llm_stats.rs` 的 `warn!` callsite（`log_cache_anomaly`）；
+/// tracing callsite-interest 缓存为进程级全局，并发注册可丢事件
+/// （#3102）。同文件其余测试不标注——其执行路径不触发该 warn
+/// callsite。
+#[serial_test::serial]
 #[tokio::test]
 async fn test_production_path_two_rounds_round2_eligible_and_numeric_check_fires() {
     let mut session = make_session();
@@ -304,6 +311,11 @@ async fn test_image_round_blocks_pre_append_sends_no_duplicate_copy() {
 
 /// 图轮的下一轮（纯文本追加）恢复尾部追加判定 Eligible：走预 append +
 /// invoke 全链路，第二轮快照判定为参与，数值校验可触发。
+///
+/// `#[serial]`（issue #3109）：第二轮偏差 100_000 > 1024，触发
+/// `llm_stats.rs` 的 `warn!` callsite；理由与兄弟测试不标注的口径
+/// 见 `test_production_path_two_rounds_round2_eligible_and_numeric_check_fires`。
+#[serial_test::serial]
 #[tokio::test]
 async fn test_round_after_image_turn_is_tail_append_eligible() {
     let mut session = make_session();
