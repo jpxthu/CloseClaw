@@ -37,11 +37,7 @@ async fn test_terminal_session_key_computed() {
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap();
+    let key = session_key_of(&result).unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
     assert_key_ts_in_window(key, before_ms, after_ms);
 }
@@ -90,6 +86,11 @@ fn assert_key_ts_in_window(key: &str, before_ms: i64, after_ms: i64) {
         "session_key timestamp should reflect system time \
          (window {before_ms}..{after_ms}ms), got {ts_prefix}: {key}"
     );
+}
+
+/// Extract `metadata.session_key` as `&str`; `None` when the key is absent.
+fn session_key_of(msg: &ProcessedMessage) -> Option<&str> {
+    msg.metadata.get("session_key").map(|s| s.as_str())
 }
 
 #[test]
@@ -153,11 +154,7 @@ async fn test_process_key_matches_formula() {
         .await
         .unwrap()
         .unwrap();
-    let key = out
-        .metadata
-        .get("session_key")
-        .expect("session_key must be set")
-        .as_str();
+    let key = session_key_of(&out).expect("session_key must be set");
     let (key_ts, _) = split_key(key);
     assert_ne!(
         key_ts, FIXED_PAST_TS_MS,
@@ -216,11 +213,7 @@ async fn test_missing_peer_id_yields_empty_key() {
     };
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap_or("");
+    let key = session_key_of(&result).unwrap_or("");
     assert!(key.is_empty(), "missing peer_id should yield empty key");
 }
 
@@ -302,7 +295,7 @@ async fn test_system_time_used_for_session_key() {
 
     let out = router.process(&ctx).await.unwrap().unwrap();
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
+    let key = session_key_of(&out).unwrap();
     assert_key_ts_in_window(key, before_ms, after_ms);
 }
 
@@ -329,7 +322,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
 
     let out = router.process(&ctx).await.unwrap().unwrap();
     let after_ms = chrono::Utc::now().timestamp_millis();
-    let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
+    let key = session_key_of(&out).unwrap();
     assert_key_ts_in_window(key, before_ms, after_ms);
 }
 
@@ -371,26 +364,10 @@ async fn test_different_account_ids_produce_different_session_keys() {
     let ctx_a = make_ctx(msg_a);
     let ctx_b = make_ctx(msg_b);
 
-    let key_a = router
-        .process(&ctx_a)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
-    let key_b = router
-        .process(&ctx_b)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out_a = router.process(&ctx_a).await.unwrap().unwrap();
+    let key_a = session_key_of(&out_a).unwrap().to_string();
+    let out_b = router.process(&ctx_b).await.unwrap().unwrap();
+    let key_b = session_key_of(&out_b).unwrap().to_string();
 
     assert_ne!(
         key_a, key_b,
@@ -440,26 +417,10 @@ async fn test_account_id_none_vs_some_produce_different_keys() {
     let ctx_none = make_ctx(msg_none);
     let ctx_some = make_ctx(msg_some);
 
-    let key_none = router
-        .process(&ctx_none)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
-    let key_some = router
-        .process(&ctx_some)
-        .await
-        .unwrap()
-        .unwrap()
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap()
-        .to_string();
+    let out_none = router.process(&ctx_none).await.unwrap().unwrap();
+    let key_none = session_key_of(&out_none).unwrap().to_string();
+    let out_some = router.process(&ctx_some).await.unwrap().unwrap();
+    let key_some = session_key_of(&out_some).unwrap().to_string();
 
     assert_ne!(
         key_none, key_some,
@@ -487,11 +448,7 @@ async fn test_account_id_read_from_raw_message() {
     ctx.metadata
         .insert("account_id".to_string(), "metadata_account".to_string());
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap();
+    let key = session_key_of(&result).unwrap();
     assert!(!key.is_empty(), "session_key should be set");
     let msg_meta = NormalizedMessage {
         platform: "feishu".to_string(),
@@ -508,11 +465,7 @@ async fn test_account_id_read_from_raw_message() {
     };
     let ctx_meta = make_ctx(msg_meta);
     let result_meta = router.process(&ctx_meta).await.unwrap().unwrap();
-    let key_meta = result_meta
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap();
+    let key_meta = session_key_of(&result_meta).unwrap();
     assert_ne!(
         key, key_meta,
         "account_id should be read from NormalizedMessage, not metadata"
@@ -600,11 +553,7 @@ async fn test_warn_log_when_from_empty() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap_or("");
+    let key = session_key_of(&result).unwrap_or("");
     assert!(
         key.is_empty(),
         "session_key should be empty when from is empty"
@@ -644,11 +593,7 @@ async fn test_warn_log_when_to_empty() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap_or("");
+    let key = session_key_of(&result).unwrap_or("");
     assert!(
         key.is_empty(),
         "session_key should be empty when to is empty"
@@ -688,11 +633,7 @@ async fn test_no_warn_log_when_both_present() {
     let _guard = tracing::subscriber::set_default(subscriber);
 
     let result = router.process(&ctx).await.unwrap().unwrap();
-    let key = result
-        .metadata
-        .get("session_key")
-        .map(|s| s.as_str())
-        .unwrap_or("");
+    let key = session_key_of(&result).unwrap_or("");
     assert!(
         !key.is_empty(),
         "session_key should be non-empty when both present"
