@@ -23,7 +23,7 @@ pub(crate) fn spawn_sleep_child() -> std::process::Child {
 /// Test-only type carrying the SIGTERM/SIGINT-only invariant of
 /// [`kill_self`] in code instead of a caller convention: every variant
 /// is one of the two graceful shutdown signals handled by
-/// [`subscribe_shutdown_signals`].
+/// `crate::process::subscribe_shutdown_signals`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TestSelfSignal {
     /// SIGTERM — graceful shutdown trigger.
