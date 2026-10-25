@@ -167,14 +167,12 @@ fn test_stop_daemon_timeout() {
     assert!(err_msg.contains("did not exit within"));
 
     // Clean up: SIGCONT then SIGKILL so the process can be reaped.
-    // SAFETY: `pid` is the test's own spawned child; SIGCONT merely resumes
-    // it, and kill(2) with a valid signal is a standard POSIX operation with
-    // no memory-safety implications.
+    // SAFETY: `pid` is the test's own spawned child, suspended by SIGSTOP
+    // above (so it is still alive here and SIGCONT merely resumes it), and
+    // kill(2) with a valid signal is a standard POSIX operation with no
+    // memory-safety implications.
     unsafe {
         libc::kill(pid as i32, libc::SIGCONT);
-    }
-    // SAFETY: kill with SIGKILL is a standard POSIX operation.
-    unsafe {
         libc::kill(pid as i32, libc::SIGKILL);
     }
     child.wait().ok();
