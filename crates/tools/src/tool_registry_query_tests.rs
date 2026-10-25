@@ -12,10 +12,8 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read file contents".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -23,10 +21,8 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         name: "Write".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Write file contents".to_string(),
-        is_deferred: false,
-        is_read_only: false,
         is_destructive: true,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -36,8 +32,7 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         summary_text: "Search in files".to_string(),
         is_deferred: true,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -45,10 +40,8 @@ async fn setup_registry_with_tools() -> ToolRegistryImpl {
         name: "Search".to_string(),
         group: "search".to_string(),
         summary_text: "Web search".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

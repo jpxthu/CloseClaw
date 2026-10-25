@@ -13,10 +13,7 @@ async fn test_register_before_freeze_normal() {
         name: "ModeTrigger".to_string(),
         group: "mode".to_string(),
         summary_text: "mode trigger".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
 
     reg.register_before_freeze(tool, "SystemLevel")
@@ -35,10 +32,7 @@ async fn test_register_before_freeze_frozen() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "read".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -53,10 +47,7 @@ async fn test_register_before_freeze_frozen() {
         name: "WorkflowStart".to_string(),
         group: "workflow".to_string(),
         summary_text: "start".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
 
     let err = reg
@@ -75,10 +66,7 @@ async fn test_register_before_freeze_duplicate() {
         name: "WorkflowStart".to_string(),
         group: "workflow".to_string(),
         summary_text: "start v1".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     reg.register_before_freeze(tool1, "SystemLevel")
         .await
@@ -88,10 +76,7 @@ async fn test_register_before_freeze_duplicate() {
         name: "WorkflowStart".to_string(),
         group: "workflow".to_string(),
         summary_text: "start v2".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let err = reg
         .register_before_freeze(tool2, "SystemLevel")
@@ -110,10 +95,7 @@ async fn test_register_before_freeze_increments_generation() {
         name: "ModeTrigger".to_string(),
         group: "mode".to_string(),
         summary_text: "trigger".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     reg.register_before_freeze(tool, "SystemLevel")
         .await
@@ -130,10 +112,7 @@ async fn test_register_before_freeze_records_owner() {
         name: "WorkflowStart".to_string(),
         group: "workflow".to_string(),
         summary_text: "start".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     reg.register_before_freeze(tool, "WorkflowRegistrar")
         .await
@@ -155,28 +134,19 @@ async fn test_register_before_freeze_multiple_then_freeze() {
             name: "ModeTrigger".to_string(),
             group: "mode".to_string(),
             summary_text: "mode".to_string(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         }),
         Arc::new(DummyTool {
             name: "WorkflowStart".to_string(),
             group: "workflow".to_string(),
             summary_text: "ws".to_string(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         }),
         Arc::new(DummyTool {
             name: "WorkflowVerify".to_string(),
             group: "workflow".to_string(),
             summary_text: "wv".to_string(),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         }),
     ];
 
@@ -200,10 +170,7 @@ async fn test_register_before_freeze_multiple_then_freeze() {
         name: "Extra".to_string(),
         group: "extra".to_string(),
         summary_text: "extra".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let err = reg
         .register_before_freeze(tool, "SystemLevel")
@@ -221,10 +188,7 @@ async fn test_register_before_freeze_then_freeze_via_trait() {
         name: "ModeTrigger".to_string(),
         group: "mode".to_string(),
         summary_text: "trigger".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     reg.register_before_freeze(tool, "SystemLevel")
         .await
@@ -239,10 +203,7 @@ async fn test_register_before_freeze_then_freeze_via_trait() {
         name: "Extra".to_string(),
         group: "extra".to_string(),
         summary_text: "extra".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     });
     let err = reg
         .register_before_freeze(tool2, "SystemLevel")

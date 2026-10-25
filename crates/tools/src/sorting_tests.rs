@@ -24,9 +24,7 @@ async fn test_sort_build_tools_section_mixed_order() {
         group: "alpha".to_string(),
         summary_text: "alpha tool".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -35,10 +33,7 @@ async fn test_sort_build_tools_section_mixed_order() {
         name: "Bravo1".to_string(),
         group: "bravo".to_string(),
         summary_text: "bravo tool".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -47,10 +42,7 @@ async fn test_sort_build_tools_section_mixed_order() {
         name: "Charlie1".to_string(),
         group: "charlie".to_string(),
         summary_text: "charlie tool".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -89,10 +81,7 @@ async fn test_sort_mixed_group_before_pure_deferred() {
         name: "MixEager".to_string(),
         group: "mixed".to_string(),
         summary_text: "mixed eager".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -101,9 +90,7 @@ async fn test_sort_mixed_group_before_pure_deferred() {
         group: "mixed".to_string(),
         summary_text: "mixed deferred".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -113,9 +100,7 @@ async fn test_sort_mixed_group_before_pure_deferred() {
         group: "pure_deferred".to_string(),
         summary_text: "pure deferred".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

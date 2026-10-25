@@ -7,6 +7,7 @@
 
 use crate::{PromptGenerationContext, Tool, ToolFlags};
 
+#[derive(Default)]
 pub(crate) struct DummyTool {
     pub(crate) name: String,
     pub(crate) group: String,

@@ -77,10 +77,7 @@ async fn test_group_atomicity_second_group_skipped() {
         name: "ShortTool".to_string(),
         group: "group1".to_string(),
         summary_text: "short".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -91,10 +88,7 @@ async fn test_group_atomicity_second_group_skipped() {
             name: format!("LongTool{i}"),
             group: "group2".to_string(),
             summary_text: format!("long tool {i}"),
-            is_deferred: false,
-            is_read_only: false,
-            is_destructive: false,
-            is_expensive: false,
+            ..Default::default()
         })
         .await
         .unwrap();
@@ -104,10 +98,7 @@ async fn test_group_atomicity_second_group_skipped() {
         name: "AnotherTool".to_string(),
         group: "group3".to_string(),
         summary_text: "another".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();

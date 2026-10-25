@@ -217,10 +217,7 @@ async fn test_build_tools_section_truncation_hint() {
         name: "Small1".to_string(),
         group: "small".to_string(),
         summary_text: "s1".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -266,10 +263,8 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         name: "Read".to_string(),
         group: "file_ops".to_string(),
         summary_text: "Read files".to_string(),
-        is_deferred: false,
         is_read_only: true,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -278,9 +273,7 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         group: "file_ops".to_string(),
         summary_text: "Write files".to_string(),
         is_deferred: true,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -288,10 +281,7 @@ async fn test_build_tools_section_no_hint_when_no_truncation() {
         name: "ToolSearch".to_string(),
         group: "meta".to_string(),
         summary_text: "Search tools".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
@@ -317,10 +307,7 @@ async fn test_build_tools_section_hint_respects_max_len() {
         name: "Small1".to_string(),
         group: "small".to_string(),
         summary_text: "s1".to_string(),
-        is_deferred: false,
-        is_read_only: false,
-        is_destructive: false,
-        is_expensive: false,
+        ..Default::default()
     })
     .await
     .unwrap();
