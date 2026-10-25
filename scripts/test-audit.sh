@@ -248,8 +248,9 @@ if [[ "$TEMP_ROOT" != /tmp* ]]; then
 fi
 
 # ── 静态扫描执行 ──────────────────────────────────────────
-# 扫描实现整体函数化（collect_static_entries <扫描根目录>，结果写入全局
-# ENTRIES）：正常模式对 $PROJECT_ROOT 调用；--self-test（转调
+# 扫描实现整体函数化（collect_static_entries <扫描根目录> 编排，结果写入全局
+# ENTRIES，内部按「原通道静态扫描 / 补集通道区域扫描 / 挂载目标解析」三段
+# 边界抽独立函数）：正常模式对 $PROJECT_ROOT 调用；--self-test（转调
 # scripts/test-audit-self-test.sh）对 mktemp 内嵌 fixture 树调用同一实现，
 # 保证「测的就是真实扫描逻辑」（函数定义在 REGION_SCANNER_AWK 之后）
 
@@ -525,32 +526,22 @@ filter_helper_exempt() {
   files_ref=("${kept[@]}")
 }
 
-collect_static_entries() {
+# ── 原通道：独立测试文件全文件扫 ──────────────────────────
+# $1 = scan_root，$2… = 扫描目录集合；构建 find 命令参数（仅依赖 TARGET_FILTER，
+# 循环不变量，构建一次）；文件清单只执行一次 find（规则循环不变量），逐规则
+# 复用；helper 豁免在本通道同样生效（原通道可命中的 *_tests.rs 形态 helper
+# 测试文件按同一判据剔除，避免两通道豁免口径不一致）。命中追加写入全局 ENTRIES
+collect_original_channel_entries() {
   local scan_root="$1"
-  ENTRIES=()
+  shift
+  local scan_dirs=("$@")
 
-  # ── 扫描目录集合 ────────────────────────────────────────
-  # 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
-  # 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描（见下）
-  local scan_dirs=("$scan_root/src" "$scan_root/tests")
-  local sdir
-  for sdir in "$scan_root"/crates/*/src; do
-    if [[ -d "$sdir" ]]; then
-      scan_dirs+=("$sdir")
-    fi
-  done
-
-  # ── 原通道：独立测试文件全文件扫 ────────────────────────
-  # 构建 find 命令参数（仅依赖 TARGET_FILTER，循环不变量，构建一次）
   local find_args=("${scan_dirs[@]}" -type f \(
     -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     find_args+=(-path "*${TARGET_FILTER}*")
   fi
 
-  # 文件清单只执行一次 find（规则循环不变量），逐规则复用；
-  # helper 豁免在本通道同样生效（原通道可命中的 *_tests.rs 形态 helper
-  # 测试文件按同一判据剔除，避免两通道豁免口径不一致）
   local rs_files=()
   mapfile -t rs_files < <(find "${find_args[@]}" 2>/dev/null)
   filter_helper_exempt rs_files "$scan_root"
@@ -570,20 +561,24 @@ collect_static_entries() {
       done < <(grep -n"$mode" -- "$pattern" "$file" 2>/dev/null || true)
     done
   done
+}
 
-  # ── 扩围文件集合：原 find 谓词的精确补集 ────────────────
+# ── 补集通道：扩围文件集合区域扫描 ────────────────────────
+# 原通道 find 谓词的精确补集文件集 → helper 豁免过滤 → 单次 REGION_SCANNER_AWK
+# 扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；find
+# 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）。
+# 事件 TSV 写入全局 EVENTS_FILE（临时文件生命周期由编排函数管理）
+scan_expansion_region_events() {
+  local scan_root="$1"
+  shift
+  local scan_dirs=("$@")
+
   local all_find_args=("${scan_dirs[@]}" -type f -name '*.rs' \
     ! \( -name '*_tests.rs' -o -path '*/tests/*' -o -name 'tests.rs' \))
   if [[ -n "$TARGET_FILTER" ]]; then
     all_find_args+=(-path "*${TARGET_FILTER}*")
   fi
 
-  EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
-  MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
-  FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
-
-  # 单次扫描同时产出内联区域事件与挂载声明（xargs 分批不影响逐文件状态复位）；
-  # find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）
   local expansion_files=()
   mapfile -t expansion_files < <(find "${all_find_args[@]}" 2>/dev/null)
   # helper 豁免（路径段级）：目录化 helper 子模块与 helper 本体不经内联/
@@ -595,8 +590,14 @@ collect_static_entries() {
   else
     : > "$EVENTS_FILE"
   fi
+}
 
-  # ── 挂载目标解析与过滤 ──────────────────────────────────
+# ── 挂载目标解析与过滤 ────────────────────────────────────
+# 读取全局 EVENTS_FILE 的 M 事件（cfg(test) 挂载声明），按 Rust 2018 mod 解析
+# 规则定位目标文件；双计防护、helper 豁免、--target 过滤与异常自指防护后去重
+# 写入全局 MTARGETS_FILE（C locale 排序保证确定性）。$1 = scan_root
+resolve_mount_targets() {
+  local scan_root="$1"
   local -A mount_target_seen=()
   local mline drel rest dattr dname ddir target declarer stem cand rel_target base
   local -a mount_candidates=()
@@ -653,6 +654,38 @@ collect_static_entries() {
   if [[ -s "$MTARGETS_FILE" ]]; then
     LC_ALL=C sort -o "$MTARGETS_FILE" "$MTARGETS_FILE"
   fi
+}
+
+# ── 静态扫描编排（三段边界抽独立函数，本函数仅目录集构建 / 临时文件生命周期 /
+# 条目汇集，行为与拆分前一致）──────────────────────────────
+collect_static_entries() {
+  local scan_root="$1"
+  ENTRIES=()
+
+  # ── 扫描目录集合 ────────────────────────────────────────
+  # 顶层 src/、tests/ + crates/*/src（glob 展开）；文件名匹配模式为既有设计；
+  # 扩围不修改原 find 谓词，以「互补文件集 + 新通道」方式补充扫描
+  # （见 scan_expansion_region_events）
+  local scan_dirs=("$scan_root/src" "$scan_root/tests")
+  local sdir
+  for sdir in "$scan_root"/crates/*/src; do
+    if [[ -d "$sdir" ]]; then
+      scan_dirs+=("$sdir")
+    fi
+  done
+
+  # ── 原通道：独立测试文件全文件扫 ──
+  collect_original_channel_entries "$scan_root" "${scan_dirs[@]}"
+
+  EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-events-XXXXXX")"
+  MTARGETS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-mtargets-XXXXXX")"
+  FILTERED_EVENTS_FILE="$(mktemp "${TMPDIR:-/tmp}/test-audit-region-XXXXXX")"
+
+  # ── 补集通道：内联区域 + 挂载声明事件扫描 ──
+  scan_expansion_region_events "$scan_root" "${scan_dirs[@]}"
+
+  # ── 挂载目标解析 ──
+  resolve_mount_targets "$scan_root"
 
   # ── 内联区域事件：剔除挂载目标（挂载文件走全文件扫，防双计）──
   if [[ -s "$MTARGETS_FILE" ]]; then
@@ -663,6 +696,7 @@ collect_static_entries() {
   fi
 
   # ── 扩围通道条目收集（复用同一规则数组，含 TEMP_ROOT 补充规则）──
+  local i label pattern mode entry mfile match line
   for i in "${!LABELS[@]}"; do
     label="${LABELS[$i]}"
     pattern="${PATTERNS[$i]}"
