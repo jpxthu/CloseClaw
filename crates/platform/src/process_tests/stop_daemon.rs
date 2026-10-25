@@ -1,6 +1,6 @@
 use super::spawn_sleep_child;
 use crate::process::{stop_daemon, wait_for_exit, write_pid_file, StopOutcome};
-use std::os::unix::net::UnixListener;
+use std::os::unix::net::{UnixListener, UnixStream};
 use std::time::Duration;
 use tempfile::TempDir;
 
@@ -48,20 +48,23 @@ fn spawn_detached_sleep_pid() -> u32 {
         let accepted = listener.accept().map(|_| ()).map_err(|e| e.to_string());
         let _ = tx.send(accepted);
     });
-    match rx.recv_timeout(CHILD_READY_TIMEOUT) {
-        Ok(Ok(())) => {}
-        Ok(Err(e)) => {
-            child.kill().ok();
-            child.wait().ok();
-            panic!("ready socket accept failed: {e}");
-        }
-        Err(_) => {
-            child.kill().ok();
-            child.wait().ok();
-            panic!(
+    let outcome = rx.recv_timeout(CHILD_READY_TIMEOUT);
+    if !matches!(outcome, Ok(Ok(()))) {
+        child.kill().ok();
+        child.wait().ok();
+        // Best-effort wake-up of the watcher thread: on the timeout path
+        // its accept() is still blocked on the socket, so a parent-side
+        // connect lets accept return and the thread exit instead of
+        // leaking for the rest of the test run; a no-op when the watcher
+        // already exited on an accept error.
+        let _ = UnixStream::connect(&ready_socket);
+        match outcome {
+            Ok(Err(e)) => panic!("ready socket accept failed: {e}"),
+            Err(_) => panic!(
                 "child did not report pidfile readiness within {CHILD_READY_TIMEOUT:?} \
                  (pidfile {pid_path:?}, socket {ready_socket:?})"
-            );
+            ),
+            Ok(Ok(())) => unreachable!("outcome excluded by the matches! guard above"),
         }
     }
     // Handshake received: the pidfile is fully written. The child binary
@@ -95,8 +98,7 @@ fn test_spawn_detached_sleep_pid_child() {
     };
     let child = spawn_sleep_child();
     std::fs::write(&pid_path, child.id().to_string()).expect("failed to write pid file");
-    std::os::unix::net::UnixStream::connect(&ready_socket)
-        .expect("failed to signal pidfile readiness to parent");
+    UnixStream::connect(&ready_socket).expect("failed to signal pidfile readiness to parent");
     // Detach: the handle is dropped without waiting; when this child
     // process exits, the sleep process is reparented to init.
     drop(child);

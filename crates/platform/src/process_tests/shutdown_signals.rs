@@ -1,5 +1,5 @@
-use super::{kill_self, TestSelfSignal};
-use crate::process::{subscribe_shutdown_signals, ShutdownSignalSubscription};
+use super::{in_signal_test_child, kill_self, open_child_subscription, TestSelfSignal};
+use crate::process::ShutdownSignalSubscription;
 use tokio::signal::unix::SignalKind;
 
 // ── subscribe_shutdown_signals / next_signal tests ─────────────────
@@ -26,7 +26,7 @@ fn run_signal_child(case: &str) {
 
 /// Arms a detached thread that self-delivers `sig` as soon as the
 /// handshake token arrives on the returned sender. The caller releases
-/// the sender only after [`subscribe_shutdown_signals`] returned — i.e.
+/// the sender only after `subscribe_shutdown_signals` returned — i.e.
 /// after the OS handlers are installed and incoming signals are
 /// buffered for the subscription — so delivery is deterministic and
 /// cannot be lost, instead of relying on a sleep-timed race.
@@ -59,13 +59,11 @@ async fn deliver_and_expect(
 /// Child-side single-round body: skip unless spawned by a parent test,
 /// then subscribe and deterministically deliver-and-verify one `sig`.
 async fn subscribe_and_expect(sig: TestSelfSignal, want: SignalKind, context: &str) {
-    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+    if !in_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
-    let mut sub = subscribe_shutdown_signals()
-        .await
-        .expect("subscribe_shutdown_signals should succeed");
+    let mut sub = open_child_subscription().await;
     deliver_and_expect(&mut sub, sig, want, context).await;
 }
 
@@ -118,13 +116,11 @@ fn test_subscribe_shutdown_signals_multiple_next_signal() {
 /// subscribe handshake.
 #[tokio::test]
 async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
-    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+    if !in_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
-    let mut sub = subscribe_shutdown_signals()
-        .await
-        .expect("subscribe_shutdown_signals should succeed");
+    let mut sub = open_child_subscription().await;
 
     // First signal: SIGTERM.
     deliver_and_expect(

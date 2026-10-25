@@ -1,4 +1,4 @@
-use super::{kill_self, TestSelfSignal};
+use super::{in_signal_test_child, kill_self, TestSelfSignal};
 use std::os::unix::process::ExitStatusExt;
 
 // ── kill_self wrapper tests ────────────────────────────────────────
@@ -14,10 +14,7 @@ use std::os::unix::process::ExitStatusExt;
 /// from the real signal — `kill_self(sig)` must deliver the actual signal
 /// to the process itself, not merely claim success.
 fn assert_death_by_signal(sig: TestSelfSignal, case: &str) {
-    let (want_signal, signal_name) = match sig {
-        TestSelfSignal::Sigterm => (libc::SIGTERM, "SIGTERM"),
-        TestSelfSignal::Sigint => (libc::SIGINT, "SIGINT"),
-    };
+    let (want_signal, signal_name) = (sig.as_libc_signal(), sig.name());
     let test_binary = std::env::current_exe().expect("current exe");
     let output = std::process::Command::new(test_binary)
         .env("SIGNAL_TEST_CHILD", "1")
@@ -39,7 +36,7 @@ fn assert_death_by_signal(sig: TestSelfSignal, case: &str) {
 /// no subscription installed — the default disposition must kill this
 /// process, which the parent asserts via the exit status.
 fn run_kill_self_child(sig: TestSelfSignal) {
-    if std::env::var("SIGNAL_TEST_CHILD").is_err() {
+    if !in_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
