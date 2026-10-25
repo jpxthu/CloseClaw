@@ -2,7 +2,7 @@
 //!
 //! Covers the restart state machine (Idle → Pending → Executing), the
 //! restart-request batching, DaemonReloadCallback restart-class signal
-//! delivery, and (Step 1.9) the restart-path turn-completion consumer
+//! delivery, and the restart-path turn-completion consumer
 //! wiring (`recv → finish_turns`), mirroring `install_handlers`.
 //!
 //! Naming: every test case carries the `test_` prefix per STANDARDS §3;
@@ -252,17 +252,8 @@ fn test_force_restart_executing_returns_false() {
 // 与 config / §9 断言风格（确定性）. Callers must hold the TempDir binding.
 fn make_test_config_manager() -> (Arc<closeclaw_config::ConfigManager>, tempfile::TempDir) {
     let d = tempfile::tempdir().unwrap();
-    for (name, content) in &[
-        ("models.json", r#"{"models":[]}"#),
-        ("channels.json", r#"{"channels":{}}"#),
-        ("gateway.json", r#"{"port":8080}"#),
-        ("plugins.json", r#"{"plugins":[]}"#),
-        ("system.json", r#"{"version":"1"}"#),
-        ("accounts.json", r#"{"accounts":[]}"#),
-    ] {
-        std::fs::write(d.path().join(name), content).unwrap();
-    }
-    let cm = Arc::new(closeclaw_config::ConfigManager::new(d.path().to_path_buf()).unwrap());
+    crate::test_helpers::write_mandatory_configs(d.path()).expect("mandatory configs");
+    let cm = Arc::new(crate::test_helpers::load_config_manager(d.path()));
     (cm, d)
 }
 
@@ -313,16 +304,14 @@ fn test_on_config_file_changed_no_signal_without_tx() {
     );
 }
 
-// ── Step 1.3: Gateway restart rebuild UTs ──────────────────────────
+// ── Gateway restart rebuild UTs ─────────────────────────────────────
 
-/// ChatContext holds a Gateway Arc that a restart rebuilds, and the
-/// rebuild must yield a fresh instance rather than a reused one. The
-/// compile-time field check of ChatContext's struct literal lives in the
-/// `test_helpers` factory; this test smoke-checks the factory by
-/// asserting two calls produce distinct Gateway Arcs (no shared/cached
-/// instance).
+/// Smoke-check of the `test_helpers` `make_dispatch_context` factory:
+/// two calls must produce distinct Gateway Arcs (no shared/cached
+/// instance). The compile-time field check of ChatContext's struct
+/// literal lives in the factory itself.
 #[test]
-fn test_chat_context_holds_gateway_reference() {
+fn test_make_dispatch_context_yields_fresh_gateway_arc() {
     use crate::test_helpers::make_dispatch_context;
     use closeclaw_gateway::types::GatewayConfig;
 
@@ -432,7 +421,7 @@ fn test_restart_request_merges_changes() {
     }
 }
 
-// ── Step 1.9: restart-path turn-completion consumer ────────────────
+// ── restart-path turn-completion consumer ───────────────────────────
 
 /// The restart path must consume its own SessionMessageHandler
 /// output channel and call `finish_turns` per completed LLM turn —
@@ -446,7 +435,7 @@ fn test_restart_request_merges_changes() {
 /// — `recv → finish_turns` until the output channel closes.
 #[tokio::test]
 async fn test_restart_path_output_consumer_finalizes_waiting_chat_turn() {
-    // Waiting chat connection + shared consumer (Step 1.20 harness — the
+    // Waiting chat connection + shared consumer (test_helpers harness — the
     // same setup the chat_rpc failure-payload test uses).
     let mut h = crate::test_helpers::setup_turn_completion_consumer().await;
 

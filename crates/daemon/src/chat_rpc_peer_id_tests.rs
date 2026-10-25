@@ -17,7 +17,7 @@
 //!    the target agent and lands in the same session route key.
 
 use super::*;
-use crate::test_helpers::effective_test_config;
+use crate::test_helpers::apply_test_sentinels;
 use closeclaw_gateway::types::GatewayConfig;
 use closeclaw_gateway::SessionManager;
 
@@ -129,7 +129,7 @@ fn make_chain_dispatch_context(
     raw_log_dir: &Path,
     bindings: HashMap<String, String>,
 ) -> ChatContext {
-    let config = effective_test_config(GatewayConfig {
+    let config = apply_test_sentinels(GatewayConfig {
         raw_log_dir: Some(raw_log_dir.to_path_buf()),
         bot_agent_bindings: bindings,
         ..Default::default()
