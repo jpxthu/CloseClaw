@@ -6,6 +6,7 @@
 //! shown — Step 1.2 changes (expensive mark migration) must not break
 //! this existing behavior.
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 
 /// Helper: build a `ToolInfo` with configurable danger marks.
 fn danger_tool_info(

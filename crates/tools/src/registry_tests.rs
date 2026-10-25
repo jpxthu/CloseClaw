@@ -1,43 +1,7 @@
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 use crate::ToolFlags;
 use closeclaw_common::RegistryError;
-
-struct DummyTool {
-    name: String,
-    group: String,
-    summary_text: String,
-    is_deferred: bool,
-    is_read_only: bool,
-    is_destructive: bool,
-    is_expensive: bool,
-}
-
-impl Tool for DummyTool {
-    fn name(&self) -> &str {
-        &self.name
-    }
-    fn group(&self) -> &str {
-        &self.group
-    }
-    fn summary(&self) -> String {
-        self.summary_text.clone()
-    }
-    fn detail(&self) -> String {
-        format!("detail for {}", self.name)
-    }
-    fn input_schema(&self) -> serde_json::Value {
-        serde_json::json!({ "type": "object", "properties": {} })
-    }
-    fn flags(&self) -> ToolFlags {
-        ToolFlags {
-            is_deferred_by_default: self.is_deferred,
-            is_read_only: self.is_read_only,
-            is_destructive: self.is_destructive,
-            is_expensive: self.is_expensive,
-            ..Default::default()
-        }
-    }
-}
 
 fn make_ctx() -> ToolContext {
     ToolContext {
@@ -49,20 +13,6 @@ fn make_ctx() -> ToolContext {
         session_mode: None,
         manual_background_signal: None,
         media_store: None,
-    }
-}
-
-/// Build a `PromptGenerationContext` for the named tools.
-fn make_prompt_ctx(names: &[&str]) -> PromptGenerationContext {
-    PromptGenerationContext {
-        agent_id: "test-agent".to_string(),
-        workdir: None,
-        available_tool_names: names.iter().map(|s| s.to_string()).collect(),
-        tools: None,
-        disallowed_tools: None,
-        session_mode: None,
-        agent_role: None,
-        agent_type: None,
     }
 }
 
@@ -818,11 +768,6 @@ async fn test_plan_mode_hides_plan_approval_tool() {
     );
 }
 
-mod danger_mark_regression_tests;
-mod expensive_mark_tests;
-mod secondary_expensive_tests;
-mod sorting_tests;
-
 // =========================================================================
 // strip_keywords_prefix tests
 // =========================================================================
@@ -953,16 +898,3 @@ async fn test_build_tools_section_strips_keywords() {
         "detail text should be present after stripping, got: {section}"
     );
 }
-
-// =========================================================================
-// ToolRegistryQuery trait-level tests: get_tool_detail & list_tool_names_by_group
-// =========================================================================
-mod agent_tools_gate_tests;
-mod group_atomicity_tests;
-mod keyword_tests;
-mod register_before_freeze_tests;
-mod registrar_behavior_tests;
-mod registry_integration_tests;
-mod spawn_filter_tests;
-mod tool_registry_query_tests;
-mod truncation_tests;

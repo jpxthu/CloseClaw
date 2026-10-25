@@ -31,6 +31,9 @@ pub mod tools_fragment_provider;
 pub mod workdir_context;
 
 #[cfg(test)]
+pub(crate) mod registry_test_support;
+
+#[cfg(test)]
 pub(crate) mod test_adapters;
 
 #[cfg(test)]

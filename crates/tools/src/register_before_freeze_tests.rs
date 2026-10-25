@@ -1,6 +1,7 @@
 //! Tests for `register_before_freeze` method on ToolRegistryImpl.
 
 use super::*;
+use crate::registry_test_support::DummyTool;
 use closeclaw_common::tool_registry::ToolRegistry as ToolRegistryTrait;
 use std::sync::Arc;
 

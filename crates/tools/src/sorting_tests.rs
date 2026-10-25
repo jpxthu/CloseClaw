@@ -9,6 +9,7 @@
 //! only integration tests going through the real registry path remain.
 
 use super::*;
+use crate::registry_test_support::{make_prompt_ctx, DummyTool};
 
 // ── Integration: build_tools_section ordering verification ───────────────────
 
