@@ -1,6 +1,7 @@
 use super::*;
 use crate::outbound_raw_log::OutboundRawLogProcessor;
 use crate::processor_chain::context::MessageContext;
+use crate::processor_chain::registry::metadata_str;
 use closeclaw_common::im_plugin::NormalizedMessage;
 use tempfile::TempDir;
 
@@ -180,7 +181,7 @@ async fn test_preserves_content_and_blocks() {
     let result = processor.process(&ctx).await.unwrap().unwrap();
     assert_eq!(result.text_content(), Some("output text"));
     assert_eq!(
-        result.metadata.get("session_key").map(|s| s.as_str()),
+        metadata_str(&result.metadata, "session_key"),
         Some("sess_1")
     );
     assert_eq!(result.content_blocks.len(), 1);
