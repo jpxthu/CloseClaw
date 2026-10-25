@@ -6,7 +6,9 @@
 #
 # 静态扫描范围：独立测试文件全文件（*_tests.rs / tests.rs / tests 目录），
 # 以及扩围通道——生产文件内联 #[cfg(test)] 门控区域 + cfg(test) 挂载的
-# test-only 文件（目标文件名含 test_helpers / test_support 的 helper 本体除外）
+# test-only 文件。helper 收敛点本体（平铺 helper 文件 + 目录化 helper 子模块）
+# 经三通道一致的豁免判据排除：文件名含 test_helpers / test_support 词干，
+# 或路径含 /test_helpers/、/test_support/ 段（见 is_helper_exempt）
 #
 # 扩围通道已知局限（best-effort 行级解析，不追全量 Rust 语法）：
 #   - cfg 属性跨行书写不识别（如 `#[cfg(all(
@@ -25,7 +27,8 @@
 #                    且不得吞掉 runtime 违规报告）
 # --self-test        扫描器自测：对 mktemp 内嵌最小 fixture 树运行与正常模式
 #                    完全相同的扫描实现，断言命中/不命中规格矩阵（内联区域
-#                    命中 / 生产区不命中 / not(test) 不命中 / helper 命名排除 /
+#                    命中 / 生产区不命中 / not(test) 不命中 / helper 豁免
+#                    （平铺命名 + 目录化子模块 + 文件内内联区域）/
 #                    挂载解析含 #[path] 与非 mod.rs 声明者 / 字面量剥离 /
 #                    原谓词文件无双计）；离线、不读仓库与 baseline；
 #                    与 --runtime/--target/--update-baseline 互斥
@@ -254,10 +257,12 @@ fi
 #      any(test,...) 复合形态；排除 not(test) 与 feature = "test-*" 命名误配）
 #      内的规则命中
 #   B. #[cfg(test)] [#[path = "..."]] mod NAME; 挂载、命名特殊的 test-only 文件
-# 双计防护：两通道仅处理「原 find 谓词不匹配的 .rs 文件」（与原通道互补）；
-# 挂载目标再从内联通道剔除（挂载文件走全文件扫）。helper 收敛点本体不命中：
-# 内联通道下 helper 函数体位于 cfg(test) 区域外天然不命中；挂载通道下目标文件
-# 名含 test_helpers / test_support 的文件不纳入。
+# 双计防护：两通道仅处理「原 find 谓词不匹配且非 helper 豁免的 .rs 文件」
+# （与原通道互补，豁免口径一致）；挂载目标再从内联通道剔除（挂载文件走全
+# 文件扫）。helper 收敛点本体不进扫描视野：原通道文件收集、补集通道文件
+# 收集、挂载目标解析三处统一引用 is_helper_exempt（basename ∪ 路径段并集，
+# 见函数注释），「helper 本体（平铺 + 目录化子模块，含文件内内联 cfg(test)
+# 区域）不扫」为机制保证，非「helper 文件恰好无 cfg(test) 区域」的侥幸等价。
 
 # ── cfg(test) 区域/挂载扫描器（awk）──────────────────────
 # 输出事件（TSV）：
@@ -403,6 +408,26 @@ FNR == 1 {
 AWK_PROGRAM
 )"
 
+# ── helper 豁免判据（一处定义，三通道引用）────────────────
+# basename ∪ 路径段并集（入参为相对 scan_root 的路径）：
+#   - 文件名含 test_helpers / test_support 词干 → 平铺 helper 本体
+#     （如 crates/common/src/test_helpers.rs，路径无段且为 cfg(test) 挂载目标）
+#   - 路径含 /test_helpers/、/test_support/ 段 → 目录化 helper 子模块
+#     （如 crates/daemon/src/test_helpers/*.rs）与 test_support 整目录
+# 原通道文件收集、补集通道文件收集、挂载目标解析三处统一引用，
+# 使「helper 收敛点本体不进扫描视野」成为机制保证而非侥幸等价
+is_helper_exempt() {
+  local rel="$1" base
+  base="${rel##*/}"
+  case "$base" in
+    *test_helpers* | *test_support*) return 0 ;;
+  esac
+  case "$rel" in
+    */test_helpers/* | */test_support/*) return 0 ;;
+  esac
+  return 1
+}
+
 collect_static_entries() {
   local scan_root="$1"
   ENTRIES=()
@@ -426,9 +451,19 @@ collect_static_entries() {
     find_args+=(-path "*${TARGET_FILTER}*")
   fi
 
-  # 文件清单只执行一次 find（规则循环不变量），逐规则复用
+  # 文件清单只执行一次 find（规则循环不变量），逐规则复用；
+  # helper 豁免在本通道同样生效（原通道可命中的 *_tests.rs 形态 helper
+  # 测试文件按同一判据剔除，避免两通道豁免口径不一致）
   local rs_files=()
   mapfile -t rs_files < <(find "${find_args[@]}" 2>/dev/null)
+  local scanned_rs=()
+  for file in "${rs_files[@]}"; do
+    if is_helper_exempt "${file#"$scan_root"/}"; then
+      continue
+    fi
+    scanned_rs+=("$file")
+  done
+  rs_files=("${scanned_rs[@]}")
 
   local i label pattern mode file rel_path match line
   for i in "${!LABELS[@]}"; do
@@ -461,8 +496,17 @@ collect_static_entries() {
   # find 经 process substitution 隔离退出码（扫描目录可缺省，与原通道 rs_files 一致）
   local expansion_files=()
   mapfile -t expansion_files < <(find "${all_find_args[@]}" 2>/dev/null)
-  if [[ ${#expansion_files[@]} -gt 0 ]]; then
-    printf '%s\n' "${expansion_files[@]}" \
+  # helper 豁免（路径段级）：目录化 helper 子模块与 helper 本体不经内联/
+  # 挂载通道进扫描视野——否则「helper 不扫」仍依赖其恰好无 cfg(test) 区域
+  local -a scanned_expansion=()
+  for file in "${expansion_files[@]}"; do
+    if is_helper_exempt "${file#"$scan_root"/}"; then
+      continue
+    fi
+    scanned_expansion+=("$file")
+  done
+  if [[ ${#scanned_expansion[@]} -gt 0 ]]; then
+    printf '%s\n' "${scanned_expansion[@]}" \
       | xargs -r -d '\n' awk -v root="$scan_root" "$REGION_SCANNER_AWK" > "$EVENTS_FILE"
   else
     : > "$EVENTS_FILE"
@@ -510,8 +554,9 @@ collect_static_entries() {
     base="$(basename "$rel_target")"
     if [[ "$base" == *_tests.rs || "$base" == tests.rs ]]; then continue; fi
     if [[ "$rel_target" == */tests/* ]]; then continue; fi
-    # helper 收敛点本体不纳入
-    if [[ "$base" == *test_helpers* || "$base" == *test_support* ]]; then continue; fi
+    # helper 收敛点本体不纳入（basename ∪ 路径段并集，判据见 is_helper_exempt；
+    # $rel_target 含目录段，目录化 helper 本体在此按路径段豁免）
+    if is_helper_exempt "$rel_target"; then continue; fi
     # --target 过滤语义与主通道一致
     if [[ -n "$TARGET_FILTER" && "$rel_target" != *"$TARGET_FILTER"* ]]; then continue; fi
     # 异常自指防护
@@ -578,13 +623,15 @@ collect_static_entries() {
 #   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
 #   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
 #   3. #[cfg(not(test))] 区域不命中
-#   4. 挂载目标 helper 命名（*test_helpers*）排除
+#   4. 平铺 helper 豁免（basename 含 test_helpers / test_support 词干）
 #   5. 挂载解析：#[path] 形态 + 非 mod.rs 声明者（<stem>/ 子目录）形态 +
 #      单行多属性 + #[path] 组合形态
 #   6. 字面量剥离：不平衡花括号 / 转义引号字面量不扰动区域边界
 #      （区域闭合后的生产代码不因字面量失衡误命中）
 #   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
 #   8. 全量命中集与期望精确一致（无任何额外命中）
+#   9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
+#  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
 ST_FAILS=0
 
 # 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
@@ -642,11 +689,12 @@ run_self_test() {
   local fx
   fx="$(mktemp -d "${TMPDIR:-/tmp}/test-audit-selftest-XXXXXX")"
   FIXTURE_DIR="$fx"
-  mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper"
+  mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper" \
+    "$fx/crates/demo/src/test_helpers"
 
   cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
 // 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
-// 单行多属性 + #[path] 组合形态
+// 单行多属性 + #[path] 组合形态 + 目录化 helper（路径段豁免）
 #[cfg(test)]
 #[path = "with_path_target.rs"]
 mod with_path;
@@ -656,6 +704,9 @@ mod with_path;
 mod helpers;
 
 #[cfg(test)] #[path = "combo_target.rs"] mod combo;
+
+#[cfg(test)]
+mod test_helpers;
 
 pub fn prod_entry() {
     std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
@@ -715,6 +766,34 @@ EOF
 fn helper_hit() {
     std::fs::create_dir_all("helper"); // HELPER-EXCLUDED-NOT-HIT
 }
+
+#[cfg(test)]
+mod internal_tests {
+    fn inline_helper_hit() {
+        std::fs::create_dir_all("helper-inline"); // HELPER-INLINE-REGION-NOT-HIT
+    }
+}
+EOF
+
+  cat > "$fx/crates/demo/src/test_helpers/mod.rs" <<'EOF'
+pub mod config;
+
+fn mod_helper_hit() {
+    std::fs::create_dir_all("dir-helper-mod"); // DIR-HELPER-MOD-NOT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/test_helpers/config.rs" <<'EOF'
+fn dir_helper_hit() {
+    std::fs::create_dir_all("dir-helper"); // DIR-HELPER-EXCLUDED-NOT-HIT
+}
+
+#[cfg(test)]
+mod config_tests {
+    fn inline_dir_helper_hit() {
+        std::fs::create_dir_all("dir-helper-inline"); // DIR-HELPER-INLINE-NOT-HIT
+    }
+}
 EOF
 
   cat > "$fx/crates/demo/src/wrapper.rs" <<'EOF'
@@ -760,9 +839,9 @@ EOF
   n="$(st_count_entry "${rel}/not_test.rs: 手动目录管理")"
   st_assert_eq "3 not(test) 区域不命中" "0" "$n"
 
-  # 4. 挂载目标 helper 命名排除
+  # 4. 平铺 helper 豁免（basename 含 test_helpers 词干）
   n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
-  st_assert_eq "4 挂载目标 helper 命名排除（*test_helpers*）" "0" "$n"
+  st_assert_eq "4 平铺 helper 豁免（demo_test_helpers.rs 裸调用不命中）" "0" "$n"
 
   # 5. 挂载解析（#[path]、非 mod.rs 声明者、单行多属性 + #[path] 组合三种形态）
   n="$(st_count_entry "${rel}/with_path_target.rs:${l_wp}: 手动目录管理")"
@@ -795,13 +874,23 @@ EOF
   st_assert_eq "8 全量命中集与期望精确一致（共 5 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 
+  # 9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
+  n="$(st_count_key "${rel}/test_helpers/config.rs: 手动目录管理")"
+  st_assert_eq "9a 目录化 helper 子模块不命中（test_helpers/config.rs 裸调用）" "0" "$n"
+  n="$(st_count_key "${rel}/test_helpers/mod.rs: 手动目录管理")"
+  st_assert_eq "9b 目录化 helper 不作为挂载目标（test_helpers/mod.rs 不入全文件扫）" "0" "$n"
+
+  # 10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
+  n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
+  st_assert_eq "10 helper 文件内联 cfg(test) 区域不命中（demo_test_helpers.rs）" "0" "$n"
+
   rm -rf "$fx"
   FIXTURE_DIR=""
   if [[ $ST_FAILS -gt 0 ]]; then
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 8 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 10 组）"
   exit 0
 }
 
