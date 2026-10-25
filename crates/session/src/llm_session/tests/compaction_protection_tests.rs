@@ -17,6 +17,18 @@ use crate::llm_session::{ConversationSession, SessionMessage};
 use crate::run_health::TranscriptOp;
 use closeclaw_common::processor::{ContentBlock, UnifiedResponse};
 
+// Every test in this module carries `#[serial_test::serial]` (issue
+// #3109). The tests drive `invoke_llm`, which reaches the `info!`
+// callsite in `session_llm_request_build.rs` (skill listing injection);
+// the tracing callsite-interest cache is process-global, and concurrent
+// registration on the same callsite can drop events — observed to
+// empty the log-capture buffer of `capture_logs` consumers in this
+// tree (issue #3102). Two tests never emit —
+// `test_compaction_with_empty_snapshot` (no provider, so no listing
+// injection) and `test_apply_transcript_op_preserves_skill_listing`
+// (pure state operation, never calls `invoke_llm`) — but module-wide
+// serialisation removes the race at negligible cost (<1s).
+
 // ---------------------------------------------------------------------------
 // Mock SkillListingProvider
 // ---------------------------------------------------------------------------
@@ -154,6 +166,7 @@ fn simulate_compaction(session: &mut ConversationSession) {
 /// causing `compute_skill_listing_for_turn` to enter the "first turn"
 /// branch and inject the full listing. Subsequent turns resume normal
 /// incremental diff.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_snapshot_survives_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -226,6 +239,7 @@ async fn test_snapshot_survives_compaction() {
 /// Turn 2 injects the full listing (including the new skill)
 /// because the snapshot was cleared. Subsequent turns resume
 /// normal incremental diff.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_new_skill_detected_after_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -282,6 +296,7 @@ async fn test_new_skill_detected_after_compaction() {
 
 /// When no skill listing provider is configured, snapshot is None.
 /// Compaction should not cause a panic or error.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_compaction_with_empty_snapshot() {
     let mut session = ConversationSession::new("s_compact_3".into(), "m".into(), tmp_path());
@@ -319,6 +334,7 @@ async fn test_compaction_with_empty_snapshot() {
 /// With a provider but no conditional skills activated, compaction
 /// triggers full listing re-injection, then subsequent turns resume
 /// incremental diff.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_compaction_with_empty_activated_set() {
     let provider = Arc::new(MockProvider::new(
@@ -368,6 +384,7 @@ async fn test_compaction_with_empty_activated_set() {
 /// After a hot-reload adds a skill, compaction triggers full
 /// re-injection of the complete listing. The next turn resumes
 /// normal incremental diff.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_compaction_after_hot_reload_no_diff() {
     let provider = Arc::new(MockProvider::new(
@@ -439,6 +456,7 @@ async fn test_compaction_after_hot_reload_no_diff() {
 
 /// After compaction, skill removal by daemon hot-reload results in
 /// a full listing re-injection (without the removed skill).
+#[serial_test::serial]
 #[tokio::test]
 async fn test_removal_detected_after_compaction() {
     let provider = Arc::new(MockProvider::new(
@@ -489,6 +507,7 @@ async fn test_removal_detected_after_compaction() {
 
 /// Compaction followed by a daemon hot-reload that adds a new skill.
 /// Turn 2 injects the full listing including the new skill.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_compaction_with_listing_change() {
     let provider = Arc::new(MockProvider::new(
@@ -553,6 +572,7 @@ async fn test_compaction_with_listing_change() {
 /// Directly verifies that `apply_transcript_op` (the compaction
 /// mechanism) only modifies `messages` and `last_activity_at`,
 /// leaving skill listing state untouched.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_apply_transcript_op_preserves_skill_listing() {
     let mut session = ConversationSession::new("s_compact_6".into(), "m".into(), tmp_path());

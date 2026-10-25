@@ -137,6 +137,13 @@ fn test_append_extension_within_tolerance_no_anomaly() {
 }
 
 /// 前缀一致（仅尾部追加）且偏差超限 → 报异常。
+///
+/// `#[serial]`（issue #3109）：本轮触发 `llm_stats.rs` 的 `warn!`
+/// callsite（`log_cache_anomaly`）；tracing callsite-interest 缓存为
+/// 进程级全局，并发注册可丢事件（#3102）。同文件其余测试不标注——
+/// 它们走首轮基线 / 容忍内 / 零参考值 / 前缀豁免 / no-staging /
+/// 无 provider 路径，不会到达该 callsite（本文件 4 处标注测试同理）。
+#[serial_test::serial]
 #[test]
 fn test_append_extension_beyond_tolerance_reports_anomaly() {
     let mut session = make_session();
@@ -194,6 +201,11 @@ fn test_zero_reference_value_not_checked() {
 // ---------------------------------------------------------------------------
 
 /// System Prompt 变化 → 前缀不一致豁免；豁免轮推进快照，下一轮恢复校验。
+///
+/// `#[serial]`（issue #3109）：豁免后的复查轮整轮未命中，触发
+/// `llm_stats.rs` 的 `warn!` callsite；理由与兄弟测试不标注的口径
+/// 见 `test_append_extension_beyond_tolerance_reports_anomaly`。
+#[serial_test::serial]
 #[test]
 fn test_system_change_exempt_then_next_round_recheck() {
     let mut session = make_session();
@@ -269,6 +281,11 @@ fn test_mid_history_rewrite_exempt() {
 // ---------------------------------------------------------------------------
 
 /// 模型切换 → 豁免且快照推进；下一轮与切换后这轮比较。
+///
+/// `#[serial]`（issue #3109）：切换后的下一轮整轮未命中，触发
+/// `llm_stats.rs` 的 `warn!` callsite；理由与兄弟测试不标注的口径
+/// 见 `test_append_extension_beyond_tolerance_reports_anomaly`。
+#[serial_test::serial]
 #[test]
 fn test_model_switch_exempt_and_next_round_compares_to_switched_round() {
     let mut session = make_session();
@@ -337,6 +354,11 @@ fn test_interval_beyond_ttl_exempt() {
 }
 
 /// 间隔恰好等于 TTL（未超过）→ 参与：整轮未命中被判定为异常。
+///
+/// `#[serial]`（issue #3109）：参与轮整轮未命中，触发 `llm_stats.rs`
+/// 的 `warn!` callsite；理由与兄弟测试不标注的口径见
+/// `test_append_extension_beyond_tolerance_reports_anomaly`。
+#[serial_test::serial]
 #[test]
 fn test_interval_exactly_ttl_participates() {
     let mut session = make_session();

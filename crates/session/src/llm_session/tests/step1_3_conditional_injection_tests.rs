@@ -18,6 +18,16 @@ use super::tmp_path;
 use crate::llm_session::{ConversationSession, InjectionPosition, MemoryInjection, SessionMessage};
 use closeclaw_common::processor::{ContentBlock, UnifiedResponse, UnifiedUsage};
 
+// Every test in this module carries `#[serial_test::serial]` (issue
+// #3109). The `invoke_llm` tests reach the `info!` callsite in
+// `session_llm_request_build.rs` (skill listing injection); the
+// tracing callsite-interest cache is process-global, and concurrent
+// registration on the same callsite can drop events — observed to
+// empty the log-capture buffer of `capture_logs` consumers in this
+// tree (issue #3102). The pure-compute tests never emit, but
+// module-wide serialisation removes the race at negligible cost (<1s)
+// and keeps the guard robust as tests evolve.
+
 // ---------------------------------------------------------------------------
 // Mock SkillListingProvider
 // ---------------------------------------------------------------------------
@@ -167,6 +177,7 @@ fn assistant_msg(content: &str) -> SessionMessage {
 /// the skill to `activated_conditional_skills` before calling
 /// `compute_skill_listing_for_turn` with an empty set. The diff
 /// mechanism then detects the newly added entry.
+#[serial_test::serial]
 #[test]
 fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
     let provider = Arc::new(MockProvider::new(
@@ -204,6 +215,7 @@ fn test_compute_skill_listing_newly_activated_injects_complete_entry() {
 
 /// When `newly_activated` is empty and the snapshot matches the current
 /// listing, no injection occurs (returns None).
+#[serial_test::serial]
 #[test]
 fn test_compute_skill_listing_no_activation_no_change_no_injection() {
     let provider = Arc::new(MockProvider::new(
@@ -222,6 +234,7 @@ fn test_compute_skill_listing_no_activation_no_change_no_injection() {
 
 /// On the first turn (no snapshot), the full listing is injected
 /// regardless of `newly_activated`.
+#[serial_test::serial]
 #[test]
 fn test_compute_skill_listing_first_turn_injects_full_listing() {
     let provider = Arc::new(MockProvider::new(
@@ -242,6 +255,7 @@ fn test_compute_skill_listing_first_turn_injects_full_listing() {
 
 /// When `newly_activated` contains a skill not found in the listing,
 /// the fallback diff mechanism is used.
+#[serial_test::serial]
 #[test]
 fn test_compute_skill_listing_activated_not_in_listing_falls_back_to_diff() {
     let provider = Arc::new(MockProvider::new(
@@ -262,6 +276,7 @@ fn test_compute_skill_listing_activated_not_in_listing_falls_back_to_diff() {
 /// Multiple newly activated skills: complete entries for all
 /// newly activated skills are injected (not diff), even when
 /// `activated_conditional_skills` doesn't contain them yet.
+#[serial_test::serial]
 #[test]
 fn test_compute_skill_listing_multiple_newly_activated() {
     let provider = Arc::new(MockProvider::new(
@@ -294,6 +309,7 @@ fn test_compute_skill_listing_multiple_newly_activated() {
 /// This tests the end-to-end path: user message with file path →
 /// `prepare_turn_skill_listing` detects activation →
 /// `compute_skill_listing_for_turn` injects complete entry.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_conditional_activation_via_invoke_llm_injects_complete_entry() {
     let provider = Arc::new(MockProvider::new(
@@ -366,6 +382,7 @@ async fn test_conditional_activation_via_invoke_llm_injects_complete_entry() {
 ///
 /// This tests the Step 1.2 fix: `insert_pos = messages.len() - 1`
 /// places the tool message before the last user message.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_before_next_memory_after_history_before_new_user() {
     let provider = Arc::new(MockProvider::new(
@@ -414,6 +431,7 @@ async fn test_before_next_memory_after_history_before_new_user() {
 
 /// AfterCurrent memory injection: with conversation history, memory
 /// appears after the new user message (unchanged behavior).
+#[serial_test::serial]
 #[tokio::test]
 async fn test_after_current_memory_after_new_user() {
     let provider = Arc::new(MockProvider::new(
@@ -456,6 +474,7 @@ async fn test_after_current_memory_after_new_user() {
 ///
 /// Expected: [system: listing, user: "q1", assistant: "a1",
 ///           tool: memory, user: "q2"]
+#[serial_test::serial]
 #[tokio::test]
 async fn test_before_next_with_skill_listing_correct_ordering() {
     let provider = Arc::new(MockProvider::new(
@@ -505,6 +524,7 @@ async fn test_before_next_with_skill_listing_correct_ordering() {
 
 /// BeforeNext memory injection with no history (edge case).
 /// Memory should be inserted at position 0 (before the only user message).
+#[serial_test::serial]
 #[tokio::test]
 async fn test_before_next_memory_no_history() {
     let provider = Arc::new(MockProvider::new(
@@ -537,6 +557,7 @@ async fn test_before_next_memory_no_history() {
 
 /// AfterCurrent with no history (edge case).
 /// Memory should be appended after the user message.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_after_current_memory_no_history() {
     let provider = Arc::new(MockProvider::new(
@@ -568,6 +589,7 @@ async fn test_after_current_memory_no_history() {
 
 /// BeforeNext + skill_listing without history.
 /// Expected: [system: listing, tool: memory, user: "msg"]
+#[serial_test::serial]
 #[tokio::test]
 async fn test_before_next_with_listing_no_history() {
     let provider = Arc::new(MockProvider::new(

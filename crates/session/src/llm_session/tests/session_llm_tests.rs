@@ -444,6 +444,14 @@ fn cache_check_usage(prompt: u32, cache_read: u32) -> UnifiedUsage {
 /// with all four fields when the current cache hit deviates from the
 /// previous round's prompt tokens (reference value) beyond the fixed
 /// 1024-token tolerance.
+///
+/// `#[serial]` (issue #3109): the whole-round miss here triggers the
+/// `warn!` callsite in `llm_stats.rs` (`log_cache_anomaly`); the
+/// tracing callsite-interest cache is process-global and concurrent
+/// registration can drop events (#3102). The sibling tests below stay
+/// unannotated — their rounds never exceed the tolerance, so they do
+/// not reach that callsite.
+#[serial_test::serial]
 #[test]
 fn test_detect_cache_anomaly_returns_info_on_deviation() {
     let mut session =
