@@ -41,6 +41,19 @@ pub struct MessageContext {
     pub content_blocks: Vec<ContentBlock>,
 }
 
+/// Extracts `key` from `metadata` as a borrowed string slice.
+///
+/// Shared metadata-extraction helper for this crate, replacing the inline
+/// `metadata.get(key).map(|s| s.as_str())` boilerplate; consumers include
+/// the `registry.rs` and `outbound_raw_log.rs` production sites and the
+/// test assertion sites.
+pub(crate) fn metadata_str<'a>(
+    metadata: &'a HashMap<String, String>,
+    key: &str,
+) -> Option<&'a str> {
+    metadata.get(key).map(|s| s.as_str())
+}
+
 /// Injects `message_type` and `unavailable_media` chain dispatcher keys
 /// into a metadata map.
 ///
@@ -99,7 +112,6 @@ impl MessageContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::processor_chain::registry::metadata_str;
     use closeclaw_common::im_plugin::MessageType;
 
     #[test]

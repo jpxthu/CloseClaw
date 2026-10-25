@@ -38,10 +38,18 @@ pub mod processor;
 pub mod raw_log_processor;
 pub mod registry;
 #[cfg(test)]
+mod registry_error_tolerance_tests;
+#[cfg(test)]
+mod registry_events_tests;
+#[cfg(test)]
+mod registry_fallback_tests;
+#[cfg(test)]
 mod registry_tests;
 pub mod session_router;
 #[cfg(test)]
 mod streaming_incremental_tests;
+#[cfg(test)]
+mod test_support;
 pub mod verbosity_filter;
 #[cfg(test)]
 mod verbosity_filter_tests;
