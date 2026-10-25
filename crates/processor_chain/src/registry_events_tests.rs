@@ -72,6 +72,10 @@ async fn registry_with_debug_log(dir: &TempDir) -> ProcessorRegistry {
         .with_trace_id("registry-test-trace".to_string())
 }
 
+/// Same name as, but deliberately distinct from, the full-field
+/// `make_normalized` in `test_support.rs`: this short variant sets only
+/// 3 fields plus `..Default::default()`. Kept un-unified on purpose
+/// (plan Step 1.4 decision) to avoid assertion-semantics drift.
 fn make_normalized(content: &str) -> NormalizedMessage {
     NormalizedMessage {
         platform: "test".to_string(),

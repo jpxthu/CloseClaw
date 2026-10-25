@@ -45,7 +45,8 @@ pub struct MessageContext {
 ///
 /// Shared metadata-extraction helper for this crate, replacing the inline
 /// `metadata.get(key).map(|s| s.as_str())` boilerplate; consumers include
-/// the `outbound_raw_log.rs` production site and the test assertion sites.
+/// the `registry.rs` and `outbound_raw_log.rs` production sites and the
+/// test assertion sites.
 pub(crate) fn metadata_str<'a>(
     metadata: &'a HashMap<String, String>,
     key: &str,

@@ -17,7 +17,7 @@ use closeclaw_common::processor::ContentBlock;
 
 use crate::processor_chain::test_support::FailingProc;
 
-// ── Processor error fallback (Step 1.5) ─────────────────────────────────────
+// ── Processor error fallback ─────────────────────────────────────────────────
 // Design doc: VerbosityFilter fail → Full behavior, DslParser fail → passthrough,
 // OutboundRawLog fail → skip log, continue.
 

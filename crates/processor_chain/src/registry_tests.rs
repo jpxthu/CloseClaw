@@ -15,8 +15,6 @@ use closeclaw_common::processor::ContentBlock;
 use crate::content_normalizer::ContentNormalizer;
 use crate::processor_chain::test_support::{make_normalized, TestProc};
 
-// ── helpers ──────────────────────────────────────────────────────────────────
-
 // ── inbound bypass ───────────────────────────────────────────────────────────
 
 #[tokio::test]
