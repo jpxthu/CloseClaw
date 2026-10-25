@@ -154,6 +154,34 @@ async fn test_process_key_matches_formula() {
     assert_eq!(key, expect, "process() key must match design formula");
 }
 
+// Fixed-vector guard: the hex values below are precomputed with an
+// independent tool (python3 hashlib), NOT derived from compute_session_key,
+// so any change to the formula itself (separator, field order, "default"
+// literal, hash algorithm) breaks these assertions. Recompute commands
+// (each is one shell command spanning two lines):
+//   python3 -c "import hashlib; print(hashlib.sha256(
+//       b'feishu:ou_abc:oc_xyz:default:1700000000123').hexdigest())"
+//   python3 -c "import hashlib; print(hashlib.sha256(
+//       b'feishu:ou_abc:oc_xyz:tenant_x:1700000000123').hexdigest())"
+#[tokio::test]
+async fn test_session_key_fixed_vector() {
+    let ts: i64 = 1_700_000_000_123;
+
+    // account_id: None -> literal "default" participates in hash input
+    let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
+    assert_eq!(
+        key, "1700000000123-f255c84b77b426f609f9a8fad1a10daba28047ada6c606734103351e05d2ddc1",
+        "session_key must match the independently precomputed vector (default)"
+    );
+
+    // account_id: Some -> account literal participates in hash input
+    let key_some = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", Some("tenant_x"), ts);
+    assert_eq!(
+        key_some, "1700000000123-e104f2e55d3037c1e893589ea706a4828261fa96e19f90d67779862b11476677",
+        "session_key must match the independently precomputed vector (tenant_x)"
+    );
+}
+
 #[tokio::test]
 async fn test_missing_peer_id_yields_empty_key() {
     let router = make_router();
