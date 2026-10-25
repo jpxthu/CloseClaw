@@ -19,8 +19,9 @@ use crate::debug_log::{
 
 /// Extracts `key` from `metadata` as a borrowed string slice.
 ///
-/// Shared replacement for the inline `metadata.get(key).map(|s| s.as_str())`
-/// boilerplate at debug-event emission sites in this module and their tests.
+/// Shared metadata-extraction helper for this crate, replacing the inline
+/// `metadata.get(key).map(|s| s.as_str())` boilerplate; consumers include
+/// the `outbound_raw_log.rs` production site and the test assertion sites.
 pub(crate) fn metadata_str<'a>(
     metadata: &'a HashMap<String, String>,
     key: &str,
@@ -674,6 +675,9 @@ mod tests {
     async fn test_chain_outbound_event_carries_session_key() {
         let dir = TempDir::new().unwrap();
         let mut registry = registry_with_debug_log(&dir).await;
+        // Registering a processor is solely to avoid the empty-outbound-chain
+        // early return (`process_outbound_filtered` short-circuits on
+        // `is_empty`); the asserted `session_key` comes from the input metadata.
         registry.register(SessionKeyProc::outbound(None));
 
         let mut metadata = HashMap::new();
@@ -704,6 +708,9 @@ mod tests {
     async fn test_chain_outbound_event_emitted_when_session_key_missing() {
         let dir = TempDir::new().unwrap();
         let mut registry = registry_with_debug_log(&dir).await;
+        // Registering a processor is solely to avoid the empty-outbound-chain
+        // early return (`process_outbound_filtered` short-circuits on
+        // `is_empty`); the asserted `session_key` comes from the input metadata.
         registry.register(SessionKeyProc::outbound(None));
 
         registry
