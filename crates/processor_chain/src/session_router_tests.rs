@@ -1,5 +1,8 @@
 use super::*;
 use closeclaw_common::im_plugin::NormalizedMessage;
+use std::sync::{Arc, Mutex};
+use tracing::field::Field;
+use tracing::Subscriber;
 
 /// Fixed past message timestamp (2020-01-01T00:00:00Z in ms) used to prove
 /// that `msg.timestamp` does not leak into the computed session_key.
@@ -475,10 +478,6 @@ async fn test_account_id_read_from_raw_message() {
 // -----------------------------------------------------------------------
 // warn log verification tests
 // -----------------------------------------------------------------------
-
-use std::sync::{Arc, Mutex};
-use tracing::field::Field;
-use tracing::Subscriber;
 
 struct WarnCapture {
     events: Arc<Mutex<Vec<String>>>,
