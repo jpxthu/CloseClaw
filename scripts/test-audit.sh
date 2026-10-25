@@ -680,10 +680,15 @@ collect_static_entries() {
 #      （区域闭合后的生产代码不因字面量失衡误命中）
 #   7. 原 find 谓词文件（*_tests.rs）无双计（原通道恰好 1 条）
 #   8. 全量命中集与期望精确一致（无任何额外命中）
-#   9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
+#   9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中
+#      且不作为挂载目标（含子模块裸调用 + 内联区域）
 #  10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
 #  11. 多行 raw string 剥离：区域内 r#"…"#（内含不平衡花括号）不截断区域，
 #      其后命中不丢；raw 内容花括号不扰动深度（区域闭合后生产行不误命中）
+#  12. test_support 同义词干豁免（basename ∪ 路径段另一分支）：目录化
+#      test_support 不命中且不作为挂载目标、平铺 *test_support* basename 豁免
+#  13. 多井号 raw string r##"…"##：井号数匹配闭合（内容中 "# 不提前闭合），
+#      区域不截断、其后命中不丢，区域闭合后生产不误命中
 ST_FAILS=0
 
 # 比对键去行号归一化（与 test-naming-guard 同一归一化；baseline 比对段同用）：
@@ -742,7 +747,7 @@ run_self_test() {
   fx="$(mktemp -d "${TMPDIR:-/tmp}/test-audit-selftest-XXXXXX")"
   FIXTURE_DIR="$fx"
   mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper" \
-    "$fx/crates/demo/src/test_helpers"
+    "$fx/crates/demo/src/test_helpers" "$fx/crates/demo/src/test_support"
 
   cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
 // 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
@@ -759,6 +764,9 @@ mod helpers;
 
 #[cfg(test)]
 mod test_helpers;
+
+#[cfg(test)]
+mod test_support;
 
 pub fn prod_entry() {
     std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
@@ -855,6 +863,25 @@ mod config_tests {
 }
 EOF
 
+  cat > "$fx/crates/demo/src/test_support/mod.rs" <<'EOF'
+fn support_hit() {
+    std::fs::create_dir_all("dir-support-mod"); // DIR-SUPPORT-MOD-NOT-HIT
+}
+
+#[cfg(test)]
+mod support_tests {
+    fn inline_support_hit() {
+        std::fs::create_dir_all("dir-support-inline"); // DIR-SUPPORT-INLINE-NOT-HIT
+    }
+}
+EOF
+
+  cat > "$fx/crates/demo/src/demo_test_support.rs" <<'EOF'
+fn flat_support_hit() {
+    std::fs::create_dir_all("flat-support"); // FLAT-SUPPORT-NOT-HIT
+}
+EOF
+
   cat > "$fx/crates/demo/src/wrapper.rs" <<'EOF'
 // 非 mod.rs 声明者形态：单行多属性（循环剥离前导 #[...] 组）+ mod 挂载
 #[cfg(test)] mod mounted;
@@ -866,12 +893,30 @@ fn wrapper_hit() {
 }
 EOF
 
+  cat > "$fx/crates/demo/src/raw_hash.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    const RAW2: &str = r##"
+raw2 line one }}} { {
+raw2 line two "# not close }}
+still raw2 {
+"##;
+    fn hit_fn() {
+        std::fs::create_dir_all("hit-hash-raw"); // HASH-RAW-HIT
+    }
+}
+
+pub fn prod_after() {
+    std::fs::create_dir_all("prod-hash-after"); // PROD-HASH-AFTER-NOT-HIT
+}
+EOF
+
   # 用与正常模式完全相同的实现扫描 fixture
   collect_static_entries "$fx"
 
   local rel="crates/demo/src"
   # 期望行号经 sentinel 动态解析（不依赖 heredoc 排版）
-  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo l_raw
+  local l_inline l_after l_top l_entry l_orig l_wp l_wm l_combo l_raw l_hashraw
   l_inline="$(st_line_of 'INLINE-HIT' "$fx/$rel/inline_ok.rs")"
   l_raw="$(st_line_of 'RAW-REGION-HIT' "$fx/$rel/inline_ok.rs")"
   l_after="$(st_line_of 'PROD-AFTER-NOT-HIT' "$fx/$rel/inline_ok.rs")"
@@ -881,6 +926,7 @@ EOF
   l_wp="$(st_line_of 'MOUNT-PATH-HIT' "$fx/$rel/with_path_target.rs")"
   l_wm="$(st_line_of 'WRAPPER-MOUNT-HIT' "$fx/$rel/wrapper/mounted.rs")"
   l_combo="$(st_line_of 'COMBO-MOUNT-HIT' "$fx/$rel/combo_target.rs")"
+  l_hashraw="$(st_line_of 'HASH-RAW-HIT' "$fx/$rel/raw_hash.rs")"
 
   local n
   # 1. 内联 cfg(test) 区域命中
@@ -924,6 +970,7 @@ EOF
   expected+=("${rel}/foo_tests.rs:${l_orig}: 手动目录管理")
   expected+=("${rel}/inline_ok.rs:${l_inline}: 手动目录管理")
   expected+=("${rel}/inline_ok.rs:${l_raw}: 手动目录管理")
+  expected+=("${rel}/raw_hash.rs:${l_hashraw}: 手动目录管理")
   expected+=("${rel}/with_path_target.rs:${l_wp}: 手动目录管理")
   expected+=("${rel}/wrapper/mounted.rs:${l_wm}: 手动目录管理")
   expected+=("${rel}/combo_target.rs:${l_combo}: 手动目录管理")
@@ -932,14 +979,16 @@ EOF
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 6 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 7 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
 
-  # 9. 目录化 helper（路径含 /test_helpers/ 段）不命中且不作为挂载目标
+  # 9. 目录化 helper（路径含 /test_helpers/、/test_support/ 段）不命中且不作为挂载目标
   n="$(st_count_key "${rel}/test_helpers/config.rs: 手动目录管理")"
   st_assert_eq "9a 目录化 helper 子模块不命中（test_helpers/config.rs 裸调用）" "0" "$n"
   n="$(st_count_key "${rel}/test_helpers/mod.rs: 手动目录管理")"
   st_assert_eq "9b 目录化 helper 不作为挂载目标（test_helpers/mod.rs 不入全文件扫）" "0" "$n"
+  n="$(st_count_key "${rel}/test_support/mod.rs: 手动目录管理")"
+  st_assert_eq "9c 目录化 test_support 不命中且不作为挂载目标（test_support/mod.rs）" "0" "$n"
 
   # 10. helper 文件内含内联 cfg(test) 区域也不命中（机制保证回归）
   n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
@@ -950,13 +999,24 @@ EOF
   n="$(st_count_entry "${rel}/inline_ok.rs:${l_raw}: 手动目录管理")"
   st_assert_eq "11 raw string 后命中不丢（区域不提前弹栈 inline_ok.rs:${l_raw}）" "1" "$n"
 
+  # 12. test_support 同义词干豁免（basename ∪ 路径段并集的另一分支）
+  n="$(st_count_key "${rel}/demo_test_support.rs: 手动目录管理")"
+  st_assert_eq "12 平铺 test_support 词干豁免（demo_test_support.rs 裸调用不命中）" "0" "$n"
+
+  # 13. 多井号 raw string r##"…"##（内容中 "# 不提前闭合；区域闭合后
+  #     prod-hash-after 不误命中由 8 守护）
+  n="$(st_count_entry "${rel}/raw_hash.rs:${l_hashraw}: 手动目录管理")"
+  st_assert_eq "13 多井号 raw string 后命中不丢（区域不截断 raw_hash.rs:${l_hashraw}）" "1" "$n"
+  n="$(st_count_key "${rel}/raw_hash.rs: 手动目录管理")"
+  st_assert_eq "13b 多井号 raw string 区域闭合后生产不误命中（raw_hash.rs 仅 1 条）" "1" "$n"
+
   rm -rf "$fx"
   FIXTURE_DIR=""
   if [[ $ST_FAILS -gt 0 ]]; then
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 11 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 13 组）"
   exit 0
 }
 
