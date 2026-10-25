@@ -34,21 +34,16 @@ async fn test_terminal_session_key_computed() {
         account_id: String::new(),
         ..Default::default()
     };
-    let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
     let result = router.process(&ctx).await.unwrap().unwrap();
+    let after_ms = chrono::Utc::now().timestamp_millis();
     let key = result
         .metadata
         .get("session_key")
         .map(|s| s.as_str())
         .unwrap();
     assert!(!key.is_empty(), "session_key should not be empty");
-    // Key format: {timestamp_ms}-{sha256_hex}
-    let (ts_prefix, _) = split_key(key);
-    assert!(
-        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
+    assert_key_ts_in_window(key, before_ms, after_ms);
 }
 
 /// Build a `MessageContext` for session_key checks. `msg.timestamp` is a
@@ -83,6 +78,18 @@ fn split_key(key: &str) -> (i64, &str) {
         "hash must be hex: {key}"
     );
     (ts, hash)
+}
+
+/// Assert the key's timestamp prefix falls within `[before_ms, after_ms]`.
+/// `before_ms` must be sampled before `process()` and `after_ms` after it,
+/// so the window covers every system clock read inside `process()`.
+fn assert_key_ts_in_window(key: &str, before_ms: i64, after_ms: i64) {
+    let (ts_prefix, _) = split_key(key);
+    assert!(
+        ts_prefix >= before_ms && ts_prefix <= after_ms,
+        "session_key timestamp should reflect system time \
+         (window {before_ms}..{after_ms}ms), got {ts_prefix}: {key}"
+    );
 }
 
 #[test]
@@ -291,17 +298,12 @@ async fn test_system_time_used_for_session_key() {
         account_id: String::new(),
         ..Default::default()
     };
-    let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
     let out = router.process(&ctx).await.unwrap().unwrap();
+    let after_ms = chrono::Utc::now().timestamp_millis();
     let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
-
-    let (ts_prefix, _) = split_key(key);
-    assert!(
-        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
+    assert_key_ts_in_window(key, before_ms, after_ms);
 }
 
 #[tokio::test]
@@ -323,17 +325,12 @@ async fn test_per_account_channel_peer_uses_system_time() {
         account_id: String::new(),
         ..Default::default()
     };
-    let after_ms = chrono::Utc::now().timestamp_millis();
     let ctx = make_ctx(msg);
 
     let out = router.process(&ctx).await.unwrap().unwrap();
+    let after_ms = chrono::Utc::now().timestamp_millis();
     let key = out.metadata.get("session_key").map(|s| s.as_str()).unwrap();
-
-    let (ts_prefix, _) = split_key(key);
-    assert!(
-        ts_prefix >= before_ms && ts_prefix <= after_ms + 5,
-        "session_key timestamp should reflect system time ({before_ms}..{after_ms}+5ms), got {ts_prefix}: {key}"
-    );
+    assert_key_ts_in_window(key, before_ms, after_ms);
 }
 
 // -----------------------------------------------------------------------
