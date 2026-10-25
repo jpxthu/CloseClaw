@@ -51,9 +51,7 @@ fn outside_tempdir_probe(tail: &str) -> std::path::PathBuf {
         .join(tail)
 }
 
-/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时
-/// 在任何文件系统写入前快速失败（panic 前缀与 helper 名一致），与
-/// `create_subdir` / `advance_mtime` 的契约口径对齐。
+/// TempDir 契约（`ensure_dir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "ensure_dir")]
@@ -106,9 +104,7 @@ fn test_remove_subdir_missing_dir_returns_error() {
     assert!(result.is_err(), "缺失目录应返回错误而非 panic");
 }
 
-/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时
-/// 在任何删除操作前快速失败（panic 前缀与 helper 名一致），与
-/// `ensure_dir` / `create_subdir` 的契约口径对齐。
+/// TempDir 契约（`remove_subdir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "remove_subdir")]
@@ -141,9 +137,7 @@ fn test_create_subdir_existing_dir_is_idempotent() {
     assert!(second.is_dir(), "目录应保持存在：{second:?}");
 }
 
-/// TempDir 契约：debug 构建下 base 落在 `std::env::temp_dir()` 之外时
-/// 在任何文件系统写入前快速失败（panic 前缀与 helper 名一致），
-/// 与 `ensure_dir` / `remove_subdir` 的契约口径对齐。
+/// TempDir 契约（`create_subdir`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "create_subdir")]
@@ -231,9 +225,7 @@ fn test_advance_mtime_missing_path_returns_error() {
     assert!(result.is_err(), "路径不存在必须返回 Err 而非 panic");
 }
 
-/// TempDir 契约：debug 构建下路径落在 `std::env::temp_dir()` 之外时在
-/// 任何 mtime 改写前快速失败（panic 前缀与 helper 名一致），与
-/// `ensure_dir` / `remove_subdir` / `create_subdir` 的契约口径对齐。
+/// TempDir 契约（`advance_mtime`）：debug 探测机制见 [`outside_tempdir_probe`] 上方块注释。
 #[test]
 #[cfg(debug_assertions)]
 #[should_panic(expected = "advance_mtime")]
