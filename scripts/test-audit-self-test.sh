@@ -10,7 +10,7 @@
 # 「测的就是真实扫描逻辑」；断言命中/不命中规格矩阵（每条断言独立报告，
 # 任一失败 → 整体 exit 1）；离线、不读仓库与 baseline。
 #
-# 规格矩阵（17 组）：
+# 规格矩阵（18 组）：
 #   1. 内联 cfg(test) 区域命中（mod 块内规则命中）
 #   2. 生产区不命中（cfg(test) 区域外 create_dir_all 不产生条目）
 #   3. #[cfg(not(test))] 区域不命中
@@ -42,6 +42,8 @@
 #  17. 判据收窄回归：*_tests.rs 后缀真实测试文件永不豁免（无论词干/路径段
 #      命中）——词干命中形态 test_helpers_tests.rs 与路径段命中形态
 #      test_helpers/config_tests.rs 恢复扫描，区域内裸违规正常命中
+#  18. 挂载目标路径含空格：内联通道剔除仍生效不双计（剔除 awk 需 -F'\t'
+#      按 tab 切分——默认空白切分使含空格路径 H 事件 $2 失配 excl）
 #
 # 文件拆分说明：test-audit.sh 曾因内嵌 self-test 超 CONTRIBUTING 文件行数
 # 上限 1000，run_self_test 单函数超函数体 100 行限制；拆至本文件并将
@@ -107,7 +109,8 @@ st_fixture_mount_declares() {
   cat > "$fx/crates/demo/src/mod.rs" <<'EOF'
 // 挂载声明者：#[path] 形态（属性与声明跨行）+ helper 命名排除 +
 // 单行多属性 + #[path] 组合形态 + 目录化 helper（路径段豁免）+
-// #[path] 相对上跳至 scan_root 首段 helper（首段豁免）
+// #[path] 相对上跳至 scan_root 首段 helper（首段豁免）+
+// #[path] 含空格路径目标（规格 18 剔除回归）
 #[cfg(test)]
 #[path = "with_path_target.rs"]
 mod with_path;
@@ -127,6 +130,10 @@ mod test_support;
 #[cfg(test)]
 #[path = "../../../test_helpers/root_helper.rs"]
 mod root_helpers;
+
+#[cfg(test)]
+#[path = "my dir/space_target.rs"]
+mod space_target;
 
 pub fn prod_entry() {
     std::fs::create_dir_all("prod-entry"); // PROD-ENTRY-NOT-HIT
@@ -256,6 +263,7 @@ EOF
 }
 
 # 挂载目标文件：#[path] 目标 + 单行多属性组合目标 + 非 mod.rs 声明者子目录目标
+# + 含空格路径目标（规格 18：内含内联区域，剔除失效时内联通道双计）
 st_fixture_mount_targets() {
   local fx="$1"
   cat > "$fx/crates/demo/src/with_path_target.rs" <<'EOF'
@@ -273,6 +281,15 @@ EOF
   cat > "$fx/crates/demo/src/wrapper/mounted.rs" <<'EOF'
 fn wrapper_hit() {
     std::fs::create_dir_all("wm"); // WRAPPER-MOUNT-HIT
+}
+EOF
+
+  cat > "$fx/crates/demo/src/my dir/space_target.rs" <<'EOF'
+#[cfg(test)]
+mod tests {
+    fn space_hit() {
+        std::fs::create_dir_all("space-inline"); // SPACE-MOUNT-INLINE-HIT
+    }
 }
 EOF
 }
@@ -378,7 +395,7 @@ st_build_fixtures() {
   local fx="$1"
   mkdir -p "$fx/src" "$fx/tests" "$fx/crates/demo/src/wrapper" \
     "$fx/crates/demo/src/test_helpers" "$fx/crates/demo/src/test_support" \
-    "$fx/test_helpers"
+    "$fx/test_helpers" "$fx/crates/demo/src/my dir"
   st_fixture_mount_declares "$fx"
   st_fixture_inline_regions "$fx"
   st_fixture_raw_forms "$fx"
@@ -405,12 +422,14 @@ st_resolve_expected_lines() {
   ST_L_R0="$(st_line_of 'R0-HIT' "$fx/$rel/raw_zero.rs")"
   ST_L_STEM_TESTS="$(st_line_of 'STEM-TESTS-HIT' "$fx/$rel/test_helpers_tests.rs")"
   ST_L_SEG_TESTS="$(st_line_of 'SEG-TESTS-HIT' "$fx/$rel/test_helpers/config_tests.rs")"
+  ST_L_SPACE="$(st_line_of 'SPACE-MOUNT-INLINE-HIT' "$fx/$rel/my dir/space_target.rs")"
 }
 
 # ── 断言段（规格矩阵分组，各组独立报告，失败计数入 ST_FAILS）──
 
-# 组 1-8：核心通道（内联区域命中 / 生产区不命中 / not(test) / 平铺 helper /
-# 挂载解析三形态 / 字面量剥离 / 原谓词无双计 / 全量命中集精确一致）
+# 组 1-8、18：核心通道（内联区域命中 / 生产区不命中 / not(test) / 平铺 helper /
+# 挂载解析三形态 / 字面量剥离 / 原谓词无双计 / 全量命中集精确一致 /
+# 含空格挂载目标剔除不双计）
 st_assert_core_specs() {
   local n rel="crates/demo/src"
   # 1. 内联 cfg(test) 区域命中
@@ -466,13 +485,22 @@ st_assert_core_specs() {
   expected+=("${rel}/combo_target.rs:${ST_L_COMBO}: 手动目录管理")
   expected+=("${rel}/test_helpers_tests.rs:${ST_L_STEM_TESTS}: 手动目录管理")
   expected+=("${rel}/test_helpers/config_tests.rs:${ST_L_SEG_TESTS}: 手动目录管理")
+  expected+=("${rel}/my dir/space_target.rs:${ST_L_SPACE}: 手动目录管理")
   local expected_sorted actual_sorted=""
   expected_sorted="$(printf '%s\n' "${expected[@]}" | LC_ALL=C sort)"
   if [[ ${#ENTRIES[@]} -gt 0 ]]; then
     actual_sorted="$(printf '%s\n' "${ENTRIES[@]}" | LC_ALL=C sort)"
   fi
-  st_assert_eq "8 全量命中集与期望精确一致（共 12 条，无额外命中）" \
+  st_assert_eq "8 全量命中集与期望精确一致（共 13 条，无额外命中）" \
     "$expected_sorted" "$actual_sorted"
+
+  # 18. 挂载目标路径含空格：内联通道剔除仍生效（挂载文件 H 事件不双计）
+  #     ——剔除 awk 按默认空白切分时 $2 只取路径首段、失配 excl 整行 key，
+  #     含空格挂载目标区域内命中被内联 + 挂载通道各计一次（回归 #4033）
+  n="$(st_count_entry "${rel}/my dir/space_target.rs:${ST_L_SPACE}: 手动目录管理")"
+  st_assert_eq "18 挂载目标路径含空格不双计（my dir/space_target.rs:${ST_L_SPACE} 恰 1 条）" "1" "$n"
+  n="$(st_count_key "${rel}/my dir/space_target.rs: 手动目录管理")"
+  st_assert_eq "18b 含空格挂载目标恰 1 条（跨行号无额外命中）" "1" "$n"
 }
 
 # 组 9-16：helper 豁免机制保证（目录化 / 内联区域 / test_support / 首段）+
@@ -561,7 +589,7 @@ run_self_test() {
     echo "[self-test] 失败 — ${ST_FAILS} 项断言未通过" >&2
     exit 1
   fi
-  echo "[self-test] 通过 — 全部断言通过（规格矩阵 17 组）"
+  echo "[self-test] 通过 — 全部断言通过（规格矩阵 18 组）"
   exit 0
 }
 
