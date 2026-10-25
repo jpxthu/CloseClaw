@@ -22,5 +22,5 @@ mod stop_daemon;
 mod support;
 
 pub(crate) use support::{
-    in_signal_test_child, kill_self, open_child_subscription, spawn_sleep_child, TestSelfSignal,
+    is_signal_test_child, kill_self, open_child_subscription, spawn_sleep_child, TestSelfSignal,
 };

@@ -79,7 +79,7 @@ pub(crate) fn kill_self(sig: TestSelfSignal) {
 /// Whether this process was spawned as a signal-test child subprocess:
 /// parent tests set `SIGNAL_TEST_CHILD=1` for their children, so child
 /// test bodies skip themselves when the variable is absent.
-pub(crate) fn in_signal_test_child() -> bool {
+pub(crate) fn is_signal_test_child() -> bool {
     std::env::var("SIGNAL_TEST_CHILD").is_ok()
 }
 

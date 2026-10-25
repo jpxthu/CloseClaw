@@ -1,4 +1,4 @@
-use super::{in_signal_test_child, kill_self, TestSelfSignal};
+use super::{is_signal_test_child, kill_self, TestSelfSignal};
 use std::os::unix::process::ExitStatusExt;
 
 // ── kill_self wrapper tests ────────────────────────────────────────
@@ -36,7 +36,7 @@ fn assert_death_by_signal(sig: TestSelfSignal, case: &str) {
 /// no subscription installed — the default disposition must kill this
 /// process, which the parent asserts via the exit status.
 fn run_kill_self_child(sig: TestSelfSignal) {
-    if !in_signal_test_child() {
+    if !is_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }

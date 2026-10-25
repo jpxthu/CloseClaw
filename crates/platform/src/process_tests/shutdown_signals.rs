@@ -1,4 +1,4 @@
-use super::{in_signal_test_child, kill_self, open_child_subscription, TestSelfSignal};
+use super::{is_signal_test_child, kill_self, open_child_subscription, TestSelfSignal};
 use crate::process::ShutdownSignalSubscription;
 use tokio::signal::unix::SignalKind;
 
@@ -59,7 +59,7 @@ async fn deliver_and_expect(
 /// Child-side single-round body: skip unless spawned by a parent test,
 /// then subscribe and deterministically deliver-and-verify one `sig`.
 async fn subscribe_and_expect(sig: TestSelfSignal, want: SignalKind, context: &str) {
-    if !in_signal_test_child() {
+    if !is_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
@@ -116,7 +116,7 @@ fn test_subscribe_shutdown_signals_multiple_next_signal() {
 /// subscribe handshake.
 #[tokio::test]
 async fn test_subscribe_shutdown_signals_multiple_next_signal_child() {
-    if !in_signal_test_child() {
+    if !is_signal_test_child() {
         eprintln!("skipped: run via parent test subprocess");
         return;
     }
