@@ -1,6 +1,10 @@
 use super::*;
 use closeclaw_common::im_plugin::NormalizedMessage;
 
+/// Fixed past message timestamp (2020-01-01T00:00:00Z in ms) used to prove
+/// that `msg.timestamp` does not leak into the computed session_key.
+const FIXED_PAST_TS_MS: i64 = 1_577_836_800_000;
+
 fn make_router() -> SessionRouter {
     SessionRouter::new()
 }
@@ -51,7 +55,7 @@ fn fixed_ts_ctx(sender: &str) -> MessageContext {
         sender_id: sender.to_string(),
         peer_id: "oc_xyz".to_string(),
         content: "hi".to_string(),
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -77,8 +81,8 @@ fn split_key(key: &str) -> (i64, &str) {
     (ts, hash)
 }
 
-#[tokio::test]
-async fn test_deterministic_key() {
+#[test]
+fn test_deterministic_key() {
     // Determinism: identical routing fields + identical timestamp_ms -> same key.
     let ts: i64 = 1_700_000_000_123;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
@@ -89,8 +93,8 @@ async fn test_deterministic_key() {
     assert_eq!(ts1, ts, "key prefix must equal timestamp_ms: {key1}");
 }
 
-#[tokio::test]
-async fn test_timestamp_participation() {
+#[test]
+fn test_timestamp_participation() {
     // Time participation: timestamp_ms changes prefix and hash (anti-collision).
     let ts: i64 = 1_700_000_000_123;
     let key1 = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
@@ -109,8 +113,8 @@ async fn test_timestamp_participation() {
     );
 }
 
-#[tokio::test]
-async fn test_routing_sensitivity() {
+#[test]
+fn test_routing_sensitivity() {
     // Routing sensitivity: any differing routing field -> different hash.
     let ts: i64 = 1_700_000_000_123;
     let key = SessionRouter::compute_key("ou_abc", "oc_xyz", "feishu", None, ts);
@@ -145,7 +149,7 @@ async fn test_process_key_matches_formula() {
         .as_str();
     let (key_ts, _) = split_key(key);
     assert_ne!(
-        key_ts, 1_577_836_800_000,
+        key_ts, FIXED_PAST_TS_MS,
         "msg.timestamp must not leak into session_key prefix: {key}"
     );
     let expect = closeclaw_common::session_key::compute_session_key(
@@ -154,17 +158,17 @@ async fn test_process_key_matches_formula() {
     assert_eq!(key, expect, "process() key must match design formula");
 }
 
-// Fixed-vector guard: the hex values below are precomputed with an
-// independent tool (python3 hashlib), NOT derived from compute_session_key,
-// so any change to the formula itself (separator, field order, "default"
-// literal, hash algorithm) breaks these assertions. Recompute commands
-// (each is one shell command spanning two lines):
-//   python3 -c "import hashlib; print(hashlib.sha256(
-//       b'feishu:ou_abc:oc_xyz:default:1700000000123').hexdigest())"
-//   python3 -c "import hashlib; print(hashlib.sha256(
-//       b'feishu:ou_abc:oc_xyz:tenant_x:1700000000123').hexdigest())"
-#[tokio::test]
-async fn test_session_key_fixed_vector() {
+/// Fixed-vector guard: the hex values below are precomputed with an
+/// independent tool (python3 hashlib), NOT derived from compute_session_key,
+/// so any change to the formula itself (separator, field order, "default"
+/// literal, hash algorithm) breaks these assertions. Recompute commands
+/// (each is one shell command spanning two lines):
+///   python3 -c "import hashlib; print(hashlib.sha256(
+///       b'feishu:ou_abc:oc_xyz:default:1700000000123').hexdigest())"
+///   python3 -c "import hashlib; print(hashlib.sha256(
+///       b'feishu:ou_abc:oc_xyz:tenant_x:1700000000123').hexdigest())"
+#[test]
+fn test_session_key_fixed_vector() {
     let ts: i64 = 1_700_000_000_123;
 
     // account_id: None -> literal "default" participates in hash input
@@ -274,7 +278,7 @@ async fn test_system_time_used_for_session_key() {
         peer_id: "oc_xyz".to_string(),
         content: "msg1".to_string(),
         // Message timestamp is in the past — should NOT be used
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
@@ -306,7 +310,7 @@ async fn test_per_account_channel_peer_uses_system_time() {
         peer_id: "dm_1".to_string(),
         content: "test".to_string(),
         // Past message timestamp — should NOT appear in session_key
-        timestamp: 1_577_836_800_000,
+        timestamp: FIXED_PAST_TS_MS,
         message_type: Default::default(),
         media_refs: Vec::new(),
         thread_id: None,
