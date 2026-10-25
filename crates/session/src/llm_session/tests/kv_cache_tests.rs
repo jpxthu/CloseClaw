@@ -22,6 +22,11 @@ const TOLERANCE: u32 = 1024;
 /// Fresh `ConversationSession` under its own `TempDir` root; returns the
 /// root alongside the session so it outlives every use of the session
 /// (and drops after it).
+///
+/// Precondition: callers must destructure as `let (_root, session) = ...`:
+/// `let` bindings drop in reverse declaration order, so the session
+/// (second binding) drops before the root (first binding); a single
+/// tuple binding would drop the root first.
 fn make_test_session(name: &str) -> (TempDir, ConversationSession) {
     let test_root = TempDir::new().unwrap();
     let session =
@@ -52,6 +57,10 @@ fn simulate_round(session: &mut ConversationSession, round: usize, usage: &Unifi
 /// snapshot — a round where the cache read drops to 0, deviation
 /// 100 000 exceeds the fixed tolerance and triggers the check.
 ///
+/// Panics if a stable round unexpectedly detects an anomaly: the
+/// round-2 check inside this builder doubles as a fixture sanity
+/// assertion.
+///
 /// Emits nothing (round 1 is exempt, round 2's deviation is 0, staging
 /// never logs), so it runs outside the `capture_logs` scope; the
 /// anomaly round's check — the emission interval — is the caller's
@@ -59,7 +68,7 @@ fn simulate_round(session: &mut ConversationSession, round: usize, usage: &Unifi
 ///
 /// Returns the anomaly round's usage for the caller's check →
 /// accumulate flow.
-fn stage_anomaly_round(session: &mut ConversationSession) -> UnifiedUsage {
+fn stage_anomaly_fixture(session: &mut ConversationSession) -> UnifiedUsage {
     // Round 1: first round — no reference value, exempt from checking.
     let stable = make_usage(100_000, 200, Some(100_200), Some(100_000), None);
     simulate_round(session, 1, &stable);
@@ -153,7 +162,7 @@ async fn test_cache_hit_accumulation() {
 #[test]
 fn test_cache_anomaly_detection() {
     let (_test_root, mut session) = make_test_session("test-cache-anomaly");
-    let dropped = stage_anomaly_round(&mut session);
+    let dropped = stage_anomaly_fixture(&mut session);
 
     // Capture narrowed to the emission interval: the anomaly round's
     // check (deviation 100 000 > 1024 beyond the fixed tolerance).

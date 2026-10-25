@@ -23,8 +23,11 @@ use closeclaw_common::processor::{ContentBlock, UnifiedResponse};
 // the tracing callsite-interest cache is process-global, and concurrent
 // registration on the same callsite can drop events — observed to
 // empty the log-capture buffer of `capture_logs` consumers in this
-// tree (issue #3102). One test never emits (no provider), but
-// module-wide serialisation removes the race at negligible cost (<1s).
+// tree (issue #3102). Two tests never emit —
+// `test_compaction_with_empty_snapshot` (no provider, so no listing
+// injection) and `test_apply_transcript_op_preserves_skill_listing`
+// (pure state operation, never calls `invoke_llm`) — but module-wide
+// serialisation removes the race at negligible cost (<1s).
 
 // ---------------------------------------------------------------------------
 // Mock SkillListingProvider
