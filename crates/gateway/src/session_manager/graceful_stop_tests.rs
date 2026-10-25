@@ -188,6 +188,15 @@ async fn conversation_sessions_snapshot(
 /// Timing contract: the mock handle is propagated only to the
 /// conversation sessions already registered at call time; sessions
 /// created afterwards do not automatically receive it.
+///
+/// Escalation observation contract (shared by the escalation
+/// interrupt tests): escalation is observed via the session-side
+/// shutdown handle — `graceful_stop` polls only its own handle and
+/// force-stops once it reports forceful. The 5s timeout those tests
+/// pass to `stop_all_sessions` is only a failure backstop in case
+/// escalation stops working, not the behavior under test; the
+/// `elapsed < 2s` assertion in `stop_and_assert_fast` guards against
+/// regressing to a full drain timeout.
 async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<MockEscalationSignal> {
     let mock = Arc::new(MockEscalationSignal {
         is_shutting_down: std::sync::atomic::AtomicBool::new(true),
@@ -196,8 +205,8 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
     // Build a single shared handle and fan it out (cloned Arc) to the
     // manager and every conversation session — the same shape as the
     // production entry points (resolve/spawn/channel/...), where one
-    // `Arc<ShutdownHandle>` is installed on both sides. The session-side
-    // `graceful_stop` polls only its own handle.
+    // `Arc<ShutdownHandle>` is installed on both sides. See
+    // "Escalation observation contract" in the doc above.
     let handle = Arc::new(crate::shutdown_handle::ShutdownHandle::new(
         mock.clone() as Arc<dyn closeclaw_common::shutdown::ShutdownSignal>
     ));
@@ -206,6 +215,32 @@ async fn install_mock_handle(mgr: &SessionManager, is_forceful: bool) -> Arc<Moc
         cs.write().await.set_shutdown_handle(handle.clone());
     }
     mock
+}
+
+/// Time a `stop_all_sessions` call and assert it completes quickly.
+///
+/// Assertion semantics: measures wall-clock time around
+/// `stop_all_sessions`, asserts `elapsed < 2s` (the fast-completion
+/// contract — escalation interrupts the graceful wait / forceful mode
+/// skips it entirely), and returns the `StopResult` so callers can
+/// run their own post-assertions (succeeded/total/timed_out).
+/// `what` names the scenario and is embedded in the failure message
+/// so a slow-completion failure still pinpoints the case.
+async fn stop_and_assert_fast(
+    mgr: &SessionManager,
+    mode: ShutdownMode,
+    timeout: std::time::Duration,
+    what: &str,
+) -> super::stop::StopResult {
+    let start = tokio::time::Instant::now();
+    let result = mgr.stop_all_sessions(mode, timeout, None).await;
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(2),
+        "{what}, took {:?}",
+        elapsed
+    );
+    result
 }
 
 // ── Step 1.2: graceful stop scenarios ────────────────────────────────────
@@ -377,22 +412,14 @@ async fn test_forceful_stop_unchanged() {
     set_llm_state(&mgr, child_id, LlmState::Receiving).await;
     set_tool_state(&mgr, child_id, "tool_f", ToolExecState::RunningForeground).await;
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Forceful,
-            std::time::Duration::from_secs(30),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Forceful,
+        std::time::Duration::from_secs(30),
+        "forceful mode should complete quickly",
+    )
+    .await;
     assert!(result.succeeded >= 2);
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "forceful mode should complete quickly, took {:?}",
-        elapsed
-    );
 }
 
 // ── Step 1.1: escalation propagation tests ─────────────────────────────
@@ -505,15 +532,7 @@ async fn test_escalation_propagation_across_levels() {
 
 // ── Step 1.2: escalation + idle stop behavior ─────────────────────────
 
-/// Forceful escalation during LLM streaming interrupts graceful wait
-/// and force-stops the session (design doc: retry with forceful).
-///
-/// Escalation is observed via the session-side shutdown handle (see
-/// `install_mock_handle`): the escalation fires 100ms in, interrupting
-/// the child's graceful wait almost immediately. The 5s timeout on
-/// `stop_all_sessions` is only a failure backstop in case escalation
-/// stops working, not the behavior under test; the elapsed assertion
-/// guards against regressing to a full drain timeout.
+/// Escalation fires 100ms in; interrupts graceful wait and force-stops a streaming session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_streaming_info() {
     let mgr = make_test_session_manager();
@@ -529,20 +548,13 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -554,15 +566,7 @@ async fn test_graceful_escalation_interrupts_streaming_info() {
     );
 }
 
-/// Forceful escalation during tool running interrupts graceful wait
-/// and force-stops the session (design doc: retry with forceful).
-///
-/// Escalation is observed via the session-side shutdown handle (see
-/// `install_mock_handle`): the escalation fires 100ms in, interrupting
-/// the child's graceful wait almost immediately. The 5s timeout on
-/// `stop_all_sessions` is only a failure backstop in case escalation
-/// stops working, not the behavior under test; the elapsed assertion
-/// guards against regressing to a full drain timeout.
+/// Escalation fires 100ms in; interrupts graceful wait and force-stops a running-tool session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_tool_info() {
     let mgr = make_test_session_manager();
@@ -584,20 +588,13 @@ async fn test_graceful_escalation_interrupts_tool_info() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let result = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let result = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(result.total() >= 1);
     assert!(
         result.succeeded >= 1,
@@ -626,15 +623,7 @@ async fn test_graceful_idle_no_timeout_info() {
 
 // ── Escalation interrupt tests ─────────────────────────────────────────
 
-/// Forceful escalation interrupts graceful wait for streaming session
-/// and force-stops the session.
-///
-/// Escalation is observed via the session-side shutdown handle (see
-/// `install_mock_handle`): the escalation fires 150ms in, interrupting
-/// the child's graceful wait almost immediately. The 5s timeout on
-/// `stop_all_sessions` is only a failure backstop in case escalation
-/// stops working, not the behavior under test; the elapsed assertion
-/// guards against regressing to a full drain timeout.
+/// Escalation fires 150ms in; interrupts graceful wait and force-stops a streaming session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_streaming() {
     let mgr = make_test_session_manager();
@@ -653,20 +642,13 @@ async fn test_graceful_escalation_interrupts_streaming() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let r = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let r = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     // Session force-stopped due to escalation
     assert!(r.total() >= 1);
     assert!(
@@ -679,15 +661,7 @@ async fn test_graceful_escalation_interrupts_streaming() {
     );
 }
 
-/// Forceful escalation interrupts graceful wait for running tool
-/// and force-stops the session.
-///
-/// Escalation is observed via the session-side shutdown handle (see
-/// `install_mock_handle`): the escalation fires 150ms in, interrupting
-/// the child's graceful wait almost immediately. The 5s timeout on
-/// `stop_all_sessions` is only a failure backstop in case escalation
-/// stops working, not the behavior under test; the elapsed assertion
-/// guards against regressing to a full drain timeout.
+/// Escalation fires 150ms in; interrupts graceful wait and force-stops a running-tool session.
 #[tokio::test]
 async fn test_graceful_escalation_interrupts_tool_running() {
     let mgr = make_test_session_manager();
@@ -709,20 +683,13 @@ async fn test_graceful_escalation_interrupts_tool_running() {
         mock.escalate_to_forceful();
     });
 
-    let start = tokio::time::Instant::now();
-    let r = mgr
-        .stop_all_sessions(
-            ShutdownMode::Graceful,
-            std::time::Duration::from_secs(5),
-            None,
-        )
-        .await;
-    let elapsed = start.elapsed();
-    assert!(
-        elapsed < std::time::Duration::from_secs(2),
-        "escalation should interrupt the graceful wait quickly, took {:?}",
-        elapsed
-    );
+    let r = stop_and_assert_fast(
+        &mgr,
+        ShutdownMode::Graceful,
+        std::time::Duration::from_secs(5),
+        "escalation should interrupt the graceful wait quickly",
+    )
+    .await;
     assert!(r.total() >= 1);
     assert!(
         r.succeeded >= 1,
