@@ -82,7 +82,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --runtime           用 strace 包住 cargo nextest run --lib，抓运行时违规"
       echo "  --target PAT        过滤扫描/测试范围"
       echo "  --update-baseline   以当前静态扫描结果全量重写 baseline 文件（与 --target、--runtime 互斥）"
-      echo "  --self-test         内嵌最小 fixture 自测扫描器，断言命中/不命中规格矩阵（离线）"
+      echo "  --self-test         扫描器自测：转调 test-audit-self-test.sh（库模式复用同一扫描实现），断言命中/不命中规格矩阵（离线）"
       exit 0
       ;;
     *)

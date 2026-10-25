@@ -393,12 +393,14 @@ st_assert_core_specs() {
   n="$(st_count_entry "${rel}/mod.rs:${ST_L_ENTRY}: 手动目录管理")"
   st_assert_eq "2c 生产区不命中（mod.rs prod_entry:${ST_L_ENTRY}）" "0" "$n"
 
-  # 3. not(test) 不命中
-  n="$(st_count_entry "${rel}/not_test.rs: 手动目录管理")"
+  # 3. not(test) 不命中（无行号形态经 st_count_key 归一化跨行号计数；
+  #    st_count_entry 对无行号 want 恒不命中、断言无效力）
+  n="$(st_count_key "${rel}/not_test.rs: 手动目录管理")"
   st_assert_eq "3 not(test) 区域不命中" "0" "$n"
 
-  # 4. 平铺 helper 豁免（basename 含 test_helpers 词干）
-  n="$(st_count_entry "${rel}/demo_test_helpers.rs: 手动目录管理")"
+  # 4. 平铺 helper 豁免（basename 含 test_helpers 词干；同 3 用 st_count_key，
+  #    豁免失效时真实 FAIL）
+  n="$(st_count_key "${rel}/demo_test_helpers.rs: 手动目录管理")"
   st_assert_eq "4 平铺 helper 豁免（demo_test_helpers.rs 裸调用不命中）" "0" "$n"
 
   # 5. 挂载解析（#[path]、非 mod.rs 声明者、单行多属性 + #[path] 组合三种形态）
