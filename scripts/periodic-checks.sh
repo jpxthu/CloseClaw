@@ -55,7 +55,7 @@ usage() {
   --dep-guard 依赖治理守卫（scripts/dep-guard：依赖方向/二次出口/common 准入/死依赖/rust-version 声明 + 单测套件）
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --audit-selftest test-audit 扫描器自测（scripts/test-audit.sh --self-test 转调
-                test-audit-self-test.sh 库模式复用同一扫描实现，断言命中/不命中规格矩阵，离线）
+                test-audit-self-test.sh，库模式复用同一扫描实现，断言命中/不命中规格矩阵，离线）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
   --all       = --slow --flaky --doctest --coverage --deps --dep-guard
                 --msrv --audit-selftest（不含 --heavy）
