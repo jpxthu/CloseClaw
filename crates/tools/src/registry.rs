@@ -866,6 +866,8 @@ impl closeclaw_common::tool_registry::ToolRegistry for ToolRegistryImpl {
     }
 }
 
+// ToolRegistry test modules — attached via #[path] (paths resolve relative to `src/`),
+// shared support in registry_test_support.rs.
 #[cfg(test)]
 #[path = "registry_tests.rs"]
 mod tests;
