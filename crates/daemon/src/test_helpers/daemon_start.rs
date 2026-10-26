@@ -25,7 +25,7 @@ pub(crate) fn isolated_pid_file(root: &Path) -> PathBuf {
 
 /// Create only `config/agents.json` (without mandatory config files)
 /// in the given directory.
-pub(crate) fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn write_agents_json(dir: &Path) -> std::io::Result<()> {
     let agents_content = serde_json::json!({
         "version": "1.0",
         "agents": [
@@ -48,7 +48,7 @@ pub(crate) fn write_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
 /// (channels.json, gateway.json, plugins.json, system.json,
 /// accounts.json) and the optional models.json in the given directory
 /// so that `ConfigManager::load()` succeeds.
-pub(crate) fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn setup_agents_json(dir: &Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
     // Mandatory configs go into the config/ subdirectory
     // (ConfigManager now receives <root>/config/ as config_dir)
@@ -60,7 +60,7 @@ pub(crate) fn setup_agents_json(dir: &std::path::Path) -> std::io::Result<()> {
 /// Same as [`setup_agents_json`] but without models.json — the Models
 /// section is optional and must not gate startup (design doc daemon
 /// README: 「models.json 缺失…系统仍正常启动」).
-pub(crate) fn setup_agents_json_without_models(dir: &std::path::Path) -> std::io::Result<()> {
+pub(crate) fn setup_agents_json_without_models(dir: &Path) -> std::io::Result<()> {
     write_agents_json(dir)?;
     let config_dir = dir.join("config");
     write_mandatory_without_models(&config_dir)?;
