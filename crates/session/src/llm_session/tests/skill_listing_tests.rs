@@ -11,7 +11,7 @@
 //! injection). The tracing callsite-interest cache is process-global
 //! and concurrent registration on the same callsite can drop events
 //! (#3102), so those five carry the full-path `#[serial]` attribute
-//! attribute from the `serial_test` crate. The remaining four tests are
+//! from the `serial_test` crate. The remaining four tests are
 //! verified never to emit and stay unannotated:
 //! `test_no_skill_listing_when_provider_is_none` (no provider),
 //! `test_no_skill_listing_when_provider_returns_empty` (empty listing),
