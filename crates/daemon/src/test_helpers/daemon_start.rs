@@ -6,7 +6,7 @@
 //! file (shutdown.rs precedent) — previously duplicated across
 //! `tests.rs` and `lifecycle_run_tests.rs` (issue #4065).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use closeclaw_common::test_helpers::{ensure_dir, write_mandatory_without_models};
 
@@ -17,7 +17,7 @@ use crate::test_helpers::write_mandatory_configs;
 /// matching the production directory layout (same pattern as the cli
 /// crate's `isolated_pid_file`). Keeps daemon PID-file side effects
 /// inside the TempDir instead of the real `~/.closeclaw`.
-pub(crate) fn isolated_pid_file(root: &std::path::Path) -> PathBuf {
+pub(crate) fn isolated_pid_file(root: &Path) -> PathBuf {
     let pid_dir = root.join(".closeclaw");
     ensure_dir(&pid_dir).expect("failed to create .closeclaw dir");
     pid_dir.join("daemon.pid")
