@@ -7,6 +7,11 @@
 //! - No system prompt → still generates dynamic layer.
 //! - No builder → legacy `split_static_dynamic` fallback.
 //! - `set_request_context` / `request_context` roundtrip.
+//!
+//! Serialisation note (issue #4060 audit): no test in this file sets a
+//! `skill_listing_provider` or a memory injection, so the invoke path
+//! emits no tracing events. Verified: no process-global callsite race
+//! applies, no `#[serial]` needed.
 
 use std::sync::Arc;
 

@@ -3,6 +3,20 @@
 //! Verifies that `build_llm_messages` (via `invoke_llm`) correctly
 //! injects skill listing attachments based on the `SkillListingProvider`
 //! and `agent_skills` whitelist configuration.
+//!
+//! Serialisation note (issue #4060 audit): five tests below set a
+//! `skill_listing_provider` with a non-empty listing and drive
+//! `invoke_llm`, reaching the `info!` callsites in
+//! `session_llm_request_build.rs` (skill listing injection and memory
+//! injection). The tracing callsite-interest cache is process-global
+//! and concurrent registration on the same callsite can drop events
+//! (#3102), so those five carry the full-path `#[serial]` attribute
+//! from the `serial_test` crate. The remaining four tests are
+//! verified never to emit and stay unannotated:
+//! `test_no_skill_listing_when_provider_is_none` (no provider),
+//! `test_no_skill_listing_when_provider_returns_empty` (empty listing),
+//! `test_set_and_get_skill_listing_provider` and
+//! `test_set_and_get_agent_skills` (pure setter/getter, no invoke).
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
@@ -146,6 +160,7 @@ fn canned_response(text: &str) -> UnifiedResponse {
 
 // ── 1. Normal path: provider with skills → tool role message at position 0 ──
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_skill_listing_injected_at_position_zero() {
     let mock = Arc::new(MockSkillListingProvider::new(
@@ -214,6 +229,7 @@ async fn test_no_skill_listing_when_provider_returns_empty() {
 
 // ── 3. Whitelist filtering: agent_skills passed to provider ─────────────────
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_whitelist_passed_to_provider() {
     let mock = Arc::new(MockSkillListingProvider::new("filtered skills"));
@@ -245,6 +261,7 @@ async fn test_whitelist_passed_to_provider() {
 
 // ── 5. Per-turn refresh: provider content changes between calls ─────────────
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_per_turn_refresh_returns_latest_listing() {
     let mock = Arc::new(MockSkillListingProvider::new("listing_v1"));
@@ -278,6 +295,7 @@ async fn test_per_turn_refresh_returns_latest_listing() {
 
 // ── 6. Injection order: skill listing at position 0, memory after ───────────
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_skill_listing_before_memory_injection() {
     let mock = Arc::new(MockSkillListingProvider::new("skill_data"));
@@ -305,6 +323,7 @@ async fn test_skill_listing_before_memory_injection() {
     assert_eq!(req.messages[2].content, "memory_context");
 }
 
+#[serial_test::serial]
 #[tokio::test]
 async fn test_skill_listing_before_memory_before_next() {
     let mock = Arc::new(MockSkillListingProvider::new("skill_info"));

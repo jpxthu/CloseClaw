@@ -11,6 +11,19 @@
 //! - **Gap 2**: Skill listing is injected as `role: "system"` (not
 //!   `role: "tool"`), matching the design doc's "以系统消息形式注入".
 //!   Memory injection retains `role: "tool"` (unaffected).
+//!
+//! Serialisation note (issue #4060 audit): five tests below set a
+//! `skill_listing_provider` with a non-empty listing and drive
+//! `invoke_llm`, reaching the `info!` callsites in
+//! `session_llm_request_build.rs` (skill listing injection, memory
+//! injection) and `session_llm_skill_prep.rs` (conditional skill
+//! activation). The tracing callsite-interest cache is process-global
+//! and concurrent registration on the same callsite can drop events
+//! (#3102), so those five carry the full-path `#[serial]` attribute
+//! from the `serial_test` crate. The remaining two tests are
+//! verified never to emit and stay unannotated:
+//! `test_gap1_no_provider_no_listing` (no provider),
+//! `test_gap2_empty_listing_no_injection` (empty listing).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -158,6 +171,7 @@ fn system_messages(req: &InternalRequest) -> Vec<&str> {
 /// After setting provider and agent_skills (simulating the `/new` path's
 /// `wire_skill_listing_deps` call), the session holds both fields and
 /// the provider is invoked during `invoke_llm`.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_gap1_session_holds_provider_and_agent_skills() {
     let provider = Arc::new(MockProvider::new(
@@ -207,6 +221,7 @@ async fn test_gap1_no_provider_no_listing() {
 /// Conditional activation path: after provider and agent_skills are set,
 /// a user message containing a file path triggers conditional skill
 /// activation and the activated skill appears in the next turn's listing.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_gap1_conditional_activation_after_provider_set() {
     let provider = Arc::new(MockProvider::new(
@@ -264,6 +279,7 @@ async fn test_gap1_conditional_activation_after_provider_set() {
 // ═══════════════════════════════════════════════════════════════════════════
 
 /// Non-empty skill listing is injected as role "system" at position 0.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_gap2_listing_uses_system_role() {
     let provider = Arc::new(MockProvider::new(
@@ -319,6 +335,7 @@ async fn test_gap2_empty_listing_no_injection() {
 
 /// Memory injection retains role "tool" (unaffected by Gap 2 fix).
 /// Both AfterCurrent and BeforeNext positions use "tool" role.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_gap2_memory_injection_retains_tool_role() {
     let provider = Arc::new(MockProvider::new(
@@ -351,6 +368,7 @@ async fn test_gap2_memory_injection_retains_tool_role() {
 }
 
 /// Memory injection with BeforeNext position also uses "tool" role.
+#[serial_test::serial]
 #[tokio::test]
 async fn test_gap2_memory_injection_before_next_tool_role() {
     let provider = Arc::new(MockProvider::new(
