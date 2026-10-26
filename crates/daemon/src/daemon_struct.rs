@@ -1,5 +1,10 @@
 //! Daemon struct definitions, extracted from mod.rs to stay under the
 //! 1000-line limit imposed by CONTRIBUTING.md.
+//!
+//! This file also hosts the startup-phase component aggregation structs
+//! (`Phase5Deps`, `Phase2Components`/`Phase3Components`/`Phase4Components`,
+//! `Phase5Background`, `Phase6RpcServers`) that pack per-phase outputs for
+//! the startup orchestration steps in `lifecycle::run`.
 
 use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;

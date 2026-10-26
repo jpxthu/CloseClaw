@@ -263,7 +263,7 @@ impl Daemon {
     /// spawn tree. Failures warn and continue.
     ///
     /// Extracted from [`Self::init_phase_3_core_services`].
-    pub(crate) async fn rebuild_session_registries(
+    async fn rebuild_session_registries(
         session_manager: &Arc<SessionManager>,
         migrated_sessions: &[String],
     ) {
@@ -289,7 +289,7 @@ impl Daemon {
     /// periodic media cleanup task (only when a MediaStore is available).
     ///
     /// Extracted from [`Self::init_phase_3_core_services`].
-    pub(crate) async fn setup_platform_plugins_and_media_cleanup(
+    async fn setup_platform_plugins_and_media_cleanup(
         gateway: &Arc<Gateway>,
         config_dir: &str,
     ) -> Option<MediaCleanupHandle> {
@@ -341,7 +341,7 @@ impl Daemon {
     /// is not blocked by network I/O.
     ///
     /// Extracted from [`Self::init_phase_3_core_services`].
-    pub(crate) async fn drain_dirty_sessions_outbound(
+    async fn drain_dirty_sessions_outbound(
         session_manager: &Arc<SessionManager>,
         dirty_sessions: &[String],
     ) {

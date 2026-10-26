@@ -92,9 +92,15 @@ impl Daemon {
             Self::init_phase_4_components(&p3, &p2.permission_engine, config_dir, audit_logger)
                 .await;
         let confirm_flow = Self::build_plan_exec_confirm_flow(&p3, &config_manager).await;
-        let bg =
-            Self::init_phase_5_components(&config_manager, &p2, &p3, &p4, &confirm_flow, &data_dir)
-                .await?;
+        let bg = Self::init_phase_5_background_services(
+            &config_manager,
+            &p2,
+            &p3,
+            &p4,
+            &confirm_flow,
+            &data_dir,
+        )
+        .await?;
         let output_rx = Self::wire_llm_caller_and_session_handler(&p3, &p2.fallback_client).await;
         Self::inject_startup_recovery(&p3).await;
         let rpc =
@@ -307,7 +313,7 @@ impl Daemon {
     /// the spawned background services into [`Phase5Background`].
     ///
     /// Extracted from [`Self::start_with_engine_and_pid_file`].
-    async fn init_phase_5_components(
+    async fn init_phase_5_background_services(
         config_manager: &Arc<ConfigManager>,
         p2: &Phase2Components,
         p3: &Phase3Components,

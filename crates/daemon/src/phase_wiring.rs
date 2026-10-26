@@ -309,7 +309,7 @@ impl Daemon {
     /// config-driven spawn budget lookup over the SessionManager.
     ///
     /// Extracted from [`Self::init_phase_5_background`].
-    pub(crate) fn build_spawn_controller(
+    fn build_spawn_controller(
         session_manager: &Arc<SessionManager>,
         config_manager: &Arc<ConfigManager>,
         permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
@@ -328,6 +328,20 @@ impl Daemon {
         ))
     }
 
+    /// Build the skill listing provider over the disk + builtin skill
+    /// registries. Single construction point shared by
+    /// [`Self::build_system_prompt_builder`] and
+    /// [`Self::inject_session_manager_services`].
+    fn build_skill_listing_provider(
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
+    ) -> Arc<dyn SkillListingProvider> {
+        Arc::new(SkillListingProviderWrapper::new(
+            skill_registry.clone(),
+            Arc::clone(builtin_skill_registry),
+        ))
+    }
+
     /// Build the SystemPromptBuilder adapter: snapshot the agent registry
     /// into a fresh AgentLookup, assemble the domain fragment providers
     /// (bootstrap / skills / memory / tools) sorted by priority, and bridge
@@ -335,7 +349,7 @@ impl Daemon {
     ///
     /// Extracted from [`Self::init_phase_5_background`] — injection into
     /// the SessionManager stays at the call site.
-    pub(crate) fn build_system_prompt_builder(
+    fn build_system_prompt_builder(
         agent_registry: &Arc<AgentRegistry>,
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
@@ -349,11 +363,8 @@ impl Daemon {
             new_reg.populate(configs);
             Arc::new(new_reg)
         };
-        let skill_provider: Arc<dyn SkillListingProvider> =
-            Arc::new(SkillListingProviderWrapper::new(
-                skill_registry.clone(),
-                Arc::clone(builtin_skill_registry),
-            ));
+        let skill_provider =
+            Self::build_skill_listing_provider(skill_registry, builtin_skill_registry);
         // Build Provider list from domain crates.
         let mut providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
             Arc::new(BootstrapFragmentProvider::new(
@@ -382,7 +393,7 @@ impl Daemon {
     /// Extracted from [`Self::init_phase_5_background`]: requires the
     /// DiskSkillRegistry to be loaded (i.e. called after
     /// `populate_registries`); a no-op when no disk registry is present.
-    pub(crate) async fn register_skill_slash_handlers(
+    async fn register_skill_slash_handlers(
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
         builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
         slash_registry: &Arc<HandlerRegistry>,
@@ -411,7 +422,7 @@ impl Daemon {
     /// invalidator, and dynamic prompt builder.
     ///
     /// Extracted from [`Self::init_phase_5_background`].
-    pub(crate) async fn inject_session_manager_services(
+    async fn inject_session_manager_services(
         session_manager: &Arc<SessionManager>,
         tool_registry: &Arc<ToolRegistry>,
         skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
@@ -435,10 +446,10 @@ impl Daemon {
             .await;
         // Inject skill listing provider for per-turn skill attachment.
         session_manager
-            .set_skill_listing_provider(Arc::new(SkillListingProviderWrapper::new(
-                skill_registry.clone(),
-                Arc::clone(builtin_skill_registry),
-            )) as Arc<dyn SkillListingProvider>)
+            .set_skill_listing_provider(Self::build_skill_listing_provider(
+                skill_registry,
+                builtin_skill_registry,
+            ))
             .await;
         // Inject the production workflow engine port (stateless adapter
         // over the workflow crate). Wired onto every created/restored
