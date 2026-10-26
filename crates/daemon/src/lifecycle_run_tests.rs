@@ -23,47 +23,15 @@
 //! later transition — no gateway restart executes during these tests.
 
 use crate::gateway_restart::RestartState;
-use crate::test_helpers::{kill_self, signal_step, write_mandatory_configs, TestShutdownSignal};
+use crate::test_helpers::{
+    isolated_pid_file, kill_self, setup_agents_json, signal_step, TestShutdownSignal,
+};
 use crate::Daemon;
-use closeclaw_common::test_helpers::ensure_dir;
-use std::path::{Path, PathBuf};
 use tempfile::TempDir;
-use tokio::sync::mpsc;
-use tokio::sync::watch;
-
-/// Isolated PID file path under the TempDir root (same pattern as
-/// tests.rs): `{root}/.closeclaw/daemon.pid` with the parent pre-created,
-/// keeping PID side effects out of the real home.
-fn isolated_pid_file(root: &Path) -> PathBuf {
-    let pid_dir = root.join(".closeclaw");
-    ensure_dir(&pid_dir).expect("failed to create .closeclaw dir");
-    pid_dir.join("daemon.pid")
-}
-
-/// Write agents.json plus the mandatory config files so
-/// `ConfigManager::load()` succeeds (same fixture as tests.rs).
-fn setup_agents_json(dir: &Path) -> std::io::Result<()> {
-    let agents_content = serde_json::json!({
-        "version": "1.0",
-        "agents": [
-            {
-                "name": "guide",
-                "model": "minimax/MiniMax-M2",
-                "persona": "test persona",
-                "max_iterations": 10,
-                "timeout_minutes": 5
-            }
-        ]
-    });
-    let config_dir = dir.join("config");
-    ensure_dir(&config_dir)?;
-    std::fs::write(config_dir.join("agents.json"), agents_content.to_string())?;
-    write_mandatory_configs(&config_dir)?;
-    Ok(())
-}
+use tokio::sync::{mpsc, watch};
 
 /// Start a full daemon against a fresh TempDir with the isolated PID
-/// file (same fixture as tests.rs, ~1s).
+/// file (shared `test_helpers` fixtures, ~1s).
 async fn start_run_test_daemon() -> anyhow::Result<(TempDir, Daemon)> {
     let temp_dir = tempfile::tempdir().expect("tempdir");
     setup_agents_json(temp_dir.path()).expect("setup agents.json");
@@ -73,6 +41,28 @@ async fn start_run_test_daemon() -> anyhow::Result<(TempDir, Daemon)> {
     )
     .await?;
     Ok((temp_dir, daemon))
+}
+
+/// Shared SIGTERM teardown of all three tests: deliver the real
+/// graceful signal, await `run()` under the signal-step timeout, and
+/// assert the graceful `Ok` return. The per-test diagnostics are
+/// parameters: `step_what` labels the shutdown timeout, `join_expect`
+/// the join failure, and `ok_context` completes the
+/// `run() must return Ok {ok_context}` assertion.
+async fn sigterm_and_join_run(
+    step_what: &str,
+    mut run_task: tokio::task::JoinHandle<anyhow::Result<()>>,
+    join_expect: &str,
+    ok_context: &str,
+) {
+    kill_self(TestShutdownSignal::Sigterm);
+    let result = signal_step(step_what, &mut run_task)
+        .await
+        .expect(join_expect);
+    assert!(
+        result.is_ok(),
+        "run() must return Ok {ok_context}: {result:?}"
+    );
 }
 
 // ── 维度① 正常路径 ────────────────────────────────────────────────────────
@@ -99,7 +89,7 @@ async fn test_run_loop_exits_gracefully_on_sigterm() {
         "precondition: fresh daemon starts Idle"
     );
 
-    let mut run_task = tokio::spawn(async move { daemon.run().await });
+    let run_task = tokio::spawn(async move { daemon.run().await });
 
     // Handshake: one restart message through the loop's restart branch
     // flips Idle → Pending. Observing it proves the select! loop is
@@ -121,18 +111,13 @@ async fn test_run_loop_exits_gracefully_on_sigterm() {
     );
 
     // Loop proven running — deliver the real graceful shutdown signal.
-    kill_self(TestShutdownSignal::Sigterm);
-
-    let result = signal_step(
+    sigterm_and_join_run(
         "run() did not complete the full shutdown within 10s",
-        &mut run_task,
+        run_task,
+        "run task must not be aborted",
+        "after graceful shutdown",
     )
-    .await
-    .expect("run task must not be aborted");
-    assert!(
-        result.is_ok(),
-        "run() must return Ok after graceful shutdown: {result:?}"
-    );
+    .await;
     // No restart ever executed: the state must still be Pending (the
     // watchdog never fired — its changed() is still waiting).
     assert!(
@@ -203,19 +188,15 @@ async fn spawn_run_and_cancel_pending(
 async fn test_run_loop_admin_cancel_transitions_pending_to_idle() {
     let (_temp_dir, daemon) = start_run_test_daemon().await.expect("daemon must start");
 
-    let (mut run_task, _admin_tx, state_rx) = spawn_run_and_cancel_pending(daemon).await;
+    let (run_task, _admin_tx, state_rx) = spawn_run_and_cancel_pending(daemon).await;
 
-    kill_self(TestShutdownSignal::Sigterm);
-    let result = signal_step(
+    sigterm_and_join_run(
         "run() did not complete the full shutdown within 10s",
-        &mut run_task,
+        run_task,
+        "run task must not be aborted",
+        "after cancel + shutdown",
     )
-    .await
-    .expect("run task must not be aborted");
-    assert!(
-        result.is_ok(),
-        "run() must return Ok after cancel + shutdown: {result:?}"
-    );
+    .await;
     // State stayed Idle — the cancel was not undone by a later restart.
     assert_eq!(
         state_rx.borrow().clone(),
@@ -226,14 +207,15 @@ async fn test_run_loop_admin_cancel_transitions_pending_to_idle() {
 
 // ── 维度③ 边界：重启通道闭合 ─────────────────────────────────────────────
 
-/// The restart channel is closed before `run()` starts: the first loop
-/// iteration receives `None` and must disable the branch instead of
-/// panicking. The admin-cancel handshake proves the closed-restart
-/// branch was evaluated first — biased select! polls shutdown → restart
-/// → admin → ready, so the Pending → Idle observation cannot happen
-/// before the restart branch consumed its recv None in the same
-/// iteration. The loop then runs on until the shutdown signal exits it
-/// with `Ok`.
+/// The restart channel is closed before `run()` starts: in loop round 1
+/// the biased select! polls shutdown (still pending) and then the
+/// restart branch, whose `recv` returns `None` — the branch disables
+/// itself instead of panicking, and as the first ready branch it
+/// short-circuits the round. Round 2 then skips the disabled restart
+/// branch and polls the admin branch, whose cancel command flips
+/// Pending → Idle — an observation impossible before the round-1 `None`
+/// consumption. The loop then runs on until the shutdown signal exits
+/// it with `Ok`.
 #[serial_test::serial]
 #[tokio::test]
 async fn test_run_loop_survives_closed_restart_channel_until_shutdown() {
@@ -243,19 +225,15 @@ async fn test_run_loop_survives_closed_restart_channel_until_shutdown() {
     drop(restart_tx);
     daemon.restart_rx = Some(restart_rx);
 
-    let (mut run_task, _admin_tx, state_rx) = spawn_run_and_cancel_pending(daemon).await;
+    let (run_task, _admin_tx, state_rx) = spawn_run_and_cancel_pending(daemon).await;
 
-    kill_self(TestShutdownSignal::Sigterm);
-    let result = signal_step(
+    sigterm_and_join_run(
         "run() did not complete the full shutdown within 10s",
-        &mut run_task,
+        run_task,
+        "run task must not be aborted (no panic on closed channel)",
+        "despite the closed restart channel",
     )
-    .await
-    .expect("run task must not be aborted (no panic on closed channel)");
-    assert!(
-        result.is_ok(),
-        "run() must return Ok despite the closed restart channel: {result:?}"
-    );
+    .await;
     assert_eq!(
         state_rx.borrow().clone(),
         RestartState::Idle,
