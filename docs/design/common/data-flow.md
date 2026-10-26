@@ -6,7 +6,7 @@
 
 ## 架构
 
-共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、卡片事件、compaction 结果、LLM 请求结构族、Agent 通信权限、权限评估与审批载荷、hook 配置、Agent 配置档案（ResolvedAgentConfig）、关停状态、四维执行状态、媒体错误、工具/斜杠/会话/LLM 契约载荷与辅助类型等）不参与此方向流，其类型内流动路径见 [shared-types](shared-types.md) 各类型数据流节，完整的共享类型清单见 [shared-types](shared-types.md)。
+共享类型按流动方向和生命周期分为入站、出站、跨方向三类。本文档的三类分类仅覆盖随消息流动进/出的主链路共享类型；不随消息流动的旁路数据/生命周期类型（如运行统计、注册、compaction 结果、LLM 请求结构族、Agent 通信权限、权限判定与审批载荷、hook 配置、Agent 配置档案（ResolvedAgentConfig）、关停状态、四维执行状态、媒体错误、工具/斜杠/会话/LLM 契约载荷与辅助类型等）不参与此方向流，其类型内流动路径见 [shared-types](shared-types.md) 各类型数据流节，完整的共享类型清单见 [shared-types](shared-types.md)。
 
 - **入站类型**：从外部消息进入系统，经处理后进入 LLM 对话（或经 Gateway 路由到斜杠指令流程）
 - **出站类型**：LLM 或斜杠指令产出，经处理后发送到外部
@@ -35,7 +35,7 @@ ProcessedMessage { content_blocks: [ContentBlock::Text], metadata: { session_key
 入站方向涉及两种共享类型：
 
 - **[NormalizedMessage](shared-types.md#normalizedmessage)**：IM Adapter 产出 → Processor Chain 消费。各平台 Adapter 在入站解析时填充全部字段。消息过滤在 Adapter 解析阶段完成（空 text 丢弃、post 双空丢弃，其余正常产出 NormalizedMessage，规则见 [shared-types](shared-types.md#normalizedmessage)）。
-- **[ProcessedMessage](shared-types.md#processedmessage)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 含 session_key、message_type、unavailable_media。生命周期止于 Gateway 完成路由决策。
+- **[ProcessedMessage](shared-types.md#processedmessage)**（入站形态）：Processor Chain 入站产出 → Gateway 消费。content_blocks 为单个 ContentBlock::Text，metadata 在链结束时含链内写入的三个键（完整入站键集与写入时序见 [shared-types · 元数据键](shared-types.md#processedmessage)）。生命周期止于 Gateway 完成路由决策。
 
 ### 出站方向
 
@@ -45,9 +45,9 @@ LLM UnifiedResponse / SlashResult 变体
 ContentBlock[]
   ↓
 [Processor Chain 出站]
-  VerbosityFilter → DslParser → OutboundRawLog
+  VerbosityFilter → OutboundRawLog
   ↓
-ProcessedMessage { content_blocks, metadata: { dsl_result } }
+ProcessedMessage { content_blocks, metadata: { verbosity_level } }
   ↓
 [IM Adapter 渲染]
   批量模式：一次性渲染全部 ContentBlock[]
@@ -62,12 +62,11 @@ IM Adapter 发送
 
 出站方向涉及的共享类型：
 
-- **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File），仅 Text 变体参与 DSL 解析，其余 6 种变体由 DslParser 透传。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。批量交付形态。
+- **[ContentBlock](shared-types.md#contentblock)**：7 种变体（Text / Thinking / ToolUse / ToolResult / Image / Audio / File）。从 LLM / SlashResult 产出 → Processor Chain 出站消费 → IM Adapter 渲染。批量交付形态。
 - **[StreamEvent](shared-types.md#streamevent)**：ContentBlock 的流式形态——5 种增量事件（BlockStart/BlockDelta/BlockEnd/MessageEnd/Error）。LLM 模块归一化产出 → Session 转发 → Processor Chain 增量阶段逐事件处理 → IM Adapter 流式渲染器增量消费。BlockDelta 的增量载荷为 [ContentDelta](shared-types.md#contentdelta)。流式交付形态。
 - **[VerbosityLevel](shared-types.md#verbositylevel)**：出站 Processor Chain 第一道过滤（VerbosityFilter）的直接输入，控制中间产物块的显隐。
-- **[DslParseResult / DslInstruction](shared-types.md#dslparseresult--dslinstruction)**：DslParser 从 ContentBlock::Text 中解析 DSL 指令行，产出 DslInstruction 列表。经 [ProcessedMessage](shared-types.md#processedmessage) 和出站日志传递，生命周期始于 DslParser，终于 Renderer 渲染（批量模式）或出站历史写入（流式模式，仅日志不渲染）。
-- **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → IM Adapter 渲染；发送成功后 Gateway 据此写出站历史。content_blocks 为经 DslParser 处理后的 ContentBlock[]，metadata 含 dsl_result（DslParseResult 的序列化值）。
-- **[SlashResult](shared-types.md#slashresult)**：9 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。高危指令（Exec、Git 写操作）在执行前经 [Permission 模块](../permission/README.md) 校验。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
+- **[ProcessedMessage](shared-types.md#processedmessage)**（出站形态）：Processor Chain 出站产出 → IM Adapter 渲染；发送成功后 Gateway 据此写出站历史。content_blocks 为经 Verbosity 过滤后的 ContentBlock[]。
+- **[SlashResult](shared-types.md#slashresult)**：10 种变体，SlashDispatcher Handler 返回 → Gateway 构造 SideEffectContext 触发执行。需权限评估的指令由 Handler 声明、经 [PermissionGate](core-traits.md#permissiongate) 统一判定（不穷举指令清单）。回复内容进入出站 Processor Chain，Session 操作通过 SideEffectContext 完成。
 - **[UnifiedResponse / UnifiedUsage](shared-types.md#unifiedresponse--unifiedusage)**：非流式 LLM 调用的统一响应，其 ContentBlock[] 即上图的出站起点；usage 由 [RunningStats](shared-types.md#runningstats--cacheanomalyinfo) 累加。
 - **[RenderedOutput](shared-types.md#renderedoutput)**：IMPlugin 渲染产出的平台原生消息结构 → [Gateway 中间件] → IMPlugin 发送。渲染与发送之间的中间件插入点为批量模式；流式模式下中间件为渲染前的一次性预检（pre-flight）。
 - **[StreamingOutput](shared-types.md#streamingoutput)**：流式渲染单批产出（完整文本行 + 本批完成的非文本块），流式发送链路中由平台组装为 RenderedOutput 后发送。

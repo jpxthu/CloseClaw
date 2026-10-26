@@ -85,7 +85,7 @@ Agent 模块以纯配置层的形式嵌入系统：各方在需要时读取 agen
 
 1. 父 session 调用 sessions_spawn 工具（由 Session 模块注册到 ToolRegistry）
 2. SpawnValidator（common trait，子会话创建组件实现）执行前置检查：depth / 并发 / requireAgentId / agentId 解析 / 白名单 / 目标 Agent 已注册且配置可加载
-3. 前置检查通过后，SpawnValidator 的权限校验步经 PermissionChecker 边界完成权限判定（权限引擎执行继承计算）
+3. 前置检查通过后，SpawnValidator 的权限校验步经 PermissionGate 边界完成权限判定（权限引擎执行继承计算）
 4. 全部通过后，SpawnController 创建 child session（加载目标 agent 配置、注入 task 到 system prompt、按静态白名单派生工具集）
 5. 子 session 执行 task
 6. 子 session 完成，结果通过 announce 机制入队到父 session

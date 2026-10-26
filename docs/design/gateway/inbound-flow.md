@@ -14,11 +14,11 @@
    - RawLog（priority 10）：日志记录，透传（仅在 raw_log_dir 配置时注册）。
    - SessionRouter（priority 20）：计算 session_key = {timestamp_ms}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)），写入 metadata，不创建 session。
    - ContentNormalizer（priority 30）：文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格）。
-4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata { session_key, message_type, unavailable_media }——session_key 由 SessionRouter 写入，message_type 与 unavailable_media 由链调度环节在进链时从 NormalizedMessage 复制）。
+4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata：链内写入 session_key / message_type / unavailable_media，其余入站键由 Gateway 链后补充；完整键集与写入时序见 [common 共享类型 · 元数据键](../common/shared-types.md#processedmessage)）。
 5. Gateway 处理：
    - 含媒体消息 → 随媒体能力暂缓、当前不实现（非文本消息处理待需求明确）；启用后按媒体可得性校验：不可得 → 提示「该消息内容无法获取」→ 简化出站，流程结束；可得 → 按类型构造上下文形态（图片进内容、文件音频以媒体引用）后与文本消息同链路继续（形态规则见 [im_adapter media-store](../im_adapter/media-store.md)）
    - 对话消息（文本消息及媒体可得消息）→ 从 metadata 取出 session_key；session_key 为空 → 记录 warning 日志，仍通过路由字段（platform, sender_id, peer_id, account_id）继续。
-   - Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent，得到 agent_id。
+   - Gateway 确定对应的 Agent：IM 渠道按配置定义的机器人→Agent 绑定解析，terminal 渠道（CLI）取 CLI 经 chat RPC 上送的 agent_id。
    - SessionManager 执行 session 查找/创建（传入 agent_id + session_key 和消息路由字段；SessionManager 内部提取稳定路由键做查找）→ 获得 session_id。
    - 按 content_blocks[0] 标准化文本前缀判断：
      - 以 `/` 开头 → 先拦截 `/approve-once`、`/approve-whitelist`、`/deny`（不进 SlashDispatcher，非 Owner 调用直接回复"权限不足"）；其余斜杠 → SlashDispatcher（不进入 LLM）。
@@ -65,7 +65,7 @@ NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执
 
 Gateway 先按 message_type 做媒体可得性校验（媒体能力暂缓，以下分支当前不实现）——含媒体消息（image/file/audio 或含内嵌媒体的 post）且媒体不可得（unavailable_media 非空，即下载失败或超出大小上限）时，向用户提示「该消息内容无法获取」，经简化出站路径发送（详见 [Gateway README](README.md#入站路径) 消息分型路由），不过 Session 和 LLM，流程结束。媒体可得时按类型构造上下文形态（图片进对话内容、文件音频以媒体引用，形态规则见 [im_adapter media-store](../im_adapter/media-store.md)），与文本消息同链路继续。
 
-若 message_type 为 text，Gateway 从 content_blocks[0] 取标准化文本做前缀判断，同时从 metadata 取出 `session_key`。session_key 的降级处理（为空时仍通过路由字段继续）与路由语义（不参与 session 路由）见 [Gateway README](README.md#数据流) Session 解析节。Gateway 根据配置定义的机器人→Agent 绑定确定对应的 Agent，得到 agent_id，将 agent_id 连同 session_key、路由字段传给 SessionManager 做 session 查找/创建，获得 `session_id`。
+若 message_type 为 text，Gateway 从 content_blocks[0] 取标准化文本做前缀判断，同时从 metadata 取出 `session_key`。session_key 的降级处理（为空时仍通过路由字段继续）与路由语义（不参与 session 路由）见 [Gateway README](README.md#数据流) Session 解析节。Gateway 根据渠道确定对应的 Agent（IM 渠道按配置定义的机器人→Agent 绑定，terminal 渠道取 CLI 上送的 agent_id），将 agent_id 连同 session_key、路由字段传给 SessionManager 做 session 查找/创建，获得 `session_id`。
 
 Gateway 检查 content 第一个字符：
 

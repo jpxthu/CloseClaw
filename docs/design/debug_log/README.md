@@ -61,7 +61,7 @@
 4. Processor Chain 入站：SessionRouter 计算 session_key 写入 metadata（与 trace_id 并存）。session_key 是 Processor Chain 入站阶段计算的消息级追踪标识，由 SessionRouter 基于路由字段和系统时间戳计算得出——命名为 SessionRouter 是因为它在路由过程中顺带计算 session_key，仅用于日志追踪和 session 上下文关联，不改变路由结果，本身不参与 session 路由
 5. Gateway 路由 -> Session -> LLM 调用
    - 子调用（如 LLM 调用工具执行、spawn 子 Agent）：TraceContext 从当前 span_id 派生子 span
-6. Processor Chain 出站（VerbosityFilter -> DslParser -> 出站调试日志，以上组件由 Processor Chain 模块定义）
+6. Processor Chain 出站（VerbosityFilter -> 出站调试日志，以上组件由 Processor Chain 模块定义）
 7. Gateway 渲染调度 -> IM Adapter 渲染 -> 发送
 
 trace_id 在入站事件到达即产生，贯穿整条消息链路。日志事件同时携带 trace_id 和 session_key——trace_id 用于端到端消息链路串联，session_key 用于日志追踪和 session 上下文关联。

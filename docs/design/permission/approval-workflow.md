@@ -34,12 +34,12 @@
 
 审批请求由守护进程内的审批队列（ApprovalFlow）管理：
 
-- **入队**：操作被 Deny 或命中硬编码高风险名单 → 创建审批请求入队 → 工具调用进入等待状态；审批等待中的前台工具调用保持 Pending，Session 因此按 Busy 处理，同轮其他工具可先执行。审批等待与回调的跨模块契约见 [common/core-traits](../common/core-traits.md)（待补审批回调接口）。
+- **入队**：操作被 Deny 或命中硬编码高风险名单 → 创建审批请求入队 → 工具调用进入等待状态；审批等待中的前台工具调用保持 Pending，Session 因此按 Busy 处理，同轮其他工具可先执行。审批等待属于 [common PermissionGate](../common/core-traits.md#permissiongate) 调用内部的实现细节，调用方看到的是一次同步判定。
 - **审批 ID**：在请求所属的 Session 内从 1 起递增，每个 Session 独立计数；同一 Session 内不复用已分配的审批 ID。审批指令的 Session 上下文由消息通道提供——在哪个对话中发审批，就作用于哪个 Session 的审批 ID 空间；卡片与指令必须属于同一 Session，Owner 在其他对话发指令无法审批该 Session 的请求。
 - **标识命名**：操作审批用「审批 ID」（Session 内整数）；注册请求用「request_id」（队列 string）；回调按各自 ID 关联。
 - **去重**：同一 Agent-User 组合下、操作类型与参数相同的请求已有等待中的实例 → 直接返回 Deny，不分配审批 ID、不重复推送审批。去重作用于请求本身，与审批 ID 的计数空间无关。审批完成或超时后，该操作的重复申请限制解除，Agent 可重新发起。
 - **等待与超时**：默认等待 5 分钟（可配置）；超时未响应则自动向 Agent 返回拒绝结果。超时后 Owner 再对该 ID 发审批指令，系统返回「该审批已超时」。
-- **回调**：Owner 审批后通过请求 ID 关联回调，通知 Session 恢复执行或返回 Deny；回调经 common 审批回调接口投递（待补）。回调目标不可用时，请求以 Deny 结束。
+- **回调**：Owner 审批后按请求 ID 关联等待中的判定调用，使其以 Allow 或 Deny 返回；无独立回调接口。等待方已不可用（会话终止/进程退出）时，请求以 Deny 结束。
 - **可捕获的关闭流程**：所有等待中的请求以 Deny 结束并通知对应 Agent。进程崩溃/重启后内存队列本身不存在；Session 恢复时按 [session 恢复机制](../session/session-recovery.md) 对挂起的工具调用注入失败结果，不依赖队列残留。
 - **Owner 离线**：请求照常计时；超时后不补推，Owner 可查历史审批记录；不阻塞系统其他功能。
 
@@ -49,7 +49,7 @@
 - Owner 的决策是确认或调整 InitialPermissionSet，不是单次放行/加入白名单/拒绝。
 - 同一用户已有等待中的注册请求时直接拒绝新请求；审批通过后由 Gateway 权限指令处理层生成 UserRegistration，权限系统消费并落盘用户记录与规则。
 
-> **与 ApprovalSubmission 的关系**：`ApprovalSubmission` 是提交审批的窄接口（session tools 的 agent 间请求等）；审批队列（ApprovalFlow）本身承载所有需审批的请求——工具调用、沙盒移出、配置写入等需审批的 Deny 由权限引擎直接入队，子 Session、心跳、黑名单等按分流表排除，不依赖该 trait。
+> **与 PermissionGate 的关系**：审批入口只有一个——消费方（tools / session / gateway）经 [common PermissionGate](../common/core-traits.md#permissiongate) 发起判定，权限引擎在实现内部把需审批的 Deny 入队并挂起直至有结论；审批队列（ApprovalFlow）不对外暴露独立接口。子 Session、心跳、黑名单等按分流表排除后不产生队列项。
 
 审批队列为内存结构，不阻塞系统其他功能；无 Owner 在线时系统保持可用。
 
@@ -149,7 +149,7 @@ Owner 可按 Agent 维度和 User 维度分别决策：
 
 ## 模块关系
 
-- **上游**：权限引擎（产出 Deny 结果）、Gateway（审批指令拦截）、tools/session（agent 间请求经 ApprovalSubmission 提交；其它 Deny 由权限引擎直接入队）、沙盒（移出沙盒与文件越界请求）
+- **上游**：权限引擎（产出 Deny 结果）、Gateway（审批指令拦截）、tools / session / gateway（经 PermissionGate 发起需审批的判定）、沙盒（移出沙盒与文件越界请求）
 - **下游**：Gateway（审批卡片推送通道与审批结果回调通道；Agent Session 经 Gateway 接收回调）、IM Adapter（经 Gateway 渲染审批卡片）、Session（恢复执行或返回 Deny）、权限配置管理（白名单规则写入与新用户注册落盘）、沙盒（移出沙盒决策结果）、[common AuditLogger](../common/core-traits.md#auditlogger)（审批处置审计条目）、debug_log（审批生命周期事件）
 - **相关**：权限配置管理（新用户注册审批）
 - **无关**：LLM Provider（不参与审批）

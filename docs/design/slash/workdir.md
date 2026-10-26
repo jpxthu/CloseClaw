@@ -8,7 +8,7 @@
 
 三个指令由同一个 WorkdirHandler 处理：
 
-- **`/cd <路径>`**：变更工作目录。先校验路径存在性，不存在则回复错误；存在则切换并回复目录信息和当前 Git 分支。
+- **`/cd <路径>`**：变更工作目录。先校验路径存在性，不存在则回复错误；存在则经 SlashSessionQuery 写入会话工作目录（`set_workdir`）并回复目录信息和当前 Git 分支。
 - **`/pwd`**：输出当前工作目录路径。
 - **`/git <args>`**：经 Permission 模块审批后执行 Git 命令。只读子命令（status、log、diff、branch、show）可直接执行，写操作需经权限审批。
 

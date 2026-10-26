@@ -2,11 +2,11 @@
 
 ## 概述
 
-TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)）和 DSL 解析结果，将结构化内容转换为 RenderedOutput（按终端能力为 ANSI 或纯文本格式）。渲染是纯数据转换，实际的 stdout 写入由 TerminalPlugin 的 send 方法完成——遵循 IM Adapter 框架「渲染与发送分离」的设计原则。
+TerminalRenderer 是 terminal 渠道的出站渲染组件。它接收 ContentBlock[]（定义见 [common ContentBlock](../common/shared-types.md#contentblock)），将结构化内容转换为 RenderedOutput（按终端能力为 ANSI 或纯文本格式）。渲染是纯数据转换，实际的 stdout 写入由 TerminalPlugin 的 send 方法完成——遵循 IM Adapter 框架「渲染与发送分离」的设计原则。
 
 ## 架构
 
-TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独立路径，不经过本组件——由 common 的流式渲染原语驱动（[common StreamingRenderer](../common/core-traits.md#streamingrenderer)），TerminalPlugin 组合持有该原语并在流式模式中委托调用，逐事件产生增量输出（详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)）。批量渲染的顺序路径见 §数据流，渲染机制分三部分：终端能力检测（确定渲染模式与宽度约束）、DSL 交互元素预处理与提示行组装、块类型渲染策略（见 §块类型渲染规则）；其中 Text 块经 [common 内容段原语](../common/shared-types.md#contentsegment--内容段落解析) 解析为有序内容段序列（Markdown / Hr / CodeBlock 三种变体），再按段序列逐段二级分派（Markdown 与 Hr 走普通文本规则、CodeBlock 走代码块规则）。
+TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独立路径，不经过本组件——由 common 的流式渲染原语驱动（[common StreamingRenderer](../common/core-traits.md#streamingrenderer)），TerminalPlugin 组合持有该原语并在流式模式中委托调用，逐事件产生增量输出（详见 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)）。批量渲染的顺序路径见 §数据流，渲染机制分三部分：终端能力检测（确定渲染模式与宽度约束）、块类型渲染策略（见 §块类型渲染规则）；其中 Text 块经 [common 内容段原语](../common/shared-types.md#contentsegment--内容段落解析) 解析为有序内容段序列（Markdown / Hr / CodeBlock 三种变体），再按段序列逐段二级分派（Markdown 与 Hr 走普通文本规则、CodeBlock 走代码块规则）。
 
 ### 终端能力检测
 
@@ -29,7 +29,7 @@ TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独�
 
 **Thinking 块**
 
-折叠展示：ANSI dim 样式包裹，首行 `[Thinking]`，末行 `[end of thinking]`，内容缩进 2 空格。不支持 ANSI 时用 `[Thinking]` / `[end of thinking]` 边界包围，内容同样缩进 2 空格。
+终端不支持折叠交互，不以折叠块展示：默认仅展示思考进行中的状态指示；展示等级为 full 时输出思考正文（ANSI dim 样式包裹，内容缩进 2 空格）。需求见 [cli §F2](../../requirements/cli.md)。
 
 **ToolUse 块**
 
@@ -37,31 +37,29 @@ TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独�
 
 **ToolResult 块**
 
-展示工具执行结果，内容按 Text 块规则渲染（含 markdown 转换与代码块高亮）。超出渲染后行数上限（20 行）时截断，截断标记为块末独立一行 `... (truncated)`；行内超宽截断遵循 §数据流第 4 步的通用截断规则。ANSI 模式下整块输出用 dim 样式包裹。
+展示工具执行结果，内容按 Text 块规则渲染（含 markdown 转换与代码块高亮）。超出渲染后行数上限（20 行）时截断，展示等级为 full 时不按行截断（宽度截断仍适用）；行内超宽截断遵循 §数据流第 3 步的通用截断规则。ANSI 模式下整块输出用 dim 样式包裹。
 
 **不支持的内容块**
 
-Image、Audio、File 等终端不支持的块类型，按变体类型渲染为带文件名的占位符（如 `[image: name]` / `[audio: name]` / `[file: name]`，ANSI 模式下加 dim 样式；定义见 [common ContentBlock](../common/shared-types.md#contentblock) 各变体的终端渲染说明），不尝试输出二进制内容。
+Image、Audio、File 等媒体块在终端不渲染（媒体能力暂缓，见 [im_adapter media-store](../im_adapter/media-store.md)），不尝试输出二进制内容。
 
 ## 数据流
 
-终端检测和 DSL 预处理在遍历内容块之前统一完成，然后逐块渲染。渲染是纯数据转换，不执行 I/O：
+终端检测在遍历内容块之前统一完成，然后逐块渲染。渲染是纯数据转换，不执行 I/O：
 
-1. 输入：ContentBlock[] + DslParseResult + 终端能力信息（ANSI 能力标记与可用宽度，由 TerminalPlugin 经 platform 模块获取后传入；本组件为纯数据转换，不自行调用其他模块）——前两项定义见 [common DslParseResult](../common/shared-types.md#dslparseresult--dslinstruction)
+1. 输入：ContentBlock[] + 终端能力信息（ANSI 能力标记与可用宽度，由 TerminalPlugin 经 platform 模块获取后传入；本组件为纯数据转换，不自行调用其他模块）；内容块定义见 [common ContentBlock](../common/shared-types.md#contentblock)
 2. 依据传入的终端能力信息确定渲染模式（ANSI / 纯文本）
-3. DSL 交互元素预处理：按钮 / 选择器生成纯文本提示行（如 "[Button: label (action: xxx)]"、"[Selector: label (options: ...) (action: xxx)]"，不应用 ANSI 样式，两种渲染模式一致）并汇总为提示行列表；其他 DSL 类型在渲染层不输出提示行（DslParser 仍已解析，见 [common DslInstruction](../common/shared-types.md#dslparseresult--dslinstruction)）
-4. 遍历 ContentBlock[] 逐块渲染，按块类型分派渲染策略（各策略见 §块类型渲染规则），块间空行分隔，各块输出超过终端可用宽度时逐行截断，被截断的行尾追加 "... (truncated)"
-5. 提示行列表并入最终输出：作为独立段落置于全部渲染内容最前，与正文之间空一行；提示行超过终端可用宽度时同样截断并追加 "... (truncated)"
-6. 全部渲染完成后返回单个 RenderedOutput（msg_type 恒 "text"，见 [common RenderedOutput §输出格式决策](../common/shared-types.md#renderedoutput) 的终端渠道例外）
-7. Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等；流式模式为 pre-flight 一次检查），通过后由 TerminalPlugin 的 send 方法将 payload 写入 stdout
+3. 遍历 ContentBlock[] 逐块渲染，按块类型分派渲染策略（各策略见 §块类型渲染规则），块间空行分隔，各块输出超过终端可用宽度时逐行截断，被截断的行尾追加 "... (truncated)"
+4. 全部渲染完成后返回单个 RenderedOutput（msg_type 恒 "text"，见 [common RenderedOutput §输出格式决策](../common/shared-types.md#renderedoutput) 的终端渠道例外）
+5. Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等；流式模式为 pre-flight 一次检查），通过后由 TerminalPlugin 的 send 方法将 payload 写入 stdout
 
-空输入约定：ContentBlock[] 为空且无 DSL 提示行时，返回空 payload 的 RenderedOutput，不产生输出内容（TerminalPlugin 跳过写入，不调用 send）；ContentBlock[] 为空但存在 DSL 提示行时，正常输出提示行段落（正文为空）。
+空输入约定：ContentBlock[] 为空时，返回空 payload 的 RenderedOutput，不产生输出内容（TerminalPlugin 跳过写入，不调用 send）。
 
 > **流式路径**：流式模式不走本组件的批量渲染逻辑，由 common 流式渲染原语驱动（见 §架构），完整路径见 [CLI Chat §数据流](chat.md)。
 
 ## 模块关系
 
-- **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染，并传入 ContentBlock[]、DslParseResult 与终端能力信息）；platform 模块（其终端能力检测结果经 TerminalPlugin 传入，用于确定渲染模式与截断判断）
+- **上游**：TerminalPlugin（调用 TerminalRenderer 完成渲染，并传入 ContentBlock[] 与终端能力信息）；platform 模块（其终端能力检测结果经 TerminalPlugin 传入，用于确定渲染模式与截断判断）
 - **下游**：TerminalPlugin（消费 TerminalRenderer 产出的 RenderedOutput；渲染是纯数据转换，除此之外 TerminalRenderer 不调用其他模块，发送由 TerminalPlugin 的 send 完成）
 - **与模块内其他子功能**：被 TerminalPlugin 持有和调用，作为 IMPlugin 渲染职责的 terminal 渠道实现。TerminalPlugin 在流式模式中取用 common 流式渲染原语逐行产生增量输出
 - **与 IM Adapter 的关系**：TerminalRenderer 是 terminal 渠道在 IMPlugin 框架（[common IMPlugin](../common/core-traits.md#implugin)）下的渲染实现，与 im_adapter 各 platforms/ 平台实现（如飞书）平级，遵循 IMPlugin 约定——渲染返回 RenderedOutput，发送由插件完成。平台无关共享渲染原语（流式渲染器、内容段）位于 common；cli 作为适配器持有并委托，TerminalRenderer 的平台专属 emit（ANSI 行号注入、纯文本回退）由 cli 自身实现

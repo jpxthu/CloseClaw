@@ -30,7 +30,7 @@
                                            │
                                      Owner 决策
                                            │
-                                     Gateway 回调
+                              PermissionGate 调用返回结论
 ```
 
 - **权限引擎**：加载并缓存规则文件，按请求求值；不缓存评估结论。
@@ -219,8 +219,8 @@ Session 确定本轮 caller（消息发送者 / CLI Owner / 心跳任务 User / 
 
 > 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
-- **上游**：tools（工具调用时传入 caller + 操作）、Gateway（命令类斜杠指令拦截后传入、审批指令与审批回调）、daemon（装配 PermissionEvaluator / ApprovalSubmission 适配器；AuditLogger 由 permission 实现，daemon 装配并注入消费方）
-- **下游**：Gateway（审批卡片推送通道、审批结果回调通道；Agent Session 经 Gateway 接收回调）、Session（spawn 权限判定经 PermissionChecker、审批完成后恢复执行）、tools（审计查询经 AuditLogger）、CLI Admin（`rule check/list` 只读读取规则文件）、debug_log（评估、审批、规则变更与沙盒事件）
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：AuditLogger；消费：SessionLookup。PermissionEvaluator / ApprovalSubmission 由 daemon 适配，PermissionChecker 由 Gateway 适配；三者分别是 agent 间消息评估、审批提交、spawn 校验的窄接口；文件/命令行/网络等通用评估经 common 的权限评估接口（待补，见 common doc-gap）调用权限引擎，tools 不直接依赖 permission crate）、[common/shared-types](../common/shared-types.md)（CallerInfo、ToolContext.user_id、RiskLevel、PermissionEvalResponse、PermissionDenied、SpawnPermissionError、AuditLogEntry / AuditDisposition / AuditLogFilter、UserRegistration / UserCreationRequest / InitialPermissionSet）
+- **上游**：tools（工具调用时传入 caller + 操作）、Gateway（命令类斜杠指令拦截后传入、审批指令拦截）、Session（spawn 与 Agent 间消息判定）、daemon（装配 PermissionGate 适配器；AuditLogger 由 permission 实现，daemon 装配并注入消费方）
+- **下游**：Gateway（审批卡片推送通道）、Session（spawn 权限判定、审批完成后恢复执行）、tools（审计查询经 AuditLogger）、CLI Admin（`rule check/list` 只读读取规则文件）、debug_log（评估、审批、规则变更与沙盒事件）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：AuditLogger；PermissionGate 由 permission 的权限引擎与审批队列实现、daemon 包装后注入 tools / session / gateway；消费：SessionLookup；沙盒执行接口待补，见 [沙盒](sandbox.md)）、[common/shared-types](../common/shared-types.md)（PermissionRequest / PermissionOperation / PermissionDecision / PermissionDenied、RiskLevel、ToolContext.user_id、AuditLogEntry / AuditDisposition / AuditLogFilter、UserRegistration / UserCreationRequest / InitialPermissionSet）
 - **相关**：slash（命令类斜杠指令的语义与审批入口，经 Gateway 间接调用）
-- **无关**：IM Adapter（审批卡片的平台渲染由外部层 Adapter 处理，不涉及权限判断）、LLM Provider（不参与权限判定）、Session 生命周期管理（创建、压缩、归档、清理不经过权限检查；spawn 权限继承由 Session 的 SpawnController 经 PermissionChecker 执行）
+- **无关**：IM Adapter（审批卡片的平台渲染由外部层 Adapter 处理，不涉及权限判断）、LLM Provider（不参与权限判定）、Session 生命周期管理（创建、压缩、归档、清理不经过权限检查；spawn 权限继承由 Session 的 SpawnController 经 PermissionGate 执行）

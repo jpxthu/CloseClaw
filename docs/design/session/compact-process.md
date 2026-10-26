@@ -75,7 +75,7 @@ system prompt 包含 bootstrap 文件内容和工具/skill 列表，在会话创
 9. 通知 SessionManager，触发注入流程重建 system prompt 静态层
 10. 持久化压缩后的 transcript（仅 boundary 消息）
 11. 熔断器复位（成功后执行；手动压缩失败不触发复位，也不递增计数器）
-12. 返回 before/after token 统计给用户
+12. 返回 CompactionResult（含 before/after token 统计与结果描述）给调用方，由 Gateway 回发用户
 
 失败时（LLM 调用异常、摘要解析失败）：回传错误信息，chat_history 保持不变。手动压缩失败不递增熔断计数器。
 

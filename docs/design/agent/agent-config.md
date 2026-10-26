@@ -20,6 +20,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `id` | agent 唯一标识 | 是 | - |
 | `name` | 显示名称 | 否 | 同 id |
 | `parentId` | 父 agent ID（agent 创建时写入，运行时不变） | 否 | null |
+| `initial` | 是否为初始 Agent（系统基础入口）。配置向导创建初始 Agent 时写入，全程至多一个为真；CLI 未指定目标 Agent 时据此解析 | 否 | `false` |
 | `model` | 默认 LLM 模型及 fallback 列表，取值 [ModelSpec](../common/shared-types.md#modelspec)：字符串（仅主模型）或 `{ "primary": …, "fallback": [ … ] }` 对象 | 否 | 系统默认模型 |
 | `workspace` | 工作目录路径 | 否 | 系统默认 workspace |
 | `agentDir` | bootstrap 文件所在目录 | 否 | 系统默认 agent 目录 |
@@ -30,6 +31,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 | `disallowedTools` | 禁用工具黑名单；与白名单交集时黑名单优先 | 否 | `[]` |
 | `subagents` | 子 Session 创建控制参数（类型 [SubagentsConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)） | 否 | 见子字段 |
 | `memory` | per-agent memory 配置覆盖（类型 [MemoryConfig](../common/shared-types.md#resolvedagentconfig--subagentsconfig--memoryconfig)），仅在明确需要覆盖默认值时使用，详见 [memory 模块设计文档](../memory/config.md) | 否 | null |
+| `compact` | per-agent 压缩配置覆盖（类型 [CompactConfig](../common/shared-types.md#compactionresult--compactionerror)），全局默认在 session 配置（需求 [session §F3](../../requirements/session.md)） | 否 | null |
 | `hooks` | run-health hook 审查配置列表（类型 [HookConfig](../common/shared-types.md#hookconfig--hookparams--hooktype)） | 否 | `[]` |
 
 `tools` / `disallowedTools` / `skills` 的取值分别为[工具注册表](../common/core-traits.md#toolregistry)与 [skill 注册表](../common/core-traits.md#skillregistryquery)登记的名称，须与之完全一致（区分大小写）；名称不匹配的条目不会命中。
@@ -73,7 +75,7 @@ Agent 权限规则存储在独立的 `permissions.json` 中，与 `config.json` 
 
 清单仅包含 agent ID 列表，不包含内联配置（如模型名称、工具列表等）。每个 agent 的详细配置存储在同目录的 `config.json` 中。被注释掉的 ID 视为未注册，对应的配置目录会被跳过。
 
-初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建。master 作为系统的基础入口，具备全部工具和技能的访问权限（`tools` / `skills` 均为 `["*"]`，对应需求 [agent §F5](../../requirements/agent.md)）。
+初始 Agent（ID 为 `master`）由 CLI 配置向导在首次运行时创建，其 `config.json` 写入 `initial: true`。master 作为系统的基础入口，具备全部工具和技能的访问权限（`tools` / `skills` 均为 `["*"]`，对应需求 [agent §F5](../../requirements/agent.md)）。初始 Agent 的唯一性由配置加载校验保证（多于一个时为配置错误，取注册清单中最先出现的那个并记录告警）；CLI 未指定 `--agent-id` 时按此标记解析目标 Agent（见 [cli/chat.md](../cli/chat.md)）。
 
 ### Agent 能力模型
 

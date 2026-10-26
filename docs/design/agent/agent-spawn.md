@@ -23,7 +23,7 @@ Session 模块触发 SpawnValidator 执行前置检查（注意：下文「父 A
   ⑤ 白名单检查（配置校验）：agentId 不在父 Agent.subagents.allowAgents 中 → 拒绝
   ⑤-bis 目标 Agent 注册检查：目标 agentId 未在注册清单中注册、或其配置不可加载 → 拒绝（对应需求 agent §F9）
   ↓
-SpawnValidator 前置检查通过 → 其权限校验步经 PermissionChecker 边界触发权限引擎（PermissionEngine.evaluate()）完成权限判定：
+SpawnValidator 前置检查通过 → 其权限校验步经 common PermissionGate 边界触发权限引擎完成权限判定：
   ⑥ 权限检查：子 Session 经权限继承计算后无任何执行权限 → 拒绝（见 agent-permissions.md）
   ↓
 全部检查通过 → SpawnController 创建 child session：
@@ -278,7 +278,7 @@ Spawn 树由 Session 模块内部的 spawn_tree 子组件维护，记录父子 s
 
 | 模块 | 说明 |
 |------|------|
-| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查：SpawnValidator 执行前置检查后，其权限校验步经 PermissionChecker 边界触发权限引擎，由 Permission 模块完成继承计算 |
+| Permission | Agent 模块（纯配置层）不直接调用 Permission；spawn 流程中的权限检查：SpawnValidator 执行前置检查后，其权限校验步经 PermissionGate 边界触发权限引擎，由 Permission 模块完成继承计算 |
 | LLM Provider | spawn 不直接调用 LLM，子 session 的 LLM 调用由 session 模块管理 |
 | Processor Chain / Renderer | announce 内容的渲染由 session 的消息渲染管线完成 |
 | IM Adapter | spawn 不涉及外部消息路由 |
