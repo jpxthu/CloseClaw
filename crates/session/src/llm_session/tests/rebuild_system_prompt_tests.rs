@@ -4,6 +4,13 @@
 //! edge cases for the `overrides` parameter, the no-builder path,
 //! the activated-conditional-skills clearing behavior, and the
 //! InjectionParams contract (§注入链路的参数契约).
+//!
+//! Serialisation note (issue #4060 audit): the direct provider field
+//! set goes through `apply_skill_listing_update` /
+//! `compute_skill_listing_for_turn`, which emit nothing; the only emit
+//! reachable from this file is `debug!`-level (the `rebuild_system_prompt`
+//! path in `session_accessors.rs`), and this process has no DEBUG-level
+//! capture consumer. Verified: no callsite race, no `#[serial]` needed.
 
 use super::super::*;
 use closeclaw_common::{
