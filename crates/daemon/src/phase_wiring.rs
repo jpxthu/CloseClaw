@@ -445,6 +445,38 @@ impl Daemon {
             let check_interval = Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
+        // Assemble + spawn the memory pipeline (DreamingScheduler): reads
+        // memory config, builds DreamingPipeline / MemoryMiner, then runs
+        // the scheduler loop until shutdown.
+        let dreaming_handle = Self::spawn_memory_pipeline(
+            config_manager,
+            &storage,
+            data_dir,
+            dreaming_config_provider,
+            mining_notify_rx,
+            dreaming_rx,
+        );
+        (
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            task_manager,
+        )
+    }
+    /// Assemble the memory pipeline and spawn the DreamingScheduler.
+    ///
+    /// Extracted from [`Self::spawn_background_services`]: reads memory
+    /// config from ConfigManager (falling back to defaults when absent),
+    /// builds DreamingPipeline / MemoryMiner, and spawns the scheduler
+    /// loop consuming `dreaming_rx` until shutdown.
+    pub(crate) fn spawn_memory_pipeline(
+        config_manager: &Arc<ConfigManager>,
+        storage: &Arc<dyn PersistenceService>,
+        data_dir: &Path,
+        dreaming_config_provider: Arc<dyn SessionConfigProvider>,
+        mining_notify_rx: mpsc::Receiver<String>,
+        dreaming_rx: watch::Receiver<()>,
+    ) -> JoinHandle<()> {
         // Load memory config from ConfigManager (replaces hardcoded defaults).
         let memory_config = config_manager
             .section(ConfigSection::Memory)
@@ -481,9 +513,9 @@ impl Daemon {
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));
         let mut dreaming_scheduler = DreamingScheduler::new(
-            Arc::clone(&storage),
+            Arc::clone(storage),
             Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
-                Arc::clone(&storage),
+                Arc::clone(storage),
             )),
             dreaming_config_provider,
             dreaming_pipeline,
@@ -503,12 +535,7 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
-        (
-            sweeper_handle,
-            announce_sweeper_handle,
-            dreaming_handle,
-            task_manager,
-        )
+        dreaming_handle
     }
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
     pub(crate) async fn init_phase_6_admin_rpc(
