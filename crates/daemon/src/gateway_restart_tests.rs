@@ -1,7 +1,9 @@
 //! Unit tests for [`crate::gateway_restart`].
 //!
 //! Covers the restart state machine (Idle → Pending → Executing), the
-//! restart-request batching, DaemonReloadCallback restart-class signal
+//! restart-request batching, the shutdown-mode determination for a
+//! signal received while a restart is Pending/Executing (forceful,
+//! issue #4067), the DaemonReloadCallback restart-class signal
 //! delivery, and the restart-path turn-completion consumer
 //! wiring (`recv → finish_turns`), mirroring `install_handlers`.
 //!
@@ -419,6 +421,74 @@ fn test_restart_request_merges_changes() {
         }
         other => panic!("expected Pending, got {:?}", other),
     }
+}
+
+// ── shutdown-mode determination: Executing → forceful ───────────────
+
+/// `Executing` (rebuild in progress) → shutdown mode determination is
+/// **forceful**, and the forceful shutdown skips the drain wait despite
+/// a held active operation (restart.md §架构「无窗口兜底」; shutdown.md §双模关闭 /
+/// §升级路径 / §数据流 Phase 0).
+///
+/// Shape: a started daemon (no `run()` loop) with the state manually
+/// seeded to `Executing` through the module-private watch sender (same
+/// pattern as the state-machine tests above), then the production
+/// Phase-0 determination `start_shutdown_for_signal()` — the exact
+/// function the run loop's signal branch calls; that signal→branch
+/// wiring is proven end-to-end at `run()` level by the Pending × SIGTERM
+/// test in `lifecycle_run_tests.rs`. A full `run()` × Executing × SIGTERM
+/// drive is not safely handshakable: every loop branch that can prove
+/// consumption either leaves a watch trace only by leaving `Executing`
+/// (probe → `Pending`) or triggers the real rebuild (ready / admin
+/// force), and signaling before `run()` subscribes would hit the default
+/// SIGTERM disposition and kill the test process (issue #4069 context).
+///
+/// Behavioral discriminator — busy-count trap: with the busy counter
+/// held at 1, a graceful `initiate_shutdown` would sit in the drain
+/// until the 30s timeout, while forceful must return 0 immediately
+/// (bounded by a 1s timeout, STANDARDS §6).
+#[serial_test::serial]
+#[tokio::test]
+async fn test_executing_restart_shutdown_determination_is_forceful() {
+    use crate::test_helpers::{isolated_pid_file, setup_agents_json};
+
+    let temp_dir = tempfile::tempdir().expect("tempdir");
+    setup_agents_json(temp_dir.path()).expect("setup agents.json");
+    let daemon = crate::Daemon::start_with_pid_file_path(
+        temp_dir.path().to_str().unwrap(),
+        Some(isolated_pid_file(temp_dir.path())),
+    )
+    .await
+    .expect("daemon must start");
+
+    // Active operation in flight (busy-count trap) + manual Executing seed.
+    daemon.shutdown.increment_busy();
+    let _ = daemon.restart_state.tx.send(RestartState::Executing);
+    assert_eq!(
+        daemon.restart_state.state(),
+        RestartState::Executing,
+        "precondition: manually seeded Executing"
+    );
+
+    // The exact production call the run loop's shutdown-signal branch makes.
+    daemon.start_shutdown_for_signal();
+    assert!(
+        daemon.shutdown.is_forceful(),
+        "shutdown signal during an in-progress rebuild must start forceful, \
+         got {:?}",
+        daemon.shutdown.state()
+    );
+
+    // Forceful skips the drain wait despite the busy operation: the
+    // graceful path would block until the 30s drain timeout here.
+    let remaining =
+        tokio::time::timeout(Duration::from_secs(1), daemon.shutdown.initiate_shutdown())
+            .await
+            .expect("forceful shutdown must not wait for the busy operation");
+    assert_eq!(
+        remaining, 0,
+        "forceful drain must skip the wait and report no remaining operations"
+    );
 }
 
 // ── restart-path turn-completion consumer ───────────────────────────
