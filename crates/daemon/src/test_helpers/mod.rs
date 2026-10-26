@@ -4,6 +4,7 @@
 //! crate cannot depend on the root crate (circular dependency).
 
 pub mod config;
+pub mod daemon_start;
 pub mod dispatch;
 pub mod fakes;
 pub mod lifecycle;
@@ -11,6 +12,7 @@ pub mod scheduler;
 pub mod shutdown;
 
 pub use config::*;
+pub(crate) use daemon_start::*;
 pub(crate) use dispatch::*;
 pub use fakes::*;
 pub(crate) use lifecycle::*;

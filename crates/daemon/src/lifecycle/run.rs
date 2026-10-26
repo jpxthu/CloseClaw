@@ -496,7 +496,8 @@ impl Daemon {
                     self.shutdown.try_start_shutdown();
                     break;
                 }
-                msg = async { restart_rx.as_mut().unwrap().recv().await }, if !restart_rx_closed => {
+                msg = async { restart_rx.as_mut().unwrap().recv().await },
+                if !restart_rx_closed => {
                     if let Some(summary) = msg {
                         info!(summary = %summary, "restart signal received from config watcher");
                         let should_spawn = self.request_gateway_restart(vec![summary]);
@@ -509,7 +510,8 @@ impl Daemon {
                         restart_rx_closed = true;
                     }
                 }
-                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await }, if !admin_restart_rx_closed => {
+                cmd = async { admin_restart_rx.as_mut().unwrap().recv().await },
+                if !admin_restart_rx_closed => {
                     if let Some(force) = cmd {
                         if force {
                             info!("admin RPC: force restart requested");
@@ -529,9 +531,13 @@ impl Daemon {
                         admin_restart_rx_closed = true;
                     }
                 }
-                ready = async { ready_rx.as_mut().unwrap().recv().await }, if ready_rx.is_some() => {
+                ready = async { ready_rx.as_mut().unwrap().recv().await },
+                if ready_rx.is_some() => {
                     if let Some(changes) = ready {
-                        info!(changes = ?changes, "watchdog ready signal received — executing restart");
+                        info!(
+                            changes = ?changes,
+                            "watchdog ready signal received — executing restart"
+                        );
                         self.execute_gateway_restart().await;
                     } else {
                         ready_rx = None;
