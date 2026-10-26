@@ -16,6 +16,8 @@ mod gateway_host_adapter;
 pub mod gateway_restart;
 pub mod lifecycle;
 mod memory_params_adapter;
+#[cfg(test)]
+mod memory_pipeline_tests;
 mod memory_storage_adapter;
 mod metrics;
 pub mod outbound_raw_log;
@@ -84,6 +86,8 @@ mod skills_helper;
 #[path = "spawn_controller_crate_reexport_tests.rs"]
 mod spawn_controller_crate_reexport_tests;
 mod startup_plan;
+#[cfg(test)]
+mod startup_recovery_scan_tests;
 #[cfg(test)]
 mod step14_comprehensive_tests;
 #[cfg(test)]
