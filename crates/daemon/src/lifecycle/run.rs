@@ -489,11 +489,13 @@ impl Daemon {
                         }
                     };
                     if kind == SignalKind::interrupt() {
-                        info!("Received Ctrl+C, initiating graceful shutdown...");
+                        info!("Received Ctrl+C, initiating shutdown...");
                     } else {
-                        info!("Received SIGTERM, initiating graceful shutdown...");
+                        info!("Received SIGTERM, initiating shutdown...");
                     }
-                    self.shutdown.try_start_shutdown();
+                    // Phase 0 mode determination: Pending/Executing restart
+                    // → forceful (restart.md 无窗口兜底), otherwise graceful.
+                    self.start_shutdown_for_signal();
                     break;
                 }
                 msg = async { restart_rx.as_mut().unwrap().recv().await },
