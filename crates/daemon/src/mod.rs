@@ -67,6 +67,8 @@ mod lifecycle_assembly_tests;
 #[cfg(test)]
 mod lifecycle_phase3_heartbeat_tests;
 #[cfg(test)]
+mod lifecycle_run_tests;
+#[cfg(test)]
 mod lifecycle_tests;
 mod llm_components;
 mod llm_init;
