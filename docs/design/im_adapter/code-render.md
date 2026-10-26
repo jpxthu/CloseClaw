@@ -10,7 +10,7 @@
 
 **代码块边界**：代码块以单个 Text 块内的围栏为界——围栏须在同一 Text 块内闭合；跨块的围栏不识别为代码块，按未闭合文本处理。流式路径同样在 Text 块结束时重置代码模式，保证批量与流式判定一致。
 
-**上游 DSL 处理**：出站 Text 块通常已经过 Processor Chain 的 DslParser 处理（剥离 DSL 指令行；解析失败时原样透传，简化出站路径不经链处理）。渲染器不重新解析 DSL；进入渲染的文本以 Processor Chain 的实际输出为准（剥离规则见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
+**上游预处理**：进入渲染的文本以 Processor Chain 的实际输出为准（出站链定义见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
 
 **平台渲染策略**（未列出的新平台在确认自身能力前按纯文本档处理，新增平台时须在本文登记其能力档）：
 
@@ -31,7 +31,7 @@
 
 ## 模块关系
 
-- **上游**：Processor Chain（出站方向：产出经 DSL 处理的 ProcessedMessage）、Gateway（调用插件渲染）、common（提供平台无关的内容段原语与内容段解析）
+- **上游**：Processor Chain（出站方向：产出过滤后的 ProcessedMessage）、Gateway（调用插件渲染）、common（提供平台无关的内容段原语与内容段解析）
 - **下游**：Gateway（消费 RenderedOutput，经中间件后交发送）、IMPlugin 发送能力（投递到平台；terminal 渠道写入 stdout）
 - **共享类型**：[common/shared-types](../common/shared-types.md)（消费：ContentSegment、ContentBlock、ProcessedMessage；产出：RenderedOutput）
 - **所属**：IM Adapter 模块的渲染子功能；common 内容段原语由各平台适配器持有并委托调用，terminal 渠道的代码块实现归属 [cli 模块](../cli/renderer.md)

@@ -31,8 +31,8 @@
 - **post 类型消息**（含图片的富文本消息，message_type=post）：CLI 已将 post 平文本化为一段 content——标题文本并入正文（平台事件不提供独立标题结构）。content 中若带有 markdown 样式标记（粗体/斜体/删除线/下划线/列表/引用/行内代码等）则原样保留并按 markdown 展开；样式是否出现在 content 中取决于平台客户端与 CLI 版本的展平结果（fixture 未覆盖全部样式）。Adapter 按 markdown 文本展开，不重建结构化 post 段，仅做三项转换：content 中的 @ 平台标签转为用户名文本（保留 @ 形式）、emoji 展开为占位符文本、内嵌图片标记替换为占位符。链接、邮箱、电话不解析、不保留——展平后若以 markdown 链接或联系方式形式出现，解析时整体丢弃（不将链接与 URL 送入正文）。内嵌图片按 `![Image](img_key)` 行内标记识别（标记内 key 即图片资源标识），正文在原位置以 `[图片]` 占位符替代；媒体能力暂缓——当前不下载图片、不填充 media_refs
 - **file / image / audio 类型消息**（message_type=file/image/audio）：随媒体能力暂缓，当前不解析、不落盘、不填充 media_refs；启用前需解冻需求并重新设计（当前范围见 [im_adapter media-store](../media-store.md)）
 - **sticker 类型消息**（message_type=sticker）：独立表情消息，提取表情标识渲染为文本占位符（如 `[OK]`）作为消息正文
-- **会话与话题字段**：`chat_id` 标识消息所属会话、`chat_type` 区分私聊（p2p）与群聊（group，暂不设计）；`thread_id` 标识话题，`root_id` 为话题根消息、`reply_to` 为直接父消息（话题内消息均有；无 thread_id 的顶层消息无）。私聊的会话对端按「会话锚点构造」组合，chat_id 本身不进入 peer_id。无 thread_id 但有 reply_to 的普通回复按顶层消息处理（开新 Session），同时按引用规则拼接被引用正文，reply_ref 为本条消息 ID
-- **引用/回复消息**：事件仅携带 `reply_to` / `root_id`，不含被引用正文；Adapter 经 lark-cli 按被回复消息 ID 回查平台消息接口取得文本，按 [im_adapter README](../README.md#implugin-trait-契约) 的引用规则拼接（截断与 blockquote 格式见该处）；回查失败时不拼接引用正文、仅记录日志，不阻塞消息入站
+- **会话与话题字段**：`chat_id` 标识消息所属会话、`chat_type` 区分私聊（p2p）与群聊（group，暂不设计）；`thread_id` 标识话题，`root_id` 为话题根消息、`reply_to` 为直接父消息（话题内消息均有；无 thread_id 的顶层消息无）。私聊的会话对端按「会话锚点构造」组合，chat_id 本身不进入 peer_id。无 thread_id 但有 reply_to 的普通回复按顶层消息处理（开新 Session），引用正文不拼接（引用不在范围），reply_ref 为本条消息 ID
+- **引用/回复消息**：当前范围不识别引用——事件携带的 `reply_to` / `root_id` 不用于回查被引用正文，被引用内容不拼接进 content（需求 [im_adapter §F2](../../../requirements/im_adapter.md)）；出站定向投递仍用它们作为 reply_ref 目标
 - **媒体落盘（暂缓）**：媒体下载落盘、media_refs 填充当前不实现；启用前需解冻需求并重新设计，范围见 [im_adapter media-store](../media-store.md) 与「平台接口权威来源」
 - **媒体下载失败（暂缓）**：当前不实现媒体下载，unavailable_media 不填充；启用前需重新设计（见 [im_adapter media-store](../media-store.md)）
 
@@ -45,7 +45,7 @@
 | 顶层消息（无 thread_id） | 对方用户标识 + 本条消息 ID——每条顶层消息开启独立会话 | 本条消息 ID |
 | 话题回复（有 thread_id） | 对方用户标识 + thread_id——同一话题归入同一会话 | 话题根消息 ID（root_id） |
 
-同一会话内 peer_id 取值相同、不同会话间互不相同；当平台自然锚点不足以区分 Session 时，插件在取值内补充更细粒度的上下文信息。`thread_id` 标识话题（`omt_` 前缀），同一话题内各消息的 `root_id` 相同、即话题根消息 ID，出站定向投递以该 ID 作为 reply_ref——需求所述「出站携带话题标识定向回复」在平台侧即以话题根消息 ID 为回复目标；顶层消息无 thread_id，其 reply_ref 为本条消息 ID。话题首次出现时按 thread_id 作为会话对端建立 Session，后续该话题下的回复持续归入同一 Session；话题回复同时是对某条消息的引用，被引用文本按引用/回复规则截断拼接在正文前（见 [im_adapter §F2](../../../requirements/im_adapter.md)）。出站时按 reply_ref 定向投递：话题会话以根消息 ID 调用话题回复接口（reply-in-thread），顶层会话以消息 ID 定向回复原消息。
+同一会话内 peer_id 取值相同、不同会话间互不相同；当平台自然锚点不足以区分 Session 时，插件在取值内补充更细粒度的上下文信息。`thread_id` 标识话题（`omt_` 前缀），同一话题内各消息的 `root_id` 相同、即话题根消息 ID，出站定向投递以该 ID 作为 reply_ref——需求所述「出站携带话题标识定向回复」在平台侧即以话题根消息 ID 为回复目标；顶层消息无 thread_id，其 reply_ref 为本条消息 ID。话题首次出现时按 thread_id 作为会话对端建立 Session，后续该话题下的回复持续归入同一 Session；话题回复同时是对某条消息的引用，但引用正文不拼接（引用不在范围，见 [im_adapter §F2](../../../requirements/im_adapter.md)）。出站时按 reply_ref 定向投递：话题会话以根消息 ID 调用话题回复接口（reply-in-thread），顶层会话以消息 ID 定向回复原消息。
 
 **账号映射**：接收方机器人应用由插件配置的 profile 确定（单实例单应用）；receive 类事件不带 app_id，信封式事件含 `header.app_id` 时用于校验、与 profile 不一致则丢弃并告警，`event.app_id` 为操作方应用、不用于身份映射。机器人应用不进入归一化字段，用于 Agent 路由。以「平台 + 本机器人应用 + 发送者标识」为键查询身份映射表获取 CloseClaw 本地账号标识，参与 session 路由。飞书发送者标识（open_id）按「应用 × 发送者」隔离——同一用户在不同应用语境下标识不同，跨应用 ID 不可直接互换，故映射键必须包含接收方机器人应用，同一用户跨应用的多个标识经身份映射归并为同一账号（映射表见 [config accounts.json](../../config/README.md)；跨应用 ID 隔离的实测证据见 fixture README「跨应用 ID 翻译」）。一个账号可绑定多个平台的多个发送者标识。
 
@@ -72,7 +72,7 @@
 | 含换行符 | interactive 卡片 |
 | 含 Thinking/ToolUse/ToolResult 块（单个或多个） | interactive 卡片 |
 | 含 Image/Audio/File 块（单个或多个） | interactive 卡片（媒体能力暂缓，当前不出现此类出站块） |
-| 含 DSL 交互指令 | **暂缓**——当前不参与格式判定、不产生渲染输出（见「暂缓能力」；启用后按保留设计渲染为交互控件） |
+| 交互控件（按钮/选择器） | **不支持**——入站交互事件不在当前范围，出站不渲染交互控件（见需求 [im_adapter](../../requirements/im_adapter.md)） |
 
 判定按最强信号：任一富格式条件命中即输出 interactive 卡片；仅全部条件均不命中时才是 text 消息。
 
@@ -122,8 +122,8 @@ Renderer 产出的 RenderedOutput 由 Adapter 映射为 lark-cli 命令发送，
 
 **设计保留、暂不实施**（启用时按本文档既有设计开发，无需重新设计）：
 
-- **DSL 交互指令（button）**：当前不渲染为飞书交互控件，输出类型决策不参考 DSL 标记。启用后按保留设计实施（首个按钮 primary 样式、后续按钮默认样式、全部按钮平铺在卡片底部操作区）：批量模式下 [DslParser](../../processor_chain/outbound-chain.md) 解析的 DSL 指令渲染为卡片 action 元素，流式模式下 DSL 指令仅日志记录与出站历史写入（详见 [Gateway 出站流程](../../gateway/outbound-flow.md)）
-- **卡片交互事件（card.action.trigger）**：当前不订阅、不进入消息通路。启用时按既有设计接入：卡片交互事件建模为 [CardActionEvent](../../common/shared-types.md#cardactionevent)，作为工具调用回执经 tool_result 通道注入对话；因平台单消费者限制，需独立订阅进程
+- **交互控件（button）**：不渲染为飞书交互控件；入站按钮交互事件到达后忽略并记录调试日志（见需求 [im_adapter 飞书 §F2](../../requirements/im_adapter/feishu.md)），出站不产出交互元素。
+- **卡片交互事件（card.action.trigger）**：当前不订阅、不进入消息通路，事件到达后忽略并记录调试日志（需求 [im_adapter 飞书 §F2](../../../requirements/im_adapter/feishu.md)）
 
 **未设计、当前不实现**（启用前需解冻需求并重新设计）：
 

@@ -33,7 +33,7 @@
 | 配置写入 | 文件路径 |
 | 收发消息 | 方向（入站/出站） |
 
-评估与拦截位置：读/写、命令行由权限引擎评估并交沙盒强制；工具与配置写入由 tools 触发权限引擎；跨 Agent（spawn）由 Session 经 PermissionChecker 触发；网络随命令执行与移出沙盒审批处理；收发消息在消息进入/离开 Agent 时评估。
+评估与拦截位置：读/写、命令行由权限引擎评估并交沙盒强制；工具与配置写入由 tools 经 common PermissionGate 触发；跨 Agent（spawn）由 Session 经 PermissionGate 触发；网络随命令执行与移出沙盒审批处理；收发消息在消息进入/离开 Agent 时评估。所有操作均经 [common PermissionGate](../common/core-traits.md#permissiongate) 单一入口进入权限引擎，不另设窄接口。
 
 ### 读
 

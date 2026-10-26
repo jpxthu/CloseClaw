@@ -7,7 +7,7 @@
 
 ## 架构
 
-CLI 模块分为两个子系统。CLI Chat 以 platform="terminal" 注册到 Gateway 的 Plugin Registry，走完整出入站链路（实现实体 TerminalPlugin 包含 TerminalAdapter（入站解析）与 TerminalRenderer（出站渲染）两个组件，并持有 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）用于流式路径）；Chat 依赖 daemon 已运行——启动时连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`，不自动拉起。CLI Admin 绕过消息链路，命令分为本地操作（不经 daemon）与 daemon RPC（经 daemon 管理接口 / Admin RPC Server）两类。
+CLI 模块分为两个子系统。CLI Chat 以 platform="terminal" 接入 Gateway 的 Plugin Registry（terminal 插件为 daemon 侧 RPC 代理实体，含 TerminalAdapter（入站解析）与 TerminalRenderer（出站渲染）两个组件，并持有 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）用于流式路径；chat 进程只负责 stdin/stdout 与 chat 连接）；Chat 依赖 daemon 已运行——启动时连接 chat 连接，不可达则提示 daemon 未运行并结束，不自动拉起。CLI Admin 绕过消息链路，命令分为本地操作（不经 daemon）与 daemon RPC（经 daemon 管理接口 / Admin RPC Server）两类。
 
 ```
 closeclaw <command>
@@ -49,14 +49,14 @@ CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差
 
 0. 启动检查：连接 daemon 管理接口，不可达则报错退出并提示先执行 `closeclaw run`（不自动拉起）
 1. stdin 输入，TerminalAdapter 解析为 NormalizedMessage（terminal 渠道专用字段值见 chat.md）
-2. Processor Chain 入站处理后，消息进入 Gateway：先做 Session 解析（渠道/绑定确定 Agent、会话路由键定位 Session，含忙碌入队、归档恢复等分支，见 [gateway 入站路径](../gateway/README.md)），再按内容分流：
+2. Processor Chain 入站处理后，消息进入 Gateway：先做 Session 解析（terminal 渠道目标 Agent 取 `--agent-id` 或初始 Agent，详见 [chat.md](chat.md)；会话路由键定位 Session，含忙碌入队、归档恢复等分支，见 [gateway 入站路径](../gateway/README.md)），再按内容分流：
    - 审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）→ Gateway 硬拦截走权限审批流，不进 SlashDispatcher
    - 其他以 `/` 开头 → SlashDispatcher → SlashHandler 返回 SlashResult → Gateway 经 SideEffectContext 触发执行 → ContentBlock[]
    - 普通文本 → Session → LLM → ContentBlock[]
-3. ContentBlock[] 经 Processor Chain 出站（VerbosityFilter → DslParser → OutboundRawLog）到达 TerminalPlugin
+3. ContentBlock[] 经 Processor Chain 出站（VerbosityFilter → OutboundRawLog）到达 TerminalPlugin
 4. TerminalPlugin 先渲染后发送：先经 platform 模块获取终端能力信息，调用 TerminalRenderer 渲染 → RenderedOutput（按终端能力为 ANSI 或纯文本），随后 Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等，通过后才发送），再由 TerminalPlugin 发送 → stdout
 
-> **流式路径**：LLM 流式输出时不走上述批量路径——增量阶段开始前 Gateway 先执行一次 pre-flight 出站中间件检查（被拒则终止流式并发送拒绝通知）；随后 [StreamEvent](../common/shared-types.md#streamevent) 事件流经统一预处理（VerbosityFilter 按块边界过滤 → DslParser 透传）后，TerminalPlugin 委托 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）逐事件产出 [StreamingOutput](../common/shared-types.md#streamingoutput) 增量输出，逐片写入 stdout；流式结束后由 Gateway 在收尾阶段调度 Processor Chain 完成 DslParser 完整解析与 OutboundRawLog 出站日志。详见 [CLI Chat](chat.md) 与 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
+> **流式路径**：LLM 流式输出时不走上述批量路径——增量阶段开始前 Gateway 先执行一次 pre-flight 出站中间件检查（被拒则终止流式并发送拒绝通知）；随后 [StreamEvent](../common/shared-types.md#streamevent) 事件流经统一预处理（VerbosityFilter 按块边界过滤）后，TerminalPlugin 委托 common 流式渲染原语（[StreamingRenderer](../common/core-traits.md#streamingrenderer)）逐事件产出 [StreamingOutput](../common/shared-types.md#streamingoutput) 增量输出，逐片写入 stdout；流式结束后由 Gateway 在收尾阶段调度 Processor Chain 完成 OutboundRawLog 出站日志。详见 [CLI Chat](chat.md) 与 [IM Adapter 流式渲染](../im_adapter/streaming-render.md)。
 
 ### Admin 层
 
@@ -72,5 +72,5 @@ CLI 支持 Linux、macOS 及 Windows（经 WSL2，行为等同 Linux）。OS 差
 
 - **上游**：操作系统终端（stdin / 命令参数）、Gateway（Chat 层出站方向通过 IMPlugin trait 调用 TerminalPlugin 发送渲染结果）、daemon（Chat 启动时经管理接口做存活检测；Admin 层经管理接口发起 daemon RPC 并消费其返回的查询结果——daemon README 登记 Admin RPC Server）、platform 模块（提供终端能力检测结果与进程/PID 状态等 OS 抽象）
 - **下游**：Gateway（Chat 层产 NormalizedMessage 入站，经 Processor Chain 产出 ProcessedMessage 供 Gateway 路由；消费 ContentBlock[] 出站）、daemon（run/stop 启停；agent/skill 命令经管理接口查询 daemon 状态）、Config 模块（config 命令经 config 模块读写配置）、Permission 模块（rule 命令只读查看权限规则）、LLM 模块（config setup 向导调用模型发现）、Agent 模块（config setup 首次配置时创建初始 Agent）
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：IMPlugin；消费：StreamingRenderer）、[common/shared-types](../common/shared-types.md)（消费：NormalizedMessage、ProcessedMessage、ContentBlock、DslParseResult、RenderedOutput、StreamEvent、StreamingOutput、ContentSegment）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：IMPlugin；消费：StreamingRenderer）、[common/shared-types](../common/shared-types.md)（消费：NormalizedMessage、ProcessedMessage、ContentBlock、RenderedOutput、StreamEvent、StreamingOutput、ContentSegment）
 - **无关**：IM Adapter 各平台实现（飞书/Discord 等 platforms/ 实现与本模块的 terminal 插件无相互调用；terminal 作为非 platforms/ 插件经显式注册加入 Plugin Registry）

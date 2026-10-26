@@ -22,7 +22,7 @@ IM Adapter 模块不承载对话、会话、路由等业务逻辑，由以下部
 模块运行时注册表由 Gateway 维护：
 
 - **Plugin Registry**：platform → IMPlugin 的映射。Gateway 通过 platform 字段选择插件。
-- **插件注册机制**：分两阶段。**编译期发现**——构建时自动扫描 `platforms/` 目录生成平台清单模块声明，新增平台无需改动 Gateway 等核心代码；平台目录内的 `mod.rs` 仍为手写插件实现。**装配期注册**——Daemon 作为组合根，在启动与网关重建时创建已启用平台的插件实例并注册到 Gateway 维护的 Plugin Registry。启用状态读取自 [config plugins.json](../config/README.md)（平台启用清单），仅已启用平台注册；新平台默认禁用，须在配置中显式添加并启用。不在 `platforms/` 下的 terminal 插件由 CLI Chat 在连接建立时显式注册，RPC terminal 插件由 Daemon 注册。各已启用平台的初始化相互独立——单个插件初始化失败仅记录日志并跳过该平台，不影响其他已启用平台的正常加载与运行。平台 API 调用失败按插件内降级处理（记录日志、不导致进程崩溃）；平台工具执行失败向 Agent 返回明确错误（需求 §稳定性）。**平台启用清单（含新增/停用平台）属重启生效类**：变更经配置模块确认后触发 Gateway 择机重启；重启时新增平台创建插件并注册、停用平台关闭连接并移除、未变更平台保留连接并在重建后重新注册（机制见 [config 热重载](../config/hot-reload.md)「重启类变更确认与触发」，需求见 [im_adapter §F1](../../requirements/im_adapter.md)）。同一平台在单个实例内接入一个接收方机器人应用，多应用接入不在当前设计范围。
+- **插件注册机制**：分两阶段。**编译期发现**——构建时自动扫描 `platforms/` 目录生成平台清单模块声明，新增平台无需改动 Gateway 等核心代码；平台目录内的 `mod.rs` 仍为手写插件实现。**装配期注册**——Daemon 作为组合根，在启动与网关重建时创建已启用平台的插件实例并注册到 Gateway 维护的 Plugin Registry。启用状态读取自 [config plugins.json](../config/README.md)（平台启用清单），仅已启用平台注册；新平台默认禁用，须在配置中显式添加并启用。不在 `platforms/` 下的 terminal 插件为 RPC 代理实体，由 Daemon 在 chat 连接建立时创建并注册（chat 进程仅为客户端，不持有插件实例）。各已启用平台的初始化相互独立——单个插件初始化失败仅记录日志并跳过该平台，不影响其他已启用平台的正常加载与运行。平台 API 调用失败按插件内降级处理（记录日志、不导致进程崩溃）；平台工具执行失败向 Agent 返回明确错误（需求 §稳定性）。**平台启用清单（含新增/停用平台）属重启生效类**：变更经配置模块确认后触发 Gateway 择机重启；重启时新增平台创建插件并注册、停用平台关闭连接并移除、未变更平台保留连接并在重建后重新注册（机制见 [config 热重载](../config/hot-reload.md)「重启类变更确认与触发」，需求见 [im_adapter §F1](../../requirements/im_adapter.md)）。同一平台在单个实例内接入一个接收方机器人应用，多应用接入不在当前设计范围。
 
 平台插件为自包含模块，内部结构统一：
 
@@ -32,7 +32,7 @@ platforms/<平台名>/
 ├── adapter.rs     — 入站：平台事件解析 → NormalizedMessage（媒体落盘随媒体能力暂缓）
 │                  — 出站：平台 API 发送消息
 │                  — token 管理与刷新
-├── renderer.rs    — ContentBlock[] + DSL → 平台原生格式
+├── renderer.rs    — ContentBlock[] → 平台原生格式
 └── tools/         — 平台工具实现（注册职责在模块级，见「对外工具」）
     ├── mod.rs     — 工具实现模块声明
     └── ...        — 各工具分组文件
@@ -68,7 +68,7 @@ IM Adapter 负责在入站解析时填充 NormalizedMessage 的全部字段—�
 
 **接收方机器人应用**：每个平台插件实例对应一个接收方机器人应用（平台凭证/profile 在插件配置中确定）。Gateway 按产出该消息的插件实例识别机器人应用，查 [config accounts.json](../config/README.md) 的机器人→Agent 绑定确定路由 Agent；接收方机器人应用不进入 NormalizedMessage 字段（需求 [im_adapter/feishu §F1](../../requirements/im_adapter/feishu.md)），平台事件中的 app_id 仅用于校验与身份映射键。插件声明接入模式（webhook / 长连接），Gateway 据此决定队列满拒绝时的送达语义（见 [Gateway 消息队列](../gateway/README.md#消息队列与排队语义)）。
 
-**引用/回复消息的处理**：若 IM 平台支持消息引用/回复功能，Adapter 按 [common 共享类型](../common/shared-types.md) 的引用/回复消息处理规则解析——被引用内容由插件按平台接口回查取得（事件通常只带被回复消息 ID），截断至 500 字符、超出以 `...` 表示，以 markdown blockquote 拼接在 content 字段之前，不传递独立的引用消息字段（此处仅指被引用内容不单独立字段；出站定向投递使用的 reply_ref 是独立的回复目标标识，见出站路径）。回查失败时不拼接引用正文，仅记录日志。
+**引用/回复消息的处理**：引用关系不在当前范围——Adapter 不识别引用、不回查被引用消息正文，被引用内容不拼接进 content（需求 [im_adapter §F2](../../requirements/im_adapter.md)）。出站定向投递不受影响：reply_ref 是独立的回复目标标识，用于把回复投递回原消息/话题位置。
 
 ### 平台接口真实性验证
 
@@ -92,14 +92,14 @@ IM 平台接口行为可能随平台侧变更而漂移（事件结构、字段�
 
 各消息平台插件根据内容特征自动选择输出格式，格式选择由系统自动完成，用户与 Agent 无需手动指定：
 
-- 纯文本、无格式标记、无换行、无 Thinking/ToolUse/ToolResult 块、无参与格式判定的 DSL → text 消息（轻量文本）
-- 含 markdown 格式（标题/粗体/斜体/删除线/下划线/行内代码/代码块/列表/引用/链接/分割线）、换行、Thinking/ToolUse/ToolResult 块、或参与格式判定的 DSL → 富格式消息
+- 纯文本、无格式标记、无换行、无 Thinking/ToolUse/ToolResult 块 → text 消息（轻量文本）
+- 含 markdown 格式（标题/粗体/斜体/删除线/下划线/行内代码/代码块/列表/引用/链接/分割线）、换行、Thinking/ToolUse/ToolResult 块 → 富格式消息
 - 含 Image/Audio/File 块 → 富格式消息（随媒体能力暂缓，当前不出现此类出站块）
-- **DSL 交互指令的平台能力前提**：仅当平台交互能力已启用时，DSL 才参与格式判定并渲染为交互控件；平台未启用或暂缓（如飞书）时 DSL 不参与格式判定、不产生渲染输出，仅日志记录与出站历史写入（见各平台插件文档）
+- **交互控件的边界**：本模块不渲染交互控件（按钮/选择器等）——入站交互事件不在当前范围内，见 [im_adapter 需求](../../requirements/im_adapter.md)
 
 **流式与批量的格式分流**：流式输出一律使用富格式消息——流式内容在生成完成前无法判定是否为纯文本，不适用 text 分支；轻量文本消息仅用于内容在发送前已完整生成、且判定为纯文本的批量消息。消息格式一经发出即锁定。
 
-例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）；流式模式下 DSL 交互指令不产生渲染输出（仅日志记录与出站历史写入），交互指令仅在批量模式渲染（见[流式渲染](streaming-render.md)）。
+例外：terminal 渠道无富格式消息形态，恒输出 text 消息——富内容在 payload 内转为 ANSI 样式文本（见 [cli/Terminal Renderer](../cli/renderer.md)）。
 
 ## 数据流
 
@@ -116,14 +116,14 @@ IM 平台接口行为可能随平台侧变更而漂移（事件结构、字段�
 
 ```
 1. LLM 输出 ContentBlock[]。
-2. Processor Chain 出站依次执行（Verbosity 过滤 → DSL 解析 → 出站日志（仅 `raw_log_dir` 配置时注册），见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
+2. Processor Chain 出站依次执行（Verbosity 过滤 → 出站日志（仅 `raw_log_dir` 配置时注册），见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
-4. IMPlugin 渲染：渲染接口消费 Step 3 的 ProcessedMessage（content_blocks + metadata 中的 DslParseResult；dsl_result 仅在解析出指令时写入，类型定义见 [common 共享类型](../common/shared-types.md)），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
+4. IMPlugin 渲染：渲染接口消费 Step 3 的 ProcessedMessage（content_blocks + metadata），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
 5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件（流式模式下在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，见[流式渲染](streaming-render.md)）。
 6. IMPlugin 发送：发送接口将渲染结果按 peer_id、reply_ref 投递到平台。← 日志：平台 API 发送（平台、目标、耗时）
 ```
 
-**流式出站路径**：LLM 流式事件（StreamEvent）经增量阶段 Processor Chain（VerbosityFilter 过滤、DslParser 透传）→ 插件流式渲染器逐事件产出 StreamingOutput → Gateway 组装 RenderedOutput 并调用插件发送能力逐批投递（同一回复在平台侧增量更新）；收尾阶段由 Gateway 执行 DslParser 完整解析与出站日志/历史写入（详见 [流式渲染](streaming-render.md)）。
+**流式出站路径**：LLM 流式事件（StreamEvent）经增量阶段 Processor Chain（VerbosityFilter 过滤）→ 插件流式渲染器逐事件产出 StreamingOutput → Gateway 组装 RenderedOutput 并调用插件发送能力逐批投递（同一回复在平台侧增量更新）；收尾阶段由 Gateway 执行出站日志/历史写入（详见 [流式渲染](streaming-render.md)）。
 
 出站路径中，Renderer 不属 Processor Chain——渲染是终结操作，输出后无后续处理器接力。Gateway 根据目标 platform 选择对应插件，调用插件内部的 Renderer 完成渲染，再通过 Adapter 发送。Gateway 的简化出站路径（队列满繁忙提示、错误/降级提示、系统通知等纯文本提示）同样经插件的渲染与发送能力投递，不经出站 Processor Chain。
 
@@ -135,5 +135,5 @@ peer_id 和 reply_ref 来源于入站时 IM Adapter 填入 NormalizedMessage 的
 
 - **上游**：Gateway（出站方向：调用 IM Adapter 完成渲染和发送）、Processor Chain（出站方向：消费链产出的 ProcessedMessage 渲染为平台格式）、Config（accounts.json：入站解析时按「平台 + 接收方机器人应用 + sender_id」查询身份映射表，将 sender_id 转为 account_id）
 - **下游**：Processor Chain（入站方向：消费 IM Adapter 产出的 NormalizedMessage）、Gateway（出站方向：消费 RenderedOutput / StreamingOutput 并投递）、Session（出站定向字段承载：peer_id / reply_ref 经 Gateway 存入 Session 上下文，出站时取出回传）、debug_log（入站解析、出站渲染、平台发送各环节记录调试日志）
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin；消费：IdentityResolver、StreamingRenderer；媒体能力暂缓，MediaStoreAccess 当前不实现）、[common/shared-types](../common/shared-types.md)（产出：NormalizedMessage、RenderedOutput、StreamingOutput；消费：ProcessedMessage、ContentBlock、DslParseResult、StreamEvent、ContentSegment）
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ToolRegistrar、IMPlugin、StreamingSink（平台侧增量投递）；消费：IdentityResolver、StreamingRenderer；媒体能力暂缓，MediaStoreAccess 当前不实现）、[common/shared-types](../common/shared-types.md)（产出：NormalizedMessage、RenderedOutput、StreamingOutput；消费：ProcessedMessage、ContentBlock、StreamEvent、ContentSegment）
 - **无关**：LLM Provider（IMPlugin 不调用 LLM）、Slash Command（IMPlugin 不参与指令解析）

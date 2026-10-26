@@ -6,7 +6,7 @@
 
 ## 架构
 
-Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，priority 5），在回复内容进入 DSL 解析之前执行过滤。Agent 照常工作——LLM 按设定的推理深度执行推理、按需调用工具——但 VerbosityFilter 根据展示等级决定哪些内容块进入后续出站链路。
+Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，priority 5），按展示等级决定哪些内容块进入后续出站链路。
 
 三个等级的取值与各等级的过滤语义（中间产物与最终交付内容的划分、各等级显隐对象）以 [common/shared-types VerbosityLevel](../common/shared-types.md#verbositylevel) 为唯一定义，此处不重复；本模块只定义 `/verbose` 指令的查询/设置行为与处理器流程。
 
@@ -45,12 +45,12 @@ Verbosity 是出站 Processor Chain 的第一个 Processor（VerbosityFilter，p
    - `normal` → 移除 Thinking 内容块，保留工具调用、工具结果和最终回复内容
    - `off` → 移除思考/工具调用/工具结果等中间产物块，仅保留最终回复内容（文本与作为交付物的媒体块）
 3. 过滤后内容继续进入 Processor Chain 后续处理
-4. Processor Chain 处理（DslParser → OutboundRawLog）
+4. Processor Chain 处理（OutboundRawLog）
 5. Gateway 记录出站日志
 6. 经处理后消息 → IM 插件渲染 → 发送
 
 ## 模块关系
 
 - **上游**：Gateway 通过 Dispatcher 路由到 VerboseHandler 处理指令
-- **下游**：Session 模块（存储和读取展示等级）；出站 Processor Chain（VerbosityFilter 作为链的第一个 Processor 执行过滤，过滤后内容进入 DslParser → OutboundRawLog）
+- **下游**：Session 模块（存储和读取展示等级）；出站 Processor Chain（VerbosityFilter 作为链的第一个 Processor 执行过滤，过滤后内容进入 OutboundRawLog）
 - **无关**：LLM 模块（Verbosity 是纯客户端过滤，不改变 API 参数）、Streaming 路径（过滤逻辑在 Processor Chain 入口统一执行，与流式/非流式无关）

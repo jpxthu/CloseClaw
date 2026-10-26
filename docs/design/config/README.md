@@ -113,7 +113,7 @@ Config 模块启动时依次执行以下步骤：
 | media | 存储目录路径合法、保留期为非负整数（0 表示禁用定期清理） |
 | memory | 各子系统 enabled 为布尔、模型/路径等字段合法、数值参数为非负（字段定义见 [memory/config](../memory/config.md)） |
 | credentials | api_key 非空、供应商 ID 非空 |
-| agents | ID 列表为有效 JSONC 格式 |
+| agents | ID 列表为有效 JSONC 格式；被标记为初始 Agent（`initial: true`）的 Agent 至多一个 |
 | skills | extraDirs 为可解析的目录路径列表（路径不存在时由 Skills 模块在扫描时跳过） |
 
 ## 模块关系

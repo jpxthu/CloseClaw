@@ -134,12 +134,12 @@ graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Admin RPC Server | Daemon 持有；承载 CLI 管理接入（命令面见 [cli/admin.md](../cli/admin.md)） |
 | ArchiveSweeper | Daemon spawn 的系统级后台任务；依赖 SqliteStorage + SessionConfigProvider（见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | AnnounceSweeper | Daemon spawn 的系统级后台任务；经 SessionManager 扫描 spawn_tree（见 [session/run-health.md](../session/run-health.md)） |
-| ApprovalFlow | Daemon 创建 adapter 包装 permission 的 ApprovalFlow 实现（对应 [common/core-traits](../common/core-traits.md) 的 ApprovalSubmission），注入 Gateway；Daemon 持有该 adapter |
+| PermissionGate | Daemon 创建 adapter 包装 permission 的权限引擎与审批队列（对应 [common/core-traits](../common/core-traits.md) 的 PermissionGate），注入 tools / session / gateway；Daemon 持有该 adapter |
 | SpawnController | Daemon 持有；创建并管理子 session（校验/权限判定与阈值来源见 [agent/agent-spawn.md](../agent/agent-spawn.md)）；由 Session 模块在处理 spawn 请求时调用 |
 | Config Hot Reload | Daemon spawn 的系统级后台任务；重载校验失败保留旧配置并经 IM 通知 Owner（见 [config/hot-reload.md](../config/hot-reload.md)）；重启类变更触发择机网关重启（见 [restart.md](restart.md)） |
 | DreamingScheduler | Daemon spawn 的系统级后台任务；依赖 SqliteStorage 与 MemoryConfigProvider（见 [memory/dreaming.md](../memory/dreaming.md)） |
 
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionEvaluator、ApprovalSubmission、ShutdownSignal；消费/装配：LlmCaller、MetricsEmitter、AgentRegistryQuery、SpawnValidator、AgentConfigLookup、TaskManager、AuditLogger——由 Daemon 作为组合根在启动装配时注入到对应消费方（部分实现由 gateway / permission / tasks 等模块提供））
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionGate、ShutdownSignal；消费/装配：LlmCaller、MetricsEmitter、AgentRegistryQuery、SpawnValidator、AgentConfigLookup、TaskManager、AuditLogger——由 Daemon 作为组合根在启动装配时注入到对应消费方（部分实现由 gateway / permission / tasks 等模块提供））
 - **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
 
 

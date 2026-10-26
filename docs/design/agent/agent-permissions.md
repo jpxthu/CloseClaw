@@ -83,7 +83,7 @@ Workspace 路径授权是独立于操作权限的强制机制:每个 Agent-User 
 
 | 模块 | 调用关系 |
 |------|---------|
-| Session 模块(spawn 流程) | spawn 时先执行非权限前置检查(深度、并发数、allowAgents 白名单等,详见 agent-spawn.md),通过后经 PermissionChecker 边界触发权限引擎,执行 Spawn 维度权限校验(交集计算 + 额外 Deny 检查) |
+| Session 模块(spawn 流程) | spawn 时先执行非权限前置检查(深度、并发数、allowAgents 白名单等,详见 agent-spawn.md),通过后经 PermissionGate 边界触发权限引擎,执行 Spawn 维度权限校验(交集计算 + 额外 Deny 检查) |
 
 ### 下游
 

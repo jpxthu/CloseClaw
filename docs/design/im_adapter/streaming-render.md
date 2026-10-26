@@ -24,14 +24,14 @@
 - Thinking/ToolUse/ToolResult 块不参与行缓冲，BlockEnd 到达后整块交付平台格式渲染器；流式中断时已累积的 Thinking 作为完整块交付。Image/Audio/File 不以流式事件形式出现（媒体能力暂缓，当前不出现）。
 - Verbosity 过滤只作用于非 Text 块（在 BlockEnd 判定）；Text 增量不经过 Verbosity 过滤。
 
-**中断处理**：Error 到达时停止产出文本增量，未达输出条件的半行文本丢弃、不补发；Gateway 在终止流前请求渲染器刷出已累积的 Thinking 并作为完整块交付，随后经简化出站路径发送「回复中断」错误提示（需求 [§F4](../../requirements/im_adapter.md)）。Session 层的 StreamingSink 是旁路通知通道，不由本子功能推送。
+**中断处理**：Error 到达时停止产出文本增量，未达输出条件的半行文本丢弃、不补发；Gateway 在终止流前请求渲染器刷出已累积的 Thinking 并作为完整块交付，随后经简化出站路径发送「回复中断」错误提示（需求 [§F4](../../requirements/im_adapter.md)）。Session 层的 StreamingSink 是旁路通知通道（由平台插件的发送能力实现），不由本子功能推送。
 
-交互式 UI 元素（DSL 按钮/选择器）由 DslParser 在批量路径解析；流式模式下 DSL 指令仅日志记录与出站历史写入，不产生渲染输出，不属于流式渲染器职责。
+流式渲染只处理文本与非文本块，不涉及任何交互控件。
 
 ## 数据流
 
 1. Session 将 LLM 流式响应转发的 StreamEvent 事件流交给 Gateway。
-2. Gateway 的 Processor Chain 增量阶段依次执行：VerbosityFilter 过滤（非 Text 块在 BlockEnd 判定）→ DslParser 透传。
+2. Gateway 的 Processor Chain 增量阶段执行：VerbosityFilter 过滤（非 Text 块在 BlockEnd 判定）。
 3. Gateway 将 StreamEvent 逐个投递给插件的流式渲染器。
 4. 渲染器逐事件处理：
    - Text 块（BlockStart → BlockDelta... → BlockEnd）→ BlockDelta 追加到行缓冲 → 检测围栏切换文本/代码模式 → 达到边界、阈值或超时即产出本批输出单元；BlockEnd 到达时刷新该块残行
@@ -40,14 +40,14 @@
    - Error → 停止文本增量，丢弃半行文本，交付已缓冲 Thinking（见「中断处理」）
 5. MessageEnd → 刷新所有缓冲、输出剩余内容、清空块状态与行缓冲上下文。
 6. Gateway 将本批 StreamingOutput 组装为 RenderedOutput 并调用插件发送能力投递——同一回复在平台侧表现为一条消息的增量更新；平台不支持增量更新时按批次追加（平台能力见各插件文档）。审计、频率限制等中间件在增量阶段开始前基于 Session 元数据执行一次 pre-flight，不逐片检查消息内容。
-7. Session 按事件边界重组完整 ContentBlock[] 写入对话历史；Gateway 另维护已过滤的发送视图（Text 按输出行碎片化，非完整消息副本）用于收尾 DSL 完整解析与出站历史写入。渲染器不消费任何一份。
-8. Gateway 收尾阶段执行 DslParser 完整解析与 OutboundRawLog 写日志，不产生新渲染输出。
+7. Session 按事件边界重组完整 ContentBlock[] 写入对话历史；Gateway 另维护已过滤的发送视图（完整 ContentBlock[] 的过滤后视图，而非行碎片视图）用于出站历史写入。渲染器不消费任何一份。
+8. Gateway 收尾阶段执行 OutboundRawLog 写日志，不产生新渲染输出。
 
 ## 模块关系
 
 - **上游**：Gateway（投递 StreamEvent、驱动超时检查与收尾刷新）
 - **下游**：Gateway（消费 StreamingOutput 并组装 RenderedOutput，调用插件发送能力投递）
 - **与 common 原语的关系**：平台无关的流式渲染原语（[common StreamingRenderer](../common/core-traits.md#streamingrenderer)，trait 定义 + 默认实现 + 行缓冲）位于 [common](../common/README.md)；im_adapter 与 cli 各适配器持有并委托调用，emit 归属见 [README 通用渲染能力](README.md#插件体系)；除 common 外任何 crate 不得把 common 项经自身公共路径再导出（见 [STANDARDS.md 禁止二次出口](../STANDARDS.md)）
-- **与 Processor Chain 的关系**：Gateway 按交付模式协调链执行；流式出站走增量阶段（VerbosityFilter 过滤、DslParser 透传），完整链处理在收尾阶段由 Gateway 调度（见本文「数据流」）。批量模式一次性执行完整链后渲染，详见 [Gateway 文档](../gateway/README.md)
-- **无关**：Session 层的 [StreamingSink](../common/core-traits.md#streamingsink)（旁路增量文本/完成/错误通知，由 Session 驱动，不经本子功能；Completion/Error 提示由 Gateway 与 Session 负责）
+- **与 Processor Chain 的关系**：Gateway 按交付模式协调链执行；流式出站走增量阶段（VerbosityFilter 过滤），完整链处理在收尾阶段由 Gateway 调度（见本文「数据流」）。批量模式一次性执行完整链后渲染，详见 [Gateway 文档](../gateway/README.md)
+- **无关**：Session 层的 [StreamingSink](../common/core-traits.md#streamingsink)（旁路增量文本/完成/错误通知，由平台插件的发送能力实现、经 Session 驱动，不经本子功能；Completion/Error 提示由 Gateway 与 Session 负责）
 - **所属**：IM Adapter 模块的渲染子功能（持有并委托 common 流式渲染原语）

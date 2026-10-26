@@ -129,7 +129,7 @@ docs/design/
 - 模块关系中的「上游 / 下游」描述数据流与调用关系（含经 common trait 完成的调用），**不等于 crate 依赖**；crate 依赖以本表为准。
 - 基础层（`common` 跨模块接口层、`platform` OS 抽象、`debug_log` 日志基础设施）不承载业务逻辑，任何其他层可依赖。
 - 领域 crate（业务模块，含模块拆出的 `execution`、`tasks`）之间不直接互依，跨模块交互经 `common` 的 trait / 共享类型完成（依赖倒置，由组合根装配）。
-- **`gateway` 的跨域桥接例外**：其文档登记为 `LlmCaller`、`SessionLookup`、`SlashSessionQuery`、`SlashEffectExecutor`、`PermissionChecker` 等 common trait 的具体提供方（桥接 session ↔ llm 的循环依赖、包装 PermissionEngine、读取配置绑定），故允许直接依赖 `session`、`llm`、`permission`、`config`；其余仅依赖基础层。
+- **`gateway` 的跨域桥接例外**：其文档登记为 `LlmCaller`、`SessionLookup`、`SlashSessionQuery`、`SlashEffectExecutor` 等 common trait 的具体提供方（桥接 session ↔ llm 的循环依赖、承载审批卡片推送与审批指令通道、读取配置绑定），故允许直接依赖 `session`、`llm`、`permission`、`config`；其余仅依赖基础层。
 - 组合根运行时装配组件、注入依赖，可依赖全部 crate；其组件间调用不转化为组件所在 crate 的直接依赖（见 [daemon README](daemon/README.md) 组件依赖表）。依赖图（常规依赖）必须无环。
 - `cli` 为客户端入口，除基础层外其允许的领域依赖见上表（取自 cli 模块各子文档「模块关系」登记的下游模块）；它经管理协议（socket）与 daemon 交互，不依赖 `daemon` crate。
 - 测试基础设施 crate（`fake_llm`、`test_support`）不引用任何 CloseClaw crate；产品领域 crate 不把它们列入常规依赖。`fake_llm` 为黑盒运行时服务，仅由组合根在测试装配时使用；`test_support` 为编译期共享库，仅作为各 crate 的 dev-依赖在测试中引用。
