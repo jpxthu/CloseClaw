@@ -65,7 +65,6 @@ impl RestartHandle {
     }
 
     /// Current state snapshot.
-    #[allow(dead_code)]
     pub(crate) fn state(&self) -> RestartState {
         self.tx.borrow().clone()
     }
@@ -138,6 +137,37 @@ impl crate::Daemon {
                 true
             }
             _ => false,
+        }
+    }
+
+    /// Phase 0 shutdown-mode determination for a shutdown signal received
+    /// in the run loop (restart.md §架构「无窗口兜底」; shutdown.md
+    /// §双模关闭 / §升级路径 / §数据流 Phase 0): while a gateway restart
+    /// is `Pending` or `Executing`, a shutdown signal starts shutdown
+    /// directly in **forceful** mode — aborting the pending / in-progress
+    /// rebuild (the rebuild never runs because the run loop exits; the
+    /// restart state itself is intentionally left untouched). Any other
+    /// state starts the ordinary graceful shutdown.
+    pub(crate) fn start_shutdown_for_signal(&self) {
+        match self.restart_state.state() {
+            RestartState::Pending { changes } => {
+                info!(
+                    ?changes,
+                    "shutdown signal while restart pending — starting forceful \
+                     shutdown (aborts pending restart)"
+                );
+                self.shutdown.try_start_forceful_shutdown();
+            }
+            RestartState::Executing => {
+                info!(
+                    "shutdown signal during gateway rebuild — starting forceful \
+                     shutdown (aborts in-progress rebuild)"
+                );
+                self.shutdown.try_start_forceful_shutdown();
+            }
+            RestartState::Idle => {
+                self.shutdown.try_start_shutdown();
+            }
         }
     }
 
