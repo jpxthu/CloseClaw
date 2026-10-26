@@ -20,9 +20,10 @@
 //! activation). The tracing callsite-interest cache is process-global
 //! and concurrent registration on the same callsite can drop events
 //! (#3102), so those five carry the full-path `#[serial]` attribute
-//! from the `serial_test` crate. The remaining two tests (`test_gap1_no_provider_no_listing` — no
-//! provider, and `test_gap2_empty_listing_no_injection` — empty
-//! listing) are verified never to emit and stay unannotated.
+//! from the `serial_test` crate. The remaining two tests are
+//! verified never to emit and stay unannotated:
+//! `test_gap1_no_provider_no_listing` (no provider),
+//! `test_gap2_empty_listing_no_injection` (empty listing).
 
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
