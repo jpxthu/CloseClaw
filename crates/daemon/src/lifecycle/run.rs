@@ -4,19 +4,28 @@
 //! limits (`mod.rs` only holds `pub use` / `pub mod` re-exports).
 
 use crate::shutdown_heartbeat::ShutdownHeartbeat;
-use crate::{Daemon, Phase5Deps};
+use crate::{
+    Daemon, Phase2Components, Phase3Components, Phase4Components, Phase5Background, Phase5Deps,
+    Phase6RpcServers,
+};
 use closeclaw_common::shutdown::ShutdownMode;
-use closeclaw_common::{AuditLogger, CompactConfig, LlmCaller, SessionLookup};
+use closeclaw_common::{AuditLogger, CompactConfig, ContentBlock, LlmCaller, SessionLookup};
+use closeclaw_config::session::SessionConfigProvider;
+use closeclaw_config::ConfigManager;
 use closeclaw_gateway::llm_caller_impl::FallbackLlmCaller;
 use closeclaw_gateway::session_manager::stop::{StopProgress, StopResult};
 use closeclaw_gateway::{Gateway, SessionMessageHandler};
+use closeclaw_llm::unified_fallback::UnifiedFallbackClient;
 use closeclaw_llm::ProviderModelKnowledge;
+use closeclaw_permission::PermissionEngine;
 use closeclaw_platform::process;
 use closeclaw_session::llm_session::session_handles::DEFAULT_GRACEFUL_TIMEOUT;
+use closeclaw_session::storage::SqliteStorage;
 use closeclaw_tools::builtin::PlanExecConfirmFlow;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 /// Resolves the effective PID file path for a daemon start: the injected
@@ -66,8 +75,80 @@ impl Daemon {
     ) -> anyhow::Result<Self> {
         info!("Starting CloseClaw daemon with config_dir={}", config_dir);
         Self::load_env(config_dir);
-        // PID self-registration (design doc § PID 自注册).
-        let pid_file_path = resolve_pid_file_path(pid_file_override.as_deref())?;
+        let pid_file_path = Self::register_pid_file(pid_file_override.as_deref())?;
+        let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
+        Self::log_startup_order(&startup_layers);
+        let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
+        let p2 = Self::init_phase_2_components(config_dir, &config_manager, &audit_logger).await?;
+        let p3 = Self::init_phase_3_components(
+            config_dir,
+            &storage,
+            &p2.permission_engine,
+            &config_manager,
+        )
+        .await?;
+        Self::wire_phase3_runtime_references(&p3, &p2.session_config_provider, config_dir).await;
+        let p4 =
+            Self::init_phase_4_components(&p3, &p2.permission_engine, config_dir, audit_logger)
+                .await;
+        let confirm_flow = Self::build_plan_exec_confirm_flow(&p3, &config_manager).await;
+        let bg =
+            Self::init_phase_5_components(&config_manager, &p2, &p3, &p4, &confirm_flow, &data_dir)
+                .await?;
+        let output_rx = Self::wire_llm_caller_and_session_handler(&p3, &p2.fallback_client).await;
+        Self::inject_startup_recovery(&p3).await;
+        let rpc =
+            Self::init_phase_6_rpc_servers(&p3, &p2, &config_manager, config_dir, output_rx).await;
+        info!(
+            "Gateway initialized — CloseClaw daemon started successfully (v{})",
+            env!("CARGO_PKG_VERSION")
+        );
+        Ok(Self {
+            gateway: Arc::new(tokio::sync::Mutex::new(p3.gateway)),
+            agent_registry: p2.agent_registry,
+            permission_engine: p2.permission_engine,
+            shutdown: p3.shutdown,
+            session_manager: p3.session_manager,
+            storage,
+            sweeper_shutdown_tx: bg.sweeper_shutdown_tx,
+            announce_shutdown_tx: bg.announce_shutdown_tx,
+            dreaming_scheduler_shutdown_tx: bg.dreaming_scheduler_shutdown_tx,
+            skill_registry: p2.skill_registry,
+            builtin_skill_registry: p4.builtin_skill_registry,
+            slash_registry: p3.slash_registry,
+            _config_watcher: Some(bg.config_watcher),
+            config_watcher_subscriber_handle: None,
+            config_manager: Arc::clone(&config_manager),
+            approval_flow: p4.approval_flow,
+            confirm_flow,
+            admin_handle: Some(rpc.admin_handle),
+            admin_socket_path: rpc.admin_socket_path,
+            chat_handle: Arc::new(tokio::sync::Mutex::new(Some(rpc.chat_handle))),
+            chat_socket_path: rpc.chat_socket_path,
+            archive_sweeper_handle: Some(bg.archive_sweeper_handle),
+            announce_sweeper_handle: Some(bg.announce_sweeper_handle),
+            dreaming_scheduler_handle: Some(bg.dreaming_scheduler_handle),
+            plan_archive_shutdown_tx: p2.plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle: Some(p2.plan_archive_sweeper_handle),
+            media_cleanup_handle: p3.media_cleanup_handle,
+            spawn_controller: Some(bg.spawn_controller),
+            system_prompt_builder: Some(bg.system_prompt_builder),
+            llm_registry: Arc::clone(&p2.llm_registry),
+            fallback_client: Arc::clone(&p2.fallback_client),
+            restart_state: crate::gateway_restart::RestartHandle::new(),
+            restart_rx: Some(bg.restart_rx),
+            admin_restart_rx: Some(rpc.admin_restart_rx),
+            pid_file_path,
+        })
+    }
+    /// PID self-registration (design doc § PID 自注册).
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`]: resolves
+    /// the effective PID file path, writes the current PID, and logs (but
+    /// does not abort) on write failure. Returns the resolved path so
+    /// Phase 7 can clean the file up.
+    fn register_pid_file(pid_file_override: Option<&Path>) -> anyhow::Result<PathBuf> {
+        let pid_file_path = resolve_pid_file_path(pid_file_override)?;
         if let Err(e) = process::write_pid_file(&pid_file_path, std::process::id()) {
             warn!(
                 error = %e,
@@ -77,9 +158,17 @@ impl Daemon {
         } else {
             info!(pid_file = %pid_file_path.display(), "PID file written");
         }
-        let (startup_layers, _phase_components) = Self::resolve_startup_order()?;
-        Self::log_startup_order(&startup_layers);
-        let (config_manager, storage, data_dir) = Self::init_phase_1_foundation(config_dir)?;
+        Ok(pid_file_path)
+    }
+    /// Phase 2: run [`Self::init_phase_2_registries`] and pack the returned
+    /// components into [`Phase2Components`].
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`].
+    async fn init_phase_2_components(
+        config_dir: &str,
+        config_manager: &ConfigManager,
+        audit_logger: &Option<Arc<dyn AuditLogger>>,
+    ) -> anyhow::Result<Phase2Components> {
         let (
             agent_registry,
             skill_registry,
@@ -91,7 +180,32 @@ impl Daemon {
             permission_engine,
             plan_archive_shutdown_tx,
             plan_archive_sweeper_handle,
-        ) = Self::init_phase_2_registries(config_dir, &config_manager, &audit_logger).await?;
+        ) = Self::init_phase_2_registries(config_dir, config_manager, audit_logger).await?;
+        Ok(Phase2Components {
+            agent_registry,
+            skill_registry,
+            tool_registry,
+            shared_cache,
+            session_config_provider,
+            llm_registry,
+            fallback_client,
+            permission_engine,
+            plan_archive_shutdown_tx,
+            plan_archive_sweeper_handle,
+        })
+    }
+    /// Phase 3: run [`Self::init_phase_3_core_services`] and pack the
+    /// returned components into [`Phase3Components`]; the shutdown handle
+    /// is Arc-shared here so orchestration steps can clone it while the
+    /// original stays on [`Daemon`].
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`].
+    async fn init_phase_3_components(
+        config_dir: &str,
+        storage: &Arc<SqliteStorage>,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+        config_manager: &ConfigManager,
+    ) -> anyhow::Result<Phase3Components> {
         let (
             gateway,
             session_manager,
@@ -101,60 +215,106 @@ impl Daemon {
             media_cleanup_handle,
         ) = Self::init_phase_3_core_services(
             config_dir,
-            &storage,
-            &permission_engine,
-            &config_manager,
+            storage,
+            permission_engine,
+            config_manager,
         )
         .await?;
-        let shutdown = Arc::new(shutdown);
-        // Wire shutdown handle into Gateway and SessionManager for
-        // busy-count tracking during drain.
-        let common_sh = crate::bridge::common_shutdown_handle(&shutdown);
-        gateway.set_shutdown_handle(Arc::clone(&common_sh));
-        session_manager.set_shutdown_handle(common_sh).await;
-        // Inject the independently created SessionConfigProvider into
-        // SessionManager so per-agent idle/purge thresholds resolve
-        // without going through ConfigManager.
-        session_manager
+        Ok(Phase3Components {
+            gateway,
+            session_manager,
+            shutdown: Arc::new(shutdown),
+            dirty_sessions,
+            slash_registry,
+            media_cleanup_handle,
+        })
+    }
+    /// Wire Phase 3 runtime references: the shutdown handle into Gateway /
+    /// SessionManager (busy-count tracking during drain), the independently
+    /// created SessionConfigProvider into SessionManager (per-agent
+    /// idle/purge thresholds without going through ConfigManager), and
+    /// DebugLog into Gateway (config missing or invalid → Gateway runs
+    /// without debug logging).
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`].
+    async fn wire_phase3_runtime_references(
+        p3: &Phase3Components,
+        session_config_provider: &Arc<dyn SessionConfigProvider>,
+        config_dir: &str,
+    ) {
+        let common_sh = crate::bridge::common_shutdown_handle(&p3.shutdown);
+        p3.gateway.set_shutdown_handle(Arc::clone(&common_sh));
+        p3.session_manager.set_shutdown_handle(common_sh).await;
+        p3.session_manager
             .set_session_config_provider(session_config_provider.clone())
             .await;
-        // Initialize DebugLog from config and inject into Gateway.
-        // Config missing or invalid → Gateway runs without debug logging.
         if let Some(debug_log) = Self::init_debug_log(config_dir).await {
-            gateway.set_debug_log(debug_log).await;
+            p3.gateway.set_debug_log(debug_log).await;
             info!("DebugLog injected into Gateway");
         }
+    }
+    /// Phase 4: run [`Self::init_phase_4_wiring`] and pack the wiring
+    /// outputs into [`Phase4Components`].
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`].
+    async fn init_phase_4_components(
+        p3: &Phase3Components,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+        config_dir: &str,
+        audit_logger: Option<Arc<dyn AuditLogger>>,
+    ) -> Phase4Components {
         let (approval_flow, builtin_skill_registry) = Self::init_phase_4_wiring(
-            &gateway,
-            &session_manager,
-            &permission_engine,
+            &p3.gateway,
+            &p3.session_manager,
+            permission_engine,
             config_dir,
             audit_logger,
         )
         .await;
-
-        // Create PlanExecConfirmFlow for independent plan-execution confirmation.
-        let confirm_flow = {
-            let sm_lookup: Arc<dyn SessionLookup> =
-                Arc::clone(&session_manager) as Arc<dyn SessionLookup>;
-            let mut cf = PlanExecConfirmFlow::new_without_notify(
-                sm_lookup,
-                tokio::runtime::Handle::current(),
-            );
-            let create_child_fn = Self::build_create_child_fn(
-                Arc::clone(&session_manager),
-                Arc::clone(&config_manager),
-            );
-            cf.set_create_child_session_fn(create_child_fn);
-            // Build the notify callback using gateway's plugins (mirrors set_approval_flow pattern).
-            let notify_cb = crate::confirm_notify::build_confirm_notify_callback(&gateway).await;
-            cf.set_notify_callback(notify_cb);
-            let cf = Arc::new(cf);
-            // Store as PlanConfirmationHandler on the gateway.
-            gateway.set_plan_confirm_handler(cf.clone()).await;
-            cf
-        };
-
+        Phase4Components {
+            approval_flow,
+            builtin_skill_registry,
+        }
+    }
+    /// Create PlanExecConfirmFlow for independent plan-execution confirmation.
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`]: builds the
+    /// flow, wires the child-session factory and the notify callback built
+    /// from the gateway's plugins (mirrors set_approval_flow pattern), and
+    /// stores it as the gateway's plan confirmation handler.
+    async fn build_plan_exec_confirm_flow(
+        p3: &Phase3Components,
+        config_manager: &Arc<ConfigManager>,
+    ) -> Arc<PlanExecConfirmFlow> {
+        let sm_lookup: Arc<dyn SessionLookup> =
+            Arc::clone(&p3.session_manager) as Arc<dyn SessionLookup>;
+        let mut cf =
+            PlanExecConfirmFlow::new_without_notify(sm_lookup, tokio::runtime::Handle::current());
+        let create_child_fn = Self::build_create_child_fn(
+            Arc::clone(&p3.session_manager),
+            Arc::clone(config_manager),
+        );
+        cf.set_create_child_session_fn(create_child_fn);
+        let notify_cb = crate::confirm_notify::build_confirm_notify_callback(&p3.gateway).await;
+        cf.set_notify_callback(notify_cb);
+        let cf = Arc::new(cf);
+        // Store as PlanConfirmationHandler on the gateway.
+        p3.gateway.set_plan_confirm_handler(cf.clone()).await;
+        cf
+    }
+    /// Phase 5: run [`Self::init_phase_5_background`] — building its
+    /// [`Phase5Deps`] bundle from the earlier phase components — and pack
+    /// the spawned background services into [`Phase5Background`].
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`].
+    async fn init_phase_5_components(
+        config_manager: &Arc<ConfigManager>,
+        p2: &Phase2Components,
+        p3: &Phase3Components,
+        p4: &Phase4Components,
+        confirm_flow: &Arc<PlanExecConfirmFlow>,
+        data_dir: &Path,
+    ) -> anyhow::Result<Phase5Background> {
         let (
             sweeper_tx,
             announce_sweeper_tx,
@@ -168,34 +328,56 @@ impl Daemon {
             restart_rx,
         ) = Self::init_phase_5_background(
             Phase5Deps {
-                config_manager: &config_manager,
-                agent_registry: &agent_registry,
-                skill_registry: &skill_registry,
-                builtin_skill_registry: &builtin_skill_registry,
-                tool_registry: &tool_registry,
-                session_manager: &session_manager,
-                permission_engine: &permission_engine,
-                approval_flow: &approval_flow,
-                confirm_flow: &confirm_flow,
-                gateway: &gateway,
-                slash_registry: &slash_registry,
-                shared_cache: &shared_cache,
+                config_manager,
+                agent_registry: &p2.agent_registry,
+                skill_registry: &p2.skill_registry,
+                builtin_skill_registry: &p4.builtin_skill_registry,
+                tool_registry: &p2.tool_registry,
+                session_manager: &p3.session_manager,
+                permission_engine: &p2.permission_engine,
+                approval_flow: &p4.approval_flow,
+                confirm_flow,
+                gateway: &p3.gateway,
+                slash_registry: &p3.slash_registry,
+                shared_cache: &p2.shared_cache,
             },
-            &data_dir,
-            Arc::clone(&session_config_provider),
+            data_dir,
+            Arc::clone(&p2.session_config_provider),
         )
         .await?;
-
-        // LLM caller injection: layer 2's init_llm_registry returns the
-        // registry + UnifiedFallbackClient in one step; layer 4 wires it
-        // into SessionManager (design doc § layer 4).
-        let fallback_llm_caller = Arc::new(FallbackLlmCaller(Arc::clone(&fallback_client)));
+        Ok(Phase5Background {
+            sweeper_shutdown_tx: sweeper_tx,
+            announce_shutdown_tx: announce_sweeper_tx,
+            dreaming_scheduler_shutdown_tx: dreaming_tx,
+            config_watcher,
+            archive_sweeper_handle: sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_scheduler_handle: dreaming_handle,
+            spawn_controller,
+            system_prompt_builder,
+            restart_rx,
+        })
+    }
+    /// LLM caller injection: layer 2's init_llm_registry returns the
+    /// registry + UnifiedFallbackClient in one step; layer 4 wires it
+    /// into SessionManager (design doc § layer 4).
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`]: builds the
+    /// SessionMessageHandler (busy/pending state machine), injects the LLM
+    /// call chain and handler into SessionManager / Gateway, and returns
+    /// the handler's output receiver for the Phase 6 Chat RPC
+    /// turn-completion consumer.
+    async fn wire_llm_caller_and_session_handler(
+        p3: &Phase3Components,
+        fallback_client: &Arc<UnifiedFallbackClient>,
+    ) -> mpsc::Receiver<(String, Vec<ContentBlock>)> {
+        let fallback_llm_caller = Arc::new(FallbackLlmCaller(Arc::clone(fallback_client)));
         // Create SessionMessageHandler for busy/pending state machine.
-        let (output_tx, output_rx) = tokio::sync::mpsc::channel(64);
+        let (output_tx, output_rx) = mpsc::channel(64);
         let searcher_runner = crate::searcher_runner::build_searcher_runner(
             fallback_llm_caller.clone() as Arc<dyn LlmCaller>,
         );
-        session_manager
+        p3.session_manager
             .set_llm_caller(fallback_llm_caller as Arc<dyn LlmCaller>)
             .await;
         info!(
@@ -204,83 +386,68 @@ impl Daemon {
         );
         let session_handler = Arc::new(
             SessionMessageHandler::new(
-                Arc::clone(&session_manager),
-                Arc::clone(&fallback_client),
+                Arc::clone(&p3.session_manager),
+                Arc::clone(fallback_client),
                 output_tx,
                 Some(searcher_runner),
                 CompactConfig::default(),
             )
             .with_model_knowledge(ProviderModelKnowledge::new()),
         );
-        gateway.set_session_handler(session_handler);
-
-        // Inject recovery notifications into dirty sessions at startup.
-        // Must happen after Phase 5 when LLM caller, system prompt builder,
-        // and other dependencies are wired into SessionManager.
-        session_manager
-            .inject_startup_recovery_notifications(&dirty_sessions)
+        p3.gateway.set_session_handler(session_handler);
+        output_rx
+    }
+    /// Inject recovery notifications into dirty sessions at startup, then
+    /// rebuild the key registry.
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`]: must happen
+    /// after Phase 5 when LLM caller, system prompt builder, and other
+    /// dependencies are wired into SessionManager. Recovery injection may
+    /// have created new ConversationSession / Session entries, so the
+    /// key_registry is rebuilt to keep them resolvable by routing key.
+    async fn inject_startup_recovery(p3: &Phase3Components) {
+        p3.session_manager
+            .inject_startup_recovery_notifications(&p3.dirty_sessions)
             .await;
-        // Recovery injection may have created new ConversationSession / Session
-        // entries. Rebuild key_registry so they are resolvable by routing key.
-        if let Err(e) = session_manager.rebuild_key_registry().await {
+        if let Err(e) = p3.session_manager.rebuild_key_registry().await {
             warn!(
                 error = %e,
                 "failed to rebuild key_registry after recovery injection \
                  — continuing"
             );
         }
-        let (admin_restart_tx, admin_restart_rx) = tokio::sync::mpsc::channel(2);
+    }
+    /// Phase 6: start the Admin RPC and Chat RPC servers.
+    ///
+    /// Extracted from [`Self::start_with_engine_and_pid_file`]: creates the
+    /// admin restart command channel, starts both Unix domain socket
+    /// servers, and returns their handles/paths plus the admin restart
+    /// receiver consumed by the `run()` select loop.
+    async fn init_phase_6_rpc_servers(
+        p3: &Phase3Components,
+        p2: &Phase2Components,
+        config_manager: &Arc<ConfigManager>,
+        config_dir: &str,
+        output_rx: mpsc::Receiver<(String, Vec<ContentBlock>)>,
+    ) -> Phase6RpcServers {
+        let (admin_restart_tx, admin_restart_rx) = mpsc::channel(2);
         let (admin_handle, admin_sock_path) = Self::init_phase_6_admin_rpc(
-            &agent_registry,
-            &skill_registry,
-            &config_manager,
+            &p2.agent_registry,
+            &p2.skill_registry,
+            config_manager,
             config_dir,
             admin_restart_tx,
         )
         .await;
         let (chat_handle, chat_sock_path) =
-            Self::init_phase_6_chat_rpc(&gateway, config_dir, output_rx).await;
-        info!(
-            "Gateway initialized — CloseClaw daemon started successfully (v{})",
-            env!("CARGO_PKG_VERSION")
-        );
-        Ok(Self {
-            gateway: Arc::new(tokio::sync::Mutex::new(gateway)),
-            agent_registry,
-            permission_engine,
-            shutdown,
-            session_manager,
-            storage,
-            sweeper_shutdown_tx: sweeper_tx,
-            announce_shutdown_tx: announce_sweeper_tx,
-            dreaming_scheduler_shutdown_tx: dreaming_tx,
-            skill_registry,
-            builtin_skill_registry,
-            slash_registry,
-            _config_watcher: Some(config_watcher),
-            config_watcher_subscriber_handle: None,
-            config_manager: Arc::clone(&config_manager),
-            approval_flow,
-            confirm_flow,
-            admin_handle: Some(admin_handle),
+            Self::init_phase_6_chat_rpc(&p3.gateway, config_dir, output_rx).await;
+        Phase6RpcServers {
+            admin_handle,
             admin_socket_path: admin_sock_path,
-            chat_handle: Arc::new(tokio::sync::Mutex::new(Some(chat_handle))),
+            chat_handle,
             chat_socket_path: chat_sock_path,
-            archive_sweeper_handle: Some(sweeper_handle),
-            announce_sweeper_handle: Some(announce_sweeper_handle),
-            dreaming_scheduler_handle: Some(dreaming_handle),
-            plan_archive_shutdown_tx,
-            plan_archive_sweeper_handle: Some(plan_archive_sweeper_handle),
-            media_cleanup_handle,
-            spawn_controller: Some(spawn_controller),
-            system_prompt_builder: Some(system_prompt_builder),
-            llm_registry: Arc::clone(&llm_registry),
-            fallback_client: Arc::clone(&fallback_client),
-            restart_state: crate::gateway_restart::RestartHandle::new(),
-            restart_rx: Some(restart_rx),
-            admin_restart_rx: Some(admin_restart_rx),
-            pid_file_path,
-        })
+            admin_restart_rx,
+        }
     }
     /// Run the daemon — blocks until shutdown signal is received, then
     /// executes Phase 0–7 shutdown sequence.

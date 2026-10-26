@@ -1,6 +1,7 @@
 //! Daemon struct definitions, extracted from mod.rs to stay under the
 //! 1000-line limit imposed by CONTRIBUTING.md.
 
+use closeclaw_config::session::SessionConfigProvider;
 use closeclaw_config::ConfigManager;
 use closeclaw_gateway::SpawnController;
 use closeclaw_gateway::{Gateway, SessionManager};
@@ -153,4 +154,65 @@ pub(crate) struct Phase5Deps<'a> {
     pub gateway: &'a Arc<Gateway>,
     pub slash_registry: &'a Arc<closeclaw_slash::registry::HandlerRegistry>,
     pub shared_cache: &'a Arc<RwLock<SectionCache>>,
+}
+
+/// Components created in Phase 2 (registries), packed so the startup
+/// orchestration steps of `start_with_engine_and_pid_file` can pass them
+/// between each other without exceeding the 6-parameter limit.
+pub(crate) struct Phase2Components {
+    pub agent_registry: Arc<closeclaw_agent::registry::AgentRegistry>,
+    pub skill_registry: Arc<RwLock<Option<DiskSkillRegistry>>>,
+    pub tool_registry: Arc<ToolRegistry>,
+    pub shared_cache: Arc<RwLock<SectionCache>>,
+    pub session_config_provider: Arc<dyn SessionConfigProvider>,
+    pub llm_registry: Arc<LLMRegistry>,
+    pub fallback_client: Arc<UnifiedFallbackClient>,
+    pub permission_engine: Arc<tokio::sync::RwLock<PermissionEngine>>,
+    pub plan_archive_shutdown_tx: watch::Sender<()>,
+    pub plan_archive_sweeper_handle: tokio::task::JoinHandle<()>,
+}
+
+/// Components created in Phase 3 (core services), packed for the startup
+/// orchestration steps. The shutdown handle is Arc-shared here because the
+/// orchestration wires clones into Gateway / SessionManager and keeps the
+/// original on [`Daemon`].
+pub(crate) struct Phase3Components {
+    pub gateway: Arc<Gateway>,
+    pub session_manager: Arc<SessionManager>,
+    pub shutdown: Arc<crate::shutdown::ShutdownHandle>,
+    pub dirty_sessions: Vec<String>,
+    pub slash_registry: Arc<closeclaw_slash::registry::HandlerRegistry>,
+    pub media_cleanup_handle: Option<closeclaw_tasks::media_cleanup::MediaCleanupHandle>,
+}
+
+/// Wiring outputs of Phase 4 (ApprovalFlow + BuiltinSkillRegistry).
+pub(crate) struct Phase4Components {
+    pub approval_flow: Arc<tokio::sync::Mutex<ApprovalFlow>>,
+    pub builtin_skill_registry: Arc<BuiltinSkillRegistry>,
+}
+
+/// System-level background services spawned in Phase 5, packed for the
+/// startup orchestration steps; unpacked into [`Daemon`] fields on
+/// construction (field names mirror the [`Daemon`] fields they fill).
+pub(crate) struct Phase5Background {
+    pub sweeper_shutdown_tx: watch::Sender<()>,
+    pub announce_shutdown_tx: watch::Sender<()>,
+    pub dreaming_scheduler_shutdown_tx: watch::Sender<()>,
+    pub config_watcher: config_watcher::ConfigWatcherHandle,
+    pub archive_sweeper_handle: tokio::task::JoinHandle<()>,
+    pub announce_sweeper_handle: tokio::task::JoinHandle<()>,
+    pub dreaming_scheduler_handle: tokio::task::JoinHandle<()>,
+    pub spawn_controller: Arc<SpawnController>,
+    pub system_prompt_builder: Arc<dyn closeclaw_common::SystemPromptBuilder>,
+    pub restart_rx: tokio::sync::mpsc::Receiver<String>,
+}
+
+/// RPC servers started in Phase 6 (Admin RPC + Chat RPC), packed for the
+/// startup orchestration steps.
+pub(crate) struct Phase6RpcServers {
+    pub admin_handle: tokio::task::JoinHandle<()>,
+    pub admin_socket_path: PathBuf,
+    pub chat_handle: tokio::task::JoinHandle<()>,
+    pub chat_socket_path: PathBuf,
+    pub admin_restart_rx: tokio::sync::mpsc::Receiver<bool>,
 }
