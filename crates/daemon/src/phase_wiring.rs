@@ -45,12 +45,14 @@ use closeclaw_session::tools::{LateBoundSessionManagerOps, SessionManagerOps};
 use closeclaw_session::{persistence::PersistenceService, storage::SqliteStorage};
 use closeclaw_skills::builtin::builtin_skills;
 use closeclaw_skills::{BuiltinSkillRegistry, DiskSkillRegistry, SkillsFragmentProvider};
+use closeclaw_slash::registry::HandlerRegistry;
 use closeclaw_slash::{skill_handler::SkillSlashHandler, SlashHandler};
 use closeclaw_system_prompt::adapter::SystemPromptBuilderAdapter;
+use closeclaw_system_prompt::sections::SectionCache;
 use closeclaw_system_prompt::{BootstrapFragmentProvider, SystemPromptDynamicBuilder};
 use closeclaw_tasks::BackgroundTaskManager;
 use closeclaw_tools::builtin::CreateChildSessionFn;
-use closeclaw_tools::ToolsFragmentProvider;
+use closeclaw_tools::{ToolRegistry, ToolsFragmentProvider};
 use std::future::Future;
 use std::path::{Path, PathBuf};
 use std::pin::Pin;
@@ -236,23 +238,10 @@ impl Daemon {
                 gateway.get_debug_log(),
             );
         session_manager.set_task_manager(task_manager).await;
-        let spawn_controller = Arc::new({
-            let pc: Arc<dyn PermissionChecker> = Arc::new(GatewayPermissionChecker::new(
-                Arc::clone(session_manager),
-                Arc::clone(config_manager),
-                Arc::clone(permission_engine),
-            ));
-            let budget_lookup: Arc<dyn SpawnBudgetLookup> =
-                Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_manager)));
-            SpawnController::new(
-                budget_lookup,
-                Arc::clone(session_manager) as Arc<dyn SpawnContext>,
-                pc,
-            )
-        });
+        let spawn_controller =
+            Self::build_spawn_controller(session_manager, config_manager, permission_engine);
         let config_subdir = PathBuf::from(data_dir).join("config");
         let late_bound_session_manager = Arc::new(LateBoundSessionManagerOps::new());
-        let builtin_skill_listing = Arc::clone(builtin_skill_registry);
         // Create the restart signal channel. Sender captured by
         // DaemonReloadCallback; receiver consumed by daemon main loop.
         let (restart_tx, restart_rx) = tokio::sync::mpsc::channel(8);
@@ -274,19 +263,108 @@ impl Daemon {
             restart_tx: Some(restart_tx),
         };
         let config_watcher = registries::populate_registries(&ctx).await?;
-        // Create SystemPromptBuilderAdapter — bridges SystemPromptBuilder trait
-        // to the Provider-driven pipeline.
+        // Build and inject the SystemPromptBuilder adapter (bridges the
+        // SystemPromptBuilder trait to the Provider-driven pipeline).
+        let prompt_builder_adapter = Self::build_system_prompt_builder(
+            agent_registry,
+            skill_registry,
+            builtin_skill_registry,
+            tool_registry,
+            shared_cache,
+            data_dir,
+        );
+        session_manager
+            .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
+            .await;
+        info!("SystemPromptBuilder adapter injected into SessionManager");
+        // Register SkillSlashHandler after populate_registries so DiskSkillRegistry is loaded.
+        Self::register_skill_slash_handlers(skill_registry, builtin_skill_registry, slash_registry)
+            .await;
+        // Inject real SessionManager into the late-bound proxy (layer 4
+        // after layer 3) and the remaining SessionManager services.
+        Self::inject_session_manager_services(
+            session_manager,
+            tool_registry,
+            skill_registry,
+            builtin_skill_registry,
+            shared_cache,
+            &late_bound_session_manager,
+        )
+        .await;
+        Ok((
+            sweeper_tx,
+            announce_sweeper_tx,
+            dreaming_tx,
+            config_watcher,
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            spawn_controller,
+            prompt_builder_adapter,
+            restart_rx,
+        ))
+    }
+
+    /// Build the SpawnController: gateway-backed permission checking and
+    /// config-driven spawn budget lookup over the SessionManager.
+    ///
+    /// Extracted from [`Self::init_phase_5_background`].
+    fn build_spawn_controller(
+        session_manager: &Arc<SessionManager>,
+        config_manager: &Arc<ConfigManager>,
+        permission_engine: &Arc<tokio::sync::RwLock<PermissionEngine>>,
+    ) -> Arc<SpawnController> {
+        let pc: Arc<dyn PermissionChecker> = Arc::new(GatewayPermissionChecker::new(
+            Arc::clone(session_manager),
+            Arc::clone(config_manager),
+            Arc::clone(permission_engine),
+        ));
+        let budget_lookup: Arc<dyn SpawnBudgetLookup> =
+            Arc::new(ConfigSpawnBudgetLookup::new(Arc::clone(config_manager)));
+        Arc::new(SpawnController::new(
+            budget_lookup,
+            Arc::clone(session_manager) as Arc<dyn SpawnContext>,
+            pc,
+        ))
+    }
+
+    /// Build the skill listing provider over the disk + builtin skill
+    /// registries. Single construction point shared by
+    /// [`Self::build_system_prompt_builder`] and
+    /// [`Self::inject_session_manager_services`].
+    fn build_skill_listing_provider(
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
+    ) -> Arc<dyn SkillListingProvider> {
+        Arc::new(SkillListingProviderWrapper::new(
+            skill_registry.clone(),
+            Arc::clone(builtin_skill_registry),
+        ))
+    }
+
+    /// Build the SystemPromptBuilder adapter: snapshot the agent registry
+    /// into a fresh AgentLookup, assemble the domain fragment providers
+    /// (bootstrap / skills / memory / tools) sorted by priority, and bridge
+    /// them through [`SystemPromptBuilderAdapter`].
+    ///
+    /// Extracted from [`Self::init_phase_5_background`] — injection into
+    /// the SessionManager stays at the call site.
+    fn build_system_prompt_builder(
+        agent_registry: &Arc<AgentRegistry>,
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
+        tool_registry: &Arc<ToolRegistry>,
+        shared_cache: &Arc<RwLock<SectionCache>>,
+        data_dir: &Path,
+    ) -> Arc<dyn SystemPromptBuilder> {
         let agent_lookup: Arc<dyn AgentLookup> = {
             let new_reg = AgentRegistry::new();
             let configs: Vec<_> = agent_registry.iter().map(|e| e.value().clone()).collect();
             new_reg.populate(configs);
             Arc::new(new_reg)
         };
-        let skill_provider: Arc<dyn SkillListingProvider> =
-            Arc::new(SkillListingProviderWrapper::new(
-                skill_registry.clone(),
-                Arc::clone(&builtin_skill_listing),
-            ));
+        let skill_provider =
+            Self::build_skill_listing_provider(skill_registry, builtin_skill_registry);
         // Build Provider list from domain crates.
         let mut providers: Vec<Arc<dyn PromptFragmentProvider>> = vec![
             Arc::new(BootstrapFragmentProvider::new(
@@ -302,36 +380,56 @@ impl Daemon {
             )),
         ];
         providers.sort_by_key(|p| p.priority());
-        let prompt_builder_adapter = Arc::new(SystemPromptBuilderAdapter::new_with_providers(
+        Arc::new(SystemPromptBuilderAdapter::new_with_providers(
             agent_lookup,
             data_dir.to_path_buf(),
             Arc::clone(shared_cache),
             providers,
-        )) as Arc<dyn SystemPromptBuilder>;
-        session_manager
-            .set_system_prompt_builder(Arc::clone(&prompt_builder_adapter))
-            .await;
-        info!("SystemPromptBuilder adapter injected into SessionManager");
-        // Register SkillSlashHandler for all user-invocable skills.
-        // Must happen after populate_registries so DiskSkillRegistry is loaded.
-        {
-            let disk_reg = {
-                let guard = skill_registry.read().unwrap();
-                guard.as_ref().map(|dr| Arc::new(dr.clone()))
-            };
-            if let Some(disk_reg) = disk_reg {
-                let skill_handler = Arc::new(SkillSlashHandler::new(
-                    disk_skill_access(disk_reg),
-                    builtin_skill_access(Arc::clone(builtin_skill_registry)),
-                ));
-                for name in skill_handler.invocable_names().await {
-                    slash_registry
-                        .register_named(&name, Arc::clone(&skill_handler) as Arc<dyn SlashHandler>);
-                }
-                let count = slash_registry.all_commands().len();
-                info!(count = count, "slash registry fully populated");
+        )) as Arc<dyn SystemPromptBuilder>
+    }
+
+    /// Register SkillSlashHandler for all user-invocable skills.
+    ///
+    /// Extracted from [`Self::init_phase_5_background`]: requires the
+    /// DiskSkillRegistry to be loaded (i.e. called after
+    /// `populate_registries`); a no-op when no disk registry is present.
+    async fn register_skill_slash_handlers(
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
+        slash_registry: &Arc<HandlerRegistry>,
+    ) {
+        let disk_reg = {
+            let guard = skill_registry.read().unwrap();
+            guard.as_ref().map(|dr| Arc::new(dr.clone()))
+        };
+        if let Some(disk_reg) = disk_reg {
+            let skill_handler = Arc::new(SkillSlashHandler::new(
+                disk_skill_access(disk_reg),
+                builtin_skill_access(Arc::clone(builtin_skill_registry)),
+            ));
+            for name in skill_handler.invocable_names().await {
+                slash_registry
+                    .register_named(&name, Arc::clone(&skill_handler) as Arc<dyn SlashHandler>);
             }
+            let count = slash_registry.all_commands().len();
+            info!(count = count, "slash registry fully populated");
         }
+    }
+
+    /// Inject the SessionManager services needed after registry population:
+    /// the late-bound SessionManager proxy, tool/skill registries, skill
+    /// listing provider, workflow engine port, static-layer cache
+    /// invalidator, and dynamic prompt builder.
+    ///
+    /// Extracted from [`Self::init_phase_5_background`].
+    async fn inject_session_manager_services(
+        session_manager: &Arc<SessionManager>,
+        tool_registry: &Arc<ToolRegistry>,
+        skill_registry: &Arc<RwLock<Option<DiskSkillRegistry>>>,
+        builtin_skill_registry: &Arc<BuiltinSkillRegistry>,
+        shared_cache: &Arc<RwLock<SectionCache>>,
+        late_bound_session_manager: &Arc<LateBoundSessionManagerOps>,
+    ) {
         // Inject real SessionManager into late-bound proxy (layer 4 after layer 3).
         if late_bound_session_manager
             .set(Arc::clone(session_manager) as Arc<dyn SessionManagerOps>)
@@ -348,10 +446,10 @@ impl Daemon {
             .await;
         // Inject skill listing provider for per-turn skill attachment.
         session_manager
-            .set_skill_listing_provider(Arc::new(SkillListingProviderWrapper::new(
-                skill_registry.clone(),
-                Arc::clone(&builtin_skill_listing),
-            )) as Arc<dyn SkillListingProvider>)
+            .set_skill_listing_provider(Self::build_skill_listing_provider(
+                skill_registry,
+                builtin_skill_registry,
+            ))
             .await;
         // Inject the production workflow engine port (stateless adapter
         // over the workflow crate). Wired onto every created/restored
@@ -373,18 +471,6 @@ impl Daemon {
         session_manager
             .set_dynamic_prompt_builder(Arc::new(SystemPromptDynamicBuilder))
             .await;
-        Ok((
-            sweeper_tx,
-            announce_sweeper_tx,
-            dreaming_tx,
-            config_watcher,
-            sweeper_handle,
-            announce_sweeper_handle,
-            dreaming_handle,
-            spawn_controller,
-            prompt_builder_adapter,
-            restart_rx,
-        ))
     }
 
     /// Spawn ArchiveSweeper and DreamingScheduler.
@@ -445,6 +531,38 @@ impl Daemon {
             let check_interval = Duration::from_secs(check_interval_secs);
             session_manager.spawn_periodic_consistency_check(check_interval);
         }
+        // Assemble + spawn the memory pipeline (DreamingScheduler): reads
+        // memory config, builds DreamingPipeline / MemoryMiner, then runs
+        // the scheduler loop until shutdown.
+        let dreaming_handle = Self::spawn_memory_pipeline(
+            config_manager,
+            &storage,
+            data_dir,
+            dreaming_config_provider,
+            mining_notify_rx,
+            dreaming_rx,
+        );
+        (
+            sweeper_handle,
+            announce_sweeper_handle,
+            dreaming_handle,
+            task_manager,
+        )
+    }
+    /// Assemble the memory pipeline and spawn the DreamingScheduler.
+    ///
+    /// Extracted from [`Self::spawn_background_services`]: reads memory
+    /// config from ConfigManager (falling back to defaults when absent),
+    /// builds DreamingPipeline / MemoryMiner, and spawns the scheduler
+    /// loop consuming `dreaming_rx` until shutdown.
+    pub(crate) fn spawn_memory_pipeline(
+        config_manager: &Arc<ConfigManager>,
+        storage: &Arc<dyn PersistenceService>,
+        data_dir: &Path,
+        dreaming_config_provider: Arc<dyn SessionConfigProvider>,
+        mining_notify_rx: mpsc::Receiver<String>,
+        dreaming_rx: watch::Receiver<()>,
+    ) -> JoinHandle<()> {
         // Load memory config from ConfigManager (replaces hardcoded defaults).
         let memory_config = config_manager
             .section(ConfigSection::Memory)
@@ -481,9 +599,9 @@ impl Daemon {
             data_dir.join(md_path).to_string_lossy().into_owned(),
         ));
         let mut dreaming_scheduler = DreamingScheduler::new(
-            Arc::clone(&storage),
+            Arc::clone(storage),
             Arc::new(crate::memory_storage_adapter::MemoryStorageAdapter::new(
-                Arc::clone(&storage),
+                Arc::clone(storage),
             )),
             dreaming_config_provider,
             dreaming_pipeline,
@@ -503,12 +621,7 @@ impl Daemon {
             dreaming_scheduler.run(dreaming_rx).await;
         });
         info!("DreamingScheduler spawned");
-        (
-            sweeper_handle,
-            announce_sweeper_handle,
-            dreaming_handle,
-            task_manager,
-        )
+        dreaming_handle
     }
     /// Phase 6: Admin RPC Server — depends on Gateway (Layer 5).
     pub(crate) async fn init_phase_6_admin_rpc(

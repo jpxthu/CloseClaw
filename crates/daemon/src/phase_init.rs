@@ -168,63 +168,9 @@ impl Daemon {
         // set on both SessionManager and Gateway above. The old
         // gateway.set_storage() path still works as a backward-compatible
         // wrapper that creates its own CheckpointManager internally.
-        // Run session recovery scan: load all active checkpoints, detect
-        // pending_operations, and persist recovery notifications/failure
-        // results into checkpoints so resolve.rs can inject them when
-        // sessions are restored.
-        let (dirty_sessions_for_drain, migrated_sessions): (Vec<String>, Vec<String>) = {
-            use closeclaw_session::recovery::SessionRecoveryService;
-            let recovery_svc =
-                SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
-            // Inject the production workflow port so recovery scan can
-            // re-inject workflow state (goal/jump messages) for sessions
-            // with an active workflow run.
-            recovery_svc
-                .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
-                .await;
-            let recovery_result =
-                tokio::time::timeout(Duration::from_secs(10), recovery_svc.recover()).await;
-            match recovery_result {
-                Ok(Ok(report)) => {
-                    if !report.dirty_sessions.is_empty() {
-                        info!(
-                            dirty_count = report.dirty_sessions.len(),
-                            total = report.total(),
-                            "recovery scan found dirty sessions"
-                        );
-                    } else {
-                        info!(
-                            total = report.total(),
-                            "recovery scan complete — no dirty sessions"
-                        );
-                    }
-                    (report.dirty_sessions, report.migrated_sessions)
-                }
-                Ok(Err(e)) => {
-                    warn!(error = %e, "recovery scan failed — continuing without recovery");
-                    (Vec::new(), Vec::new())
-                }
-                Err(_) => {
-                    warn!("recovery scan timed out (10s) — continuing without recovery");
-                    (Vec::new(), Vec::new())
-                }
-            }
-        };
-        for sid in &migrated_sessions {
-            session_manager.remove_stale_key_registry_entries(sid).await;
-        }
-        if let Err(e) = session_manager.rebuild_key_registry().await {
-            warn!(error = %e, "failed to rebuild key_registry — continuing");
-        }
-        // Startup consistency check: SQLite ↔ file system bidirectional scan.
-        if let Err(e) = session_manager.run_consistency_check().await {
-            warn!(error = %e, "consistency check failed — continuing");
-        }
-        // Mark the scan timestamp so subsequent periodic checks are incremental.
-        session_manager.initialize_consistency_check_time();
-        if let Err(e) = session_manager.rebuild_spawn_tree().await {
-            warn!(error = %e, "failed to rebuild spawn_tree — continuing");
-        }
+        let (dirty_sessions_for_drain, migrated_sessions) =
+            Self::run_startup_recovery_scan(storage).await;
+        Self::rebuild_session_registries(&session_manager, &migrated_sessions).await;
         let gateway = Arc::new(gateway);
         gateway
             .set_permission_engine(Arc::clone(permission_engine))
@@ -238,78 +184,9 @@ impl Daemon {
         gateway
             .set_metrics_emitter(Arc::new(NoopMetricsEmitter))
             .await;
-        // Composition-root injections for platform plugins: identity
-        // resolver, feishu profile, media config (issue #3347).
-        let injection = crate::platform_injection::PlatformInjection::load(config_dir);
-        let media_config = injection.media_config.clone();
-        let shared_media_store = match MediaStore::new(&media_config.storage_dir) {
-            Ok(store) => {
-                let store = Arc::new(store);
-                gateway.set_media_store(store.clone() as Arc<dyn MediaStoreAccess>);
-                gateway.set_media_config(media_config.clone());
-                Some(store)
-            }
-            Err(e) => {
-                warn!(error = %e, storage_dir = %media_config.storage_dir,
-                        "failed to create MediaStore — media features disabled");
-                None
-            }
-        };
-        let media_config_snapshot = injection.media_config_snapshot();
-        let host = crate::gateway_host_adapter::gateway_host(&gateway);
-        register_platform_plugins(
-            &host,
-            config_dir,
-            shared_media_store.clone(),
-            Some(media_config_snapshot),
-            injection.identity_resolver,
-            injection.feishu_profile,
-        )
-        .await;
-        // Start the periodic media cleanup task.
-        let media_cleanup_handle = if let Some(ref store) = shared_media_store {
-            let retention_days = media_config.retention_days;
-            let store_for_cleanup = Arc::new(store.as_ref().clone());
-            let cleanup_fn: CleanupFn = Arc::new(move |d| {
-                store_for_cleanup
-                    .cleanup_expired(d)
-                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
-            });
-            let rp: RetentionProvider = Arc::new(move || retention_days);
-            let handle = start_media_cleanup(Duration::from_secs(3600), rp, cleanup_fn);
-            tracing::info!(retention_days, "media cleanup task started");
-            Some(handle)
-        } else {
-            None
-        };
-        // Drain outbound pending messages for dirty sessions recovered earlier.
-        // Each session is drained asynchronously via tokio::spawn so startup
-        // is not blocked by network I/O.
-        if !dirty_sessions_for_drain.is_empty() {
-            let sm_ref = Arc::clone(&session_manager);
-            for session_id in &dirty_sessions_for_drain {
-                let sm = Arc::clone(&sm_ref);
-                let session_id = session_id.clone();
-                tokio::spawn(async move {
-                    match sm.drain_outbound_pending_for_session(&session_id).await {
-                        Ok(count) => {
-                            info!(
-                                session_id = %session_id,
-                                delivered = count,
-                                "outbound pending drain complete"
-                            );
-                        }
-                        Err(e) => {
-                            warn!(
-                                session_id = %session_id,
-                                error = %e,
-                                "outbound pending drain failed"
-                            );
-                        }
-                    }
-                });
-            }
-        }
+        let media_cleanup_handle =
+            Self::setup_platform_plugins_and_media_cleanup(&gateway, config_dir).await;
+        Self::drain_dirty_sessions_outbound(&session_manager, &dirty_sessions_for_drain).await;
         let slash_registry = Self::init_slash_dispatcher(&gateway, &session_manager).await;
         // Start the inbound queue consumer so webhook messages are buffered.
         gateway.start_inbound_queue();
@@ -333,6 +210,167 @@ impl Daemon {
             slash_registry,
             media_cleanup_handle,
         ))
+    }
+    /// Run the startup session recovery scan: load all active checkpoints,
+    /// detect pending_operations, and persist recovery notifications/failure
+    /// results into checkpoints so resolve.rs can inject them when sessions
+    /// are restored.
+    ///
+    /// Extracted from [`Self::init_phase_3_core_services`].
+    pub(crate) async fn run_startup_recovery_scan(
+        storage: &Arc<SqliteStorage>,
+    ) -> (Vec<String>, Vec<String>) {
+        use closeclaw_session::recovery::SessionRecoveryService;
+        let recovery_svc =
+            SessionRecoveryService::new(Arc::clone(storage) as Arc<dyn PersistenceService>);
+        // Inject the production workflow port so recovery scan can
+        // re-inject workflow state (goal/jump messages) for sessions
+        // with an active workflow run.
+        recovery_svc
+            .set_workflow_port(crate::workflow_port_adapter::engine_workflow_port())
+            .await;
+        let recovery_result =
+            tokio::time::timeout(Duration::from_secs(10), recovery_svc.recover()).await;
+        match recovery_result {
+            Ok(Ok(report)) => {
+                if !report.dirty_sessions.is_empty() {
+                    info!(
+                        dirty_count = report.dirty_sessions.len(),
+                        total = report.total(),
+                        "recovery scan found dirty sessions"
+                    );
+                } else {
+                    info!(
+                        total = report.total(),
+                        "recovery scan complete — no dirty sessions"
+                    );
+                }
+                (report.dirty_sessions, report.migrated_sessions)
+            }
+            Ok(Err(e)) => {
+                warn!(error = %e, "recovery scan failed — continuing without recovery");
+                (Vec::new(), Vec::new())
+            }
+            Err(_) => {
+                warn!("recovery scan timed out (10s) — continuing without recovery");
+                (Vec::new(), Vec::new())
+            }
+        }
+    }
+    /// Post-recovery registry rebuild: drop stale key registry entries for
+    /// migrated sessions, rebuild the key registry, run the SQLite ↔ file
+    /// system consistency check, seed the check timestamp, and rebuild the
+    /// spawn tree. Failures warn and continue.
+    ///
+    /// Extracted from [`Self::init_phase_3_core_services`].
+    async fn rebuild_session_registries(
+        session_manager: &Arc<SessionManager>,
+        migrated_sessions: &[String],
+    ) {
+        for sid in migrated_sessions {
+            session_manager.remove_stale_key_registry_entries(sid).await;
+        }
+        if let Err(e) = session_manager.rebuild_key_registry().await {
+            warn!(error = %e, "failed to rebuild key_registry — continuing");
+        }
+        // Startup consistency check: SQLite ↔ file system bidirectional scan.
+        if let Err(e) = session_manager.run_consistency_check().await {
+            warn!(error = %e, "consistency check failed — continuing");
+        }
+        // Mark the scan timestamp so subsequent periodic checks are incremental.
+        session_manager.initialize_consistency_check_time();
+        if let Err(e) = session_manager.rebuild_spawn_tree().await {
+            warn!(error = %e, "failed to rebuild spawn_tree — continuing");
+        }
+    }
+    /// Composition-root injections for platform plugins: identity resolver,
+    /// feishu profile, media config (issue #3347); wire the shared MediaStore
+    /// into the Gateway and register all platform plugins, then start the
+    /// periodic media cleanup task (only when a MediaStore is available).
+    ///
+    /// Extracted from [`Self::init_phase_3_core_services`].
+    async fn setup_platform_plugins_and_media_cleanup(
+        gateway: &Arc<Gateway>,
+        config_dir: &str,
+    ) -> Option<MediaCleanupHandle> {
+        let injection = crate::platform_injection::PlatformInjection::load(config_dir);
+        let media_config = injection.media_config.clone();
+        let shared_media_store = match MediaStore::new(&media_config.storage_dir) {
+            Ok(store) => {
+                let store = Arc::new(store);
+                gateway.set_media_store(store.clone() as Arc<dyn MediaStoreAccess>);
+                gateway.set_media_config(media_config.clone());
+                Some(store)
+            }
+            Err(e) => {
+                warn!(error = %e, storage_dir = %media_config.storage_dir,
+                        "failed to create MediaStore — media features disabled");
+                None
+            }
+        };
+        let media_config_snapshot = injection.media_config_snapshot();
+        let host = crate::gateway_host_adapter::gateway_host(gateway);
+        register_platform_plugins(
+            &host,
+            config_dir,
+            shared_media_store.clone(),
+            Some(media_config_snapshot),
+            injection.identity_resolver,
+            injection.feishu_profile,
+        )
+        .await;
+        // Start the periodic media cleanup task.
+        if let Some(ref store) = shared_media_store {
+            let retention_days = media_config.retention_days;
+            let store_for_cleanup = Arc::new(store.as_ref().clone());
+            let cleanup_fn: CleanupFn = Arc::new(move |d| {
+                store_for_cleanup
+                    .cleanup_expired(d)
+                    .map_err(|e| -> Box<dyn std::error::Error + Send + Sync> { Box::new(e) })
+            });
+            let rp: RetentionProvider = Arc::new(move || retention_days);
+            let handle = start_media_cleanup(Duration::from_secs(3600), rp, cleanup_fn);
+            tracing::info!(retention_days, "media cleanup task started");
+            Some(handle)
+        } else {
+            None
+        }
+    }
+    /// Drain outbound pending messages for dirty sessions recovered earlier.
+    /// Each session is drained asynchronously via tokio::spawn so startup
+    /// is not blocked by network I/O.
+    ///
+    /// Extracted from [`Self::init_phase_3_core_services`].
+    async fn drain_dirty_sessions_outbound(
+        session_manager: &Arc<SessionManager>,
+        dirty_sessions: &[String],
+    ) {
+        if dirty_sessions.is_empty() {
+            return;
+        }
+        let sm_ref = Arc::clone(session_manager);
+        for session_id in dirty_sessions {
+            let sm = Arc::clone(&sm_ref);
+            let session_id = session_id.clone();
+            tokio::spawn(async move {
+                match sm.drain_outbound_pending_for_session(&session_id).await {
+                    Ok(count) => {
+                        info!(
+                            session_id = %session_id,
+                            delivered = count,
+                            "outbound pending drain complete"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            session_id = %session_id,
+                            error = %e,
+                            "outbound pending drain failed"
+                        );
+                    }
+                }
+            });
+        }
     }
 }
 /// Bundled shutdown receivers for background services.
