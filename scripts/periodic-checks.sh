@@ -56,9 +56,11 @@ usage() {
   --msrv      MSRV 检查（cargo +1.85 check --workspace --all-targets --locked，与 CI msrv job 同口径）
   --audit-selftest test-audit 扫描器自测（scripts/test-audit.sh --self-test 转调
                 test-audit-self-test.sh，库模式复用同一扫描实现，断言命中/不命中规格矩阵，离线）
+  --pin-audit CI 版本固定守卫（.github/workflows：action 必须 pin 40 位 commit SHA，
+                工具版本必须显式指定，禁止 latest）
   --heavy     重型检查（miri + TSAN；默认跳过，需显式传入）
   --all       = --slow --flaky --doctest --coverage --deps --dep-guard
-                --msrv --audit-selftest（不含 --heavy）
+                --msrv --audit-selftest --pin-audit（不含 --heavy）
   --help, -h  打印本用法
 
 说明:
@@ -443,6 +445,68 @@ do_audit_selftest() (
     return 0
 )
 
+# ---------- --pin-audit：CI 版本固定守卫 ----------
+# 规则（细则见 CONTRIBUTING「CI 版本固定」）：
+#   1. uses: 一律 pin 到 40 位 commit SHA（本地 action ./x、docker:// 不适用）
+#   2. 工具版本必须显式指定，禁止 latest
+#   3. tool 引用 ${{ env.XXX }} 时，本文件 env 段必须有形如 "x.y.z" 的字面定义
+do_pin_audit() (
+    set -u
+    local wf_dir=".github/workflows"
+    if [[ ! -d "$wf_dir" ]]; then
+        echo "[SKIP] 未找到 $wf_dir"
+        return 77
+    fi
+    local fails=0 files=0
+    local f uses_ref tool_ref env_name
+    while IFS= read -r f; do
+        files=$((files + 1))
+        while IFS= read -r uses_ref; do
+            [[ -z "$uses_ref" ]] && continue
+            case "$uses_ref" in
+                ./*|docker://*) continue ;;
+            esac
+            if ! echo "$uses_ref" | grep -qE '@[0-9a-f]{40}$'; then
+                echo "[FAIL] $(basename "$f"): uses 未 pin commit SHA -> $uses_ref"
+                fails=$((fails + 1))
+            fi
+        done < <(sed -nE 's/^[[:space:]]*-?[[:space:]]*uses:[[:space:]]*([^#]*).*/\1/p' "$f" | sed 's/[[:space:]]*$//')
+
+        while IFS= read -r tool_ref; do
+            [[ -z "$tool_ref" ]] && continue
+            if ! echo "$tool_ref" | grep -q '@'; then
+                echo "[FAIL] $(basename "$f"): 工具版本未固定 -> tool: $tool_ref"
+                fails=$((fails + 1))
+                continue
+            fi
+            if echo "$tool_ref" | grep -qE '@latest$'; then
+                echo "[FAIL] $(basename "$f"): 禁止 @latest -> tool: $tool_ref"
+                fails=$((fails + 1))
+                continue
+            fi
+            env_name=$(echo "$tool_ref" | grep -oE 'env\.[A-Za-z_][A-Za-z0-9_]*' | head -n 1 | cut -d. -f2)
+            if [[ -n "$env_name" ]]; then
+                if ! grep -qE "^[[:space:]]*${env_name}:[[:space:]]*\"?[0-9]" "$f"; then
+                    echo "[FAIL] $(basename "$f"): $env_name 未在本文件 env 段给出字面版本 -> tool: $tool_ref"
+                    fails=$((fails + 1))
+                    continue
+                fi
+            fi
+        done < <(sed -nE 's/^[[:space:]]*tool:[[:space:]]*([^#]*).*/\1/p' "$f" | sed 's/[[:space:]]*$//')
+    done < <(find "$wf_dir" -maxdepth 1 \( -name '*.yml' -o -name '*.yaml' \) | sort)
+
+    if [[ $files -eq 0 ]]; then
+        echo "[SKIP] $wf_dir 下无 workflow 文件"
+        return 77
+    fi
+    if [[ $fails -gt 0 ]]; then
+        echo "[FAIL] 版本固定守卫发现 $fails 处违规（扫描 $files 个 workflow 文件）"
+        return 1
+    fi
+    echo "[ok] 版本固定守卫通过（$files 个 workflow 文件：action 全部 pin SHA、工具版本均显式固定）"
+    return 0
+)
+
 # ---------- --msrv：MSRV 下限检查（与 CI msrv job 同口径） ----------
 do_msrv() (
     set -u
@@ -508,7 +572,7 @@ do_heavy() (
 
 # ---------- 参数解析 ----------
 RUN_SLOW=0 RUN_FLAKY=0 RUN_DOCTEST=0 RUN_COVERAGE=0 RUN_DEPS=0 RUN_DEP_GUARD=0 RUN_MSRV=0 RUN_HEAVY=0
-RUN_AUDIT_SELFTEST=0
+RUN_AUDIT_SELFTEST=0 RUN_PIN_AUDIT=0
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --slow)       RUN_SLOW=1 ;;
@@ -519,10 +583,12 @@ while [[ $# -gt 0 ]]; do
         --dep-guard)  RUN_DEP_GUARD=1 ;;
         --msrv)       RUN_MSRV=1 ;;
         --audit-selftest) RUN_AUDIT_SELFTEST=1 ;;
+        --pin-audit)  RUN_PIN_AUDIT=1 ;;
         --heavy)      RUN_HEAVY=1 ;;
         --all)
             RUN_SLOW=1; RUN_FLAKY=1; RUN_DOCTEST=1; RUN_COVERAGE=1
             RUN_DEPS=1; RUN_DEP_GUARD=1; RUN_MSRV=1; RUN_AUDIT_SELFTEST=1
+            RUN_PIN_AUDIT=1
             ;;
         --help|-h)    usage; exit 0 ;;
         *)            echo "未知选项: $1"; echo ""; usage; exit 1 ;;
@@ -531,7 +597,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 SELECTED=$((RUN_SLOW + RUN_FLAKY + RUN_DOCTEST + RUN_COVERAGE + RUN_DEPS \
-    + RUN_DEP_GUARD + RUN_MSRV + RUN_AUDIT_SELFTEST + RUN_HEAVY))
+    + RUN_DEP_GUARD + RUN_MSRV + RUN_AUDIT_SELFTEST + RUN_PIN_AUDIT + RUN_HEAVY))
 if [[ $SELECTED -eq 0 ]]; then
     usage
     exit 1
@@ -551,6 +617,9 @@ if [[ $RUN_DEP_GUARD -eq 1 ]]; then run_section "--dep-guard 依赖治理守卫"
 if [[ $RUN_MSRV -eq 1 ]]; then     run_section "--msrv MSRV 检查" do_msrv; fi
 if [[ $RUN_AUDIT_SELFTEST -eq 1 ]]; then
     run_section "--audit-selftest test-audit 扫描器自测" do_audit_selftest
+fi
+if [[ $RUN_PIN_AUDIT -eq 1 ]]; then
+    run_section "--pin-audit CI 版本固定守卫" do_pin_audit
 fi
 if [[ $RUN_HEAVY -eq 1 ]]; then    run_section "--heavy 重型检查（miri/TSAN）" do_heavy; fi
 

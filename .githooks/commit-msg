@@ -1,6 +1,6 @@
 #!/bin/bash
-# Commit-msg hook: validates Source: and Type: footers
-# Source: 行含来源关键词、Type: 行含类型关键词即通过。
+# Commit-msg hook: validates Source: / Type: footers and branch ↔ primary type consistency
+# 口径见 CONTRIBUTING.md「分支与 Commit 类型」：Type 行可用逗号列多个类型，首项为主 type。
 
 set -e
 
@@ -30,7 +30,7 @@ if ! echo "$msg" | grep -E '^Source: ' | grep -qiE "$source_keywords"; then
     exit 1
 fi
 
-# 2. Check Type: footer
+# 2. Check Type: footer（逗号分隔多类型，首项为主 type，每项都必须是合法类型）
 if ! echo "$msg" | grep -qE '^Type: '; then
     echo "ERROR: Commit message must contain a 'Type:' footer line"
     echo ""
@@ -38,16 +38,58 @@ if ! echo "$msg" | grep -qE '^Type: '; then
     echo "$msg"
     exit 1
 fi
-if ! echo "$msg" | grep -E '^Type: ' | grep -qiE "$valid_types"; then
-    echo "ERROR: Type footer line must contain one of these keywords:"
-    echo "  $valid_types"
+
+type_line=$(echo "$msg" | grep -E '^Type: ' | head -n 1 | sed 's/^Type: //')
+IFS=',' read -ra type_items <<<"$type_line"
+primary_type=""
+for item in "${type_items[@]}"; do
+    item_trimmed=$(echo "$item" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | tr '[:upper:]' '[:lower:]')
+    if [[ -z "$item_trimmed" ]]; then
+        continue
+    fi
+    if ! echo "$item_trimmed" | grep -qE "^($valid_types)$"; then
+        echo "ERROR: Type footer item '$item_trimmed' is not a valid type."
+        echo "  valid types: $valid_types (comma separated; first item is the primary type)"
+        echo ""
+        echo "Commit message:"
+        echo "$msg"
+        exit 1
+    fi
+    if [[ -z "$primary_type" ]]; then
+        primary_type="$item_trimmed"
+    fi
+done
+
+if [[ -z "$primary_type" ]]; then
+    echo "ERROR: Type footer line is empty or contains no valid type"
     echo ""
     echo "Commit message:"
     echo "$msg"
     exit 1
 fi
 
-# 3. Remind agent to verify commit author matches their session identity
+# 3. 分支名 ↔ 主 type 一致性（detached HEAD / CI 环境跳过）
+branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)
+if [[ -n "$branch" && "$branch" != "HEAD" && "$branch" == */* ]]; then
+    branch_prefix="${branch%%/*}"
+    if echo "$branch_prefix" | grep -qE "^($valid_types)$"; then
+        if [[ "$branch_prefix" != "$primary_type" ]]; then
+            echo "ERROR: Branch prefix '$branch_prefix/' does not match primary type '$primary_type'"
+            echo "  分支前缀必须等于 Type 首项（多类型时为分支前缀，如 'refactor/xxx' + 'Type: refactor, docs'）"
+            echo "  当前分支: $branch"
+            echo ""
+            echo "Commit message:"
+            echo "$msg"
+            exit 1
+        fi
+    else
+        echo "WARN: Branch prefix '$branch_prefix/' is not a valid type prefix ($valid_types)"
+        echo "      建议分支命名为 '<type>/<slug>'，否则分支与 commit type 的对应关系无法校验"
+        echo ""
+    fi
+fi
+
+# 4. Remind agent to verify commit author matches their session identity
 actual_author=$(git config user.name 2>/dev/null | tr -d '\n')
 actual_email=$(git config user.email 2>/dev/null | tr -d '\n')
 if [[ -n "$actual_author" ]]; then
@@ -59,4 +101,6 @@ fi
 
 echo "Commit message check passed"
 echo "- Source: $(echo "$msg" | grep '^Source:' | sed 's/^Source: //')"
-echo "- Type: $(echo "$msg" | grep '^Type:' | sed 's/^Type: //')"
+echo "- Type: $type_line"
+
+exit 0

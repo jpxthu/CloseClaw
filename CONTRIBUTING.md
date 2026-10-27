@@ -7,6 +7,7 @@
 - Rust 工具链（rustup 安装最新 stable）
 - GitHub CLI（`gh`），已登录：`gh auth login`
 - Git Hook：`git config core.hooksPath .githooks`
+- Shell 脚本要求 bash **≥ 4.3**（脚本使用 `mapfile` / `local -n`）；macOS 系统自带 bash 3.2 不支持，需自装新版
 
 ## 文档与代码原则
 
@@ -229,6 +230,17 @@ Layer 5: daemon（composition root，允许全量依赖）
 
 分支名和 commit type 必须对应。例如 `feat/xxx` 分支的 commit 用 `feat`。
 
+分支前缀由 PR 的**主 type** 决定：`feat/xxx` 的 commit 主 type 必须是 `feat`。
+
+多步骤任务（一个分支里既有重构又有文档修正）允许 `Type:` footer 用逗号列出多个类型，**首项为主 type**：
+
+```
+Source: issue #123
+Type: refactor, docs
+```
+
+首项决定分支前缀（此例分支为 `refactor/xxx`），次要类型不参与一致性校验。校验由 `.githooks/commit-msg` 执行：分支前缀是合法 type 但 ≠ 主 type 时报错，非合法前缀仅告警，detached HEAD（CI / rebase）跳过。
+
 ### Commit Footer
 
 Commit 和 PR body 末尾都必须包含：
@@ -307,11 +319,27 @@ git checkout master && git pull
 | `--deps` | 依赖审计：cargo-deny check + cargo-machete + syn 双大版本白名单检查 |
 | `--dep-guard` | 依赖治理守卫：dep-guard 五项检查（依赖方向 / 禁二次出口 / common 准入一致性 / 死依赖 / rust-version 声明完整性）+ 单测套件，baseline=现状、仅对新增越界报警（细则见 `scripts/dep-guard/`） |
 | `--msrv` | MSRV 下限检查：以根 Cargo.toml `rust-version` 工具链执行 `check --workspace --all-targets --locked`，与 CI msrv job 同口径（工具链缺失记 SKIP） |
+| `--pin-audit` | CI 版本固定守卫：`.github/workflows/` 内 action 必须 pin 40 位 commit SHA、工具版本必须显式指定（禁止 latest）、`${{ env.X }}` 引用的版本必须在同文件 env 段有字面值 |
 | `--heavy` | 重型检查：miri + TSAN（默认跳过，需显式传入，不在 `--all` 内） |
-| `--all` | = slow + flaky + doctest + coverage + deps + dep-guard + msrv（不含 heavy） |
+| `--all` | = slow + flaky + doctest + coverage + deps + dep-guard + msrv + pin-audit（不含 heavy） |
 
 - 工具缺失的段记 SKIP 并打印安装提示；小范围实测可 `NEXTEST_EXTRA_ARGS` 透传 nextest 过滤参数，如 `NEXTEST_EXTRA_ARGS="-E test(test_exec_)"`
 - 何时跑：合码前后跑 `--all`；周期性（如每周）跑 `--heavy`；`--slow` 的 >5s SLOW 档用于防慢测试回归
+
+---
+
+## CI 版本固定
+
+`.github/workflows/` 里的外部依赖全部固定版本，禁止浮动 tag 与 latest：上游一旦发版会静默改变 CI 行为，红灯变得无法复现。
+
+| 对象 | 固定方式 |
+|------|----------|
+| action（`uses:`，含 GitHub 官方） | pin 到 40 位 commit SHA，行尾 `# vX` 注释版本 |
+| CI 工具（`taiki-e/install-action` 的 `tool:`） | 显式写版本号，禁止 latest；版本集中在 workflow 顶部 `env:` 段声明 |
+| 本地 action（`./...`）、`docker://` | 不适用 SHA 固定 |
+
+- 升级 = 改 SHA + 改行尾注释 + 改 `env` 里的版本号，走普通 PR，CI 全绿后合入
+- 守卫：`scripts/periodic-checks.sh --pin-audit`（含在 `--all` 内），违规即 FAIL
 
 ---
 

@@ -40,6 +40,13 @@
 
 set -euo pipefail
 
+# bash 版本下限：4.3（本脚本使用 local -n nameref，其余处使用 mapfile）；
+# macOS 系统自带 bash 3.2 不支持，需自装新版（口径见 CONTRIBUTING「前置条件」）
+if (( BASH_VERSINFO[0] < 4 || (BASH_VERSINFO[0] == 4 && BASH_VERSINFO[1] < 3) )); then
+  echo "ERROR: scripts/test-audit.sh 需要 bash >= 4.3（当前 $BASH_VERSION）；macOS 可用 brew install bash 后以 /usr/local/bin/bash 调用" >&2
+  exit 2
+fi
+
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BASELINE_FILE="$PROJECT_ROOT/scripts/test-audit-baseline.txt"
 # 系统临时目录：$TMPDIR，未设置回退 /tmp（循环剥除全部尾斜杠归一化，供 runtime 白名单前缀与静态字面量检测使用）

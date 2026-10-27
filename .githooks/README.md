@@ -84,16 +84,25 @@ pre-commit 触发
 
 ### commit-msg
 
-检查 commit message 是否包含 `Source:` 和 `Type:` footer：
+检查 commit message 的 footer 与分支名一致性（口径见 `CONTRIBUTING.md`「分支与 Commit 类型」）：
 
-- `Source:` 行内包含关键词：`issue` `design-doc` `requirement` `Fixes` `Refs` `Closes` `CI` `user`
-- `Type:` 行内包含关键词：`feat` `fix` `docs` `refactor` `test` `perf` `chore`
+- `Source:` 行内必须包含关键词：`issue` `design-doc` `requirement` `Fixes` `Refs` `Closes` `CI` `user`
+- `Type:` 行必须由合法类型组成：`feat` `fix` `docs` `refactor` `test` `perf` `chore`；逗号分隔可列多个，**首项为主 type**
+- 分支名前缀（`<type>/<slug>` 的第一段）必须等于主 type：`refactor/xxx` + `Type: refactor, docs` 通过，`refactor/xxx` + `Type: docs, refactor` 拦截
+- 分支前缀不是合法 type 时仅告警；detached HEAD（CI / rebase）与本无 `/` 的分支跳过校验
 
 ```
 feat(auth): add OAuth2 support
 
 Source: issue #123
 Type: feat
+```
+
+多步骤任务（同一分支混合重构与文档，主 type 为 `refactor`）：
+
+```
+Source: issue #123
+Type: refactor, docs
 ```
 
 ### pre-push

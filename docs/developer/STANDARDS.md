@@ -78,9 +78,14 @@ let provider = FakeProvider::builder()
 
 - 场景能力：`then_ok` / `then_ok_with` / `then_ok_with_cache` / `then_err` / `then_err_with` / `then_delay` / `or_else` / `stub`。
 - 场景按 FIFO 消费，耗尽默认 panic；需要断言「调用被捕获」时用 `captured_requests()` / `drain_requests()` / `clear_requests()`。
-- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo nextest run --features fake-llm` 执行。
+- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo nextest run --workspace --features closeclaw-llm/fake-llm` 执行（feature 只在具体 crate 声明，workspace 根下必须用 `crate/feature` 语法；CI 的 Feature-gated tests job 同口径）。
 
 ## 6. 超时
+
+两个概念严格区分，互不代替：
+
+- **依赖等待**：靠等一段时间推进测试（`sleep` 后假设某事已发生、轮询直到成功）。**禁止 >1s**，一律改用 channel / 信号量 / 事件通知同步，见 §9。
+- **挂死保护上界**：失败路径上的等待上限，正常路径根本不会等满（`recv_timeout` / `tokio::time::timeout` 包住一个本应立即返回的等待）。允许 5–10s，但必须能看出它是兜底，不是节奏。
 
 | 层级 | 超时要求 |
 |------|----------|
@@ -88,8 +93,8 @@ let provider = FakeProvider::builder()
 | integration | 参考单测，30s 上限 |
 | e2e | 按场景分级：spawn 独立进程的启动/优雅关闭/沙箱创建等场景设置各自合理的更宽松上限，不套统一 30s |
 
-- 30s 是**硬上限**（防挂死），不是目标值。性能目标：CI 中任何 test case 运行超过 5s 必须修复。
-- 单测中禁止出现 >1s 的等待（sleep、timeout、阻塞 IO）。
+- 30s 是**硬上限**（防挂死），不是目标值。性能目标的 5s 限的是**正常路径实际耗时**：CI 中任何 test case 正常通过时超过 5s 必须修复（兜底 timeout 的设定值不计入）。
+- 挂死保护上界超过 1s 时，必须在代码处注明语义，例：`// 兜底：worker 未在 10s 内退出则判定挂死`。未注明的一律按依赖等待判违规。
 - 禁止 `thread::sleep` 等待异步事件（见 §9），等待用 channel/信号量，避免靠超时掩盖竞态。
 
 ## 7. 并行安全
