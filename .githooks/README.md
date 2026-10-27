@@ -67,64 +67,8 @@ pre-commit 触发
 
 ## Hooks 说明
 
-### pre-commit
+判定细则以 `CONTRIBUTING.md` 与 `docs/developer/STANDARDS.md` 为准，本目录只放脚本。
 
-在每次 `git commit` 前自动运行以下检查，全部通过才允许提交：
-
-| 步骤 | 检查内容 | 阈值 | 失败时的提示 |
-|---|---|---|---|
-| 1 | 文件行数 | ≤ 1000 行 | `ERROR: <file>: <N> 行（上限 1000）` |
-| 2 | `cargo fmt --check` | 代码格式（含代码行行宽） | 格式不符合规范，运行 `cargo fmt` 修复 |
-| 3 | 行宽硬限（`check-line-width.sh`） | staged 新增行 ≤ 100 字符（`.rs` / `Cargo.toml`） | 超宽行清单 + 修复指引 |
-| 4 | 角色规则 | 取决于角色 | 见上方角色说明 |
-
-**注意**：行数和 fmt 检查仅针对 staged 的 `.rs` 文件；行宽检查针对 staged 的
-`.rs` 与 `Cargo.toml` 新增行（增量口径，fmt 折不掉的超宽字符串字面量行/注释行
-由该检查兜底）。均不背负历史技术债。
-
-### commit-msg
-
-检查 commit message 的 footer 与分支名一致性（口径见 `CONTRIBUTING.md`「分支与 Commit 类型」）：
-
-- `Source:` 行内必须包含关键词：`issue` `design-doc` `requirement` `Fixes` `Refs` `Closes` `CI` `user`
-- `Type:` 行必须由合法类型组成：`feat` `fix` `docs` `refactor` `test` `perf` `chore`；逗号分隔可列多个，**首项为主 type**
-- 分支名前缀（`<type>/<slug>` 的第一段）必须等于主 type：`refactor/xxx` + `Type: refactor, docs` 通过，`refactor/xxx` + `Type: docs, refactor` 拦截
-- 分支前缀不是合法 type 时仅告警；detached HEAD（CI / rebase）与本无 `/` 的分支跳过校验
-
-```
-feat(auth): add OAuth2 support
-
-Source: issue #123
-Type: feat
-```
-
-多步骤任务（同一分支混合重构与文档，主 type 为 `refactor`）：
-
-```
-Source: issue #123
-Type: refactor, docs
-```
-
-### pre-push
-
-禁止 force push 到保护分支（`master` `main` `develop`）。
-
-## 团队同步
-
-`.githooks/` 目录已纳入版本控制，团队成员 pull 后需执行配置命令：
-
-```bash
-git config core.hooksPath .githooks
-```
-
-开发者还需设置自己的角色：
-
-```bash
-git config hooks.role dev
-```
-
-或者在克隆时一步到位：
-
-```bash
-git clone --config core.hooksPath=.githooks --config hooks.role=dev git@github.com:jpxthu/CloseClaw.git
-```
+- `pre-commit`：文件行数 / env 禁令 / test-audit 静态扫描 / fmt / 行宽
+- `commit-msg`：`Source:` / `Type:` footer + 分支前缀与主 type 一致性
+- `pre-push`：禁止 push 到保护分支

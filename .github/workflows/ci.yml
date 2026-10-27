@@ -7,7 +7,7 @@ on:
     branches: [master]
   workflow_dispatch:
 
-# 版本固定策略（细则见 CONTRIBUTING「CI 版本固定」）：
+# 版本固定策略（细则见 .github/README.md「版本固定」）：
 #   - 所有 action 一律 pin 到 commit SHA，行尾注释版本
 #   - CI 工具版本在本段集中声明，禁止 latest
 #   - 守卫：scripts/periodic-checks.sh --pin-audit
