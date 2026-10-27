@@ -78,19 +78,12 @@ let provider = FakeProvider::builder()
 
 - 场景能力：`then_ok` / `then_ok_with` / `then_ok_with_cache` / `then_err` / `then_err_with` / `then_delay` / `or_else` / `stub`。
 - 场景按 FIFO 消费，耗尽默认 panic；需要断言「调用被捕获」时用 `captured_requests()` / `drain_requests()` / `clear_requests()`。
-- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo nextest run --features fake-llm` 执行。
+- 依赖 fake LLM 的测试用 `#[cfg(feature = "fake-llm")]` 门控，运行时以 `cargo nextest run --workspace --features closeclaw-llm/fake-llm` 执行（feature 只在具体 crate 声明，workspace 根下必须用 `crate/feature` 语法；CI 的 Feature-gated tests job 同口径）。
 
 ## 6. 超时
 
-| 层级 | 超时要求 |
-|------|----------|
-| 单元测试 | 默认 30s 上限 |
-| integration | 参考单测，30s 上限 |
-| e2e | 按场景分级：spawn 独立进程的启动/优雅关闭/沙箱创建等场景设置各自合理的更宽松上限，不套统一 30s |
-
-- 30s 是**硬上限**（防挂死），不是目标值。性能目标：CI 中任何 test case 运行超过 5s 必须修复。
-- 单测中禁止出现 >1s 的等待（sleep、timeout、阻塞 IO）。
-- 禁止 `thread::sleep` 等待异步事件（见 §9），等待用 channel/信号量，避免靠超时掩盖竞态。
+- 等待上限 **1s**：`sleep`、`timeout`、阻塞 IO 一律不超过 1s，等待用 channel / 信号量同步（见 §9）
+- 用例上限 **5s**：单个 test case 超过 5s 直接判失败
 
 ## 7. 并行安全
 
