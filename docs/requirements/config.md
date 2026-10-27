@@ -92,6 +92,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 配置项 | 生效机制 | 定义位置 |
 |------|---------|----------|
 | 权限规则（permissions.json 及权限白名单） | 即时生效 | [permission §F6](permission.md)（权限配置管理） |
+| 审批等待时长 | 即时生效（下一次审批请求） | [permission §F5](permission.md)（审批工作流） |
 | Agent 配置与注册清单 | 边界生效（下次新建 Session） | [agent §F6](agent.md)（运行时配置查询） |
 | Session 生命周期参数 | 边界生效（下次触发/新 Session） | [session §F6](session.md)（Session 归档与清理） |
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |
