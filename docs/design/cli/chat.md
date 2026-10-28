@@ -68,6 +68,7 @@ TerminalRenderer 接收 ContentBlock[]（定义见 [common ContentBlock](../comm
 2. Processor Chain 入站依次执行：RawLog 记录原始输入 → SessionRouter 计算 session_key（消息级标识，写入 metadata）→ ContentNormalizer 文本标准化（规则见 [processor_chain 入站链路](../processor_chain/inbound-chain.md)）
 3. 处理后消息进入 Gateway（daemon 侧）：先做 Session 解析（terminal 渠道无机器人↔Agent 绑定，目标 Agent 取 `--agent-id` 或初始 Agent，写入 metadata.agent_id，peer_id 取同一标识；会话路由键定位 Session，含忙碌入队、归档恢复等分支，见 [gateway 入站路径](../gateway/README.md)），再按内容分流：
    - 审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）→ Gateway 硬拦截走权限审批流，不进 SlashDispatcher
+   - 有等待中的审批请求时，审批推送通道（Gateway 经 CLI 渠道）向该终端连接推送审批提示（内容与审批卡片一致，覆盖全部等待中的请求）；Owner 可在终端直接发出审批指令，按审批单号命中，与 Session 无关（见 [permission 审批工作流](../permission/approval-workflow.md#审批信息与投递)）
    - 其他 `/` 开头 → SlashDispatcher（与飞书等渠道共享同一套）→ ContentBlock[]
    - 普通文本 → Session → LLM → ContentBlock[]
 4. ContentBlock[] 经 Processor Chain 出站依次处理（VerbosityFilter 按 Session Verbosity 等级过滤 → OutboundRawLog 写出站日志）
