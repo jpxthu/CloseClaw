@@ -18,7 +18,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格）所在目录
 - **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行
-- **工具白名单/黑名单**：Agent 可以使用的工具范围
+- **工具白名单/黑名单**：Agent 可以使用的工具范围。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予
 - **技能白名单**：Agent 可以使用的技能范围
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
 - **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
@@ -32,28 +32,29 @@ Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent
 > **交叉引用**：超时预警与硬超时的取值优先级。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
 > **交叉引用**：子 Session 的 Bootstrap 加载范围与 Session 类型适配。详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）。
 > **交叉引用**：技能的发现、目录结构与多 Agent 隔离。详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）。
+> **交叉引用**：工具范围在权限决策中的作用（工具调用维度）详见 [permission §F2](permission.md)（权限维度）。
 
 ### F2. 身份与人格分离
 
 配置档案中的能力配置和身份人格是两层独立的概念：
 
-- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限基线独立于配置档案，另行维护）
+- **配置档案**定义 Agent 的模型、工具、spawn 控制等能力配置（权限规则独立于配置档案，另行维护）
 - **Bootstrap 文件**定义 Agent 的身份人格
 
 Agent 的身份人格文件由配置档案指定，相关字段包括身份加载模式和 Bootstrap 文件目录。
 
 > **交叉引用**：Bootstrap 文件的类型清单，以及完整模式与精简模式各自加载的文件范围。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：权限基线与能力配置共同决定 Agent 能力边界。详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
+> **交叉引用**：权限规则与能力配置共同决定 Agent 能力边界。详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
 
 ### F3. Agent 能力组合
 
-Agent 的能力边界由配置档案中的字段组合与权限基线共同决定，不依赖预定义的类型标签：
+Agent 的能力边界由配置档案中的字段组合与权限规则共同决定，不依赖预定义的类型标签：
 
-- 工具白名单/黑名单控制 Agent 可以执行的操作范围
+- 工具白名单/黑名单控制 Agent 可以执行的操作范围（字段定义见 [F1](#f1-agent-配置档案)（Agent 配置档案），权限侧用法见 [permission §F2](permission.md)（权限维度））
 - 技能白名单控制 Agent 可以使用的技能范围
 - 身份加载模式控制 Agent 的上下文规模
 - 子 Session 创建控制决定 Agent 派生子 Session 的能力
-- 权限基线定义 Agent 的安全边界
+- 权限规则定义 Agent 的安全边界
 
 系统提供一组预置的行为模板（如"只读研究"、"校验审计"），创建子 Session 时可通过 spawn 参数选择注入对应的行为模板；行为模板不改变 Agent 的静态配置档案。
 
@@ -62,6 +63,8 @@ Agent 的能力边界由配置档案中的字段组合与权限基线共同决�
 ### F5. 初始 Agent 创建
 
 首次使用系统时，Owner 在 CLI 配置向导的引导下创建一个初始 Agent。初始 Agent 的 ID 默认为 `master`，具备全部工具和技能的访问权限（工具与技能白名单均不限制），作为系统的基础入口。
+
+初始 Agent 的权限规则是新建 Agent 默认权限的例外，其八个维度的开放范围与沙盒设置见 [permission §F1](permission.md)（身份体系）；权限配置文件对任何 Agent（含 `master`）仍不可读写（见 [permission §F4](permission.md)（Owner 特权））。
 
 ### F6. 运行时配置查询
 

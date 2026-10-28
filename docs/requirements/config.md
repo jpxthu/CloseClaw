@@ -50,7 +50,7 @@ CloseClaw 修改配置文件时，校验失败或写入中断不会产生部分�
 
 CloseClaw 启动时，若某个配置文件损坏或无法解析，自动使用最新的可用备份恢复；每个配置文件自动保留有限份数的近期备份。
 
-恢复成功后 CloseClaw 正常启动并记录警告；恢复失败（如无可用备份、或候选备份同样损坏）时拒绝启动。配置文件存在但部分字段缺失时的默认值处理见 F6，凭据文件加载失败的处理见 F5，权限配置文件加载失败的处理见 [permission §F6](permission.md)（权限配置管理）。
+恢复成功后 CloseClaw 正常启动并记录警告；恢复失败（如无可用备份、或候选备份同样损坏）时拒绝启动（权限配置文件不适用，见后句）。配置文件存在但部分字段缺失时的默认值处理见 F6，凭据文件加载失败的处理见 F5，权限配置文件加载失败的处理见 [permission §F6](permission.md)（权限配置管理）。
 
 ### F4. 配置重载
 
@@ -92,6 +92,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 配置项 | 生效机制 | 定义位置 |
 |------|---------|----------|
 | 权限规则（permissions.json 及权限白名单） | 即时生效 | [permission §F6](permission.md)（权限配置管理） |
+| 审批等待时长 | 即时生效（下一次审批请求） | [permission §F5](permission.md)（审批工作流） |
 | Agent 配置与注册清单 | 边界生效（下次新建 Session） | [agent §F6](agent.md)（运行时配置查询） |
 | Session 生命周期参数 | 边界生效（下次触发/新 Session） | [session §F6](session.md)（Session 归档与清理） |
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |

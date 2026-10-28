@@ -20,6 +20,8 @@ Owner 可以在终端中与 Agent 进行文本对话。此功能需 daemon 已�
 
 - 终端对话的调用者为 Owner，无需额外认证；CLI 渠道的 User 上下文为 Owner
 
+- 有等待中的审批请求时，终端输出审批提示（内容与审批卡片一致），覆盖全部等待中的请求——审批与 Session 无关；Owner 可在终端内直接发出审批指令
+
 > **交叉引用**：初始 Agent 的创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）。
 > **交叉引用**：Session 的确定、查找与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：会话标识字段的取值语义详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
@@ -28,6 +30,7 @@ Owner 可以在终端中与 Agent 进行文本对话。此功能需 daemon 已�
 > **交叉引用**：斜杠指令的拦截与分派详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：`/stop`、`/new` 的完整语义详见 [slash §F3](slash.md)（Session 管理）。
 > **交叉引用**：不活跃 Session 的自动归档与清理详见 [session §F6](session.md)（Session 归档与清理）。
+> **交叉引用**：审批单号规则、审批卡片内容与指令用法详见 [permission §F5](permission.md)（审批工作流）、[slash §F13](slash.md)（审批指令）。
 
 ### F2. 终端输出渲染
 
@@ -180,11 +183,13 @@ Owner 可以通过 CLI 查询技能列表。此功能需 daemon 已运行。
 
 Owner 可以通过 CLI 查询与校验权限规则。此功能无需 daemon 运行。
 
-- 校验权限规则的语法，输出校验结果（规则位置、原因）
+- 校验权限规则文件：检查能否正确解析、以及每条规则是否具备完整的四项要素（见 [permission §F6](permission.md)（权限配置管理）），输出校验结果（规则位置、原因）
 
-- 列出已有规则，每条包含作用维度、生效对象与决策结果
+- 列出已有规则，每条包含 [permission §F6](permission.md)（权限配置管理）定义的四项要素
 
-> **交叉引用**：CLI 提供校验规则语法与列表入口，两者均为只读；权限规则的维度与修改方式详见 [permission §F2](permission.md)（权限维度）、[permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：规则的构成要素（主体、作用维度、生效对象、决策结果）与修改方式详见 [permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：Permission 模块定义的权限维度与边界规则详见 [permission §F2](permission.md)（权限维度）。
+> **交叉引用**：权限规则修改的指令入口详见 [slash §F16](slash.md)（权限规则管理）。
 > **交叉引用**：权限规则变更的生效机制详见 [config §F7](config.md)（生效机制与重启类判定）。
 
 ### F8. 跨平台支持

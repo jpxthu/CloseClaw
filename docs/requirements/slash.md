@@ -77,25 +77,25 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 **指令**：
 - `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
 - `/pwd`：查看当前工作目录
-- `/git <参数>`：执行 Git 命令
-  - 只读子命令（status、log、diff、show、branch（仅列出分支））直接执行
-  - 写操作须经权限审批，审批不可绕过
+- `/git <参数>`：执行 Git 命令（Owner 与 User 均可用）
+  - 只读子命令（status、log、diff、show、branch（仅列出分支））直接执行，不进入权限评估
+  - 写操作的评估与审批见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）；Owner 的命令执行豁免见 [permission §F4](permission.md)（Owner 特权）
 
 > **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
-> **交叉引用**：Git 写操作的权限审批见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：Git 写操作的权限评估见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：命令维度的黑名单、白名单与执行位置见 [permission §F2](permission.md)（权限维度）。
 
 ### F8. 命令执行
 
-Owner 可以执行 Shell 命令。User 可由 Owner 授予本指令的使用权限；User 每次调用仍须经权限审批，审批不可绕过。
+Owner 可以执行 Shell 命令。命令执行不向 User 开放——它不是 User 维度的权限，User 调用 `/exec` 收到权限不足提示。
 
 **指令**：
 - `/exec <命令>`：执行 Shell 命令
 
-> **交叉引用**：命令执行的权限评估由 Permission 模块负责。详见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
-> **交叉引用**：User 默认权限见 [permission §F1](permission.md)（身份体系）。
-> **交叉引用**：权限规则修改与授权方式见 [permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：命令的黑名单、白名单与执行位置详见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒）。
+> **交叉引用**：权限规则的修改方式见 [permission §F6](permission.md)（权限配置管理）。
 
 ### F9. 帮助
 
@@ -128,7 +128,14 @@ Owner 和 User 可以查询和设置当前 Session 的展示等级。设置等�
 
 Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操作。三条指令均为 Immediate，仅 Owner 可用。
 
-> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批 ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。
+**指令**：
+- `/approve-once <单号> [agent|user|both]`：单次放行
+- `/approve-whitelist <单号> [agent|user|both]`：加入白名单
+- `/deny <单号>`：拒绝
+
+维度参数指定放行作用在 Agent 维度、User 维度还是两者，未指定时按 `both` 处理；命令类操作固定为 `agent`（语义见 [permission §F5](permission.md)（审批工作流））。
+
+> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标与超时时长详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F14. 调试日志
@@ -144,8 +151,25 @@ Slash 模块在以下环节记录调试日志：
 
 Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时，在当前 LLM 调用结束后执行；启动语义由 workflow 模块定义。
 
+> **交叉引用**：非 Owner 调用 `/workflow` 的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
+
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
+
+### F16. 权限规则管理
+
+Owner 可以通过斜杠指令查看、新增与删除权限规则；非 Owner 调用时收到权限不足提示。
+
+**指令**：
+- `/perm list`：列出当前生效的权限规则，按序编号
+- `/perm allow <主体> <维度> <生效对象>`：新增一条允许规则
+- `/perm deny <主体> <维度> <生效对象>`：新增一条拒绝规则
+- `/perm remove <序号>`：删除 `/perm list` 中对应序号的规则
+
+主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的八个维度之一。规则主体与生效对象的约束、不细分对象的维度、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
+
+> **交叉引用**：规则要素、修改时的 Owner 校验与生效机制详见 [permission §F6](permission.md)（权限配置管理）。
+> **交叉引用**：非 Owner 调用权限指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ## 非功能需求
 
@@ -156,6 +180,6 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
   - `/reasoning`（各形态）
   - `/verbose`（各形态）
   - `/help`
-  - 审批指令：`/approve-once`、`/approve-whitelist`、`/deny`（Immediate 可达性由 Gateway 层保证）
+  - 审批指令：`/approve-once`、`/approve-whitelist`、`/deny`
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
