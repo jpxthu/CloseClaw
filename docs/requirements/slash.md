@@ -79,7 +79,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 - `/pwd`：查看当前工作目录
 - `/git <参数>`：执行 Git 命令（Owner 与 User 均可用）
   - 只读子命令（status、log、diff、show、branch（仅列出分支））直接执行，不进入权限评估
-  - 写操作按 Agent 维度的命令规则评估（见 [permission §F2](permission.md)（权限维度）），被拒绝时进入审批（见 [permission §F5](permission.md)（审批工作流））；Owner 的命令执行豁免见 [permission §F4](permission.md)（Owner 特权）
+  - 写操作的评估与审批见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）；Owner 的命令执行豁免见 [permission §F4](permission.md)（Owner 特权）
 
 > **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
@@ -133,11 +133,9 @@ Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操�
 - `/approve-whitelist <单号> [agent|user|both]`：加入白名单
 - `/deny <单号>`：拒绝
 
-维度参数指定放行作用在 Agent 维度、User 维度还是两者，未指定时按 `both` 处理；命令类操作只涉及 Agent 维度，维度参数固定为 `agent`。
+维度参数指定放行作用在 Agent 维度、User 维度还是两者，未指定时按 `both` 处理；命令类操作固定为 `agent`（语义见 [permission §F5](permission.md)（审批工作流））。
 
-> **交叉引用**：审批单号的全局唯一性与命中规则详见 [permission §F5](permission.md)（审批工作流）。
-
-> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、单号规则、投递目标与超时时长详见 [permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标与超时时长详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F14. 调试日志
