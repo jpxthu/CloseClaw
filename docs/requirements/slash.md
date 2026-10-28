@@ -37,13 +37,12 @@ Owner 和 User 可以随时查看当前 Session 的运行状态。
 **指令**：
 - `/status`：查询 Session 状态（Immediate）
 
-查询内容：模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数、工作目录。System Prompt 追加指令列表仅 Owner 可见，非 Owner User 的查询结果不包含该项。
+查询内容：模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数。System Prompt 追加指令列表仅 Owner 可见，非 Owner User 的查询结果不包含该项。
 
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
 > **交叉引用**：上下文用量、缓存命中率与 token 累计量见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：子 Session 见 [session §F4](session.md)（子 Session 委托与协调）。
-> **交叉引用**：工作目录见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（追加指令管理）。
 
 ### F5. 上下文压缩
@@ -70,18 +69,15 @@ Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无�
 > **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
 > **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的追加指令保留）定义。
 
-### F7. 工作目录操作
+### F7. Git 操作
 
-Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执行 Git 命令。
+Owner 和 User 可以执行 Git 命令。Git 命令在当前 Session 所属 Agent-User 组合的 workspace 内执行（见 [permission §F3](permission.md)（权限决策模型））。
 
 **指令**：
-- `/cd <路径>`：变更工作目录，切换前校验路径是否存在，路径不存在时返回错误提示；切换成功后回复路径及 Git 分支信息
-- `/pwd`：查看当前工作目录
-- `/git <参数>`：执行 Git 命令（Owner 与 User 均可用）
+- `/git <参数>`：执行 Git 命令
   - 只读子命令（status、log、diff、show、branch（仅列出分支））直接执行，不进入权限评估
-  - 写操作的评估与审批见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）；Owner 的命令执行豁免见 [permission §F4](permission.md)（Owner 特权）
+  - 写操作的评估与审批见 [permission §F2](permission.md)（权限维度）、[permission §F5](permission.md)（审批工作流）
 
-> **交叉引用**：工作目录的归属、默认值与生命周期见 [session §F8](session.md)（工作目录）。
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：Git 写操作的权限评估见 [permission §F3](permission.md)（权限决策模型）。
 > **交叉引用**：命令维度的黑名单、白名单与执行位置见 [permission §F2](permission.md)（权限维度）。
@@ -91,7 +87,7 @@ Owner 和 User 可以变更和查看当前 Session 的工作目录，以及执�
 Owner 可以执行 Shell 命令。命令执行不向 User 开放——它不是 User 维度的权限，User 调用 `/exec` 收到权限不足提示。
 
 **指令**：
-- `/exec <命令>`：执行 Shell 命令
+- `/exec <命令>`：在当前 Session 所属 Agent-User 组合的 workspace 内执行 Shell 命令
 
 > **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
 > **交叉引用**：命令的黑名单、白名单与执行位置详见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒）。
@@ -156,17 +152,18 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
-### F16. 权限规则管理
+### F16. 权限配置管理
 
-Owner 可以通过斜杠指令查看、新增与删除权限规则；非 Owner 调用时收到权限不足提示。
+Owner 可以通过斜杠指令查看、新增与删除权限规则，并设置沙盒模式；非 Owner 调用时收到权限不足提示。
 
 **指令**：
 - `/perm list`：列出当前生效的权限规则，按序编号
 - `/perm allow <主体> <维度> <生效对象>`：新增一条允许规则
 - `/perm deny <主体> <维度> <生效对象>`：新增一条拒绝规则
 - `/perm remove <序号>`：删除 `/perm list` 中对应序号的规则
+- `/perm sandbox <默认|严格|放行>`：设置当前会话的目标 Agent 的沙盒模式（见 [permission §F12](permission.md)（沙盒））
 
-主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的八个维度之一。规则主体与生效对象的约束、不细分对象的维度、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
+主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的七个维度之一。规则主体与生效对象的约束、不细分对象的维度、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
 
 > **交叉引用**：规则要素、修改时的 Owner 校验与生效机制详见 [permission §F6](permission.md)（权限配置管理）。
 > **交叉引用**：非 Owner 调用权限指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。

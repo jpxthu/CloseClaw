@@ -15,7 +15,6 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最前
 - System Prompt 各组成部分按固定顺序组装，配置不变时组装结果保持不变（缓存行为见 [F6](#f6-内容缓存与自动刷新)）。具体组装顺序和格式由设计文档定义
-- 边界说明：心跳配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入常规对话 Session 的 System Prompt
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
 > **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（Owner 可查阅的行为规则）。
@@ -45,11 +44,11 @@ Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升
 每次 API 调用时，Agent 需要知道当前的运行时上下文：
 
 - **频道上下文**：当前 Session 所在的频道名称
-- **工作目录**：当前 Session 的工作目录路径
+- **workspace**：当前 Session 所属 Agent-User 组合的 workspace 路径
 
 这些上下文信息每次 API 调用即时获取，不持久化存储。
 
-> **交叉引用**：工作目录的解析顺序详见 [session §F8](session.md)（工作目录）。
+> **交叉引用**：workspace 的定义与自动授权详见 [permission §F3](permission.md)（权限决策模型）。
 
 ### F5. 追加指令管理
 
@@ -100,7 +99,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
     - Agent 配置档案显式声明无 Bootstrap 文件（见 [agent §F1](agent.md)（Agent 配置档案））——正常功能场景
     - Agent 未声明但 Bootstrap 文件目录缺失——按本类型兜底运行以保证对话不中断，并记录降级告警日志（见 [debug_log §F2](debug_log.md)（分层日志级别））
 
-> **注**：F4 运行时上下文（频道、工作目录）对所有 Session 类型均加载。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
+> **注**：F4 运行时上下文（频道、workspace）对所有 Session 类型均加载。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
 
 > **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
 
