@@ -91,7 +91,7 @@ User-specified retention focus: <retention focus, or "none">
 Agent 可以将子任务委托给子 Session（可并行委托多个），等待结果后继续决策。
 
 - 子 Session 的任务描述注入到该子 Session 自身的 System Prompt 中，不属于对话消息，压缩时不受影响
-- Agent 可以向已有子 Session 发送新任务——未完成的子 Session 与持久子 Session 均可接收（steer）
+- Agent 可以向已有子 Session 发送新任务——未完成的子 Session 与持久子 Session 均可接收（steer）。steer 只作用于本 Session 派生的子 Session，不构成 Agent 之间的通信
 - Agent 可以终止子 Session，级联终止其所有后代（kill）。终止 = 停止该子 Session 正在执行的工具调用与 LLM 响应，是运行时动作，不是存储生命周期的一个状态；已被终止的子 Session 不再计入父 Session 的「子 Session 未完成」维度，其存储生命周期照常按 F6 的 inactive 判据推进
 - 子 Session 的硬超时：运行时长达到该子 Session 的硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知（父 Session 已归档则丢弃）。硬超时值不小于超时预警时间（否则预警不会触发）；硬超时的取值及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
 - 持久子 Session：Agent 可以创建持久存活的子 Session，其生命周期与主 Agent Session 一致——同样按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 一致恢复，不降级为一次性子 Session（一次性子 Session：为单一任务创建、产出最后一条 assistant 消息后即结束的普通子 Session）
@@ -157,18 +157,6 @@ Agent 对话过程中，系统自动检测异常并提供保护机制，防止�
 
 > **交叉引用**：后台任务与工具调用在 Session 停止或崩溃时的处理详见 [tools §F5](tools.md)（后台任务执行）。
 > **交叉引用**：强制关闭遗留的未完成操作由下次启动的恢复流程处理详见 [daemon §F3](daemon.md)（强制关闭）。
-
-### F8. 工作目录
-
-每个 Session 拥有独立的工作目录，作为该 Session 文件操作的默认路径；在 Session 创建时初始化，归档恢复时重新确定。
-
-- 工作目录的取值由下方解析顺序确定：创建时确定初值，恢复时按同一顺序重新确定（spawn 参数不可得时跳过该项）
-- 工作目录的解析顺序：spawn 参数指定 > 目标 Agent 配置 > 系统默认工作目录
-
-> **交叉引用**：工作目录的强制授权机制（不受任何 Deny 规则影响）详见 [permission §F3](permission.md)（权限决策模型）。
-> **交叉引用**：工作目录作为 Agent 配置档案字段详见 [agent §F1](agent.md)（Agent 配置档案）。
-> **交叉引用**：spawn 时的工作目录覆盖详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
-> **交叉引用**：工作目录的查看与变更由 `/pwd`、`/cd`、`/git` 指令完成。详见 [slash §F7](slash.md)（工作目录操作）。
 
 ### F9. 消息注入
 

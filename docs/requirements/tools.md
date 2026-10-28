@@ -54,7 +54,7 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 遇到既非文本也非支持格式图片的二进制文件时，文本读取拒绝并告知检测到的类型；若是支持格式的图片，提示改用图片读取工具
 - Agent 可以列出目录结构，浏览文件组织（文件名、大小、类型等基本信息）；单次返回条目数有上限（默认值由设计文档定义），超出时截断并告知总数
 - Agent 可以在文件中搜索文本模式，快速定位关键内容；单次命中数有上限（默认值由设计文档定义），超出时截断并告知总命中数
-- 文件路径支持相对路径（基于当前 Session 工作目录解析）和用户主目录缩写（`~`）的展开
+- 文件路径支持相对路径（基于 Session 所属 Agent-User 组合的 workspace 解析，见 [permission §F3](permission.md)（权限决策模型））和用户主目录缩写（`~`）的展开
 
 图片读取功能的边界（阶段性约束，解除条件：LLM 层多模态设计——多模态消息格式、各 provider 协议映射、多模态对话测试 fixture——完成并落地）：
 
@@ -141,7 +141,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 
 Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程交互的操作。
 
-- Agent 可以执行 Shell 命令，在指定的工作目录下运行；工作目录不存在时命令被拒绝
+- Agent 可以执行 Shell 命令，命令以 Session 所属 Agent-User 组合的 workspace 为工作路径（见 [permission §F3](permission.md)（权限决策模型））；实际执行位置（沙盒内或宿主上）由沙盒模式决定，Agent 可在单次调用中指定（见 [permission §F12](permission.md)（沙盒））；workspace 不可用时命令被拒绝
 - 命令的标准输出与标准错误合并为单一输出流返回，输出内附带退出码，Agent 据此完整了解命令的执行结果
 - Agent 可以为命令设置超时时间（有系统上限，超上限的设置被截断到上限并在返回中告知）；Agent 设置的超时时间或系统阈值达到时（以先到者为准），命令自动转入后台继续运行，Agent 不会被阻塞等待，转后台结果中告知 Agent 命令仍在执行（含任务标识），完成后收到通知（详见 [F5](#f5-后台任务执行)）。三层时间阈值（Agent 可设超时上限 / 系统阻塞预算 / 单命令总执行时长兜底）的具体数值由设计文档定义
 - 命令输出超出显示上限（字符数阈值，默认值由设计文档定义）时，保留输出前段，完整输出持久化到文件，Agent 收到文件路径、原始大小和输出开头预览，可按需读取完整内容
@@ -153,18 +153,18 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 
 **工具说明**
 
-- `Bash` — `Execute a shell command in a working directory and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (working directory, variables) persists — pass the working directory as a parameter instead of using cd. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
+- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
 - （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
 **使用引导**
 
-- `Run independent commands as separate calls in the same message; chain dependent commands in a single call (&&, or ; when the earlier result does not matter). Pass the working directory as a parameter — do not rely on cd. Keep temporary files in the system temp directory; do not hardcode a path.`
+- `Run independent commands as separate calls in the same message; chain dependent commands in a single call (&&, or ; when the earlier result does not matter). Keep temporary files in the system temp directory; do not hardcode a path.`
 - `Check the exit code on every result; on failure read its meaning and the error output, fix the cause, then retry — do not retry blindly.`
 
-**错误与提示**（`<cmd>` 为命令首词，`<dir>` 为工作目录，`<path>` 为输出文件路径，`<N>` 为实际数值）
+**错误与提示**（`<cmd>` 为命令首词，`<dir>` 为 workspace 路径，`<path>` 为输出文件路径，`<N>` 为实际数值）
 
 - 命令不存在 — `command not found: <cmd>`
-- 工作目录不存在 — `cannot run in "<dir>": directory not found`
+- workspace 不可用 — `cannot run in "<dir>": directory not found`
 - 超时参数超上限 — `timeout capped at <N>ms`
 - 输出截断 — `[output truncated; full output: <path>]`
 - 非零退出码，无内置语义（默认按失败呈现）— `[exit code: <N>]`
@@ -241,7 +241,7 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 
 Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
-- 工具说明能反映当前上下文——当能力范围被收窄时说明受限的操作范围，当工作目录确定时给出路径指引
+- 工具说明能反映当前上下文——当能力范围被收窄时说明受限的操作范围，给出当前 workspace 路径指引
 - 工具说明能提示 Agent 如何组合使用——哪些工具搭配效率更高
 - 工具说明能指出常见误用模式——哪些操作看似正确但有问题
 - 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段），编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行），Agent 无需额外发起读取即可修正重试
