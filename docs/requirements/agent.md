@@ -17,7 +17,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格）所在目录
 - **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行
-- **工具白名单/黑名单**：Agent 可以使用的工具范围。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予
+- **工具白名单/黑名单**：Agent 可以使用的工具范围。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予（spawn 工具例外，见 [F9](#f9-子-session-创建控制)（子 Session 创建控制））
 - **技能白名单**：Agent 可以使用的技能范围
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
 - **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
@@ -106,10 +106,10 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 父 Agent 的配置控制子 Session 的创建行为：
 
-- **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示不允许 spawn 到其它 Agent）。无论配置如何填写，白名单都强制包含该 Agent 自身，即 Agent 始终可以把任务 spawn 给自己的子 Session
+- **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示不允许 spawn 到其它 Agent）。无论配置如何填写，白名单都强制包含该 Agent 自身，即不会把自己排除在可 spawn 目标之外（能否 spawn 仍受层级深度约束）
 - **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session）
 - **并发数量**：限制同时存活的子 Session 数量上限
-- **spawn 工具恒可用**：层级深度大于 0 时，spawn 工具对该 Agent 强制开放，不受工具白名单收窄
+- **spawn 工具恒可用**：该 Agent 生效的层级深度大于 0 时，spawn 工具强制开放，不受工具白名单、工具黑名单与工具调用维度的规则收窄
 - **目标 Agent 必须已注册**：spawn 的目标 Agent（显式指定，或按 F7 默认取父 Agent 自身）必须是注册清单中已注册、配置有效的 Agent
 - **子 Session 默认模型**：父 Agent 配置中为子 Session 覆盖默认模型的取值（优先级低于 spawn 显式参数）
 

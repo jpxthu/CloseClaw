@@ -84,7 +84,7 @@ Owner 和 User 可以执行 Git 命令。Git 命令在当前 Session 所属 Agen
 
 ### F8. 命令执行
 
-Owner 可以执行 Shell 命令。命令执行不向 User 开放——它不是 User 维度的权限，User 调用 `/exec` 收到权限不足提示。
+Owner 可以执行 Shell 命令。命令执行不向 User 开放，User 调用 `/exec` 收到权限不足提示（权限归属见 [permission §F6](permission.md)（权限配置管理））。
 
 **指令**：
 - `/exec <命令>`：在当前 Session 所属 Agent-User 组合的 workspace 内执行 Shell 命令
@@ -163,7 +163,7 @@ Owner 可以通过斜杠指令查看、新增与删除权限规则，并设置�
 - `/perm remove <序号>`：删除 `/perm list` 中对应序号的规则
 - `/perm sandbox <默认|严格|放行>`：设置当前会话的目标 Agent 的沙盒模式（见 [permission §F12](permission.md)（沙盒））
 
-主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的七个维度之一。规则主体与生效对象的约束、不细分对象的维度、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
+主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的七个维度之一。不细分对象的维度（收发消息、配置写入）省略「生效对象」。规则主体与生效对象的约束、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
 
 > **交叉引用**：规则要素、修改时的 Owner 校验与生效机制详见 [permission §F6](permission.md)（权限配置管理）。
 > **交叉引用**：非 Owner 调用权限指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
