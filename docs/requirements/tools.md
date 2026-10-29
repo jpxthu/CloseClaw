@@ -17,6 +17,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 - Agent 可以通过关键词或工具名查找工具——用自然语言描述想做的事情，系统匹配最相关的工具
 - 工具清单总长度有上限（按 token 预算，默认值由设计文档定义），超出时从尾部截断并提示 Agent 如何了解未展示的工具
 - Agent 看到的工具清单根据当前权限动态过滤，无权使用的工具不出现在清单中
+- Agent 调用的工具不在其可见范围内（不在配置档案的工具范围，或被权限规则收窄后不可用）时，调用被直接拒绝，不进入审批，按工具不可用的拒绝提示返回（见 [F12](#f12-权限拒绝提示)）
 - Agent 可以查询当前的权限状态，了解自己能执行哪些操作
 
 面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
@@ -272,8 +273,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 - 命令被安全拦截 — `command blocked by the security check (<category>); the Owner has been notified`
 - 命令待审批 — `command entered approval (reason: <reason>); waiting for the Owner. Continue other work; do not resubmit this command.`
-- 审批被拒绝 — `approval denied; the command did not run`
-- 审批超时 — `approval timed out; the command did not run`
+- （审批被拒绝与审批超时的提示见 [F12](#f12-权限拒绝提示)（权限拒绝提示））
 
 > **交叉引用**：命令级权限审批的入队、推送和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -307,6 +307,27 @@ F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使�
 - `Do not invent or predict its result before it arrives — if asked, say the work is still running.`
 - `If a result arrives after your final answer, do not summarize it again — stay silent.`
 - `A task you delegate must be self-contained: the child cannot see this conversation. State the goal, the context, the directions already ruled out, and the expected output format; the same applies when delegating by role.`
+
+### F12. 权限拒绝提示
+
+工具操作被拒绝时（权限不足、审批被拒绝、审批超时），Agent 需要知道自己被什么挡住、具体是哪个对象被拒绝，以便换一条路径尝试或告知 Owner，而不是反复重试同一操作。
+
+- 所有权限类拒绝使用同一句式，只替换被拒对象与拒绝原因，不按场景另写一套
+- 提示点名具体对象——命令给出实际命令、文件操作给出实际路径、工具给出工具名，并给出拒绝原因
+- 被权限直接拒绝的操作不进入审批；进入审批的操作按审批流程等待，审批被拒绝与审批超时按同一句式通知
+- 工具不可用（不在配置档案的工具范围，或被权限规则收窄）被强行调用时的拒绝同样使用该句式（见 [F1](#f1-工具注册与发现)）
+- 命令被安全检测拦截不属权限拒绝，文案见 [F8](#f8-命令安全防护)（命令安全防护）
+
+面向 Agent 的提示词原文（产品定义，开发不改写）：
+
+**拒绝提示**（`<operation>` 为被拒的操作，`<target>` 为具体命令、路径或工具名，`<permission>` 为缺少的权限维度）
+
+- 统一句式 — `permission denied: <operation> "<target>" — <reason>`
+- `<operation>` 取值：`read`（读取路径）、`write`（写入路径）、`execute`（执行命令）、`use`（调用工具）
+- `<permission>` 取值与 [permission §F2](permission.md)（权限维度）对应：`read`、`write`、`command`、`network`、`config`、`messaging`
+- `<reason>` 取值：工具不可用 — `the tool is not available to this agent`；规则拒绝 — `the <permission> permission is missing`；审批被拒绝 — `the Owner denied the approval`；审批超时 — `the approval timed out`
+
+> **交叉引用**：审批的触发条件、等待与回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
 ## 非功能需求
 
