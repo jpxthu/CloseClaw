@@ -132,8 +132,9 @@ agent 调用 EditTool(path, edits[])
 ## 模块关系
 
 - **上游**：agent 运行时（调度工具调用、传递参数）
-- **下游**：文件系统（直接读写文件）、Read 工具（提供 staleness 检查所需的 mtime）、会话上下文（写入结果注入 agent 对话流）
-- **无关**：权限引擎（写入权限在工具调用前由权限引擎校验，Write/Edit 自身不做权限判断）、processor_chain（不参与消息出站处理）
+- **下游**：文件系统（在沙盒边界内读写文件）、Read 工具（提供 staleness 检查所需的 mtime）、会话上下文（写入结果注入 agent 对话流）
+- **相关**：权限引擎（写入权限在工具调用前由读/写维度校验，Write/Edit 自身不做权限判断）；沙盒（读写经 [common SandboxExecutor](../common/core-traits.md#sandboxexecutor) 在边界内执行，放行模式下不经沙盒强制，见 [permission 沙盒](../permission/sandbox.md)）
+- **无关**：processor_chain（不参与消息出站处理）
 
 ### 与模块内其他子功能的关系
 

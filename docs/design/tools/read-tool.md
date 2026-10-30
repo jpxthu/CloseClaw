@@ -103,8 +103,9 @@ agent 读到 "[Showing lines 1-2000 of 5230. Use offset=2001 to continue.]"
 ## 模块关系
 
 - **上游**：agent 运行时（调度工具调用、传递参数）
-- **下游**：文件系统（直接读取文件）、会话上下文（读取结果注入 agent 对话流）
-- **无关**：权限引擎（读取为只读操作，不涉及权限审批）、processor_chain（不参与消息出站处理）、IM 适配器（不参与平台渲染）
+- **下游**：文件系统（在沙盒边界内读取文件）、会话上下文（读取结果注入 agent 对话流）
+- **相关**：权限引擎（读取权限由读/写维度判定）；沙盒（读取在受限执行环境中执行，经 [common SandboxExecutor](../common/core-traits.md#sandboxexecutor) 落地，放行模式下不经沙盒强制，见 [permission 沙盒](../permission/sandbox.md)）
+- **无关**：processor_chain（不参与消息出站处理）、IM 适配器（不参与平台渲染）
 
 ### 与模块内其他子功能的关系
 

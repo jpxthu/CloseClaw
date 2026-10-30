@@ -121,7 +121,9 @@ graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | ShutdownHandle | Daemon 持有；关闭门控、drain 等待与状态查询（见 [shutdown.md](shutdown.md)） |
 | SessionConfigProvider | Daemon 持有的配置查询组件；提供 per-agent 会话配置（字段定义见 [session/session-lifecycle.md](../session/session-lifecycle.md)） |
 | MemoryConfigProvider | Daemon 持有的配置查询组件；提供记忆子系统配置（字段语义见 [memory/config](../memory/config.md)） |
-| Permission Engine | Daemon 持有；提供权限判定（Agent 维度规则延迟加载） |
+| Permission Engine | Daemon 持有；提供权限判定（加载内置默认基线与全局权限配置，Agent 维度规则延迟加载） |
+| SandboxExecutor | permission 实现（沙盒引擎）；Daemon 装配后注入 tools 的文件类工具与命令执行，按判定结论的执行策略在沙盒内执行（见 [permission/沙盒](../permission/sandbox.md)） |
+| ApprovalNotifier | Gateway 实现（审批推送：IM 卡片 / CLI 终端提示）；Daemon 装配后注入 permission 审批队列（见 [permission/审批工作流](../permission/approval-workflow.md)） |
 | AgentRegistry | Daemon 持有；提供 Agent 配置档案（由 ConfigManager 加载结果填充） |
 | ToolRegistry | Daemon 持有；提供工具注册表 |
 | SkillRegistry | Daemon 持有；提供技能注册表（含 bundled skills） |
@@ -139,7 +141,7 @@ graceful 模式由用户掌控节奏：接收进度通知，可随时升级为 f
 | Config Hot Reload | Daemon spawn 的系统级后台任务；重载校验失败保留旧配置并经 IM 通知 Owner（见 [config/hot-reload.md](../config/hot-reload.md)）；重启类变更触发择机网关重启（见 [restart.md](restart.md)） |
 | DreamingScheduler | Daemon spawn 的系统级后台任务；依赖 SqliteStorage 与 MemoryConfigProvider（见 [memory/dreaming.md](../memory/dreaming.md)） |
 
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionGate、ShutdownSignal；消费/装配：LlmCaller、MetricsEmitter、AgentRegistryQuery、SpawnValidator、AgentConfigLookup、TaskManager、AuditLogger——由 Daemon 作为组合根在启动装配时注入到对应消费方（部分实现由 gateway / permission / tasks 等模块提供））
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：SkillRegistryQuery、SkillListingProvider、PermissionGate、ShutdownSignal；消费/装配：LlmCaller、MetricsEmitter、AgentRegistryQuery、SpawnValidator、AgentConfigLookup、TaskManager、AuditLogger、SandboxExecutor、ApprovalNotifier——由 Daemon 作为组合根在启动装配时注入到对应消费方（部分实现由 gateway / permission / tasks 等模块提供））
 - **无关**：**Processor Chain**（无调用关系）——处理器链由 Gateway 调度，Daemon 不直接参与
 
 

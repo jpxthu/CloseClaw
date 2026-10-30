@@ -168,6 +168,8 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - **LLM Provider**（不发起请求）：Gateway 不直接调用 LLM。Gateway 提供 LlmCaller 抽象的具体实现（[FallbackLlmCaller](../common/core-traits.md#llmcaller)，桥接统一客户端），但真实 Provider 请求由 LLM 模块完成。
 - **Tools**（无调用关系）：Gateway 不注册工具、不执行工具调用
 
+- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、ApprovalNotifier；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery、PermissionGate、WorkflowControl）
+
 ### 共享类型
 
 跨模块传递的共享数据结构定义在 [common 模块](../common/README.md)：
@@ -179,5 +181,8 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 - [ProcessedMessage](../common/shared-types.md#processedmessage)：Processor Chain 产出，Gateway 消费（路由决策与出站历史写入）、IM Adapter 消费（渲染）
 - SideEffectContext：Gateway 构造的执行上下文，封装 Session 引用和回复通道。定义见 [common SlashResult](../common/shared-types.md#slashresult)。Gateway 构造后触发 [SlashResult](../common/shared-types.md#slashresult) 执行，各变体通过上下文完成副作用
 - RenderedOutput：IM Adapter 渲染产出，Gateway 中间件消费（只读不修改），最终由 IM Adapter 发送接口投递
+- [ApprovalCard](../common/shared-types.md#approvalcard--approvaldecision--approvaldelivery)：permission 审批队列产出，Gateway 经 IM Adapter 渲染为平台卡片 / 经 CLI 渠道输出终端提示并投递
 
-- **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup；消费：IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、SlashResultExecutor、DynamicPromptBuilder、SystemPromptBuilder、MediaStoreAccess、TaskManager、AgentRegistryQuery、PermissionGate、WorkflowControl）
+### 审批推送通道
+
+Gateway 承担审批推送通道的实现（[common ApprovalNotifier](../common/core-traits.md#approvalnotifier)）：收到 permission 审批队列的 [ApprovalCard](../common/shared-types.md#approvalcard--approvaldecision--approvaldelivery) 后，按 [gateway §F7](../../requirements/gateway.md) 出站规则投递到 Owner 最近使用的 IM 平台（失败按最近使用顺序回退，全部失败记日志），IM 渠道渲染为平台卡片、CLI 渠道输出与卡片内容一致的终端提示（覆盖全部等待中的请求）。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 硬拦截后按审批单号提交 permission 审批队列；该方向属 gateway → permission 的桥接例外（见 [STANDARDS](../STANDARDS.md) 依赖方向允许边表），跨会话有效，与指令发出的会话无关。

@@ -264,7 +264,7 @@ SlashResult 共 10 种变体：
 
 **执行模型**：Handler 返回 SlashResult 后，Gateway 统一调用执行方法，由各变体自行完成副作用。需权限评估的指令由 Handler 在 [SlashHandler 权限标记](core-traits.md#slashhandler)中声明，Gateway 在触发执行前统一经 [PermissionGate](core-traits.md#permissiongate) 判定（不穷举指令清单，变体不自带标记）；判定为 Deny 则返回权限错误，不进入副作用。新增指令只需新增 SlashResult 变体及其执行实现，Gateway 无需改动。
 
-**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（`/perm` 系列）同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——具体子命令与参数以 [permission 权限配置管理](../permission/permission-configuration.md) 为权威；新用户注册的载荷结构见 [UserRegistration / UserCreationRequest / InitialPermissionSet](#userregistration--usercreationrequest--initialpermissionset)。
+**边界**：SlashResult 仅由 SlashDispatcher 分派的斜杠指令 Handler 产出。审批指令（`/approve-once`、`/approve-whitelist`、`/deny`）由 Gateway 层硬拦截、走权限审批流验证，不进 SlashDispatcher，其审批结果不属于 SlashResult（详见 [permission 审批工作流](../permission/approval-workflow.md)）。权限管理指令（`/perm` 系列）同样不产出 SlashResult，由 Gateway 权限指令处理层硬拦截执行——具体子命令与参数以 [permission 权限配置管理](../permission/permission-configuration.md) 为权威；新用户注册的载荷结构见 [UserRegistration / UserCreationRequest](#userregistration--usercreationrequest)。
 
 **SideEffectContext**：Gateway 在收到 SlashResult 后构造的执行上下文。携带当前 Session 的操作能力（用于会话创建/停止、压缩等操作）和回复通道（用于产出回复内容）。SideEffectContext 由 Gateway 管理，SlashResult 不持有其引用。
 
@@ -279,9 +279,9 @@ SlashResult 共 10 种变体：
 
 **与 ContentBlock[] 的关系**：SlashResult 各变体在执行中通过 SideEffectContext 的回复通道产出 ContentBlock[]，进入出站 Processor Chain——与 LLM 的 UnifiedResponse 走同一条出站处理路径（VerbosityFilter → OutboundRawLog → IM Adapter 渲染发送）。
 
-#### UserRegistration / UserCreationRequest / InitialPermissionSet
+#### UserRegistration / UserCreationRequest
 
-新用户注册工作流的三个数据结构：注册结果记录、待审批请求、预置权限集。三者由 Gateway 权限指令处理层构造，由 permission 侧消费落为权限规则与用户记录；slash 指令层仅是参数入口，不经 SlashDispatcher 分派。用户注册的需求背景（新建 User 默认无任何权限，收发消息也需 Owner 显式授予）见 [permission 需求 §F1](../../requirements/permission.md)。结构流转路径见下文数据流节；审批队列的去重与请求 ID 回调机制以工具调用审批为背景定义于 [permission 审批工作流](../permission/approval-workflow.md#审批队列)。
+新用户注册工作流的两个数据结构：注册结果记录与待审批请求。两者由 Gateway 权限指令处理层构造，用户记录由 config 落盘；slash 指令层仅是参数入口，不经 SlashDispatcher 分派。用户注册的需求背景（新建 User 默认无任何权限，收发消息也需 Owner 显式授予）见 [permission 需求 §F1](../../requirements/permission.md)。结构流转路径见下文数据流节；审批队列的去重与请求 ID 回调机制以工具调用审批为背景定义于 [permission 审批工作流](../permission/approval-workflow.md#审批队列)。
 
 **UserRegistration**——已通过审批的注册用户的记录：
 
@@ -289,7 +289,6 @@ SlashResult 共 10 种变体：
 |------|------|------|
 | `user_id` | string | 用户唯一标识（如飞书 open_id） |
 | `im_channel` | string | 用户使用的 IM 渠道，如 `"feishu"` |
-| `initial_permissions` | list(InitialPermissionSet) | 注册时授予的预置权限集 |
 | `created_at` | string | 注册时间（ISO-8601 时间戳） |
 
 **UserCreationRequest**——需 Owner 审批的新用户注册请求（经审批队列流转）：
@@ -299,9 +298,8 @@ SlashResult 共 10 种变体：
 | `user_id` | string | 发起注册的用户标识 |
 | `im_channel` | string | 将使用的 IM 渠道 |
 | `request_id` | string | 审批队列中的唯一请求 ID，用于关联审批结果与回调定位 |
-| `initial_permissions` | list(InitialPermissionSet) | 请求携带的预置权限集候选：入队时由 Gateway 按指令参数构造，Owner 审批时确认或调整；为空表示注册后不授予任何规则（与零权限默认一致） |
 
-**InitialPermissionSet**——Owner 可授予新注册用户的预置权限集枚举。每个变体映射为一组具体权限规则（如 BasicMessaging 对应收发消息 + workspace 读）。当前仅有 `BasicMessaging` 一个变体；新增预设按同样方式扩展映射规则。预设集是 Owner 在审批时**显式选择**的选项而非注册默认——需求要求新建 User 默认无任何权限（含收发消息），无预置权限集时注册后的 User 不获得任何规则，与 [permission 需求 §F1](../../requirements/permission.md) 的零权限默认一致。
+注册确认只有「批准 / 拒绝」两种结果：批准的 User 不获得任何权限（需求要求新建 User 默认无任何权限，含收发消息），后续由 Owner 通过权限指令授予规则（需求 [permission §F6](../../requirements/permission.md) 规定的两种改规则方式）；设计不引入注册时的预置权限集。
 
 ### FragmentContext
 
@@ -471,11 +469,11 @@ Agent 间通信的允许列表与其校验结果。CommunicationConfig 是某个
 
 **CommunicationError 变体**：Denied（因白名单限制被拒，携带原因）、SessionNotFound（会话未找到）、NoCommunicationConfig（会话无通信配置）。
 
-### RiskLevel / PermissionRequest / PermissionOperation / PermissionDecision / PermissionDenied
+### RiskLevel / PermissionRequest / PermissionOperation / PermissionDecision / ExecutionPolicy / PermissionDenied
 
-权限判定与审批的载荷族，随 [PermissionGate](core-traits.md#permissiongate)、[AuditLogger](core-traits.md#auditlogger) 在 common 与消费/实现方之间传递。
+权限判定与审批的载荷族，随 [PermissionGate](core-traits.md#permissiongate)、[SandboxExecutor](core-traits.md#sandboxexecutor)、[AuditLogger](core-traits.md#auditlogger) 在 common 与消费/实现方之间传递。
 
-- **RiskLevel**：权限请求的风险级别枚举——Low / Medium / High / Critical。仅用于审批提示与审计，不决定是否进入审批（高风险名单另成一套判定）。
+- **RiskLevel**：风险等级枚举——Normal（普通）/ HighRisk（高风险）。高风险对应「命中高风险操作名单」或「属配置写入维度」；仅用于审批卡片提示与审计，不决定是否进入审批（是否入审批由名单与维度判定，见 [permission 审批工作流](../permission/approval-workflow.md#高风险操作)）。
 
 **PermissionRequest 字段**（一次权限判定的输入）：
 
@@ -484,18 +482,53 @@ Agent 间通信的允许列表与其校验结果。CommunicationConfig 是某个
 | `agent_id` | string | 发起操作的 Agent |
 | `user_id` | string | 本轮 caller 的 User ID——触发本轮执行的入站消息发送者映射（与 [NormalizedMessage.account_id](#normalizedmessage) 同物：两者都是该发送者在 CloseClaw 中的 User 标识，仅作用域不同）；不取会话 Owner 或 checkpoint 中持久化的 sender |
 | `is_sub_session` | bool | 发起方是否为子 Session。为真时拒绝静默返回、不入审批队列（需求 [permission §F9](../../requirements/permission.md)） |
-| `session_id` | string? | 操作归属的会话标识，供审批请求归属 Session（审批 ID 按 Session 独立计数）；无会话上下文时为空 |
+| `session_id` | string? | 操作归属的会话标识，供审批请求归属会话、审计定位；无会话上下文时为空。审批单号全局分配、与 Session 无关 |
 | `operation` | PermissionOperation | 待评估的操作 |
-| `purpose` | string? | 命令类操作由 Agent 提供的用途说明，写入审批卡片 |
+| `purpose` | string? | 命令类操作由 Agent 提供的用途说明，写入审批卡片（需求 [permission §F5](../../requirements/permission.md)） |
 
-**PermissionOperation 变体**（每个变体自身携带评估所需的操作参数，覆盖 permission 权限维度）：FileRead（`path`）/ FileWrite（`path`）/ Command（`command`、`sandbox_escape`（是否请求移出沙盒在宿主执行））/ Network（`host`、`port`）/ ToolCall（`tool_name`）/ UserMessage（`direction`：入站/出站）/ AgentMessage（`from_agent`、`to_agent`）/ Spawn（`child_agent_id`、`parent_session_id`）/ ConfigWrite（`path`）。八类权限维度中「跨 Agent 通信」由 AgentMessage 与 Spawn 两个变体表达，其余维度与变体一一对应；判定逻辑归 permission 模块，本结构只承载输入。
+**PermissionOperation 变体**（每个变体自身携带评估所需的操作参数，与 permission 的七类权限维度一一对应）：FileRead（`path`）/ FileWrite（`path`）/ Command（`command`、`location`（本次请求的执行位置：Sandbox / Host，缺省由沙盒模式决定））/ Network（`host`、`port`）/ ToolCall（`tool_name`）/ UserMessage（`direction`：入站/出站）/ ConfigWrite（`path`）。判定逻辑归 permission 模块，本结构只承载输入。
 
-- **PermissionDecision**：一次判定的结论——Allowed，或 Denied（`reason` 原因 + `risk_level` 风险级别）。需 Owner 审批的 Deny 由实现方在调用内等待，等待语义见 [core-traits PermissionGate](core-traits.md#permissiongate)。
+- **ExecutionPolicy**：Allow 结论携带的执行策略——执行位置（Host / Sandbox）、沙盒执行时的读/写允许路径集（`read_paths`、`write_paths`；只读授权时 `write_paths` 为空）、执行期拒绝路径集（`deny_paths`，由规则层读/写拒绝路径合并而来，单次放行可从本次策略的拒绝集中移除单条）、以及宿主上执行时允许的网络范围（`network_targets`，host:port 列表；为空即无网络，沙盒内执行恒无网络能力）。由 [SandboxExecutor](core-traits.md#sandboxexecutor) 消费，使执行严格跟随同一次判定，不在执行期重新求值或放宽边界。
+- **PermissionDecision**：一次判定的结论——Allowed（可携带 ExecutionPolicy）或 Denied（`reason` 原因 + `risk_level` 风险等级）。需 Owner 审批的 Deny 由实现方在调用内等待，等待语义见 [core-traits PermissionGate](core-traits.md#permissiongate)。
 - **PermissionDenied**：权限校验被拒的错误形态——携带 `reason` 与 `risk_level`，与 PermissionDecision::Denied 字段口径一致。`reason` 仅描述操作被拒，不含规则名称、优先级或配置路径等内部信息（需求 [permission §F8](../../requirements/permission.md)）。
 
 **拒绝错误字段口径**：权限域的拒绝统一携带 `reason` + `risk_level`（PermissionDecision::Denied 与 PermissionDenied 同构）；[CommunicationError](#communicationconfig--communicationcheckresult--communicationerror) 的 Denied 是 Agent 通信白名单拒绝、不经权限判定，仅携带 `reason`。
 
 **边界**：本族仅承载权限判定的输入输出语义；规则求值、审批队列、审计落盘均归 permission 模块（见 [permission 模块](../permission/README.md)）。
+
+### ApprovalCard / ApprovalDecision / ApprovalDelivery
+
+审批请求的推送与决策载荷。推送随 [ApprovalNotifier](core-traits.md#approvalnotifier)（gateway 实现、permission 审批队列消费）传递；决策由 Gateway 硬拦截审批指令后提交 permission 审批队列。
+
+**ApprovalCard 字段**（推送给 Owner 的审批信息，需求 [permission §F5](../../requirements/permission.md) 的审批卡片内容）：
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `approval_no` | int? | 审批单号，全局唯一、跨会话与跨渠道连续自增；Owner 的审批指令按此单号命中请求。新用户注册请求为空（改用 `request_id`） |
+| `request_id` | string? | 新用户注册请求的队列关联标识（仅 `kind = UserRegistration` 时填）；与审批单号是两套空间，审批指令不用于寻址注册请求 |
+| `kind` | ApprovalKind | 审批类型：Operation（权限拒绝）/ HostExecution（非白名单命令请求在宿主上执行）/ Security（命令安全防护的可疑命令）/ UserRegistration（新用户注册） |
+| `agent_id` | string? | 发起操作的 Agent；新用户注册请求为空 |
+| `user_id` | string? | 本轮 caller 的 User ID；新用户注册请求为空 |
+| `operation` | PermissionOperation? | 被评估的操作与参数；注册请求为空 |
+| `risk_level` | [RiskLevel](#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied) | 风险等级提示（普通 / 高风险），不决定是否进入审批；注册请求为 Normal |
+| `purpose` | string? | 命令类操作的用途说明 |
+| `security_note` | string? | 命令安全解析为不确定时的解析失败原因与风险标签 |
+| `network_targets` | list(string)? | 宿主上执行请求所需的网络访问范围（host:port 列表） |
+| `allowed_decisions` | list(ApprovalDecisionKind) | 本次可选的决策集：高风险操作与不可加入白名单的对象（如解释器类命令）不含「加入白名单」项；注册请求为空（决策形态见 RegistrationConfirmation）（需求 [permission §F7](../../requirements/permission.md)） |
+| `usage_hint` | string | 用法提示文案——操作审批为审批指令写法（含单号与维度参数，语法见 [slash §F13](../../requirements/slash.md)）；注册请求为注册确认指令写法 |
+| `deadline` | string | 超时时刻（ISO 8601）；超时后请求自动以拒绝结束 |
+
+**ApprovalKind**——审批类型枚举：Operation（权限拒绝）/ HostExecution（非白名单命令请求在宿主上执行）/ Security（命令安全防护的可疑命令）/ UserRegistration（新用户注册）。
+
+**ApprovalDecisionKind**——可选决策枚举：Once（单次放行）/ Whitelist（加入白名单）/ Deny（拒绝）。
+
+**ApprovalDecision**（Owner 对一次操作审批的决策）：`approval_no`（审批单号）、`decision`（ApprovalDecisionKind：Once 单次放行 / Whitelist 加入白名单 / Deny 拒绝）、`scope`（决策维度：Agent / User / Both；命令类与工具调用类操作固定 Agent，Owner 自身调用被拦截时只有 Agent）。
+
+**RegistrationConfirmation**（Owner 对新用户注册请求的确认）：`request_id`（队列关联标识）、`decision`（Approve 批准 / Reject 拒绝）。与 ApprovalDecision 分属两套标识空间。
+
+**ApprovalDelivery**：一次审批推送的投递结果——Delivered（已投递）/ NoChannel（Owner 无可用渠道）/ Failed（投递失败）。推送方据此记录日志，不重试、不延长等待。
+
+**边界**：本族只承载推送与决策载荷；审批队列、单号分配、决策生效与规则写入归 permission 模块；卡片与终端提示的渲染、按 Owner 渠道投递与回退归 gateway。
 
 ### HookConfig / HookParams / HookType
 
@@ -573,7 +606,7 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 
 目标 agent 的完整配置档案不进入本共享结构（含模型），仅其派生参数（上方字段）进入；创建子会话所需的完整目标配置由提供方（session）内部获取。`agent_id` 为目标 agent 标识——输入可空时由前置校验解析，无法解析则返回 [SpawnError](#spawnvalidationresult--spawnerror)。本结构的超时/告警字段为 spawn 生效值，与 [AgentConfigInfo](#agentconfiginfo) 的同源配置字段（agent 配置原始值）对应。
 
-**SpawnError**——子会话生成校验的错误（SpawnValidator 两步的统一错误载体）：DepthExceeded（超出生成深度上限）、MaxChildrenReached（达到最大并发子会话数）、AgentNotAllowed（目标 agent 不在 allowlist）、AgentIdRequired（配置要求 agentId 但未提供）、ConfigNotFound（目标 agent 配置缺失）、Permission（权限被拒，载荷复用 [PermissionDenied](#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied)，不重复定义拒绝载荷）。
+**SpawnError**——子会话生成校验的错误（SpawnValidator 的统一错误载体）：DepthExceeded（超出生成深度上限）、MaxChildrenReached（达到最大并发子会话数）、AgentNotAllowed（目标 agent 不在 allowlist）、AgentIdRequired（配置要求 agentId 但未提供）、ConfigNotFound（目标 agent 配置缺失）。spawn 不经权限评估，故不含权限拒绝变体。
 
 ### AuditLogEntry / AuditDisposition / AuditLogFilter
 
@@ -585,13 +618,14 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 |------|------|------|
 | `timestamp` | string | 事件时间（ISO 8601） |
 | `agent_id` | string | 涉及操作的 agent |
-| `user_id` | string | 本轮 caller 的 User ID——与 [PermissionRequest](#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied) 同口径，供按触发者定位审批/拒绝审计 |
+| `user_id` | string | 本轮 caller 的 User ID——与 [PermissionRequest](#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied) 同口径，供按触发者定位审批/拒绝审计 |
 | `tool_name` | string | 请求类型名（操作维度，如 file / exec / network；非 ToolRegistry 工具名） |
 | `operation` | string | 操作描述（如 `write <path>`、命令文本） |
 | `reason` | string | 处置的人类可读原因 |
-| `risk_level` | [RiskLevel](#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied) | 操作风险级别 |
+| `risk_level` | [RiskLevel](#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied) | 操作风险级别 |
 | `disposition` | AuditDisposition | 最终处置（单次放行/加入白名单放行/拒绝） |
-| `session_id` | string? | 审批所属会话标识（审批 ID 按 Session 内递增，需求 [permission §F5](../../requirements/permission.md)）；无会话上下文时为空 |
+| `session_id` | string? | 审计条目关联的会话标识；无会话上下文时为空。审批单号全局分配、与 Session 无关（需求 [permission §F5](../../requirements/permission.md)） |
+| `approval_no` | int? | 关联的操作类审批单号；未经审批或注册类处置时为空 |
 
 **AuditDisposition**——审计处置枚举：Approved（单次放行）、Whitelisted（加入白名单放行）、Rejected（拒绝）。对应需求 [permission §F5](../../requirements/permission.md) 的三种 Owner 决策。
 
@@ -603,6 +637,7 @@ Session 的四维执行状态族（session↔gateway 契约）。ConversationSes
 | `user_id` | string? | 仅返回该 User 触发（本轮 caller）的条目 |
 | `disposition` | AuditDisposition? | 仅返回该处置的条目 |
 | `session_id` | string? | 仅返回该会话的条目 |
+| `approval_no` | int? | 仅返回关联该审批单号的条目 |
 | `since` | string? | 仅返回 timestamp ≥ 此值（ISO 8601）的条目 |
 | `until` | string? | 仅返回 timestamp ≤ 此值（ISO 8601）的条目 |
 
@@ -1075,20 +1110,20 @@ Gateway 写入 Session 的 Verbosity 字段
 过滤后的 ContentBlock[] 继续后续出站链路（OutboundRawLog → Renderer）
 ```
 
-### UserRegistration / UserCreationRequest / InitialPermissionSet
+### UserRegistration / UserCreationRequest
 
 新用户注册工作流的载荷流转：
 
 ```
-User 发起注册指令（如 /perm register）
+新用户发起注册请求（注册指令面归 slash 模块）
   ↓
 Gateway 层硬拦截（同审批类指令，不进 SlashDispatcher，不产出 SlashResult）
   ↓
-构造 UserCreationRequest { request_id, initial_permissions } 入审批队列
+构造 UserCreationRequest { request_id } 入审批队列
   ↓
-Owner 审批通过（快照与去重机制见 permission 审批工作流）
+Owner 确认（去重与超时机制见 permission 审批工作流）
   ↓
-生成 UserRegistration 记录 + InitialPermissionSet 映射为具体权限规则落盘
+生成 UserRegistration 记录（批准后的 User 零权限，不映射规则）
 ```
 
 ### UnifiedResponse / UnifiedUsage
@@ -1133,18 +1168,36 @@ session spawn 流程取子/父 Agent 的 CommunicationConfig 做通信权限校�
 CommunicationCheckResult（允许）/ CommunicationError（拒绝或缺失）
 ```
 
-### RiskLevel / PermissionRequest / PermissionOperation / PermissionDecision / PermissionDenied
+### RiskLevel / PermissionRequest / PermissionOperation / PermissionDecision / ExecutionPolicy / PermissionDenied
 
 ```
 消费方（tools / session / gateway）就一次操作发起权限判定
   ↓
 经 common 权限 trait（PermissionGate）
   ↓
-权限引擎求值（经 PermissionGate）→ PermissionDecision（Allowed）或 Denied（reason + risk_level）
+权限引擎求值 → PermissionDecision（Allowed，可携带 ExecutionPolicy）或 Denied（reason + risk_level）
   ↓
-需 Owner 审批的 Deny → 等待语义见 [core-traits PermissionGate](core-traits.md#permissiongate)
+需 Owner 审批的 Deny → 推送 ApprovalCard（经 ApprovalNotifier）→ Owner 决策（ApprovalDecision）→ 等待中的判定返回最终结论
   ↓
-调用方拿到最终结论；审批与拒绝结论经 AuditLogger 落盘
+调用方拿到最终结论；文件与命令执行按 ExecutionPolicy 经 [SandboxExecutor](core-traits.md#sandboxexecutor) 落地
+  ↓
+审批与拒绝结论经 AuditLogger 落盘
+```
+
+### ApprovalCard / ApprovalDecision / ApprovalDelivery / RegistrationConfirmation
+
+```
+权限引擎将需审批的请求入队（分配全局审批单号）
+  ↓
+ApprovalCard 经 ApprovalNotifier → Gateway → IM 平台卡片 / CLI 终端提示
+  ↓
+Owner 在任意会话发审批指令 → Gateway 硬拦截 → 提交审批队列
+  ↓
+ApprovalDecision（approval_no + decision + scope）→ 等待中的判定返回允许或拒绝
+  ↓
+New-user 注册请求走 request_id 空间 → Owner 注册确认指令 → RegistrationConfirmation → 生成 UserRegistration
+
+投递结果 ApprovalDelivery 返回给 permission，仅用于调试日志
 ```
 
 ### HookConfig / HookParams / HookType
@@ -1211,10 +1264,7 @@ Session 销毁 → TaskManager 回收该 session 全部终态任务的输出文�
 通过前置校验（深度 / 并发 / allowlist / agent 解析）→ SpawnValidationResult（目标 agent 标识 + 派生参数）
   │  失败 → SpawnError（前置错误）
   ↓
-SpawnValidator 权限校验（前置校验产物）→ 经 PermissionGate 完成权限判定
-  ↓
-权限通过 → 子会话工具据此创建子会话
-  │  权限被拒 → SpawnError 的权限变体（复用 PermissionDenied）
+子会话工具据此创建子会话（spawn 不经权限评估；创建后的子会话操作按子 Session 继承的权限经 PermissionGate 评估）
 ```
 
 ### AuditLogEntry / AuditDisposition / AuditLogFilter
@@ -1318,10 +1368,10 @@ ResolvedAgentConfig 由 config 一次性产出、运行期只读；其 `subagent
 - **消费者**：im_adapter（飞书平台渲染路径——按内容段类型组装卡片元素）、cli（TerminalRenderer——按内容段类型输出 ANSI 文本）
 - **无关**：LLM Provider（不接触渲染原语）、Processor Chain 出站（渲染原语在出站链之后）、StreamingRenderer 系流式渲染原语（与本原语分属批/流两条渲染路径，代码块边界识别各自独立）、Session 持久化（中间产物，不进 checkpoint）
 
-### UserRegistration / UserCreationRequest / InitialPermissionSet
+### UserRegistration / UserCreationRequest
 
-- **生产者**：Gateway 权限指令处理层（同审批指令的硬拦截路径：注册类权限指令不进 SlashDispatcher，解析参数后直接构造；审批通过后生成 UserRegistration）
-- **消费者**：permission 模块（InitialPermissionSet 映射为具体权限规则；UserRegistration 落盘用户记录）、审批队列（UserCreationRequest 流转与回调）
+- **生产者**：Gateway 权限指令处理层（同审批指令的硬拦截路径：注册类权限指令不进 SlashDispatcher，解析参数后直接构造；确认后生成 UserRegistration）
+- **消费者**：permission 模块（审批队列承载 UserCreationRequest）、config（用户记录与账户绑定落盘）
 - **无关**：SlashDispatcher（注册指令硬拦截，不产出 SlashResult）、LLM Provider、Processor Chain、IM Adapter 入站链
 
 ### RunningStats / CacheAnomalyInfo
@@ -1398,10 +1448,15 @@ ResolvedAgentConfig 由 config 一次性产出、运行期只读；其 `subagent
 - **消费者**：session 的 spawn 流程（通信权限校验）
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
+### ApprovalCard / ApprovalDecision / ApprovalDelivery / RegistrationConfirmation
+
+- **生产者**：permission 审批队列（ApprovalCard、ApprovalDelivery）、Gateway（ApprovalDecision、RegistrationConfirmation，由 Owner 指令解析后构造）
+- **消费者**：Gateway 与 IM Adapter / CLI（渲染推送卡片与终端提示）、permission 审批队列（消费决策并回填等待中的判定）
+
 ### RiskLevel / PermissionRequest / PermissionOperation / PermissionDecision / PermissionDenied
 
-- **生产者**：PermissionGate 实现方（permission 的权限引擎与审批队列；daemon 包装注入）
-- **消费者**：PermissionGate 消费方（tools、session、gateway）
+- **生产者**：PermissionGate 实现方（permission 的权限引擎与审批队列；daemon 包装注入）；ExecutionPolicy 由同一实现方随 Allowed 结论产出
+- **消费者**：PermissionGate 消费方（tools、session、gateway）；ExecutionPolicy 由 tools 经 [SandboxExecutor](core-traits.md#sandboxexecutor) 消费
 - **无关**：LLM Provider、IM Adapter、Processor Chain
 
 ### HookConfig / HookParams / HookType

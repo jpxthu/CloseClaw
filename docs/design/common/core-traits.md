@@ -325,12 +325,43 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 | 要素 | 说明 |
 |------|------|
-| 判定 | 接收 [PermissionRequest](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied)（caller + 操作 + 用途说明），返回 [PermissionDecision](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied)（Allowed 或 Denied，含原因 + [RiskLevel](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied)）。需 Owner 审批的 Deny 在本调用内挂起，Owner 决策、超时或系统中断后返回最终结论——调用方不轮询、也不注册回调 |
-| 审计 | 判定与审批结论由实现方经 [AuditLogger](#auditlogger) 落盘，调用方不直接写审计 |
+| 判定 | 接收 [PermissionRequest](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied)（caller + 操作 + 用途说明），返回 [PermissionDecision](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied)（Allowed，含可选 [ExecutionPolicy](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied)；或 Denied，含原因 + [RiskLevel](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied)）。需 Owner 审批的 Deny 在本调用内等待结论（Owner 决策、超时或系统中断后返回），调用方不轮询、不注册回调。调用方以异步方式发起判定：等待结论期间可先向 Agent 返回「待审批」结果并继续其它工作，结论到达后由发起方把结论注入该轮对话（并发分类见 tools 多工具调度）。 |
+| 审计 | 需审批操作的处置由实现方经 [AuditLogger](#auditlogger) 落盘；按规则直接放行/拒绝只记调试日志，调用方不直接写审计 |
 
-**操作维度**：文件读写、命令行、网络、工具调用、收发消息、Agent 间消息、spawn、配置写入均有对应 [PermissionOperation](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied) 变体（与 shared-types 的变体表为同一口径），判定规则见 [permission 权限维度](../permission/permission-dimensions.md)。单一入口意味着新增操作维度只扩展枚举，不新增 trait。
+**操作维度**：文件读写、命令行、网络、工具调用、收发消息、配置写入均有对应 [PermissionOperation](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied) 变体（与 shared-types 的变体表为同一口径），判定规则见 [permission 权限维度](../permission/permission-dimensions.md)。单一入口意味着新增操作维度只扩展枚举，不新增 trait。
 
-> **共享句柄别名**：本 trait 以 `Arc<dyn Trait>` 形式跨模块传递时以类型别名 SharedPermissionGate 暴露（带互斥包装）。别名与 trait 同属 common。
+> **共享句柄别名**：本 trait 以 `Arc<dyn Trait>` 形式跨模块传递时以类型别名 SharedPermissionGate 暴露（互斥包装只保护句柄访问，不覆盖判定等待期：等待审批期间不持锁）。别名与 trait 同属 common。
+
+#### SandboxExecutor
+
+**用途**：受限执行接口。permission 实现（OS 级隔离与引擎选择；执行边界由判定结论的 ExecutionPolicy 给出），tools 的文件类工具与命令执行消费——把一次已获放行的文件访问或命令执行交给沙盒，在不依赖 permission crate 的前提下落实「文件访问范围由操作系统强制」（需求 [permission §F12](../../requirements/permission.md)）。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 文件访问 | 在给定 [ExecutionPolicy](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied) 的边界内执行一次文件类操作（执行体由消费方提供），返回执行结果；边界外访问由 OS 边界直接拒绝。放行模式下文件访问不经沙盒强制，不调用本接口，由消费方按规则评估后直接执行 |
+| 命令执行 | 在给定 ExecutionPolicy 的边界内执行命令及其子进程（超时等执行参数由执行方按调用入口提供），返回进程结果；沙盒内进程恒无网络能力 |
+| 策略绑定 | 入参必须是本次判定产出的 ExecutionPolicy（取自 [PermissionDecision](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--executionpolicy--permissiondenied)）：执行不重新求值、不扩大边界；宿主上执行（location = Host）不经本接口 |
+| 不可用 | 沙盒引擎不可用时不产生执行策略（由 [PermissionGate](#permissiongate) 对受沙盒约束的操作终局拒绝），本接口不提供降级或改为宿主执行的路径（需求 [permission §F12](../../requirements/permission.md)） |
+
+> **共享句柄别名**：以 `Arc<dyn Trait>` 形式跨模块传递时以 SharedSandboxExecutor 暴露；别名与 trait 同属 common。
+
+#### ApprovalNotifier
+
+**用途**：审批通知投递接口。gateway 实现（经 IM Adapter 渲染平台卡片、按 Owner 最近使用的 IM 平台投递与回退，CLI 渠道投终端提示），permission 审批队列消费——推送审批请求并拿到投递结果，避免 permission 直接依赖 gateway（需求 [permission §F5](../../requirements/permission.md)、[gateway §F7](../../requirements/gateway.md)）。
+
+**接口契约**：
+
+| 要素 | 说明 |
+|------|------|
+| 投递 | 接收 [ApprovalCard](shared-types.md#approvalcard--approvaldecision--approvaldelivery)，投递到 Owner 的可用渠道（IM 平台卡片或 CLI 终端提示），返回 [ApprovalDelivery](shared-types.md#approvalcard--approvaldecision--approvaldelivery) |
+| 不重试 | 投递结果仅供权限侧记录调试日志；不重试、不延长审批等待（等待计时自请求创建起计）|
+| 全量刷新 | 接收当前全部等待中审批的 [ApprovalCard](shared-types.md#approvalcard--approvaldecision--approvaldelivery) 列表，用于 CLI 渠道一次性输出覆盖全部等待请求的终端提示（IM 渠道按单卡增量投递）|
+
+> **共享句柄别名**：以 `Arc<dyn Trait>` 形式跨模块传递时以 SharedApprovalNotifier 暴露；别名与 trait 同属 common。
+
+> **审批决策入口**：Owner 决策经审批指令提交（[slash §F13](../../requirements/slash.md)），由 gateway 硬拦截后提交 permission 审批队列；该方向为 gateway → permission 的桥接例外（见 [STANDARDS](../STANDARDS.md) 依赖方向允许边表），不在 common 另设 trait。平台卡片渲染由 gateway 经 IM Adapter 的卡片组装能力完成。
 
 #### AuditLogger
 
@@ -360,16 +391,15 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 
 #### SpawnValidator
 
-**用途**：子会话生成校验接口。session 的 SpawnController 实现，tools（子会话管理工具）、daemon（组合根装配注入）消费——校验子会话生成的前置条件与权限，使工具侧无需直接依赖 SpawnController 具体类型。前置校验与权限校验两步分离，各自独立。
+**用途**：子会话生成校验接口。session 的 SpawnController 实现，tools（子会话管理工具）、daemon（组合根装配注入）消费——校验子会话生成的前置条件（深度、并发、目标白名单、目标 Agent 可加载），使工具侧无需直接依赖 SpawnController 具体类型。spawn 是否允许由 Agent 配置决定，不经权限评估（需求 [agent §F9](../../requirements/agent.md)、[permission §F2](../../requirements/permission.md)）。
 
 **接口契约**：
 
 | 要素 | 说明 |
 |------|------|
-| 前置校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 Agent 解析与 allowlist、目标 Agent 已注册且配置可加载（见 [agent §F9](../../requirements/agent.md)），返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)（不含权限——权限为独立一步） |
-| 权限校验 | 前置校验通过后执行，校验子 Session 是否可在父会话下生成（权限判定语义见 [permission 模块](../permission/README.md)），返回 Ok 或 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的权限变体（权限被拒） |
+| 校验 | 给定父 session_id 与目标 agent_id（可空），校验深度、并发、目标 Agent 解析与 allowlist、目标 Agent 已注册且配置可加载（见 [agent §F9](../../requirements/agent.md)），返回 [SpawnValidationResult](shared-types.md#spawnvalidationresult--spawnerror)（目标 agent 标识 + 子会话可用的最大生成深度、执行超时、超时告警、告警间隔比例等派生参数）；失败返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) |
 
-两步统一返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror)：前置校验失败为其各前置变体，权限被拒为 `Permission` 变体。权限校验步经 [PermissionGate](#permissiongate) 完成（操作变体 Spawn，载荷复用 [PermissionDenied](shared-types.md#risklevel--permissionrequest--permissionoperation--permissiondecision--permissiondenied)，不重复定义拒绝载荷）：SpawnValidator 是子会话生成的高层门面，PermissionGate 是权限引擎边界的统一入口。
+校验结果统一返回 [SpawnError](shared-types.md#spawnvalidationresult--spawnerror) 的各前置变体。子 Session 创建成功后，其后续操作仍按 [PermissionGate](#permissiongate) 评估（权限沿 spawn 链路收窄，见 [permission 子 Agent 权限继承](../permission/README.md)）。
 
 #### KillHandle
 
@@ -569,20 +599,20 @@ Gateway 通过 Plugin Registry 按平台名路由 → IMPlugin 解析入站 payl
 - **上游**：无（common 不依赖任何其他模块，是纯定义基底层）
 - **下游**：
   - **system_prompt**（实现 PromptFragmentProvider、SystemPromptBuilder、DynamicPromptBuilder；消费 ToolRegistryQuery、SkillListingProvider、AgentLookup；System Prompt Builder 收集所有 Provider 并触发生成）
-  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、TaskManager、SpawnValidator、PermissionGate、AuditLogger；MediaStoreAccess 随媒体能力暂缓，当前不消费）
+  - **tools**（实现 PromptFragmentProvider、ToolRegistrar、ToolRegistry、ToolRegistryQuery、Tool trait、KillHandle、ToolExecutor；消费 ToolSession、AgentToolsConfigQuery、TaskManager、SpawnValidator、PermissionGate、SandboxExecutor、AuditLogger；MediaStoreAccess 随媒体能力暂缓，当前不消费）
   - **session**（实现 ToolRegistrar、ToolSession、SpawnValidator；消费 PermissionGate、KillHandle、SkillListingProvider、StreamingSink、LlmCaller、SystemPromptBuilder、DynamicPromptBuilder、ShutdownSignal、AgentConfigLookup、MetricsEmitter）
   - **skills**（实现 PromptFragmentProvider、ToolRegistrar；消费 AgentSkillsQuery）
   - **agent**（实现 AgentSkillsQuery、AgentToolsConfigQuery、AgentRegistryQuery、AgentLookup、AgentConfigLookup）
   - **tasks**（实现 TaskManager；后台任务执行见 [tools/background-tasks](../tools/background-tasks.md)）
   - **memory**（实现 PromptFragmentProvider；消费 LlmCaller）
   - **im_adapter**（实现 ToolRegistrar、IMPlugin、StreamingSink（飞书等平台卡片更新）；消费 IdentityResolver、StreamingRenderer；MediaStoreAccess 随媒体能力暂缓，当前不实现）
-  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、SlashResultExecutor、ToolExecutor、StreamingSink 转发包装；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、DynamicPromptBuilder、SystemPromptBuilder、TaskManager、AgentRegistryQuery、PermissionGate、WorkflowControl；MediaStoreAccess 随媒体能力暂缓，当前不消费）
+  - **gateway**（实现 LlmCaller、MetricsEmitter、OutboundMiddleware、SlashEffectExecutor、SlashSessionQuery、SessionLookup、SlashResultExecutor、ToolExecutor、StreamingSink 转发包装、ApprovalNotifier；消费 IMPlugin、SlashRouter、ProcessorChain、OutboundMiddleware、ToolRegistryQuery、SkillRegistryQuery、DynamicPromptBuilder、SystemPromptBuilder、TaskManager、AgentRegistryQuery、PermissionGate、WorkflowControl；MediaStoreAccess 随媒体能力暂缓，当前不消费）
   - **cli**（实现 IMPlugin、StreamingSink（终端 stdout 投递）；消费 StreamingRenderer）
   - **slash**（实现 SlashRouter、SlashHandler；消费 SlashSessionQuery、SessionLookup、SlashEffectExecutor（经 SideEffectContext.executor））
   - **workflow**（实现 WorkflowControl、SlashHandler；消费 SlashSessionQuery、SessionLookup）
-  - **permission**（实现 PermissionGate、AuditLogger；消费 SessionLookup）
+  - **permission**（实现 PermissionGate、SandboxExecutor、AuditLogger；消费 SessionLookup、ApprovalNotifier）
   - **processor_chain**（实现 ProcessorChain）
-  - **daemon**（实现 PermissionGate 包装器、SkillRegistryQuery 包装器、SkillListingProvider 包装器、ShutdownSignal；消费 LlmCaller、MetricsEmitter、TaskManager、SpawnValidator、AgentConfigLookup、AgentRegistryQuery、AuditLogger）
+  - **daemon**（实现 SkillRegistryQuery 包装器、SkillListingProvider 包装器、ShutdownSignal；装配 PermissionGate adapter（包装 permission 的权限引擎与审批队列，不重复实现判定逻辑）；消费 LlmCaller、MetricsEmitter、TaskManager、SpawnValidator、AgentConfigLookup、AgentRegistryQuery、AuditLogger；装配时注入 SandboxExecutor、ApprovalNotifier）
   - **config**（实现 IdentityResolver）
   - **llm**（消费 ShutdownSignal）
 - **无关**：无。core-traits 的每个 trait 均至少被一个业务模块实现或消费。

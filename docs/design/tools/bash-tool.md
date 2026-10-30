@@ -78,7 +78,7 @@ BashTool 根据命令的第一个词对命令进行语义分类，用于 UI 展�
 
 BashTool 自身标记为破坏性工具和资源消耗型工具；破坏性标记在工具索引中显示为对应的危险度标记。
 
-工具执行前由 Tools 模块统一调用权限引擎校验其调用；Bash 调用按**工具维度**（当前 agent 是否有权调用 Bash）与**命令行维度**（命令自身是否被授权）依次评估，命令触发的文件读写复用**读/写维度**判定，命令的执行环境（宿主环境 / 沙盒）由命令行维度判定。权限模型与维度定义见 permission 模块（[permission-dimensions.md](../permission/permission-dimensions.md)、[approval-workflow.md](../permission/approval-workflow.md)）。
+工具执行前由 Tools 模块统一调用权限引擎校验其调用；Bash 调用按**工具维度**（当前 agent 是否有权调用 Bash）与**命令行维度**（命令自身是否被授权）依次评估，命令触发的文件读写复用**读/写维度**判定。判定结论携带执行策略（执行位置与沙盒边界）：沙盒内执行经 [common SandboxExecutor](../common/core-traits.md#sandboxexecutor) 落地，宿主上执行直接拉起进程（Bash 可在单次调用中指定执行位置）。权限模型与维度定义见 permission 模块（[permission-dimensions.md](../permission/permission-dimensions.md)、[沙盒](../permission/sandbox.md)、[approval-workflow.md](../permission/approval-workflow.md)）。
 
 评估放行则执行命令；拒绝则可能进入审批（审批的入队、推送与回调见 approval-workflow.md）。命令进入审批时，BashTool 立即返回等待状态，agent 无需阻塞、可继续其他工作（不重复提交该命令），审批完成后按结果恢复执行或告知被拒绝。推送 Owner 的审批展示附带 Agent 提供的命令用途说明（`description`），帮助 Owner 判断命令意图。
 
