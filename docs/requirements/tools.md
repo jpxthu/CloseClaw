@@ -18,7 +18,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
     - Shell 命令执行（[F4](#f4-shell-命令执行)）
     - 后台任务执行（[F5](#f5-后台任务执行)）
     - 子 Session 管理（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调））
-    - 工具检索入口（见本节「Agent 可以通过关键词或工具名查找工具」）
+    - 工具检索入口（见本节「Agent 可以通过关键词、工具名或要完成的事情查找工具」）
   - **延迟工具**：类别不属上述常用类别的全部工具，含本节的权限状态查询；[F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具按同一类别规则判定，不因注册来源改变归属。仅展示名称和风险标记，Agent 可按需查询完整说明
 - Agent 可以通过关键词、工具名或要完成的事情查找工具——系统匹配最相关的工具
 - 工具清单总长度有上限（按 token 预算，默认值由设计文档定义），超出时从尾部截断并提示 Agent 如何了解未展示的工具
@@ -38,10 +38,10 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 
 - `Deferred tools show only their name and risk marker. Call ToolSearch before using one — describe what you want to do, or pass the exact tool name. When the tool list is truncated, find the unlisted tools the same way.`
 
-**错误与提示**（`K` 为实际数量）
+**错误与提示**（`<K>` 为实际数量）
 
 - 检索零命中 — `No matching tools. Describe the task differently, or search by the exact tool name.`
-- 工具清单截断（附在清单末尾）— `Tool list truncated: K more tools not shown. Use ToolSearch by name or keyword to find them.`
+- 工具清单截断（附在清单末尾）— `Tool list truncated: <K> more tools not shown. Use ToolSearch by name or keyword to find them.`
 
 > **交叉引用**：模块工具的接入方式。详见 [F9](#f9-工具扩展接入)（工具扩展接入）。
 
@@ -61,14 +61,14 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 读取前自动压缩过大的图片：长边缩放到不超过 2000 像素（硬上限）；压缩后长边仍超 2000 像素或编码后仍超过模型单请求大小限制的，读取被拒绝并告知原因；当前 Session 所选模型不支持图片输入时，图片读取被拒绝并告知原因
 - 遇到既非文本也非支持格式图片的二进制文件时，文本读取被拒绝并告知检测到的类型；若为支持格式的图片且图片工具已接入，提示改用图片读取工具
 - Agent 可以列出目录下的条目（非递归），浏览文件组织（文件名、大小、类型等基本信息）；单次返回条目数有上限（默认值由设计文档定义），超出时截断并告知总数
-- Agent 可以在文件中搜索文本模式，快速定位关键内容；单次命中数有上限（默认值由设计文档定义），超出时截断并告知总命中数
+- Agent 可以在文件中按正则表达式搜索内容，快速定位关键内容；单次命中数有上限（默认值由设计文档定义），超出时截断并告知总命中数
 - 文件路径支持相对路径（基于 Session 所属 Agent-User 组合的 workspace 解析，见 [permission §F3](permission.md)（权限决策模型））和用户主目录缩写（`~`）的展开
 
 图片读取功能在当前阶段的边界：
 
 - 图片读取工具**只实现、不接入产品**：实现读取、格式检测、压缩的全部能力（含本节的错误文案），但不注册进工具清单、不对 Agent 可见；接入时机另行决策
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
@@ -98,7 +98,7 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 搜索正则非法 — `invalid regular expression: <regex>`
 - 搜索命中截断 — `(Found <N> of <total> matches.)`
 - 模型不支持图片输入（随图片工具接入启用）— `cannot read "<path>" as an image: the current model does not accept image input`
-- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the <N>px limit; downscale it and retry`
+- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the 2000px limit; downscale it and retry`
 - 图片编码后超请求大小限制（随图片工具接入启用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; downscale it and retry`
 
 ### F3. 文件写入与编辑
@@ -119,7 +119,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - Agent 写入文件的行尾风格（换行符）按提交内容原样写入，系统不做自动转换
 - Agent 可以进行版本控制操作——查看变更状态和提交历史、提交修改、推送和拉取代码（写操作的权限判定见 [permission §F2](permission.md)（权限维度））
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
@@ -157,11 +157,11 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - 对于非零退出码不代表失败的命令（如 grep 未命中、diff 发现差异），Agent 看到的执行结果中附带退出码的语义说明，避免误判为命令失败。语义说明按命令内置（命令名 → 退出码含义），无内置语义的非零退出码按失败呈现
 - Agent 不使用 sleep 命令做延迟等待或定时轮询——延迟后重试、定时检查状态属于反模式，需要等待时应使用后台执行
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
-- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
+- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
 - （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
 **使用引导**
@@ -238,7 +238,7 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 - 针对不同文件的文件修改操作可以并行执行
 - 读取某文件的同时编辑另一个文件可以并行执行
 - 读取和编辑同一文件时，读取先于编辑执行
-- 每个工具声明自身的并发安全分类，分为三类：**并发安全**（只读无副作用，可任意并行）、**需串行**（对共享资源有副作用，同类调用间排队）、**资源消耗型**（并发安全但消耗大，需限流）。未声明、声明字段缺失或取值非法的工具一律按需串行处理（失败即保守降级）
+- 每个工具声明自身的并发安全分类，分为三类：**并发安全**（只读无副作用，可任意并行）、**需串行**（对共享资源有副作用，同类调用间排队）、**资源消耗型**（并发安全但消耗大，需限流）。未声明、声明字段缺失或取值非法的工具一律按需串行处理
 - 资源消耗型工具的推荐并发上限由工具声明附带（如不超过 3），Agent 按声明控制并发数量
 
 面向 Agent 的使用引导提示词原文（产品定义，开发不改写；注入位置：System Prompt 工具区）：
@@ -253,7 +253,8 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 - 错误与提示、通知与回执的文案本身固定（逐字文案见各功能域），内容随具体事件填充；承载易变状态的注入消息（如运行中的后台任务列表）按对应功能域的时机发出
 - 使用引导能提示 Agent 如何组合使用——哪些工具搭配效率更高
 - 使用引导能指出常见误用模式——哪些操作看似正确但有问题
-- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段），Agent 无需额外发起读取即可修正重试
+- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段）
+- 匹配失败时 Agent 无需额外发起读取即可修正重试；读取后文件已被改动的失败除外（须重新读取后再修改）
 - 编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行）
 
 > **交叉引用**：可调用的工具范围按当前权限过滤。详见 [F1](#f1-工具注册与发现)（工具注册与发现）。
@@ -269,7 +270,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 命令执行前检测是否有攻击模式（如注入绕过、隐藏命令），一旦发现直接拦截并通知 Owner
 - 解析不确定的命令（如结构不完整）标记为可疑，发起审批请求，由 Owner 决定是否执行
 - 疑似攻击或解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
-- 结构清晰且无风险的命令按命令行维度的处理顺序执行（见 [permission §F2](permission.md)（权限维度））
+- 结构清晰且无风险的命令按命令行维度的处理顺序执行（见 [permission §F12](permission.md)（沙盒）、[permission §F2](permission.md)（权限维度））
 - 命中高风险操作名单的路径操作按高风险处置（见 [permission §F7](permission.md)（高风险操作管控））
 - 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
 
@@ -307,7 +308,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 ### F11. 面向 Agent 的行为约束提示词（跨工具域）
 
-F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
+各功能域已内嵌本域工具的提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
 
 **子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
 
@@ -333,8 +334,18 @@ F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使�
 **拒绝提示**（`<operation>` 为被拒的操作，`<target>` 为具体命令、路径或工具名，`<permission>` 为缺少的权限维度）
 
 - 统一句式 — `permission denied: <operation> "<target>" — <reason>`
-- `<operation>` 取值：`read`（读取路径）、`write`（写入路径）、`execute`（执行命令）、`use`（调用工具）
-- `<permission>` 取值与 [permission §F2](permission.md)（权限维度）的维度一一对应：`read`（读）、`write`（写）、`command`（命令行）、`network`（网络访问）、`config`（配置写入）、`messaging`（收发消息）；工具调用维度不取此值，工具不可用按上一条原因
+- `<operation>` 取值：
+  - `read`（读取路径）
+  - `write`（写入路径）
+  - `execute`（执行命令）
+  - `use`（调用工具）
+- `<permission>` 取值与 [permission §F2](permission.md)（权限维度）的维度对应（工具调用维度不取此值，工具不可用按上一条原因）：
+  - `read`（读）
+  - `write`（写）
+  - `command`（命令行）
+  - `network`（网络访问）
+  - `config`（配置写入）
+  - `messaging`（收发消息）
 - `<reason>` 取值及对应文案：
   - 工具不可用 — `the tool is not available to this agent`
   - 规则拒绝 — `the <permission> permission is missing`
