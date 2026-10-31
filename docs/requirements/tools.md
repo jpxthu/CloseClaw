@@ -1,4 +1,4 @@
-# 工具系统 需求
+# Tools 需求
 
 ## 概述
 
@@ -10,30 +10,38 @@ Agent 需要通过工具与外界交互——读取文件、修改代码、执�
 
 Agent 需要在对话开始时就了解自己可用的工具，并在必要时按需获取更多细节。
 
-- Agent 在 System Prompt 中看到一份工具清单，包含每个工具的名称、分组归属和功能描述
-- 工具清单按**常用 / 延迟**两级呈现：
-  - **常用工具**：由 [F2](#f2-文件读取)（文件读取；图片读取工具除外，按延迟工具处理）、[F3](#f3-文件写入与编辑)（文件写入与编辑）、[F4](#f4-shell-命令执行)（Shell 命令执行）定义的文件操作工具，[F5](#f5-后台任务执行)（后台任务执行）涉及的执行能力，子 Session 管理工具（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调）），以及工具检索入口（见本节「Agent 可以通过关键词或工具名查找工具」）。其完整说明直接呈现给 Agent，无需额外操作即可调用
-  - **延迟工具**：除常用工具外的全部工具，含本节的权限状态查询与 [F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具。至少展示名称和风险标记，Agent 可按需查询完整说明
-- Agent 可以通过关键词或工具名查找工具——用自然语言描述想做的事情，系统匹配最相关的工具
+- Agent 在 System Prompt 中看到一份工具清单，包含每个工具的名称、分组归属与说明内容（说明内容的详细程度按下方常用 / 延迟两级划分）
+- 工具清单按**常用 / 延迟**两级呈现，划分依据是工具所属的类别，与工具由哪个模块注册无关；一个工具可跨多个类别，只要其中任一类别属常用即按常用呈现：
+  - **常用工具**：类别固定为以下几类，其完整说明直接呈现给 Agent，无需额外操作即可调用：
+    - 文件读取（[F2](#f2-文件读取)；图片读取工具除外）
+    - 文件写入、编辑与版本控制（[F3](#f3-文件写入与编辑)）
+    - Shell 命令执行（[F4](#f4-shell-命令执行)）
+    - 后台任务执行（[F5](#f5-后台任务执行)）
+    - 子 Session 管理（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调））
+    - 工具检索入口（见本节「Agent 可以通过关键词、工具名或要完成的事情查找工具」）
+  - **延迟工具**：类别不属上述常用类别的全部工具，含本节的权限状态查询；[F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具按同一类别规则判定，不因注册来源改变归属。仅展示名称和风险标记，Agent 可按需查询完整说明
+- Agent 可以通过关键词、工具名或要完成的事情查找工具——系统匹配最相关的工具
 - 工具清单总长度有上限（按 token 预算，默认值由设计文档定义），超出时从尾部截断并提示 Agent 如何了解未展示的工具
 - Agent 看到的工具清单根据当前权限动态过滤，无权使用的工具不出现在清单中
+- Agent 调用的工具不在其可见范围（不在配置档案的工具范围，或被权限规则收窄后不可用）时，调用被直接拒绝，不进入审批，按工具不可用的拒绝提示返回（见 [F12](#f12-权限拒绝提示)）
+- spawn 工具的可用性是上述可见范围规则的例外（见 [agent §F9](agent.md)（子 Session 创建控制））
 - Agent 可以查询当前的权限状态，了解自己能执行哪些操作
 
 面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
-- `ToolSearch` — `Search available tools by keyword or exact name; returns the best matches with their full descriptions.`
+- `ToolSearch` — `Search available tools by keyword, exact name, or a description of what you want to do; returns the best matches with their full descriptions.`
 - `PermissionQuery` — `Report the operation categories the current agent may or may not use.`
 
 **使用引导**
 
 - `Deferred tools show only their name and risk marker. Call ToolSearch before using one — describe what you want to do, or pass the exact tool name. When the tool list is truncated, find the unlisted tools the same way.`
 
-**错误与提示**（`K` 为实际数量）
+**错误与提示**（`<K>` 为实际数量）
 
 - 检索零命中 — `No matching tools. Describe the task differently, or search by the exact tool name.`
-- 工具清单截断（附在清单末尾）— `Tool list truncated: K more tools not shown. Use ToolSearch by name or keyword to find them.`
+- 工具清单截断（附在清单末尾）— `Tool list truncated: <K> more tools not shown. Use ToolSearch by name or keyword to find them.`
 
 > **交叉引用**：模块工具的接入方式。详见 [F9](#f9-工具扩展接入)（工具扩展接入）。
 
@@ -48,19 +56,19 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - Agent 可以读取指定路径的文本文件，读取结果附带行号，行号与文件实际行一一对应——行号是 Agent 定位内容和指定编辑位置的基准
 - Agent 可指定读取范围（起止行号），分段消费文件内容。单次读取有默认上限（行数与字节数双阈值，先到者生效；具体数值由设计文档定义），超出时 Agent 收到明确的续读指引——告知已读行范围、剩余行数和下一步从哪行继续，可通过续读实现完整内容读取
 - Agent 在同一轮对话中以相同参数重复读取相同文件且文件未变更时，系统告知文件未变更而非重新返回内容（去重仅在同一轮对话内生效，新一轮对话重新返回内容）
-- Agent 可以读取图片文件（PNG/JPEG/WebP/GIF）——图片读取与文本读取是**两个独立工具**：读图不常用，独立成工具并按延迟加载处理（见 [F1](#f1-工具注册与发现)），不占用文本读取的复杂度
-- 图片格式按文件内容的文件头特征字节识别（如 PNG 的起始字节为 89 50 4E 47、JPEG 为 FF D8 FF），不依赖文件扩展名——无扩展名的路径也能正确识别
+- Agent 可以读取图片文件（PNG/JPEG/WebP/GIF）——图片读取与文本读取是**两个独立工具**：读图不常用，独立成工具，接入后按延迟工具处理（见 [F1](#f1-工具注册与发现)），不受文本读取的行号与分段读取规则约束
+- 图片格式按文件头特征字节识别（如 PNG 的起始字节为 89 50 4E 47、JPEG 为 FF D8 FF），不依赖文件扩展名——无扩展名的路径也能正确识别
 - 读取前自动压缩过大的图片：长边缩放到不超过 2000 像素（硬上限）；压缩后长边仍超 2000 像素或编码后仍超过模型单请求大小限制的，读取被拒绝并告知原因；当前 Session 所选模型不支持图片输入时，图片读取被拒绝并告知原因
-- 遇到既非文本也非支持格式图片的二进制文件时，文本读取拒绝并告知检测到的类型；若是支持格式的图片，提示改用图片读取工具
-- Agent 可以列出目录结构，浏览文件组织（文件名、大小、类型等基本信息）；单次返回条目数有上限（默认值由设计文档定义），超出时截断并告知总数
-- Agent 可以在文件中搜索文本模式，快速定位关键内容；单次命中数有上限（默认值由设计文档定义），超出时截断并告知总命中数
+- 遇到既非文本也非支持格式图片的二进制文件时，文本读取被拒绝并告知检测到的类型；若为支持格式的图片且图片工具已接入，提示改用图片读取工具
+- Agent 可以列出目录下的条目（非递归），浏览文件组织（文件名、大小、类型等基本信息）；单次返回条目数有上限（默认值由设计文档定义），超出时截断并告知总数
+- Agent 可以在文件中按正则表达式搜索内容，快速定位关键内容；单次命中数有上限（默认值由设计文档定义），超出时截断并告知总命中数
 - 文件路径支持相对路径（基于 Session 所属 Agent-User 组合的 workspace 解析，见 [permission §F3](permission.md)（权限决策模型））和用户主目录缩写（`~`）的展开
 
-图片读取功能的边界（阶段性约束，解除条件：LLM 层多模态设计——多模态消息格式、各 provider 协议映射、多模态对话测试 fixture——完成并落地）：
+图片读取功能在当前阶段的边界：
 
-- 在上述设计补齐前，图片读取工具**只实现、不接入产品**：实现读取、格式检测、压缩的全部能力（含本节的错误文案），但不注册进工具清单、不对 Agent 可见；接入时机另行决策
+- 图片读取工具**只实现、不接入产品**：实现读取、格式检测、压缩的全部能力（含本节的错误文案），但不注册进工具清单、不对 Agent 可见；接入时机另行决策
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
@@ -90,8 +98,8 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 搜索正则非法 — `invalid regular expression: <regex>`
 - 搜索命中截断 — `(Found <N> of <total> matches.)`
 - 模型不支持图片输入（随图片工具接入启用）— `cannot read "<path>" as an image: the current model does not accept image input`
-- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the <N>px limit; downscale it and retry`
-- 图片编码后超请求大小限制（随图片工具接入启用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; downscale it and retry`
+- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the 2000px limit; provide a smaller image and retry`
+- 图片编码后超请求大小限制（随图片工具接入启用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; provide a smaller image and retry`
 
 ### F3. 文件写入与编辑
 
@@ -101,7 +109,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - Agent 可以对已有文件做精确的文本替换——指定要被替换的原文片段和替换后的新文本
 - 一次编辑可以包含多个替换操作，所有替换基于文件原始内容做匹配，互不干扰
 - 被替换的原文默认需在文件中精确匹配到一处
-- 精确匹配失败时尝试模糊匹配，降低因格式差异导致的匹配失败。模糊匹配仅做字符层面的归一化（空白字符、引号形态、Unicode 规范形式），不做语义近似——避免匹配到错误位置
+- 精确匹配失败时尝试模糊匹配，减少因格式差异导致的匹配失败。模糊匹配仅做字符层面的归一化（空白字符、引号形态、Unicode 规范形式），不做语义近似——避免匹配到错误位置
 - 匹配零处时操作被拒绝
 - 匹配多处时操作被拒绝，除非 Agent 明确要求全文替换
 - Agent 编辑或覆盖已存在的文件前，须已在对话中读取过该文件——从未读取过的文件的编辑被拒绝，提示先读取再编辑
@@ -109,9 +117,9 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - 同一文件的多次编辑操作串行执行；不同文件的操作互不影响
 - 分次编辑同一文件时，后一次编辑会因文件已被前一次编辑改动而被拒绝，Agent 需重新读取文件后再编辑
 - Agent 写入文件的行尾风格（换行符）按提交内容原样写入，系统不做自动转换
-- Agent 可以进行版本控制操作——查看变更状态和提交历史、提交修改、推送和拉取代码
+- Agent 可以进行版本控制操作——查看变更状态和提交历史、提交修改、推送和拉取代码（写操作的权限判定见 [permission §F2](permission.md)（权限维度））
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
@@ -129,7 +137,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 **错误与提示**（`<path>` 为实际路径，`<N>`/`<M>` 为实际数量或序号）
 
 - 未读取先修改 — `cannot modify "<path>": the file has not been read — read it first, then retry`
-- 读取后文件被外部改动（含分次编辑同一文件的后续一次）— `cannot modify "<path>": the file changed after it was read — read it again, then retry`
+- 读取后文件被改动（含分次编辑同一文件的后续一次）— `cannot modify "<path>": the file changed after it was read — read it again, then retry`
 - 替换原文匹配零处 — `cannot edit "<path>": the old text was not found — the current content is attached; fix the text and retry`
 - 替换原文匹配多处 — `cannot edit "<path>": the old text appears <N> times — widen it to make it unique, or set replace_all`
 - 编辑条目重叠 — `cannot edit "<path>": entries <N> and <M> overlap — merge them or make them disjoint`
@@ -149,11 +157,11 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - 对于非零退出码不代表失败的命令（如 grep 未命中、diff 发现差异），Agent 看到的执行结果中附带退出码的语义说明，避免误判为命令失败。语义说明按命令内置（命令名 → 退出码含义），无内置语义的非零退出码按失败呈现
 - Agent 不使用 sleep 命令做延迟等待或定时轮询——延迟后重试、定时检查状态属于反模式，需要等待时应使用后台执行
 
-面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回）。
+面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
 **工具说明**
 
-- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
+- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
 - （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
 **使用引导**
@@ -166,7 +174,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - 命令不存在 — `command not found: <cmd>`
 - workspace 不可用 — `cannot run in "<dir>": directory not found`
 - 超时参数超上限 — `timeout capped at <N>ms`
-- 输出截断 — `[output truncated; full output: <path>]`
+- 输出截断 — `[output truncated; full output: <path> (<N> bytes)]`
 - 非零退出码，无内置语义（默认按失败呈现）— `[exit code: <N>]`
 - 非零退出码但有内置语义（非失败呈现，如 grep 未命中）— `[exit code: <N>: <meaning>]`
 
@@ -201,7 +209,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - 超时自动转后台（返回，非错误）— `moved to the background as <task_id>; output: <path>`
 - 终态通知（完成）— `background task <task_id> finished [exit code: <N>]. Output: <path>`
 - 终态通知（失败）— `background task <task_id> failed [exit code: <N>]. Output: <path>`
-- 终态通知（被终止；仅系统清理触发，Agent 主动终止与 Session 停止不发通知）— `background task <task_id> was terminated. Output: <path>`
+- 终态通知（被终止；Agent 主动终止与 Session 停止不发通知）— `background task <task_id> was terminated. Output: <path>`
 - 卡住告警 — `background task <task_id> looks blocked on an interactive prompt (tail: <tail>) — stop it and rerun non-interactively (pipe the answers, add -y).`
 - 终止返回 — `requested cancellation of task <task_id>; output so far: <path>`
 - 终止不存在的任务 — `no such background task: <task_id>`
@@ -230,7 +238,7 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 - 针对不同文件的文件修改操作可以并行执行
 - 读取某文件的同时编辑另一个文件可以并行执行
 - 读取和编辑同一文件时，读取先于编辑执行
-- 每个工具声明自身的并发安全分类，完整枚举：**并发安全**（只读无副作用，可任意并行）、**需串行**（对共享资源有副作用，同类调用间排队）、**资源消耗型**（并发安全但消耗大，需限流）。未声明、声明字段缺失或取值非法的工具一律按需串行处理（fail-closed）
+- 每个工具声明自身的并发安全分类，分为三类：**并发安全**（只读无副作用，可任意并行）、**需串行**（对共享资源有副作用，同类调用间排队）、**资源消耗型**（并发安全但消耗大，需限流）。未声明、声明字段缺失或取值非法的工具一律按需串行处理
 - 资源消耗型工具的推荐并发上限由工具声明附带（如不超过 3），Agent 按声明控制并发数量
 
 面向 Agent 的使用引导提示词原文（产品定义，开发不改写；注入位置：System Prompt 工具区）：
@@ -241,12 +249,19 @@ Agent 需要能够同时发起多个独立的工具调用，减少等待时间�
 
 Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
-- 工具说明能反映当前上下文——当能力范围被收窄时说明受限的操作范围，给出当前 workspace 路径指引
-- 工具说明能提示 Agent 如何组合使用——哪些工具搭配效率更高
-- 工具说明能指出常见误用模式——哪些操作看似正确但有问题
-- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段），编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配尝试位置前后各 25 行），Agent 无需额外发起读取即可修正重试
-- 缺少上下文感知能力的工具说明降级为静态描述，功能不受影响
-- 进入 System Prompt 工具区的说明文本保持稳定——权限状态、运行中任务等易变信息不嵌入工具说明，通过消息注入传达
+- 面向 Agent 的工具说明与使用引导为产品定义的固定文案，不随权限状态、运行中任务等易变信息变化
+- 错误与提示、通知与回执的文案本身固定（逐字文案见各功能域），内容随具体事件填充；承载易变状态的注入消息（如运行中的后台任务列表）按对应功能域的时机发出
+- 使用引导能提示 Agent 如何组合使用——哪些工具搭配效率更高
+- 使用引导能指出常见误用模式——哪些操作看似正确但有问题
+- 工具失败时的反馈附带可行动的修复指引——告知失败原因和下一步怎么做（逐字文案见各功能域的错误与提示段）
+- 匹配失败时 Agent 无需额外发起读取即可修正重试；读取后文件已被改动的失败除外（须重新读取后再修改）
+- 编辑类工具匹配失败时附带当前文件内容（不超过 50 行时附全文；超过时附匹配位置前后各 25 行；匹配零处时附文件开头 50 行）
+
+> **交叉引用**：可调用的工具范围按当前权限过滤。详见 [F1](#f1-工具注册与发现)（工具注册与发现）。
+
+> **交叉引用**：操作超出权限范围（含可读写的目录范围）被拦截时的分流（直接拒绝 / 进入审批）、等待与回调通知机制。详见 [permission §F5](permission.md)（审批工作流）。
+
+> **交叉引用**：承载运行中后台任务列表的注入消息。详见 [F5](#f5-后台任务执行)（后台任务执行）。
 
 ### F8. 命令安全防护
 
@@ -255,7 +270,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 命令执行前检测是否有攻击模式（如注入绕过、隐藏命令），一旦发现直接拦截并通知 Owner
 - 解析不确定的命令（如结构不完整）标记为可疑，发起审批请求，由 Owner 决定是否执行
 - 疑似攻击或解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
-- 结构清晰且无风险的命令按命令行维度的处理顺序执行（见 [permission §F2](permission.md)（权限维度））
+- 结构清晰且无风险的命令按命令行维度的处理顺序执行（见 [permission §F12](permission.md)（沙盒）、[permission §F2](permission.md)（权限维度））
 - 命中高风险操作名单的路径操作按高风险处置（见 [permission §F7](permission.md)（高风险操作管控））
 - 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
 
@@ -267,8 +282,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 - 命令被安全拦截 — `command blocked by the security check (<category>); the Owner has been notified`
 - 命令待审批 — `command entered approval (reason: <reason>); waiting for the Owner. Continue other work; do not resubmit this command.`
-- 审批被拒绝 — `approval denied; the command did not run`
-- 审批超时 — `approval timed out; the command did not run`
+- （审批被拒绝与审批超时的提示见 [F12](#f12-权限拒绝提示)（权限拒绝提示））
 
 > **交叉引用**：命令级权限审批的入队、推送和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -294,7 +308,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 ### F11. 面向 Agent 的行为约束提示词（跨工具域）
 
-F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
+各功能域已内嵌本域工具的提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
 
 **子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
 
@@ -302,6 +316,45 @@ F1-F6 各节已内嵌本域工具的三类提示词原文（工具说明 / 使�
 - `Do not invent or predict its result before it arrives — if asked, say the work is still running.`
 - `If a result arrives after your final answer, do not summarize it again — stay silent.`
 - `A task you delegate must be self-contained: the child cannot see this conversation. State the goal, the context, the directions already ruled out, and the expected output format; the same applies when delegating by role.`
+
+### F12. 权限拒绝提示
+
+工具操作被拒绝时（权限不足、审批被拒绝、审批超时），Agent 需要知道自己被什么挡住、具体是哪个对象被拒绝，以便换一条路径尝试或告知 Owner，而不是反复重试同一操作。
+
+- 所有权限类拒绝使用同一句式，只替换操作类型、被拒对象与拒绝原因，不按场景另写一套
+- 提示点名具体对象——命令给出实际命令、文件操作给出实际路径、工具给出工具名，并给出拒绝原因
+- 被权限直接拒绝的操作不进入审批
+- 进入审批的操作按审批流程等待，审批被拒绝与审批超时按同一句式通知
+- 审批通过不单独通知 Agent——操作直接执行，执行结果按该工具通常的返回方式返回
+- 工具不可用（不在配置档案的工具范围，或被权限规则收窄）被强行调用时的拒绝同样使用该句式（见 [F1](#f1-工具注册与发现)）
+- 命令被安全检测拦截不属权限拒绝，文案见 [F8](#f8-命令安全防护)（命令安全防护）
+
+面向 Agent 的提示词原文（产品定义，开发不改写）：
+
+**拒绝提示**（`<operation>` 为被拒的操作，`<target>` 为具体命令、路径或工具名，`<permission>` 为缺少的权限维度）
+
+- 统一句式 — `permission denied: <operation> "<target>" — <reason>`
+- `<operation>` 取值：
+  - `read`（读取路径）
+  - `write`（写入路径）
+  - `execute`（执行命令）
+  - `use`（调用工具）
+- `<permission>` 取值与 [permission §F2](permission.md)（权限维度）的维度对应（工具调用维度不取此值，工具不可用按上一条原因）：
+  - `read`（读）
+  - `write`（写）
+  - `command`（命令行）
+  - `network`（网络访问）
+  - `config`（配置写入）
+  - `messaging`（收发消息）
+- `<reason>` 取值及对应文案：
+  - 工具不可用 — `the tool is not available to this agent`
+  - 规则拒绝 — `the <permission> permission is missing`
+  - 审批被拒绝 — `the Owner denied the approval`
+  - 审批超时 — `the approval timed out`
+
+> **交叉引用**：审批的触发条件、等待与回调机制。详见 [permission §F5](permission.md)（审批工作流）。
+
+> **交叉引用**：拒绝提示不得暴露的内部信息边界。详见 [permission §F8](permission.md)（安全边界）。
 
 ## 非功能需求
 
