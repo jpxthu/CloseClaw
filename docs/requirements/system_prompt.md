@@ -15,7 +15,6 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最前
 - System Prompt 各组成部分按固定顺序组装，配置不变时组装结果保持不变（缓存行为见 [F6](#f6-内容缓存与自动刷新)）。具体组装顺序和格式由设计文档定义
-- 边界说明：心跳配置也位于 Bootstrap 文件目录下，但**不属于 System Prompt 注入范围**——心跳由独立的周期性机制定时触发，触发时按需读取配置，不进入常规对话 Session 的 System Prompt
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
 > **交叉引用**：Bootstrap 文件的身份加载模式（完整/精简）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。

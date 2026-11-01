@@ -122,9 +122,9 @@ Owner 和 User 可以查询和设置当前 Session 的展示等级。设置等�
 
 ### F13. 审批指令
 
-Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 将 Agent 操作单次放行、加入白名单或拒绝。三条指令均为 Immediate，仅 Owner 可用。
+Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 将 Agent 操作单次放行、加入白名单或拒绝。三条指令均为 Immediate，仅 Owner 可用；指令以审批短码指代目标请求，Owner 也可以引用审批卡片回复来发送指令。
 
-> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批 ID 规则、超时参数详见 [permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、全局唯一审批 ID 与短码规则详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F14. 调试日志

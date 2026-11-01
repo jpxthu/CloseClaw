@@ -154,7 +154,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 **工具说明**
 
 - `Bash` — `Execute a shell command in a working directory and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (working directory, variables) persists — pass the working directory as a parameter instead of using cd. Long output is truncated to its head; the full output is saved to a file whose path is returned when available.`
-- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
+- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令被拒与待审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
 
 **使用引导**
 
@@ -250,25 +250,17 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
 ### F8. 命令安全防护
 
-Shell 命令在执行前需要经过安全检查，防止恶意操作。
+Shell 命令在执行前需要经过结构解析；解析发生在哪个环节、不确定时如何处理，见 [permission §F2](permission.md)（权限维度）。
 
-- 命令执行前检测是否有攻击模式（如注入绕过、隐藏命令），一旦发现直接拦截并通知 Owner
-- 解析不确定的命令（如结构不完整）标记为可疑，发起审批请求，由 Owner 决定是否执行
-- 疑似攻击或解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
-- 结构清晰且无风险的命令正常进入白名单匹配流程
+- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑并发起审批请求，由 Owner 决定是否执行；不因命令内容命中某种攻击特征而直接拦截
+- 解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
+- 解析确定的命令继续进入后续判定
 - 危险文件路径（系统关键文件、版本控制内部文件等）的操作按高风险操作处置（见 [permission §F7](permission.md)（高风险操作管控））
-- 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
 
-命令用途说明（使用引导，面向 Agent 的提示词原文，产品定义，开发不改写）：
+**错误与提示**（`<dimension>` 为被拒绝的权限维度）
 
-- `Give every command a one-sentence purpose — active voice, stating the operation (read / write / delete / modify), the target (path, command, or service), and the expected effect; five to ten words for simple commands ("list files in the current directory"). When pipes or uncommon flags would obscure it, the sentence must let the Owner judge what it does ("recursively find and delete all .tmp files"). A purpose missing any of the three elements is incomplete and may be denied; no subjective words like "complex" or "dangerous".`
-
-**错误与提示**（`<category>` 为攻击类别，`<reason>` 为原因）
-
-- 命令被安全拦截 — `command blocked by the security check (<category>); the Owner has been notified`
-- 命令待审批 — `command entered approval (reason: <reason>); waiting for the Owner. Continue other work; do not resubmit this command.`
-- 审批被拒绝 — `approval denied; the command did not run`
-- 审批超时 — `approval timed out; the command did not run`
+- 命令被拒绝 — `command did not run (denied: <dimension>)`
+- 命令待审批 — `command entered approval; waiting for the Owner. Continue other work; do not resubmit this command.`
 
 > **交叉引用**：命令级权限审批的入队、推送和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 

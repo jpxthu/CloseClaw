@@ -107,7 +107,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 ### F12. 子 Session 权限继承
 
-> **交叉引用**：子 Session 权限沿创建链路收窄、Deny 沿链路传播、被拒绝时静默返回。详见 [permission §F9](permission.md)（子 Session 权限继承）。
+> **交叉引用**：子 Session 权限沿创建链路收窄、Deny 沿链路传播、需要审批的操作直接拒绝。详见 [permission §F9](permission.md)（子 Session 权限继承）。
 
 ### F13. 工作目录权限
 
