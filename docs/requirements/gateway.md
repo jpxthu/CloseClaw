@@ -45,7 +45,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 ### F5. 斜杠指令拦截与分派
 
 - User 可以发送以 `/` 开头的斜杠指令，指令在进入 LLM 对话之前被拦截，不追加到对话历史
-- 非 Owner 调用 `/exec`、`/system`、`/workflow`、`/perm`、`/approve-once`、`/approve-whitelist`、`/deny` 时收到权限不足提示
+- 非 Owner 调用标注为「仅 Owner 可用」的指令时收到权限不足提示（标注见 [slash §F1](slash.md)（斜杠指令入口））
 - Immediate 斜杠指令绕过排队条件，立即受理；待审批操作的执行结果在 Owner 审批完成后送达
 - 非 Immediate 斜杠指令在不满足排队条件时直接执行，在满足排队条件时进入该 Session 的待处理队列
 
