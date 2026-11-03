@@ -162,7 +162,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 **工具说明**
 
 - `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
-- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令安全拦截与审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
+- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令进入审批等待期间的 Agent 侧处置见 [F8](#f8-命令安全防护)）
 
 **使用引导**
 
@@ -265,26 +265,15 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
 ### F8. 命令安全防护
 
-Shell 命令在执行前需要经过安全检查，防止恶意操作。
+Shell 命令在执行前需要经过结构解析。
 
-- 命令执行前检测是否有攻击模式（如注入绕过、隐藏命令），一旦发现直接拦截并通知 Owner
-- 解析不确定的命令（如结构不完整）标记为可疑，发起审批请求，由 Owner 决定是否执行
-- 疑似攻击或解析不确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
-- 结构清晰且无风险的命令按命令行维度的处理顺序执行（见 [permission §F12](permission.md)（沙盒）、[permission §F2](permission.md)（权限维度））
+- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑，其处置按沙盒模式分流（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
+- 解析无法确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
+- 解析确定的命令按命令行维度的处理顺序执行（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
 - 命中高风险操作名单的路径操作按高风险处置（见 [permission §F7](permission.md)（高风险操作管控））
-- 审批请求推送给 Owner 时，附带 Agent 提供的命令用途说明，帮助 Owner 理解命令意图
+- 命令进入审批等待期间不向 Agent 返回任何提示；等待结束时按审批结论返回工具执行结果，或按 [F12](#f12-权限拒绝提示) 返回权限拒绝（见 [permission §F5](permission.md)（审批工作流））
 
-命令用途说明（使用引导，面向 Agent 的提示词原文，产品定义，开发不改写）：
-
-- `Give every command a one-sentence purpose — active voice, stating the operation (read / write / delete / modify), the target (path, command, or service), and the expected effect; five to ten words for simple commands ("list files in the current directory"). When pipes or uncommon flags would obscure it, the sentence must let the Owner judge what it does ("recursively find and delete all .tmp files"). A purpose missing any of the three elements is incomplete and may be denied; no subjective words like "complex" or "dangerous".`
-
-**错误与提示**（`<category>` 为攻击类别，`<reason>` 为原因）
-
-- 命令被安全拦截 — `command blocked by the security check (<category>); the Owner has been notified`
-- 命令待审批 — `command entered approval (reason: <reason>); waiting for the Owner. Continue other work; do not resubmit this command.`
-- （审批被拒绝与审批超时的提示见 [F12](#f12-权限拒绝提示)（权限拒绝提示））
-
-> **交叉引用**：命令级权限审批的入队、推送和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：命令级权限审批的入队、投递和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
 ### F9. 工具扩展接入
 
@@ -300,7 +289,7 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 每次工具调用（工具名、参数摘要、返回结果、耗时）
 - 权限检查结果（评估结果的记录口径见 [permission §F11](permission.md)（调试日志））
 - 后台任务启动与到达终态（完成/失败/被终止）
-- 命令安全扫描结果（安全审计类事件除外，按 [F8](#f8-命令安全防护) 独立处理）
+- 命令结构解析结果（可疑命令的隔离日志按 [F8](#f8-命令安全防护) 独立处理）
 
 > **交叉引用**：子 Session 创建与完成的日志事件。详见 [session §F12](session.md)（调试日志）。
 
@@ -319,15 +308,15 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 
 ### F12. 权限拒绝提示
 
-工具操作被拒绝时（权限不足、审批被拒绝、审批超时），Agent 需要知道自己被什么挡住、具体是哪个对象被拒绝，以便换一条路径尝试或告知 Owner，而不是反复重试同一操作。
+工具操作被拒绝时，Agent 需要知道自己被哪个权限维度挡住、具体是哪个对象被拒绝，以便换一条路径尝试或告知 Owner，而不是反复重试同一操作。
 
 - 所有权限类拒绝使用同一句式，只替换操作类型、被拒对象与拒绝原因，不按场景另写一套
 - 提示点名具体对象——命令给出实际命令、文件操作给出实际路径、工具给出工具名，并给出拒绝原因
 - 被权限直接拒绝的操作不进入审批
-- 进入审批的操作按审批流程等待，审批被拒绝与审批超时按同一句式通知
+- 进入审批的操作挂起等待，等待期间不返回任何提示；未获放行时使用同一句式返回（不说明该结果是否由 Owner 的审批决策产生）
 - 审批通过不单独通知 Agent——操作直接执行，执行结果按该工具通常的返回方式返回
 - 工具不可用（不在配置档案的工具范围，或被权限规则收窄）被强行调用时的拒绝同样使用该句式（见 [F1](#f1-工具注册与发现)）
-- 命令被安全检测拦截不属权限拒绝，文案见 [F8](#f8-命令安全防护)（命令安全防护）
+- 命令解析无法确定的处置见 [F8](#f8-命令安全防护)：默认模式进入审批（子 Session 不进入审批，直接按「权限不足（`command`）」返回），等待期间不返回提示，未获放行时按「权限不足（`command`）」返回；严格模式按「权限不足（`command`）」直接返回；放行模式直接执行
 
 面向 Agent 的提示词原文（产品定义，开发不改写）：
 
@@ -346,11 +335,10 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
   - `network`（网络访问）
   - `config`（配置写入）
   - `messaging`（收发消息）
+  - 多个维度同时缺失时并列列出 — `the <permission> and <permission> permissions are missing`
 - `<reason>` 取值及对应文案：
   - 工具不可用 — `the tool is not available to this agent`
-  - 规则拒绝 — `the <permission> permission is missing`
-  - 审批被拒绝 — `the Owner denied the approval`
-  - 审批超时 — `the approval timed out`
+  - 权限不足 — `the <permission> permission is missing`
 
 > **交叉引用**：审批的触发条件、等待与回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -362,4 +350,4 @@ Shell 命令在执行前需要经过安全检查，防止恶意操作。
 - 工具清单的总长度不能无限增长——超出时优雅截断并给出探索指引，不影响 Agent 了解可用工具范围
 - Shell 命令的超时参数须有上限值，防止 Agent 设定过长超时；系统对单个命令的总执行时间保留兜底终止能力
 - 后台任务不留孤儿资源——Session 销毁后，其后台任务不再运行，输出文件无残留
-- 命令安全检测不应引入明显的执行前延迟
+- 命令结构解析不应引入明显的执行前延迟
