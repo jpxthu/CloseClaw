@@ -162,7 +162,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 **工具说明**
 
 - `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
-- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令待审批的 Agent 侧文案见 [F8](#f8-命令安全防护)）
+- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)；命令进入审批等待期间的 Agent 侧处置见 [F8](#f8-命令安全防护)）
 
 **使用引导**
 
@@ -267,14 +267,11 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
 Shell 命令在执行前需要经过结构解析。
 
-- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑，进入审批（命令处理顺序见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
+- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑，其处置按沙盒模式分流（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
 - 解析无法确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
 - 解析确定的命令按命令行维度的处理顺序执行（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
 - 命中高风险操作名单的路径操作按高风险处置（见 [permission §F7](permission.md)（高风险操作管控））
-
-**错误与提示**
-
-- 命令待审批 — `command entered approval; waiting for the Owner. Continue other work; do not resubmit this command.`
+- 命令进入审批等待期间不向 Agent 返回任何提示；等待结束时按审批结论返回工具执行结果，或按 [F12](#f12-权限拒绝提示) 返回权限拒绝（见 [permission §F5](permission.md)（审批工作流））
 
 > **交叉引用**：命令级权限审批的入队、投递和回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -316,10 +313,10 @@ Shell 命令在执行前需要经过结构解析。
 - 所有权限类拒绝使用同一句式，只替换操作类型、被拒对象与拒绝原因，不按场景另写一套
 - 提示点名具体对象——命令给出实际命令、文件操作给出实际路径、工具给出工具名，并给出拒绝原因
 - 被权限直接拒绝的操作不进入审批
-- 进入审批的操作按审批流程等待；未获放行时使用同一句式通知，不说明该结果是否由 Owner 的审批决策产生
+- 进入审批的操作挂起等待，等待期间不返回任何提示；未获放行时使用同一句式返回（不说明该结果是否由 Owner 的审批决策产生）
 - 审批通过不单独通知 Agent——操作直接执行，执行结果按该工具通常的返回方式返回
 - 工具不可用（不在配置档案的工具范围，或被权限规则收窄）被强行调用时的拒绝同样使用该句式（见 [F1](#f1-工具注册与发现)）
-- 命令解析无法确定不属权限拒绝，按审批流程等待，文案见 [F8](#f8-命令安全防护)（命令安全防护）
+- 命令解析无法确定的处置见 [F8](#f8-命令安全防护)：默认模式进入审批（子 Session 不进入审批，直接按「权限不足（`command`）」返回），等待期间不返回提示，未获放行时按「权限不足（`command`）」返回；严格模式按「权限不足（`command`）」直接返回；放行模式直接执行
 
 面向 Agent 的提示词原文（产品定义，开发不改写）：
 
@@ -338,6 +335,7 @@ Shell 命令在执行前需要经过结构解析。
   - `network`（网络访问）
   - `config`（配置写入）
   - `messaging`（收发消息）
+  - 多个维度同时缺失时并列列出 — `the <permission> and <permission> permissions are missing`
 - `<reason>` 取值及对应文案：
   - 工具不可用 — `the tool is not available to this agent`
   - 权限不足 — `the <permission> permission is missing`
