@@ -10,7 +10,9 @@ Slash 模块仅提供指令入口与分派机制；跨模块指令的业务功�
 
 ### F1. 斜杠指令入口
 
-Owner 和 User 发送以 `/` 开头的消息时，消息不进入 LLM 对话流程，而是作为斜杠指令被处理。无匹配处理器的指令向调用者返回友好错误提示，引导使用 `/help` 查看可用指令。
+Owner 和 User 发送以 `/` 开头的消息时，消息不进入 LLM 对话流程，而是作为斜杠指令被处理。无匹配处理器的指令向调用者返回友好错误提示，引导使用 `/help` 查看可用指令；指令参数缺失或非法时，除各功能域另有规定外，返回用法提示且不执行本次指令。
+
+各功能域标注为「仅 Owner 可用」的指令不向非 Owner User 开放，非 Owner 调用时收到权限不足提示。
 
 各指令的 Immediate 标记在后续各功能域中标注；未标注 Immediate 的指令默认为非 Immediate。
 
@@ -29,6 +31,7 @@ Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 
 > **交叉引用**：Session 创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：子 Session 终止详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：workflow 模式下的终止与退出清理由 workflow 模块定义。详见 [workflow §F6](workflow.md)（流程暂停与恢复）、[workflow §F8](workflow.md)（流程生命周期）。
 
 ### F4. 状态查询
 
@@ -37,11 +40,11 @@ Owner 和 User 可以随时查看当前 Session 的运行状态。
 **指令**：
 - `/status`：查询 Session 状态（Immediate）
 
-查询内容：模型、推理强度、上下文用量、缓存命中率、token 累计量、活跃子 Session 数。System Prompt 追加指令列表仅 Owner 可见，非 Owner User 的查询结果不包含该项。
+查询内容：模型、推理强度、上下文窗口占用率（已用 token 数 / 最大上下文窗口，含使用百分比）、缓存命中率、token 用量、预估费用、活跃子 Session 数。System Prompt 追加指令列表仅 Owner 可见，其余查询项（含预估费用）对所有调用者可见。预估费用无法计算时显示为不可用，不显示为 0。
 
 > **交叉引用**：当前模型见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
-> **交叉引用**：上下文用量、缓存命中率与 token 累计量见 [llm §F9](llm.md)（用量统计）。
+> **交叉引用**：上下文窗口占用率、缓存命中率、token 用量与预估费用的计算口径见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：子 Session 见 [session §F4](session.md)（子 Session 委托与协调）。
 > **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（追加指令管理）。
 
@@ -53,11 +56,13 @@ Owner 和 User 可以手动触发对话历史的上下文压缩。
 - `/compact`：默认压缩
 - `/compact <保留指示>`：携带保留指示的压缩
 
+保留指示为 `/compact` 之后的整段自然语言，去掉首尾空白后的内容即为保留指示；内容为空时等同于 `/compact`。保留指示超过 500 字符时直接拒绝并返回用法提示，不截断。保留指示只影响摘要的重点，不改变手动压缩的保留区规则（手动压缩不保留最近原文，见 [session §F3](session.md)（长对话压缩））。
+
 > **交叉引用**：压缩引擎的压缩范围和行为定义在 [session §F3](session.md)（长对话压缩）。
 
 ### F6. System Prompt 追加
 
-Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。该功能仅 Owner 可用；非 Owner User 调用 `/system` 及其子指令时返回权限不足提示。
+Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无需修改配置文件。多次追加的内容叠加保留，不覆盖已有追加。该功能仅 Owner 可用。
 
 **指令**：
 - `/system add <内容>`：追加一条指令
@@ -84,7 +89,7 @@ Owner 和 User 可以执行 Git 命令。Git 命令在当前 Session 所属 Agen
 
 ### F8. 命令执行
 
-Owner 可以执行 Shell 命令。命令执行不向 User 开放，User 调用 `/exec` 收到权限不足提示（权限归属见 [permission §F6](permission.md)（权限配置管理））。
+Owner 可以执行 Shell 命令。`/exec` 仅 Owner 可用。
 
 **指令**：
 - `/exec <命令>`：在当前 Session 所属 Agent-User 组合的 workspace 内执行 Shell 命令
@@ -95,7 +100,7 @@ Owner 可以执行 Shell 命令。命令执行不向 User 开放，User 调用 `
 
 ### F9. 帮助
 
-Owner 和 User 可以查看所有当前可用的斜杠指令及其说明。帮助内容从系统当前支持的指令自动生成，系统升级引入的新指令自动出现在帮助中，无需单独维护帮助文案。
+Owner 和 User 可以查看斜杠指令的帮助。帮助内容按调用者角色过滤：Owner 看到全部指令及其说明；非 Owner User 只看到自身可用的指令，标注为「仅 Owner 可用」的指令不出现在其帮助结果中，帮助结果也不提示存在未展示的指令。帮助内容从系统当前支持的指令自动生成，系统升级引入的新指令自动出现在帮助中，无需单独维护帮助文案。
 
 **指令**：
 - `/help`：查看帮助（Immediate）
@@ -132,7 +137,6 @@ Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操�
 维度参数指定放行作用在 Agent 维度、User 维度还是两者，未指定时按 `both` 处理；命令类操作固定为 `agent`（语义见 [permission §F5](permission.md)（审批工作流））。
 
 > **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标详见 [permission §F5](permission.md)（审批工作流）。
-> **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F14. 调试日志
 
@@ -145,38 +149,29 @@ Slash 模块在以下环节记录调试日志：
 
 ### F15. workflow 指令
 
-Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时，在当前 LLM 调用结束后执行；启动语义由 workflow 模块定义。
+Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。`/workflow` 为非 Immediate 指令——满足排队条件时进入待处理队列，待排队条件解除后执行；启动语义由 workflow 模块定义。
 
-> **交叉引用**：非 Owner 调用 `/workflow` 的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
-
+> **交叉引用**：排队条件的定义详见 [session §F10](session.md)（消息排队）。
 > **交叉引用**：启动语义与 workflow 模式进入详见 [workflow §F2](workflow.md)（workflow 启动）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
 ### F16. 权限配置管理
 
-Owner 可以通过斜杠指令查看、新增与删除权限规则，并设置沙盒模式；非 Owner 调用时收到权限不足提示。
+Owner 可以通过斜杠指令查看、新增与删除权限规则，并设置沙盒模式。该功能仅 Owner 可用。
 
 **指令**：
 - `/perm list`：列出当前生效的权限规则，按序编号
 - `/perm allow <主体> <维度> <生效对象>`：新增一条允许规则
 - `/perm deny <主体> <维度> <生效对象>`：新增一条拒绝规则
 - `/perm remove <序号>`：删除 `/perm list` 中对应序号的规则
-- `/perm sandbox <默认|严格|放行>`：设置当前会话的目标 Agent 的沙盒模式（见 [permission §F12](permission.md)（沙盒））
+- `/perm sandbox <默认|严格|放行>`：设置当前 Session 所属 Agent 的沙盒模式，持久生效（见 [permission §F12](permission.md)（沙盒））
 
 主体写法为 `agent:<Agent ID>` 或 `user:<User ID>`；维度取 [permission §F2](permission.md)（权限维度）定义的七个维度之一。不细分对象的维度（收发消息、配置写入）省略「生效对象」。规则主体与生效对象的约束、高风险对象的限制详见 [permission §F6](permission.md)（权限配置管理）。
 
 > **交叉引用**：规则要素、修改时的 Owner 校验与生效机制详见 [permission §F6](permission.md)（权限配置管理）。
-> **交叉引用**：非 Owner 调用权限指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ## 非功能需求
 
-- Immediate 指令在 LLM 运行中必须可达，调用方不感知延迟
-- 全部 Immediate 指令：
-  - `/stop`
-  - `/status`
-  - `/reasoning`（各形态）
-  - `/verbose`（各形态）
-  - `/help`
-  - 审批指令：`/approve-once`、`/approve-whitelist`、`/deny`
+- 各功能域标注为 Immediate 的指令在 LLM 运行中必须可达，调用方不感知延迟
 
 > **交叉引用**：审批指令（/approve-once、/approve-whitelist、/deny）的 Immediate 可达性由 Gateway 层保证。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
