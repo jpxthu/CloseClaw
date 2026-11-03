@@ -267,7 +267,7 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
 Shell 命令在执行前需要经过结构解析。
 
-- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑，按沙盒模式分流：默认模式进入审批，严格模式直接拒绝，放行模式不进入审批、按该调用指定的执行位置执行（未指定时为宿主）（命令处理顺序见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
+- 解析无法确定的命令（如结构不完整、含无法判定的展开）标记为可疑，其处置按沙盒模式分流（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
 - 解析无法确定的命令单独记录日志到 Agent 不可访问的隔离位置，日志包含触发消息与完整对话记录的引用，供安全调查
 - 解析确定的命令按命令行维度的处理顺序执行（见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒））
 - 命中高风险操作名单的路径操作按高风险处置（见 [permission §F7](permission.md)（高风险操作管控））
