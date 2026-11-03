@@ -335,7 +335,7 @@ Shell 命令在执行前需要经过结构解析。
   - `network`（网络访问）
   - `config`（配置写入）
   - `messaging`（收发消息）
-- 多个维度同时缺失时并列列出 — `the <permission> and <permission> permissions are missing`
+  - 多个维度同时缺失时并列列出 — `the <permission> and <permission> permissions are missing`
 - `<reason>` 取值及对应文案：
   - 工具不可用 — `the tool is not available to this agent`
   - 权限不足 — `the <permission> permission is missing`
