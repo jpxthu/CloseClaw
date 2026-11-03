@@ -131,7 +131,7 @@ Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操�
 
 维度参数指定放行作用在 Agent 维度、User 维度还是两者，未指定时按 `both` 处理；命令类操作固定为 `agent`（语义见 [permission §F5](permission.md)（审批工作流））。
 
-> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标与超时时长详见 [permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标详见 [permission §F5](permission.md)（审批工作流）。
 > **交叉引用**：非 Owner 调用审批指令的权限不足提示详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 
 ### F14. 调试日志
