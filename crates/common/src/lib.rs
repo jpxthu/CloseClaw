@@ -44,7 +44,13 @@ pub mod model_spec;
 #[cfg(test)]
 pub mod model_spec_tests;
 pub mod path_utils;
+pub mod permission_admission;
+#[cfg(test)]
+pub mod permission_admission_tests;
 pub mod permission_check;
+pub mod permission_gate;
+#[cfg(test)]
+pub mod permission_gate_tests;
 pub mod permission_op;
 #[cfg(test)]
 pub mod permission_op_tests;
@@ -145,7 +151,16 @@ pub use metrics::MetricsEmitter;
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
+pub use permission_admission::{
+    ApprovalCard, ApprovalDecision, ApprovalDecisionKind, ApprovalDelivery, ApprovalKind,
+    DecisionScope, ExecLocation, ExecutionPolicy, MessageDirection, PermissionDecision,
+    PermissionOperation, PermissionRequest, RegistrationConfirmation, RegistrationDecision,
+};
 pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
+pub use permission_gate::{
+    ApprovalNotifier, PermissionGate, SandboxExecutor, SharedApprovalNotifier,
+    SharedPermissionGate, SharedSandboxExecutor,
+};
 pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};
 pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{
