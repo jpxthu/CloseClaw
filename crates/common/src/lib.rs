@@ -44,6 +44,9 @@ pub mod model_spec;
 #[cfg(test)]
 pub mod model_spec_tests;
 pub mod path_utils;
+pub mod permission_admission;
+#[cfg(test)]
+pub mod permission_admission_tests;
 pub mod permission_check;
 pub mod permission_op;
 #[cfg(test)]
@@ -145,6 +148,10 @@ pub use metrics::MetricsEmitter;
 pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
+pub use permission_admission::{
+    ExecLocation, ExecutionPolicy, MessageDirection, PermissionDecision, PermissionOperation,
+    PermissionRequest,
+};
 pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
 pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};
 pub use plan_state::{PlanPhase, PlanState};
