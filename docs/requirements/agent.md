@@ -17,20 +17,25 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例，由 Sess
 - **身份加载模式（Bootstrap 模式）**：完整模式或精简模式，控制该 Agent 自身 Session 加载的 Bootstrap 文件数量（对子 Session 无效）
 - **Bootstrap 文件目录**：Bootstrap 文件（定义 Agent 的身份人格）所在目录
 - **无 Bootstrap 文件声明**（可选）：声明该 Agent 运行时不使用任何 Bootstrap 文件。声明后该 Agent 的 Session 按无 Bootstrap 文件的 Session 类型运行
-- **工具白名单/黑名单**：Agent 可以使用的工具范围。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予（spawn 工具例外，见 [F9](#f9-子-session-创建控制)（子 Session 创建控制））
+- **工具白名单/黑名单**：Agent 可以使用的工具范围。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予（生效的层级深度大于 0 时 spawn 工具例外，见 [F9](#f9-子-session-创建控制)（子 Session 创建控制））
 - **技能白名单**：Agent 可以使用的技能范围
 - **子 Session 创建控制**：Agent 创建子 Session 的控制参数（目标白名单、层级深度、并发数量、子 Session 默认模型等）
-- **子 Session 超时**：该 Agent 作为 spawn 目标时，为其创建的子 Session 的超时预警与硬超时默认值（可选）
+- **子 Session 超时**：以该 Agent 为 spawn 目标创建子 Session 时使用的超时预警与硬超时默认值（可选）
 - **记忆配置**：Agent 的记忆模块参数（可选；覆盖语义详见 [memory §F7](memory.md)（记忆挖掘的开关与参数配置））
 
 Agent 的配置档案为纯静态定义，不包含运行时可变状态。Agent 的运行时行为由 Session 模块驱动。
 
 > **交叉引用**：配置档案的目录布局与注册清单。详见 [config §F1](config.md)（多文件配置结构）。
-> **交叉引用**：入站消息如何映射到 Agent / User / Session（接收方机器人应用 → Agent、发送者 → User、平台+发送者+会话对端+账号标识 → Session）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）、[gateway §F4](gateway.md)（普通消息路由到对话）、[permission §F1](permission.md)（身份体系）、[session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：入站消息归一化详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
+> **交叉引用**：机器人到 Agent 的路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
+> **交叉引用**：User 身份映射详见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：Session 的确定详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：身份人格的定义。详见 [F2](#f2-身份与人格分离)（身份与人格分离）。
 > **交叉引用**：超时预警与硬超时的取值优先级。详见 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））。
 > **交叉引用**：子 Session 的 Bootstrap 加载范围与 Session 类型适配。详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）。
-> **交叉引用**：技能的发现、目录结构与多 Agent 隔离。详见 [skills §F1](skills.md)（技能即插即用）、[skills §F8](skills.md)（多 Agent 隔离）。
+> **交叉引用**：技能的发现详见 [skills §F1](skills.md)（技能即插即用）。
+> **交叉引用**：技能目录结构详见 [skills §F2](skills.md)（技能目录层级）。
+> **交叉引用**：多 Agent 技能隔离详见 [skills §F8](skills.md)（多 Agent 隔离）。
 > **交叉引用**：工具范围在权限决策中的作用（工具调用维度）详见 [permission §F2](permission.md)（权限维度）。
 
 ### F2. 身份与人格分离
@@ -84,7 +89,7 @@ Agent 可以创建子 Session 来执行子任务。默认创建的子 Session �
 - **上下文模式**：指定子 Session 是仅接收任务描述，还是继承父 Session 的对话历史（后者即 Fork 模式）
 - **模型覆盖**：可选显式指定子 Session 的模型
 - **行为模板**：可选注入预置的行为模板（如"只读研究"、"校验审计"）
-- **超时预警**：子 Session 的预期执行时长。取值优先级：spawn 显式参数 > 目标 Agent 配置 > 全局默认值
+- **超时预警**：子 Session 的预期执行时长。取值优先级：spawn 显式参数 > 目标 Agent 配置 > 全局默认值（默认 10 分钟）
 - **硬超时**：子 Session 的绝对最大执行时长。取值优先级：spawn 显式参数 > 目标 Agent 配置 > 全局默认值（默认 48 小时）
 
 > **交叉引用**：超时预警和硬超时的执行行为（预警通知、终止与级联终止）。详见 [session §F4](session.md)（子 Session 委托与协调）。
@@ -104,7 +109,7 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 父 Agent 的配置控制子 Session 的创建行为：
 
-- **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示不允许 spawn 到其它 Agent）。无论配置如何填写，白名单都强制包含该 Agent 自身，即不会把自己排除在可 spawn 目标之外（能否 spawn 仍受层级深度约束）
+- **目标白名单**：限制可以 spawn 的目标 Agent 范围（通配符 `*` 表示不限制，空列表表示不允许 spawn 到其它 Agent）。无论配置如何填写，白名单始终包含该 Agent 自身（能否 spawn 仍受层级深度约束）
 - **层级深度**：限制嵌套的最大层数（0 表示禁止 spawn 任何子 Session；默认为 1）
 - **并发数量**：限制同一父 Agent 下同时存活的子 Session 数量上限（默认为 2）
 - **spawn 工具恒可用**：该 Agent 生效的层级深度大于 0 时，spawn 工具强制开放，不受工具白名单、工具黑名单与工具调用维度的规则收窄
@@ -131,7 +136,8 @@ Fork 模式对应 F7「上下文模式」中的「继承对话历史」取值：
 
 系统维护 Session 之间的创建层级关系，记录每个 Session 对应的 Agent ID。
 
-> **交叉引用**：父子 Session 关系维护与查询（子 Session/子树/父 Session）、级联清理与重启降级恢复由 Session 模块负责。详见 [session §F1](session.md)（对话持久化与恢复）、[session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：Session 重启恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：父子 Session 关系维护与查询、级联清理详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ## 非功能需求
 
