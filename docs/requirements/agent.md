@@ -69,7 +69,7 @@ Agent 的能力边界由配置档案中的字段组合与权限规则共同决�
 
 系统运行时支持按 Agent ID 查询 Agent 的完整配置档案。该查询为只读操作，返回该 Agent 在 F1 列出的全部静态能力维度，不包含运行时派生的能力（例如权限过滤后的实际工具清单）。
 
-Agent 配置变更与注册清单变更在**新建 Session 时**生效：新建 Session（含 spawn 创建的子 Session）按该时点的配置档案加载，已运行的 Session 沿用其创建时加载的配置。模型配置跟随 Session——Session 创建时按 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））的优先级链逐级取该时点的配置值（显式参数 > 父 Agent 的子 Session 默认模型 > 目标 Agent 的默认模型 > 系统默认）；此后 Agent 配置中的模型变更不影响该 Session。被移出注册清单的 Agent 不再创建新 Session，已有 Session 不受影响。
+Agent 配置变更与注册清单变更在**新建 Session 时**生效：新建 Session（含 spawn 创建的子 Session）按该时点的配置档案加载，已运行的 Session 沿用其创建时加载的配置。记忆配置是例外，生效时机详见 [memory §F7](memory.md)（记忆挖掘的开关与参数配置）。模型配置跟随 Session——Session 创建时按 [F7](#f7-子-session-创建spawn)（子 Session 创建（Spawn））的优先级链逐级取该时点的配置值（显式参数 > 父 Agent 的子 Session 默认模型 > 目标 Agent 的默认模型 > 系统默认）；此后 Agent 配置中的模型变更不影响该 Session。被移出注册清单的 Agent 不再创建新 Session，已有 Session 不受影响。
 
 > **交叉引用**：配置变更的检测与重载。详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：注册清单的加载语义详见 [config §F1](config.md)（多文件配置结构）。
