@@ -173,7 +173,7 @@ Owner 可以通过 CLI 查询技能列表。此功能需 daemon 已运行。
 
 > **交叉引用**：技能即插即用的完整语义详见 [skills §F1](skills.md)（技能即插即用）。
 > **交叉引用**：System Prompt 技能清单的构成与排序详见 [skills §F4](skills.md)（技能清单）。
-> **交叉引用**：Agent 可用技能范围由配置白名单决定详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：Agent 可用技能范围详见 [skills §F8](skills.md)（多 Agent 隔离）。
 > **交叉引用**：`--agent-id` 的缺省取值详见 [F1](#f1-终端对话)（终端对话）。
 > **交叉引用**：技能目录的层级与覆盖优先级详见 [skills §F2](skills.md)（技能目录层级）。
 > **交叉引用**：条件激活技能的清单归属详见 [skills §F6](skills.md)（条件激活）。

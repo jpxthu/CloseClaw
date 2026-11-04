@@ -138,6 +138,18 @@ LLM 模块在以下环节记录调试日志：
 
 > **交叉引用**：日志框架定义详见 [debug_log §F1](debug_log.md)（完整消息链路追踪）、[debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留）、[debug_log §F4](debug_log.md)（隐私保护）。
 
+### F11. Session 模型选择
+
+Owner 可以为每个 Agent 配置默认 LLM 模型、备用模型列表，以及该 Agent 创建子 Session 时使用的默认模型。
+
+子 Session 的最终模型按以下优先级确定：spawn 显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的默认模型 > 系统默认模型。
+
+模型配置跟随 Session：Session 创建时使用该时点的模型配置；此后 Agent 配置中的模型变更不影响该 Session。
+
+> **交叉引用**：模型配置在 Agent 档案中的承载维度详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：spawn 的模型覆盖参数详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：配置变更的检测与重载详见 [config §F4](config.md)（配置重载）。
+
 ## 非功能需求
 
 ### 性能

@@ -54,7 +54,7 @@ Owner 和 User 可以随时查看当前 Session 的状态与用量。
 - 除 System Prompt 追加指令列表仅 Owner 可见外，其余查询项对所有调用者可见
 - 预估费用无法计算时显示为不可用，不显示为 0
 
-> **交叉引用**：Session 的模型取值详见 [agent §F6](agent.md)（运行时配置查询）。
+> **交叉引用**：Session 的模型取值详见 [llm §F11](llm.md)（Session 模型选择）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
 > **交叉引用**：上下文窗口占用率、缓存命中率、token 用量与预估费用的计算口径见 [llm §F9](llm.md)（用量统计）。
 > **交叉引用**：子 Session 的未完成判定详见 [session §F11](session.md)（Session 活跃维度）。
