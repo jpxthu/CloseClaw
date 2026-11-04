@@ -16,13 +16,13 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
     - 文件读取（[F2](#f2-文件读取)（文件读取）；图片读取工具除外）
     - 文件写入、编辑与版本控制（[F3](#f3-文件写入与编辑)（文件写入与编辑））
     - Shell 命令执行（[F4](#f4-shell-命令执行)（Shell 命令执行））
-    - 后台任务执行（[F5](#f5-后台任务执行)（后台任务执行））
+    - 后台任务执行（同一命令工具的 `run_in_background` 参数，以及后台任务列表、终止与结果读取能力，见 [F5](#f5-后台任务执行)（后台任务执行））
     - 子 Session 管理（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调））
     - 工具检索入口（见本节「Agent 可以通过关键词、工具名或要完成的事情查找工具」）
   - **延迟工具**：类别不属上述常用类别的全部工具，含本节的权限状态查询；[F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具按同一类别规则判定，不因注册来源改变归属。仅展示名称和风险标记，Agent 可按需查询完整说明
-- Agent 可以通过关键词、工具名或要完成的事情查找工具——系统按相关度匹配，最多返回 5 个最相关的工具；按准确工具名检索时直接返回该工具
+- Agent 可以通过关键词、工具名或要完成的事情查找工具——系统按相关度匹配，最多返回 5 个最相关的工具；按准确工具名检索时直接返回该工具。检索结果同样只包含当前可见范围内的工具
 - 工具清单总长度上限 20,000 字符（含分组标注与风险标记），分组按固定顺序输出（常用分组在前、延迟分组在后）。超出时按分组从尾部截断——一个分组要么完整输出、要么整组不输出——并提示 Agent 通过工具检索了解未展示的工具（含被截断的常用工具）；若按固定顺序排在最后的分组自身就超过总长上限，则该分组内部按工具顺序从尾部截断，不使清单为空
-- 单条工具说明不超过 2,000 字符，超出部分在注册时被截断并标注为已截断；工具检索返回的是同一份（截断后的）说明，不存在更长的版本
+- 单条工具说明不超过 2,000 字符（超出部分在注册时截断并标注为已截断，这是工具说明自身的长度上限）；工具检索返回该工具声明的完整说明
 - 每个工具带三项风险标记，随清单一并展示（常用工具与延迟工具均展示），供 Agent 判断工具性质；标记定义见本节「风险标记」
 - Agent 看到的工具清单根据当前权限动态过滤，无权使用的工具不出现在清单中
 - Agent 调用的工具不在其可见范围（不在配置档案的工具范围，或被权限规则收窄后不可用）时，调用被直接拒绝，不进入审批，按工具不可用的拒绝提示返回（见 [F12](#f12-权限拒绝提示)（权限拒绝提示））
@@ -71,11 +71,11 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 
 - Agent 可以读取指定路径的文本文件，读取结果附带行号，行号与文件实际行一一对应——行号是 Agent 定位内容和指定编辑位置的基准
 - Agent 可指定读取范围：`offset`（起始行，缺省从第 1 行开始）与 `limit`（读取行数，缺省读到上限或文件末尾），分段消费文件内容
-- 单次读取受三处上限约束，任一项触及即停止：2,000 行、合计 50 KB（按 UTF-8 字节计）、单行 2,000 字符
+- 单次读取受两处停止上限约束，任一项触及即停止：2,000 行、合计 50 KB（按 UTF-8 字节计）；另设单行字符上限 2,000 字符，它只作用于单行、不触发读取停止
 - 触发行数或合计字节上限时，Agent 收到明确的续读指引——告知已读行范围、剩余行数和下一步从哪行继续（续读以 `offset` 推进），可通过续读实现完整内容读取
 - 单行超长时只截断该行并标注该行的原始字符长度，其余行照常返回，不因单行超长而使整次读取失败；被截断行的剩余字符不经续读补全，需要该行完整内容时 Agent 改用搜索或命令工具按字符范围取回
 - Agent 在同一轮对话中以相同参数重复读取相同文件且文件未变更时，系统告知文件未变更而非重新返回内容（去重仅在同一轮对话内生效，新一轮对话重新返回内容）
-- Agent 可以读取图片文件（PNG/JPEG/WebP/GIF）——图片读取与文本读取是**两个独立工具**：读图不常用，独立成工具，接入后按延迟工具处理（见 [F1](#f1-工具注册与发现)（工具注册与发现）），不受文本读取的行号与分段读取规则约束
+- 图片读取是独立工具（PNG/JPEG/WebP/GIF），与文本读取是两个工具：读图不常用，独立成工具、接入后按延迟工具处理（见 [F1](#f1-工具注册与发现)（工具注册与发现）），不受文本读取的行号与分段读取规则约束；当前该工具不在工具清单中，Agent 不可见也不可调用（见本节末条）
 - 图片格式按文件内容特征识别，不依赖文件扩展名——无扩展名的路径也能正确识别
 - 读取前自动压缩过大的图片：长边超过 2000 像素时缩放到 2000 像素（硬上限）；压缩后编码体积仍超过模型单请求大小限制的，读取被拒绝并告知原因；当前 Session 所选模型不支持图片输入时，图片读取被拒绝并告知原因
 - 遇到既非文本也非支持格式图片的二进制文件时，文本读取被拒绝并告知检测到的类型；若为支持格式的图片且图片工具已接入，提示改用图片读取工具
@@ -90,7 +90,7 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 **工具说明**
 
 - `Read` — `Read a text file and return its content with line numbers.`
-- `ReadImage` — `Read a PNG/JPEG/WebP/GIF image and return the image itself. The format is detected from the file content, not the file extension. Large images are downscaled to fit the model's input limit. Requires the current model to accept image input.`（本工具暂不接入产品，文案随接入启用）
+- `ReadImage` — `Read a PNG/JPEG/WebP/GIF image and return the image itself. The format is detected from the file content, not the file extension. Large images are downscaled to fit the model's input limit. Requires the current model to accept image input.`（图片工具可见时启用）
 - `Ls` — `List the entries in a directory.`
 - `Grep` — `Search file contents with a regular expression; returns matching lines with line numbers.`
 
@@ -98,7 +98,7 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 
 - `Use Read — not shell commands like cat — to inspect text files. Results are line-numbered; use offset and limit to continue through a large file.`
 - `Use Ls and Grep — not shell ls or grep — for directory listing and content search.`
-- `Use ReadImage to look at an image; it downscales large images, so do not install image libraries or build thumbnails.`（随图片工具接入启用）
+- `Use ReadImage to look at an image; it downscales large images, so do not install image libraries or build thumbnails.`（图片工具可见时适用）
 
 **错误与提示**（`<path>` 为实际路径，`<type>` 为检测到的类型，`<regex>` 为正则表达式，`<start>`/`<end>`/`<total>`/`<N>` 为实际数值）
 
@@ -107,7 +107,7 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 二进制文件 — `cannot read "<path>": binary file (<type>)`；若为支持格式的图片、且图片工具已接入，追加 `; use ReadImage to view it`
 - 文件为空（提示，非错误）— `The file is empty.`
 - 单次读取截断 — `(Showing lines <start>-<end> of <total>. Use offset=<end+1> to continue.)`
-- 单行截断（附在该行末尾）— `... (line truncated to <N> chars)`
+- 单行截断（附在该行末尾，`<N>` 为该行原始字符数）— `... (line truncated; original length <N> chars)`
 - 起始行越界 — `offset <start> is out of range for "<path>" (<total> lines)`
 - 同轮重复读取命中去重（提示，非错误）— `File unchanged since the last read; reuse the earlier result.`
 - 目录不存在 — `cannot list "<path>": not found`
@@ -115,9 +115,8 @@ Agent 需要读取文件内容来理解代码、配置和数据。
 - 目录条目截断 — `(Showing <N> of <total> entries.)`
 - 搜索正则非法 — `invalid regular expression: <regex>`
 - 搜索命中截断 — `(Found <N> of <total> matches.)`
-- 模型不支持图片输入（随图片工具接入启用）— `cannot read "<path>" as an image: the current model does not accept image input`
-- 图片超过尺寸上限（随图片工具接入启用）— `cannot read "<path>" as an image: it exceeds the 2000px limit; provide a smaller image and retry`
-- 图片编码后超请求大小限制（随图片工具接入启用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; provide a smaller image and retry`
+- 模型不支持图片输入（图片工具可见时适用）— `cannot read "<path>" as an image: the current model does not accept image input`
+- 图片编码后超请求大小限制（图片工具可见时适用）— `cannot read "<path>" as an image: the image exceeds the model's request size limit; provide a smaller image and retry`
 
 ### F3. 文件写入与编辑
 
@@ -157,7 +156,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - 未读取先修改 — `cannot modify "<path>": the file has not been read — read it first, then retry`
 - 读取后文件被改动（含分次编辑同一文件的后续一次）— `cannot modify "<path>": the file changed after it was read — read it again, then retry`
 - 替换原文匹配零处 — `cannot edit "<path>": the old text was not found — the current content is attached; fix the text and retry`
-- 替换原文匹配多处 — `cannot edit "<path>": the old text appears <N> times — widen it to make it unique, or set replace_all`
+- 替换原文匹配多处 — `cannot edit "<path>": the old text appears <N> times — the current content is attached; widen it to make it unique, or set replace_all`
 - 编辑条目重叠 — `cannot edit "<path>": entries <N> and <M> overlap — merge them or make them disjoint`
 - 全文替换成功（返回，非错误）— `Replaced <N> occurrences in "<path>".`
 
@@ -167,16 +166,16 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 
 Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程交互的操作。
 
-- Agent 可以执行 Shell 命令，命令以 Session 所属 Agent-User 组合的 workspace 为工作路径（见 [permission §F3](permission.md)（权限决策模型））；实际执行位置（沙盒内或宿主上）由沙盒模式决定，Agent 可在单次调用中指定（见 [permission §F12](permission.md)（沙盒））；workspace 不可用时命令被拒绝
+- Agent 可以执行 Shell 命令，命令以 Session 所属 Agent-User 组合的 workspace 为工作路径（见 [permission §F3](permission.md)（权限决策模型））；实际执行位置（沙盒内或宿主上）由沙盒模式决定，Agent 可在单次调用中指定（指定与沙盒模式分流的优先关系见 [permission §F12](permission.md)（沙盒））；workspace 不可用时命令被拒绝
 - 命令的标准输出与标准错误合并为单一输出流返回，输出内附带退出码，Agent 据此完整了解命令的执行结果
 - Agent 可以为命令设置超时时间，上限 600 秒；超过上限的设置被截断到上限并在返回中告知（提示文案以毫秒呈现）
 - Agent 设置了超时时间时，命令按该时长执行，达到时转入后台继续运行；未设置时由系统阻塞预算（120 秒）兜底，达到后同样转入后台。转入后台期间 Agent 不被阻塞等待，结果中告知命令仍在执行（含任务标识），完成后收到通知（详见 [F5](#f5-后台任务执行)（后台任务执行））
 - 显式以后台方式提交的命令不受超时时间与系统阻塞预算影响
 - 命令不设总执行时长上限：Session 存续期间的超长命令不被系统按时长强制终止；Session 停止时前台阻塞执行与后台运行中的命令一并终止，Session 销毁时其输出一并回收（见 [F5](#f5-后台任务执行)（后台任务执行））
 - 命令输出超出显示上限（30,000 字符）时，保留输出前段，完整输出持久化到文件，Agent 收到文件路径、原始大小和输出开头预览，可按需读取完整内容（读取本身受 [F2](#f2-文件读取)（文件读取）的上限约束，单行超长时按 F2 用命令工具取回）
-- 命令执行结束后（无论退出码），该命令的持久化输出文件的存放位置与生命周期与后台任务输出文件一致（详见 [F5](#f5-后台任务执行)（后台任务执行）「输出文件生命周期」）；超时转后台的命令按 [F5](#f5-后台任务执行)（后台任务执行）的后台任务规则处理
+- 命令执行结束后（无论退出码），已因上述上限而生成的持久化输出文件，其存放位置与生命周期与后台任务输出文件一致（详见 [F5](#f5-后台任务执行)（后台任务执行）「输出文件生命周期」）；未超上限的命令不生成输出文件；超时转后台的命令按 [F5](#f5-后台任务执行)（后台任务执行）的后台任务规则处理
 - 对于非零退出码不代表失败的命令（如 grep 未命中、diff 发现差异），Agent 看到的执行结果中附带退出码的语义说明，避免误判为命令失败。语义说明由系统内置的「命令 → 退出码含义」对照表提供，无内置语义的非零退出码按失败呈现
-- Agent 不使用 sleep 命令做延迟等待或定时轮询——延迟后重试、定时检查状态属于反模式，需要等待时应使用后台执行
+- Agent 不使用 sleep 命令做延迟等待或定时轮询（该约束面向 Agent 的文案见 [F5](#f5-后台任务执行)（后台任务执行）的使用引导）
 
 面向 Agent 的提示词原文（产品定义，开发不改写），三类分列：**工具说明**（随工具定义呈现）、**使用引导**（System Prompt 工具区注入）、**错误与提示**（运行时返回或注入消息）。
 
@@ -208,7 +207,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 - Agent 在下一轮对话开始时看到当前 Session 中正在运行的后台任务列表
 - Agent 可以终止指定的后台任务；被 Agent 主动终止的任务不再发送终态通知——终止结果在工具返回中已告知
 - Agent 不应主动轮询检查后台任务是否完成——完成后会自动收到通知
-- 后台任务到达终态（完成/失败/被终止）后，Agent 在下一轮对话开始时自动收到终态通知（含任务标识、终态、退出码、输出位置）
+- 后台任务到达终态（完成/失败）后，Agent 在下一轮对话开始时自动收到终态通知（含任务标识、终态、退出码、输出位置）；被 Agent 主动终止与 Session 停止引发的终止不发通知（见下条与 F10 说明）
 - Session 停止引发的批量终止不发通知——Session 停止后无通知接收方
 - 后台任务运行中被交互式提示（如确认对话框）卡住时，Agent 收到警告通知，建议终止该任务并以非交互方式重新运行（如用管道输入自动应答）；同一任务不重复告警
 - Session 停止时，该 Session 的所有后台任务进程被终止，已产生的输出保留可读
@@ -340,13 +339,13 @@ Shell 命令在执行前需要经过结构解析。
 
 工具操作被拒绝时，Agent 需要知道自己被哪个权限维度挡住、具体是哪个对象被拒绝，以便换一条路径尝试或告知 Owner，而不是反复重试同一操作。
 
-- 所有权限类拒绝使用同一句式，只替换操作类型、被拒对象与拒绝原因，不按场景另写一套
+- 所有权限类拒绝使用同一句式，只替换操作类型、被拒对象与拒绝原因，不按场景另写一套；非权限类失败（路径不存在、类型不符、格式不支持等）按各功能域自己的文案返回，不套用本句式
 - 提示点名具体对象——命令给出实际命令、文件操作给出实际路径、工具给出工具名，并给出拒绝原因
 - 被权限直接拒绝的操作不进入审批
 - 进入审批的操作挂起等待，等待期间不返回任何提示；未获放行时使用同一句式返回（不说明该结果是否由 Owner 的审批决策产生）
 - 审批通过不单独通知 Agent——操作直接执行，执行结果按该工具通常的返回方式返回
 - 工具不可用（不在配置档案的工具范围，或被权限规则收窄）被强行调用时的拒绝同样使用该句式（见 [F1](#f1-工具注册与发现)（工具注册与发现））
-- 命令解析无法确定的处置见 [F8](#f8-命令安全防护)（命令安全防护）：默认模式进入审批（子 Session 不进入审批，直接返回缺 `command` 维度的拒绝提示），等待期间不返回提示，未获放行时同样返回缺 `command` 维度的拒绝提示；严格模式直接返回缺 `command` 维度的拒绝提示；放行模式直接执行
+- 命令解析无法确定的命令，其拒绝提示同样使用上述统一句式；按沙盒模式的分流（进入审批 / 直接拒绝 / 直接执行）见 [permission §F2](permission.md)（权限维度）、[permission §F12](permission.md)（沙盒）
 
 面向 Agent 的提示词原文（产品定义，开发不改写）：
 
@@ -371,7 +370,7 @@ Shell 命令在执行前需要经过结构解析。
   工具调用维度不取 `<permission>` 值：工具不可用时改按 `<reason>` 的原因呈现
 - `<reason>` 取值及对应文案：
   - 工具不可用 — `the tool is not available to this agent`
-  - 权限不足 — `the <permission> permission is missing`
+  - 权限不足 — `the <permission> permission is missing`（沙盒模式、高风险约束、审批未获放行导致的拒绝同样取本项，只换对应的权限维度）
 
 > **交叉引用**：审批的触发条件、等待与回调机制。详见 [permission §F5](permission.md)（审批工作流）。
 
@@ -380,7 +379,7 @@ Shell 命令在执行前需要经过结构解析。
 ## 非功能需求
 
 - 文件读取、工具发现等高频工具操作在用户感知上瞬时完成
-- 工具清单的总长度不能无限增长——超出时优雅截断并给出探索指引，不影响 Agent 了解可用工具范围
+- 工具清单的总长度不能无限增长——超出时优雅截断，并给出通过工具检索了解未展示工具的指引
 - Shell 命令的超时参数须有上限值，防止 Agent 设定过长超时；命令不设单条总执行时长上限，其终止与输出回收由 Session 生命周期兜底（Session 停止时一并终止、Session 销毁时回收输出）
-- 后台任务不留孤儿资源——Session 销毁后，其后台任务不再运行，输出文件无残留
+- 后台任务不留孤儿资源——Session 停止时正在运行的后台任务一并终止，Session 销毁时输出文件无残留
 - 命令结构解析不应引入明显的执行前延迟
