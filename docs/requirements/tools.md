@@ -10,6 +10,17 @@ Agent 需要通过工具与外界交互——读取文件、修改代码、执�
 
 Agent 需要在对话开始时就了解自己可用的工具，并在必要时按需获取更多细节。
 
+#### 工具范围
+
+Agent 可使用的工具范围由配置档案中的工具白名单与工具黑名单控制。新建 Agent 的白名单默认包含文件读写类工具与 shell 工具，其余工具需显式授予。初始 Agent 的工具白名单不限制，其工具范围覆盖全部工具。
+
+> **交叉引用**：工具范围与权限规则如何共同决定可用工具，以及 spawn 工具的例外，详见 [permission §F2](permission.md)（权限维度）。
+> **交叉引用**：初始 Agent 的创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）。
+> **交叉引用**：工具范围配置的 Session 生效边界详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：配置变更的检测与重载详见 [config §F4](config.md)（配置重载）。
+
+#### 工具清单与检索
+
 - Agent 在 System Prompt 中看到一份工具清单，包含每个工具的名称、分组归属与说明内容（说明内容的详细程度按下方常用 / 延迟两级划分）
 - 工具清单按**常用 / 延迟**两级呈现，划分依据是工具所属的类别，与工具由哪个模块注册无关；一个工具可跨多个类别，只要其中任一类别属常用即按常用呈现：
   - **常用工具**：类别固定为以下几类，其完整说明直接呈现给 Agent，无需额外操作即可调用：
@@ -17,7 +28,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
     - 文件写入、编辑与版本控制（[F3](#f3-文件写入与编辑)（文件写入与编辑））
     - Shell 命令执行（[F4](#f4-shell-命令执行)（Shell 命令执行））
     - 后台任务执行（同一命令工具的 `run_in_background` 参数，以及后台任务列表、终止与结果读取能力，见 [F5](#f5-后台任务执行)（后台任务执行））
-    - 子 Session 管理（创建见 [agent §F7](agent.md)（子 Session 创建（Spawn））、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调））
+    - 子 Session 管理（创建、发送任务与终止见 [session §F4](session.md)（子 Session 委托与协调））
     - 工具检索入口（见本节「Agent 可以通过关键词、工具名或要完成的事情查找工具」）
   - **延迟工具**：类别不属上述常用类别的全部工具，含本节的权限状态查询；[F9](#f9-工具扩展接入)（工具扩展接入）中各模块注册的工具按同一类别规则判定，不因注册来源改变归属。仅展示名称和风险标记，Agent 可按需查询完整说明
 - Agent 可以通过关键词、工具名或要完成的事情查找工具——系统按相关度匹配，最多返回 5 个最相关的工具；按准确工具名检索时直接返回该工具。检索结果同样只包含当前可见范围内的工具
@@ -26,7 +37,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 - 每个工具带三项风险标记，随清单一并展示（常用工具与延迟工具均展示），供 Agent 判断工具性质；标记定义见本节「风险标记」
 - Agent 看到的工具清单根据当前权限动态过滤，无权使用的工具不出现在清单中
 - Agent 调用的工具不在其可见范围（不在配置档案的工具范围，或被权限规则收窄后不可用）时，调用被直接拒绝，不进入审批，按工具不可用的拒绝提示返回（见 [F12](#f12-权限拒绝提示)（权限拒绝提示））
-- spawn 工具的可用性是上述可见范围规则的例外（见 [agent §F9](agent.md)（子 Session 创建控制））
+- spawn 工具的可用性是上述可见范围规则的例外（见 [permission §F2](permission.md)（权限维度））
 - Agent 可以查询当前的权限状态，了解自己能执行哪些操作（权限状态的范围见 [permission §F2](permission.md)（权限维度））
 
 #### 风险标记
@@ -63,7 +74,7 @@ Agent 需要在对话开始时就了解自己可用的工具，并在必要时�
 
 > **交叉引用**：工具清单随 System Prompt 组装刷新，两次组装之间不响应注册中心变更。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
-> **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单）。详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：工具范围配置在 Agent 档案中的承载维度详见 [agent §F1](agent.md)（Agent 配置档案）。
 
 ### F2. 文件读取
 
@@ -328,7 +339,7 @@ Shell 命令在执行前需要经过结构解析。
 
 各功能域已内嵌本域工具的提示词原文（工具说明 / 使用引导 / 错误与提示或通知与回执）；并发调用的使用引导归入 F6，后台执行的使用引导归入 F5——同一约束只在一处定义，其他位置引用。本节收录其余**跨工具域**行为约束（产品定义，非实现细节），每条标注注入位置。
 
-**子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [agent §F7](agent.md)（子 Session 创建（Spawn））、[session §F4](session.md)（子 Session 委托与协调））：
+**子 Session 委派**（注入位置：spawn 工具及子 Session 管理工具的系统提示词引导，子 Session 交互详见 [session §F4](session.md)（子 Session 委托与协调））：
 
 - `Delegated work auto-announces when it finishes. Keep doing independent work while it runs; do not poll its status or re-query the subagent list.`
 - `Do not invent or predict its result before it arrives — if asked, say the work is still running.`

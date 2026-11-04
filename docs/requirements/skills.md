@@ -41,7 +41,8 @@ SKILL.md 正文（frontmatter 之后的指令文本）支持变量替换，User 
 
 > 技能仅提供纯 prompt 指令，不携带任何工具权限。
 >
-> **交叉引用**：工具权限由 Agent 配置统一管理。详见 [agent §F1](agent.md)（Agent 配置档案）、[permission §F2](permission.md)（权限维度）。
+> **交叉引用**：工具范围详见 [tools §F1](tools.md)（工具注册与发现）。
+> **交叉引用**：工具调用权限详见 [permission §F2](permission.md)（权限维度）。
 
 ### F4. 技能清单
 
@@ -77,8 +78,14 @@ Agent 在对话中根据技能的 description 和 when-to-use 判断是否调用
 
 ### F8. 多 Agent 隔离
 
+Agent 可用的技能范围由其配置档案中的技能白名单控制。初始 Agent 的技能白名单不限制。
+
 多个 Agent 各自拥有独立的技能目录。Agent 专属目录下的技能仅对该 Agent 可见，不会影响其他 Agent。
-> **交叉引用**：Agent 可用技能范围由 Agent 配置的白名单决定。详见 [agent §F1](agent.md)（Agent 配置档案）。
+
+> **交叉引用**：技能范围配置在 Agent 档案中的承载维度详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：技能范围配置的 Session 生效边界详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：配置变更的检测与重载详见 [config §F4](config.md)（配置重载）。
+> **交叉引用**：初始 Agent 的创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）。
 
 ### F9. 错误容错
 

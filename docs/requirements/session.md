@@ -13,9 +13,11 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 对话历史是 Session 的组成部分，与 Session 不可分离：Session 存在即包含其对话历史，不存在无归属的对话历史
 - Session 分为**主 Agent Session**（由 User 消息直接触发创建，不由其他 Session 派生）与**子 Session**（由 Agent 委托创建、从属于某父 Session）；两者的生命周期判定框架一致（均按 F6 的四维 inactive 判据归档与清理）
 - User 发送消息时，系统自动查找该对话对应的 Session——若存在未归档 Session 则复用其中最后活跃时间最新的一个；否则若存在归档中或已归档 Session，则恢复其中最后活跃时间最新的一个；否则创建新 Session
+- 无法延续原对话上下文而开启新 Session 时，系统告知 User 上下文已重置
 - 主 Agent Session 由入站消息的平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
 - 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，不降级为一次性子 Session
-- Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session
+- Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session；系统记录每个 Session 对应的 Agent ID
+- Agent 配置档案与注册清单变更在新建 Session 时生效：新建 Session（含 spawn 创建的子 Session）按该时点的配置档案加载，已运行的 Session 沿用其创建时加载的配置。被移出注册清单的 Agent 不再创建新 Session，已有 Session 不受影响
 - 处于归档中或已归档的 Session 被 User 通过消息访问时（按四项标识匹配）自动恢复：
   - 若 Session 归档中，等待归档完成后自动恢复；等待期间提示 User「会话归档中，稍后恢复…」
   - 若 Session 已归档，恢复时提示 User「正在恢复会话…」
@@ -25,6 +27,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 > **交叉引用**：系统崩溃后的恢复流程详见 [F7](#f7-运行健康与安全)（运行健康与安全）。
 > **交叉引用**：四项标识中的「账号标识」解析走「IM 用户 → User」入站方向，双向绑定与基数规则详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：本节在入站链路中的位置详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
+> **交叉引用**：Agent 配置档案与注册清单变更的检测及重载详见 [config §F4](config.md)（配置重载）。
 
 ### F2. 恢复时的追加指令保留
 
@@ -88,26 +91,58 @@ User-specified retention focus: <retention focus, or "none">
 
 ### F4. 子 Session 委托与协调
 
-Agent 可以将子任务委托给子 Session（可并行委托多个），等待结果后继续决策。
+Agent 可以将子任务委托给子 Session（可并行委托多个），收到结果后继续决策。
 
-- 子 Session 的任务描述注入到该子 Session 自身的 System Prompt 中，不属于对话消息，压缩时不受影响
+#### 子 Session 创建（Spawn）
+
+spawn 指以目标 Agent 的身份创建子 Session。创建时调用方指定：
+
+- **目标 Agent**：使用其配置档案创建子 Session；未指定时默认取当前 Agent，即父 Agent 自身
+- **任务描述**：子 Session 要完成的任务
+- **生命周期**：一次性执行（默认）或持久存活
+- **上下文模式**：仅接收任务描述，或继承父 Session 的对话历史（Fork 模式）
+- **模型覆盖**：可选显式指定子 Session 的模型
+- **行为模板**：可选注入系统预置的行为模板（如“只读研究”“校验审计”）；模板不改变 Agent 的静态配置档案
+- **超时预警与硬超时**：可选显式指定，取值规则见下方“超时配置与通知”
+
+一次性子 Session 为单一任务创建，产出最后一条 assistant 消息后即结束。
+
+持久子 Session 与主 Agent Session 一致，按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 恢复，不降级为一次性子 Session。
+
+子 Session 的任务描述注入到该子 Session 自身的 System Prompt 中，不属于对话消息，压缩时不受影响。
+
+Fork 模式在创建时将父 Session 的完整对话历史作为子 Session 自身的对话消息继承，使其理解已发生的上下文后再执行新任务；非 Fork 模式不继承父 Session 的对话历史。
+
+#### 创建控制
+
+父 Agent 的配置控制子 Session 的创建行为：
+
+- **目标白名单**：限制可以 spawn 的目标 Agent 范围，默认空列表，即默认仅可委托自身；通配符 `*` 表示不限制。无论配置如何填写，白名单都强制包含该 Agent 自身，能否 spawn 仍受层级深度约束
+- **层级深度**：限制嵌套的最大层数，默认为 1；0 表示禁止 spawn 任何子 Session
+- **并发数量**：限制同一父 Agent 下同时存活的子 Session 数量上限，默认为 2
+- **目标有效性**：目标 Agent（显式指定或默认取父 Agent 自身）必须是注册清单中已注册、配置有效的 Agent
+
+层级深度受父 Agent 配置和目标 Agent 配置的双重约束，取两者中更严格的值。目标 Agent 进一步 spawn 子 Session 时也受自身层级深度配置的约束。
+
+#### 子 Session 控制与结果回传
+
 - Agent 可以向已有子 Session 发送新任务——未完成的子 Session 与持久子 Session 均可接收（steer）。steer 只作用于本 Session 派生的子 Session，不构成 Agent 之间的通信
 - Agent 可以终止子 Session，级联终止其所有后代（kill）。终止 = 停止该子 Session 正在执行的工具调用与 LLM 响应，是运行时动作，不是存储生命周期的一个状态；已被终止的子 Session 不再计入父 Session 的「子 Session 未完成」维度，其存储生命周期照常按 F6 的 inactive 判据推进
-- 子 Session 的硬超时：运行时长达到该子 Session 的硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知（父 Session 已归档则丢弃）。硬超时值不小于超时预警时间（否则预警不会触发）；硬超时的取值及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
-- 持久子 Session：Agent 可以创建持久存活的子 Session，其生命周期与主 Agent Session 一致——同样按 F6 的四维 inactive 判据归档与清理，系统重启后按 F1 一致恢复，不降级为一次性子 Session（一次性子 Session：为单一任务创建、产出最后一条 assistant 消息后即结束的普通子 Session）
-- 系统维护 Session 的父子关系，支持查询某 Session 的子 Session、完整子树与父 Session；销毁一个 Session 时，其尚未销毁的子 Session 一并销毁（级联清理）
-- 子 Session 完成后，其结果以完成通知的形式通过消息队列注入父 Session（带去重保护）；该通知按 F10 的非 User 消息排队规则处理，Agent 不需要轮询
-- 子 Session 超时预警通知：
-  - 子 Session 的运行时长（自创建起计时）达到设定的超时预警时间时，系统向父 Session 注入超时预警通知。通知内容包含：设定的超时预警时间、已运行时长、子 Session 上下文窗口的 token 使用情况
-  - 若父 Agent 未终止该子 Session，系统此后以「超时预警时间 × 间隔比例」为间隔再次注入通知，循环往复。间隔比例可配置（默认 50%）
-  - 父 Agent 收到通知后自行决定：终止子 Session、继续等待，或向 User 汇报
-  - 子 Session 超时预警时间的来源及优先级见 [agent §F7](agent.md)（子 Session 创建（Spawn））
+- 系统维护 Session 之间的创建层级关系，支持查询某 Session 的子 Session、完整子树与父 Session；销毁一个 Session 时，其尚未销毁的子 Session 一并销毁（级联清理）
+- 子 Session 完成后，其结果以完成通知的形式通过消息队列注入父 Session（带去重保护）；该通知按 F10 的非 User 消息排队规则处理，Agent 不需要轮询，父 Agent 不阻塞等待
 - 父 Session 每轮对话开始时，系统注入当前未完成子 Session 摘要：未完成子 Session 数量及每个子 Session 的概要信息（子 Session 的 Agent 标识、任务简述、已运行时长）
 
-> **交叉引用**：子 Session 的创建、超时取值优先级详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
-> **交叉引用**：子 Session 创建控制（目标白名单、层级深度、并发数量）详见 [agent §F9](agent.md)（子 Session 创建控制）。
-> **交叉引用**：持久子 Session 控制详见 [agent §F11](agent.md)（持久子 Session 控制）。
-> **交叉引用**：父子关系追踪详见 [agent §F15](agent.md)（Spawn 层级追踪）。
+#### 超时配置与通知
+
+超时预警是子 Session 的预期执行时长，全局默认 10 分钟；硬超时是绝对最大执行时长，全局默认 48 小时。两者均按以下优先级取值：spawn 显式参数 > 目标 Agent 配置 > 全局默认值。硬超时值不小于超时预警时间，否则预警不会触发。
+
+- 子 Session 的运行时长（自创建起计时）达到设定的超时预警时间时，系统向父 Session 注入超时预警通知。通知内容包含：设定的超时预警时间、已运行时长、子 Session 上下文窗口的 token 使用情况
+- 若父 Agent 未终止该子 Session，系统此后以「超时预警时间 × 间隔比例」为间隔再次注入通知，循环往复。间隔比例可配置，默认 50%
+- 父 Agent 收到通知后自行决定：终止子 Session、继续等待，或向 User 汇报
+- 运行时长达到硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知；父 Session 已归档则丢弃
+
+> **交叉引用**：子 Session 的模型配置与取值优先级详见 [llm §F11](llm.md)（Session 模型选择）。
+> **交叉引用**：spawn 工具的权限例外详见 [permission §F2](permission.md)（权限维度）。
 > **交叉引用**：子 Session 管理工具（创建 / 发送任务 / 终止）的清单归属详见 [tools §F1](tools.md)（工具注册与发现）。
 > **交叉引用**：子 Session 的权限沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）。
 > **交叉引用**：子 Session 相关各类注入通知（完成通知、超时预警通知、未完成子 Session 摘要）的排队规则详见 [F10](#f10-消息排队)（消息排队）。
@@ -139,7 +174,7 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 
 > **交叉引用**：Session 配置的重载机制详见 [config §F4](config.md)（配置重载）。
 > **交叉引用**：Session 生命周期参数的生效机制与归属详见 [config §F7](config.md)（生效机制与重启类判定）。
-> **交叉引用**：Agent 配置与注册清单变更对 Session 的生效边界详见 [agent §F6](agent.md)（运行时配置查询）。
+> **交叉引用**：Agent 配置与注册清单变更对 Session 的生效边界详见 [F1](#f1-对话持久化与恢复)（对话持久化与恢复）。
 > **交叉引用**：后台任务输出文件随 Session 销毁回收详见 [tools §F5](tools.md)（后台任务执行）。
 
 ### F7. 运行健康与安全
@@ -223,7 +258,7 @@ Session 模块在以下环节记录调试日志：
 
 - **可靠性**：对话历史在系统重启或进程异常退出后完整保留，已写入历史的消息不丢失；崩溃时的操作识别与恢复详见 [F7](#f7-运行健康与安全)（运行健康与安全）
 - **可恢复性**：系统重启后自动恢复所有未归档 Session。恢复耗时复杂度 O(A)，与 N 无关
-- **性能**：Agent 回复实时展示（展示的片段粒度见 [im_adapter §F4](im_adapter.md)（流式增量渲染））。后台维护任务（归档扫描）不阻塞 User 对话的响应
+- **性能**：Session 创建不出现可感知等待；Agent 回复实时展示（展示的片段粒度见 [im_adapter §F4](im_adapter.md)（流式增量渲染））。后台维护任务（归档扫描）不阻塞 User 对话的响应
 - **安全性**：对话历史按 Session 隔离，仅该 Session 所属 User 与其绑定的 Agent 可访问，跨 User / 跨 Agent 不可读；Session 销毁后对话历史不可恢复
 - **可配置性**：inactive 时长、清理时长按 Agent 独立配置，且主 Agent Session 与子 Session 可分别设置；压缩的告警阈值 / 压缩阈值 / 保留区比例 / 熔断失败次数 / 摘要模型、子 Session 超时预警时间 / 间隔比例按 Agent 独立配置；各配置项独立回退到系统默认值。生效时机：inactive 与清理配置对已有 Session 粘性保留（见 F6），压缩相关配置自下一次上下文检测起生效（见 F3）。配置重载机制详见 [config §F4](config.md)（配置重载）
 - **可观测性**：Session 的关键操作（创建 / 查找 / 归档恢复、对话历史追加与修改、压缩、消息注入、活跃维度变化、子 Session 创建与完成、健康检测）均记录调试日志（见 [F12](#f12-调试日志)（调试日志）），可据以排查问题

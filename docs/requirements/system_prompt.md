@@ -8,6 +8,8 @@ System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agen
 
 ### F1. 身份与行为准则定义
 
+Owner 通过 Agent 配置档案指定 Bootstrap 文件目录与身份加载模式。身份加载模式分完整模式与精简模式，控制该 Agent 主 Agent Session 的 Bootstrap 加载范围，对子 Session 无效；Owner 也可显式声明该 Agent 不使用任何 Bootstrap 文件。各 Session 类型的加载范围见 F8。
+
 Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份声明、Owner 信息、工具使用指南
@@ -18,7 +20,9 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
 > **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（Owner 可查阅的行为规则）。
-> **交叉引用**：Bootstrap 文件的身份加载模式（完整/精简）和所在目录路径，由 [agent §F1](agent.md)（Agent 配置档案）、[agent §F2](agent.md)（身份与人格分离）定义。
+> **交叉引用**：人格加载配置在档案中的承载维度详见 [agent §F1](agent.md)（Agent 配置档案）。
+> **交叉引用**：人格加载配置随 Agent 档案生效的边界详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：能力配置与身份人格的区分详见 [agent §F2](agent.md)（身份与人格分离）。
 > **交叉引用**：Session 创建/恢复/上下文压缩完成时的重建触发。详见 [F6](#f6-内容缓存与自动刷新)（内容缓存与自动刷新）。
 > **交叉引用**：压缩行为本身详见 [session §F3](session.md)（长对话压缩）。
 
@@ -29,7 +33,7 @@ Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在�
 - **工具清单内容**：字段内容、常用/延迟分组、风险标记、长度截断与探索提示由 [tools §F1](tools.md)（工具注册与发现）定义。本模块消费 tools 模块产出的工具清单结果
 - 技能清单的注入位置和组装时机由 [skills §F4](skills.md)（技能清单）定义。技能正文内容在模型决定使用时按需注入，不预先进入 System Prompt
 
-> **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单），由 [agent §F1](agent.md)（Agent 配置档案）定义。本模块负责将可用工具清单产出为 System Prompt 中的分组描述文本。
+> **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单）详见 [tools §F1](tools.md)（工具注册与发现）。本模块负责将可用工具清单产出为 System Prompt 中的分组描述文本。
 
 ### F3. 长期记忆注入
 
@@ -101,7 +105,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 > **注**：F4 运行时上下文（频道、workspace）对所有 Session 类型均加载。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
 
-> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数详见 [agent §F7](agent.md)（子 Session 创建（Spawn））。
+> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ## 非功能需求
 
