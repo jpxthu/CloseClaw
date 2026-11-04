@@ -149,8 +149,9 @@ pub use middleware::{MiddlewareContext, MiddlewareError, OutboundMiddleware};
 pub use model_spec::ModelSpec;
 pub use path_utils::canonicalize_or_clone;
 pub use permission_admission::{
-    ExecLocation, ExecutionPolicy, MessageDirection, PermissionDecision, PermissionOperation,
-    PermissionRequest,
+    ApprovalCard, ApprovalDecision, ApprovalDecisionKind, ApprovalDelivery, ApprovalKind,
+    DecisionScope, ExecLocation, ExecutionPolicy, MessageDirection, PermissionDecision,
+    PermissionOperation, PermissionRequest, RegistrationConfirmation, RegistrationDecision,
 };
 pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
 pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};

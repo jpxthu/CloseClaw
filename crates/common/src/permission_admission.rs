@@ -1,9 +1,12 @@
-//! Permission decision payload family for cross-crate use.
+//! Permission decision and approval payload families for cross-crate use.
 //!
 //! Defines the input/output payloads of one permission evaluation —
 //! [`PermissionRequest`], [`PermissionOperation`], [`ExecutionPolicy`] and
-//! [`PermissionDecision`] — plus the two auxiliary enums [`ExecLocation`]
-//! and [`MessageDirection`].
+//! [`PermissionDecision`] — the approval push and decision payloads —
+//! [`ApprovalCard`], [`ApprovalDecision`], [`RegistrationConfirmation`] and
+//! [`ApprovalDelivery`] — plus the auxiliary enums [`ExecLocation`],
+//! [`MessageDirection`], [`ApprovalKind`], [`ApprovalDecisionKind`],
+//! [`DecisionScope`] and [`RegistrationDecision`].
 //!
 //! Pure data carriers only: rule evaluation, approval queuing and audit
 //! persistence belong to the `closeclaw-permission` module.
@@ -147,4 +150,150 @@ pub enum PermissionDecision {
         /// Risk level of the denied operation (for audit and card hints).
         risk_level: RiskLevel,
     },
+}
+
+// ---------------------------------------------------------------------------
+// Approval kinds
+// ---------------------------------------------------------------------------
+
+/// Kind of an approval request, rendered as the card type on the
+/// [`ApprovalCard`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalKind {
+    /// Permission denial waiting for the Owner's decision.
+    Operation,
+    /// Non-whitelisted command requesting execution on the host.
+    HostExecution,
+    /// Suspicious command flagged by the command security parser.
+    Security,
+    /// New user registration request.
+    UserRegistration,
+}
+
+/// One decision option the Owner may pick for an operation approval.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDecisionKind {
+    /// Allow this operation once.
+    Once,
+    /// Add the operation object to the whitelist.
+    Whitelist,
+    /// Deny the operation.
+    Deny,
+}
+
+/// Dimension an operation approval decision applies to.
+///
+/// Command-like and tool-call operations are fixed to
+/// [`DecisionScope::Agent`]; when the Owner's own invocation is intercepted,
+/// only [`DecisionScope::Agent`] is offered.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DecisionScope {
+    /// Decision applies to the requesting Agent.
+    Agent,
+    /// Decision applies to the calling User.
+    User,
+    /// Decision applies to both the Agent and the User.
+    Both,
+}
+
+/// Owner's confirmation decision for a new user registration request.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RegistrationDecision {
+    /// Approve the registration request.
+    Approve,
+    /// Reject the registration request.
+    Reject,
+}
+
+// ---------------------------------------------------------------------------
+// Approval card
+// ---------------------------------------------------------------------------
+
+/// Approval card pushed to the Owner (approval request payload).
+///
+/// Operation approvals are addressed by `approval_no`; new user registration
+/// requests leave the operation fields empty and are addressed by
+/// `request_id`. The two identifier spaces never overlap.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalCard {
+    /// Approval number — globally unique, increasing across sessions and
+    /// channels; the Owner's approval commands target requests by this
+    /// number. Empty for new user registration requests.
+    pub approval_no: Option<u64>,
+    /// Queue correlation identifier of a new user registration request
+    /// (filled only when `kind` is [`ApprovalKind::UserRegistration`]);
+    /// approval commands never address registration requests.
+    pub request_id: Option<String>,
+    /// Type of the approval request.
+    pub kind: ApprovalKind,
+    /// Agent initiating the operation; empty for registration requests.
+    pub agent_id: Option<String>,
+    /// User ID of this round's caller; empty for registration requests.
+    pub user_id: Option<String>,
+    /// Operation being evaluated with its parameters; empty for
+    /// registration requests.
+    pub operation: Option<PermissionOperation>,
+    /// Risk level hint (for card display only, never decides whether an
+    /// operation enters approval); registration requests use the default
+    /// low level.
+    pub risk_level: RiskLevel,
+    /// Purpose statement provided for command-like operations.
+    pub purpose: Option<String>,
+    /// Parse failure reason and risk tags when the command security parser
+    /// is uncertain about a command.
+    pub security_note: Option<String>,
+    /// Network access range (host:port entries) required by host execution
+    /// requests.
+    pub network_targets: Option<Vec<String>>,
+    /// Decisions offered for this approval — high-risk operations and
+    /// non-whitelistable objects (e.g. interpreter commands) exclude the
+    /// whitelist option; registration requests carry an empty set (their
+    /// decision form is [`RegistrationConfirmation`]).
+    pub allowed_decisions: Vec<ApprovalDecisionKind>,
+    /// Usage hint text — the approval command syntax (with the approval
+    /// number and decision parameters) for operation approvals, or the
+    /// registration confirmation command syntax for registration requests.
+    pub usage_hint: String,
+    /// Timeout instant (ISO 8601); on timeout the request ends as denied.
+    pub deadline: String,
+}
+
+/// Owner's decision on one operation approval.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalDecision {
+    /// Approval number the decision targets.
+    pub approval_no: u64,
+    /// The chosen decision.
+    pub decision: ApprovalDecisionKind,
+    /// Dimension the decision applies to.
+    pub scope: DecisionScope,
+}
+
+/// Owner's confirmation of a new user registration request.
+///
+/// Lives in a separate identifier space from [`ApprovalDecision`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RegistrationConfirmation {
+    /// Queue correlation identifier of the registration request.
+    pub request_id: String,
+    /// The confirmation decision.
+    pub decision: RegistrationDecision,
+}
+
+/// Delivery result of one approval push.
+///
+/// The pusher only logs this result: no retries and no deadline extension.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ApprovalDelivery {
+    /// The card reached the Owner.
+    Delivered,
+    /// The Owner has no available channel.
+    NoChannel,
+    /// Delivery failed.
+    Failed,
 }
