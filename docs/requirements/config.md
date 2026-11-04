@@ -151,7 +151,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 账户绑定—机器人 ↔ Agent（入站路由、出站选择） | 重启生效 | 本节判定标准；使用位置见 [gateway §F4](gateway.md)（普通消息路由到对话） |
 | 账户绑定—IM 用户 ↔ User（入站解析、出站定位） | 需求层不定义（由设计文档从架构层面确定） | 本行声明 |
 | 权限配置—权限规则与沙盒模式（含权限白名单） | 即时生效 | [permission §F6](permission.md)（权限配置管理） |
-| Agent 配置档案 | 边界生效（下次新建 Session） | [agent §F6](agent.md)（运行时配置查询） |
+| Agent 配置档案 | 边界生效（下次新建 Session；记忆配置例外，见下方记忆配置行） | [agent §F6](agent.md)（运行时配置查询） |
 | Agent 注册清单 | 边界生效（下次新建 Session） | [agent §F6](agent.md)（运行时配置查询） |
 | Session 参数 | 边界生效（下次触发/新 Session） | [session §F6](session.md)（Session 归档与清理） |
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |
