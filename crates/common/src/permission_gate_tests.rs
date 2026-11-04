@@ -5,6 +5,8 @@ use std::os::unix::process::ExitStatusExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+use tokio::sync::{mpsc, oneshot};
+
 use super::*;
 use crate::permission_types::RiskLevel;
 
@@ -48,11 +50,19 @@ fn sample_card(approval_no: u64) -> ApprovalCard {
 
 struct CannedGate {
     decision: PermissionDecision,
+    received: Mutex<Vec<PermissionRequest>>,
+}
+
+impl CannedGate {
+    fn received(&self) -> Vec<PermissionRequest> {
+        self.received.lock().unwrap().clone()
+    }
 }
 
 #[async_trait::async_trait]
 impl PermissionGate for CannedGate {
-    async fn evaluate(&self, _request: PermissionRequest) -> PermissionDecision {
+    async fn evaluate(&self, request: PermissionRequest) -> PermissionDecision {
+        self.received.lock().unwrap().push(request.clone());
         self.decision.clone()
     }
 }
@@ -160,6 +170,7 @@ async fn test_shared_permission_gate_alias_returns_denied_decision() {
             reason: "operation denied by permission rules".into(),
             risk_level: RiskLevel::High,
         },
+        received: Mutex::new(Vec::new()),
     });
     let decision = gate.evaluate(sample_request()).await;
     match decision {
@@ -184,6 +195,7 @@ async fn test_shared_permission_gate_alias_returns_allowed_with_policy() {
         decision: PermissionDecision::Allowed {
             policy: Some(policy.clone()),
         },
+        received: Mutex::new(Vec::new()),
     });
     let decision = gate.evaluate(sample_request()).await;
     assert_eq!(
@@ -194,27 +206,78 @@ async fn test_shared_permission_gate_alias_returns_allowed_with_policy() {
     );
 }
 
+/// The caller's request reaches the implementation unchanged (the shared
+/// handle is a transparent passthrough, not a rewriter).
+#[tokio::test]
+async fn test_shared_permission_gate_passes_request_to_implementation_unchanged() {
+    let mock = Arc::new(CannedGate {
+        decision: PermissionDecision::Allowed { policy: None },
+        received: Mutex::new(Vec::new()),
+    });
+    let gate: SharedPermissionGate = Arc::clone(&mock) as SharedPermissionGate;
+    let request = sample_request();
+    let decision = gate.evaluate(request).await;
+    assert_eq!(decision, PermissionDecision::Allowed { policy: None });
+    let received = mock.received();
+    assert_eq!(received.len(), 1);
+    assert_eq!(
+        received[0],
+        sample_request(),
+        "the caller's request reaches the implementation unchanged"
+    );
+}
+
 /// The approval wait completes inside `evaluate` — the caller is held until
-/// the conclusion arrives (no polling, no callbacks).
+/// the conclusion arrives (no polling, no callbacks). The wait is driven by
+/// a oneshot channel so the assertions are deterministic (no fixed sleeps).
 #[tokio::test]
 async fn test_permission_gate_approval_wait_completes_inside_evaluate() {
-    struct WaitingGate;
+    struct WaitingGate {
+        entered_tx: mpsc::Sender<()>,
+        conclusion_rx: Mutex<Option<oneshot::Receiver<PermissionDecision>>>,
+    }
 
     #[async_trait::async_trait]
     impl PermissionGate for WaitingGate {
         async fn evaluate(&self, _request: PermissionRequest) -> PermissionDecision {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-            PermissionDecision::Allowed { policy: None }
+            self.entered_tx
+                .try_send(())
+                .expect("test still waits for the entered signal");
+            let conclusion_rx = self
+                .conclusion_rx
+                .lock()
+                .unwrap()
+                .take()
+                .expect("conclusion channel set once");
+            conclusion_rx.await.expect("test sends the conclusion")
         }
     }
 
-    let gate: SharedPermissionGate = Arc::new(WaitingGate);
-    let started = std::time::Instant::now();
-    let decision = gate.evaluate(sample_request()).await;
+    let (entered_tx, mut entered_rx) = mpsc::channel(1);
+    let (conclusion_tx, conclusion_rx) = oneshot::channel();
+    let gate: SharedPermissionGate = Arc::new(WaitingGate {
+        entered_tx,
+        conclusion_rx: Mutex::new(Some(conclusion_rx)),
+    });
+
+    let handle = tokio::spawn({
+        let gate = Arc::clone(&gate);
+        async move { gate.evaluate(sample_request()).await }
+    });
+    entered_rx
+        .recv()
+        .await
+        .expect("evaluate entered and now waits for the Owner's conclusion");
     assert!(
-        started.elapsed() >= Duration::from_millis(20),
+        !handle.is_finished(),
         "evaluate must not return before the impl-produced conclusion"
     );
+    conclusion_tx
+        .send(PermissionDecision::Allowed { policy: None })
+        .expect("evaluate is still waiting for the conclusion");
+    let decision = handle
+        .await
+        .expect("evaluate completes once the conclusion arrives");
     assert_eq!(decision, PermissionDecision::Allowed { policy: None });
 }
 

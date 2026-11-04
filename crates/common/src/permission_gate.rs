@@ -99,6 +99,11 @@ pub trait SandboxExecutor: Send + Sync {
     /// The body is supplied by the consumer as a boxed closure capturing its
     /// own inputs; read results are stored into the body's captured state,
     /// keeping the signature free of consumer-specific result types.
+    ///
+    /// Implementor requirement: the body is synchronous; run it outside the
+    /// async runtime (e.g. on a blocking thread pool via `spawn_blocking`)
+    /// — implementations must never block an async context (workspace rule:
+    /// no blocking inside async contexts, CONTRIBUTING.md §异步代码).
     async fn execute_file_operation(
         &self,
         policy: &ExecutionPolicy,

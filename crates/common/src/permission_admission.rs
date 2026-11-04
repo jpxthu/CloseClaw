@@ -108,9 +108,9 @@ pub struct PermissionRequest {
 
 /// Execution policy carried by an Allow conclusion.
 ///
-/// Consumed by [`SandboxExecutor`](crate) so execution strictly follows the
-/// same evaluation — no re-evaluation or boundary relaxation at execution
-/// time.
+/// Consumed by [`SandboxExecutor`](crate::SandboxExecutor) so execution
+/// strictly follows the same evaluation — no re-evaluation or boundary
+/// relaxation at execution time.
 #[derive(Debug, Default, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionPolicy {
     /// Where to execute: sandbox or host.
