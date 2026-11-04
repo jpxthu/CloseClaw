@@ -48,6 +48,9 @@ pub mod permission_admission;
 #[cfg(test)]
 pub mod permission_admission_tests;
 pub mod permission_check;
+pub mod permission_gate;
+#[cfg(test)]
+pub mod permission_gate_tests;
 pub mod permission_op;
 #[cfg(test)]
 pub mod permission_op_tests;
@@ -154,6 +157,10 @@ pub use permission_admission::{
     PermissionOperation, PermissionRequest, RegistrationConfirmation, RegistrationDecision,
 };
 pub use permission_check::{PermissionChecker, PermissionDenied, SpawnPermissionError};
+pub use permission_gate::{
+    ApprovalNotifier, PermissionGate, SandboxExecutor, SharedApprovalNotifier,
+    SharedPermissionGate, SharedSandboxExecutor,
+};
 pub use permission_op::{InitialPermissionSet, UserCreationRequest, UserRegistration};
 pub use plan_state::{PlanPhase, PlanState};
 pub use processor::{
