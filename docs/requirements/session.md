@@ -13,6 +13,7 @@ User 与 Agent 的对话自动持久化，已写入对话历史的消息完整�
 - 对话历史是 Session 的组成部分，与 Session 不可分离：Session 存在即包含其对话历史，不存在无归属的对话历史
 - Session 分为**主 Agent Session**（由 User 消息直接触发创建，不由其他 Session 派生）与**子 Session**（由 Agent 委托创建、从属于某父 Session）；两者的生命周期判定框架一致（均按 F6 的四维 inactive 判据归档与清理）
 - User 发送消息时，系统自动查找该对话对应的 Session——若存在未归档 Session 则复用其中最后活跃时间最新的一个；否则若存在归档中或已归档 Session，则恢复其中最后活跃时间最新的一个；否则创建新 Session
+- 无法延续原对话上下文而开启新 Session 时，向 User 提示原对话上下文已重置
 - 主 Agent Session 由入站消息的平台、发送者、会话对端、账号四项标识共同确定；同一组标识下可有多个历史 Session，当前使用的是最后活跃时间最新的一个。字段定义见 [im_adapter §F2](im_adapter.md)（入站消息归一化）
 - 系统重启后，所有未归档 Session 自动恢复（整体恢复，非逐个查找）；子 Session（含持久子 Session）与主 Agent Session 一致恢复，不降级为一次性子 Session
 - Session 在 Agent 范围内隔离：消息先路由到接收该消息的机器人所绑定的 Agent（见 [gateway §F4](gateway.md)（普通消息路由到对话）），再按上述四项标识查找 Session
