@@ -141,7 +141,6 @@ inactive 的 Session 自动归档，User 无需手动管理。User 可配置归�
 > **交叉引用**：Session 生命周期参数的生效机制与归属详见 [config §F7](config.md)（生效机制与重启类判定）。
 > **交叉引用**：Agent 配置与注册清单变更对 Session 的生效边界详见 [agent §F6](agent.md)（运行时配置查询）。
 > **交叉引用**：后台任务输出文件随 Session 销毁回收详见 [tools §F5](tools.md)（后台任务执行）。
-> **交叉引用**：媒体文件跟随 Session 生命周期的清理详见 [im_adapter §F9](im_adapter.md)（媒体文件收发与存储）。
 
 ### F7. 运行健康与安全
 

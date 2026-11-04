@@ -4,6 +4,10 @@
 
 详见 [STANDARDS.md](STANDARDS.md)。
 
+## 必读
+
+理解 CloseClaw 的产品行为，先读 [message_flow](message_flow.md)（完整消息流）——它串联 IM 接入、身份映射、消息路由、会话确定、LLM 对话与出站发送，是产品核心业务链路；各模块文档在此基础上按功能域展开细节。
+
 ## 需求索引
 
 | 模块 | 简述 | 状态 |
@@ -11,7 +15,7 @@
 | [agent](agent.md) | Agent 配置档案、身份人格分离、Spawn 创建与控制 | ✅
 | [cli](cli.md) | 终端对话、daemon 管理、配置向导 | ✅
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
-| [config](config.md) | 多文件配置结构、安全写入、热重载、凭据隔离 | ✅
+| [config](config.md) | 多文件配置结构、安全写入、配置重载、凭据隔离 | ✅
 | [daemon](daemon.md) | 系统启动、优雅/强制关闭、系统级后台任务生命周期 | ✅
 | [debug_log](debug_log.md) | 调试日志框架：链路追踪、分级过滤、存储轮转、隐私脱敏 | ✅
 | [fake_llm](fake_llm.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试 | ✅
@@ -20,7 +24,7 @@
 | [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、平台工具 | ✅
 | [llm](llm.md) | 多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | Session 结束后自动挖掘记忆、实体体系 | ✅
-| [message_flow](message_flow.md) | 完整消息流：入站（IM → Agent）与出站（Agent → IM）产品链路概述 | ✅
+| [message_flow](message_flow.md) | 产品核心业务链路（必读）：入站（IM → Agent）与出站（Agent → IM） | ✅
 | [permission](permission.md) | 身份型访问控制、审批工作流、子 Session 权限继承 | ✅
 | [platform](platform.md) | 跨平台进程与路径管理、终端自适应、系统差异隔离 | ✅
 | [processor_chain](processor_chain.md) | 入站出站消息统一处理、展示等级过滤、调试日志 | ✅
