@@ -24,6 +24,7 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件与子目录
 - 技能目录与清单
 - 记忆配置
 - 日志配置（最低日志级别、日志保留天数）
+- 展示等级配置（IM 与 CLI 的基础展示等级）
 - workflow 定义
 - 凭据（按服务商分文件存放）
 
@@ -156,6 +157,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |
 | 记忆配置 | 边界生效（下次触发；按 Agent 的覆盖随 Agent 配置档案在下次新建 Session 生效） | [memory §F7](memory.md)（记忆挖掘的开关与参数配置）、[agent §F6](agent.md)（运行时配置查询） |
 | 日志配置（最低级别与保留期） | 边界生效（下一条日志/下次清理） | [debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留） |
+| 展示等级配置 | 需求层不定义（由设计根据架构确定） | [processor_chain §F4](processor_chain.md)（出站回复展示等级控制） |
 | workflow 定义 | 边界生效（下次 workflow 启动） | [workflow §F1](workflow.md)（workflow 定义） |
 
 > 表中各配置生效机制的权威定义见「定义位置」列；若各模块文档与本表不一致，以各模块文档为准（定义位置为本节的行以本节为准），并修订本表使之与各模块文档一致。

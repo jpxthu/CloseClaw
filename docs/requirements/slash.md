@@ -145,13 +145,13 @@ Owner 和 User 可以查询和设置当前 Session 的 LLM 推理强度。查询
 
 ### F11. 展示等级
 
-Owner 和 User 可以查询和设置当前 Session 的展示等级。设置不影响正在生成的回复，仅对其后开始的回复生效。非法等级值被忽略，回显当前生效等级。
+Owner 和 User 可以查询和设置当前 Session 的展示等级。非法等级值被忽略，回显当前生效等级。
 
 **指令**：
 - `/verbose`（无参数）：查询当前展示等级（Immediate）
 - `/verbose full|normal|off`：设置展示等级（Immediate）
 
-> **交叉引用**：各展示等级对应的回复内容见 [processor_chain §F4](processor_chain.md)（出站回复展示等级控制）。
+> **交叉引用**：各展示等级对应的回复内容、默认值、临时覆盖及切换生效范围见 [processor_chain §F4](processor_chain.md)（出站回复展示等级控制）。
 
 ### F13. 审批指令
 
