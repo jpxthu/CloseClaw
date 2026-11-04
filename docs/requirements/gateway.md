@@ -14,7 +14,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 
 - 空文本消息在接入阶段丢弃，不进入后续处理
 
-> **交叉引用**：入站消息文本标准化由 Processor Chain 模块负责。详见 [processor_chain §F3](processor_chain.md)（文本内容标准化）。
+> **交叉引用**：入站正文保真由 Processor Chain 模块负责。详见 [processor_chain §F3](processor_chain.md)（入站正文保真）。
 
 ### F3. 消息类型识别与非文本处理
 
