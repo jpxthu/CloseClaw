@@ -192,8 +192,8 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 
 **工具说明**
 
-- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
-- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)（后台任务执行）；命令进入审批等待期间的 Agent 侧处置见 [F8](#f8-命令安全防护)（命令安全防护））
+- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. You may choose sandbox or host execution for each call; the agent's sandbox mode and command permissions govern whether the request is allowed. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
+- （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)（后台任务执行）；命令进入审批等待期间的 Agent 侧处置见 [F8](#f8-命令结构解析)（命令结构解析））
 
 **使用引导**
 
@@ -301,7 +301,7 @@ Agent 需要理解每个工具在什么场景下使用、如何高效使用。
 
 > **交叉引用**：承载运行中后台任务列表的注入消息。详见 [F5](#f5-后台任务执行)（后台任务执行）。
 
-### F8. 命令安全防护
+### F8. 命令结构解析
 
 Shell 命令在执行前需要经过结构解析。
 
@@ -329,7 +329,7 @@ Shell 命令在执行前需要经过结构解析。
 - 每次工具调用（工具名、参数摘要、返回结果、耗时）
 - 权限检查结果（评估结果的记录口径见 [permission §F11](permission.md)（调试日志））
 - 后台任务启动与到达终态（完成/失败/被终止）
-- 命令结构解析结果（可疑命令的隔离日志按 [F8](#f8-命令安全防护)（命令安全防护） 独立处理）
+- 命令结构解析结果（可疑命令的隔离日志按 [F8](#f8-命令结构解析)（命令结构解析） 独立处理）
 
 > **交叉引用**：子 Session 创建与完成的日志事件。详见 [session §F12](session.md)（调试日志）。
 

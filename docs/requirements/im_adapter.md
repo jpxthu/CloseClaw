@@ -29,7 +29,7 @@ CloseClaw 需要支持多种 IM 平台，每个平台以独立插件形式接入
   - 在同一平台、同一发送者、同一账号标识下，不同会话对端对应不同 Session；同一会话对端下可存在多个历史 Session，由 Session 侧按活跃时间区分，见 [session §F1](session.md)（对话持久化与恢复）
   - 会话对端取值可由发送者等信息参与组合，四项标识仍并列参与判定，不因取值重叠而改变判定方式
   - 平台自然锚点不足以区分 Session 时，插件在取值内补充更细粒度的上下文信息
-- **账号标识**：发送者对应的 CloseClaw 用户 ID，经身份映射得到
+- **账号标识**：发送者对应的 CloseClaw 用户 ID，经身份映射得到；无法映射为已注册 User 时按 permission 的身份准入要求静默终止，不自行创建 User 或回复提示
 - **消息正文**：消息的文本内容
 
 #### 标识与身份与会话映射
@@ -45,7 +45,7 @@ CloseClaw 需要支持多种 IM 平台，每个平台以独立插件形式接入
 > **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 > **交叉引用**：机器人 ↔ Agent、IM 用户 ↔ User 两类双向绑定（含入站/出站方向与基数规则）的权威定义详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：入站归一化在完整消息流链路中的位置详见 [message_flow §F1](message_flow.md)（入站链路）——建议结合阅读以理解完整产品流程。
-> **交叉引用**：User 身份体系与绑定规则详见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：User 身份体系、入站身份准入与静默要求详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：Session 的确定、查找、创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
 > **交叉引用**：飞书标识的名称与取值语义详见 [im_adapter/feishu §F1](im_adapter/feishu.md)（飞书入站消息接收）。
 

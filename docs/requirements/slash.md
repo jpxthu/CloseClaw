@@ -93,21 +93,6 @@ Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无�
 > **交叉引用**：追加区在 System Prompt 中的位置由 [system_prompt §F5](system_prompt.md)（追加指令管理）定义。
 > **交叉引用**：追加内容的存储和持久化由 [session §F2](session.md)（恢复时的追加指令保留）定义。
 
-### F7. Git 操作
-
-Owner 和 User 可以执行 Git 命令。Git 命令以当前 Session 所属 Agent-User 组合的 workspace 为工作目录执行。
-
-**指令**：
-- `/git <参数>`：执行 Git 命令
-  - 只读子命令（status、log、diff、show，以及不带参数的 branch）无需权限评估与审批（黑名单命令除外）
-  - 其余 Git 子命令按权限规则评估与审批；Owner 调用不进入权限评估与审批（黑名单命令除外）
-
-> **交叉引用**：Owner 的命令执行豁免详见 [permission §F4](permission.md)（Owner 特权）。
-> **交叉引用**：Git 写操作的权限评估详见 [permission §F3](permission.md)（权限决策模型）。
-> **交叉引用**：Git 写操作的审批详见 [permission §F5](permission.md)（审批工作流）。
-> **交叉引用**：命令维度的黑名单、白名单与执行位置详见 [permission §F2](permission.md)（权限维度）。
-> **交叉引用**：斜杠指令的沙盒约束详见 [permission §F12](permission.md)（沙盒）。
-
 ### F8. 命令执行
 
 `/exec` 仅 Owner 可用，用于执行 Shell 命令。命令以当前 Session 所属 Agent-User 组合的 workspace 为工作目录执行。
@@ -158,11 +143,9 @@ Owner 和 User 可以查询和设置当前 Session 的展示等级。非法等�
 Owner 通过 `/approve-once`、`/approve-whitelist`、`/deny` 审批 Agent 操作。三条指令均为 Immediate，仅 Owner 可用。
 
 **指令**：
-- `/approve-once <单号> [agent|user|both]`：单次放行
-- `/approve-whitelist <单号> [agent|user|both]`：加入白名单
+- `/approve-once <单号>`：单次放行
+- `/approve-whitelist <单号>`：加入白名单
 - `/deny <单号>`：拒绝
-
-`/approve-once`、`/approve-whitelist` 的主体参数可取 `agent`、`user` 或 `both`，未指定时按 `both` 处理。命令类操作只涉及 Agent 维度（`both` 即 `agent`），显式指定 `user` 时返回用法提示。
 
 > **交叉引用**：审批决策的完整语义（单次放行/加入白名单/拒绝）、审批单号的全局唯一性与命中规则、投递目标详见 [permission §F5](permission.md)（审批工作流）。
 
