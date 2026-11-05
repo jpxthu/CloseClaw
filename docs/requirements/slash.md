@@ -178,7 +178,7 @@ Owner 通过 `/workflow <名称>` 启动对应的 workflow，仅 Owner 可用。
 - `/perm allow <规则主体> <作用维度> [生效对象]`：新增一条允许规则
 - `/perm deny <规则主体> <作用维度> [生效对象]`：新增一条拒绝规则
 - `/perm remove <序号>`：删除 Owner 最近一次 `/perm list` 输出中对应序号的规则；其后规则发生增删时该序号失效，返回错误提示且不执行，需重新列出后再操作
-- `/perm sandbox <默认|严格|放行>`：设置当前 Session 所属 Agent 的沙盒模式；修改即时生效，无需重启
+- `/perm sandbox <默认|严格|放行>`：设置当前 Session 所属 Agent 的沙盒模式
 
 #### 参数规则
 - 规则主体写法：`agent:<Agent ID>` 或 `user:<User ID>`

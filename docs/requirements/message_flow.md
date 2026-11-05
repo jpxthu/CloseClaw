@@ -57,7 +57,8 @@ Agent 回复从生成到送达用户的完整步骤：
 
 上述跨应用 ID 隔离与归并是经大量实测才确定的平台行为，以真实采集的平台数据为准；飞书 CLI 实测样本（含同一用户跨应用 ID 的对照事件）见 `tests/fixtures/feishu/cli-poc/`。
 
-> **交叉引用**：身份映射与跨平台归并详见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：账户绑定的方向与基数规则详见 [config §F1](config.md)（多文件配置结构）。
+> **交叉引用**：User 身份与入站身份准入详见 [permission §F1](permission.md)（身份体系）。
 
 ## 非功能需求
 
