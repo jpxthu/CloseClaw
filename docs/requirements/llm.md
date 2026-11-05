@@ -278,7 +278,7 @@ Owner 可以为每个 Agent 分别配置默认主模型，以及该 Agent 作为
 spawn 时可指定目标 Agent ID 与模型，按以下规则处理：
 
 1. 指定了模型：直接使用指定模型，不再读取 Agent 配置。
-2. 未指定模型：目标 Agent 为 spawn 指定的 Agent ID；未指定 Agent ID 时为父 Agent。使用该 Agent 配置的子 Session 默认模型。
+2. 未指定模型：取目标 Agent 配置的子 Session 默认模型。目标 Agent 的确定规则详见 [session §F4](session.md)（子 Session 委托与协调）。
 3. 目标 Agent 未配置子 Session 默认模型：使用该 Agent 的默认主模型。
 4. 目标 Agent 也未配置默认主模型：使用系统默认模型。
 
