@@ -23,7 +23,7 @@
 
 ## 模块关系
 
-- **上游**：tools（文件类工具与命令执行的文件路径参数，需展开 `~`，见 [requirements/tools.md](../../requirements/tools.md)）、slash（`/cd` 等 Owner 传入路径的展开）
+- **上游**：tools（文件类工具与命令执行的文件路径参数，需展开 `~`，见 [requirements/tools.md](../../requirements/tools.md)）
 - **下游**：操作系统环境变量与用户信息 API、home 目录属性校验所需的文件系统 API（本接口调用）
 - **无关**：Gateway、IM Adapter——不调用本接口；其路径来自 config 模块的配置数据，不自行展开 home
 - **与模块内其他子功能**：与进程生命周期管理、配置目录、终端能力检测、临时目录并列，互不依赖。本接口与 [配置目录](config-directory.md)接口遵循相同的 home 解析规则；配置目录接口自行解析固定路径，不经本接口转换。
