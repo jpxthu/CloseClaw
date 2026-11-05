@@ -6,7 +6,7 @@
 
 ## 必读
 
-理解 CloseClaw 的产品行为，先读 [message_flow](message_flow.md)（完整消息流）——它串联 IM 接入、身份映射、消息路由、会话确定、LLM 对话与出站发送，是产品核心业务链路；各模块文档在此基础上按功能域展开细节。
+理解 CloseClaw 的产品行为，先读 [message_flow](message_flow.md)（完整消息流）——它定义 IM 接入、身份映射、消息路由、会话确定、LLM 对话与出站发送的核心正常主线，是各模块需求展开的基础。各模块文档不得违背该主线；边界情形、异常处理与具体交互细节在对应模块展开，不要求 message_flow 穷举。
 
 ## 模块职责与需求归属
 
@@ -29,7 +29,7 @@ Agent 定义静态身份与配置档案的组合维度，不包办档案中各�
 | [fake_llm](fake_llm.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试 | ✅
 | [gateway](gateway.md) | 多平台消息接入、斜杠指令分派、出站统一处理 | ✅
 | [im_adapter](im_adapter.md) | IM 平台插件化适配、消息归一化、流式渲染 | ✅
-| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、卡片渲染、平台工具 | ✅
+| [im_adapter/feishu](im_adapter/feishu.md) | 飞书平台实现：入站接收、输出展示、平台工具 | ✅
 | [llm](llm.md) | 模型选择、多供应商统一对话、流式输出、缓存优化、用量统计 | ✅
 | [memory](memory.md) | Session 结束后自动挖掘记忆、实体体系 | ✅
 | [message_flow](message_flow.md) | 产品核心业务链路（必读）：入站（IM → Agent）与出站（Agent → IM） | ✅
