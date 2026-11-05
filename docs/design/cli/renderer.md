@@ -13,7 +13,7 @@ TerminalRenderer 按 ContentBlock 类型分派渲染策略。流式渲染是独�
 终端能力检测由 [platform 模块](../platform/README.md)提供（检测规则与主流终端覆盖见 platform 文档），TerminalRenderer 在渲染时消费其结果：
 
 - **ANSI 能力标记**：支持 → 启用 ANSI 模式；不支持 → 回退纯文本模式
-- **终端可用宽度**：用于各块输出的截断判断（按显示列宽计，全角字符占 2 列、ANSI 转义序列不占列宽）
+- **终端可用宽度**：用于各块输出的截断判断（按显示列宽计，全角字符占 2 列、ANSI 转义序列不占列宽）；宽度不可得时不做宽度截断，按原样输出（需求 [cli §F2](../../requirements/cli.md)）
 
 纯文本模式下，所有 ANSI 转义序列被移除，仅保留文本内容和边界标记（各块类型的结构性标记，如 Thinking 的 `[Thinking]`/`[end of thinking]`、ToolUse 的 `⚙` 前缀、代码块的反引号边界、语言标注行与行号）；markdown 格式标记（含引用前缀 `> `）保留原样输出——纯文本模式不做格式转换，只做 ANSI 剥离，宽度截断等布局规则不受渲染模式影响。
 
@@ -47,9 +47,9 @@ Image、Audio、File 等媒体块在终端不渲染（媒体能力暂缓，见 [
 
 终端检测在遍历内容块之前统一完成，然后逐块渲染。渲染是纯数据转换，不执行 I/O：
 
-1. 输入：ContentBlock[] + 终端能力信息（ANSI 能力标记与可用宽度，由 TerminalPlugin 经 platform 模块获取后传入；本组件为纯数据转换，不自行调用其他模块）；内容块定义见 [common ContentBlock](../common/shared-types.md#contentblock)
+1. 输入：ContentBlock[] + 终端能力信息（ANSI 能力标记与可用宽度（列数或「不可得」），由 TerminalPlugin 经 platform 模块获取后传入；本组件为纯数据转换，不自行调用其他模块）；内容块定义见 [common ContentBlock](../common/shared-types.md#contentblock)
 2. 依据传入的终端能力信息确定渲染模式（ANSI / 纯文本）
-3. 遍历 ContentBlock[] 逐块渲染，按块类型分派渲染策略（各策略见 §块类型渲染规则），块间空行分隔，各块输出超过终端可用宽度时逐行截断，被截断的行尾追加 "... (truncated)"
+3. 遍历 ContentBlock[] 逐块渲染，按块类型分派渲染策略（各策略见 §块类型渲染规则），块间空行分隔；宽度可得时，各块输出超过终端可用宽度时逐行截断，被截断的行尾追加 "... (truncated)"；宽度不可得时跳过宽度截断，按原样输出
 4. 全部渲染完成后返回单个 RenderedOutput（msg_type 恒 "text"，见 [common RenderedOutput §输出格式决策](../common/shared-types.md#renderedoutput) 的终端渠道例外）
 5. Gateway 在渲染与发送之间执行出站中间件链（审计、频率限制等；流式模式为 pre-flight 一次检查），通过后由 TerminalPlugin 的 send 方法将 payload 写入 stdout
 

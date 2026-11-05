@@ -101,7 +101,7 @@ Owner 的处置：
 - Linux：以 bubblewrap 为主，内核 Landlock 兜底；WSL2 归 Linux。
 - macOS：以 Seatbelt 实现。
 
-引擎在启动时探测可用性。通用操作系统差异（进程、文件路径、配置目录、临时目录等）走 platform 的抽象（需求 [platform §F5](../../requirements/platform.md)）；隔离机制本身属沙盒引擎职责，其平台适配不属 platform 的通用抽象。文件类工具通过受限执行环境访问文件，命令按模式与执行位置进入沙盒或宿主。
+引擎在启动时探测可用性。通用操作系统差异（进程、文件路径、配置目录、临时目录等）走 platform 的抽象（需求 [platform §F5](../../requirements/platform.md)）；隔离机制本身属沙盒引擎职责，不属 platform 的抽象范围（抽象范围界定见 [platform README](../platform/README.md)）。文件类工具通过受限执行环境访问文件，命令按模式与执行位置进入沙盒或宿主。
 
 ### 不降级
 
