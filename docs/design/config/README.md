@@ -37,6 +37,7 @@
 │       ├── skills/          # Agent 层技能目录（由 Skills 模块扫描）
 │       ├── workflows/       # Agent 专属 workflow 定义（由 workflow 模块读取）
 │       └── .backups/        # 该 Agent 权限配置的滚动备份（由权限模块维护）
+├── daemon.pid               # 运行期 PID 文件（由 platform 进程生命周期接口维护，见 platform/process.md）
 ├── skills/                  # 全局技能目录（由 Skills 模块扫描）
 ├── workflows/               # 全局 workflow 定义目录（由 workflow 模块读取）
 └── workspaces/              # Agent-User 组合专属工作目录（<agent-id>/<user-id>/，运行期数据目录、非配置项，随 Session 创建初始化并由权限模块强制授权）
