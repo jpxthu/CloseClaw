@@ -265,13 +265,18 @@ LLM 模块在以下环节记录调试日志：
 
 ### F11. Session 模型选择
 
-Owner 可以为每个 Agent 分别配置默认主模型，以及该 Agent 创建子 Session 时使用的默认模型；两项均可缺省。默认主模型缺省时使用系统默认模型；子 Session 默认模型缺省时按下方子 Session 优先级继续取值。
+Owner 可以为每个 Agent 分别配置默认主模型，以及该 Agent 作为子 Session 时使用的默认模型；两项均可缺省。
 
 系统默认模型是全局配置项，由 Owner 在首次配置向导中从已配置模型中选择，后续通过重复运行配置向导修改。
 
 主 Session 的最终模型按以下优先级确定：Agent 配置的默认主模型 > 系统默认模型。
 
-子 Session 的最终模型按以下优先级确定：spawn 显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的默认主模型 > 系统默认模型。
+子 Session 的最终模型按以下优先级确定：
+
+1. spawn 显式指定的模型
+2. 目标 Agent 配置的子 Session 默认模型——目标 Agent 为 spawn 指定的 Agent ID，未指定时为父 Agent
+3. 目标 Agent 配置的默认主模型
+4. 系统默认模型
 
 模型调用失败时，系统向 User 明确提示失败，不自动切换为其他模型。
 
