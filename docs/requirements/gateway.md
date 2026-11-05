@@ -12,8 +12,10 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 
 ### F2. 入站消息预处理
 
+- 入站身份准入先于任何回复与指令分派；未通过准入的消息按 permission 的静默要求终止，不因消息类型、斜杠指令、排队或错误提示产生响应
 - 空文本消息在接入阶段丢弃，不进入后续处理
 
+> **交叉引用**：入站身份准入与静默要求详见 [permission §F1](permission.md)（身份体系）。
 > **交叉引用**：入站正文保真由 Processor Chain 模块负责。详见 [processor_chain §F3](processor_chain.md)（入站正文保真）。
 
 ### F3. 消息类型识别与非文本处理
@@ -75,7 +77,7 @@ Gateway 是消息路由中枢。Gateway 统一接入来自不同平台的消息�
 > **交叉引用**：出站消息按目标平台的要求展示，格式自动选择由 IM Adapter 模块负责。详见 [im_adapter §F3](im_adapter.md)（出站消息格式自动选择）。
 > **交叉引用**：选 bot 走「Agent → 机器人」方向，绑定与基数规则详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：本节在出站链路中的位置详见 [message_flow §F2](message_flow.md)（出站链路）——建议结合阅读以理解完整产品流程。
-> **交叉引用**：审批推送的目标平台与回退行为详见 [permission §F5](permission.md)（审批工作流）。
+> **交叉引用**：审批业务流程与跨会话审批语义详见 [permission §F5](permission.md)（审批工作流）。
 
 ### F8. 调试日志
 
