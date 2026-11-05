@@ -20,7 +20,9 @@ Owner 可以在终端中与 Agent 进行文本对话。此功能需 daemon 已�
 
 - 终端对话的调用者为 Owner，无需额外认证；CLI 渠道的 User 上下文为 Owner
 
-- 有等待中的审批请求时，终端输出审批提示（内容与审批卡片一致），覆盖全部等待中的请求——审批与 Session 无关；Owner 可在终端内直接发出审批指令
+- 有等待中的审批请求时，终端输出审批提示，覆盖全部等待中的请求，提示包含审批请求规定的信息
+
+- 审批与 Session 无关；Owner 可在终端内直接发出审批指令
 
 > **交叉引用**：初始 Agent 的创建规则详见 [agent §F5](agent.md)（初始 Agent 创建）。
 > **交叉引用**：Session 的确定、查找与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
@@ -30,7 +32,7 @@ Owner 可以在终端中与 Agent 进行文本对话。此功能需 daemon 已�
 > **交叉引用**：斜杠指令的拦截与分派详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：`/stop`、`/new` 的完整语义详见 [slash §F3](slash.md)（Session 管理）。
 > **交叉引用**：不活跃 Session 的自动归档与清理详见 [session §F6](session.md)（Session 归档与清理）。
-> **交叉引用**：审批单号规则、审批卡片内容与指令用法详见 [permission §F5](permission.md)（审批工作流）、[slash §F13](slash.md)（审批指令）。
+> **交叉引用**：审批单号规则、审批请求内容与指令用法详见 [permission §F5](permission.md)（审批工作流）、[slash §F13](slash.md)（审批指令）。
 
 ### F2. 终端输出渲染
 
