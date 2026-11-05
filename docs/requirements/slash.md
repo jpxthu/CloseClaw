@@ -52,7 +52,6 @@ Owner 和 User 可以随时查看当前 Session 的状态与用量。
 
 #### 输出规则
 - 除 System Prompt 追加指令列表仅 Owner 可见外，其余查询项对所有调用者可见
-- 预估费用无法计算时显示为不可用，不显示为 0
 
 > **交叉引用**：Session 的模型取值详见 [llm §F11](llm.md)（Session 模型选择）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
