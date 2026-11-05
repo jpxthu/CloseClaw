@@ -269,14 +269,18 @@ Owner 可以为每个 Agent 分别配置默认主模型，以及该 Agent 作为
 
 系统默认模型是全局配置项，由 Owner 在首次配置向导中从已配置模型中选择，后续通过重复运行配置向导修改。
 
-主 Session 的最终模型按以下优先级确定：Agent 配置的默认主模型 > 系统默认模型。
+#### Agent 默认主模型
 
-子 Session 的最终模型按以下优先级确定：
+给定 Agent ID 时，该 Agent 的默认主模型按以下优先级确定：Agent 配置的默认主模型 > 系统默认模型。Agent 可以单独设定默认主模型覆盖全局设定；未设定时使用系统默认模型。主 Session 直接使用该结果。
 
-1. spawn 显式指定的模型
-2. 目标 Agent 配置的子 Session 默认模型——目标 Agent 为 spawn 指定的 Agent ID，未指定时为父 Agent
-3. 目标 Agent 配置的默认主模型
-4. 系统默认模型
+#### 子 Session 模型
+
+spawn 时可指定目标 Agent ID 与模型，按以下规则处理：
+
+1. 指定了模型：直接使用指定模型，不再读取 Agent 配置。
+2. 未指定模型：目标 Agent 为 spawn 指定的 Agent ID；未指定 Agent ID 时为父 Agent。使用该 Agent 配置的子 Session 默认模型。
+3. 目标 Agent 未配置子 Session 默认模型：使用该 Agent 的默认主模型。
+4. 目标 Agent 也未配置默认主模型：使用系统默认模型。
 
 模型调用失败时，系统向 User 明确提示失败，不自动切换为其他模型。
 
