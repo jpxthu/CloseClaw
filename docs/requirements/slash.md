@@ -47,6 +47,7 @@ Owner 和 User 可以随时查看当前 Session 的状态与用量。
 - 缓存命中率
 - token 用量
 - 预估费用
+- 供应商账户信息（余额、用量配额）
 - 未完成子 Session 数
 - System Prompt 追加指令列表（仅 Owner）
 
@@ -56,6 +57,7 @@ Owner 和 User 可以随时查看当前 Session 的状态与用量。
 > **交叉引用**：Session 的模型取值详见 [llm §F11](llm.md)（Session 模型选择）。
 > **交叉引用**：推理强度见 [llm §F4](llm.md)（推理强度控制）。
 > **交叉引用**：上下文窗口占用率、缓存命中率、token 用量与预估费用的计算口径见 [llm §F9](llm.md)（用量统计）。
+> **交叉引用**：供应商账户信息的查询范围、支持情况与失败处置见 [llm §F1](llm.md)（多供应商统一对话）。
 > **交叉引用**：子 Session 的未完成判定详见 [session §F11](session.md)（Session 活跃维度）。
 > **交叉引用**：追加指令见 [system_prompt §F5](system_prompt.md)（追加指令管理）。
 
