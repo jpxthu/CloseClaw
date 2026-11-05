@@ -170,7 +170,9 @@ LLM 模块在以下环节记录调试日志：
 
 ### F11. Session 模型选择
 
-Owner 可以为每个 Agent 配置默认 LLM 模型、备用模型列表，以及该 Agent 创建子 Session 时使用的默认模型。
+Owner 可以为每个 Agent 配置默认 LLM 模型，以及该 Agent 创建子 Session 时使用的默认模型。
+
+模型调用失败时向 User 明确提示失败，不自动切换为其他模型。
 
 子 Session 的最终模型按以下优先级确定：spawn 显式指定的模型 > 父 Agent 配置中的子 Session 默认模型 > 目标 Agent 配置的默认模型 > 系统默认模型。
 
