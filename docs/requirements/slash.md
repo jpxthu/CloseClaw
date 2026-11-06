@@ -18,6 +18,7 @@ Owner 和 User 发送以 `/` 开头的消息时，消息作为斜杠指令被处
 
 各指令的 Immediate 标记在后续各功能域中标注；未标注 Immediate 的指令默认为非 Immediate。
 
+> **交叉引用**：入站身份准入先于指令分派与错误提示。详见 [gateway §F2](gateway.md)（入站消息预处理）。
 > **交叉引用**：斜杠指令的拦截、分派与 Immediate 排队语义由 Gateway 负责。详见 [gateway §F5](gateway.md)（斜杠指令拦截与分派）。
 > **交叉引用**：不以 `/` 开头的普通消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
 
@@ -30,6 +31,7 @@ Owner 和 User 可以创建新 Session，以及终止当前 Session 运行。
 - `/stop`：终止当前 Session 运行（Immediate）
 
 > **交叉引用**：Session 创建与恢复详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：Session 停止时后台任务的终止规则详见 [tools §F5](tools.md)（后台任务执行）。
 > **交叉引用**：workflow 模式下的终止语义详见 [workflow §F6](workflow.md)（流程暂停与恢复）。
 > **交叉引用**：workflow 模式退出（生命周期与清理）详见 [workflow §F8](workflow.md)（流程生命周期）。
 
@@ -84,8 +86,8 @@ Owner 可以在运行时向 System Prompt 的追加区动态添加指令，无�
 
 **指令**：
 - `/system add <内容>`：追加一条指令
-- `/system` 或 `/system list`：列出当前所有追加指令
-- `/system clear`：清除全部追加指令
+- `/system` 或 `/system list`：列出当前所有 Owner 追加指令
+- `/system clear`：清除全部 Owner 追加指令
 
 #### 限制
 - 追加内容超过 500 字符（按字符数计，不计首尾空白）：直接拒绝并返回用法提示，不截断
