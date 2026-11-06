@@ -3,80 +3,56 @@
 ## 概述
 
 - 关联需求文档：[requirements/fake_llm.md](../../requirements/fake_llm.md)
-- Fake LLM Server 是本地回环地址上的独立测试进程，同时支持 OpenAI 与 Anthropic 两种标准对话协议，按测试者声明的场景对 CloseClaw 的完整 LLM 调用链路做确定性、可复现的黑盒端到端测试。它是开发与测试工具，不进入发布构建。
+- Fake LLM Server 是仅监听本地回环地址的独立测试进程，通过 OpenAI、Anthropic 标准协议对真实 CloseClaw 二进制进行可复现的黑盒端到端测试，并与集成测试复用场景、为双端单元测试提供协议基线；不进入发布构建，不随产品分发。
 
 ## 架构
 
-Fake LLM Server 是一个场景驱动的 HTTP 服务：监听本地回环地址，接收 CloseClaw 编译后二进制的全部 LLM 协议请求，按场景引擎给出的确定性决策响应，把响应按协议形态（完整 JSON 或 SSE 流式事件序列）投递回去。整体分四层：
+服务由协议端点（含解析与编码的协议层）、场景引擎、缓存模拟与投递层组成，协议 fixture 提供响应形态基线。下图表示数据流，不表示组件包含层级：
 
-```
-CloseClaw 二进制（黑盒被测系统）
-  │ HTTP（OpenAI / Anthropic 协议）
-  ▼ 仅监听 127.0.0.1
-┌─────────────────────────────────────────────┐
-│ Fake LLM Server（独立测试进程，不进发布构建）      │
-│                                             │
-│  协议端点层 endpoints                          │
-│    ├─ OpenAI /v1/chat/completions            │
-│    ├─ Anthropic /v1/messages                 │
-│    └─ 模型发现 /v1/models                     │
-│  场景引擎 scenario-engine                     │
-│    ├─ 请求特征匹配 → 命中唯一场景                 │
-│    ├─ 多轮游标推进                             │
-│    └─ KV cache 模拟状态机（kv-cache-simulation）│
-│  投递层 delivery                              │
-│    ├─ 完整 JSON / SSE 流式                    │
-│    ├─ 错误注入（HTTP 错误 / 流中断）             │
-│    └─ 延迟注入（首 token / 逐段 / 整体）         │
-│  协议 fixture fixtures                        │
-│    ├─ 响应形状的协议标准基线                     │
-│    └─ 双端单元测试基线                          │
-└─────────────────────────────────────────────┘
+```text
+测试运行器 -> 创建运行命名空间、装载场景、配置本地模型端点
+CloseClaw 二进制 -> 回环端点：解析匿名关联信息与协议请求
+  -> 场景引擎
+    对话：定位匿名会话 -> 匹配场景 -> 响应步骤 -> 缓存模拟
+    模型发现：运行级独立发现序列，不进入对话匹配或缓存
+  -> 协议层：编码响应
+  -> 投递层：JSON / SSE、错误与延迟
+  -> CloseClaw 二进制
+测试日志 <- 匹配、响应与用量、缓存事件、投递结果
 ```
 
-三个设计原则：
+- **协议与供应商特性分离**：模拟标准协议形态，不复刻具体供应商或模型；用量按协议原生能力合并覆盖，不添加非标准响应字段。协议 fixture 与供应商 fixture 的分工见 [fixtures](fixtures.md)。
+- **确定性**：同一初始状态、场景声明、有序请求序列与逻辑时间推进产生同一决策。真实投递延迟不改变缓存决策，过期可由场景推进，不依赖运行速度。
+- **会话隔离**：复用被测侧已有会话上下文，由 [LLM 本地测试关联](../llm/protocol-mapping.md#本地测试关联) 带外传递匿名会话键。同一 Agent、同一端点、相同请求的并发 Session 仍各自推进场景与缓存，不要求改用不同 Agent 或端口。提示词和标准协议正文不携带测试标记。
 
-- **协议标准而非供应商模拟**：不模拟具体供应商或模型的特有行为，只实现两种协议的标准形态。供应商差异由 `tests/fixtures/llm/` 的供应商 fixture 在单元测试层面覆盖，Fake LLM Server 的响应形状以协议 fixture（fixtures）为唯一基线，来源中立。
-- **确定性**：同一场景下同一输入永远产出同一输出，不依赖时序或随机性。延迟注入只影响事件的时间间隔，不影响事件序列与内容。
-- **场景间隔离**：每个场景一个独立的引擎状态（匹配上下文、轮次游标、缓存状态），一个场景注入的错误或延迟不污染后续场景；多个并发会话（不同模型端点配置）互不干扰。
+运行命名空间由运行器创建和释放，用于隔离测试运行；各匿名会话的场景和缓存状态在命名空间内独立持有。启动按命名空间校验场景集，配置全部通过后发布服务就绪，失败不静默降级。状态归属、匿名键缺失时的无状态边界及请求错误规则唯一见 [scenario-engine](scenario-engine.md)。本服务不依赖外部网络或真实模型。
 
-可观测性是横切能力而非独立层：端点、场景引擎、投递、缓存模拟各环节将匹配结果、响应与用量、缓存事件统一写入同一份测试日志，供测试失败时定位。
+可观测性贯穿端点、场景、缓存和投递，记录实际制造的输入与发送结果，不自行定义被测方的正确性标准。
 
 **子功能文档**：
-- [endpoints](endpoints.md) — 进程模型与协议端点：回环监听、双对话协议端点、模型发现模拟
-- [scenario-engine](scenario-engine.md) — 场景引擎：请求特征匹配、逐轮响应编排、七类响应形状
-- [delivery](delivery.md) — 投递层：流式分帧与段间间隔控制、错误注入、延迟注入
-- [kv-cache-simulation](kv-cache-simulation.md) — 前缀缓存生命周期模拟：自动前缀匹配、显式注入、断开与过期
-- [fixtures](fixtures.md) — 协议 fixture：双协议响应形状基线与双端单元测试
+
+- [endpoints](endpoints.md) — 独立进程、回环监听、带外关联、双协议与发现端点。
+- [scenario-engine](scenario-engine.md) — 场景匹配、运行与会话隔离、逐次响应和用量编排。
+- [delivery](delivery.md) — 流式分帧、错误注入、投递延迟。
+- [kv-cache-simulation](kv-cache-simulation.md) — 前缀缓存模型、可控时间、显式用量与字段缺失。
+- [fixtures](fixtures.md) — 双协议响应形态基线及双端单元测试。
 
 ## 数据流
 
-```
-CloseClaw 二进制发起 LLM 请求（OpenAI 或 Anthropic 协议）
-  → 协议端点层接收（回环地址 + 协议路由）
-    → 场景引擎：请求特征（协议、模型 ID、消息内容、工具定义、参数）
-      → 命中唯一场景、推进多轮游标；KV cache 模拟状态机按前缀稳定性推导缓存字段
-    ← 决策 =（协议响应对象、错误注入、延迟注入）
-  → 投递层按场景声明选择流式或非流式投递
-    ├─ 非流式：延迟后返回完整 JSON
-    └─ 流式：首 token 延迟 → 逐段分帧 SSE → 段间间隔 → 结束事件
-    两种路径均可注入错误：HTTP 错误（认证/限流/超时/服务端）或流中途截断
-
-模型发现请求（GET /v1/models）
-  → 协议端点层路由 → 场景决策 → 经投递层返回模型列表或注入错误
-  ← CloseClaw 解析响应，链路行为由测试断言
-  → 每次请求的匹配结果、响应与用量、缓存事件写入测试日志
-```
+1. 运行器启动本地服务，创建测试运行命名空间、选定场景集，在正常模型端点配置中明确启用本地测试关联。
+2. 对话请求到达端点，先解析匿名关联信息，再把完整协议请求交场景引擎；模型与消息内容不用于猜测会话身份。
+3. 引擎在本运行、本匿名会话的匹配场景内原子推进响应步骤与缓存状态，生成响应和投递控制。
+4. 协议层编码 JSON 或 SSE，投递层在不占用决策状态的前提下执行发送、错误和延迟注入。
+5. 配置阶段的模型发现请求使用独立发现序列，不消耗对话步骤或缓存。
+6. 全链路写测试日志；运行器结束测试时释放命名空间或关闭实例，销毁全部状态并拒绝迟到请求。
 
 ## 模块关系
 
-> 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
+> 「上游/下游」指数据流与调用关系，不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
-Fake LLM Server 是测试基础设施，与 CloseClaw 的关系是**黑盒替换**：不引用任何 CloseClaw 代码，通过配置 CloseClaw 的模型端点（models.json 的 base_url）指向本地地址接入，被测对象是编译后的真实二进制。协议正确性锚定 [llm/protocol-mapping](../llm/protocol-mapping.md)（协议→统一块映射）与 [llm/model-discovery](../llm/model-discovery.md)（模型发现行为）。
+- **上游**：测试运行器创建命名空间和场景；真实 CloseClaw 二进制通过 HTTP 发起对话与发现请求。接入来自 [config](../config/README.md)，会话关联来自 [LLM 协议映射](../llm/protocol-mapping.md#本地测试关联)。
+- **下游**：被测二进制消费响应，测试运行器消费日志和结果；本服务与 CloseClaw 单元测试消费协议 fixture，集成测试复用场景定义。
+- **无关**：[test_support](../test_support/README.md) 是测试代码内部的编译期辅助库，不是运行时假模型服务，本模块不依赖它。
+- **共享类型**：无运行时 crate 依赖。服务不引用 CloseClaw crate，被测侧的会话上下文不作为服务端内部类型。
 
-- **上游**：CloseClaw 二进制（黑盒 HTTP 客户端，经配置指向本服务——非模块依赖，不引用任何 CloseClaw 代码）
-- **下游**：测试代码（消费其响应与日志进行断言——非模块依赖）
-- **无关**：`tests/fixtures/llm/` 的供应商 fixture 体系（采集真实供应商响应，验证供应商特有行为；Fake LLM Server 实现协议标准，两者互补不重叠，见 [fixtures](fixtures.md) 的分工）
-- **共享类型**：无——Fake LLM Server 以黑盒方式接入（不引用任何 CloseClaw 代码），与各模块之间不传递任何共享数据结构
-
-被测行为的对错标准不在本模块定义：跨轮用量统计、KV cache 命中率与缓存命中一致性校验（含「追加扩展轮」判定、容忍余量、Owner 通知策略）的权威定义见 [session/llm-session-enhancements](../session/llm-session-enhancements.md)；用量字段提取与协议归一化、缓存策略见 [llm](../llm/README.md)。fake_llm 只制造输入，不定义被测行为的对错标准。
+被测协议映射和模型发现设计见 [llm/protocol-mapping](../llm/protocol-mapping.md)、[llm/model-discovery](../llm/model-discovery.md)。缓存统计及一致性校验以 [llm 需求 F9](../../requirements/llm.md) 为产品权威，设计入口见 [session/llm-session-enhancements](../session/llm-session-enhancements.md)；本模块只制造输入，不另定判定、豁免或通知策略。
