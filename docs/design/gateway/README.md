@@ -84,8 +84,8 @@ Gateway 收到入站平台事件后，消息先进入入站消息队列（有界
 
 - **批量模式**：ContentBlock[] 完整到齐后一次性执行出站链，渲染 → 中间件 → 发送 → 写出站历史；渲染/发送失败经简化路径发"回复发送失败"提示。斜杠指令回复统一走批量模式。
 - **流式模式**：pre-flight 中间件 → 增量阶段（逐 [StreamEvent](../common/shared-types.md#streamevent) 事件过滤渲染）→ 收尾阶段（写调试日志、写出站历史）→ 出错降级（简化路径追加错误提示）。
-- **简化出站路径**：媒体不可得提示、系统通知、降级提示（含流式中断与批量发送失败）及一切面向 User 的纯文本提示——跳过完整链，仅经调试日志（配置时）→ 渲染 → 发送，不写出站历史。
-- **出站日志的两种形态**：出站调试日志（OutboundRawLog，链内 processor，仅 `raw_log_dir` 配置时注册）与出站历史记录（发送成功后写入 session checkpoint 的交付记录）。字段、定位与完整时序详见 [出站流程](outbound-flow.md)。
+- **简化出站路径**：媒体不可得提示、系统通知、降级提示（含流式中断与批量发送失败）及一切面向 User 的纯文本提示——跳过完整链，仅经调试日志 → 渲染 → 发送，不写出站历史。
+- **出站日志的两种形态**：出站调试日志（OutboundRawLog，链内 processor，记录完整内容级别的出站消息全文事件）与出站历史记录（发送成功后写入 session checkpoint 的交付记录）。字段、定位与完整时序详见 [出站流程](outbound-flow.md)。
 
 ### 消息队列与排队语义
 
@@ -158,6 +158,7 @@ Gateway 自身的消息路由、Processor Chain 调度、IM Adapter 选择均不
 | SlashDispatcher | 斜杠指令拦截后分派给 SlashDispatcher |
 | SessionManager | 调用 SessionManager（传入 agent_id + session_key 和消息路由字段），由 SessionManager 内部提取稳定路由键进行 session 查找/创建。生命周期实现由 SessionManager 负责 |
 | IM Adapter | 选择对应平台插件完成出站渲染与发送 |
+| Debug Log | 记录入站到达、路由决策、中间件拒绝等调试事件（见 [debug_log 框架](../debug_log/README.md)） |
 | Permission | 斜杠指令高危操作执行前校验 |
 | 审批工作流（Permission 模块） | `/approve-once`、`/approve-whitelist`、`/deny` 指令的审批流转管理（审批请求入队、Owner 通知、回调处理），详见 [审批工作流](../permission/approval-workflow.md) |
 

@@ -32,7 +32,7 @@ Gateway 层面的出站通道选择。适用于以下纯文本、无需按 Sessi
 - **流式降级提示**：pre-flight 拒绝通知、流式中断的"回复中断"提示
 - **批量发送失败提示**：批量模式渲染/发送失败时的"回复发送失败"提示
 
-简化路径跳过 VerbosityFilter / 出站中间件，若 `raw_log_dir` 已配置则经 OutboundRawLog 写调试日志（作为独立组件直接调用，不依赖 Processor Chain 调度），然后渲染发送。简化路径消息均不写 session checkpoint（不属于对话历史）。除上述分类外，权限不足提示、Session 查找/创建失败提示等其他所有面向 User 的纯文本提示同样经此路径发送、不写出站历史——凡是不进入 LLM 对话链的 User 可见提示，均走简化出站路径而非完整出站链（见「系统通知接口」节的边界说明）。
+简化路径跳过 VerbosityFilter / 出站中间件，经 OutboundRawLog 记录出站消息全文事件（作为独立组件直接调用，不依赖 Processor Chain 调度；完整内容级别，见 [debug_log 框架](../debug_log/README.md)），然后渲染发送。简化路径消息均不写 session checkpoint（不属于对话历史）。除上述分类外，权限不足提示、Session 查找/创建失败提示等其他所有面向 User 的纯文本提示同样经此路径发送、不写出站历史——凡是不进入 LLM 对话链的 User 可见提示，均走简化出站路径而非完整出站链（见「系统通知接口」节的边界说明）。
 
 ### 系统通知接口
 
@@ -60,7 +60,7 @@ Gateway 在渲染完成后、发送前提供中间件拦截点。流式模式下
 
 ### 出站日志的两种形态
 
-- **出站调试日志（OutboundRawLog）**：Processor Chain 内 processor，将 ContentBlock[] 写入调试日志文件。仅在 `raw_log_dir` 配置时注册，用于开发和问题定位。日志格式、分级和脱敏遵循 [debug_log 框架](../debug_log/README.md)。
+- **出站调试日志（OutboundRawLog）**：Processor Chain 内 processor，将 ContentBlock[] 记录为出站消息全文事件（完整内容级别），用于深度排查。日志格式、分级、脱敏与最低记录级别遵循 [debug_log 框架](../debug_log/README.md)。
 - **出站历史记录**：见上方「出站历史记录」节。流式收尾阶段与批量模式均先写调试日志再写出站历史（或错误事件标记）。
 
 ## 数据流
@@ -83,7 +83,7 @@ Gateway 在渲染完成后、发送前提供中间件拦截点。流式模式下
 ### 简化出站路径
 
 1. 纯文本内容（媒体不可得提示 / 系统通知 / 降级提示——流式中断与批量发送失败）。
-2. OutboundRawLog（仅 `raw_log_dir` 已配置时，独立组件直调）。
+2. OutboundRawLog（独立组件直调，记录完整内容级别事件）。
 3. IM Adapter 渲染 → 发送（不经 VerbosityFilter / 中间件）。
 
 **关键判断点**：

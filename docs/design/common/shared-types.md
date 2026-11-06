@@ -23,7 +23,7 @@ NormalizedMessage 是平台无关的统一入站消息结构，屏蔽各 IM 平�
 | `reply_ref` | string? | 出站定向引用，可选。插件按平台语义填入、出站时原样消费的平台引用（如话题根消息标识），用于把回复投递回原会话位置。不参与 session 路由。出站传递机制：入站填入后经 Session 上下文存储，出站时由 Gateway 取出传给 IMPlugin 发送，见 [session-lifecycle 出站定向字段](../session/session-lifecycle.md) |
 | `account_id` | string | CloseClaw 本地账号标识。IM 渠道由「平台 + 接收方机器人应用 + sender_id」经身份映射得到——同一用户在不同机器人应用下的多个发送者标识归并为同一账号标识（先按应用定位发送者，再跨应用归并）；terminal 渠道恒为字面量 `"owner"`（不经映射，见下方身份映射）。参与 session 路由 |
 | `chat_name` | string | 聊天/群名称，由 Adapter 从平台元数据取值填充，可为空 |
-| `trace_id` | string | 分布式追踪标识，webhook 到达时生成，用于调试日志链路串联 |
+| `trace_id` | string | 分布式追踪标识，入站消息到达时由接收该消息的适配器（平台插件或 terminal 渠道插件）生成，用于调试日志链路串联（见 [debug_log 框架](../debug_log/README.md)）；建立失败时为空串，此时链路关联尽力而为 |
 | `message_id` | string | 平台消息标识，由 Adapter 解析时填入，可为空 |
 | `content` | string | 消息文本内容。纯媒体消息时可为空 |
 | `message_type` | [MessageType](#消息内容辅助类型) | 消息类型；`post` 为含内嵌媒体的富文本消息——展开文本入 content，内嵌媒体入 media_refs |
@@ -228,7 +228,7 @@ ProcessedMessage 是 Processor Chain 的输出结构，Gateway 的消费入口�
 | `reply_ref` | 入站（条件） | Gateway | NormalizedMessage.reply_ref |
 | `account_id` | 入站（条件） | Gateway | NormalizedMessage.account_id |
 | `chat_name` | 入站（条件） | Gateway | NormalizedMessage.chat_name |
-| `trace_id` | 入站（条件） | Gateway | NormalizedMessage.trace_id（webhook 到达时生成） |
+| `trace_id` | 入站（条件） | Gateway | NormalizedMessage.trace_id（入站消息到达时生成） |
 | `session_key` | 入站（条件） | SessionRouter | 计算所得的消息级标识，用于日志追踪 |
 | `platform` / `sender_id` / `peer_id` | 入站 | SessionRouter | NormalizedMessage 对应字段（稳定路由键组成部分） |
 | `span_id` | 入站（条件） | Gateway（链后） | 追踪 span 标识，供子 span 派生 |
@@ -953,7 +953,7 @@ NormalizedMessage 的全系统流动路径：
 IM 平台事件 / terminal stdin
   ↓
 IM Adapter 入站解析（各平台插件）
-  → 平台格式转 NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, content, message_type, media_refs, unavailable_media, timestamp }
+  → 平台格式转 NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, trace_id, content, message_type, media_refs, unavailable_media, timestamp }
   ↓
 Processor Chain 入站
   → RawLog（记录日志）→ SessionRouter（计算 session_key）→ ContentNormalizer（文本标准化）

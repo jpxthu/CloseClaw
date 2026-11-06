@@ -40,6 +40,7 @@
 ├── daemon.pid               # 运行期 PID 文件（由 platform 进程生命周期接口维护，见 platform/process.md）
 ├── skills/                  # 全局技能目录（由 Skills 模块扫描）
 ├── workflows/               # 全局 workflow 定义目录（由 workflow 模块读取）
+├── logs/                    # 调试日志输出目录（由 debug_log 框架创建与维护，内容语义见 debug_log 模块）
 └── workspaces/              # Agent-User 组合专属工作目录（<agent-id>/<user-id>/，运行期数据目录、非配置项，随 Session 创建初始化并由权限模块强制授权）
 ```
 
@@ -133,7 +134,7 @@ Config 模块启动时依次执行以下步骤：
 
 > 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
-- **上游**：daemon（启动时加载配置）、CLI（配置变更命令，含 `config setup` 交互式配置向导——创建初始 Agent 的配置与凭据文件）、platform（提供配置目录，作为各配置子目录布局的基准）
+- **上游**：daemon（启动时加载配置）、CLI（启动时加载运行期配置；配置变更命令，含 `config setup` 交互式配置向导——创建初始 Agent 的配置与凭据文件）、platform（提供配置目录，作为各配置子目录布局的基准）
 - **下游**：
   - **直接下游（经 ConfigProvider 查询接口消费配置）**：session（SessionConfigProvider——会话配置参数）、skills（SkillsConfigProvider——extraDirs 外部复用技能目录，详见 [skills 模块](../skills/README.md)）、memory（MemoryConfigProvider——记忆模块全局配置，详见 [memory/config](../memory/config.md)）、llm（models.json 的模型定义与 credentials/ 的凭据，启动时固化为模型注册表，详见 [llm 模块](../llm/README.md)「模型与凭据的生效机制」）、Agent（AgentRegistry 消费 ResolvedAgentConfig，重启或配置变更时由 Daemon 触发替换，详见 [agent-registry](../agent/agent-registry.md)）。
   - **文件级路径消费**：Gateway（accounts.json 机器人↔Agent 绑定，加载后内部引用，做入站路由与出站机器人选择，见需求 [config §F1](../../requirements/config.md)）、权限模块（读取 `config/permissions.json` 与 `agents/<agent-id>/permissions.json`，自行解析、校验并维护加载容错与备份恢复，细节见 [权限配置管理](../permission/permission-configuration.md)）。

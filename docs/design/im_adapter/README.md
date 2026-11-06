@@ -108,7 +108,7 @@ IM 平台接口行为可能随平台侧变更而漂移（事件结构、字段�
 ```
 1. IM 平台事件经 Gateway 入站队列缓冲、出队后交由对应平台插件（队列、重放与去重见 [Gateway 入站流程](../gateway/inbound-flow.md)）。
 2. IMPlugin 入站：插件区分消息事件与交互事件（如卡片按钮点击），仅消息事件转为 NormalizedMessage，交互事件走所在平台的独立通路（飞书当前仅记录调试日志）。消息事件平台格式解析 → NormalizedMessage { platform, sender_id, account_id, peer_id, content, ... }（account_id 经 Config 身份映射得到，见「模块关系-上游」）。过滤规则：text 类型空 content 消息丢弃；post 类型 content 为空且无媒体引用时丢弃（媒体能力暂缓，当前仅按 content 判定）。解析失败时不产出 NormalizedMessage、丢弃该事件并记录告警日志。媒体能力暂缓——当前不做媒体下载落盘、不填充 media_refs，非文本消息的处理不在实现范围（设计见 [媒体存储](media-store.md)）。← 日志：入站解析（平台、消息类型、解析耗时）
-3. Processor Chain 入站依次执行 RawLog（仅 `raw_log_dir` 配置时注册）→ SessionRouter → ContentNormalizer。
+3. Processor Chain 入站依次执行 RawLog（记录入站原始消息全文）→ SessionRouter → ContentNormalizer。
 4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage) → Gateway 路由决策。
 ```
 
@@ -116,7 +116,7 @@ IM 平台接口行为可能随平台侧变更而漂移（事件结构、字段�
 
 ```
 1. LLM 输出 ContentBlock[]。
-2. Processor Chain 出站依次执行（Verbosity 过滤 → 出站日志（仅 `raw_log_dir` 配置时注册），见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
+2. Processor Chain 出站依次执行（Verbosity 过滤 → 出站日志（记录出站消息全文），见 [Processor Chain 出站链路](../processor_chain/outbound-chain.md)）。
 3. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)。
 4. IMPlugin 渲染：渲染接口消费 Step 3 的 ProcessedMessage（content_blocks + metadata），产出 RenderedOutput { msg_type, payload }。← 日志：出站渲染（平台、渲染耗时）
 5. 中间件插入点：Gateway 可在渲染完成后、发送前插入审计、频率限制等中间件（流式模式下在增量阶段开始前执行一次 pre-flight 检查，非逐片插入，见[流式渲染](streaming-render.md)）。

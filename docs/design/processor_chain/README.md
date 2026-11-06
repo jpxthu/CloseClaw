@@ -21,7 +21,7 @@ IM Adapter（入站）
   → 平台特定格式 → NormalizedMessage（统一中间结构）
   ↓
 Processor 链（入站，按 priority 顺序执行，纯变换）
-  - RawLogProcessor（priority 10）→ 原始消息写入日志。仅在 raw_log_dir 配置时注册
+  - RawLogProcessor（priority 10）→ 记录入站原始消息全文（完整内容级别事件，见 [debug_log 框架](../debug_log/README.md)）
   - SessionRouter（priority 20）   → 计算 session_key，写入 metadata
   - ContentNormalizer（priority 30）→ 文本标准化（去控制字符、压缩空行、去尾空格）。非 text 消息跳过标准化
   ↓
@@ -43,7 +43,7 @@ IM Adapter（出站）— 含 Renderer + Adapter
 - **入站链纯变换**：只做内容计算和 metadata 填充，不管理 session 生命周期、不做路由决策。Session 创建和查找由 Gateway 调用 SessionManager 负责
 - **出站方向 ContentBlock[] 作为传递格式**（完整变体定义见 [common ContentBlock](../common/shared-types.md#contentblock)）贯穿 Processor 链和 Renderer，不在链中途转为展示格式
 - **Verbosity 过滤在链内**：VerbosityFilter 是出站链第一个 Processor（priority 5），按 Session Verbosity 等级过滤。保证流式和非流式出站统一经过滤
-- **出站日志在链内**：OutboundRawLog（priority 20）记录处理完毕的出站内容，仅在 raw_log_dir 配置时注册
+- **日志在链内**：入站 RawLog 记录入站原始消息全文、出站 OutboundRawLog 记录处理后的出站消息全文，均为完整内容级别的调试事件，是否落盘由 [debug_log 框架](../debug_log/README.md)的最低记录级别决定
 - **Renderer 不在 Processor 链内**（详见 [IM Adapter 模块](../im_adapter/README.md)），渲染是终结操作，需要路由信息（msg_type），不适合链的"变换传递"语义
 - **入站归一化**产 NormalizedMessage（完整字段定义见 [common 共享类型](../common/shared-types.md)），经 Processor 链清洗和 metadata 填充后交付 Gateway，Gateway 做路由决策后进入 Session
 
@@ -92,7 +92,7 @@ Renderer 接收 ContentBlock[]，按块类型选择渲染策略，一次性输�
 > 「上游/下游」指数据流与调用关系（含经 common trait 完成的调用），不等于 crate 依赖；crate 依赖以 [STANDARDS.md 依赖方向允许边表](../STANDARDS.md) 为准。
 
 - **上游**：Gateway（调度链执行）、Session（LLM 对话产出的 ContentBlock[]，属出站数据流上游）、IM Adapter（入站方向：产出 NormalizedMessage 供链消费）
-- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费链输出并渲染为平台格式，发送渲染后的消息）
+- **下游**：[IM Adapter](../im_adapter/README.md) 模块（消费链输出并渲染为平台格式，发送渲染后的消息）；[debug_log 框架](../debug_log/README.md)（产出入站原文与出站全文事件）
 - **共享类型 / 核心 trait**：[common/core-traits](../common/core-traits.md)（实现：ProcessorChain）
 - **无关**：入站与出站 Processor Chain 互为独立链路，互不干扰
 - **间接相关**：Slash Command 模块（斜杠指令经入站链做 session_key 计算 + 内容清洗后由 Gateway 路由到 SlashDispatcher；SlashDispatcher 的输出经出站链过滤 + 日志后由 Renderer 回复。数据流双向穿越 Processor 链，但非直接调用依赖）

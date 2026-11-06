@@ -11,7 +11,7 @@
 | [cli](cli/README.md) | 命令行接口模块：CLI Chat（terminal 渠道的 IMPlugin 实现）和 CLI Admin（daemon 管理命令） |
 | [config](config/README.md) | CloseClaw 运行时配置管理：多文件拆分、ConfigManager 统一读写、备份回退、凭据分离、Agent 注册清单与加载、热重载 |
 | [daemon](daemon/README.md) | 进程入口和组件胶水层：依赖驱动启动、系统级后台任务管理、配置触发的网关重启、graceful/forceful 双模关闭 |
-| [debug_log](debug_log/README.md) | 调试日志基础设施：统一追踪标识传播、五级分级过滤、JSONL 日轮转、凭据脱敏，供运维 Agent 串联事件链路定位根因 |
+| [debug_log](debug_log/README.md) | 调试日志基础设施：追踪标识与 span 传播、五级分级过滤、凭据脱敏、JSONL 日轮转与保留清理（daemon 与 CLI 进程共用），供运维 Agent 串联事件链路定位根因 |
 | [fake_llm](fake_llm/README.md) | 本地假 LLM 服务：场景驱动的确定性黑盒 E2E 测试——双协议端点、多轮场景引擎、流式/错误/延迟注入、KV cache 模拟、协议 fixture |
 | [test_support](test_support/README.md) | 测试基础设施：跨 crate 共享的依赖边界守卫——解析各 crate 的 manifest，按依赖方向允许边表机械校验其 workspace 内部依赖 |
 | [gateway](gateway/README.md) | 消息路由中枢：管理 IM 插件、调度 Processor Chain、路由决策（slash vs normal）、选择平台插件完成出站渲染与发送 |
