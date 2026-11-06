@@ -52,16 +52,16 @@ Anthropic 协议下，content 是类型化结构数组。每个元素通过 `typ
 | BlockStart（块开始） | 首个非空 `delta.content` / `delta.reasoning_content` / `delta.tool_calls[0].id` 出现 | `content_block_start` 事件 |
 | BlockDelta（块增量） | `delta.content` / `delta.reasoning_content` / `delta.tool_calls` | `content_block_delta` 事件（`text_delta` / `thinking_delta` / `signature_delta` / `input_json_delta`） |
 | BlockEnd（块结束） | `finish_reason=stop` 出现；`finish_reason=tool_calls` 出现（结束 ToolUse 块） | `content_block_stop` 事件 |
-| MessageEnd（消息结束） | `finish_reason=stop` 后接 `[DONE]`；`finish_reason=tool_calls`（直接结束，无 `[DONE]`） | `message_delta(stop_reason)` 后接 `message_stop` |
+| MessageEnd（消息结束） | 结束原因到达后消费可选用量尾块，再由 `[DONE]` 或已给出结束原因的流正常结束确认完成；文本与工具调用路径相同 | `message_delta(stop_reason)` 后接 `message_stop` |
 | Error（错误） | HTTP 错误状态码 + 错误 body | HTTP 错误状态码 + `error` 事件 |
 
 Anthropic SSE 事件序列的典型顺序：`message_start` → `content_block_start(thinking)` → 若干 `thinking_delta` → 一个 `signature_delta` → `content_block_stop` → `content_block_start(text)` → 若干 `text_delta` → `content_block_stop` → `message_delta` → `message_stop`。
 
 工具调用场景的典型顺序：`message_start` → `content_block_start(tool_use)` → 若干 `input_json_delta` → `content_block_stop` → `message_delta` → `message_stop`。`input_json_delta` 的 `partial_json` 字段携带工具调用的 JSON 参数片段，粒度因供应商而异（逐字符到一次性全量），首次可为空字符串。
 
-OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reasoning_content` 若干帧（先于 content）→ Thinking 块增量 → 首个 `delta.content` 触发 Text 块开始 → Text 增量若干帧 → `finish_reason=stop` 触发块结束 + MessageEnd。
+OpenAI SSE 事件序列的典型顺序：`delta.role=assistant` → `delta.reasoning_content` 若干帧（先于 content）→ Thinking 块增量 → 首个 `delta.content` 触发 Text 块开始 → Text 增量若干帧 → `finish_reason=stop` 结束内容块 → 消费可选用量尾块 → 流完成后产出 MessageEnd。
 
-混合响应（文本 + 工具调用）：Text 增量若干帧 → `delta.tool_calls` 首次出现时隐式结束 Text 块 → 启动 ToolUse 块 → `finish_reason=tool_calls` 触发 ToolUse 块结束 + MessageEnd。
+混合响应（文本 + 工具调用）：Text 增量若干帧 → `delta.tool_calls` 首次出现时隐式结束 Text 块 → 启动 ToolUse 块 → `finish_reason=tool_calls` 结束 ToolUse 块 → 消费可选用量尾块 → 流完成后产出 MessageEnd；不能在工具结束原因刚到达时丢弃后续用量。
 
 与 Anthropic 的差异：OpenAI 的 `finish_reason` 仅在流末尾出现一次，不区分内容块；Anthropic 通过 `content_block_stop` 逐块标注结束边界。
 
@@ -86,6 +86,16 @@ Anthropic 的 `input_tokens` 仅计未命中缓存的输入部分，输入 token
 多轮对话中，每轮请求的消息列表是上一轮的追加——历史消息不修改，只追加新消息。这是前缀缓存生效的前提。
 
 多轮场景的 fixture 使用 `turns` 结构记录每轮的完整 messages 数组和对应响应，展示消息列表在各轮之间的增量变化。
+
+### 本地测试关联
+
+[Fake LLM Server](../fake_llm/README.md) 的黑盒并发测试使用独立于协议正文的 HTTP 关联信息，不把会话身份编码进提示词、模型名、工具或缓存前缀。普通供应商请求默认不携带该信息；只有供应商接入配置显式启用本地测试关联后才生成，配置载体见 [config](../config/README.md)。这不改变双协议的原生请求/响应格式，也不要求替换被测二进制或为每个 Session 改端点。
+
+关联信息包含测试运行命名空间和匿名会话键。命名空间由运行器在服务端创建，并写入本轮本地测试接入配置；LLM 模块在本轮运行内共享匿名映射，将 [InternalRequest 的会话身份](../common/shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition) 映射为稳定的不透明键，不发送原始 Session、Agent 或 User 标识。不同 Session 的键不相同，同一 Session 在重试、流式/非流式与模型/协议切换时保持同键；子 Session 使用自身身份，不沿用父键。映射按测试运行隔离，运行结束后销毁，不作为权限凭据或真实供应商缓存键。
+
+会话上下文由 [Session 调用链](../session/llm-session-enhancements.md) 填入并由 LlmCaller 实现方透传，Protocol 不将其序列化进 JSON，Provider 在发 HTTP 请求时附加关联信息。缺少会话身份不伪造公共键，服务端按 [场景引擎](../fake_llm/scenario-engine.md) 的无状态/有状态规则处理。模型发现没有会话身份，只携带运行命名空间，使用服务端独立发现序列。
+
+本地测试模式仅允许实际连接到本机回环地址的端点，关闭代理和重定向；启用配置却指向非回环目标时拒绝该接入，不得先发送后告警。不能只凭主机名或配置中的声称判定为本地。关联信息不接受 extra_body 或调用方自定义 HTTP 头覆盖，不传播至外部供应商；其他测试客户端可按相同带外契约提供匿名键，服务不读取 CloseClaw 内部存储。
 
 ### 消息历史缓存
 
@@ -112,3 +122,5 @@ Anthropic 的 `input_tokens` 仅计未命中缓存的输入部分，输入 token
 - **上游**：Protocol 层（提供按协议解析后的内部结构）
 - **下游**：ModelInterpreter（消费映射规则，产出统一内容块和流式事件）
 - 本规范被各 provider 文档引用
+- **协议测试基线**：本模块单元测试与 [fake_llm/fixtures](../fake_llm/fixtures.md) 共用协议请求/响应基线，分别验证消费方解析和生成方格式；供应商特有行为仍由供应商 fixture 覆盖，不把通用 Fake 响应当作供应商行为证明。
+- **本地测试关联消费方**：[fake_llm/endpoints](../fake_llm/endpoints.md) 解析带外匿名关联信息；生产者为 [Session 调用链](../session/llm-session-enhancements.md)，配置载体见 [config](../config/README.md)。关联仅用于测试输入分区，不参与内容块、用量或缓存前缀映射。

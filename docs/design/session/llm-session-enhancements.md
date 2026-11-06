@@ -30,6 +30,12 @@ ConversationSession
         └── 累加用量统计 → 缓存命中一致性校验（异常 → 错误日志 + Owner 系统通知）
 ```
 
+### 调用会话上下文
+
+主 Session 与子 Session 构建 [InternalRequest](../common/shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition) 时均填写自身稳定的会话身份，重试沿用原身份，子 Session 不复用父身份。该上下文经 LlmCaller 透明传递，既不是消息内容也不是缓存前缀；恢复同一 Session 仍保持其身份。缺少所属 Session 的独立调用保持无会话上下文，不借用任意活跃会话。
+
+[LLM 本地测试关联](../llm/protocol-mapping.md#本地测试关联) 可在明确启用的本地测试接入中将该身份转为匿名带外关联信息，供 [Fake LLM 场景引擎](../fake_llm/scenario-engine.md) 区分同一 Agent、同一端点上的并发会话。Session 不认识 Fake 场景、不根据测试开关修改提示词、模型选择或工具行为，也不自行构造测试 HTTP 头。
+
 ### 流式输出
 
 会话支持流式和非流式两条路径，通过请求中的 `stream` 标志位选择。
