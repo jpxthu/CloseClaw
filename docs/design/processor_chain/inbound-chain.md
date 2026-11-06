@@ -18,7 +18,7 @@ NormalizedMessage（统一中间结构，字段定义见 [common 共享类型](.
 Processor Chain（按 priority 升序执行，纯变换）
 
 1. RawLogProcessor（priority 10）
-   → 原始消息写入日志，透传。仅在 raw_log_dir 配置时注册
+   → 记录入站原始消息全文（完整内容级别事件，见 [debug_log 框架](../debug_log/README.md)），透传
 
 2. SessionRouter（priority 20）
    → 计算 session_key（公式见 [Session key 算法](#session-key-算法)）
@@ -82,7 +82,7 @@ SessionRouter 不区分私聊和群聊。会话粒度由 IM Adapter 通过 peer_
 ## 模块关系
 
 - **上游**：IM Adapter（各平台提供适配器，产 NormalizedMessage）
-- **下游**：Gateway（接收 [ProcessedMessage](../common/shared-types.md#processedmessage)，消费 metadata.session_key 用于消息追踪）、Session 模块（SessionRouter 计算的 session_key 随 metadata 经 Gateway 传递给 SessionManager；SessionManager 使用稳定路由键做 session 路由查找，属数据流下游依赖）
+- **下游**：Gateway（接收 [ProcessedMessage](../common/shared-types.md#processedmessage)，消费 metadata.session_key 用于消息追踪）、Session 模块（SessionRouter 计算的 session_key 随 metadata 经 Gateway 传递给 SessionManager；SessionManager 使用稳定路由键做 session 路由查找，属数据流下游依赖）、[debug_log 框架](../debug_log/README.md)（产出调试事件）
 - **链内**：
   - RawLogProcessor — 审计日志（副作用），不改内容
   - SessionRouter — 计算 session_key（纯哈希计算），写 metadata

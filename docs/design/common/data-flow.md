@@ -20,7 +20,7 @@
 IM 平台事件 / terminal stdin
   ↓
 [IM Adapter 入站解析]
-  平台格式 → NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, content, message_type, media_refs, unavailable_media, timestamp }
+  平台格式 → NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, trace_id, content, message_type, media_refs, unavailable_media, timestamp }
   ↓
 [Processor Chain 入站]
   RawLog → SessionRouter → ContentNormalizer

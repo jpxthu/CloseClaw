@@ -9,9 +9,9 @@
 1. 多个 IM 平台事件到达 Gateway，进入入站消息队列（有界持久化缓冲，默认 256）。
    - 队列满 → 拒收 + 回复"服务繁忙，请稍后重试"。
    - 消息入队即持久化，重启时重放未完成消息（详见 [Gateway README](README.md#消息队列与排队语义)）。
-2. IM 插件解析平台格式（媒体能力暂缓：当前不落盘、不填充 media_refs / unavailable_media）→ NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, content, message_type, media_refs, unavailable_media, timestamp }。
+2. IM 插件解析平台格式（媒体能力暂缓：当前不落盘、不填充 media_refs / unavailable_media）→ NormalizedMessage { platform, sender_id, peer_id, reply_ref?, account_id, trace_id, content, message_type, media_refs, unavailable_media, timestamp }。
 3. Processor Chain 入站按 priority 升序执行：
-   - RawLog（priority 10）：日志记录，透传（仅在 raw_log_dir 配置时注册）。
+   - RawLog（priority 10）：记录入站原始消息全文（完整内容级别事件），透传。
    - SessionRouter（priority 20）：计算 session_key = {timestamp_ms}-{hash}（算法详见 [processor_chain 入站链路](../processor_chain/inbound-chain.md#session_key-算法)），写入 metadata，不创建 session。
    - ContentNormalizer（priority 30）：文本标准化（去除控制字符和 ANSI 转义序列、压缩连续空行、去行尾空格）。
 4. 产出 [ProcessedMessage](../common/shared-types.md#processedmessage)（content_blocks + metadata：链内写入 session_key / message_type / unavailable_media，其余入站键由 Gateway 链后补充；完整键集与写入时序见 [common 共享类型 · 元数据键](../common/shared-types.md#processedmessage)）。
@@ -46,9 +46,9 @@ IM 平台（飞书、Discord、Telegram 等）的平台事件出队列后，由�
 
 ### Processor Chain 处理
 
-NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执行处理器（RawLog 仅在 `raw_log_dir` 配置时注册，未配置时链仅含 SessionRouter 和 ContentNormalizer 两个处理器）。
+NormalizedMessage 进入入站 Processor Chain。链按 priority 升序依次执行处理器（RawLog → SessionRouter → ContentNormalizer）。
 
-**RawLogProcessor（priority 10）**：将原始消息写入日志，用于审计和调试。消息内容不变，透传。
+**RawLogProcessor（priority 10）**：将入站原始消息全文记录为调试事件（完整内容级别），消息内容不变，透传。
 
 **SessionRouter（priority 20）**：计算 session 路由键。
 
