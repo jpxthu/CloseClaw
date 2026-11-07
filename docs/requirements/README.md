@@ -14,7 +14,15 @@
 
 配置项的行为语义、默认值、覆盖优先级与生效时点归消费该配置的功能模块；配置文件的组织、注册、校验、备份与重载机制归 config。配置项存放在哪里、是否以 Agent 为配置粒度，不改变其功能归属。
 
-Agent 定义静态身份、配置档案的组合维度与 Agent workspace 的归属，不包办档案中各项能力的规则。工具与技能范围分别归 tools、skills，授权与权限例外归 permission；子 Session 的创建控制、Fork、层级与并发、超时及后续运行行为统一归 session。模型选择、AGENTS.md 的内容、位置与加载、记忆规则分别归 llm、system_prompt、memory；AGENTS.md 的修改权限归 permission，agent 仅保留身份人格与能力配置的区分、相关配置维度的说明与交叉引用。
+下列规则明确相关模块之间容易混淆的需求归属，完整功能范围见需求索引：
+
+- **agent**：静态身份、配置档案的组合维度、身份人格与能力配置的区分、Agent workspace 的归属；档案中各项能力的规则仅保留归属模块的交叉引用。
+- **tools / skills**：分别定义工具范围与技能范围。
+- **permission**：授权、权限例外及 AGENTS.md 的修改权限。
+- **session**：子 Session 的创建控制、Fork、层级与并发、超时及后续运行行为。
+- **llm**：模型选择。
+- **system_prompt**：AGENTS.md 的内容、位置与加载。
+- **memory**：记忆规则。
 
 ## 需求索引
 

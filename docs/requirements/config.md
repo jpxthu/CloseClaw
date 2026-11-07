@@ -32,11 +32,11 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件与子目录
 
 以上类别中，除凭据外均为业务配置文件；权限配置文件的校验与加载容错另见 [permission §F6](permission.md)（权限配置管理）。其中「技能目录与清单」「workflow 定义」的语义由 [skills §F5](skills.md)（技能文件变更）、[workflow §F1](workflow.md)（workflow 定义）定义，config 仅承载其目录位置与启用开关。
 
-AGENTS.md 是独立于 Agent 配置档案的引导内容，不作为本节的业务配置文件管理。
+AGENTS.md 是独立于 Agent 配置档案的身份与行为准则文件，不作为本节的业务配置文件管理。
 
-> **交叉引用**：AGENTS.md 与能力配置的区分详见 [agent §F2](agent.md)（身份与人格分离）。
-> **交叉引用**：AGENTS.md 的位置与加载详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
-> **交叉引用**：AGENTS.md 内容变更的生效时机详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+> **交叉引用**：AGENTS.md 与能力配置的区分。详见 [agent §F2](agent.md)（身份与人格分离）。
+> **交叉引用**：AGENTS.md 的位置与加载。详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：AGENTS.md 内容变更的生效时机。详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
 
 后续如有系统设置，可考虑单列一个配置文件。
 
@@ -59,13 +59,13 @@ AGENTS.md 是独立于 Agent 配置档案的引导内容，不作为本节的业
 
 CloseClaw 通过显式注册清单管理 Agent 加载：只有在注册清单中列出的 Agent ID 才会被加载，目录中存在但未注册的 Agent 配置会被忽略。注册清单支持注释格式，注释掉某行即取消注册。每个 Agent 拥有独立的配置目录，存放该 Agent 的配置文件。
 
-> **交叉引用**：配置目录的操作系统标准位置详见 [platform §F2](platform.md)（操作系统标准配置目录）。
-> **交叉引用**：身份体系与跨平台身份映射详见 [permission §F1](permission.md)（身份体系）。
-> **交叉引用**：机器人与 Agent 的绑定及消息路由详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
-> **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
-> **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session 详见 [session §F1](session.md)（对话持久化与恢复）。
-> **交叉引用**：本模块定义的绑定在完整消息流链路中的使用位置详见 [message_flow §F1](message_flow.md)（入站链路）；完整消息流建议结合阅读以理解完整产品流程。
-> **交叉引用**：出站方向的对应位置详见 [message_flow §F2](message_flow.md)（出站链路）。
+> **交叉引用**：配置目录的操作系统标准位置。详见 [platform §F2](platform.md)（操作系统标准配置目录）。
+> **交叉引用**：身份体系与跨平台身份映射。详见 [permission §F1](permission.md)（身份体系）。
+> **交叉引用**：机器人与 Agent 的绑定及消息路由。详见 [gateway §F4](gateway.md)（普通消息路由到对话）。
+> **交叉引用**：入站归一化字段（发送者、接收方机器人应用等）。详见 [im_adapter §F2](im_adapter.md)（入站消息归一化）。
+> **交叉引用**：平台、发送者、会话对端、账号四项标识共同确定主 Agent Session。详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：本模块定义的绑定在完整消息流链路中的使用位置。详见 [message_flow §F1](message_flow.md)（入站链路）；完整消息流建议结合阅读以理解完整产品流程。
+> **交叉引用**：出站方向的对应位置。详见 [message_flow §F2](message_flow.md)（出站链路）。
 
 ### F2. 安全写入
 
@@ -84,7 +84,7 @@ CloseClaw 启动时，若某份业务配置文件无法解析，或其合法性�
 
 凭据文件不适用本节（其加载失败不阻塞启动，见 [F5](#f5-凭据安全隔离)（凭据安全隔离））；配置文件存在但部分字段缺失时的默认值处理见 [F6](#f6-配置版本兼容)（配置版本兼容）。
 
-> **交叉引用**：IM 通知的发送链路详见 [message_flow §F2](message_flow.md)（出站链路）。
+> **交叉引用**：IM 通知的发送链路。详见 [message_flow §F2](message_flow.md)（出站链路）。
 
 ### F4. 配置重载
 
@@ -105,7 +105,7 @@ Owner 在 CloseClaw 运行时编辑配置文件后，变更的实际生效由各
 
 生效机制的分类、重启类判定标准与各配置文件的归属矩阵见 [F7](#f7-生效机制与重启类判定)（生效机制与重启类判定）。
 
-> **交叉引用**：Gateway 择机重启的完整行为（择机窗口、消息暂存补投、变更合并、完成通知）详见 [daemon §F6](daemon.md)（配置触发的网关重启）。
+> **交叉引用**：Gateway 择机重启的完整行为（择机窗口、消息暂存补投、变更合并、完成通知）。详见 [daemon §F6](daemon.md)（配置触发的网关重启）。
 
 #### 重复写入与重载失败处置
 
@@ -159,7 +159,7 @@ CloseClaw 配置结构变更时，已有配置文件必须可被新版本正常�
 | 权限配置—权限规则与沙盒模式（含权限白名单） | 即时生效 | [permission §F6](permission.md)（权限配置管理） |
 | Agent 配置档案 | 边界生效（下次新建 Session） | [session §F1](session.md)（对话持久化与恢复） |
 | Agent 注册清单 | 边界生效（下次新建 Session） | [session §F1](session.md)（对话持久化与恢复） |
-| Session 参数 | 边界生效（下次触发/新 Session） | [session §F6](session.md)（Session 归档与清理） |
+| Session 参数 | 边界生效（下次触发/新 Session） | [session §F3](session.md)（长对话压缩）、[session §F6](session.md)（Session 归档与清理） |
 | 技能目录与清单 | 边界生效（下次 System Prompt 组装） | [skills §F5](skills.md)（技能文件变更）、[system_prompt §F6](system_prompt.md)（内容缓存与自动刷新） |
 | 记忆配置 | 边界生效（下次触发；按 Agent 的覆盖随 Agent 配置档案在下次新建 Session 生效） | [memory §F7](memory.md)（记忆挖掘的开关与参数配置）、[session §F1](session.md)（对话持久化与恢复） |
 | 日志配置（最低级别与保留期） | 边界生效（下一条日志/下次清理） | [debug_log §F2](debug_log.md)（分层日志级别）、[debug_log §F3](debug_log.md)（日志存储与保留） |
