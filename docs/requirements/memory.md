@@ -13,7 +13,7 @@ Memory 是实验性功能：开启挖掘子功能后，Agent 可在多次 Sessio
 #### 触发与运行
 
 - 挖掘过程独立运行，不与用户交互
-- 子 Session 与无 Bootstrap 文件的 Session 不触发挖掘
+- 子 Session 与 AGENTS.md 缺失的 Session 不触发挖掘
 
 #### 事件产出
 
@@ -46,7 +46,7 @@ Memory 是实验性功能：开启挖掘子功能后，Agent 可在多次 Sessio
 
 > **交叉引用**：归档作为 Session 生命周期的判定时点详见 [session §F6](session.md)（Session 归档与清理）。
 
-> **交叉引用**：无 Bootstrap 文件的 Session 类型详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）。
+> **交叉引用**：AGENTS.md 缺失状态及加载范围详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）。
 
 > **交叉引用**：记忆挖掘作为系统级后台任务的生命周期管理详见 [daemon §F5](daemon.md)（系统级后台任务生命周期）。
 

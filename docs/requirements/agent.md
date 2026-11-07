@@ -16,7 +16,6 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 
 - **身份标识**：Agent 的唯一 ID 和显示名称
 - **模型选择**：默认主模型与子 Session 默认模型
-- **人格加载**：Bootstrap 文件目录
 - **工具范围**：工具白名单与工具黑名单
 - **技能范围**：技能白名单
 - **子 Session 配置**：子 Session 的创建控制与超时配置
@@ -24,9 +23,8 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 
 #### 能力规则
 
-> **交叉引用**：身份人格的定义详见 [F2](#f2-身份与人格分离)（身份与人格分离）。
+> **交叉引用**：身份人格与能力配置的区分详见 [F2](#f2-身份与人格分离)（身份与人格分离）。
 > **交叉引用**：模型配置与 Session 模型取值详见 [llm §F11](llm.md)（Session 模型选择）。
-> **交叉引用**：人格加载配置及 Bootstrap 文件详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 > **交叉引用**：工具范围与默认工具详见 [tools §F1](tools.md)（工具注册与发现）。
 > **交叉引用**：技能范围与多 Agent 隔离详见 [skills §F8](skills.md)（多 Agent 隔离）。
 > **交叉引用**：子 Session 的创建控制与超时配置详见 [session §F4](session.md)（子 Session 委托与协调）。
@@ -46,11 +44,10 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 配置档案中的能力配置和身份人格是两层独立的概念：
 
 - **配置档案**承载 Agent 的模型、工具范围、子 Session 配置等能力维度（权限规则独立于配置档案，另行维护）
-- **Bootstrap 文件**定义 Agent 的身份人格
+- **AGENTS.md** 承载 Agent 的身份人格与行为准则，不作为配置档案的字段或正文
 
-档案中的人格加载配置用于指定 Bootstrap 文件来源，与 Bootstrap 文件正文相区分。
-
-> **交叉引用**：人格加载配置、Bootstrap 文件类型与加载范围详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：AGENTS.md 的固定位置、内容与加载详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：Agent workspace 的归属详见 [F7](#f7-agent-workspace)（Agent workspace）。
 > **交叉引用**：权限规则与能力配置共同决定 Agent 能力边界详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
 
 ### F3. Agent 能力组合
@@ -74,6 +71,14 @@ Agent 的能力边界由配置档案中的各项能力配置与权限规则共�
 
 > **交叉引用**：配置文件组织与注册清单详见 [config §F1](config.md)（多文件配置结构）。
 > **交叉引用**：配置查询的 CLI 入口及访问限制详见 [cli §F5](cli.md)（Agent 查询）。
+
+### F7. Agent workspace
+
+每个 Agent 拥有独立的 Agent workspace，用于存放属于该 Agent 自身、跨 User 共用的文件。它与每个 Agent-User 组合的专属 workspace 相区分，不能用某个 User 的专属 workspace 代替，也不改变现有 Agent-User workspace 的隔离。
+
+> **交叉引用**：共享身份与行为准则文件的存放位置详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：两类 workspace 的授权与决策规则详见 [permission §F3](permission.md)（权限决策模型）。
+> **交叉引用**：Owner 对共享身份与行为准则文件的修改权详见 [permission §F4](permission.md)（Owner 特权）。
 
 ## 非功能需求
 

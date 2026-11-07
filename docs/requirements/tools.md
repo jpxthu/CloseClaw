@@ -173,6 +173,7 @@ Agent 需要创建新文件、覆盖已有文件，以及对已有文件做精�
 - 全文替换成功（返回，非错误）— `Replaced <N> occurrences in "<path>".`
 
 > **交叉引用**：Agent 对文件的读/写权限判定。详见 [permission §F2](permission.md)（权限维度）。
+> **交叉引用**：共享 AGENTS.md 的修改保护。详见 [permission §F4](permission.md)（Owner 特权）。
 
 ### F4. Shell 命令执行
 
@@ -193,7 +194,7 @@ Agent 需要执行 Shell 命令来完成构建、测试、搜索等需要进程�
 
 **工具说明**
 
-- `Bash` — `Execute a shell command in the agent workspace and return its combined stdout/stderr together with the exit code. You may choose sandbox or host execution for each call; the agent's sandbox mode and command permissions govern whether the request is allowed. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
+- `Bash` — `Execute a shell command in the session's Agent-User workspace and return its combined stdout/stderr together with the exit code. You may choose sandbox or host execution for each call; the agent's sandbox mode and command permissions govern whether the request is allowed. Each call runs in a fresh shell: no state (variables) persists. Long output is truncated to its head; the full output is saved to a file whose path is returned.`
 - （后台执行与超时转后台的文案见 [F5](#f5-后台任务执行)（后台任务执行）；命令进入审批等待期间的 Agent 侧处置见 [F8](#f8-命令结构解析)（命令结构解析））
 
 **使用引导**

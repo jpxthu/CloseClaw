@@ -135,6 +135,7 @@ Fork 模式在创建时将父 Session 的完整对话历史作为子 Session 自
 - 运行时长达到硬超时值时，系统自动终止该子 Session、级联终止其所有后代，并向父 Session 注入硬超时通知；父 Session 已归档则丢弃
 
 > **交叉引用**：子 Session 的模型配置与取值优先级详见 [llm §F11](llm.md)（Session 模型选择）。
+> **交叉引用**：子 Session 的 AGENTS.md 加载机制与其他提示词内容的加载范围详见 [system_prompt §F8](system_prompt.md)（Session 类型适配）；本节上下文模式仅决定父 Session 对话历史的继承。
 > **交叉引用**：spawn 工具的权限例外详见 [permission §F2](permission.md)（权限维度）。
 > **交叉引用**：子 Session 管理工具（创建 / 发送任务 / 终止）的清单归属详见 [tools §F1](tools.md)（工具注册与发现）。
 > **交叉引用**：子 Session 的权限沿链路收窄与拒绝行为详见 [permission §F9](permission.md)（子 Session 权限继承）。

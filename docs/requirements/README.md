@@ -14,13 +14,13 @@
 
 配置项的行为语义、默认值、覆盖优先级与生效时点归消费该配置的功能模块；配置文件的组织、注册、校验、备份与重载机制归 config。配置项存放在哪里、是否以 Agent 为配置粒度，不改变其功能归属。
 
-Agent 定义静态身份与配置档案的组合维度，不包办档案中各项能力的规则。工具与技能范围分别归 tools、skills，授权与权限例外归 permission；子 Session 的创建控制、Fork、层级与并发、超时及后续运行行为统一归 session。模型选择、人格加载与记忆规则分别归 llm、system_prompt、memory，agent 仅保留相关配置维度的说明与交叉引用。
+Agent 定义静态身份、配置档案的组合维度与 Agent workspace 的归属，不包办档案中各项能力的规则。工具与技能范围分别归 tools、skills，授权与权限例外归 permission；子 Session 的创建控制、Fork、层级与并发、超时及后续运行行为统一归 session。模型选择、AGENTS.md 的内容、位置与加载、记忆规则分别归 llm、system_prompt、memory；AGENTS.md 的修改权限归 permission，agent 仅保留身份人格与能力配置的区分、相关配置维度的说明与交叉引用。
 
 ## 需求索引
 
 | 模块 | 简述 | 状态 |
 |------|------|------|
-| [agent](agent.md) | Agent 静态身份与配置档案组合、身份人格分离、初始创建与配置查询 | ✅
+| [agent](agent.md) | Agent 静态身份与配置档案组合、身份人格分离、Agent workspace 归属、初始创建与配置查询 | ✅
 | [cli](cli.md) | 终端对话、daemon 管理、配置向导 | ✅
 | [common](common.md) | 跨模块共享数据结构与接口契约（无独立功能） | ✅
 | [config](config.md) | 多文件配置结构、Agent 注册清单、安全写入、配置重载、凭据隔离 | ✅
@@ -39,6 +39,6 @@ Agent 定义静态身份与配置档案的组合维度，不包办档案中各�
 | [session](session.md) | 对话持久化与恢复、压缩、子 Session 创建与委托、Fork、层级与并发、超时、消息排队 | ✅
 | [skills](skills.md) | 技能发现与加载、可用范围、目录层级、条件激活、多 Agent 隔离 | ✅
 | [slash](slash.md) | 斜杠指令体系：Session 管理、状态查询等 | ✅
-| [system_prompt](system_prompt.md) | System Prompt 组装、缓存、Session 类型适配、系统上下文注入 | ✅
+| [system_prompt](system_prompt.md) | AGENTS.md 内容与加载、System Prompt 组装、缓存、Session 类型适配、系统上下文注入 | ✅
 | [tools](tools.md) | 工具注册与发现、工具范围、文件读写、命令执行、后台任务 | ✅
 | [workflow](workflow.md) | 工作流定义、步骤引导执行、分支控制、中断续跑 | ✅

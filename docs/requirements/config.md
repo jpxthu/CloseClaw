@@ -32,6 +32,12 @@ Owner 的 CloseClaw 配置按职责拆分为多个独立配置文件与子目录
 
 以上类别中，除凭据外均为业务配置文件；权限配置文件的校验与加载容错另见 [permission §F6](permission.md)（权限配置管理）。其中「技能目录与清单」「workflow 定义」的语义由 [skills §F5](skills.md)（技能文件变更）、[workflow §F1](workflow.md)（workflow 定义）定义，config 仅承载其目录位置与启用开关。
 
+AGENTS.md 是独立于 Agent 配置档案的引导内容，不作为本节的业务配置文件管理。
+
+> **交叉引用**：AGENTS.md 与能力配置的区分详见 [agent §F2](agent.md)（身份与人格分离）。
+> **交叉引用**：AGENTS.md 的位置与加载详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
+> **交叉引用**：AGENTS.md 内容变更的生效时机详见 [system_prompt §F6](system_prompt.md)（内容缓存与自动刷新）。
+
 后续如有系统设置，可考虑单列一个配置文件。
 
 #### 账户绑定
