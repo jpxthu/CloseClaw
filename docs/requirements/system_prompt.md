@@ -8,12 +8,12 @@ System Prompt 为 Agent 提供身份与行为准则、工具与技能清单、�
 
 ### F1. 身份与行为准则定义
 
-Owner 通过 Agent 配置档案指定 Bootstrap 文件目录与身份加载模式。身份加载模式分完整模式与精简模式，控制该 Agent 主 Agent Session 的 Bootstrap 加载范围，对子 Session 无效；Owner 也可显式声明该 Agent 不使用任何 Bootstrap 文件。各 Session 类型的加载范围见 F8。
+Owner 通过 Agent 配置档案指定 Bootstrap 文件目录。主 Agent Session 完整加载该目录下属于 Bootstrap 集合的文件，不提供完整／精简模式切换，也不提供禁用全部 Bootstrap 文件的开关。各 Session 类型与文件缺失时的加载范围见 F8。
 
 Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统称 Bootstrap 文件）定义 Agent 的身份、操作规程、工具使用指南和 Owner 偏好。其中身份由角色定义和身份声明构成，Owner 偏好对应 Owner 信息文件。Bootstrap 文件属于 Agent 自身配置，同一 Agent 对所有 User 表现一致的人格。这些 Bootstrap 文件在 Agent 每次 Session 启动时自动加载，作为 System Prompt 的核心组成部分。
 
 - 必须加载的文件：操作规程、角色定义、身份声明、Owner 信息、工具使用指南
-- 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件；长期记忆由 memory 模块升格产出的规则文件承载（非 Bootstrap 文件）；升格功能暂缓期间规则文件不存在，按文件缺失静默跳过。是否加载取决于 Session 类型和身份加载模式：自定义引导指令仅在主 Agent Session 且完整模式下加载；长期记忆在所有主 Agent Session 加载，与身份加载模式无关。子 Session 与「无 Bootstrap 文件的 Session」均不加载任何可选内容（见 F8）
+- 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件；长期记忆不是 Bootstrap 文件，其来源与缺失处理见 F3。是否加载取决于 Session 类型：自定义引导指令与长期记忆仅在主 Agent Session 加载。子 Session 与「无 Bootstrap 文件的 Session」均不加载任何可选内容（见 F8）
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最前
 - System Prompt 各组成部分按固定顺序组装，不变前缀在两次重新组装之间保持不变（缓存行为见 F6）。具体组装顺序和格式由设计文档定义
@@ -31,9 +31,11 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 Agent 需要在 System Prompt 中看到当前可用的工具清单，以便在对话中正确选择和使用。本节工具清单与 F1 中列出的工具使用指南（Bootstrap 文件之一）相互独立——前者是各工具的具体功能说明（由系统生成），后者是 Owner 编写的工具使用指南（高层约束）。
 
 - **工具清单内容**：字段内容、常用/延迟分组、风险标记、长度截断与探索提示由 [tools §F1](tools.md)（工具注册与发现）定义。本模块消费 tools 模块产出的工具清单结果
-- 技能清单的注入位置和组装时机由 [skills §F4](skills.md)（技能清单）定义。技能正文内容在模型决定使用时按需注入，不预先进入 System Prompt
+- 技能清单的内容与注入位置由 skills 模块定义，组装触发时机遵循 F6。技能正文不预先进入 System Prompt，按需加载规则由 skills 模块定义
 
 > **交叉引用**：当前 Agent 可用的工具范围（白名单/黑名单）详见 [tools §F1](tools.md)（工具注册与发现）。本模块负责将可用工具清单产出为 System Prompt 中的分组描述文本。
+> **交叉引用**：技能清单的内容与注入位置。详见 [skills §F4](skills.md)（技能清单）。
+> **交叉引用**：技能正文的按需加载。详见 [skills §F7](skills.md)（技能调用）。
 
 ### F3. 长期记忆注入
 
@@ -92,15 +94,14 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 下列条目说明不同类型 Session 的 Bootstrap 文件、长期记忆与清单类内容的加载范围：
 
-- **主 Agent Session**：加载全部内容（F1 必须加载的文件 + 可选加载的内容 + 工具清单）。其中长期记忆在精简模式下仍加载——长期记忆的加载只取决于 Session 类型，不取决于身份加载模式；自定义引导指令仅在完整模式下加载（见 [F1](#f1-身份与行为准则定义)）
-- **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载内容（无论 Agent 配置的身份加载模式为何）。其中长期记忆和自定义引导指令的隔离约束见安全性小节
-- **无 Bootstrap 文件的 Session**：仅加载工具清单，不加载任何 Bootstrap 文件与长期记忆。触发条件二选一：
-    - Agent 配置档案显式声明无 Bootstrap 文件（见 [agent §F1](agent.md)（Agent 配置档案））——正常功能场景
-    - Agent 未声明但 Bootstrap 文件目录缺失——按本类型兜底运行以保证对话不中断，并记录降级告警日志（见 [debug_log §F2](debug_log.md)（分层日志级别））
+- **主 Agent Session**：完整加载 F1 必须加载的文件、自定义引导指令、长期记忆与工具清单；不提供加载模式切换
+- **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载内容。其中长期记忆和自定义引导指令的隔离约束见安全性小节
+- **无 Bootstrap 文件的 Session**：Bootstrap 文件目录缺失时，仅加载工具清单，不加载任何 Bootstrap 文件与长期记忆，以保证对话不中断，并记录降级告警日志（见 [debug_log §F2](debug_log.md)（分层日志级别））
 
 > **注**：F4 运行时上下文（频道、workspace）对所有 Session 类型均加载；F5 系统注入内容由对应功能模块按其功能需求提供，不由上述加载范围排除。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
 
-> **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数详见 [session §F4](session.md)（子 Session 委托与协调）。
+> **交叉引用**：主 Agent Session 与子 Session 的划分。详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：子 Session 的创建控制、任务描述与行为模板。详见 [session §F4](session.md)（子 Session 委托与协调）。
 
 ## 非功能需求
 
@@ -112,7 +113,6 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 - 单个部分组装失败时跳过该部分，其余部分继续，不阻断整个 System Prompt 的生成
 - 所有部分组装结果均为空的极端情况下，使用默认的最简 System Prompt，确保对话不中断
-- 配置变更无需 Owner 手动触发，下次重新组装自动生效
 
 ### 安全性
 

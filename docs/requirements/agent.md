@@ -16,7 +16,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 
 - **身份标识**：Agent 的唯一 ID 和显示名称
 - **模型选择**：默认主模型与子 Session 默认模型
-- **人格加载**：身份加载模式、Bootstrap 文件目录，以及可选的“不使用 Bootstrap 文件”显式声明
+- **人格加载**：Bootstrap 文件目录
 - **工具范围**：工具白名单与工具黑名单
 - **技能范围**：技能白名单
 - **子 Session 配置**：子 Session 的创建控制与超时配置
@@ -48,7 +48,7 @@ Agent 是静态的配置身份；Session 是 Agent 的运行时实例。档案�
 - **配置档案**承载 Agent 的模型、工具范围、子 Session 配置等能力维度（权限规则独立于配置档案，另行维护）
 - **Bootstrap 文件**定义 Agent 的身份人格
 
-档案中的人格加载配置用于指定 Bootstrap 文件来源和加载方式，与 Bootstrap 文件正文相区分。
+档案中的人格加载配置用于指定 Bootstrap 文件来源，与 Bootstrap 文件正文相区分。
 
 > **交叉引用**：人格加载配置、Bootstrap 文件类型与加载范围详见 [system_prompt §F1](system_prompt.md)（身份与行为准则定义）。
 > **交叉引用**：权限规则与能力配置共同决定 Agent 能力边界详见 [F3](#f3-agent-能力组合)（Agent 能力组合）。
