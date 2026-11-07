@@ -48,6 +48,8 @@
 >
 > 权限配置文件（`config/permissions.json`、`agents/<agent-id>/permissions.json`）的路径与变更检测由本模块提供；其内容结构、校验规则、热加载与加载容错、备份的创建与恢复均属权限模块职责（见 [权限配置管理](../permission/permission-configuration.md)）。按需求 [config §F3](../../requirements/config.md) 的例外，权限配置文件恢复失败不拒绝启动，由权限模块降级处理（缺失部分按拒绝，无任何可用配置时退化为默认权限并通知 Owner）。`workspaces/` 下的目录随 Session 创建初始化、由权限模块强制授权（见 [session/working-directory](../session/working-directory.md)、[permission §F3](../../requirements/permission.md)），本模块只登记其在配置根目录下的位置。
 
+模型供应商接入可显式启用本地测试关联，默认关闭。配置承载本轮测试运行命名空间，行为、安全校验和匿名化规则唯一见 [LLM 本地测试关联](../llm/protocol-mapping.md#本地测试关联)，用于 [Fake LLM 黑盒测试](../fake_llm/endpoints.md)，不改变普通供应商请求。该配置随模型接入定义按重启生效类固化，不能在旧调用仍运行时悄悄切换测试命名空间。
+
 ### 核心组件
 
 - **ConfigManager**：所有配置读写的统一入口。负责加载所有子配置文件到内存、提供读写接口、管理写入流程（校验 → 备份 → 原子写入 → 更新内存或待重启暂存区）、启动时自动回退损坏文件。权限配置文件不在其加载、写入与校验范围内（见上节说明）。
@@ -117,7 +119,7 @@ Config 模块启动时依次执行以下步骤：
 
 | 子配置 | 校验要点 |
 |--------|---------|
-| models | 供应商 ID 非空、模型 ID 非空、base_url 合法 |
+| models | 供应商 ID 非空、模型 ID 非空、base_url 合法；启用本地测试关联时按 [LLM 契约](../llm/protocol-mapping.md#本地测试关联) 校验运行命名空间与回环端点限制，实际连接约束由 LLM 发送侧执行 |
 | channels | 渠道类型为已知类型、关联对象（平台/默认 Agent 等）非空 |
 | gateway | 监听端口在有效范围、超时非负、入站队列容量为正 |
 | plugins | 插件名非空、插件可解析；平台启用状态为布尔且平台类型为已知类型 |

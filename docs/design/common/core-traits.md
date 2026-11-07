@@ -449,7 +449,9 @@ trait 归属按 [STANDARDS](../STANDARDS.md)「common 文档内容准入标准�
 | 要素 | 说明 |
 |------|------|
 | 非流式调用 | 接收 [InternalRequest](shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition) 返回 [UnifiedResponse](shared-types.md#unifiedresponse--unifiedusage) |
-| 流式调用 | 返回 [StreamEvent](shared-types.md#streamevent) 流（逐项携带成功事件或 LLMError） |
+| 流式调用 | 接收同一 [InternalRequest](shared-types.md#internalrequest--internalmessage--systemblock--tooldefinition)，返回 [StreamEvent](shared-types.md#streamevent) 流（逐项携带成功事件或 LLMError） |
+
+两条路径的实现与中间适配均透传请求的会话上下文，不因选择流式、重试或改写模型参数而丢弃或替换所属会话身份。该身份由 [Session 调用链](../session/llm-session-enhancements.md#调用会话上下文) 提供；仅 [LLM 本地测试关联](../llm/protocol-mapping.md#本地测试关联) 按其本地接入限制将其转成匿名带外信息，不要求其他调用方虚构会话身份。
 
 #### StreamingSink
 
