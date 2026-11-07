@@ -2,7 +2,7 @@
 
 ## 概述
 
-System Prompt 是每次与 AI 模型通信时发送的引导前缀，承载 Agent 的身份与行为准则、工具清单、技能清单、长期记忆、运行时上下文以及 Owner 动态追加的指令。System Prompt 在固定事件触发时组装，组装结果在事件之间不变，确保前缀缓存稳定命中。Owner 通过 Bootstrap 文件定义 Agent 的行为准则，让 Agent 了解自己有哪些工具和技能，在不同类型的 Session 中加载恰当的上下文，并能随时追加临时指令。
+System Prompt 为 Agent 提供身份与行为准则、工具与技能清单、长期记忆及当前任务与运行环境的上下文，使其在不同类型的 Session 中获得恰当的引导。
 
 ## 功能需求
 
@@ -16,7 +16,7 @@ Owner 在 Agent 的 Bootstrap 文件目录下通过一系列配置文件（统�
 - 可选加载的内容：自定义引导指令、长期记忆。自定义引导指令是 Bootstrap 文件；长期记忆由 memory 模块升格产出的规则文件承载（非 Bootstrap 文件）；升格功能暂缓期间规则文件不存在，按文件缺失静默跳过。是否加载取决于 Session 类型和身份加载模式：自定义引导指令仅在主 Agent Session 且完整模式下加载；长期记忆在所有主 Agent Session 加载，与身份加载模式无关。子 Session 与「无 Bootstrap 文件的 Session」均不加载任何可选内容（见 F8）
 - 文件不存在时静默跳过，不报错
 - 多文件按固定顺序注入，操作规程排在最前
-- System Prompt 各组成部分按固定顺序组装，配置不变时组装结果保持不变（缓存行为见 [F6](#f6-内容缓存与自动刷新)）。具体组装顺序和格式由设计文档定义
+- System Prompt 各组成部分按固定顺序组装，不变前缀在两次重新组装之间保持不变（缓存行为见 F6）。具体组装顺序和格式由设计文档定义
 - 边界说明：Agent 的唯一 ID 与显示名称（[agent §F1](agent.md)（Agent 配置档案）中的「身份标识」字段）是配置档案中的标识字段，供系统内部规则化处理使用（如配置查询、spawn 目标定位），不属于 Bootstrap 文件，不注入 System Prompt。Bootstrap 文件均为注入 System Prompt 的 prompt 内容，与内部标识是两类不同的对象
 
 > **交叉引用**：长期记忆的规则文件形态详见 [memory §F5](memory.md)（Owner 可查阅的行为规则）。
@@ -54,48 +54,43 @@ Agent 获取跨 Session 保留的长期记忆内容，来源为 memory 模块升
 
 > **交叉引用**：workspace 的定义与自动授权详见 [permission §F3](permission.md)（权限决策模型）。
 
-### F5. 追加指令管理
+### F5. 系统上下文注入
 
-Owner 可以在对话中通过命令管理 System Prompt 末尾的追加指令。追加指令的写入、查看、清除由 slash 模块通过 `/system` 指令提供入口；本模块定义与 System Prompt 内容状态相关的专属行为（如清除时触发重新组装）。
+System Prompt 末尾的追加区承载系统注入内容（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，不触发 F6 中不变前缀的重新组装。
 
-- Owner 清除追加指令时，触发 System Prompt 重新组装，确保被清除的追加指令不再出现在后续 System Prompt 中
-
-System Prompt 末尾的追加区除 Owner 追加指令外，还承载系统注入内容（如 workflow 上下文）。系统注入内容的写入与移除由对应功能模块触发，写入与移除不触发 System Prompt 重新组装，也不清除 Owner 追加指令。
-
-> **交叉引用**：系统注入内容的一个实例——workflow 上下文的注入与移除。详见 [workflow §F2](workflow.md)（workflow 启动）、[workflow §F8](workflow.md)（流程生命周期）。
-> **交叉引用**：追加指令的追加、查看、清除命令入口。详见 [slash §F6](slash.md)（System Prompt 追加）。
-> **交叉引用**：追加指令的持久化由 [session §F2](session.md)（恢复时的追加指令保留）管理。本节仅定义 System Prompt 内容层的专属行为。
+> **交叉引用**：workflow 上下文的注入。详见 [workflow §F2](workflow.md)（workflow 启动）。
+> **交叉引用**：workflow 上下文的移除。详见 [workflow §F8](workflow.md)（流程生命周期）。
 
 ### F6. 内容缓存与自动刷新
 
-System Prompt 的组装触发时机是固定的，两次组装之间内容不变，利用此不变性做缓存：
+System Prompt 的不变前缀包含 Bootstrap 文件、工具清单、技能清单与长期记忆，按 F8 的加载范围取舍。不变前缀在以下固定事件触发时重新组装，两次组装之间内容不变；F4 的运行时上下文与 F5 的系统注入内容不属于此前缀。
 
-- 组装结果按 F1 固定顺序产出，配置不变时多次组装结果逐字节相同
-- 以下事件触发 System Prompt 重新组装：
+- 不变前缀按 F1 固定顺序产出，各数据源内容及加载范围不变时，多次组装结果逐字节相同
+- 以下事件触发不变前缀重新组装：
   - 新 Session 创建
   - 从归档恢复 Session
   - 上下文压缩完成后
-  - Owner 清除追加指令
 - 重新组装时从各数据源（Bootstrap 文件、工具注册中心、技能注册中心、长期记忆）读取最新内容
 - 两次组装之间不响应数据源变更——文件修改、工具或技能注册中心变更均在下次组装时反映
-- 组装结果缓存于 Session 运行时，每次 API 调用直接取出，不重复组装
+- 每次 API 调用复用已组装的不变前缀，不重复读取和组装；运行时上下文与系统注入内容分别按 F4、F5 的规则提供
 
 > **交叉引用**：Bootstrap 文件等数据源变更的生效机制。详见 [config §F4](config.md)（配置重载）；本节仅约定两次组装之间不响应此类变更。
 
-> **交叉引用**：重建触发的外部事件来源——新 Session 创建与归档恢复详见 [session §F1](session.md)（对话持久化与恢复），上下文压缩行为详见 [session §F3](session.md)（长对话压缩），Owner 清除追加指令详见 [slash §F6](slash.md)（System Prompt 追加）。
+> **交叉引用**：新 Session 创建与归档恢复。详见 [session §F1](session.md)（对话持久化与恢复）。
+> **交叉引用**：上下文压缩行为。详见 [session §F3](session.md)（长对话压缩）。
 
 ### F7. API 前缀缓存利用
 
 System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机制，减少重复内容的 token 计费：
 
 - System Prompt 中不变部分和变化部分之间有明确的分隔，使缓存层能识别可缓存的前缀范围
-- 每次 API 调用时变化的部分（运行时上下文、追加指令、系统注入的上下文）不参与前缀缓存
+- 每次 API 调用时变化的部分（运行时上下文、系统注入的上下文）不参与前缀缓存
 
 > **交叉引用**：各服务商的具体缓存参数适配和 token 统计。详见 [llm §F8](llm.md)（缓存成本优化）、[llm §F9](llm.md)（用量统计）。本模块仅负责不变/变化内容的划分，并维持前缀稳定。
 
 ### F8. Session 类型适配
 
-不同类型的 Session 加载不同的 System Prompt 内容：
+下列条目说明不同类型 Session 的 Bootstrap 文件、长期记忆与清单类内容的加载范围：
 
 - **主 Agent Session**：加载全部内容（F1 必须加载的文件 + 可选加载的内容 + 工具清单）。其中长期记忆在精简模式下仍加载——长期记忆的加载只取决于 Session 类型，不取决于身份加载模式；自定义引导指令仅在完整模式下加载（见 [F1](#f1-身份与行为准则定义)）
 - **子 Session**：仅加载 F1 必须加载的文件 + 工具清单，不加载 F1 中列出的可选加载内容（无论 Agent 配置的身份加载模式为何）。其中长期记忆和自定义引导指令的隔离约束见安全性小节
@@ -103,7 +98,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
     - Agent 配置档案显式声明无 Bootstrap 文件（见 [agent §F1](agent.md)（Agent 配置档案））——正常功能场景
     - Agent 未声明但 Bootstrap 文件目录缺失——按本类型兜底运行以保证对话不中断，并记录降级告警日志（见 [debug_log §F2](debug_log.md)（分层日志级别））
 
-> **注**：F4 运行时上下文（频道、workspace）对所有 Session 类型均加载。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
+> **注**：F4 运行时上下文（频道、workspace）对所有 Session 类型均加载；F5 系统注入内容由对应功能模块按其功能需求提供，不由上述加载范围排除。各条目中的「工具清单」指注入 System Prompt 的清单类内容，含工具清单（F2）与技能清单（[skills §F4](skills.md)（技能清单））。
 
 > **交叉引用**：三种 Session 类型由 Session 创建流程综合判定，本模块负责按类型加载对应内容。子 Session 的创建控制与 spawn 参数详见 [session §F4](session.md)（子 Session 委托与协调）。
 
@@ -111,8 +106,7 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 
 ### 性能
 
-- 组装结果在事件之间复用，不触发重复读取和组装
-- System Prompt 总体积应保持精简——超出上限时智能截断，不盲目扩大（工具清单的长度上限与截断探索提示见 [tools §F1](tools.md)（工具注册与发现））
+- 不变前缀在重新组装事件之间复用，不触发重复读取和组装
 
 ### 可用性
 
@@ -123,4 +117,3 @@ System Prompt 中不变的前缀部分应利用 AI 服务商的前缀缓存机�
 ### 安全性
 
 - 子 Session 不暴露长期记忆内容和自定义引导指令
-- 追加指令为 Owner 专属：仅 Owner 可写入、查看和清除，不暴露给非 Owner User

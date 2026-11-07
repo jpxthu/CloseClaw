@@ -39,6 +39,6 @@ Agent 定义静态身份与配置档案的组合维度，不包办档案中各�
 | [session](session.md) | 对话持久化与恢复、压缩、子 Session 创建与委托、Fork、层级与并发、超时、消息排队 | ✅
 | [skills](skills.md) | 技能发现与加载、可用范围、目录层级、条件激活、多 Agent 隔离 | ✅
 | [slash](slash.md) | 斜杠指令体系：Session 管理、状态查询等 | ✅
-| [system_prompt](system_prompt.md) | System Prompt 组装、缓存、Session 类型适配、动态指令 | ✅
+| [system_prompt](system_prompt.md) | System Prompt 组装、缓存、Session 类型适配、系统上下文注入 | ✅
 | [tools](tools.md) | 工具注册与发现、工具范围、文件读写、命令执行、后台任务 | ✅
 | [workflow](workflow.md) | 工作流定义、步骤引导执行、分支控制、中断续跑 | ✅
